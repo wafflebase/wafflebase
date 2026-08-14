@@ -56,18 +56,40 @@ export function snapEndpointAngle(
 }
 
 /**
- * Project a pointer delta onto the dominant axis. When |dx| >= |dy|
- * returns (dx, 0); otherwise (0, dy). Tie-break (|dx| === |dy|): X
- * wins for determinism.
+ * Which axis a Shift-constrained drag should keep. |dx| >= |dy| picks
+ * X; the tie goes to X for determinism.
+ *
+ * Split out from {@link lockAxis} because the axis has to be decided
+ * from the RAW pointer delta and then re-applied after the snap
+ * pipeline has run. Re-deriving it from corrected values is not safe:
+ * grid snapping can cancel the intended axis to zero and add up to half
+ * a step to the perpendicular one, which flips the answer and sends the
+ * element sideways. Callers that need both should resolve the axis once
+ * and hold on to it.
  *
  * Re-evaluated every mousemove — when the user changes drag direction
  * mid-stream, the lock switches axes naturally.
+ */
+export function dominantAxis(dx: number, dy: number): 'x' | 'y' {
+  return Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+}
+
+/**
+ * Project a pointer delta onto the dominant axis. When |dx| >= |dy|
+ * returns (dx, 0); otherwise (0, dy).
  */
 export function lockAxis(
   dx: number,
   dy: number,
 ): { dx: number; dy: number } {
-  return Math.abs(dx) >= Math.abs(dy)
-    ? { dx, dy: 0 }
-    : { dx: 0, dy };
+  return dominantAxis(dx, dy) === 'x' ? { dx, dy: 0 } : { dx: 0, dy };
+}
+
+/** Zero the axis `axis` does not name, keeping the other as-is. */
+export function applyAxisLock(
+  axis: 'x' | 'y',
+  dx: number,
+  dy: number,
+): { dx: number; dy: number } {
+  return axis === 'x' ? { dx, dy: 0 } : { dx: 0, dy };
 }

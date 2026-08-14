@@ -14,6 +14,7 @@ import {
   replay,
   sameObservation,
   withScratch,
+  NO_SERVER,
 } from "./hunt-probe.mjs";
 import { observedKey } from "./hunt-fingerprint.mjs";
 
@@ -122,10 +123,31 @@ test("buildProbeEnv: pins the determinism knobs", () => {
   assert.equal(env.LC_ALL, "C");
   assert.equal(env.NO_COLOR, "1");
   assert.equal(env.CI, "1");
-  // Only supplied values are set — an undefined would stringify to "undefined"
-  // and the CLI would treat it as a real (broken) setting.
-  assert.equal("WAFFLEBASE_SERVER" in env, false);
   assert.equal(buildProbeEnv("/tmp/s", { server: "http://localhost:3000" }).WAFFLEBASE_SERVER, "http://localhost:3000");
+});
+
+// The clean room isolates credentials; it must isolate NETWORK EGRESS too.
+//
+// Omitting WAFFLEBASE_SERVER does not mean "no server" — it means the CLI uses its
+// own default, `https://api.wafflebase.io`. A live run spent both backend-free
+// charters probing production before anyone noticed, because nothing here said
+// where the traffic was going.
+test("buildProbeEnv: ALWAYS pins a server, so a probe cannot reach production by default", () => {
+  for (const cfg of [undefined, {}, { server: "" }, { server: null }, { apiKey: "k", workspace: "w" }]) {
+    const env = buildProbeEnv("/tmp/s", cfg);
+    assert.equal(
+      env.WAFFLEBASE_SERVER,
+      NO_SERVER,
+      `cfg ${JSON.stringify(cfg)} must pin the server, not leave the CLI to its default`,
+    );
+  }
+});
+
+test("NO_SERVER is unroutable loopback, not a real host", () => {
+  // A public black-hole address would still leave the machine and could hang; the
+  // point is to fail fast and locally.
+  assert.match(NO_SERVER, /^http:\/\/127\.0\.0\.1:\d+$/);
+  assert.equal(NO_SERVER.includes("wafflebase.io"), false);
 });
 
 // --- argv safety fails CLOSED ----------------------------------------------
@@ -265,6 +287,46 @@ test("runSequence: runs every probe in order", () => {
 const OBS = { a: { exitCode: 1, stderr: "x" }, b: { exitCode: 2, stderr: "y" } };
 
 const attemptsOf = (keys) => (_probes, i) => [OBS[keys[i]]];
+
+// The failing probe is routinely NOT the last one — a candidate cites setup probes
+// plus the one that breaks, then often reads state afterwards. `replay` used to key
+// `observations.at(-1)` unconditionally while the caller keyed the claim on
+// `failingIndex`, so those two compared different probes and the candidate could
+// never reproduce. Seen live: a real envelope defect at probe 3 of [3,4] was dropped
+// as `not-reproduced` because probe 4 answered with a different output kind.
+test("replay: keys the observation at failingIndex, not the last one", () => {
+  // Attempt shape: [defect, something-else]. The claim describes the FIRST.
+  const runAttempt = () => [OBS.a, OBS.b];
+  const r = replay([{ argv: ["boom"] }, { argv: ["after"] }], OBS.a, {
+    attempts: 3,
+    observedKey,
+    runAttempt,
+    failingIndex: 0,
+  });
+  assert.equal(r.status, "reproduced");
+  assert.equal(r.deterministic, true);
+});
+
+test("replay: without failingIndex a mid-sequence defect is missed (the old behaviour)", () => {
+  // Pins the regression rather than just the fix: omitting the index still falls
+  // back to the last observation, so this must NOT report reproduced.
+  const runAttempt = () => [OBS.a, OBS.b];
+  const r = replay([{ argv: ["boom"] }, { argv: ["after"] }], OBS.a, { attempts: 3, observedKey, runAttempt });
+  assert.equal(r.status, "not-reproduced");
+});
+
+test("replay: an out-of-range failingIndex is refused, never clamped", () => {
+  // Clamping to the last observation would silently reintroduce the bug above,
+  // comparing the claim against a probe it does not describe.
+  const r = replay([{ argv: ["x"] }], OBS.a, {
+    attempts: 3,
+    observedKey,
+    runAttempt: () => [OBS.a],
+    failingIndex: 7,
+  });
+  assert.equal(r.status, "not-reproduced");
+  assert.equal(r.deterministic, false);
+});
 
 test("replay: N identical attempts matching the claim → reproduced", () => {
   const r = replay([{ argv: ["x"] }], OBS.a, { attempts: 3, observedKey, runAttempt: attemptsOf(["a", "a", "a"]) });

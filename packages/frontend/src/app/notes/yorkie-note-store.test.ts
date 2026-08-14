@@ -120,6 +120,48 @@ describe('YorkieNoteStore', () => {
       ]);
     });
 
+    it('restores the caret from presence on undo and redo', () => {
+      // The fix's foundation: a selection recorded with { addToHistory: true }
+      // is reversed by Yorkie on undo, so the pre-edit caret comes back.
+      const doc = makeDoc();
+      const store = new YorkieNoteStore(doc);
+      store.setLocalSelection(2, 2); // pre-edit caret, published to presence
+      store.batch(() => {
+        store.editText(5, 5, '!'); // 'hello!'
+        store.recordSelectionForHistory({ anchor: 6, head: 6 }); // post-edit
+      });
+
+      expect(store.undo()).toEqual({ anchor: 2, head: 2 });
+      expect(store.getText()).toBe('hello');
+      expect(store.redo()).toEqual({ anchor: 6, head: 6 });
+      expect(store.getText()).toBe('hello!');
+    });
+
+    it('captures the reversed caret before the live publisher clobbers it', () => {
+      // Regression for the undo-vs-live-publisher race: in the mounted editor
+      // the remote-selection plugin republishes the current caret while the
+      // undo event is still dispatching. undo() must return Yorkie's reverse,
+      // captured before that clobber — not the republished value.
+      const doc = makeDoc();
+      const store = new YorkieNoteStore(doc);
+      store.setLocalSelection(2, 2);
+      store.batch(() => {
+        store.editText(5, 5, '!');
+        store.recordSelectionForHistory({ anchor: 6, head: 6 });
+      });
+      // Stand in for the view: overwrite the selection presence synchronously
+      // as the undo change arrives.
+      store.subscribeRemote(() => store.setLocalSelection(0, 0));
+
+      expect(store.undo()).toEqual({ anchor: 2, head: 2 });
+    });
+
+    it('returns null from undo/redo when there is nothing to do', () => {
+      const store = new YorkieNoteStore(makeDoc());
+      expect(store.undo()).toBeNull(); // seed is below the floor
+      expect(store.redo()).toBeNull();
+    });
+
     it('preserves a peer edit that landed after the undone change', () => {
       // The churn regression the migration exists for: CodeMirror's local
       // history could only re-apply an absolute snapshot, so undoing after a

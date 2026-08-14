@@ -1568,7 +1568,7 @@ const lookupCatalog: Array<Omit<FunctionInfo, 'category'>> = [
     args: [
       { name: 'array' },
       { name: 'col_num1' },
-      { name: 'col_num2', optional: true },
+      { name: 'col_num2', optional: true, repeating: true },
     ],
   },
   {
@@ -1594,7 +1594,7 @@ const lookupCatalog: Array<Omit<FunctionInfo, 'category'>> = [
     description: 'Appends arrays horizontally',
     args: [
       { name: 'range1' },
-      { name: 'range2', optional: true },
+      { name: 'range2', optional: true, repeating: true },
     ],
   },
   {

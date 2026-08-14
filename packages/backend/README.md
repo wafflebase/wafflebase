@@ -29,10 +29,34 @@ JWT_REFRESH_COOKIE_MAX_AGE_MS=604800000 # Optional
 GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
 GITHUB_CALLBACK_URL=http://localhost:3000/auth/github/callback
+GITHUB_AUTHORIZATION_URL=                # Optional. Unset → public github.com.
+GITHUB_TOKEN_URL=                        # Set all four to a GitHub Enterprise
+GITHUB_USER_PROFILE_URL=                 # instance to log in against it, e.g.
+GITHUB_USER_EMAIL_URL=                   #   https://<host>/login/oauth/authorize
+                                        #   https://<host>/login/oauth/access_token
+                                        #   https://<host>/api/v3/user
+                                        #   https://<host>/api/v3/user/emails
+                                        # The email URL is separate: with the
+                                        # user:email scope passport-github2
+                                        # otherwise fetches emails from
+                                        # api.github.com and a GHE token fails
+                                        # there with "Bad credentials".
 PORT=3000
 LOG_LEVEL=info                          # Optional, Pino level
 BACKEND_TRUST_PROXY=0                   # Optional, set to 1 behind a proxy
 BACKEND_JSON_BODY_LIMIT=25mb            # Optional, body-parser limit
+FILE_STORAGE_PREFIX=                    # Optional, object-key prefix for the
+                                        # file bucket. Set it to namespace
+                                        # wafflebase's objects inside a bucket
+                                        # shared with another app; empty
+                                        # (default) keeps keys at the root.
+                                        # Surrounding "/" are trimmed. Fixed
+                                        # for the deployment's lifetime —
+                                        # changing it after uploads orphans
+                                        # the objects already stored.
+IMAGE_STORAGE_PREFIX=                   # Optional, the same for the image
+                                        # bucket. Composes outside the
+                                        # per-workspace key prefix.
 YORKIE_RPC_ADDR=http://localhost:8080   # Optional, Yorkie RPC/admin endpoint
 YORKIE_PUBLIC_KEY=                      # Optional, project public key (SDK)
 YORKIE_SECRET_KEY=                      # Optional, project secret key; enables
@@ -173,6 +197,7 @@ All document endpoints require JWT authentication.
 | `GET` | `/documents/:id` | Get document by ID (workspace member) |
 | `POST` | `/documents` | Create a new document (`{ title }`) |
 | `PATCH` | `/documents/:id` | Rename (any member) or move (`{ workspaceId }`, manager only) |
+| `POST` | `/documents/:id/copy` | Duplicate a document into the same workspace + folder as `<title> (copy)` (any member — copying never touches the source) |
 | `DELETE` | `/documents/:id` | Delete document (manager: workspace owner or author) |
 
 ### Folders (`/workspaces/:workspaceId/folders`)
@@ -253,6 +278,49 @@ Open a document via a share link to emit events, then visit the workspace
 whole pipeline is a no-op and the dashboard shows "not enabled" — the app is
 unaffected.
 
+### Notifications (`/notifications`)
+
+In-app notifications for the header bell (design:
+[`docs/design/notifications.md`](../../docs/design/notifications.md)). All
+routes require JWT authentication and are scoped to the caller — one user can
+never read or mark another user's notifications.
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `/notifications/comment` | Client report of a comment event (mention / reply / resolve) |
+| `GET` | `/notifications` | 20 most recent for the caller (`?before=<ISO 8601>&beforeId=<id>` composite cursor, strictly ISO-validated; `beforeId` without `before` is a 400) |
+| `GET` | `/notifications/unread-count` | `{ count }` |
+| `POST` | `/notifications/read` | `{ ids? }` — omitted marks everything read |
+| `GET` | `/notifications/stream` | SSE badge stream |
+
+Comments live inside Yorkie CRDT documents and never pass through this
+backend, so the **client reports** comment events and the server authorizes
+them: the actor must belong to the document's workspace, and so must every
+recipient (non-members are dropped, not rejected). The actor never notifies
+themselves, previews are truncated to 200 characters with control and
+invisible formatting characters stripped, one report fans out to at most 20
+recipients, and the endpoint is throttled to 30 reports per minute **per
+authenticated user** (`UserThrottlerGuard`, which keys the bucket on the
+caller rather than their IP; the global per-IP bucket still applies on top). A
+repeated report is absorbed by a unique index rather than creating a second
+row.
+
+That still permits a sustained 30 × 20 rows per minute into peers' inboxes,
+and nothing is deleted — a workspace peer can make another member's inbox
+noisy. Bounding that needs a per-recipient ceiling or the retention job, both
+deferred; see `docs/design/notifications.md`.
+
+`workspace_member_joined` is the exception: it is created server-side in
+`WorkspaceService.acceptInvite()`, where the backend already has authority,
+and goes to the workspace owners plus the invite's creator.
+
+`/notifications/stream` carries `{ unreadCount, latestId }` only — the client
+refreshes its badge from the stream and fetches the list when the dropdown
+opens. Delivery is an in-process hub (instant for notifications created on the
+same replica) merged with a 60-second database re-check, which is what makes
+the stream correct across multiple replicas without Redis or Kafka. No
+environment variable configures any of this.
+
 ### API Keys (`/workspaces/:workspaceId/api-keys`)
 
 All API key endpoints require JWT authentication.
@@ -277,11 +345,34 @@ All v1 endpoints accept both JWT cookies and `Authorization: Bearer wfb_...` API
 | `PATCH` | `/api/v1/workspaces/:wid/documents/:did` | Update document (`{ title }`) |
 | `DELETE` | `/api/v1/workspaces/:wid/documents/:did` | Delete document |
 
+#### Files (blob documents)
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `/api/v1/workspaces/:wid/files` | Upload any file as a document (multipart `file`, optional `title`, optional `folderId`) |
+| `GET` | `/api/v1/workspaces/:wid/files/:documentId` | Download a blob document's bytes |
+
+Upload stores the blob and creates the document in one call (deleting the blob
+if the row fails) and derives `type` from the stored extension — `.pdf` →
+`pdf`, `png|jpg|jpeg|gif|webp` → `image`, everything else → `file`. Nothing is
+parsed: an uploaded `.xlsx` is stored as bytes. Download reuses
+`fileResponseHeaders()`, so the derived-`Content-Type` rule is shared with
+`GET /documents/:id/file`. Caps are unchanged (50 MB; 25 MB for images).
+
+`title` defaults to the whole filename, **extension included** — a blob
+document is the file, and the title is the only copy of an extension that
+`safeExtension` rejects (a `.c++` blob is stored under a bare uuid). `folderId`
+is optional and goes through the same `assertSameWorkspace` check the web
+create path uses; both it and the title are resolved *before* the blob is
+stored, so a rejected value costs no upload.
+
 #### Tabs
 
 | Method | Route | Description |
 |--------|-------|-------------|
 | `GET` | `/api/v1/workspaces/:wid/documents/:did/tabs` | List tabs (id, name, type) |
+| `POST` | `/api/v1/workspaces/:wid/documents/:did/tabs` | Create a sheet tab (`{ name?, type? }`; name auto-uniqued, omitted → next `SheetN`) |
+| `PATCH` | `/api/v1/workspaces/:wid/documents/:did/tabs/:tid` | Rename a tab (`{ name }`; 404 missing, 400 blank, 409 duplicate) |
 
 #### Cells
 
@@ -321,14 +412,21 @@ Key models managed by Prisma:
 | `email` | String | Unique |
 | `photo` | String? | Profile photo URL |
 
-**Document** — a document of any type (sheet / doc / slide / note / board / pdf / image)
+**Document** — a document of any type (sheet / doc / slides / note / board / pdf / image / file)
+
+`type` is a **viewer-routing key** — "which viewer or editor opens this" — not
+a file format. `pdf` and `image` are blobs with dedicated viewers; `file` is a
+blob with none (see
+[`docs/design/generic-file-upload.md`](../../docs/design/generic-file-upload.md)).
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | String (PK) | UUID |
 | `title` | String | |
-| `type` | String | Document type, default `"sheet"` (sheet/doc/slide/note/board/pdf/image) |
-| `fileId` | String? | Blob storage key for static file types (pdf/image) |
+| `type` | String | Document type, default `"sheet"` (sheet/doc/slides/note/board/pdf/image/file) |
+| `fileId` | String? | Blob storage key for the blob-backed types (pdf/image/file) |
+| `fileSize` | Int? | Blob size in bytes; null for the CRDT types |
+| `mimeType` | String? | Client-reported blob MIME. Display data only — never a serving or access decision |
 | `authorID` | Int? | FK to User |
 | `workspaceId` | String | FK to Workspace (CASCADE) |
 | `folderId` | String? | FK to Folder (`SetNull`); null = workspace root |
@@ -350,6 +448,22 @@ Key models managed by Prisma:
 | `expiresAt` | DateTime? | Optional expiration |
 | `revokedAt` | DateTime? | Soft-revoke timestamp |
 | `createdAt` | DateTime | Auto-set |
+
+**Notification** — one in-app notification addressed at one user
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | String (PK) | UUID |
+| `type` | String | `comment_mention` / `comment_reply` / `thread_resolved` / `workspace_member_joined` |
+| `recipientId` | Int | FK to User (`Cascade`) |
+| `actorId` | Int? | FK to User (`SetNull`) — the notification outlives a deleted actor |
+| `workspaceId` | String | FK to Workspace (`Cascade`) |
+| `documentId` | String? | FK to Document (`Cascade`) — a deleted document leaves no dead link |
+| `threadId` / `commentId` | String? | Opaque CRDT identifiers; no FK, never resolved server-side |
+| `dedupeKey` | String? | Comment id (required for mention/reply), or `<threadId>:resolved`. `@@unique([recipientId, type, dedupeKey])`, so a retried report creates no second row. Null for joins, which Postgres treats as distinct |
+| `preview` | String? | Plain-text excerpt, ≤200 chars; control characters collapsed to spaces, zero-width and bidi characters removed |
+| `readAt` | DateTime? | Null while unread |
+| `createdAt` | DateTime | Auto-set. `@@index([recipientId, createdAt])` covers the list; `@@index([recipientId, readAt])` covers the unread badge, which would otherwise scan every row the recipient has ever received |
 
 ## Module Structure
 
@@ -387,6 +501,7 @@ src/
 │   ├── documents.controller.ts # Document CRUD via API
 │   ├── tabs.controller.ts     # Tab listing via Yorkie
 │   ├── cells.controller.ts    # Cell CRUD via Yorkie
+│   ├── files.controller.ts    # Blob document upload/download (any file)
 │   └── workspace-scope.guard.ts # Workspace access verification
 ├── workspace/                 # Workspaces + members + sharing roles
 ├── folder/                    # Workspace folder tree (folder.md / workspace-folders.md)
@@ -395,6 +510,7 @@ src/
 ├── file/                      # Blob storage for static file types (pdf)
 ├── image/                     # Image document type upload/serve (image-viewer.md)
 ├── analytics/                 # View-event Kafka producer + StarRocks reader (share-link-analytics.md)
+├── notification/              # In-app notifications: REST + SSE, in-process hub (notifications.md)
 ├── user-doc-styles/           # Per-user default docs named styles
 ├── health/                    # Health-check endpoint
 └── database/

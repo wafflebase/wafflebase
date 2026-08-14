@@ -1,5 +1,6 @@
 import {
   initializeEditor,
+  type Frame,
   type PeerView,
   type Slide,
   type SlidesDocument,
@@ -21,6 +22,7 @@ import { useTheme } from "@/components/theme-provider";
 import type { BoardPresence, YorkieBoardRoot } from "@/types/board-document";
 import { YorkieBoardStore } from "./yorkie-board-store";
 import { applyWheelToViewport } from "./board-wheel";
+import { createCursorPublisher } from "./board-cursor-publish";
 import { isEditableTarget } from "./is-editable-target";
 import { BoardToolbar } from "./board-toolbar";
 import { dropStickyAtViewportCenter } from "./sticky";
@@ -30,6 +32,17 @@ import { makeBoardImageUpload } from "./board-image";
 import { createBoardMinimap, type BoardMinimap } from "./board-minimap";
 import { centerViewportOnWorld } from "./minimap-geometry";
 import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
+import type { ZoomController } from "../slides/zoom-controller";
+import { createBoardZoomBinding, createBoardZoomController } from "./board-zoom";
+import {
+  applyGridBackground,
+  gridStep,
+  loadGridKind,
+  loadGridSnap,
+  saveGridKind,
+  saveGridSnap,
+  type BoardGridKind,
+} from "./board-grid";
 
 interface BoardViewProps {
   /**
@@ -85,6 +98,10 @@ function mapBoardPeers(
       label: presence.username || "Anonymous",
       activeSlideId: SYNTHETIC_SLIDE_ID,
       selectedElementIds: presence.selectedElementIds,
+      // SP1 defined `cursor` on BoardPresence but never published or
+      // painted it; SP4 completes both ends. `null` (peer left the
+      // canvas) must become `undefined` so the overlay skips it.
+      cursor: presence.cursor ?? undefined,
     });
   }
   return views;
@@ -108,10 +125,11 @@ function mapBoardPeers(
  * `updatePresence` — those are `YorkieSlidesStore`-only conveniences,
  * not part of the shared `SlidesStore` interface) using the same
  * `getOthersPresences()` / `subscribe('others', ...)` / `doc.update`
- * primitives `YorkieSlidesStore` wraps. Peer cursor DOTS are not
- * rendered yet (`mapBoardPeers` has no cursor field) — that's a
- * deferred follow-up, so this client does not publish `cursor` into
- * presence (would be pure CRDT churn with nothing reading it).
+ * primitives `YorkieSlidesStore` wraps. The local pointer is published
+ * into `cursor` (rAF-coalesced via `createCursorPublisher`) and peer
+ * cursors are read back through `mapBoardPeers` — a bare selection ring
+ * is not enough to locate a collaborator working off-screen on an
+ * unbounded plane.
  */
 export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -139,6 +157,29 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   // effect creates it — `editorRef` alone wouldn't trigger a re-render
   // of `<BoardToolbar>` when the editor becomes available.
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
+  // Lifted for the same reason as `editor`: the toolbar's contextual
+  // controls and Undo/Redo read element data through the store, so
+  // `<BoardToolbar>` must re-render once the mount effect creates it.
+  const [store, setStore] = useState<YorkieBoardStore | null>(null);
+  // The zoom VALUE holder (label/intent channel only — `vp` above stays
+  // the single source of truth for scale). Ref-held so it survives
+  // mount-effect re-runs (e.g. `workspaceId` resolving after the first
+  // render), which would otherwise reset the readout. Lazily initialized:
+  // `useRef(createBoardZoomController())` would re-run the factory on
+  // EVERY render and throw the result away.
+  const zoomValueRef = useRef<ZoomController | null>(null);
+  if (zoomValueRef.current === null) {
+    zoomValueRef.current = createBoardZoomController();
+  }
+  const zoomValue = zoomValueRef.current;
+  // That value holder bound to the actions it drives (see
+  // `createBoardZoomBinding`). Built inside the mount effect — it closes
+  // over the live viewport, host size and minimap — and lifted into
+  // state for the same reason as `editor`/`store`: so the toolbar
+  // re-renders once it exists.
+  const [zoomController, setZoomController] = useState<ZoomController | null>(
+    null,
+  );
   const { doc, loading, error } = useDocument<YorkieBoardRoot, BoardPresence>();
 
   // Same ref-capture pattern as SlidesView: the mount effect's closures
@@ -147,6 +188,29 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
   const { resolvedTheme } = useTheme();
   const resolvedThemeRef = useRef(resolvedTheme);
   resolvedThemeRef.current = resolvedTheme;
+
+  // Background grid mode. React state so the toolbar's dropdown reflects
+  // it, mirrored into a ref for the same reason as the theme above — the
+  // mount effect's viewport closures must read the CURRENT mode without
+  // the whole board remounting whenever it changes.
+  const [gridKind, setGridKind] = useState<BoardGridKind>(loadGridKind);
+  const gridKindRef = useRef(gridKind);
+  gridKindRef.current = gridKind;
+
+  // Snap to grid. A SEPARATE toggle from the mode above (`none` still
+  // snaps), mirrored into a ref because the editor reads it through a
+  // `getSnapGrid` callback built once inside the mount effect.
+  const [gridSnap, setGridSnap] = useState<boolean>(loadGridSnap);
+  const gridSnapRef = useRef(gridSnap);
+  gridSnapRef.current = gridSnap;
+  // The context-menu item lives in the slides editor (built at mount) but
+  // has to drive React state the toolbar renders from. A ref-held setter
+  // keeps that closure current without re-running the mount effect.
+  const setGridSnapRef = useRef<(next: boolean) => void>(() => {});
+  setGridSnapRef.current = (next: boolean) => {
+    setGridSnap(next);
+    saveGridSnap(next);
+  };
 
   // Prevent double-initialization in React strict mode / dev HMR.
   useEffect(() => {
@@ -188,6 +252,7 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     document.head.appendChild(style);
 
     const store = new YorkieBoardStore(doc);
+    setStore(store);
 
     // Host fills the container edge-to-edge — there is no fitted slide
     // rect to center, unlike SlidesView's `computeFitSize`/`refitCanvas`.
@@ -225,6 +290,28 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       // editor still paints (including remote peer edits) but accepts
       // no pointer/keyboard input.
       readOnly,
+      // "Fit to content" in the empty-canvas context menu. Wrapped in an
+      // arrow because the zoom binding is created below (it needs the
+      // minimap) — the call only ever happens after mount, so the
+      // declaration order stays readable without hoisting.
+      onFitToContent: () => zoom.fit(),
+      // Snap move/resize onto the grid the user can see: the same
+      // `gridStep(zoom)` ladder that paints it. Read per gesture frame,
+      // so a zoom mid-drag changes the step under the cursor exactly as
+      // it changes the painted lines.
+      getSnapGrid: () =>
+        gridSnapRef.current ? gridStep(vp.current.zoom) : null,
+      // Right-click the empty canvas → the same toggle the toolbar has.
+      // This is where Miro puts it, and it is the only place a user
+      // deep in a drag-heavy flow will look.
+      hostCanvasMenuItems: () => [
+        { label: "---", run: () => undefined },
+        {
+          label: "Snap to grid",
+          selected: gridSnapRef.current,
+          run: () => setGridSnapRef.current(!gridSnapRef.current),
+        },
+      ],
     });
     editorRef.current = editor;
     setEditor(editor);
@@ -233,15 +320,58 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       store,
       dpr,
       getHostSize: () => ({ w: hostW, h: hostH }),
+      // Forward reference to `commitViewport`, declared below: the
+      // dependency is circular (it repaints this minimap), so one side has
+      // to be deferred. Safe past the TDZ because `createBoardMinimap`
+      // only stores the callback — it fires on a click, long after mount.
       onNavigate: (worldCenter) => {
-        vp.current = centerViewportOnWorld(vp.current, worldCenter, { w: hostW, h: hostH });
-        editor.setViewport(vp.current);
-        minimap.repaintViewport(vp.current);
+        commitViewport(
+          centerViewportOnWorld(vp.current, worldCenter, { w: hostW, h: hostH }),
+        );
       },
     });
     container.appendChild(minimap.element);
     minimap.repaintScene();
     minimap.repaintViewport(vp.current);
+
+    // Every element's frame — the scene bounds a fit is resolved from.
+    const readFrames = (): Frame[] => {
+      const snapshot = store.read() as SlidesDocument;
+      const slide = snapshot.slides[0] as Slide | undefined;
+      return slide ? slide.elements.map((e) => e.frame) : [];
+    };
+
+    // THE viewport chokepoint. Every pan/zoom path — minimap navigate,
+    // fit-to-content, the zoom dropdown, wheel, space/middle-drag — goes
+    // through here, so a consumer of the viewport (the renderer, the
+    // minimap's viewport rect, the background grid) only has to be wired
+    // once. These used to be three statements copy-pasted at each call
+    // site, which is exactly how the grid would have been forgotten on one
+    // of them.
+    const commitViewport = (next: Viewport) => {
+      vp.current = next;
+      editor.setViewport(vp.current);
+      minimap.repaintViewport(vp.current);
+      applyGridBackground(
+        container,
+        gridKindRef.current,
+        vp.current,
+        resolvedThemeRef.current,
+      );
+    };
+
+    // Initial grid paint. NOT redundant with the mode/theme effect below:
+    // that effect's first run can land before this container exists (the
+    // component renders a loader until the document resolves), and it does
+    // not re-run when the document arrives. Nor can the initial paint be
+    // left to `commitViewport` — an empty board never commits one, because
+    // `fitToContentOnce` has no content to frame.
+    applyGridBackground(
+      container,
+      gridKindRef.current,
+      vp.current,
+      resolvedThemeRef.current,
+    );
 
     // Open ON the board's content instead of at the world origin. Boards sit
     // far from (0, 0) — a Miro import especially — so `DEFAULT_VIEWPORT` shows
@@ -252,19 +382,23 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // just as useless to a viewer. Once it fires it never runs again.
     const fitToContentOnce = createFitToContentOnce({
       latch: fitLatch.current,
-      getFrames: () => {
-        const snapshot = store.read() as SlidesDocument;
-        const slide = snapshot.slides[0] as Slide | undefined;
-        return slide ? slide.elements.map((e) => e.frame) : [];
-      },
+      getFrames: readFrames,
       getHostSize: () => ({ w: hostW, h: hostH }),
-      apply: (fitted) => {
-        vp.current = fitted;
-        editor.setViewport(vp.current);
-        minimap.repaintViewport(vp.current);
-      },
+      apply: (fitted) => commitViewport(fitted),
     });
     fitToContentOnce();
+
+    // The zoom dropdown's actions (and the context menu's repeatable Fit
+    // to content, which is NOT the one-shot latch above). Applying lives
+    // in the binding, so a label-only write-back never re-commits a
+    // viewport — see `createBoardZoomBinding`.
+    const zoom = createBoardZoomBinding(zoomValue, {
+      getViewport: () => vp.current,
+      getHost: () => ({ w: hostW, h: hostH }),
+      getFrames: readFrames,
+      commit: commitViewport,
+    });
+    setZoomController(zoom.controller);
 
     stickyInserterRef.current = (colorValue: string) => {
       dropStickyAtViewportCenter({
@@ -337,18 +471,76 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     });
     resizeObserver.observe(container);
 
+    // Broadcast the local pointer so peers can see where this user is
+    // working. A board is unbounded, so a selection ring alone does not
+    // locate a collaborator who is editing off-screen.
+    //
+    // Coalesced to at most one write per animation frame by
+    // `createCursorPublisher` (own testable module, see
+    // `board-cursor-publish.ts`) — a raw pointermove publish would push a
+    // CRDT presence update per mouse sample and flood the channel.
+    // Presence only — the document root is untouched.
+    //
+    // "At most", because a presence write is not free even when the doc
+    // is untouched: it emits a SELF `presence-changed`, which
+    // `@yorkie-js/react` turns into a fresh state object, which
+    // re-renders this component and the whole toolbar tree. So the
+    // publisher drops a frame whose position has not moved, and
+    // `shouldPublish` drops the whole thing when there is nobody to see
+    // it — a solo user waving the mouse must not cost 60 React commits a
+    // second. A dropped write is remembered as undelivered, and
+    // `pushPeers` below replays it via `resend()` the moment the
+    // audience opens.
+    const cursorPublisher = createCursorPublisher({
+      requestFrame: (cb) => requestAnimationFrame(cb),
+      cancelFrame: (handle) => cancelAnimationFrame(handle),
+      shouldPublish: () => doc.getOthersPresences().length > 0,
+      publish: (position) => {
+        doc.update((_, p) => {
+          p.set({ cursor: position });
+        });
+      },
+    });
+    const onCursorMove = (e: PointerEvent) => {
+      // Reuses the cached `canvasRect` maintained by the ResizeObserver
+      // above rather than calling `getBoundingClientRect()` here — this
+      // handler runs on every pointer sample.
+      cursorPublisher.queue(
+        screenToWorld(vp.current, {
+          x: e.clientX - canvasRect.left,
+          y: e.clientY - canvasRect.top,
+        }),
+      );
+    };
+    // Clear on leave so a departed cursor does not stick on peers'
+    // screens at the last position it was seen.
+    const onCursorLeave = () => cursorPublisher.queue(null);
+    if (!readOnly) {
+      container.addEventListener("pointermove", onCursorMove);
+      container.addEventListener("pointerleave", onCursorLeave);
+    }
+
     // --- presence: peers ---
     //
     // `getOthersPresences()` / `subscribe('others', ...)` mirror
     // `YorkieSlidesStore.getPeers()` / `onPresenceChange()` verbatim —
     // read directly off `doc` since `YorkieBoardStore` doesn't wrap them
     // (see class doc comment).
+    let hadPeers = false;
     const pushPeers = () => {
       const peers = doc.getOthersPresences().map((p) => ({
         clientID: String(p.clientID),
         presence: p.presence as BoardPresence,
       }));
       editor.setPeers(mapBoardPeers(peers, resolvedThemeRef.current));
+      // The audience just opened: hand over the cursor intent the gate
+      // above swallowed while nobody was watching. Without this, a user
+      // who was stationary when the peer joined stays invisible until
+      // they move, and a `pointerleave` that fell while solo leaves a
+      // ghost cursor parked in presence.
+      const hasPeers = peers.length > 0;
+      if (hasPeers && !hadPeers) cursorPublisher.resend();
+      hadPeers = hasPeers;
     };
     const offPeers = doc.subscribe("others", () => pushPeers());
     pushPeers();
@@ -394,16 +586,26 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     // descendant the event originated on.
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      vp.current = applyWheelToViewport(vp.current, {
-        ctrlKey: e.ctrlKey,
-        metaKey: e.metaKey,
-        deltaX: e.deltaX,
-        deltaY: e.deltaY,
-        offsetX: e.clientX - canvasRect.left,
-        offsetY: e.clientY - canvasRect.top,
-      });
-      editor.setViewport(vp.current);
-      minimap.repaintViewport(vp.current);
+      // Same predicate `applyWheelToViewport` branches on: only a
+      // ctrl/cmd tick zooms, a plain tick pans.
+      const zoomed = e.ctrlKey || e.metaKey;
+      commitViewport(
+        applyWheelToViewport(vp.current, {
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          deltaX: e.deltaX,
+          deltaY: e.deltaY,
+          offsetX: e.clientX - canvasRect.left,
+          offsetY: e.clientY - canvasRect.top,
+        }),
+      );
+      // Reflect wheel/pinch zoom in the toolbar readout. LABEL-ONLY:
+      // `reportViewportZoom` writes the value channel and nothing else,
+      // so this scale — already applied above, anchored at the CURSOR —
+      // is never re-resolved and re-committed about the host centre.
+      // Skipped entirely on a pan tick, which changes no scale and must
+      // not flip the readout off "Fit".
+      if (zoomed) zoom.reportViewportZoom(vp.current.zoom);
     };
     container.addEventListener("wheel", onWheel, { passive: false });
 
@@ -478,9 +680,11 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       const dy = e.clientY - panLastY;
       panLastX = e.clientX;
       panLastY = e.clientY;
-      vp.current = { ...vp.current, panX: vp.current.panX + dx, panY: vp.current.panY + dy };
-      editor.setViewport(vp.current);
-      minimap.repaintViewport(vp.current);
+      commitViewport({
+        ...vp.current,
+        panX: vp.current.panX + dx,
+        panY: vp.current.panY + dy,
+      });
     };
     const onPointerUp = (e: PointerEvent) => {
       if (!panning || e.pointerId !== panPointerId) return;
@@ -526,6 +730,9 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onWindowBlur);
       cancelAnimationFrame(raf);
+      container.removeEventListener("pointermove", onCursorMove);
+      container.removeEventListener("pointerleave", onCursorLeave);
+      cursorPublisher.dispose();
       offSelection();
       offChange();
       offPeers();
@@ -534,12 +741,28 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       store.dispose();
       editorRef.current = null;
       setEditor(null);
+      setStore(null);
+      setZoomController(null);
       stickyInserterRef.current = null;
       disposeImagePaths?.();
       imageInserterRef.current = null;
       style.remove();
     };
-  }, [didMount, doc, readOnly, workspaceId]);
+    // `zoomValue` is a ref-held singleton with a stable identity for the
+    // component's lifetime, so listing it never re-runs this effect — it
+    // is here only to satisfy exhaustive-deps.
+  }, [didMount, doc, readOnly, workspaceId, zoomValue]);
+
+  // Repaint the grid when the MODE or the theme changes — the two inputs
+  // that move without the viewport moving. Pan/zoom is covered by
+  // `commitViewport`, and the initial paint by the mount effect.
+  // Deliberately a separate effect: listing `gridKind` on the mount effect
+  // would tear down and rebuild the whole editor on every toggle.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    applyGridBackground(container, gridKind, vp.current, resolvedTheme);
+  }, [gridKind, resolvedTheme]);
 
   if (loading) {
     return (
@@ -568,6 +791,15 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
       {!readOnly && (
         <BoardToolbar
           editor={editor}
+          store={store}
+          zoomController={zoomController}
+          gridKind={gridKind}
+          onGridKindChange={(kind) => {
+            setGridKind(kind);
+            saveGridKind(kind);
+          }}
+          gridSnap={gridSnap}
+          onGridSnapChange={(next) => setGridSnapRef.current(next)}
           onInsertSticky={(color) => stickyInserterRef.current?.(color)}
           onInsertImage={(file) => imageInserterRef.current?.(file)}
           disabled={!workspaceId}

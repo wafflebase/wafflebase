@@ -1,17 +1,33 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { renderSummaryMd, BLOCKING, normalizeSeverity } from "./severity.mjs";
 import {
   SCHEMA,
   LABELS,
   SOURCES,
   MISSES_PATH,
   isAgentPr,
-  handoffTime,
+  markerHandoffAt,
+  panelApprovedAt,
+  commitIndex,
+  panelRounds,
+  roundsUpTo,
+  commentRounds,
+  panelRoundAt,
   isHumanFollowupCommit,
   interestingFiles,
   fileClassesOf,
   classifyCodeRabbitComment,
+  classifyCodeRabbitHeader,
+  parseCodeRabbitReview,
+  codeRabbitReviewSections,
+  codeRabbitDetail,
+  codeRabbitTitle,
+  unrecognisedDetailsLabels,
+  attributeToPanel,
+  parsePanelComment,
+  panelFindingsFromComments,
   toMissRecord,
   candidateId,
   parseJsonl,
@@ -46,9 +62,13 @@ test("isAgentPr: a human PR on a non-agent branch is not one; junk never throws"
   for (const bad of [null, undefined, "x", 7, []]) assert.equal(isAgentPr(bad), false);
 });
 
-// --- handoffTime -------------------------------------------------------------
+// --- markerHandoffAt / panelApprovedAt ---------------------------------------
 
-test("handoffTime: the FIRST marker comment wins", () => {
+const round = (over = {}) => ({
+  sha: "a".repeat(40), index: 0, conclusion: "success", reviewedSha: "", completedAt: "2026-07-24T15:40:00Z", ...over,
+});
+
+test("markerHandoffAt: the FIRST marker comment wins", () => {
   const comments = [
     { body: `${HANDOFF_MARKER}\n## re-promoted`, created_at: "2026-07-26T00:00:00Z" },
     { body: "unrelated chatter", created_at: "2026-07-24T00:00:00Z" },
@@ -56,32 +76,173 @@ test("handoffTime: the FIRST marker comment wins", () => {
   ];
   // A PR that is un-readied and re-promoted has two markers. The human work this
   // corpus is looking for starts at the first one.
-  assert.equal(handoffTime({ comments }), "2026-07-24T15:48:28Z");
+  assert.equal(markerHandoffAt(comments), "2026-07-24T15:48:28Z");
 });
 
-test("handoffTime: falls back to ready_for_review when the marker comment is missing", () => {
-  // NOT belt-and-braces. mark-ready.mjs posts the hand-off comment inside a
-  // try/catch AFTER flipping the PR to ready, so a genuinely promoted PR can carry
-  // no marker at all — and a PR the harvester cannot see is a miss nothing can
-  // recover later. On #548 the two timestamps were 3 seconds apart.
+test("markerHandoffAt: null with no usable marker; junk never throws", () => {
+  assert.equal(markerHandoffAt([]), null);
+  assert.equal(markerHandoffAt(), null);
+  assert.equal(markerHandoffAt([{ body: HANDOFF_MARKER, created_at: "not a date" }]), null);
+  assert.equal(markerHandoffAt([{ body: HANDOFF_MARKER }]), null);
+  for (const bad of [null, "x", 7]) assert.equal(markerHandoffAt(bad), null);
+});
+
+test("panelApprovedAt: the panel's own check run beats the marker comment", () => {
+  // The check run is the primary source because it is the only signal present
+  // WHENEVER the panel ran. The marker is posted in a try/catch after the PR is
+  // already flipped ready, so a genuinely promoted PR can carry none.
   assert.equal(
-    handoffTime({ comments: [{ body: "no marker here", created_at: "2026-07-24T00:00:00Z" }], readyForReviewAt: "2026-07-24T15:48:25Z" }),
-    "2026-07-24T15:48:25Z",
-  );
-  // marker present → it wins over the event
-  assert.equal(
-    handoffTime({ comments: [{ body: HANDOFF_MARKER, created_at: "2026-07-24T15:48:28Z" }], readyForReviewAt: "2026-07-24T15:48:25Z" }),
-    "2026-07-24T15:48:28Z",
+    panelApprovedAt([round({ completedAt: "2026-07-24T15:40:00Z" })], "2026-07-24T15:48:28Z"),
+    "2026-07-24T15:40:00Z",
   );
 });
 
-test("handoffTime: null when there is no handoff at all, and on unusable timestamps", () => {
-  assert.equal(handoffTime({}), null);
-  assert.equal(handoffTime(), null);
-  assert.equal(handoffTime({ comments: [{ body: HANDOFF_MARKER, created_at: "not a date" }] }), null);
-  assert.equal(handoffTime({ comments: [{ body: HANDOFF_MARKER }] }), null);
-  assert.equal(handoffTime({ readyForReviewAt: "nonsense" }), null);
-  for (const bad of [null, "x", 7]) assert.equal(handoffTime({ comments: bad }), null);
+test("panelApprovedAt: the FIRST approval, because the newest one is self-defeating", () => {
+  // The trap this exists to avoid. Every human fix pushed after an approval opens a
+  // new round, and that round approves too — so a newest-approval cutoff moves PAST
+  // the very commits the signature is looking for.
+  //
+  // Measured on #548: newest-approval lands on 2026-07-28, four days after the three
+  // human fixes of 2026-07-25, and loses all three — including rows already curated
+  // into misses.jsonl. Same rule as markerHandoffAt's "FIRST marker, not the last":
+  // a later re-approval does not un-say the first one.
+  const rounds = [
+    round({ index: 0, completedAt: "2026-07-24T15:40:00Z" }),
+    round({ index: 1, completedAt: "2026-07-28T01:00:56Z" }),
+  ];
+  assert.equal(panelApprovedAt(rounds), "2026-07-24T15:40:00Z");
+  // Order in the array must not matter — it is the timestamps that decide.
+  assert.equal(panelApprovedAt([...rounds].reverse()), "2026-07-24T15:40:00Z");
+});
+
+test("panelApprovedAt: only success is an approval — failure, unread and ADVISORY are not", () => {
+  assert.equal(panelApprovedAt([round({ conclusion: "failure" })]), null);
+  assert.equal(panelApprovedAt([round({ conclusion: "" })]), null);
+  // An `@claude review` round carries conclusion "" precisely so it can never
+  // become signature 1's cutoff: it is advice, not a gate decision.
+  assert.equal(panelApprovedAt(commentRounds([], [])), null);
+  // …and a failing round does not suppress an earlier real approval.
+  assert.equal(
+    panelApprovedAt([round({ index: 0, completedAt: "2026-07-24T15:40:00Z" }), round({ index: 1, conclusion: "failure", completedAt: "2026-07-26T09:00:00Z" })]),
+    "2026-07-24T15:40:00Z",
+  );
+});
+
+test("panelApprovedAt: falls back to the marker, and to null; junk never throws", () => {
+  assert.equal(panelApprovedAt([], "2026-07-24T15:48:28Z"), "2026-07-24T15:48:28Z");
+  assert.equal(panelApprovedAt([]), null);
+  assert.equal(panelApprovedAt([], "nonsense"), null);
+  assert.equal(panelApprovedAt([round({ completedAt: "not a date" })], null), null);
+  for (const bad of [null, "x", 7]) assert.equal(panelApprovedAt(bad), null);
+});
+
+// --- panelRoundAt / panelRounds / commitIndex / roundsUpTo -------------------
+
+const lensRun = (over = {}) => ({
+  name: "agent-review-correctness", app: { slug: "github-actions" }, status: "completed",
+  conclusion: "success", completed_at: "2026-07-24T15:40:00Z", ...over,
+});
+
+test("panelRoundAt: completedAt is the LATEST lens, because the round is not over until its last one", () => {
+  const runs = new Map([
+    ["agent-review-correctness", lensRun({ completed_at: "2026-07-24T15:38:00Z" })],
+    ["agent-review-test-adequacy", lensRun({ completed_at: "2026-07-24T15:41:00Z" })],
+  ]);
+  assert.equal(panelRoundAt(runs).completedAt, "2026-07-24T15:41:00Z");
+  // started_at is the per-run fallback latestLensRuns itself orders by
+  assert.equal(panelRoundAt(new Map([["x", { conclusion: "success", started_at: "2026-07-24T15:00:00Z" }]])).completedAt, "2026-07-24T15:00:00Z");
+  // unusable timestamps degrade to "", never to NaN or a throw
+  assert.equal(panelRoundAt(new Map([["x", { conclusion: "success", completed_at: "nope" }]])).completedAt, "");
+  assert.equal(panelRoundAt(null).completedAt, "");
+  // Ordered by PARSED TIME, not lexicographically. These two strings sort the wrong
+  // way as text and the right way as instants, so a string comparison fails here.
+  const offsets = new Map([
+    ["a", { conclusion: "success", completed_at: "2026-07-24T09:00:00-06:00" }], // 15:00Z
+    ["b", { conclusion: "success", completed_at: "2026-07-24T14:00:00Z" }],
+  ]);
+  assert.equal(panelRoundAt(offsets).completedAt, "2026-07-24T09:00:00-06:00");
+  assert.equal(
+    panelApprovedAt([round({ completedAt: "2026-07-24T14:00:00Z" }), round({ completedAt: "2026-07-24T09:00:00-06:00" })]),
+    "2026-07-24T14:00:00Z", // the earlier INSTANT, though it sorts later as text
+  );
+});
+
+test("panelRoundAt: shares the aggregate conclusion rule rather than copying it", () => {
+  // One failing lens means the panel did not let it through — the same rule
+  // panelVerdictAt reports, from the same function, so the cheap path used to
+  // establish rounds can never disagree with the expensive one used to read them.
+  const runs = new Map([["a", lensRun()], ["b", lensRun({ conclusion: "failure" })]]);
+  assert.equal(panelRoundAt(runs).conclusion, "failure");
+  assert.equal(panelVerdictAt(runs).conclusion, "failure");
+  assert.equal(panelRoundAt(new Map()).conclusion, "");
+  assert.equal(panelVerdictAt(new Map()).conclusion, "");
+});
+
+test("commitIndex: position on the PR, and -1 for a commit that is not on it", () => {
+  const commits = [{ sha: "a".repeat(40) }, { sha: "b".repeat(40) }];
+  assert.equal(commitIndex(commits, "b".repeat(40)), 1);
+  // A force-push leaves a CodeRabbit comment's original_commit_id pointing at a
+  // commit no longer reachable from the branch. That is a real state, not junk.
+  assert.equal(commitIndex(commits, "c".repeat(40)), -1);
+  assert.equal(commitIndex(commits, ""), -1);
+  for (const bad of [null, "x", 7]) assert.equal(commitIndex(bad, "a".repeat(40)), -1);
+});
+
+test("panelRounds: only commits the panel CONCLUDED on become rounds", () => {
+  const commits = [{ sha: "a".repeat(40) }, { sha: "b".repeat(40) }, { sha: "c".repeat(40) }];
+  const rounds = panelRounds(commits, (sha) => {
+    if (sha === "a".repeat(40)) return new Map([["agent-review-correctness", lensRun()]]);
+    if (sha === "b".repeat(40)) return new Map(); // no lens runs at all → not a round
+    return new Map([["agent-review-correctness", lensRun({ conclusion: "failure", completed_at: "2026-07-25T10:00:00Z" })]]);
+  });
+  assert.deepEqual(rounds.map((r) => [r.index, r.conclusion]), [[0, "success"], [2, "failure"]]);
+});
+
+test("panelRounds: an unreadable commit keeps its SHA but is never evidence", () => {
+  // Two directions at once. The round must not count as "the panel reviewed this" —
+  // so conclusion "" keeps it out of panelApprovedAt and `unreadable` makes the
+  // comparison set refuse it — but the sha is a fact we hold either way, and it is
+  // what tells an API hiccup apart from a PR the panel never touched.
+  const commits = [{ sha: "a".repeat(40) }, { sha: "b".repeat(40) }];
+  const logged = [];
+  const rounds = panelRounds(commits, (sha) => {
+    if (sha === "a".repeat(40)) throw new Error("502");
+    return new Map([["agent-review-correctness", lensRun()]]);
+  }, { log: (m) => logged.push(m) });
+  assert.deepEqual(rounds.map((r) => [r.index, r.conclusion, r.unreadable ?? false]), [[0, "", true], [1, "success", false]]);
+  assert.equal(rounds[0].sha, "a".repeat(40));
+  assert.ok(logged.some((m) => /could not read the panel's verdict at a{40} \(502\)/.test(m)));
+  // It is not an approval, and the readable round beside it still is.
+  assert.equal(panelApprovedAt([rounds[0]]), null);
+  assert.equal(panelApprovedAt(rounds), "2026-07-24T15:40:00Z");
+});
+
+test("roundsUpTo: what cannot be PLACED cannot be EXCLUDED", () => {
+  const rounds = [round({ index: 0 }), round({ index: 2 }), round({ index: -1, sha: "z".repeat(40) })];
+  // A finding on commit 1 sees round 0 — and the unplaceable round, which cannot be
+  // ruled out on evidence — but NOT round 2, which the panel reached afterwards.
+  assert.deepEqual(roundsUpTo(rounds, 1).map((r) => r.index), [0, -1]);
+  // An unplaceable finding sees everything.
+  assert.deepEqual(roundsUpTo(rounds, -1).map((r) => r.index), [0, 2, -1]);
+  // Both directions widen: narrowing on a guess would file a miss against a
+  // reviewer that did raise it, which is the unrecoverable error.
+  assert.deepEqual(roundsUpTo(rounds, 5).map((r) => r.index), [0, 2, -1]);
+  for (const bad of [null, "x", 7]) assert.deepEqual(roundsUpTo(bad, 0), []);
+});
+
+test("commentRounds: an advisory review is a round, with conclusion \"\"", () => {
+  const sha = "a".repeat(40);
+  const body = `<!-- agent-review:${sha} -->\ncorrectness review: **changes requested**\n\n### Major (1)\n\n- \`pkg/x.ts:10\` — a real defect\n`;
+  const rounds = commentRounds([{ user: { login: "yorkie-agent[bot]" }, body, created_at: "2026-07-24T16:00:00Z" }], [{ sha }]);
+  assert.equal(rounds.length, 1);
+  assert.equal(rounds[0].index, 0);
+  assert.equal(rounds[0].conclusion, ""); // advisory: reached no gate conclusion
+  assert.equal(rounds[0].advisory, true);
+  assert.equal(rounds[0].blockers.length, 1); // findings already parsed — no second request
+  // Author-gated before anything is parsed: these findings can suppress a candidate.
+  assert.deepEqual(commentRounds([{ user: { login: "harrykim8672" }, body }], [{ sha }]), []);
+  // Reviewed a commit no longer on the PR → unplaceable, which roundsUpTo handles.
+  assert.equal(commentRounds([{ user: { login: "yorkie-agent[bot]" }, body }], [{ sha: "b".repeat(40) }])[0].index, -1);
 });
 
 // --- isHumanFollowupCommit ---------------------------------------------------
@@ -194,14 +355,176 @@ const CR_MAJOR_STABILITY =
   "_🩺 Stability & Availability_ | _🟠 Major_ | _⚡ Quick win_\n\n**Missing `if: always()`.**\n\nThe step is skipped on failure.";
 const CR_REPLY = "`@dlgpdmsly2`, thanks for the thorough fix and verification. The revised distinction is correct.";
 
+// The other three vintages, each VERBATIM from this repository's API. They are
+// pinned with their PR and comment id so anyone can re-fetch and diff them; a
+// hand-written header only proves the regex matches its author's idea of the
+// format, which is how the three-field-only version shipped in the first place.
+//
+// `repos/wafflebase/wafflebase/pulls/comments` → comment 3733719133 (PR #692,
+// 2026-08-07). NOTE THE DATE: the two-field header is not a retired vintage, it
+// is current output with the effort field omitted.
+const CR_TWO_FIELD_LIVE =
+  "_🩺 Stability & Availability_ | _🟠 Major_\n\n**Reap the process group on `exit`, not only on `close`.**\n\nA leaked descendant can retain `proc.stdout` or `proc.stderr` after the shell exits.";
+// comment 2837785711 (PR #15, 2026-02-22) — two fields, UPSTREAM vocabulary.
+const CR_TWO_FIELD_UPSTREAM =
+  "_⚠️ Potential issue_ | _🟠 Major_\n\n**No timeout on `fetch` calls — requests can hang indefinitely.**\n\n`sendSignedRequest` delegates to `fetch` (Line 262) without an `AbortSignal` timeout.";
+// comment 2041141880 (PR #11, 2025-04-13) — ONE italic field, and it is a
+// CATEGORY.
+const CR_SINGLE_ITALIC =
+  "_🛠️ Refactor suggestion_\n\n**Add error handling to the useMe hook.**\n\nCurrently, errors from `fetchMe()` are handled within that function via toast messages.";
+// comment 1702452902 (PR #6, 2024-08-03) — no header at all, straight to the
+// bolded title.
+const CR_BOLD_TITLE =
+  "**Consider optimizing the `hasContents` method.**\n\nThe current implementation iterates through each reference in the range and checks the store.";
+// comment 3457646724 (PR #407, 2026-06-23T06:56:21Z) — the FIRST comment in the
+// CHILL vocabulary, three fields.
+const CR_THREE_FIELD_CHILL =
+  "_🔒 Security & Privacy_ | _🟠 Major_ | _⚡ Quick win_\n\n**Validate `srgb` input before embedding it into XML.**\n\n`colorChildXml` currently interpolates raw `c.value` into `val=\"...\"`.";
+
 test("classifyCodeRabbitComment: reads the header this repo actually emits", () => {
   assert.deepEqual(classifyCodeRabbitComment(CR_MAJOR_CORRECTNESS), {
     category: "functional correctness",
+    vocabulary: "chill",
     severity: "major",
+    severityRaw: "major",
+    effort: "heavy lift",
+    vintage: "three-field",
     lens: "correctness",
     summary: "Guard public mutation APIs at the read-only boundary.",
+    detail:
+      "**Guard public mutation APIs at the read-only boundary.** This flag only protects event handlers.",
   });
   assert.equal(classifyCodeRabbitComment(CR_MAJOR_SECURITY).lens, "security");
+});
+
+test("classifyCodeRabbitComment: reads all FOUR header vintages, from real bodies", () => {
+  // The regex this replaces required three italic fields, so eras 1 and 2 —
+  // 550 of the 1485 inline findings in this repo, measured 2026-08-07 — returned
+  // null and read as "CodeRabbit said nothing here".
+  const live = classifyCodeRabbitComment(CR_TWO_FIELD_LIVE);
+  assert.equal(live.vintage, "two-field");
+  assert.equal(live.category, "stability & availability");
+  assert.equal(live.vocabulary, "chill");
+  assert.equal(live.severity, "major");
+  assert.equal(live.effort, ""); // the field the two-field vintage omits
+
+  const upstream = classifyCodeRabbitComment(CR_TWO_FIELD_UPSTREAM);
+  assert.equal(upstream.vintage, "two-field");
+  assert.equal(upstream.category, "potential issue");
+  assert.equal(upstream.vocabulary, "upstream");
+  assert.equal(upstream.severity, "major");
+
+  const single = classifyCodeRabbitComment(CR_SINGLE_ITALIC);
+  assert.equal(single.vintage, "single-italic");
+  assert.equal(single.category, "refactor suggestion");
+  assert.equal(single.severity, ""); // this vintage states no severity at all
+
+  const bold = classifyCodeRabbitComment(CR_BOLD_TITLE);
+  assert.equal(bold.vintage, "bold-title");
+  assert.equal(bold.category, "");
+  assert.equal(bold.severity, "");
+  assert.equal(bold.summary, "Consider optimizing the `hasContents` method.");
+
+  assert.equal(classifyCodeRabbitComment(CR_THREE_FIELD_CHILL).vintage, "three-field");
+});
+
+test("classifyCodeRabbitComment: WHICH vocabulary the category came from is kept", () => {
+  // The switch was sharp — last upstream-vocabulary comment 2026-06-22T00:20:46Z,
+  // first CHILL one 2026-06-23T06:56:21Z — so era is a real confound in any count
+  // taken across it. A parser that normalised both into one shape would make "did
+  // the format change?" unanswerable from the output.
+  assert.equal(classifyCodeRabbitComment(CR_THREE_FIELD_CHILL).vocabulary, "chill");
+  assert.equal(classifyCodeRabbitComment(CR_TWO_FIELD_UPSTREAM).vocabulary, "upstream");
+});
+
+test("classifyCodeRabbitComment: a lone italic field is a category OR an effort", () => {
+  // 212 of the 226 single-field headers in this repo's review bodies are EFFORTS
+  // (`_⚡ Quick win_`), not categories. Reading position 1 as "the category" would
+  // file "quick win" as a CodeRabbit category on every one of them.
+  const effort = classifyCodeRabbitComment("_⚡ Quick win_\n\n**Coverage gap.**\n\nprose");
+  assert.equal(effort.effort, "quick win");
+  assert.equal(effort.category, "");
+  assert.equal(classifyCodeRabbitComment(CR_SINGLE_ITALIC).category, "refactor suggestion");
+  assert.equal(classifyCodeRabbitComment(CR_SINGLE_ITALIC).effort, "");
+});
+
+test("classifyCodeRabbitComment: the `_` delimiter also occurs INSIDE a field", () => {
+  // GitHub emoji shortcodes contain underscores. A `_([^_]+)_` field regex stops
+  // at the first inner underscore and drops the finding — this is real, from
+  // review 2526885510 on PR #10 (2025-01-01).
+  const f = classifyCodeRabbitComment("_:hammer_and_wrench: Refactor suggestion_\n\n**Update the action version**\n\nprose");
+  assert.equal(f.category, "refactor suggestion");
+  assert.equal(f.vintage, "single-italic");
+});
+
+test("classifyCodeRabbitComment: non-findings are null, NOT default-severity findings", () => {
+  // This is why severity is read only AFTER a header matched. normalizeSeverity
+  // maps anything unknown to `major` (fail-safe for a gate), so running a threaded
+  // reply through it would file every "thanks for the fix" as a blocking candidate
+  // and bury the real ones.
+  assert.equal(classifyCodeRabbitComment(CR_REPLY), null);
+  assert.equal(classifyCodeRabbitComment("<!-- walkthrough --> ## Summary by CodeRabbit"), null);
+  for (const bad of [null, undefined, "", 7, {}]) assert.equal(classifyCodeRabbitComment(bad), null);
+  // An italic line recognised in NO vocabulary is a caption, not a header.
+  assert.equal(classifyCodeRabbitComment("_see the diagram below_\n\nprose"), null);
+});
+
+test("classifyCodeRabbitComment: non-blocking severities are RETURNED, not dropped", () => {
+  // They used to be dropped HERE, which made "what CodeRabbit wrote" and "what
+  // this corpus files" the same function. The blocking-only rule is the corpus's
+  // policy and now lives at the caller — see the harvestPr test below, which is
+  // what actually holds that behaviour in place.
+  const minor = classifyCodeRabbitComment(CR_MINOR_MAINTAIN);
+  assert.equal(minor.severity, "minor");
+  assert.equal(classifyCodeRabbitComment("_🎯 Functional Correctness_ | _⚪ Nit_ | _⚡ Quick win_\n\n**x**").severity, "nit");
+});
+
+test("classifyCodeRabbitComment: `trivial` becomes `nit`, and never reaches normalizeSeverity", () => {
+  // CodeRabbit's below-minor tier. `severity.mjs`'s KNOWN has no `trivial` and maps
+  // anything unknown to `major` as a fail-safe for OUR gate, so routing it through
+  // normalizeSeverity files 307 lowest-tier nits as BLOCKING majors. Translated at
+  // the arm boundary instead: KNOWN is the shared source of truth for what blocks a
+  // PR in our panel, and our lenses never emit `trivial`.
+  const f = classifyCodeRabbitComment("_📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_\n\n**Reuse the shared type.**\n\nprose");
+  assert.equal(f.severity, "nit");
+  assert.equal(f.severityRaw, "trivial");
+  assert.ok(!BLOCKING.has(f.severity), "a trivial nit must never be blocking");
+  assert.equal(normalizeSeverity("trivial"), "major"); // the trap this avoids, still live
+});
+
+test("classifyCodeRabbitComment: an UNRECOGNISED severity is empty, not guessed", () => {
+  // The decision here is the default, not the mapping. `major` files nits as
+  // blockers; `nit` silently demotes a real blocker the day CodeRabbit adds a
+  // word. Both are silent. Empty is not: BLOCKING.has("") is false, so the finding
+  // is withheld rather than guessed into the corpus, and severityRaw names the gap.
+  const f = classifyCodeRabbitComment("_🎯 Functional Correctness_ | _🟣 Catastrophic_ | _⚡ Quick win_\n\n**x**\n\nprose");
+  assert.equal(f.severity, "");
+  assert.equal(f.severityRaw, "");
+  assert.equal(f.category, "functional correctness");
+  assert.ok(!BLOCKING.has(f.severity));
+});
+
+test("classifyCodeRabbitHeader: fields are assigned by VOCABULARY, not by position", () => {
+  // Position is not stable across vintages — the same slot holds a category in
+  // one and an effort in another — so one function reads all three arities by
+  // asking which vocabulary each field belongs to.
+  assert.deepEqual(classifyCodeRabbitHeader("_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_"), {
+    vintage: "three-field",
+    category: "functional correctness",
+    vocabulary: "chill",
+    severity: "major",
+    severityRaw: "major",
+    effort: "quick win",
+    unrecognised: [],
+  });
+  assert.equal(classifyCodeRabbitHeader("_🟠 Major_").severity, "major");
+  assert.equal(classifyCodeRabbitHeader("_🟠 Major_").category, "");
+  // A word in no vocabulary is CARRIED, not dropped and not guessed at.
+  assert.deepEqual(classifyCodeRabbitHeader("_🎯 Functional Correctness_ | _🟣 Catastrophic_").unrecognised, ["catastrophic"]);
+  // Not a header at all.
+  assert.equal(classifyCodeRabbitHeader("**A bolded title.**"), null);
+  assert.equal(classifyCodeRabbitHeader("_a_ | _b_ | _c_ | _d_"), null);
+  assert.equal(classifyCodeRabbitHeader(""), null);
 });
 
 test("classifyCodeRabbitComment: only unambiguous categories get a lens", () => {
@@ -213,21 +536,739 @@ test("classifyCodeRabbitComment: only unambiguous categories get a lens", () => 
   assert.equal(stability.lens, "");
 });
 
-test("classifyCodeRabbitComment: non-findings are null, NOT default-severity findings", () => {
-  // This is why severity is read only AFTER a header matched. normalizeSeverity
-  // maps anything unknown to `major` (fail-safe for a gate), so running a threaded
-  // reply through it would file every "thanks for the fix" as a blocking candidate
-  // and bury the real ones.
-  assert.equal(classifyCodeRabbitComment(CR_REPLY), null);
-  assert.equal(classifyCodeRabbitComment("<!-- walkthrough --> ## Summary by CodeRabbit"), null);
-  for (const bad of [null, undefined, "", 7, {}]) assert.equal(classifyCodeRabbitComment(bad), null);
+// --- codeRabbitTitle: a title is prose, never code ---------------------------
+//
+// comment 3651715274 (PR #549, 2026-07-26), trimmed in the middle — the web-query
+// text and two more script blocks are cut, and the cut is marked. Nothing is
+// reordered and no line is rewritten, because the ORDER is the whole fixture: the
+// `🧩 Analysis chain` block comes FIRST, and the title comes after it.
+const CR_ANALYSIS_CHAIN_FIRST = [
+  "_🔒 Security & Privacy_ | _🟡 Minor_ | _⚡ Quick win_",
+  "",
+  "<details>",
+  "<summary>🧩 Analysis chain</summary>",
+  "",
+  "🏁 Script executed:",
+  "",
+  "```shell",
+  "#!/bin/bash",
+  "echo \"== dependency mentions ==\"",
+  "rg -n '\"markdown-it\"' -S . --glob '!**/node_modules/**' --glob '!**/dist/**'",
+  "```",
+  "",
+  "Repository: wafflebase/wafflebase",
+  "",
+  "Length of output: 3380",
+  "",
+  "</details>",
+  "",
+  "**Pin the markdown-it dependency or switch to the public `getRules()` API.**",
+  "",
+  "`packages/notes/package.json` declares `markdown-it: \"^14.1.0\"` while the notes package currently resolves `14.3.0`.",
+  "",
+  "<details>",
+  "<summary>🤖 Prompt for AI Agents</summary>",
+  "",
+  "```",
+  "Verify each finding against current code. Fix only still-valid issues.",
+  "```",
+  "",
+  "</details>",
+  "",
+  "<!-- cr-comment:v1:89e5b52cfcb0fcabce0e12a0 -->",
+].join("\n");
+
+test("classifyCodeRabbitComment: a `**` inside a shell command is not a title", () => {
+  // THE REGRESSION THIS EXISTS FOR. `--glob '!**/node_modules/**'` contains a
+  // bolded-looking span, and it is the FIRST one in the body — 2129 bytes before
+  // the real title in the comment this fixture came from. Unguarded, the finding's
+  // summary was the string `/node_modules/`, which then scored 0.46-0.75 against
+  // six panel findings on location alone and reached a human adjudication queue.
+  const f = classifyCodeRabbitComment(CR_ANALYSIS_CHAIN_FIRST);
+  assert.equal(f.summary, "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  assert.notEqual(f.summary, "/node_modules/");
 });
 
-test("classifyCodeRabbitComment: non-blocking severities are dropped", () => {
-  // The corpus measures the GATE. A minor maintainability note our panel also did
-  // not raise is not a gate failure.
-  assert.equal(classifyCodeRabbitComment(CR_MINOR_MAINTAIN), null);
-  assert.equal(classifyCodeRabbitComment("_🎯 Functional Correctness_ | _⚪ Nit_ | _⚡ Quick win_\n\n**x**"), null);
+test("classifyCodeRabbitComment: a title AFTER a `<details>` block is still a title", () => {
+  // The other half of the same rule, and the reason the search is code-blind rather
+  // than truncated at the first structured block. 200 of this repo's 1588 inline
+  // findings (12.6%) open with a `🧩 Analysis chain` block and state their title
+  // after it; stopping at the first block would return "" for every one of them.
+  // Measured 2026-08-12 over all 2061 CodeRabbit inline comments.
+  assert.ok(CR_ANALYSIS_CHAIN_FIRST.indexOf("<details>") < CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the"));
+  assert.equal(codeRabbitTitle(CR_ANALYSIS_CHAIN_FIRST), "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  // And the title sits BETWEEN the two fenced blocks, which is the ordinary shape:
+  // an analysis chain above it, an AI-agents block below. Each fenced span must be
+  // removed on its own — one greedy match from the first fence to the last would
+  // swallow the title along with them.
+  const fences = [...CR_ANALYSIS_CHAIN_FIRST.matchAll(/```/g)].map((m) => m.index);
+  assert.equal(fences.length, 4, "the fixture must keep BOTH fenced blocks for that to be a real risk");
+  assert.ok(fences[1] < CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the"));
+  assert.ok(CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the") < fences[2]);
+});
+
+// comment 2884648659 (PR #21, 2026-03), trimmed at the end only. Its `💡 Result:`
+// narrative is UNFENCED prose inside the analysis chain, and it opens with three
+// bolded spans before the finding's real title appears below the block.
+const CR_UNFENCED_BOLD_IN_CHAIN = [
+  "_⚠️ Potential issue_ | _🟠 Major_",
+  "",
+  "<details>",
+  "<summary>🧩 Analysis chain</summary>",
+  "",
+  "🌐 Web query:",
+  "",
+  "`React 19 Strict Mode useState functional updater multiple invocations`",
+  "",
+  "💡 Result:",
+  "",
+  "In **React 19** (as in React 18), if you have **`<React.StrictMode>` enabled in development**, React may **invoke your `useState` functional updater more than once** (often twice).",
+  "",
+  "</details>",
+  "",
+  "**Avoid side effects inside the `setDefinition` updater callback.**",
+  "",
+  "The updater runs twice under Strict Mode.",
+].join("\n");
+
+test("codeRabbitTitle: UNFENCED bold inside an analysis chain is not a title either", () => {
+  // Raised in review on #801, and it was right. Skipping fenced code alone is not
+  // enough — the `💡 Result:` narrative is LLM prose, not code, and uses bold freely.
+  // On this body the fence-only rule returned `React 19`. Measured over all 2061
+  // inline comments it returned 16 titles that disagree with the prose, of which
+  // `Don't use`, `React 19`, `strings` and `` `DefaultLocale()` `` are web-answer
+  // fragments. The fix is that the title now reads the SAME machinery-stripped region
+  // `codeRabbitDetail` does, so the two cannot disagree about what is prose.
+  assert.equal(
+    codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN),
+    "Avoid side effects inside the `setDefinition` updater callback.",
+  );
+  assert.notEqual(codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN), "React 19");
+  // The title and the detail must agree on what counts as prose. That is the
+  // invariant; the two readers disagreeing is the whole defect this file keeps fixing.
+  const detail = codeRabbitDetail(CR_UNFENCED_BOLD_IN_CHAIN);
+  assert.ok(detail.includes(codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN)), "the title is not inside the detail");
+  assert.doesNotMatch(detail, /React 19|StrictMode/, "the web answer reached the compared text");
+});
+
+test("codeRabbitTitle: a title is never SPLICED across a removed span", () => {
+  // Raised in review on #801. Every removed span becomes a newline, so a `/s`-flagged
+  // bold match joins an unclosed `**` above a fence to a stray `**` below it and
+  // returns a string that appears in no line of the comment. That is worse than
+  // returning markup, because it reads like prose. The single-line match makes it
+  // unrepresentable rather than unlikely.
+  const spliced = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "Use **bold to start but never close it",
+    "",
+    "```sh",
+    "code",
+    "```",
+    "",
+    "and then** later text",
+    "",
+    "**The real title.**",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(spliced), "The real title.");
+  assert.notEqual(codeRabbitTitle(spliced), "bold to start but never close it and then");
+  // The same join happens where a `<details>` block was dissolved, not just a fence.
+  const acrossBlock = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "Use **bold that never closes",
+    "",
+    "<details>",
+    "<summary>🤖 Prompt for AI Agents</summary>",
+    "",
+    "x",
+    "",
+    "</details>",
+    "",
+    "and then** more",
+    "",
+    "**The actual title.**",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(acrossBlock), "The actual title.");
+});
+
+test("codeRabbitTitle: a tilde run cannot close a backtick fence", () => {
+  // A nit in the same review, and correct: `` \1[`~]* `` accepted ```` ```~~~ ```` as
+  // a closer. CommonMark requires the closer to use the opener's character, and a rule
+  // that says otherwise is a rule that will be believed.
+  // The discriminating shape is a closer that STARTS with the opener's delimiter and
+  // then carries the other one. `~~~` alone never closed a backtick fence, in either
+  // spelling, so a fixture using that cannot tell the two apart — the first version of
+  // this test did, and the mutation survived it.
+  const mixed = ["_h_ | _🟠 Major_", "", "```sh", "x **not a title** y", "```~~~", "", "**The real title.**"].join("\n");
+  // Per CommonMark that is not a closing fence, so the block runs to the end and
+  // EVERYTHING after it is code. `""` is the honest answer; accepting the mixed run
+  // would return "The real title." by luck, and rejecting it without consuming to the
+  // end would return `not a title` — markup, which is the outcome this file exists to
+  // prevent. All three differ, which is what makes this worth asserting.
+  assert.equal(codeRabbitTitle(mixed), "");
+  assert.notEqual(codeRabbitTitle(mixed), "not a title");
+  // Each delimiter closes its own kind, and a title ABOVE an unclosed fence survives.
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n```sh\nx **not a title** y\n```\n\n**Backticks.**"), "Backticks.");
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n~~~sh\nx **not a title** y\n~~~\n\n**Tildes.**"), "Tildes.");
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n**Above it.**\n\n```sh\nunclosed **x**"), "Above it.");
+});
+
+test("codeRabbitTitle: CRLF bodies behave exactly as LF ones", () => {
+  // Also raised in review, on the reasoning that a multiline `$` matches only before
+  // `\n`. In JavaScript it matches before any LineTerminator, and CR is one, so the
+  // closing-fence branch works unchanged — asserted here rather than argued, and
+  // pinned so a future rewrite of the fence pattern cannot quietly break it.
+  const lf = CR_UNFENCED_BOLD_IN_CHAIN;
+  assert.equal(codeRabbitTitle(lf.replace(/\n/g, "\r\n")), codeRabbitTitle(lf));
+  const fenced = "_h_ | _🟠 Major_\n\n````markdown\n```sh\nrg --glob '!**/node_modules/**'\n```\n````\n\n**Real title.**";
+  assert.equal(codeRabbitTitle(fenced.replace(/\n/g, "\r\n")), "Real title.");
+  assert.equal(codeRabbitDetail(fenced.replace(/\n/g, "\r\n")), codeRabbitDetail(fenced));
+});
+
+test("codeRabbitTitle: a fence is closed by ITS OWN length, not by a shorter inner one", () => {
+  // Raised in review on #801. A four-backtick fence may legally contain a
+  // three-backtick one — that is the reason to open with four, to quote markdown
+  // inside markdown — and 35 of this repo's 2061 CodeRabbit inline comments do it.
+  // Closing on a fixed ``` would end the span at the INNER run and hand the rest of
+  // the block back to the title search as prose, which is the defect this whole
+  // function exists to prevent.
+  const body = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "````markdown",
+    "```sh",
+    "rg --glob '!**/node_modules/**'",
+    "```",
+    "````",
+    "",
+    "**Add a language tag to the fenced block.**",
+    "",
+    "prose",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(body), "Add a language tag to the fenced block.");
+  assert.notEqual(codeRabbitTitle(body), "/node_modules/");
+});
+
+test("codeRabbitTitle: tilde fences count as code too, at any delimiter length", () => {
+  // Pure widening — CommonMark allows `~~~` and CodeRabbit has emitted none here yet
+  // (0 of 2061 inline comments, 0 of 614 review bodies). Kept because the failure
+  // mode if it ever does is markup becoming a finding's summary, and because the two
+  // delimiters cannot be mixed: a `~~~` run must not close a ``` fence.
+  const tilde = "_🎯 Functional Correctness_ | _🟠 Major_\n\n~~~sh\nrg --glob '!**/dist/**'\n~~~\n\n**Quote the glob.**\n\nprose";
+  assert.equal(codeRabbitTitle(tilde), "Quote the glob.");
+  const longTilde = "_🎯 Functional Correctness_ | _🟠 Major_\n\n~~~~\n~~~\n**not a title**\n~~~\n~~~~\n\n**The real title.**\n\nprose";
+  assert.equal(codeRabbitTitle(longTilde), "The real title.");
+  // A fence opened with backticks is NOT closed by tildes, so it never closes — and an
+  // unclosed fence runs to the end, which means the bold below it is inside code. `""`
+  // rather than `Still parses.`, and this assertion was written the other way round in
+  // the first review round: it pinned the old "an unclosed fence strips nothing"
+  // behaviour and went red when that changed, which is what it was for.
+  const mixed = "_🎯 Functional Correctness_ | _🟠 Major_\n\n```sh\n~~~\n\n**Still parses.**";
+  assert.equal(codeRabbitTitle(mixed), "");
+});
+
+test("codeRabbitTitle: a backticked identifier INSIDE a title survives", () => {
+  // This is the test that bounds the fix. The fence rule is anchored to line start,
+  // which leaves inline code spans unstripped — and the tempting next step is to
+  // strip those too. It must not happen: a real title routinely quotes a symbol, and
+  // removing inline spans before the bold search deletes the identifier out of the
+  // middle of the title. The title below is verbatim from comment 3651715274.
+  const f = classifyCodeRabbitComment(
+    "_🔒 Security & Privacy_ | _🟡 Minor_\n\n**Pin the markdown-it dependency or switch to the public `getRules()` API.**\n\nprose",
+  );
+  assert.equal(f.summary, "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  assert.match(f.summary, /`getRules\(\)`/, "the backticked identifier was stripped out of the title");
+});
+
+test("codeRabbitTitle: an UNCLOSED fence swallows what follows, not what precedes", () => {
+  // Per CommonMark an unclosed fence means everything after it is code, and that is what
+  // the rule now does. The consequence that matters: a title ABOVE such a fence is
+  // outside the span and survives, while a `**` below it is code and is not a title.
+  const f = classifyCodeRabbitComment("_🎯 Functional Correctness_ | _🟠 Major_\n\n**A real title.**\n\n```sh\nunclosed **not this**");
+  assert.equal(f.summary, "A real title.");
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\n```sh\nunclosed **not this**"), "");
+  // And an inline code span is not a fence: it must not be treated as a block.
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\nsee `x` then **The title.**"), "The title.");
+});
+
+test("codeRabbitTitle: an HTML comment cannot supply a title, and absent stays absent", () => {
+  // `<!-- … -->` is markup for the same reason a fence is. And a body with no
+  // bolded span anywhere yields "" rather than a manufactured first sentence:
+  // `findingKey` is `file::summary`, so a fabricated title is not a neutral
+  // placeholder — it is a key nothing can distinguish from a real one.
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\n<!-- **not a title** -->\n\nprose"), "");
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\nprose with no bold at all"), "");
+  assert.equal(codeRabbitTitle(""), "");
+  for (const bad of [null, undefined, 7, {}]) assert.equal(codeRabbitTitle(bad), "");
+});
+
+// --- parseCodeRabbitReview ---------------------------------------------------
+//
+// Every fixture below is a VERBATIM slice of a real `pulls/{n}/reviews` response,
+// pinned with its PR and review id. Truncated at the end only — never edited.
+
+// review 4628429920 (PR #435, 2026-07-03). The modern shape: a tier section
+// wrapping one file sub-section per file, each declaring its own count.
+const RV_NITPICK = [
+  "<details>",
+  "<summary>🧹 Nitpick comments (2)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>packages/slides/src/import/pptx/text.ts (1)</summary><blockquote>",
+  "",
+  "`97-114`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_",
+  "",
+  "**Reuse the shared `TextInset` type instead of an inline duplicate.**",
+  "",
+  "The return type here structurally duplicates `TextInset` from `../../model/element`.",
+  "",
+  "</blockquote></details>",
+  "<details>",
+  "<summary>packages/slides/src/view/canvas/text-renderer.ts (1)</summary><blockquote>",
+  "",
+  "`185-222`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_",
+  "",
+  "**Add a direct regression test for the `body.inset` fallback**",
+  "",
+  "A small case here would lock that precedence in.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 2216686007 (PR #6, 2024-08-03). The COMBINED title, which names three
+// tiers at once, and the `Line range hint` locator.
+const RV_COMBINED_2024 = [
+  "<details>",
+  "<summary>Outside diff range, codebase verification and nitpick comments (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>src/worksheet/coordinates.ts (1)</summary><blockquote>",
+  "",
+  "`120-155`: **LGTM! Consider adding inline comments for clarity.**",
+  "",
+  "The `toBorderRanges` function correctly calculates and returns the border ranges.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 4698770133 (PR #477, 2026-07-14). The BARE locator — no backticks.
+const RV_FAILED_TO_POST = [
+  "<details>",
+  "<summary>🛑 Comments failed to post (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>docs/design/design-system-unification.md (1)</summary><blockquote>",
+  "",
+  "62-75: _📐 Maintainability & Code Quality_ | _🟡 Minor_ | _⚡ Quick win_",
+  "",
+  "**Update the remaining CSS import example.**",
+  "",
+  "Change it to `@wafflebase/core/tokens.css`.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 2216686007 (PR #6). `Line range hint` prefixes the locator, and the
+// header is a bolded title on the NEXT line.
+const RV_LINE_RANGE_HINT = [
+  "<details>",
+  "<summary>Additional comments not posted (2)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>test/sheet/sheet.test.ts (2)</summary><blockquote>",
+  "",
+  "Line range hint `4-15`: ",
+  "**LGTM! The test case is well-structured and covers the basic functionality.**",
+  "",
+  "The test case for setting and getting data in the `Sheet` class correctly validates.",
+  "",
+  "---",
+  "",
+  "Line range hint `17-22`: ",
+  "**LGTM! The test case is well-structured and covers the expected behavior.**",
+  "",
+  "The test case for updating the selection correctly validates the expected behavior.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+test("parseCodeRabbitReview: reads the tier the inline endpoint cannot see", () => {
+  // `pulls/{n}/comments` does not return these. They are nested in the REVIEW
+  // body, an endpoint this module never called: 1626 findings across 638 PRs,
+  // against 436 the inline path returned. Measured 2026-08-07.
+  const { findings, declared, shortfall } = parseCodeRabbitReview(RV_NITPICK);
+  assert.equal(declared, 2);
+  assert.equal(findings.length, 2);
+  assert.equal(shortfall, 0);
+  assert.equal(findings[0].tier, "nitpick");
+  assert.equal(findings[0].file, "packages/slides/src/import/pptx/text.ts");
+  assert.equal(findings[0].locator, "97-114");
+  assert.equal(findings[0].severity, "nit"); // `Trivial`, translated
+  assert.equal(findings[0].summary, "Reuse the shared `TextInset` type instead of an inline duplicate.");
+  // The SECOND file's finding, which a non-counting blockquote scan loses: the
+  // tier section would end at the first inner `</blockquote>`.
+  assert.equal(findings[1].file, "packages/slides/src/view/canvas/text-renderer.ts");
+});
+
+test("parseCodeRabbitReview: the count travels with its DENOMINATOR", () => {
+  // Every defect this parser has had was a smaller-than-truth count that looked
+  // like a working one. `declared` is CodeRabbit's own section total, so "no
+  // nitpicks" and "could not read the nitpicks" stop being the same number.
+  const { declared, findings, shortfall } = parseCodeRabbitReview(
+    RV_NITPICK.replace("🧹 Nitpick comments (2)", "🧹 Nitpick comments (5)"),
+  );
+  assert.equal(declared, 5);
+  assert.equal(findings.length, 2);
+  assert.equal(shortfall, 3);
+});
+
+test("parseCodeRabbitReview: all three section-title vintages, and all three locators", () => {
+  // The 2024 title names three tiers at once, so a keyword match on "Nitpick
+  // comments" misses it — and an unmatched section contributes neither findings
+  // NOR its declared count, so the shortfall check reports a clean 0 of 0.
+  const combined = parseCodeRabbitReview(RV_COMBINED_2024);
+  assert.equal(combined.declared, 1);
+  assert.equal(combined.findings.length, 1);
+  assert.equal(combined.findings[0].tier, "combined");
+  assert.equal(combined.findings[0].vintage, "bold-title");
+
+  // Bare locator, no backticks.
+  const failed = parseCodeRabbitReview(RV_FAILED_TO_POST);
+  assert.equal(failed.findings.length, 1);
+  assert.equal(failed.findings[0].tier, "failed-to-post");
+  assert.equal(failed.findings[0].locator, "62-75");
+  assert.equal(failed.findings[0].severity, "minor");
+
+  // `Line range hint` prefix, with the title on the following line.
+  const hinted = parseCodeRabbitReview(RV_LINE_RANGE_HINT);
+  assert.equal(hinted.declared, 2);
+  assert.equal(hinted.findings.length, 2);
+  assert.equal(hinted.findings[0].locator, "4-15");
+  assert.equal(hinted.findings[0].file, "test/sheet/sheet.test.ts");
+});
+
+test("parseCodeRabbitReview: the TIER is kept on every finding, never pooled", () => {
+  // They are different claims. A ♻️ Duplicate is the same defect said twice and
+  // double-counts any volume metric; ⚠️ Outside diff range is about code the PR
+  // did not touch, which is a different comparison entirely. A scorer can pool
+  // later; it cannot unpool.
+  const dup = parseCodeRabbitReview(RV_NITPICK.replace("🧹 Nitpick comments (2)", "♻️ Duplicate comments (2)"));
+  assert.deepEqual([...new Set(dup.findings.map((f) => f.tier))], ["duplicate"]);
+  const odr = parseCodeRabbitReview(RV_NITPICK.replace("🧹 Nitpick comments (2)", "⚠️ Outside diff range comments (2)"));
+  assert.deepEqual([...new Set(odr.findings.map((f) => f.tier))], ["outside-diff-range"]);
+});
+
+test("parseCodeRabbitReview: a tier it does not know is REPORTED, not skipped", () => {
+  // CodeRabbit has introduced four tier names on this repo already. An unknown one
+  // is indistinguishable, from the outside, from a review that found nothing —
+  // which is the one conclusion this module must never reach by accident.
+  const { findings, declared, unrecognised } = parseCodeRabbitReview(
+    RV_NITPICK.replace("🧹 Nitpick comments (2)", "🆕 Speculative comments (2)"),
+  );
+  assert.equal(findings.length, 0);
+  assert.equal(declared, 0);
+  assert.deepEqual(unrecognised, [{ title: "🆕 Speculative comments", declared: 2 }]);
+  // File sub-sections and the housekeeping sections are NOT reported as unknown.
+  assert.deepEqual(parseCodeRabbitReview(RV_NITPICK).unrecognised, []);
+  assert.deepEqual(
+    parseCodeRabbitReview("<details><summary>📒 Files selected for processing (4)</summary></details>").unrecognised,
+    [],
+  );
+});
+
+// review 4881457209 (PR #716, 2026-08-07T09:05:21Z) — VERBATIM, including the
+// `> ` on every line. CodeRabbit puts the outside-diff-range tier inside a GitHub
+// alert block, which quotes the whole section: 96 of this repo's 558 CodeRabbit
+// review bodies look like this, back to 2026-04.
+const RV_ALERT_QUOTED = [
+  "**Actionable comments posted: 3**",
+  "",
+  "> [!CAUTION]",
+  "> Some comments are outside the diff and can’t be posted inline due to platform limitations.",
+  "> ",
+  "> <details>",
+  "> <summary>⚠️ Outside diff range comments (1)</summary><blockquote>",
+  "> ",
+  "> <details>",
+  "> <summary>scripts/agent/eval/run.mjs (1)</summary><blockquote>",
+  "> ",
+  "> `421-426`: _🔒 Security & Privacy_ | _🟠 Major_ | _⚡ Quick win_",
+  "> ",
+  "> **Validate `commit` before using it as a path segment.**",
+  "> ",
+  "> `dest` is `path.join(cacheRoot, commit)`, and `commit` comes from `input.meta?.review_commit`.",
+  "> ",
+  "> <details>",
+  "> <summary>🤖 Prompt for AI Agents</summary>",
+  "> ",
+  "> ```",
+  "> Verify each finding against current code. Fix only still-valid issues, skip the",
+  "> rest with a brief reason, keep changes minimal, and validate.",
+  "> ```",
+  "> ",
+  "> </details>",
+  "> ",
+  "> <!-- cr-comment:v1:a75b5b8a102fa57e5705e12a -->",
+  "> ",
+  "> </blockquote></details>",
+  "> ",
+  "> </blockquote></details>",
+].join("\n");
+
+test("parseCodeRabbitReview: a tier quoted inside a GitHub alert block", () => {
+  // Every line carries `> `, so anything anchored on `^` without tolerating it
+  // fails. The counts came out right here from the start; `detail` did not, which
+  // is why this asserts the FIELD and not just the tally.
+  const { findings, declared, shortfall } = parseCodeRabbitReview(RV_ALERT_QUOTED);
+  assert.equal(declared, 1);
+  assert.equal(shortfall, 0);
+  const f = findings[0];
+  assert.equal(f.tier, "outside-diff-range");
+  assert.equal(f.file, "scripts/agent/eval/run.mjs"); // from the enclosing <summary>, not the finding's line
+  assert.equal(f.locator, "421-426"); // the ONLY location a body finding has
+  assert.equal(f.category, "security & privacy");
+  assert.equal(f.severity, "major");
+  assert.equal(f.lens, "security"); // the existing category→lens map, unchanged
+  assert.equal(f.summary, "Validate `commit` before using it as a path segment.");
+});
+
+// CONSTRUCTED, and labelled as such because every other RV_ fixture here is real.
+// It is the review-body shape of the inline defect: a finding whose prose states no
+// bolded title, followed by the `🤖 Prompt for AI Agents` block every finding ends
+// with. A span runs to the NEXT locator, so that block is inside it — and the
+// command it quotes contains `**`.
+const RV_NO_TITLE_FENCED_GLOB = [
+  "<details>",
+  "<summary>🧹 Nitpick comments (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>packages/notes/src/view/list-empty-bullet-plugin.ts (1)</summary><blockquote>",
+  "",
+  "`202-214`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_",
+  "",
+  "The private ruler registry is read by name here.",
+  "",
+  "<details>",
+  "<summary>🤖 Prompt for AI Agents</summary>",
+  "",
+  "```",
+  "rg -n 'markdown-it' -S . --glob '!**/node_modules/**'",
+  "```",
+  "",
+  "</details>",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 2044318318 (PR #10, 2025-04-14). The 2025 shape, and the one that makes
+// WHICH TEXT the title is read from a real decision: the title sits ON the locator
+// line, so a reader that strips the locator strips the title with it.
+const RV_TITLE_ON_LOCATOR_LINE = [
+  "<details>",
+  "<summary>🧹 Nitpick comments (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>.github/workflows/publish-ghpage.yml (1)</summary><blockquote>",
+  "",
+  "`17-19`: **Add error handling for directory change**",
+  "",
+  "The shell script should handle potential errors when changing directory.",
+  "",
+  "```diff",
+  "-          cd frontend",
+  "+          cd frontend || exit 1",
+  "```",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+test("parseCodeRabbitReview: a title on the LOCATOR LINE survives", () => {
+  // `CR_LOCATOR`'s third group is `(.*)$` — the whole rest of the line — so the
+  // de-locatored copy that `detail` is read from has no title left in it. Reading
+  // the title from that copy instead of the raw span empties 756 of this repo's
+  // 1693 review-body findings. Caught by measurement, pinned here.
+  const { findings } = parseCodeRabbitReview(RV_TITLE_ON_LOCATOR_LINE);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].summary, "Add error handling for directory change");
+  assert.equal(findings[0].locator, "17-19");
+  // The `diff` fence must not reach the title even though it holds no `**` here —
+  // assert the shape the title came from, not just the string.
+  assert.doesNotMatch(findings[0].summary, /cd frontend/);
+});
+
+test("parseCodeRabbitReview: a fenced command never supplies a review-body title", () => {
+  // The same rule as the inline path, applied through the SAME function. Half the
+  // corpus's CodeRabbit findings arrive here (14 of 30), and this path had its own
+  // copy of the unbounded regex — so it could regress on its own.
+  const { findings, declared, shortfall } = parseCodeRabbitReview(RV_NO_TITLE_FENCED_GLOB);
+  assert.equal(declared, 1);
+  assert.equal(shortfall, 0, "the finding must still be COUNTED; only its title is in question");
+  assert.equal(findings[0].summary, "", "markup was promoted to a title");
+  assert.notEqual(findings[0].summary, "/node_modules/");
+  // The finding is still fully formed everywhere else — this changes one field.
+  assert.equal(findings[0].locator, "202-214");
+  assert.equal(findings[0].file, "packages/notes/src/view/list-empty-bullet-plugin.ts");
+  assert.equal(findings[0].severity, "nit");
+  assert.match(findings[0].detail, /private ruler registry/);
+});
+
+test("codeRabbitDetail: strips blockquote markers itself, without a de-quoting caller", () => {
+  // `parseCodeRabbitReview` already de-quotes the section body, so this strip is
+  // belt to that braces — and it is tested DIRECTLY rather than through the review
+  // path, because through that path it is unreachable and an untested guard is
+  // decoration. It is kept because this function is exported: a caller must not
+  // have to know to normalise first.
+  const quoted = [
+    "> _🔒 Security & Privacy_ | _🟠 Major_ | _⚡ Quick win_",
+    "> ",
+    "> **A quoted finding.**",
+    "> ",
+    "> The prose that should survive.",
+    "> ",
+    "> <details>",
+    "> <summary>🤖 Prompt for AI Agents</summary>",
+    "> Verify each finding against current code.",
+    "> </details>",
+  ].join("\n");
+  assert.equal(codeRabbitDetail(quoted), "**A quoted finding.** The prose that should survive.");
+  // A quote RUN, not just one level. Not observed in this repo (0 of 558 review
+  // bodies and 0 of 1891 inline comments carry a nested `> > `), but markdown nests
+  // quotes and an alert block inside a quote would produce it, so the pattern
+  // matches runs — asserted here so that `+` is not decoration.
+  assert.equal(codeRabbitDetail("> > **Nested.**\n> > \n> > Prose."), "**Nested.** Prose.");
+  // An EMPTY quoted line is sometimes `>` with no trailing space — 50 lines across
+  // 22 of this repo's review bodies. The marker has nothing after it, so the strip
+  // accepts end-of-line as well as a space; without that the bare `>` survives into
+  // the compared text as a stray token.
+  assert.equal(codeRabbitDetail("> **A title.**\n>\n> The prose."), "**A title.** The prose.");
+});
+
+test("codeRabbitDetail: a `>` that is an OPERATOR is not a blockquote marker", () => {
+  // The strip requires a space, a tab or the end of the line after the marker.
+  // Without that it eats real characters, and it did on 6 lines of this repo's own
+  // review history — `> >= 0 and findPageLine(…)` lost its `>` and became
+  // `= 0 and …`, and prose wrapping onto `>=18.12.0` or `>).value,` lost its first
+  // character. Each row below is one of those shapes.
+  const cases = [
+    // [input, expected detail, what it is]
+    ["> >= 0 and findPageLine(x) returns", ">= 0 and findPageLine(x) returns", "quoted line whose CONTENT starts with >="],
+    [">=18.12.0 is used for canvas@^3.", ">=18.12.0 is used for canvas@^3.", "unquoted prose wrapping onto >="],
+    [">) and assert the xml is escaped", ">) and assert the xml is escaped", "unquoted prose wrapping onto >)"],
+    ["> >>= 3 shifts in place", ">>= 3 shifts in place", "quoted content starting with >>="],
+    [">>= 3 shifts in place", ">>= 3 shifts in place", "unquoted >>="],
+    ["> >> 3 is a shift", ">> 3 is a shift", "quoted content starting with >>"],
+  ];
+  for (const [input, expected, what] of cases) {
+    assert.equal(codeRabbitDetail(input), expected, what);
+  }
+});
+
+test("parseCodeRabbitReview: quoted code keeps its indentation and its operators", () => {
+  // The greedy `[ \t]*` between markers swallowed the indentation of quoted code on
+  // 572 lines of this repo's review bodies. Indentation is content: a suggestion
+  // block reads as one flat column without it.
+  const body = [
+    "> <details>",
+    "> <summary>🧹 Nitpick comments (1)</summary><blockquote>",
+    "> ",
+    "> <details>",
+    "> <summary>packages/docs/src/model.ts (1)</summary><blockquote>",
+    "> ",
+    "> `10-12`: _🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_",
+    "> ",
+    "> **Guard the shift.**",
+    "> ",
+    "> The count must be `>= 0` before `acc >>= n` runs.",
+    "> ",
+    "> </blockquote></details>",
+    "> ",
+    "> </blockquote></details>",
+  ].join("\n");
+  const { findings, declared } = parseCodeRabbitReview(body);
+  assert.equal(declared, 1);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].file, "packages/docs/src/model.ts");
+  // Both operators survive into the text the matcher compares.
+  assert.ok(findings[0].detail.includes("`>= 0`"), "a >= operator was eaten");
+  assert.ok(findings[0].detail.includes("`acc >>= n`"), "a >>= operator was eaten");
+  // And the section body keeps the indentation of the code it quotes.
+  const [section] = codeRabbitReviewSections(
+    ["> <details>", "> <summary>🧹 Nitpick comments (1)</summary><blockquote>", "> ", ">      const a = 1;", "> </blockquote></details>"].join("\n"),
+  ).sections;
+  assert.ok(section.body.includes("     const a = 1;"), "quoted code lost its indentation");
+});
+
+test("codeRabbitDetail: the AI-agents boilerplate never reaches the comparison", () => {
+  // The failure this guards is named at length in codeRabbitDetail's docblock:
+  // "Verify each finding against current code…" contributes `code`, `fix`,
+  // `issues`, `changes`, `validate` to EVERY comparison, inflating containment on
+  // the vocabulary every finding already shares — eating real misses where the
+  // panel had the most findings. A `> `-quoted body defeated the prose boundary,
+  // so 146 of 1626 review-body findings (9.0%) carried it.
+  const { detail } = parseCodeRabbitReview(RV_ALERT_QUOTED).findings[0];
+  assert.ok(!detail.includes("Verify each finding against current code"), "boilerplate leaked into detail");
+  assert.ok(!detail.includes("Prompt for AI Agents"), "structured block leaked into detail");
+  assert.ok(!detail.includes("cr-comment:v1"), "the fingerprint marker leaked into detail");
+  assert.ok(!detail.includes(">"), "blockquote markers survived into detail");
+  // …and the prose that SHOULD be there still is.
+  assert.ok(detail.includes("Validate `commit` before using it as a path segment."));
+  assert.ok(detail.includes("path.join(cacheRoot, commit)"));
+});
+
+test("parseCodeRabbitReview: quoted section AND header on the next line", () => {
+  // THE ONE CONSTRUCTED FIXTURE HERE, and it is labelled because the others are
+  // not. Both halves are real and independently attested — 96 review bodies quote
+  // a tier section inside an alert block, and the header sits on the line BELOW
+  // the locator in #11 and #477 — but no body in this repo currently does both at
+  // once, so this combination is a union rather than an observation. It is kept
+  // because CodeRabbit mixes its own markup freely and the union costs one
+  // character class; if it is ever cut, cut this test with it rather than leaving
+  // an assertion nothing backs.
+  const body = [
+    "> <details>",
+    "> <summary>🧹 Nitpick comments (1)</summary><blockquote>",
+    "> ",
+    "> <details>",
+    "> <summary>scripts/agent/harvest.mjs (1)</summary><blockquote>",
+    "> ",
+    "> `12-14`: ",
+    "> <details>",
+    "> <summary>❓ Verification inconclusive</summary>",
+    "> ",
+    "> **A title below its own locator.**",
+    "> ",
+    "> prose here",
+    "> ",
+    "> </blockquote></details>",
+    "> ",
+    "> </blockquote></details>",
+  ].join("\n");
+  const { findings, declared } = parseCodeRabbitReview(body);
+  assert.equal(declared, 1);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].locator, "12-14");
+  assert.equal(findings[0].file, "scripts/agent/harvest.mjs");
+  assert.equal(findings[0].summary, "A title below its own locator.");
+});
+
+test("parseCodeRabbitReview: never throws, and degrades to fewer findings", () => {
+  for (const bad of [null, undefined, "", 7, {}, "<details><summary>🧹 Nitpick comments (2)</summary>"]) {
+    const out = parseCodeRabbitReview(bad);
+    assert.ok(Array.isArray(out.findings));
+  }
 });
 
 // --- toMissRecord ------------------------------------------------------------
@@ -237,11 +1278,19 @@ const FIELD_ORDER = [
   "lens", "severity", "origin", "summary", "panelSaw", "verifiedBy", "notes",
 ];
 
+/** `panelSaw` with nothing established and no attribution attempted. */
+const EMPTY_PANEL_SAW = {
+  reviewedSha: "", conclusion: "", blockingFindings: 0,
+  matchVerdict: "", matchScore: 0, matchedSummary: "",
+};
+
 test("toMissRecord: field order is stable, because the corpus is read in diffs", () => {
   assert.deepEqual(Object.keys(toMissRecord({})), FIELD_ORDER);
   assert.deepEqual(Object.keys(toMissRecord({ id: "x", pr: 1, files: ["a.ts"] })), FIELD_ORDER);
   assert.deepEqual(Object.keys(toMissRecord({}).evidence), ["commitSha", "commentId", "url"]);
-  assert.deepEqual(Object.keys(toMissRecord({}).panelSaw), ["reviewedSha", "conclusion", "blockingFindings"]);
+  assert.deepEqual(Object.keys(toMissRecord({}).panelSaw), [
+    "reviewedSha", "conclusion", "blockingFindings", "matchVerdict", "matchScore", "matchedSummary",
+  ]);
 });
 
 test("toMissRecord: junk coerces to safe defaults rather than throwing", () => {
@@ -252,7 +1301,7 @@ test("toMissRecord: junk coerces to safe defaults rather than throwing", () => {
   assert.equal(r.origin, "unknown");
   assert.equal(r.pr, 0);
   assert.deepEqual(r.files, []);
-  assert.deepEqual(r.panelSaw, { reviewedSha: "", conclusion: "", blockingFindings: 0 });
+  assert.deepEqual(r.panelSaw, EMPTY_PANEL_SAW);
   for (const bad of [null, undefined, "x", 7]) assert.equal(toMissRecord(bad).schema, SCHEMA);
 });
 
@@ -322,7 +1371,12 @@ test("panelVerdictAt: one failing lens means the panel did NOT let it through", 
     ["agent-review-correctness", { conclusion: "success", output: { text: "[]" } }],
     ["agent-review-test-adequacy", { conclusion: "failure", output: { text: '[{"severity":"major","summary":"vacuous test"}]' } }],
   ]);
-  assert.deepEqual(panelVerdictAt(runs), { reviewedSha: "", conclusion: "failure", blockingFindings: 1 });
+  assert.deepEqual(panelVerdictAt(runs), {
+    reviewedSha: "", conclusion: "failure", blockingFindings: 1,
+    // `normalizeFindings` keeps every field it was handed and names the four it
+    // knows, so an absent file/evidence surfaces as undefined rather than "".
+    blockers: [{ severity: "major", summary: "vacuous test", file: undefined, evidence: undefined, lens: "test-adequacy" }],
+  });
 });
 
 test("panelVerdictAt: reviewedSha comes from external_id, not the commit it hangs off", () => {
@@ -347,7 +1401,9 @@ test("panelVerdictAt: reviewedSha comes from external_id, not the commit it hang
 });
 
 test("panelVerdictAt: no lens runs is '', which is not the same as success", () => {
-  assert.deepEqual(panelVerdictAt(new Map()), { reviewedSha: "", conclusion: "", blockingFindings: 0 });
+  assert.deepEqual(panelVerdictAt(new Map()), {
+    reviewedSha: "", conclusion: "", blockingFindings: 0, blockers: [],
+  });
   for (const bad of [null, undefined, {}]) assert.equal(panelVerdictAt(bad).conclusion, "");
 });
 
@@ -397,14 +1453,54 @@ test("harvestPr: proposes both signatures, and only from reviewable code", () =>
   assert.deepEqual(fix.files, ["packages/docs/src/view/text-editor.ts"]);
   assert.deepEqual(fix.fileClasses, ["code"]);
   assert.equal(fix.summary, "Guard EditorAPI.paste()"); // first line only
-  assert.equal(fix.handoffAt, HANDOFF);
-  // the verdict that LET THE PR THROUGH — the runs on the head commit at handoff
-  assert.deepEqual(fix.panelSaw, { reviewedSha: SHA_BASE, conclusion: "success", blockingFindings: 0 });
+  // The CHECK RUN's completed_at, not the marker comment's created_at (15:48:28Z).
+  // The panel's own run is the primary source now; the marker is a fallback for a
+  // PR that has no readable round at all.
+  assert.equal(fix.handoffAt, "2026-07-24T15:40:00Z");
+  // the verdict that LET THE PR THROUGH — the round that approved
+  assert.deepEqual(fix.panelSaw, { ...EMPTY_PANEL_SAW, reviewedSha: SHA_BASE, conclusion: "success" });
 
   const cr = records.find((r) => r.source === "coderabbit");
   assert.equal(cr.lens, "correctness");
   assert.equal(cr.severity, "major");
   assert.equal(cr.evidence.commentId, "3650043440");
+});
+
+test("harvestPr: keeps ONLY blocking CodeRabbit findings — the filter the parser gave up", () => {
+  // This test is the one that holds the corpus policy in place now. It used to
+  // live inside `classifyCodeRabbitComment` ("non-blocking severities are
+  // dropped"), which meant widening the parser to read the vintages it was blind
+  // to would have flooded this corpus with nits. The parser returns everything
+  // CodeRabbit wrote; the caller decides what the corpus files.
+  const api = fakeApi({
+    [`repos/{owner}/{repo}/pulls/548/comments?per_page=100`]: [
+      { id: 10, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, body: CR_MINOR_MAINTAIN },
+      { id: 11, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, body: "_🎯 Functional Correctness_ | _🔵 Trivial_ | _⚡ Quick win_\n\n**A trivial nit.**\n\nprose" },
+      // A severity in no vocabulary we know: withheld, NOT defaulted to major.
+      { id: 12, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, body: "_🎯 Functional Correctness_ | _🟣 Catastrophic_ | _⚡ Quick win_\n\n**Unknown severity.**\n\nprose" },
+    ],
+  });
+  const { records } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.deepEqual(records.filter((r) => r.source === "coderabbit"), []);
+  // …and every severity the parser DID hand it was readable, so this is a filter
+  // rather than a parse failure.
+  assert.equal(classifyCodeRabbitComment(CR_MINOR_MAINTAIN).severity, "minor");
+});
+
+test("harvestPr: a two-field header now reaches the corpus — the widening, end to end", () => {
+  // The header on #692, posted 2026-08-07. `classifyCodeRabbitComment` returned
+  // null for it before this change, so a Major finding from CodeRabbit on a PR the
+  // panel had reviewed was filed as nothing at all.
+  const api = fakeApi({
+    [`repos/{owner}/{repo}/pulls/548/comments?per_page=100`]: [
+      { id: 3733719133, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, html_url: "https://x/d", body: CR_TWO_FIELD_LIVE },
+    ],
+  });
+  const { records } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  const cr = records.filter((r) => r.source === "coderabbit");
+  assert.equal(cr.length, 1);
+  assert.equal(cr[0].severity, "major");
+  assert.equal(cr[0].evidence.commentId, "3733719133");
 });
 
 test("harvestPr: EVERY harvested candidate is unverified", () => {
@@ -414,6 +1510,491 @@ test("harvestPr: EVERY harvested candidate is unverified", () => {
   const { records } = harvestPr(548, { api: fakeApi(), log: () => {}, names: NAMES });
   assert.ok(records.length > 0);
   for (const r of records) assert.equal(r.verifiedBy, "");
+});
+
+// --- finding-level attribution (signature 2) ---------------------------------
+
+test("codeRabbitDetail: title + prose, stopping at the first structured block", () => {
+  // Verified against the real bodies on #548/#594/#639: header → bolded title →
+  // prose → blocks, and prose never resumes afterwards.
+  const body = [
+    "_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_",
+    "",
+    "**Guard the read-only boundary.**",
+    "",
+    "`EditorAPI.paste()` mutates the store regardless of the flag.",
+    "",
+    "<details>",
+    "<summary>🤖 Prompt for AI Agents</summary>",
+    "",
+    "```",
+    "Verify each finding against current code. Fix only still-valid issues.",
+    "```",
+    "</details>",
+    "",
+    "<!-- This is an auto-generated comment by CodeRabbit -->",
+  ].join("\n");
+  const detail = codeRabbitDetail(body);
+  assert.match(detail, /Guard the read-only boundary/);
+  assert.match(detail, /EditorAPI\.paste/);
+  // The boilerplate every comment repeats must NOT reach the token comparison —
+  // it would contribute `code`, `fix`, `issues`, `validate` to every pair.
+  assert.doesNotMatch(detail, /Verify each finding/);
+  assert.doesNotMatch(detail, /Functional Correctness/); // the header line is dropped
+});
+
+test("codeRabbitDetail: prose BELOW an analysis-chain block is the detail, not empty", () => {
+  // THE DEFECT THIS EXISTS FOR. `<details>` is a container, not a terminator. On the
+  // `🧩 Analysis chain` vintage the block comes FIRST and the finding's title and prose
+  // come after it, so cutting at the first `<details>` kept only the header line — and
+  // the header-drop then removed that, leaving `""`. Two individually-correct steps
+  // composing to nothing, on 200 of this repo's 1588 inline findings (12.6%), all the
+  // way back to #11 (2025-04). The boundary landed on `<details>` in 200 of 200 cases,
+  // at a median offset of 54 bytes: the length of a header line.
+  const detail = codeRabbitDetail(CR_ANALYSIS_CHAIN_FIRST);
+  assert.notEqual(detail, "", "the prose below the analysis chain was dropped");
+  assert.match(detail, /Pin the markdown-it dependency/);
+  assert.match(detail, /lockfile-relative upgrade|currently resolves/);
+  // The machinery it sits between must still be absent, which is the whole reason
+  // `codeRabbitDetail` has a boundary at all.
+  assert.doesNotMatch(detail, /Verify each finding/, "AI-agents boilerplate leaked in");
+  assert.doesNotMatch(detail, /rg -n|node_modules/, "the analysis chain's shell transcript leaked in");
+  assert.doesNotMatch(detail, /Security & Privacy/, "the header line survived");
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "structural tags survived");
+});
+
+test("codeRabbitDetail: a non-machinery block is UNWRAPPED, not deleted", () => {
+  // The 2025 `💡 Verification agent` vintage puts the finding's own title and prose
+  // INSIDE the block. Deleting every `<details>` empties 11 of this repo's 1693
+  // review-body findings for that reason, so anything not on the machinery denylist
+  // keeps its content and loses only its tags.
+  const body = [
+    "_💡 Verification agent_",
+    "",
+    "<details>",
+    "<summary>✅ Verification successful</summary>",
+    "",
+    "**Verify theme context compatibility.**",
+    "",
+    "The destructured `theme` property assumes a particular shape.",
+    "",
+    "</details>",
+  ].join("\n");
+  const detail = codeRabbitDetail(body);
+  assert.match(detail, /Verify theme context compatibility/);
+  assert.match(detail, /destructured `theme` property/);
+  assert.doesNotMatch(detail, /Verification successful/, "the block's label is not prose");
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/);
+});
+
+test("codeRabbitDetail: NESTED blocks dissolve innermost-first, leaving no stray tag", () => {
+  // A lazy `<details>[\s\S]*?</details>` stops at the first CLOSING tag, which on
+  // CodeRabbit's nested review bodies cuts mid-structure and leaves an orphan behind.
+  //
+  // The title and prose sit BELOW the nested block deliberately. With them above it,
+  // one pass is indistinguishable from the loop: the undissolved outer `<details>`
+  // becomes the boundary and the detail comes out right for the wrong reason. Below it,
+  // a single pass leaves that outer tag standing, `CR_PROSE_END` cuts at it, and the
+  // detail is `""` — which is exactly the defect this whole change is about, so the
+  // fixture has to be able to express it.
+  const body = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "<details>",
+    "<summary>Proposed fix</summary>",
+    "",
+    "<details>",
+    "<summary>🤖 Prompt for AI Agents</summary>",
+    "",
+    "inner machinery",
+    "",
+    "</details>",
+    "",
+    "</details>",
+    "",
+    "**The title.**",
+    "",
+    "prose below the nested block",
+  ].join("\n");
+  const detail = codeRabbitDetail(body);
+  assert.match(detail, /The title\./);
+  assert.match(detail, /prose below the nested block/);
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "a nested tag survived the dissolve");
+  assert.doesNotMatch(detail, /inner machinery/, "the nested machinery block was unwrapped instead of dropped");
+});
+
+test("codeRabbitDetail: the dissolve TERMINATES on deep nesting and on unpaired tags", () => {
+  // The loop runs until a pass changes nothing, so its termination rests on every pass
+  // strictly reducing the tag count. Worth a test rather than an argument: a malformed
+  // mutation of this loop hung the suite hard enough that `--test-timeout` could not
+  // fire, because a tight loop never yields the event loop.
+  const deep = `${"<details><summary>Proposed fix</summary>".repeat(60)}core${"</details>".repeat(60)}`;
+  const detail = codeRabbitDetail(`_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n${deep}`);
+  assert.match(detail, /Title\./);
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "60 levels did not fully dissolve");
+  // Unpaired in both directions, and neither spins.
+  assert.equal(typeof codeRabbitDetail("<details>".repeat(40)), "string");
+  assert.equal(typeof codeRabbitDetail("</details>".repeat(40)), "string");
+  assert.equal(typeof codeRabbitDetail("<details><details></details>"), "string");
+});
+
+test("codeRabbitDetail: an orphaned CLOSING tag ends the prose", () => {
+  // A review-body span is sliced between two locators out of nested
+  // `<details><blockquote>`, so it routinely ends on closers belonging to an element
+  // that opened before it. Without treating those as boundaries, 735 of 1693
+  // review-body findings carried a `</details>` into the compared text.
+  const detail = codeRabbitDetail("_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n</blockquote></details>");
+  assert.equal(detail, "**Title.** prose");
+});
+
+test("codeRabbitDetail: an UNBALANCED opening block still terminates the prose", () => {
+  // The fail-safe direction. A block that cannot be paired means the body is not the
+  // shape this function understands, so it stops early and yields LESS text rather than
+  // swallowing a structured block whole.
+  const detail = codeRabbitDetail("_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\nVerify each finding against current code.");
+  assert.equal(detail, "**Title.** prose");
+  assert.doesNotMatch(detail, /Verify each finding/);
+});
+
+test("unrecognisedDetailsLabels: counts CONTENT labels and ignores machinery and structure", () => {
+  // `CR_MACHINERY_SUMMARY` is a denylist over a vocabulary CodeRabbit changes without
+  // notice — four header vintages and two category vocabularies have already turned
+  // over — so it fails OPEN: a new machinery block is unwrapped into `detail` rather
+  // than dropped. This makes that countable instead of invisible, which is the lesson
+  // this area keeps re-learning.
+  const bodies = [
+    "<details><summary>🤖 Prompt for AI Agents</summary>x</details>",
+    // The SECOND phrasing of that same block, which a review body uses. The narrower
+    // `Prompt for AI Agents` pattern missed it, and this function is what found that —
+    // it was the first thing it reported. Hence the `🤖 Prompt for` prefix.
+    "<details><summary>🤖 Prompt for all review comments with AI agents</summary>x</details>",
+    // The review-body walkthrough's own machinery, one of each per review.
+    "<details><summary>⚙️ Run configuration</summary>x</details>",
+    "<details><summary>📥 Commits</summary>x</details>",
+    "<details><summary>ℹ️ Review info</summary>x</details>",
+    "<details><summary>🪄 Autofix (Beta)</summary>x</details>",
+    "<details><summary>📝 Committable suggestion</summary>x</details>",
+    "<details><summary>🪛 markdownlint-cli2 (0.23.2)</summary>x</details>",
+    "<details><summary>Proposed fix</summary>x</details>",
+    "<details><summary>Proposed fix</summary>x</details>",
+    "<details><summary>🦄 Brand New Block Type</summary>x</details>",
+    // Review-body STRUCTURE: a tier section and a file sub-section, both declaring a
+    // count. Neither is a finding's block and counting them buries the signal.
+    "<details><summary>🧹 Nitpick comments (2)</summary><blockquote>",
+    "<details><summary>packages/notes/src/view/list-empty-bullet-plugin.ts (1)</summary><blockquote>",
+  ];
+  const got = unrecognisedDetailsLabels(bodies);
+  assert.deepEqual(got, [
+    { label: "Proposed fix", n: 2 },
+    { label: "🦄 Brand New Block Type", n: 1 },
+  ]);
+  // A single body is accepted as well as a list, so a caller need not wrap it.
+  assert.deepEqual(unrecognisedDetailsLabels("<details><summary>Suggested fix</summary>x</details>"), [
+    { label: "Suggested fix", n: 1 },
+  ]);
+  assert.deepEqual(unrecognisedDetailsLabels([]), []);
+});
+
+/** A panel check-run whose findings are `findings`. */
+const panelRun = (findings) => ({
+  [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [
+    { check_runs: [{ id: 1, name: "agent-review-correctness", app: { slug: "github-actions" }, status: "completed", conclusion: "failure", completed_at: "2026-07-24T15:40:00Z", output: { text: JSON.stringify(findings) } }] },
+  ],
+  [`repos/{owner}/{repo}/check-runs/1`]: { id: 1, name: "agent-review-correctness", conclusion: "failure", output: { text: JSON.stringify(findings) } },
+});
+
+/** One CodeRabbit review comment on #548. */
+const crComment = (body, path = "packages/docs/src/view/text-editor.ts") => ({
+  [`repos/{owner}/{repo}/pulls/548/comments?per_page=100`]: [
+    { id: 999, user: { login: "coderabbitai[bot]" }, path, original_commit_id: SHA_BASE, html_url: "https://x/d", body },
+  ],
+});
+
+test("harvestPr: a CodeRabbit finding the panel already raised is SUPPRESSED, and said so", () => {
+  // The whole point of the matcher. Before it, this comment was filed as a miss
+  // because the only thing known about the panel was a count.
+  const logged = [];
+  const api = fakeApi({
+    ...panelRun([{ severity: "major", file: "packages/docs/src/view/text-editor.ts", summary: "Public mutation APIs are not guarded at the read-only boundary, so EditorAPI.paste() still mutates the store" }]),
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records, suppressed } = harvestPr(548, { api, log: (m) => logged.push(m), names: NAMES });
+  assert.equal(suppressed, 1);
+  assert.equal(records.filter((r) => r.source === "coderabbit").length, 0);
+  // Visible, not silent: the log names the panel finding it was attributed to.
+  assert.ok(logged.some((m) => /restates a panel finding/.test(m) && /Public mutation APIs/.test(m)));
+});
+
+test("harvestPr: a CodeRabbit finding the panel did NOT raise still emits, unflagged", () => {
+  // The panel's only blocker is in a different file and shares no vocabulary:
+  // no location tie and no shared anchor, which is the one shape L2 calls `no`.
+  const api = fakeApi({
+    ...panelRun([{ severity: "major", file: "packages/sheets/src/formula/calculator.ts", summary: "Pagination recomputes every page on each keystroke, which stalls long documents" }]),
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records, suppressed } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.equal(suppressed, 0);
+  const cr = records.find((r) => r.source === "coderabbit");
+  assert.equal(cr.panelSaw.matchVerdict, "no");
+  assert.equal(cr.panelSaw.matchedSummary, "");
+  assert.doesNotMatch(cr.notes, /MAYBE/);
+});
+
+test("harvestPr: same file, unrelated defect → emitted as `maybe`, never suppressed", () => {
+  // A known and deliberate property: co-location in one file is partial evidence,
+  // so it reaches `maybe` rather than `no`. Both verdicts EMIT — the difference is
+  // only whether a curator is asked to look — so the cost of the conservative call
+  // is one line of reading, and the cost of the other direction is a lost miss.
+  const api = fakeApi({
+    ...panelRun([{ severity: "major", file: "packages/docs/src/view/text-editor.ts", summary: "Pagination recomputes every page on each keystroke, which stalls long documents" }]),
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records, suppressed } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.equal(suppressed, 0);
+  const cr = records.find((r) => r.source === "coderabbit");
+  assert.equal(cr.panelSaw.matchVerdict, "maybe");
+});
+
+test("harvestPr: an ambiguous CodeRabbit finding emits FLAGGED for the curator", () => {
+  // Same file and a shared symbol, but the summaries share almost no vocabulary.
+  // Location is necessary and never sufficient, so this is a `maybe` — emitted,
+  // because suppressing it could lose a real miss.
+  const api = fakeApi({
+    ...panelRun([{ severity: "major", file: "packages/docs/src/view/text-editor.ts", summary: "Pagination recomputes every page on each keystroke", evidence: "`pasteContent` is on that path" }]),
+    ...crComment("_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_\n\n**Unrelated wording entirely.**\n\nSomething about `pasteContent` here."),
+  });
+  const { records, suppressed } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.equal(suppressed, 0);
+  const cr = records.find((r) => r.source === "coderabbit");
+  assert.equal(cr.panelSaw.matchVerdict, "maybe");
+  assert.match(cr.notes, /MAYBE already raised by the panel/);
+});
+
+test("harvestPr: an unreadable panel verdict WITHHOLDS, because it is recoverable", () => {
+  // `blockers` stays null when the check runs could not be read, so there is no
+  // evidence the panel reviewed this PR and no basis for the claim "the panel did
+  // not raise this". Withholding writes no row, so a later harvest re-proposes the
+  // candidate once the evidence exists — whereas a wrong row, once curated, stays.
+  const api = fakeApi({
+    [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: new Error("502"),
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const logged = [];
+  const { records } = harvestPr(548, { api, log: (m) => logged.push(m), names: NAMES });
+  assert.equal(records.filter((r) => r.source === "coderabbit").length, 0);
+  assert.ok(logged.some((m) => /could not read the panel's verdict/.test(m)));
+  assert.ok(logged.some((m) => /no evidence the panel ever reviewed/.test(m)));
+});
+
+test("harvestPr: agent authorship is NOT evidence that the panel reviewed the PR", () => {
+  // Measured: of 11 agent PRs carrying CodeRabbit blockers, 9 have no
+  // `agent-review-*` check run on any commit — they match `isAgentPr` by branch
+  // prefix but never went through the panel. Trusting authorship would have filed
+  // 15 rows about a reviewer that never looked.
+  const api = fakeApi({
+    "repos/{owner}/{repo}/pulls/548": { user: { login: "yorkie-agent[bot]" }, head: { ref: "agent/482-x" } },
+    [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [
+      { check_runs: [{ id: 7, name: "verify-self (22.x)", app: { slug: "github-actions" }, status: "completed", conclusion: "success" }] },
+    ],
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.equal(records.filter((r) => r.source === "coderabbit").length, 0);
+});
+
+test("attributeToPanel: a matcher failure resolves to `maybe` — never a throw, never a suppression", () => {
+  // The fail direction, and it is deliberately in the middle. Suppressing on
+  // error would silently drop a real miss; emitting unflagged would restore the
+  // noise the matcher exists to remove.
+  const exploding = [{ get summary() { throw new Error("boom"); } }];
+  const r = attributeToPanel({ file: "a.ts", summary: "anything", evidence: "" }, exploding);
+  assert.equal(r.verdict, "maybe");
+  assert.equal(r.error, "boom");
+});
+
+test("attributeToPanel: null blockers is 'not asked'; an empty array is a real answer", () => {
+  const finding = { file: "a.ts", summary: "the guard is missing on the paste path", evidence: "" };
+  assert.equal(attributeToPanel(finding, null).verdict, "");
+  assert.equal(attributeToPanel(finding, []).verdict, "no");
+});
+
+test("attributeToPanel: compares LENS-NEUTRAL, so a lens mismatch cannot fake a miss", () => {
+  // CodeRabbit's lens is a category guess and is often "". `findingSimilarity`
+  // scores any lens mismatch 0 outright, so comparing on the raw lens would file
+  // every CodeRabbit blocker the panel raised under a different lens as a miss.
+  const cr = { lens: "", file: "a.ts", summary: "Blank skip in Arguments.iterate makes MIN and MAX return the wrong aggregate", evidence: "" };
+  const panel = [{ lens: "test-adequacy", severity: "major", file: "a.ts", summary: "Blank skip in Arguments.iterate makes MIN and MAX return the wrong aggregate", evidence: "" }];
+  assert.equal(attributeToPanel(cr, panel).verdict, "match");
+});
+
+// --- the on-demand panel's findings, read from its comment --------------------
+
+const PANEL_SHA = "7".repeat(40);
+const PANEL_BODY = [
+  `<!-- agent-review:${PANEL_SHA} -->`,
+  "### 🔴 Review panel: changes suggested",
+  "",
+  "❌ Correctness review: **changes requested** — 2 blocking (critical/major) finding(s) (1 critical, 1 major, 1 minor, 0 nit).",
+  "",
+  "Some prose the lens wrote.",
+  "### Critical (1)",
+  "- `scripts/agent/lenses/lenses.json:69` — `maxTurns: 3` with `samples: 1` makes turn exhaustion a hard blocking failure",
+  "",
+  "### Major (1)",
+  "- `scripts/agent/review-panel.mjs:817-822` — The empty-slice early return skips the prior-round re-check _(verifier could not settle this)_",
+  "",
+  "### Minor (non-blocking) (1)",
+  "- `scripts/agent/checks.mjs:18` — a minor note nobody should match against",
+  "",
+  "❌ Security review: **changes requested** — 1 blocking (critical/major) finding(s) (0 critical, 1 major, 0 minor, 0 nit).",
+  "",
+  "### Major (1)",
+  "- `scripts/agent/lenses/lenses.json:18` — security's scopeClasses omit `design-spec`, so design docs get no security reviewer",
+  "",
+  "### Demoted — real, but not caused by this change (1)",
+  "- `scripts/agent/ask.mjs:4` — pre-existing, must not be read as a finding",
+].join("\n");
+
+test("parsePanelComment: blocking findings only, across every lens section", () => {
+  const p = parsePanelComment(PANEL_BODY);
+  assert.equal(p.reviewedSha, PANEL_SHA);
+  assert.equal(p.findings.length, 3); // 1 critical + 2 major, from two lenses
+  assert.deepEqual(p.findings.map((f) => f.severity).sort(), ["critical", "major", "major"]);
+  // Minor, nit and DEMOTED rows are not findings to match against. Demoted
+  // especially: it is the panel saying "real, but not caused by this change", so
+  // suppressing a CodeRabbit blocker against it would be plainly wrong.
+  const summaries = p.findings.map((f) => f.summary).join(" ");
+  assert.doesNotMatch(summaries, /minor note nobody/);
+  assert.doesNotMatch(summaries, /pre-existing/);
+});
+
+test("parsePanelComment: the :line suffix leaves `file` but survives in `evidence`", () => {
+  // The line numbers are the sharpest location signal in the row, and extractAnchor
+  // reads summary+evidence — so they must not be discarded with the suffix.
+  const p = parsePanelComment(PANEL_BODY);
+  const f = p.findings.find((x) => /empty-slice/.test(x.summary));
+  assert.equal(f.file, "scripts/agent/review-panel.mjs");
+  assert.match(f.evidence, /817-822/);
+});
+
+test("parsePanelComment: rows enriched by the Phase 2 renderer still round-trip", () => {
+  // Cross-module contract with severity.mjs's renderSummaryMd: the corpus
+  // reader parses the RENDERED body, so every enrichment (a `file:line`
+  // locator, a verifier-outcome marker, an indented adjudication sub-bullet,
+  // the Author-reported skips section) must leave the row parseable and must
+  // not add phantom findings. Uses the real renderer, not a hand-typed copy of
+  // its output, so a drift fails here instead of in the corpus.
+  const body = [
+    `<!-- agent-review:${PANEL_SHA} -->`,
+    "### 🔴 Review panel: changes suggested",
+    "",
+    renderSummaryMd("Correctness review", [
+      { severity: "major", file: "a.mjs", line: 214, summary: "redo misses the guard",
+        verification: "confirmed-high",
+        adjudication: { upheld: 1, verdict: "upheld", reason: "covers undo only" } },
+      { severity: "major", file: "b.mjs", summary: "skipped one",
+        adjudication: { upheld: 1, verdict: "skipped-by-author", reason: "tracked in #701" } },
+    ], "prose"),
+  ].join("\n");
+  const p = parsePanelComment(body);
+  // Two blocking rows — the adjudication sub-bullets, the author-note bullet
+  // and the skips-section rows must not parse as additional findings.
+  assert.equal(p.findings.length, 2);
+  const [f, g] = p.findings;
+  assert.equal(f.file, "a.mjs"); // :214 stripped from `file`…
+  assert.match(f.evidence, /a\.mjs:214/); // …but kept in `evidence` for extractAnchor
+  assert.match(f.summary, /redo misses the guard/);
+  assert.equal(g.file, "b.mjs");
+});
+
+test("parsePanelComment: not a panel comment → null, not an empty finding set", () => {
+  assert.equal(parsePanelComment("### Critical (1)\n- `a.ts` — forged"), null);
+  assert.equal(parsePanelComment("<!-- agent-metrics-summary -->\n### Critical (1)\n- `a.ts` — x"), null);
+  assert.equal(parsePanelComment("<!-- agent-review:nothex -->"), null);
+  for (const bad of [null, undefined, 7, {}]) assert.equal(parsePanelComment(bad), null);
+});
+
+test("panelFindingsFromComments: ONLY the App may author panel findings", () => {
+  // A security gate, not tidiness. These findings can SUPPRESS a CodeRabbit
+  // candidate, so anyone who could forge a panel comment could silence real misses
+  // with no trace in the corpus. The marker alone is not enough — any user can type
+  // it. On #578 a real CodeRabbit comment contains "Review panel", so a
+  // content-only match already mis-fires before anyone tries.
+  const forged = [{ user: { login: "attacker" }, body: PANEL_BODY }];
+  assert.equal(panelFindingsFromComments(forged), null);
+  const real = [{ user: { login: "yorkie-agent[bot]" }, body: PANEL_BODY }];
+  assert.equal(panelFindingsFromComments(real).findings.length, 3);
+  assert.equal(panelFindingsFromComments([{ user: { login: "app/yorkie-agent" }, body: PANEL_BODY }]).findings.length, 3);
+});
+
+test("panelFindingsFromComments: the UNION of every review, not the newest", () => {
+  // The record claims "the panel did not raise this". A finding raised in an
+  // earlier review is one the panel raised, so keying on the newest review would
+  // write a false row into an eval corpus.
+  const second = PANEL_BODY.replace("empty-slice early return skips the prior-round re-check", "a different defect entirely here");
+  const got = panelFindingsFromComments([
+    { user: { login: "yorkie-agent[bot]" }, body: PANEL_BODY },
+    { user: { login: "yorkie-agent[bot]" }, body: second },
+  ]);
+  assert.equal(got.findings.length, 6);
+  assert.equal(got.reviewedSha, PANEL_SHA); // first established sha wins
+});
+
+test("panelFindingsFromComments: never reviewed on demand → null", () => {
+  assert.equal(panelFindingsFromComments([{ user: { login: "yorkie-agent[bot]" }, body: "## 🤝 Ready for human review" }]), null);
+  for (const bad of [null, undefined, "x", 7]) assert.equal(panelFindingsFromComments(bad), null);
+});
+
+test("harvestPr: with no check runs, the on-demand comment becomes the comparison set", () => {
+  // The population this unlocks: a human PR reviewed via `@claude review`, where the
+  // panel records no check runs at all, so the count-based harvester filed every
+  // CodeRabbit blocker as a miss.
+  const crBody = [
+    "_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_",
+    "",
+    "**Security lens scopeClasses is missing `design-spec`.**",
+    "",
+    "security's scopeClasses omit `design-spec`, so design docs get no security reviewer at all.",
+  ].join("\n");
+  const api = fakeApi({
+    "repos/{owner}/{repo}/issues/548/comments?per_page=100": [
+      { body: HANDOFF_MARKER, created_at: HANDOFF },
+      { user: { login: "yorkie-agent[bot]" }, body: PANEL_BODY },
+    ],
+    [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [{ check_runs: [] }],
+    "repos/{owner}/{repo}/pulls/548/comments?per_page=100": [
+      { id: 42, user: { login: "coderabbitai[bot]" }, path: "scripts/agent/lenses/lenses.json", body: crBody },
+    ],
+  });
+  const logged = [];
+  const { records, suppressed } = harvestPr(548, { api, log: (m) => logged.push(m), names: NAMES });
+  assert.equal(suppressed, 1);
+  assert.equal(records.filter((r) => r.source === "coderabbit").length, 0);
+  assert.ok(logged.some((m) => /restates a panel finding/.test(m)));
+  // No "using the on-demand comment as a fallback" line any more, and its absence is
+  // the point: an advisory review is now a ROUND like any other rather than a
+  // whole-PR substitute reached only when check runs are missing. There is nothing to
+  // announce, because nothing was substituted.
+  assert.ok(!logged.some((m) => /using the on-demand panel comment/.test(m)));
+});
+
+test("harvestPr: real check runs WIN over the comment", () => {
+  // Check runs are the structured record; the comment is a rendering of one. An
+  // autonomous panel that genuinely raised nothing has already answered the
+  // question, and a comment from a different review would answer a different one.
+  const api = fakeApi({
+    "repos/{owner}/{repo}/issues/548/comments?per_page=100": [
+      { body: HANDOFF_MARKER, created_at: HANDOFF },
+      { user: { login: "yorkie-agent[bot]" }, body: PANEL_BODY },
+    ],
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const logged = [];
+  const { records, suppressed } = harvestPr(548, { api, log: (m) => logged.push(m), names: NAMES });
+  // fakeApi's default check run is a clean `[]` — a real, empty answer.
+  assert.equal(suppressed, 0);
+  assert.equal(records.find((r) => r.source === "coderabbit").panelSaw.matchVerdict, "no");
+  assert.ok(!logged.some((m) => /using the on-demand panel comment/.test(m)));
 });
 
 test("harvestPr: ignores CodeRabbit replies and non-CodeRabbit authors", () => {
@@ -457,32 +2038,219 @@ test("harvestPr: every commit after the handoff leaves panelSaw EMPTY, not wrong
   });
   const fix = records.find((r) => r.source === "human-fix");
   assert.ok(fix, "the candidate is still proposed");
-  assert.deepEqual(fix.panelSaw, { reviewedSha: "", conclusion: "", blockingFindings: 0 });
+  assert.deepEqual(fix.panelSaw, EMPTY_PANEL_SAW);
 });
 
 test("harvestPr: 'could not look' never reads the same as 'nothing found'", () => {
-  const notAgent = harvestPr(548, {
-    api: fakeApi({ "repos/{owner}/{repo}/pulls/548": { user: { login: "harrykim8672" }, head: { ref: "feat/x" } } }),
+  // Nothing examinable: NO PANEL ROUND (so there is no approval for signature 1 and
+  // nothing for signature 2 to compare against) and no review comments. Only this
+  // shape sets `skipped`.
+  //
+  // Dropping the check runs is now part of the fixture, and that is the change: with
+  // them present this PR IS examinable — a successful round is an approval, and the
+  // human commit after it is a candidate — even with no marker comment anywhere. That
+  // is the 18-of-33 agent PRs the old marker-only cutoff could not see.
+  const nothing = harvestPr(548, {
+    api: fakeApi({
+      "repos/{owner}/{repo}/issues/548/comments?per_page=100": [],
+      "repos/{owner}/{repo}/pulls/548/comments?per_page=100": [],
+      [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [{ check_runs: [] }],
+    }),
     log: () => {},
     names: NAMES,
   });
-  assert.deepEqual(notAgent.records, []);
-  assert.match(notAgent.skipped, /not an agent PR/);
+  assert.deepEqual(nothing.records, []);
+  assert.match(nothing.skipped, /nothing to examine/);
 
-  const noHandoff = harvestPr(548, {
+  // The same PR WITH its check runs: no marker, no ready_for_review, still harvested.
+  const noMarker = harvestPr(548, {
+    api: fakeApi({
+      "repos/{owner}/{repo}/issues/548/comments?per_page=100": [],
+      "repos/{owner}/{repo}/pulls/548/comments?per_page=100": [],
+    }),
+    log: () => {},
+    names: NAMES,
+  });
+  assert.equal(noMarker.skipped, "");
+  assert.equal(noMarker.records.filter((r) => r.source === "human-fix").length, 1);
+  assert.equal(noMarker.records[0].handoffAt, "2026-07-24T15:40:00Z");
+
+  // An ADVISORY review and nothing else: signature 1 is silently inapplicable —
+  // `@claude review` is not an approval — signature 2 runs against the comment round,
+  // and the record carries handoffAt "" rather than a guess. This is the shape the
+  // relaxation exists for, and it is now expressed by the absence of a SUCCESS round
+  // rather than the absence of a marker comment.
+  const advisoryOnly = harvestPr(548, {
+    api: fakeApi({
+      "repos/{owner}/{repo}/issues/548/comments?per_page=100": [
+        { user: { login: "yorkie-agent[bot]" }, body: PANEL_BODY },
+      ],
+      [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [{ check_runs: [] }],
+      ...crComment(CR_MAJOR_CORRECTNESS),
+    }),
+    log: () => {},
+    names: NAMES,
+  });
+  assert.equal(advisoryOnly.skipped, "");
+  assert.equal(advisoryOnly.records.filter((r) => r.source === "human-fix").length, 0);
+  assert.equal(advisoryOnly.records.filter((r) => r.source === "coderabbit").length, 1);
+  assert.equal(advisoryOnly.records[0].handoffAt, "");
+  assert.equal(advisoryOnly.records[0].panelSaw.matchVerdict, "no");
+
+  // THE LIMITATION THIS CHANGE REMOVES, now asserted in the opposite direction.
+  // It used to read: "without a hand-off there is no `headAtHandoff`, so lens CHECK
+  // RUNS are never read — only the comment path reaches signature 2 here." That was
+  // signature 2 depending on signature 1's cutoff, and it withheld every CodeRabbit
+  // candidate on a PR whose check runs were readable the whole time.
+  const noMarkerNoComment = harvestPr(548, {
     api: fakeApi({ "repos/{owner}/{repo}/issues/548/comments?per_page=100": [] }),
     log: () => {},
     names: NAMES,
   });
-  assert.deepEqual(noHandoff.records, []);
-  assert.match(noHandoff.skipped, /no hand-off marker/);
+  assert.equal(noMarkerNoComment.records.filter((r) => r.source === "coderabbit").length, 1);
+  // …and it is compared against the CHECK RUNS, not a comment there is none of.
+  const fromRuns = noMarkerNoComment.records.find((r) => r.source === "coderabbit");
+  assert.equal(fromRuns.panelSaw.conclusion, "success");
+  assert.equal(fromRuns.panelSaw.reviewedSha, SHA_BASE);
 
-  const unreadable = harvestPr(548, {
-    api: fakeApi({ "repos/{owner}/{repo}/pulls/548": new Error("502") }),
+  // An unreadable COMMITS list costs the check-run path — rounds are walked over it —
+  // so the panel cannot be established and signature 2 withholds too. Documented
+  // rather than worked around: it is the recoverable direction, and a re-harvest
+  // re-proposes the candidate.
+  const noCommits = harvestPr(548, {
+    api: fakeApi({ "repos/{owner}/{repo}/pulls/548/commits?per_page=100": new Error("502") }),
     log: () => {},
     names: NAMES,
   });
-  assert.match(unreadable.skipped, /could not read PR #548/);
+  assert.equal(noCommits.records.length, 0);
+
+  // But the COMMENT path needs no commits at all, so the same outage on a PR with an
+  // on-demand review still yields its CodeRabbit candidate. The two sources fail
+  // independently, which is the point of having two.
+  const noCommitsWithPanel = harvestPr(548, {
+    api: fakeApi({
+      "repos/{owner}/{repo}/pulls/548/commits?per_page=100": new Error("502"),
+      "repos/{owner}/{repo}/issues/548/comments?per_page=100": [
+        { body: HANDOFF_MARKER, created_at: HANDOFF },
+        { user: { login: "yorkie-agent[bot]" }, body: PANEL_BODY },
+      ],
+    }),
+    log: () => {},
+    names: NAMES,
+  });
+  assert.equal(noCommitsWithPanel.records.filter((r) => r.source === "coderabbit").length, 1);
+});
+
+// --- the four cutoff bugs, one test each ------------------------------------
+//
+// Each of these FAILS on the marker-based cutoff this replaces. They are the reason
+// the change exists, so they are named after the failure rather than the mechanism.
+
+test("cutoff bug 1: no marker anywhere still harvests, from the check runs", () => {
+  // Measured population: 18 of 33 agent PRs were opened ready rather than promoted,
+  // so they carry neither a hand-off marker nor a `ready_for_review` event. The old
+  // cutoff had nothing to key on, which silenced signature 1 AND — because signature
+  // 2 read the panel through signature 1's commit — every CodeRabbit candidate too.
+  const api = fakeApi({
+    "repos/{owner}/{repo}/issues/548/comments?per_page=100": [],
+    "repos/{owner}/{repo}/issues/548/timeline?per_page=100": [],
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records, skipped } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.equal(skipped, "");
+  assert.deepEqual(records.map((r) => r.source).sort(), ["coderabbit", "human-fix"]);
+  assert.equal(records.find((r) => r.source === "human-fix").handoffAt, "2026-07-24T15:40:00Z");
+});
+
+test("cutoff bug 2: a manually-readied PR the panel never approved harvests NOTHING", () => {
+  // `ready_for_review` fires whether or not the panel ever spoke, so keying the
+  // cutoff off it made every later human commit a candidate on a PR no reviewer had
+  // passed. The signal is gone; the absence of a SUCCESS round is now what decides.
+  const api = fakeApi({
+    "repos/{owner}/{repo}/issues/548/comments?per_page=100": [],
+    // The event that used to be the fallback cutoff, now ignored entirely.
+    "repos/{owner}/{repo}/issues/548/timeline?per_page=100": [
+      { event: "ready_for_review", created_at: "2026-07-24T15:48:25Z" },
+    ],
+    [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [{ check_runs: [] }],
+    "repos/{owner}/{repo}/pulls/548/comments?per_page=100": [],
+  });
+  const { records, skipped } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.deepEqual(records, []);
+  assert.match(skipped, /no panel approval/);
+});
+
+test("cutoff bug 3: a rebase after approval no longer erases the comparison set", () => {
+  // The sharpest one. A force-push rewrites every committer date on the PR, so with a
+  // comment-based cutoff EVERY commit post-dated it, `beforeHandoff` emptied, and the
+  // check runs were never read — leaving signature 2 with no comparison set on a PR
+  // whose verdict was sitting right there. `completed_at` is stamped by GitHub on the
+  // check run and a rebase cannot move it.
+  const rebased = [
+    { sha: SHA_BASE, parents: [{ sha: "0" }], author: { type: "Bot" }, commit: { message: "agent work", committer: { date: "2026-07-30T00:00:00Z" } } },
+    { sha: SHA_FIX, parents: [{ sha: SHA_BASE }], author: { login: "harrykim8672", type: "User" }, html_url: "https://x/commit", commit: { message: "Guard EditorAPI.paste()", committer: { date: "2026-07-30T00:01:00Z" } } },
+  ];
+  const api = fakeApi({
+    "repos/{owner}/{repo}/pulls/548/commits?per_page=100": rebased,
+    ...crComment(CR_MAJOR_CORRECTNESS),
+  });
+  const { records } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  // The CodeRabbit candidate is compared against the real verdict, not withheld.
+  const cr = records.find((r) => r.source === "coderabbit");
+  assert.ok(cr, "the CodeRabbit candidate must survive a rebase");
+  assert.equal(cr.panelSaw.conclusion, "success");
+  assert.equal(cr.panelSaw.reviewedSha, SHA_BASE);
+});
+
+test("cutoff bug 4: a finding is compared against what the panel knew BY THEN", () => {
+  // The comparison set used to be ONE set per PR, read from whichever commit was head
+  // at hand-off, and applied to every CodeRabbit finding regardless of which commit it
+  // was about. That is wrong in both directions, and which one you get depends only on
+  // where the hand-off commit happens to sit:
+  //
+  //   - hand-off commit EARLIER than the finding → the set misses rounds the panel had
+  //     already reached, so a genuine restatement is filed as a miss. Measured: that is
+  //     what this fixture produced before the change (`suppressed: 0` on 4b).
+  //   - hand-off commit LATER than the finding → the set includes rounds that did not
+  //     exist yet, so a real miss is suppressed by a finding from the future.
+  //
+  // The first costs a false row, the second costs a real one. Anchoring per comment
+  // removes both, and the two halves below pin the boundary from either side: the panel
+  // raises the defect only at SHA_FIX, so the same comment must be a miss on SHA_BASE
+  // and a restatement on SHA_FIX.
+  //
+  // 4a is a REGRESSION GUARD rather than a fixed bug — the old code also left it
+  // unsuppressed, for the wrong reason. It is here because the new per-comment logic is
+  // the thing that could newly over-suppress it.
+  const laterRound = {
+    [`repos/{owner}/{repo}/commits/${SHA_BASE}/check-runs?per_page=100`]: [{ check_runs: [
+      { id: 1, name: "agent-review-correctness", app: { slug: "github-actions" }, status: "completed", conclusion: "success", completed_at: "2026-07-24T15:40:00Z", output: { text: "[]" } },
+    ] }],
+    [`repos/{owner}/{repo}/commits/${SHA_FIX}/check-runs?per_page=100`]: [{ check_runs: [
+      { id: 2, name: "agent-review-correctness", app: { slug: "github-actions" }, status: "completed", conclusion: "failure", completed_at: "2026-07-26T09:00:00Z" },
+    ] }],
+    "repos/{owner}/{repo}/check-runs/1": { id: 1, name: "agent-review-correctness", conclusion: "success", output: { text: "[]" } },
+    "repos/{owner}/{repo}/check-runs/2": { id: 2, name: "agent-review-correctness", conclusion: "failure", output: { text: JSON.stringify([{ severity: "major", file: "packages/docs/src/view/text-editor.ts", summary: "Guard public mutation APIs at the read-only boundary: EditorAPI.paste() reaches TextEditor.pasteContent() unguarded and mutates a viewer-mode document.", evidence: "" }]) } },
+  };
+  const onEarly = harvestPr(548, {
+    api: fakeApi({ ...laterRound, ...crComment(CR_MAJOR_CORRECTNESS) }),
+    log: () => {}, names: NAMES,
+  });
+  assert.equal(onEarly.suppressed, 0, "a later round cannot suppress an earlier finding");
+  assert.equal(onEarly.records.filter((r) => r.source === "coderabbit").length, 1);
+
+  // The identical comment, moved onto the commit the panel raised it at.
+  const onLate = harvestPr(548, {
+    api: fakeApi({
+      ...laterRound,
+      "repos/{owner}/{repo}/pulls/548/comments?per_page=100": [
+        { id: 999, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_FIX, html_url: "https://x/d", body: CR_MAJOR_CORRECTNESS },
+      ],
+    }),
+    log: () => {}, names: NAMES,
+  });
+  assert.equal(onLate.suppressed, 1, "at or after the round that raised it, it IS a restatement");
+  assert.equal(onLate.records.filter((r) => r.source === "coderabbit").length, 0);
 });
 
 test("harvestPr: one failed sub-request costs its own candidates, not the PR's", () => {
@@ -512,35 +2280,75 @@ test("listCandidatePrs: a capped list is REPORTED, never passed off as complete"
   // "We found no misses in that window" is exactly the conclusion this corpus must
   // never reach by accident, and a silently truncated PR list produces it.
   const full = Array.from({ length: 200 }, (_, i) => ({ number: i + 1, headRefName: "agent/x", author: { login: "x" } }));
+  // The on-demand search is routed to a clean empty result so this test speaks only
+  // about the PR-list cap.
+  const apiFor = (list) => (argv) =>
+    argv.includes("nameWithOwner")
+      ? { nameWithOwner: "wafflebase/wafflebase" }
+      : argv.includes("search/issues")
+        ? { total_count: 0, items: [] }
+        : list;
   const logged = [];
-  assert.equal(listCandidatePrs({ api: () => full, log: (m) => logged.push(m) }).length, 200);
+  assert.equal(listCandidatePrs({ api: apiFor(full), log: (m) => logged.push(m) }).length, 200);
   assert.equal(logged.length, 1);
   assert.match(logged[0], /cap.*NOT examined/s);
 
   // Under the cap, nothing is said.
   const quiet = [];
-  listCandidatePrs({ api: () => full.slice(0, 199), log: (m) => quiet.push(m) });
+  listCandidatePrs({ api: apiFor(full.slice(0, 199)), log: (m) => quiet.push(m) });
   assert.deepEqual(quiet, []);
 });
 
-test("listCandidatePrs: --since goes to GitHub's search, and non-agent PRs drop out", () => {
-  let seen = null;
+test("listCandidatePrs: agent PRs from the list, on-demand-reviewed PRs from search", () => {
+  let listArgv = null, searchArgv = null;
   const api = (argv) => {
-    seen = argv;
+    if (argv.includes("nameWithOwner")) return { nameWithOwner: "wafflebase/wafflebase" };
+    if (argv.includes("search/issues")) { searchArgv = argv; return { total_count: 1, items: [{ number: 9 }] }; }
+    listArgv = argv;
     return [
       { number: 1, headRefName: "agent/1-x", author: { login: "harrykim8672" } },
       { number: 2, headRefName: "feat/y", author: { login: "harrykim8672" } },
       { number: 3, headRefName: "feat/z", author: { login: "app/yorkie-agent" } },
     ];
   };
-  assert.deepEqual(listCandidatePrs({ since: "2026-07-01", api, log: () => {} }), [1, 3]);
-  assert.ok(seen.includes("--search") && seen.includes("merged:>=2026-07-01"));
+  // 1 and 3 are agent PRs; 2 is not, but 9 was reviewed on demand — which is the
+  // right question for signature 2 and one authorship cannot answer.
+  assert.deepEqual(listCandidatePrs({ since: "2026-07-01", api, log: () => {} }), [1, 3, 9]);
+  assert.ok(listArgv.includes("--search") && listArgv.includes("merged:>=2026-07-01"));
+  assert.ok(searchArgv.some((a) => String(a).includes("agent-review:")));
+  assert.ok(searchArgv.some((a) => String(a).includes("merged:>=2026-07-01")));
+
   // No --since → no search term at all, rather than an empty one.
   listCandidatePrs({ api, log: () => {} });
-  assert.ok(!seen.includes("--search"));
+  assert.ok(!listArgv.includes("--search"));
+
   for (const junk of [null, "x", 7, {}]) {
     assert.deepEqual(listCandidatePrs({ api: () => junk, log: () => {} }), []);
   }
+});
+
+test("listCandidatePrs: a search outage costs the on-demand PRs, never the agent ones", () => {
+  // Same fail direction as every other read: degrade to fewer candidates.
+  const api = (argv) => {
+    if (argv.includes("nameWithOwner")) return { nameWithOwner: "wafflebase/wafflebase" };
+    if (argv.includes("search/issues")) throw new Error("422 rate limited");
+    return [{ number: 1, headRefName: "agent/1-x", author: { login: "harrykim8672" } }];
+  };
+  const logged = [];
+  assert.deepEqual(listCandidatePrs({ api, log: (m) => logged.push(m) }), [1]);
+  assert.ok(logged.some((m) => /could not search for on-demand-reviewed PRs/.test(m)));
+});
+
+test("listCandidatePrs: a capped search is REPORTED, not silently truncated", () => {
+  const api = (argv) =>
+    argv.includes("nameWithOwner")
+      ? { nameWithOwner: "wafflebase/wafflebase" }
+      : argv.includes("search/issues")
+        ? { total_count: 500, items: [{ number: 9 }] }
+        : [];
+  const logged = [];
+  listCandidatePrs({ api, log: (m) => logged.push(m) });
+  assert.ok(logged.some((m) => /500 on-demand-reviewed PR\(s\) matched but only 1/.test(m)));
 });
 
 // --- the corpus file itself --------------------------------------------------

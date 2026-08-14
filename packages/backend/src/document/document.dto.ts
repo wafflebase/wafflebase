@@ -2,11 +2,13 @@ import {
   ArrayNotEmpty,
   IsArray,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Length,
   Matches,
+  Min,
 } from 'class-validator';
 import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 
@@ -18,6 +20,7 @@ const DOCUMENT_TYPES = [
   'note',
   'image',
   'board',
+  'file',
 ] as const;
 export type DocumentType = (typeof DOCUMENT_TYPES)[number];
 
@@ -34,6 +37,18 @@ export class CreateDocumentDto {
   @IsString()
   @Matches(VALID_FILE_ID_PATTERN)
   fileId?: string;
+
+  // Blob metadata, accepted only alongside a fileId (the controller drops it
+  // otherwise). Advisory display data — never a security decision.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  fileSize?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 255)
+  mimeType?: string;
 
   @IsOptional()
   @IsUUID()
@@ -53,6 +68,18 @@ export class CreateDocumentInWorkspaceDto {
   @IsString()
   @Matches(VALID_FILE_ID_PATTERN)
   fileId?: string;
+
+  // Blob metadata, accepted only alongside a fileId (the controller drops it
+  // otherwise). Advisory display data — never a security decision.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  fileSize?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 255)
+  mimeType?: string;
 
   @IsUUID()
   workspaceId: string;

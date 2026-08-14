@@ -51,13 +51,14 @@
 import { readFileSync, appendFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isFixerCommit } from "./rounds.mjs";
+import { isSingleParentCommit } from "./rounds.mjs";
 import { classifyFile } from "./review-panel.mjs";
 import { HANDOFF_MARKER, hasDisclosureTrailer } from "./disclosure.mjs";
 import { normalizeSeverity, BLOCKING, classify } from "./severity.mjs";
 import { ORIGINS } from "./novelty.mjs";
 import { latestLensRuns, parseReviewState } from "./review-state.mjs";
 import { tagPriorFindings, lensCheckNames } from "./prior-findings.mjs";
+import { bestMatch } from "./finding-match.mjs";
 import { gh, parseArgs, commitCheckRuns, withFullOutput } from "./gh-checks.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -123,31 +124,85 @@ export function isAgentPr(pr) {
 }
 
 /**
- * When the pipeline handed this PR to humans (ISO string), or null.
+ * When `mark-ready.mjs` posted its hand-off marker (ISO string), or null.
  *
  * FIRST marker comment, not the last: a PR that is un-readied and re-promoted has
  * two, and the human work we are looking for starts at the first one.
  *
- * The `readyForReviewAt` fallback is load-bearing rather than belt-and-braces.
- * `mark-ready.mjs` posts the hand-off comment inside a `try/catch` AFTER the PR is
- * already flipped to ready, explicitly so a failed comment cannot fail a
- * successful promotion — which means a genuinely promoted PR can carry no marker
- * at all. Keying only on the comment would make those PRs invisible to the
- * harvester, and invisible is the one failure a corpus cannot recover from later.
+ * A CORROBORATING signal only — `panelApprovedAt` prefers the panel's own check
+ * runs and reaches for this when it has none. The marker genuinely means "the panel
+ * approved" (that is the only thing that posts it), but it can be absent from a PR
+ * that really was promoted: `mark-ready.mjs` posts it inside a `try/catch` AFTER
+ * flipping the PR ready, so a failed comment cannot fail a successful promotion.
  *
- * Returns null when neither is present. Callers must treat null as "cannot
- * classify this PR" and skip it LOUDLY, never as "handed off at time zero" —
- * that would make every commit on the PR a candidate.
+ * `ready_for_review` USED TO BE the fallback here and has been removed outright, not
+ * demoted. It answers a different question — "when did this PR leave draft" — and
+ * fires whether or not the panel ever spoke, so on a manually-readied PR it made
+ * every subsequent human commit a candidate. It was also unreachable for the 18 of
+ * 33 agent PRs opened ready rather than promoted, i.e. it over-fired on the PRs it
+ * covered and covered none of the PRs it was reached for. The timeline request it
+ * needed is gone with it.
  */
-export function handoffTime({ comments = [], readyForReviewAt = null } = {}) {
+export function markerHandoffAt(comments = []) {
   const marked = (Array.isArray(comments) ? comments : [])
     .filter((c) => str(c?.body).includes(HANDOFF_MARKER))
     .map((c) => str(c?.created_at))
     .filter((t) => t !== "" && Number.isFinite(Date.parse(t)))
     .sort();
-  if (marked.length > 0) return marked[0];
-  const ready = str(readyForReviewAt);
-  return ready !== "" && Number.isFinite(Date.parse(ready)) ? ready : null;
+  return marked.length > 0 ? marked[0] : null;
+}
+
+/**
+ * When the panel APPROVED this PR (ISO string), or null.
+ *
+ * The panel's own check runs are the primary source, and the reason is that they
+ * are the only signal which is present whenever the panel ran, carries a server
+ * timestamp, and means what we need it to mean:
+ *
+ * |                                  | marker comment | ready_for_review | check runs |
+ * |----------------------------------|----------------|------------------|------------|
+ * | present whenever the panel ran   | no (try/catch) | no               | YES        |
+ * | survives a rebase / force-push   | yes            | yes              | YES        |
+ * | means "the panel approved"       | yes            | NO               | YES        |
+ *
+ * That third row is why `ready_for_review` is gone, and the first is why the marker
+ * cannot be primary. The second row is the one that matters most in practice:
+ * `completed_at` is stamped by GitHub on the check run, so a rebase that rewrites
+ * every committer date on the PR cannot move it. The previous implementation keyed
+ * the cutoff off a comment and then compared it against committer dates, so a
+ * force-push after promotion pushed every commit past the cutoff, emptied the
+ * before-handoff set, and left signature 2 with no comparison set at all.
+ *
+ * The FIRST all-success round, not the newest, and this is the one place where the
+ * obvious choice is actively self-defeating. Every human fix pushed after an approval
+ * opens a new round, and that round then approves too — so keying on the newest
+ * approval moves the cutoff PAST the very commits the signature exists to catch.
+ * Measured on #548: the newest-approval cutoff lands on 2026-07-28, four days after
+ * the three human fixes of 2026-07-25, and loses all three — including the rows a
+ * human has already curated into `misses.jsonl`.
+ *
+ * So this matches `markerHandoffAt`'s "FIRST marker, not the last" for the same
+ * reason: the human work being looked for starts the first time the panel said the PR
+ * was fine. A later re-approval does not un-say it.
+ *
+ * Rounds with `conclusion: "failure"` or `""` are not approvals, which is also what
+ * keeps ADVISORY rounds out — an `@claude review` round carries `conclusion: ""`
+ * because it reached no gate conclusion (see `panelRounds`).
+ *
+ * Returns null when the panel never approved. Callers must treat null as "cannot
+ * classify", never as "approved at time zero" — that would make every commit on the
+ * PR a candidate, which is precisely the over-fire this replaces.
+ */
+export function panelApprovedAt(rounds, markerAt = null) {
+  // Ordered by PARSED TIME, for the reason `panelRoundAt` gives.
+  const approvals = (Array.isArray(rounds) ? rounds : [])
+    .filter((r) => str(r?.conclusion) === "success")
+    .map((r) => str(r?.completedAt))
+    .filter((t) => t !== "" && Number.isFinite(Date.parse(t)))
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+  if (approvals.length > 0) return approvals[0];
+  const marker = str(markerAt);
+  return marker !== "" && Number.isFinite(Date.parse(marker)) ? marker : null;
 }
 
 /**
@@ -155,7 +210,7 @@ export function handoffTime({ comments = [], readyForReviewAt = null } = {}) {
  *
  * Four conditions, each excluding a different non-miss:
  *   - lands after `handoffAt` — before it, the panel had not spoken yet;
- *   - single-parent (`isFixerCommit`) — a `git merge main` to resolve conflicts
+ *   - single-parent (`isSingleParentCommit`) — a `git merge main` to resolve conflicts
  *     is not a fix, and it drags in every unrelated file on main;
  *   - no autonomous-disclosure trailer — the review-fix loop's own commits land
  *     after handoff too on a re-opened round, and they are the panel WORKING;
@@ -175,7 +230,7 @@ export function isHumanFollowupCommit(commit, handoffAt) {
   if (!Number.isFinite(cutoff)) return false; // no handoff → cannot classify
   const at = Date.parse(str(c.commit?.committer?.date) || str(c.commit?.author?.date));
   if (!Number.isFinite(at) || at <= cutoff) return false;
-  if (!isFixerCommit(c)) return false;
+  if (!isSingleParentCommit(c)) return false;
   if (hasDisclosureTrailer(c.commit?.message)) return false;
   if (c.author?.type === "Bot") return false;
   return true;
@@ -200,15 +255,81 @@ export function fileClassesOf(files) {
   return [...new Set((Array.isArray(files) ? files : []).map((f) => classifyFile(f)))].sort();
 }
 
-// CodeRabbit on this repo (CHILL profile) opens every inline finding with a
-// three-field italic header:  _<category>_ | _<severity>_ | _<effort>_
+// CodeRabbit's finding header has had FOUR vintages on this repository, and the
+// classifier used to read one of them.
 //
-// The plan for this module specified the UPSTREAM CodeRabbit vocabulary instead
-// ("Potential issue" / "Refactor suggestion" / "Nitpick"). Nothing in this
-// repository has ever emitted those strings — every inline finding back to #525
-// uses the header below — so that classifier would have matched zero comments and
-// reported an empty corpus as a clean bill of health.
-const CR_HEADER = /^\s*_([^_\n]+)_\s*\|\s*_([^_\n]+)_\s*\|\s*_([^_\n]+)_/;
+// The comment that stood here said the upstream vocabulary ("Potential issue" /
+// "Refactor suggestion" / "Nitpick") had never been emitted here — "every inline
+// finding back to #525 uses the header below". That is true back to #525 and
+// wrong before it, and it was wrong in two directions at once: 470 inline
+// findings carry `_Potential issue_ | _Major_` (the upstream vocabulary, in a
+// TWO-field header), and another 64 carry it in a single italic field. Measured
+// 2026-08-07 over every inline review comment in the repo: 935 three-field, 475
+// two-field, 64 single-italic, 11 bold-title.
+//
+// The two-field header is NOT a retired vintage. Its most recent use is #692 on
+// 2026-08-07, in the current CHILL vocabulary — CodeRabbit simply omits the
+// effort field sometimes. A parser keyed on field COUNT is therefore blind to
+// live output, not just to history, which is why fields are matched by
+// vocabulary below rather than by position.
+//
+//   three-field   _<category>_ | _<severity>_ | _<effort>_
+//   two-field     _<category>_ | _<severity>_
+//   single-italic _<category>_   OR   _<effort>_        (ambiguous — see below)
+//   bold-title    **Title.**                            (no category, no severity)
+//
+// The `_` delimiter also occurs INSIDE a field, because GitHub emoji shortcodes
+// contain underscores (`_:hammer_and_wrench: Refactor suggestion_`). So a header
+// line is split on `|` and each part unwrapped, rather than matched with one
+// `[^_]+` regex — that regex stops at the first inner underscore and drops the
+// finding.
+const CR_FIELD = /^_(.+)_$/;
+
+/** Field count → vintage name. Index 0 is unused; a zero-field header is not one. */
+const CR_ARITY_VINTAGE = ["", "single-italic", "two-field", "three-field"];
+
+/**
+ * CodeRabbit's severity vocabulary, translated to ours AT THE ARM BOUNDARY.
+ *
+ * `normalizeSeverity` is deliberately NOT used here. It maps anything unknown to
+ * `major` as a fail-safe for our own gate, and CodeRabbit's scale has a word ours
+ * does not: `trivial`, its below-minor tier, which appears 307 times. Running it
+ * through `normalizeSeverity` files every one as a BLOCKING major — findings
+ * CodeRabbit marks as the lowest tier it has, entering the corpus as gate-blocking
+ * defects. Adding `trivial` to `severity.mjs`'s `KNOWN` would fix it in the wrong
+ * place: `KNOWN` is the shared source of truth for what blocks a PR in OUR panel,
+ * our lenses never emit `trivial`, and a foreign vocabulary gets translated where
+ * it crosses rather than absorbed into ours.
+ */
+const CR_SEVERITY = new Map([
+  ["critical", "critical"],
+  ["major", "major"],
+  ["minor", "minor"],
+  ["nit", "nit"],
+  ["trivial", "nit"],
+]);
+
+// The two category vocabularies. WHICH ONE a finding used is kept on the finding:
+// the switch was sharp (last upstream-vocabulary comment 2026-06-22T00:20:46Z,
+// first CHILL one 2026-06-23T06:56:21Z) and it is a real confound in any count
+// taken across it, so a parser that normalised both into one shape would make
+// "did the format change?" unanswerable.
+const CR_CHILL_CATEGORIES = new Set([
+  "functional correctness",
+  "security & privacy",
+  "maintainability & code quality",
+  "performance & scalability",
+  "stability & availability",
+  "data integrity & integration",
+]);
+const CR_UPSTREAM_CATEGORIES = new Set(["potential issue", "refactor suggestion", "nitpick", "verification agent"]);
+
+// The effort field, enumerated for one reason: a SINGLE italic field is ambiguous.
+// It carries a category in the 2025 vintage (`_⚠️ Potential issue_`) and an effort
+// in the 2026-05 one (`_⚡ Quick win_`), and 212 of the 226 single-field headers in
+// review bodies are efforts. Reading position 1 as "the category" would file
+// "quick win" as a CodeRabbit category on 212 findings.
+const CR_EFFORTS = new Set(["quick win", "low value", "heavy lift", "poor tradeoff"]);
 
 // Only the two categories that map onto a lens WITHOUT judgement. The rest —
 // Maintainability, Performance, Stability, Data Integrity — each plausibly belong
@@ -220,42 +341,880 @@ const CR_CATEGORY_TO_LENS = new Map([
   ["security & privacy", "security"],
 ]);
 
-/** The bot's login, in the two shapes GitHub returns it. */
-const CODERABBIT_LOGINS = new Set(["coderabbitai[bot]", "app/coderabbitai"]);
+/**
+ * The bot's login, in the two shapes GitHub returns it.
+ *
+ * EXPORTED so a second reader of CodeRabbit's output shares this set rather than
+ * re-typing it. That is not tidiness: the set is a security gate (see the header
+ * above `PANEL_AUTHORS`, and `harvestPr`'s call site — `startsWith("coderabbitai")`
+ * would also accept `coderabbitai-x`, which anyone can register and comment on a
+ * public pull request with), and a re-typed copy of a rule this repository enforces
+ * in one place is the pattern that has already cost this project a paid harvest.
+ */
+export const CODERABBIT_LOGINS = new Set(["coderabbitai[bot]", "app/coderabbitai"]);
 
-/** Strip emoji/punctuation from a CodeRabbit header field, leaving the words. */
+/** Strip emoji/punctuation from a CodeRabbit header field, leaving the words.
+ *  GitHub emoji shortcodes go first: `:hammer_and_wrench:` would otherwise
+ *  survive as the word `hammerandwrench` and make the category unrecognisable. */
 const headerWords = (s) =>
   str(s)
+    .replace(/:[a-z0-9_+-]+:/gi, " ")
     .replace(/[^\p{Letter}\p{Number}&\s-]/gu, "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ");
 
 /**
+ * Read one CodeRabbit header LINE, in any of the three italic vintages.
+ * `null` when the line is not a header.
+ *
+ * Fields are assigned BY VOCABULARY, not by position — that is what makes one
+ * function read all three arities, and what disambiguates the single-field case.
+ *
+ * `severity: ""` means CodeRabbit stated no severity we recognise, and it is a
+ * deliberate third state rather than a default. Defaulting to `major` files nits
+ * as blockers (the bug above); defaulting to `nit` silently demotes a real
+ * blocker the day CodeRabbit adds a word. Both are silent; an empty severity is
+ * not, because `BLOCKING.has("")` is false, so an unrecognised severity is
+ * withheld from the corpus rather than guessed into it — and `severityRaw`
+ * carries the word CodeRabbit actually wrote so the gap is nameable. A fifth
+ * vintage will happen.
+ */
+export function classifyCodeRabbitHeader(line) {
+  const parts = str(line).trim().split("|").map((p) => p.trim());
+  if (parts.length > 3) return null;
+  const fields = [];
+  for (const p of parts) {
+    const m = CR_FIELD.exec(p);
+    if (!m) return null;
+    fields.push(headerWords(m[1]));
+  }
+  let category = "", vocabulary = "", severity = "", severityRaw = "", effort = "";
+  const unrecognised = [];
+  for (const f of fields) {
+    if (CR_CHILL_CATEGORIES.has(f)) { category = f; vocabulary = "chill"; }
+    else if (CR_UPSTREAM_CATEGORIES.has(f)) { category = f; vocabulary = "upstream"; }
+    else if (CR_SEVERITY.has(f)) { severity = CR_SEVERITY.get(f); severityRaw = f; }
+    else if (CR_EFFORTS.has(f)) { effort = f; }
+    else if (f !== "") unrecognised.push(f);
+  }
+  // Recognised NOTHING in any of the three vocabularies: an italic caption or an
+  // emphasised sentence, not a finding header. Without this, any `_word_` line
+  // becomes a severity-less finding.
+  if (category === "" && severity === "" && effort === "") return null;
+  return {
+    vintage: CR_ARITY_VINTAGE[fields.length] ?? "",
+    category,
+    vocabulary,
+    severity,
+    severityRaw,
+    effort,
+    unrecognised,
+  };
+}
+
+/**
  * Read one CodeRabbit inline comment as a finding, or `null` if it is not one.
  *
  * `null` covers the two things CodeRabbit posts that are not findings: threaded
  * replies to a maintainer ("@user, thanks for the fix…") and its auto-generated
- * walkthroughs. Both lack the header. Returning null on a MISSING header rather
- * than defaulting the severity is the whole reason severities are read only after
- * a header matched: `normalizeSeverity` maps anything unknown to `major`
- * (fail-safe for a gate), so running every reply through it would file each one
- * as a blocking-severity candidate and bury the real ones.
+ * walkthroughs. Neither opens with a header or a bolded title. Returning null on
+ * a MISSING header rather than defaulting the severity is why severity is read
+ * only after a header matched — see `classifyCodeRabbitHeader`.
  *
- * Non-blocking severities are dropped. This corpus measures the GATE, and a minor
- * maintainability note our panel also happened not to raise is not a gate
- * failure. Widening to minor is a one-line change if the blocking-only corpus
- * turns out too thin to learn from.
+ * EVERY severity is returned, including non-blocking ones. The blocking-only
+ * filter used to live here, and it now lives at the caller (`harvestPr`), where
+ * it is visible as the corpus policy it is rather than a property of "what
+ * CodeRabbit wrote". Widen at the parser, filter at the caller: this function is
+ * the repo's only reader of CodeRabbit's format, and a second consumer that
+ * wants nits must not have to re-implement the header to get them.
  */
 export function classifyCodeRabbitComment(body) {
-  const m = CR_HEADER.exec(str(body));
+  const text = str(body);
+  const first = text.split("\n").find((l) => l.trim() !== "") ?? "";
+  const head = classifyCodeRabbitHeader(first);
+  // The 2024 vintage states no category and no severity at all — the body opens
+  // straight on the bolded title. Accepted because a threaded reply never does
+  // (verified: of 481 inline comments with no italic header, 376 open with
+  // `@user`, 26 with `<details>`, and the 11 that open bold are all findings).
+  const bold = head === null ? /^\s*\*\*(.+?)\*\*/s.exec(first) : null;
+  if (head === null && bold === null) return null;
+  return {
+    category: head?.category ?? "",
+    vocabulary: head?.vocabulary ?? "",
+    severity: head?.severity ?? "",
+    severityRaw: head?.severityRaw ?? "",
+    effort: head?.effort ?? "",
+    vintage: head?.vintage ?? "bold-title",
+    lens: CR_CATEGORY_TO_LENS.get(head?.category ?? "") ?? "",
+    summary: codeRabbitTitle(body),
+    detail: codeRabbitDetail(body),
+  };
+}
+
+// Where a CodeRabbit body stops being prose, for the purpose of `codeRabbitDetail`.
+//
+// ⚠ THE ORDERING CLAIM THIS COMMENT USED TO MAKE IS FALSE, and it is left here
+// corrected rather than deleted because a later reader will otherwise re-derive it
+// from the same three pull requests. It said: "verified against every inline
+// finding on #548, #594 and #639: the body is always header → bolded title → prose
+// → structured blocks, and prose never resumes after the first block". The first
+// half holds. The last clause does not, and #548/#594/#639 could not show it
+// because all three post-date the vintage that breaks it.
+//
+// Measured over all 2061 CodeRabbit inline comments in this repository (1588 of
+// them findings), 2026-08-12: 200 of the 1588 — 12.6% — open with a `🧩 Analysis
+// chain` <details> block carrying CodeRabbit's web queries and shell transcripts,
+// and state their title and prose AFTER it. Both vocabularies are affected, back to
+// #11 (2025-04). Cutting at the first `<details>` left `detail` as `""` on all 200 —
+// findings that DO have prose — because the slice kept only the header line and the
+// header-drop below then removed it. Two individually-correct steps composed to
+// nothing: the boundary landed on `<details>` in 200 of 200 cases, at a median offset
+// of 54 bytes, which is the length of a header line.
+//
+// `stripDetailsBlocks` is the answer to that, and it is why `<details>` is no longer
+// the interesting half of this pattern: a complete block is REMOVED before the
+// boundary is searched for, so what remains here is the terminator for everything a
+// block cannot enclose.
+//
+// CLOSING tags are boundaries too, and they are the ones a review-body finding hits.
+// `parseCodeRabbitReview` slices a span between two locators out of a section that is
+// itself the inside of nested `<details><blockquote>`, so a span is not a well-formed
+// document: it routinely ends on `</blockquote></details>` belonging to an element
+// that opened before it. Once the balanced blocks are gone, those orphaned closers
+// are all that stand between the prose and the end of the span — and without them
+// here, 735 of 1693 review-body findings carry a `</details>` into the compared text.
+// An unbalanced OPENING `<details>` still terminates, which is the fail-safe
+// direction: a block this function cannot pair is a body it does not understand.
+const CR_PROSE_END = /^[ \t]*(?:<\/?details>|<\/?blockquote>|```|<!--)/m;
+
+/**
+ * Leading blockquote markers, which are markup rather than words.
+ *
+ * CodeRabbit puts a tier section inside a GitHub alert block (`> [!CAUTION]`)
+ * whenever its findings fall outside the diff, and that prefixes EVERY line of the
+ * section with `> ` — sometimes `> > `. 96 of this repo's 558 CodeRabbit review
+ * bodies look like that, back to 2026-04.
+ *
+ * Stripped ONCE, at the two entry points (`codeRabbitReviewSections` and
+ * `codeRabbitDetail`), rather than tolerated with a `>` in each of the four
+ * line-anchored patterns below. That was the first attempt and it does not work:
+ * an EMPTY quoted line is `>` alone, which is not blank and matches no wrapper, so
+ * the header-below-the-locator search stops on it and reads no header. Normalising
+ * the text is one mechanism; four permissive character classes are four chances to
+ * miss one.
+ *
+ * A marker must be followed by a SPACE, A TAB OR THE END OF THE LINE. That is what
+ * separates markup from content, and without it the strip eats real `>` characters:
+ * measured over this repo's 558 review bodies and 1891 inline comments, 6 lines
+ * lose one — `> >= 0 and findPageLine(…)` becomes `= 0 and …`, and prose that wraps
+ * onto `>=18.12.0 is used for canvas@^3.` or `>).value,` loses its first character.
+ * A greedy `[ \t]*` between markers also swallowed the INDENTATION of quoted code
+ * on 572 lines, which is content too.
+ *
+ * The `+` still allows a RUN, so genuinely nested quoting strips fully, and `$`
+ * keeps the empty-line case above working. `>>= 3` and `>= 0` are left alone
+ * because the character after the first `>` is neither a space nor a line end.
+ */
+const CR_BLOCKQUOTE_PREFIX = /^[ \t]*(?:>(?:[ \t]|$))+/gm;
+
+/**
+ * Spans in which a `**…**` is MARKUP, not emphasis: fenced blocks and HTML
+ * comments. Used only to decide where a title may be mined from.
+ *
+ * This exists because the title search reads the whole body, and the whole body
+ * contains code. CodeRabbit quotes the commands it ran, and `**` is ordinary shell
+ * and regex syntax — an exclude glob spells one. So the first `**…**` in a body is
+ * not always the title; on comment 3651715274 (#549) it was `/node_modules/`,
+ * lifted out of an `rg` invocation 2129 bytes past where that comment's prose ends,
+ * and that string travelled into a human adjudication queue as the finding's
+ * summary. It scored 0.46-0.75 against six panel findings on location alone and
+ * accounted for 6 of the 23 pairs over 0.70.
+ *
+ * FENCES ONLY, and not `<details>`, which is the whole design. Truncating at the
+ * first structured block was the obvious alternative and it is strictly worse: a
+ * narrower search can only ever return LESS, so it cannot correct a wrong title,
+ * only delete it. Measured over all 2061 of this repository's CodeRabbit inline
+ * comments, truncating changed 200 of the 1588 findings and every one of the 200
+ * went from a real title to `""` — including all of the 12.6% described above
+ * `CR_PROSE_END`, whose titles sit after a `<details>` block. This rule changed 28,
+ * and every one of the 28 went from markup to a real title.
+ *
+ * Each span is matched LAZILY and removed on its own. A greedy `[\s\S]*` would run
+ * from the first fence to the last, and the ordinary shape of a CodeRabbit comment
+ * puts the title BETWEEN two of them — an analysis chain above, an AI-agents block
+ * below — so a greedy match eats exactly the string this function exists to find.
+ *
+ * BACKTICKS AND TILDES ARE SEPARATE ALTERNATIVES, not one class, so a run of one
+ * cannot close a fence opened with the other. Written as `` \1[`~]* `` first, which
+ * accepted ```` ```~~~ ```` as a closer — CommonMark is explicit that the closer uses
+ * the opener's character. Raised as a nit in review on #801.
+ *
+ * AN UNCLOSED FENCE THEN RUNS TO THE END, which is the second half of that fix and
+ * not decoration. Strictness alone makes the malformed case WORSE: the fence stops
+ * being closed, nothing is stripped, and a `**` sitting inside the code becomes the
+ * title — the very outcome this function exists to prevent. Consuming to the end
+ * instead says what CommonMark says, that an unclosed fence means everything after it
+ * is code, so the answer becomes `""`. A title ABOVE such a fence is still found,
+ * because it is outside the span either way.
+ *
+ * Both halves are unobservable in today's data — 0 tilde fences and no comment with an
+ * odd number of fence runs, in 2061 inline comments and 614 review bodies — and the
+ * rule is spelled this way so it states something true rather than something lucky.
+ *
+ * THE CLOSING FENCE IS MATCHED BY LENGTH, via the backreference, because a fence may
+ * legally contain a SHORTER one. That is not hypothetical here: 81 of this
+ * repository's 2061 CodeRabbit inline comments open a fence with four or more
+ * backticks, and 35 of those wrap a three-backtick run — which is exactly why an
+ * author reaches for four, to quote markdown inside markdown. Matching a fixed
+ * ```` ``` ```` would end the span at that inner run and hand the remainder of the
+ * block back to the title search as though it were prose. It changes no title in
+ * today's data (0 of 1588 inline, 0 of 1693 review-body), so this is the shape being
+ * made safe rather than a live defect being fixed. Tildes are accepted for the same
+ * reason and are pure widening: CommonMark allows them and CodeRabbit has not emitted
+ * one here yet (0 of 2061).
+ *
+ * Anchoring to line start is what makes the length rule meaningful — a fence is a
+ * block construct.
+ *
+ * THE ANCHOR LEAVES ONE GAP AND IT IS THE LESSER EVIL. An INLINE code span holding a
+ * bolded run — `` ```**x**``` `` mid-sentence — is markup by the same argument, and
+ * this rule does not strip it. Widening to inline spans is not the fix: a real title
+ * routinely CONTAINS inline code (`Pin the markdown-it dependency or switch to the
+ * public `getRules()` API.`), and stripping spans before the bold search would delete
+ * the identifier out of the middle of the title it is trying to read. Corrupting
+ * every title that quotes a symbol to guard a shape that occurs zero times in 2061
+ * comments — 39 carry a mid-line run, none with a `**` on that line — is the worse
+ * trade. The `codeRabbitTitle` test that keeps a backticked identifier inside a title
+ * exists to stop someone closing this gap that way.
+ */
+const CR_NON_PROSE =
+  /^[ \t]*(`{3,})(?:[\s\S]*?^[ \t]*\1`*[ \t]*$|[\s\S]*)|^[ \t]*(~{3,})(?:[\s\S]*?^[ \t]*\2~*[ \t]*$|[\s\S]*)|<!--[\s\S]*?-->/gm;
+
+
+/**
+ * CodeRabbit's one-line title: the first bolded span in the same prose region
+ * `codeRabbitDetail` compares, or `""` when the comment states none.
+ *
+ * IT READS THE MACHINERY-STRIPPED TEXT, NOT MERELY THE UNFENCED TEXT, and that
+ * distinction was a defect for one review round. Skipping fenced code alone is not
+ * enough: an `🧩 Analysis chain` block also contains the UNFENCED `💡 Result:`
+ * narrative for each `🌐 Web query:`, which is LLM prose and uses `**bold**` freely —
+ * "In **React 19** (as in React 18), if you have **`<React.StrictMode>` enabled…**".
+ * That text is not code, sits before the finding's real title, and is inside exactly
+ * the analysis-chain-first bodies this function exists to serve. Measured over all
+ * 2061 inline comments: reading it produced 16 titles that disagree with the prose,
+ * of which `Don't use`, `React 19`, `strings` and `` `DefaultLocale()` `` are bold
+ * fragments out of a web answer rather than titles. Sharing `stripDetailsBlocks`
+ * takes that to 5, and all 5 are bodies whose prose is empty, so the comparison has
+ * no opinion there rather than a different one.
+ *
+ * So the two readers now genuinely share one prose region, which is the only version
+ * of this that cannot drift: a `**` that is invisible to `detail` is invisible here.
+ *
+ * `""` is left absent rather than substituted. Falling back to the first sentence
+ * would manufacture a title CodeRabbit never wrote, and no consumer could then tell
+ * a manufactured one from a real one — while an absent one is checkable. Absent is
+ * not inert downstream: `findingKey` is `file::summary`, so every empty summary in
+ * one file collides on one key, and `findingSimilarity` scores two empty summaries at
+ * 1.00 against each other. That is a reason to avoid EMITTING `""` — which this does,
+ * emitting no more of them than `main` already does — not a reason to invent a value.
+ *
+ * THE BOLD MATCH IS SINGLE-LINE, and that is what stops a title being MANUFACTURED
+ * rather than merely mis-chosen. Every removed span becomes a newline, so with a
+ * `/s`-flagged match an unclosed `**` above a fence and a stray `**` below it join
+ * across the gap and the function returns a string that appears in no line of the
+ * comment — measured on a constructed body: "bold to start but never close it and
+ * then". Raised in review on #801. `[^\n]` makes that unrepresentable instead of
+ * unlikely, and it costs nothing: a CodeRabbit title is one line, and over all 2061
+ * inline comments not one bolded span crosses a newline, so the two forms agree on
+ * every finding in this repository.
+ */
+export function codeRabbitTitle(body) {
+  const prose = stripDetailsBlocks(str(body).replace(CR_BLOCKQUOTE_PREFIX, "")).replace(CR_NON_PROSE, "\n");
+  return /\*\*([^\n]+?)\*\*/.exec(prose)?.[1]?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+/**
+ * One `<details>…</details>` block containing no nested `<details>`, i.e. the
+ * INNERMOST one. Applied repeatedly, it dissolves a nested structure from the inside
+ * out. A single lazy `<details>[\s\S]*?</details>` would stop at the first CLOSING
+ * tag instead, which on the nested blocks CodeRabbit builds its review bodies from
+ * cuts in the middle and leaves a stray `</details>` behind.
+ */
+const CR_DETAILS_BLOCK = /<details>(?:(?!<details>)[\s\S])*?<\/details>/g;
+
+/**
+ * The `<summary>` labels of blocks that are CodeRabbit's MACHINERY rather than its
+ * finding: the verification transcript, the boilerplate prompt, the literal source of
+ * a suggestion, and the tool and learning dumps. Counted over this repository's 2061
+ * inline comments — `🤖 Prompt for AI Agents` 1511, `📝 Committable suggestion` 459,
+ * `🧩 Analysis chain` 240, `🧰 Tools` 173, the `🪛 <linter>` family ~150, the
+ * `Learnings` family ~217, `📍 Affects N files` ~60. The review-BODY walkthrough adds
+ * `⚙️ Run configuration`, `📥 Commits`, `ℹ️ Review info` and `🪄 Autofix (Beta)`, one
+ * per review.
+ *
+ * `🤖 Prompt for` is matched as a PREFIX rather than the full `Prompt for AI Agents`,
+ * because a review body says `🤖 Prompt for all review comments with AI agents` — a
+ * second phrasing of the same block. The narrower pattern missed it, and the census
+ * below is what surfaced that; it is the first thing that function found.
+ *
+ * A DENYLIST, not an allowlist, and the label census is the reason. The blocks that
+ * carry CONTENT are named by a long tail — "Proposed fix", "🐛 Suggested guard",
+ * "♻️ Union every matching cluster" — over 300 distinct labels, most used once. An
+ * allowlist over that tail would drop a finding's prose every time CodeRabbit invented
+ * a new phrasing, silently, which is the failure this area keeps having. The machinery
+ * labels are the short and stable half.
+ *
+ * ⚠ It therefore fails OPEN: a machinery block CodeRabbit adds tomorrow gets unwrapped
+ * into `detail` rather than dropped. That is the safe direction — extra text dilutes a
+ * comparison, a missing explanation deletes it — but it is a real gap, and
+ * `unrecognisedDetailsLabels` exists so it is countable rather than invisible.
+ */
+const CR_MACHINERY_SUMMARY =
+  /^\s*(?:🤖\s*Prompt for|📝?\s*Committable suggestion|🧩\s*Analysis chain|🧰\s*Tools|🧬\s*Code Graph Analysis|🪛|📍\s*Affects|[✏⛔🧠]️?\s*Learnings|⚙️?\s*Run configuration|📥\s*Commits|ℹ️?\s*Review info|🪄\s*Autofix)/u;
+
+/**
+ * A CodeRabbit body with its complete `<details>` blocks resolved: machinery deleted,
+ * everything else unwrapped in place.
+ *
+ * `<details>` is a CONTAINER, not a terminator, and treating it as one is what left
+ * `detail` empty on 200 of this repository's 1588 inline findings. See the comment
+ * above `CR_PROSE_END` for that measurement.
+ *
+ * UNWRAPPING rather than deleting the non-machinery blocks is not symmetry for its own
+ * sake. In the 2025 `💡 Verification agent` vintage the finding's own title and prose
+ * live INSIDE the block — `<summary>✅ Verification successful</summary>` followed by
+ * the explanation — so deleting every block empties 11 of the 1693 review-body
+ * findings. Unwrapping keeps that prose and drops only the tags; a `Proposed fix`
+ * block's fenced source is still cut by `CR_PROSE_END`, which is why unwrapping does
+ * not readmit literal code.
+ */
+function stripDetailsBlocks(text) {
+  let prev;
+  let out = text;
+  // Bounded by nesting depth: each pass dissolves the innermost layer, and a pass that
+  // changes nothing ends the loop.
+  do {
+    prev = out;
+    out = out.replace(CR_DETAILS_BLOCK, (block) => {
+      const label = /<summary>([\s\S]*?)<\/summary>/.exec(block)?.[1] ?? "";
+      if (CR_MACHINERY_SUMMARY.test(label)) return "\n";
+      return `\n${block.replace(/<\/?details>/g, "").replace(/<summary>[\s\S]*?<\/summary>/g, "")}\n`;
+    });
+  } while (out !== prev);
+  return out;
+}
+
+/**
+ * The `<summary>` labels this module unwrapped rather than recognised, with a count
+ * each. Pure reporting — nothing branches on it.
+ *
+ * It exists because `CR_MACHINERY_SUMMARY` is a denylist over a vocabulary CodeRabbit
+ * controls and changes without notice: four header vintages and two category
+ * vocabularies have already turned over. A new machinery block would otherwise enter
+ * `detail` with no trace, and this repository's whole history in this area is defects
+ * that printed nothing. `--audit` prints the top of this so the next vintage is a line
+ * of output rather than an archaeology exercise.
+ */
+export function unrecognisedDetailsLabels(bodies) {
+  const counts = new Map();
+  for (const body of Array.isArray(bodies) ? bodies : [bodies]) {
+    const text = str(body).replace(CR_BLOCKQUOTE_PREFIX, "");
+    for (const m of text.matchAll(/<summary>([\s\S]*?)<\/summary>/g)) {
+      const label = m[1].trim();
+      // A tier or file sub-section title is review-body STRUCTURE, not a finding's
+      // block, and counting those would bury the signal under file paths. Both declare
+      // a count — `path/to/file.ts (3)`, `🧹 Nitpick comments (2)` — which is the thing
+      // that distinguishes them, so the count comes off before the path test the way
+      // `codeRabbitReviewSections` does it.
+      const titled = label.replace(/\s*\(\d+\)$/, "");
+      if (titled === label && label !== "" && !CR_MACHINERY_SUMMARY.test(label)) {
+        counts.set(label, (counts.get(label) ?? 0) + 1);
+      }
+    }
+  }
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([label, n]) => ({ label, n }));
+}
+
+/**
+ * The part of a CodeRabbit comment worth comparing as TEXT: the title plus the
+ * prose under it, with structured blocks resolved and the remainder stopping at the
+ * first fence, HTML comment or unpaired tag.
+ *
+ * Two failure modes sit either side of this, and the boundary is what avoids both.
+ *
+ * The title ALONE is too thin. `summaryTokens` reduces a real one — "Guard public
+ * mutation APIs at the read-only boundary." — to six tokens, and `findingSimilarity`
+ * scores containment over the SMALLER token set, so two incidentally shared words
+ * would clear the 0.3 bar. (`tokenOverlap` keeps `MIN_SHARED_TOKENS` for the same
+ * reason; this is the other half of that defence.)
+ *
+ * The WHOLE body is worse, and worse in the dangerous direction. Every comment ends
+ * with a `🤖 Prompt for AI Agents` block opening with the same boilerplate sentence
+ * — "Verify each finding against current code. Fix only still-valid issues…" —
+ * which alone contributes `code`, `fix`, `issues`, `changes`, `validate` to every
+ * single comparison, plus committable-suggestion blocks that dump literal source.
+ * Against a ~15-token panel summary that inflates containment on the vocabulary
+ * every finding in the file already shares, producing false matches exactly where
+ * the panel had the most findings — i.e. eating real misses where they are densest.
+ *
+ * The full body still reaches the ANCHOR layer (harvestPr passes it as `evidence`),
+ * because `extractAnchor` mines structured items — backticked identifiers, the
+ * `around lines N - M` range — where more text is strictly better.
+ */
+export function codeRabbitDetail(body) {
+  // Blockquote markers come off FIRST, before the prose boundary is searched for.
+  // A review-body finding inside a `> [!CAUTION]` alert has `> ` on every line, so
+  // `<details>` reads as `> <details>` and the boundary is never found — the detail
+  // then runs to the end of the finding and swallows the `🤖 Prompt for AI Agents`
+  // block, whose boilerplate is exactly what the docblock above says must never
+  // reach the comparison. Measured before this strip: 146 of 1626 review-body
+  // findings (9.0%) carried that boilerplate in `detail`, median length 1590.
+  //
+  // Then the complete `<details>` blocks are resolved, BEFORE the boundary is searched
+  // for, because the boundary's job is only to stop at what a block cannot enclose.
+  const text = stripDetailsBlocks(str(body).replace(CR_BLOCKQUOTE_PREFIX, ""));
+  const cut = text.search(CR_PROSE_END);
+  const prose = cut === -1 ? text : text.slice(0, cut);
+  // Drop the header LINE if the first non-blank line is one, in any vintage. This
+  // used to be a `.replace(CR_HEADER, "")` against the three-field regex, which
+  // left a two-field or single-italic header sitting in the compared text — where
+  // it contributes `potential`, `issue`, `major` to every comparison and inflates
+  // containment on exactly the vocabulary every finding shares.
+  const lines = prose.split("\n");
+  const i = lines.findIndex((l) => l.trim() !== "");
+  if (i !== -1 && classifyCodeRabbitHeader(lines[i]) !== null) lines.splice(i, 1);
+  return lines.join("\n").replace(/\s+/g, " ").trim();
+}
+
+// --- CodeRabbit's OTHER half: the review body --------------------------------
+//
+// Most of what CodeRabbit writes is not an inline comment. It is nested inside the
+// REVIEW body — `pulls/{n}/reviews`, an endpoint this module has never called —
+// under collapsed `<details>` sections, one per tier:
+//
+//   <details><summary>🧹 Nitpick comments (2)</summary><blockquote>
+//     <details><summary>path/to/file.ts (1)</summary><blockquote>
+//       `97-114`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_
+//       **The title.**
+//       prose…
+//
+// Measured 2026-08-07 over all 638 PRs: 1626 findings across 513 tier sections in
+// 403 of the 558 CodeRabbit reviews that carry a body — against 436 the inline
+// path returns.
+//
+// Each section DECLARES its own count in its title, and so does each file
+// sub-section — which is the denominator this parser is checked against, per
+// section, rather than a total nobody can falsify.
+
+/**
+ * Tier titles, matched against the `headerWords` form — lower-cased, emoji and
+ * PUNCTUATION stripped, so the 2024 combined title has no comma here. Writing
+ * these with the comma is a real mistake and it was made once while building
+ * this: the section then matched no tier, and an unmatched section contributes
+ * NEITHER its findings nor its declared count, so the shortfall check that is
+ * supposed to catch exactly this reported a clean 0 of 0.
+ *
+ * The 2024 vintage names three tiers in one title, and a keyword match on
+ * "Nitpick comments" misses it.
+ */
+const CR_TIERS = [
+  [/^nitpick comments$/, "nitpick"],
+  [/^additional comments$/, "additional"],
+  [/^additional comments not posted$/, "additional"],
+  [/^duplicate comments$/, "duplicate"],
+  [/^outside diff range comments$/, "outside-diff-range"],
+  [/^minor comments$/, "minor"],
+  [/^comments failed to post$/, "failed-to-post"],
+  [/^outside diff range codebase verification and nitpick comments$/, "combined"],
+];
+
+/**
+ * Section titles that are NOT findings, so that anything matching neither this
+ * list nor `CR_TIERS` can be REPORTED rather than silently skipped.
+ *
+ * This is the guard for the failure above. Without it a new tier name — and
+ * CodeRabbit has introduced four of them on this repo already — reads as "this
+ * review had no findings", which is the one conclusion this module must never
+ * reach by accident.
+ */
+const CR_NON_FINDING_SECTIONS = [
+  /^files selected for processing$/,
+  /^files ignored due to path filters$/,
+  /^files skipped from review as they are similar to previous changes$/,
+  /^files skipped from review due to trivial changes$/,
+  /^files with no reviewable changes$/,
+  /^review profile/,
+  /^commits$/,
+  /^code graph analysis$/,
+  /^additional context used$/,
+];
+
+/** `<summary>Title (N)</summary>` — used for both tier sections and the file
+ *  sub-sections inside them. The `(N)` is the declared count. */
+const CR_SUMMARY = /<summary>([^<]*?)\s*\((\d+)\)<\/summary>/g;
+
+/**
+ * Three locator shapes, all three live in this repository's history:
+ *   `97-114`:              backticked — the common one
+ *   62-75:                 bare — the "Comments failed to post" tier
+ *   Line range hint `4-15`: prefixed — the 2024 vintage
+ * Anchored to the start of a line so the `- Around line 39-43:` bullets inside the
+ * `🤖 Prompt for AI Agents` blocks cannot match.
+ */
+const CR_LOCATOR = /^[ \t>]*(?:Line range hint[ \t]+)?(?:`([^`\n]{1,200})`|(\d+(?:-\d+)?))[ \t]*:[ \t]*(.*)$/gm;
+
+/** HTML wrapping that sits between a locator and its header. Sees de-quoted text —
+ *  `codeRabbitReviewSections` strips blockquote markers from the section body. */
+const CR_WRAPPER = /^(?:<\/?details>|<summary>.*<\/summary>|<\/?blockquote>|-{3,})$/;
+
+/** Slice from the first `<blockquote>` after `start` to its MATCHING close.
+ *  Counted rather than searched: tier sections nest file sub-sections, and a
+ *  non-counting scan ends the tier at the first inner `</blockquote>` — which
+ *  silently truncates every multi-file section to its first file. */
+function crBlockAt(text, start) {
+  const open = text.indexOf("<blockquote>", start);
+  if (open === -1) return null;
+  let depth = 0;
+  const re = /<\/?blockquote>/g;
+  re.lastIndex = open;
+  let m;
+  while ((m = re.exec(text))) {
+    depth += m[0] === "<blockquote>" ? 1 : -1;
+    if (depth === 0) return text.slice(open + "<blockquote>".length, m.index);
+  }
+  // Unclosed section: keep the rest rather than dropping it. Read paths degrade to
+  // fewer records and never throw, and a truncated tail loses findings silently.
+  return text.slice(open + "<blockquote>".length);
+}
+
+/** A file sub-section title rather than a tier: `packages/slides/src/x.ts (1)`.
+ *  Matched on "contains no whitespace" rather than on an extension, so `.gitignore`
+ *  and `Dockerfile` are files too — every tier title is prose and has a space. */
+const CR_FILE_TITLE = /^\S+$/;
+
+/**
+ * The tier sections of one review body, each with the count it declares, plus
+ * `unrecognised` — titles that carry a count but match no tier and no known
+ * non-finding section.
+ *
+ * `unrecognised` is the whole point of returning a second list. A tier this
+ * parser does not know is indistinguishable, from the outside, from a review that
+ * found nothing.
+ */
+export function codeRabbitReviewSections(body) {
+  const text = str(body);
+  const sections = [];
+  const unrecognised = [];
+  CR_SUMMARY.lastIndex = 0;
+  let m;
+  while ((m = CR_SUMMARY.exec(text))) {
+    const raw = m[1].trim();
+    const title = headerWords(raw);
+    const hit = CR_TIERS.find(([re]) => re.test(title));
+    if (!hit) {
+      // A file sub-section, or a section that is not findings at all.
+      if (!CR_FILE_TITLE.test(raw) && !CR_NON_FINDING_SECTIONS.some((re) => re.test(title))) {
+        unrecognised.push({ title: raw, declared: Number(m[2]) });
+      }
+      continue;
+    }
+    const block = crBlockAt(text, m.index);
+    if (block === null) continue;
+    // De-quoted ONCE here, so every line-anchored pattern downstream sees plain
+    // text. See `CR_BLOCKQUOTE_PREFIX`: an outside-diff tier arrives wrapped in a
+    // `> [!CAUTION]` alert with `> ` on every line.
+    sections.push({ tier: hit[1], title: raw, declared: Number(m[2]), body: block.replace(CR_BLOCKQUOTE_PREFIX, "") });
+  }
+  return { sections, unrecognised };
+}
+
+/**
+ * Every finding in one CodeRabbit review body, with the tier it came from.
+ *
+ * Returns `{findings, declared, shortfall}`. `declared` is what CodeRabbit's own
+ * section titles claim and `shortfall` is `declared - findings.length` — the
+ * denominator travels with the count, so a consumer can tell "this review had no
+ * nitpicks" from "this parser could not read them", which are the same number
+ * today and must never be.
+ *
+ * The tier is kept ON each finding rather than pooled. They are different claims:
+ * a ♻️ Duplicate is the same defect said twice and double-counts any volume
+ * metric, and ⚠️ Outside diff range is a finding about code the PR did not touch,
+ * which is a different comparison entirely. A scorer can pool later; it cannot
+ * unpool.
+ */
+export function parseCodeRabbitReview(body) {
+  const findings = [];
+  let declared = 0;
+  const { sections, unrecognised } = codeRabbitReviewSections(body);
+  for (const section of sections) {
+    declared += section.declared;
+    const text = section.body;
+    // Offset → enclosing file path, from the file sub-section titles.
+    const files = [];
+    CR_SUMMARY.lastIndex = 0;
+    let f;
+    while ((f = CR_SUMMARY.exec(text))) files.push({ at: f.index, path: f[1].trim() });
+    CR_LOCATOR.lastIndex = 0;
+    let m;
+    const hits = [];
+    while ((m = CR_LOCATOR.exec(text))) {
+      let rest = m[3].trim();
+      // The header is often below the locator, under some HTML wrapping.
+      if (rest === "" || CR_WRAPPER.test(rest)) {
+        const tail = text.slice(CR_LOCATOR.lastIndex, CR_LOCATOR.lastIndex + 600).split("\n");
+        rest = (tail.find((l) => l.trim() !== "" && !CR_WRAPPER.test(l.trim())) ?? "").trim();
+      }
+      const head = classifyCodeRabbitHeader(rest);
+      const bold = head === null ? /^\*\*(.+?)\*\*/s.exec(rest) : null;
+      if (head === null && bold === null) continue;
+      let file = "";
+      for (const x of files) if (x.at < m.index) file = x.path; else break;
+      hits.push({ at: m.index, locator: m[1] ?? m[2] ?? "", file, head });
+    }
+    for (let i = 0; i < hits.length; i++) {
+      const h = hits[i];
+      const span = text.slice(h.at, i + 1 < hits.length ? hits[i + 1].at : text.length);
+      // A span runs to the NEXT locator, so it carries this finding's committable
+      // suggestion and its `🤖 Prompt for AI Agents` block — both fenced, both full
+      // of `**`. The title is mined with the same code-blind rule as the inline
+      // path rather than a second one written here; the two readers of a CodeRabbit
+      // title diverging is the defect this fixes, and two copies of it would
+      // reintroduce it on the half of the population that comes through this path.
+      //
+      // 🔴 THE TITLE READS `span`, THE DETAIL READS THE DE-LOCATORED COPY, and that
+      // asymmetry is load-bearing rather than an oversight. `CR_LOCATOR`'s third
+      // group is `(.*)$` — the whole rest of the locator's line — and the 2024/2025
+      // vintages put the title ON that line (``\`17-19\`: **Add error handling**``).
+      // So stripping the locator strips the title with it: mining the title from
+      // `stated` empties 756 of this repository's 1693 review-body findings.
+      // Measured, not reasoned — it is why this line says `span`.
+      const stated = span.replace(CR_LOCATOR, "").trimStart();
+      findings.push({
+        tier: section.tier,
+        file: h.file,
+        locator: h.locator,
+        category: h.head?.category ?? "",
+        vocabulary: h.head?.vocabulary ?? "",
+        severity: h.head?.severity ?? "",
+        severityRaw: h.head?.severityRaw ?? "",
+        effort: h.head?.effort ?? "",
+        vintage: h.head?.vintage ?? "bold-title",
+        lens: CR_CATEGORY_TO_LENS.get(h.head?.category ?? "") ?? "",
+        summary: codeRabbitTitle(span),
+        detail: codeRabbitDetail(stated),
+      });
+    }
+  }
+  return { findings, declared, shortfall: declared - findings.length, unrecognised };
+}
+
+// --- the panel's findings, as posted on a human PR ---------------------------
+//
+// `@claude review` runs the SAME lens panel on a human PR, and records no check
+// runs at all — agent-review-on-demand.yml says so four times over ("purely
+// advisory: it records NO check runs", `checks: read` and never `checks: write`).
+// Its findings exist only as markdown in the comment it posts. `panelVerdictAt`
+// reads check runs exclusively, so that entire population was invisible here: 14
+// PRs carrying 1-38 blocking findings each, against 27 PRs' worth of CodeRabbit
+// blockers, none of it reachable.
+//
+// So this reads the comment. It is a SECOND source for the same fact, not a
+// replacement — `harvestPr` prefers check runs where they exist, because they are
+// structured JSON rather than a rendering of it, and falls back to this.
+
+/** The machine anchor `agent-review-on-demand.yml` writes as the comment's first
+ *  line. The sha is the commit the panel actually reviewed. */
+const PANEL_COMMENT_RE = /^<!--\s*agent-review:([0-9a-f]{40})\s*-->/;
+
+/** The searchable substring of that anchor, used by `listCandidatePrs` to find the
+ *  PRs a panel reviewed on demand. Kept beside the regex it belongs to so the two
+ *  cannot drift; GitHub's comment search cannot express the sha, and does not need
+ *  to — `parsePanelComment` re-checks the full anchor and the author on read. */
+const PANEL_COMMENT_TAG = "agent-review:";
+
+/**
+ * Who may author a panel comment. EXACT logins, and this is a security gate, not
+ * tidiness — the same discipline as `CODERABBIT_LOGINS`, for a sharper reason.
+ *
+ * Findings parsed here can SUPPRESS a CodeRabbit candidate. So anyone able to
+ * forge a panel comment could silence real misses by posting text that matches
+ * them — a deletion with no trace in the corpus. Matching on the marker alone is
+ * not enough: any user can write that HTML comment. It must come from the App.
+ *
+ * Not hypothetical at this parse level: #578 carries a CODERABBIT comment whose
+ * body contains "Review panel", so a content-only match already mis-fires on real
+ * data before anyone tries.
+ */
+const PANEL_LOGINS = new Set(["yorkie-agent[bot]", "app/yorkie-agent"]);
+
+// `renderSummaryMd` emits `### <heading> (<n>)` then one `- ` row per finding.
+// Only the two BLOCKING headings are read; `Minor (non-blocking)`,
+// `Nit (non-blocking)` and the demoted section all terminate a run of rows.
+const PANEL_SECTION_RE = /^###\s+(Critical|Major|Minor|Nit|Demoted)\b/;
+const PANEL_LENS_RE = /review:\s+\*\*/;
+// `- \`file\` — summary`, the shape `section()` writes when a finding has a file.
+// The em-dash is what `section()` emits; en-dash and hyphen are tolerated because
+// this is a rendering being read back, not a wire format.
+const PANEL_FINDING_RE = /^[-*]\s+`([^`]+)`\s*[—–-]\s*(.+)$/;
+
+/**
+ * Blocking findings from one panel comment body, or `null` if it is not one.
+ *
+ * Blocking ONLY, for the same reason `panelVerdictAt` filters: a CodeRabbit
+ * blocker "already raised" by a minor note is not a gate hit, and suppressing it
+ * on that basis would hide a real miss behind a passing remark.
+ *
+ * The trailing `_(verifier could not settle this)_` marker and the `<details>`
+ * block of merged wordings are left in the summary text rather than stripped. They
+ * are words the panel wrote about this finding, `summaryTokens` discards the
+ * punctuation, and a stripper is one more thing to keep in step with the renderer.
+ *
+ * `file` keeps the rendered locator with any `:line` suffix removed, and the whole
+ * locator is repeated into `evidence` so `extractAnchor` still sees the line
+ * numbers — they are the sharpest location signal in the row.
+ */
+export function parsePanelComment(body) {
+  const text = str(body);
+  const m = PANEL_COMMENT_RE.exec(text);
   if (!m) return null;
-  const severity = normalizeSeverity(headerWords(m[2]));
-  if (!BLOCKING.has(severity)) return null;
-  const category = headerWords(m[1]);
-  // First bolded line after the header is CodeRabbit's one-line title.
-  const title = /\*\*(.+?)\*\*/s.exec(str(body))?.[1]?.replace(/\s+/g, " ").trim() ?? "";
-  return { category, severity, lens: CR_CATEGORY_TO_LENS.get(category) ?? "", summary: title };
+  const findings = [];
+  let severity = null;
+  for (const line of text.split("\n")) {
+    // A new lens's verdict line ends the previous lens's last section.
+    if (PANEL_LENS_RE.test(line)) { severity = null; continue; }
+    const sec = PANEL_SECTION_RE.exec(line);
+    if (sec) {
+      const h = sec[1].toLowerCase();
+      severity = h === "critical" || h === "major" ? h : null;
+      continue;
+    }
+    if (/^###/.test(line)) { severity = null; continue; }
+    if (severity === null) continue;
+    const row = PANEL_FINDING_RE.exec(line);
+    if (!row) continue;
+    const locator = row[1];
+    findings.push({
+      severity,
+      file: locator.replace(/:[\d\s\-–—]+$/, ""),
+      summary: row[2].trim(),
+      evidence: `at ${locator}`,
+    });
+  }
+  return { reviewedSha: m[1], findings };
+}
+
+/**
+ * The panel's blocking findings across every on-demand review on this PR, or
+ * `null` if it was never reviewed that way.
+ *
+ * The UNION of all reviews, not the newest. The record's claim is "the panel did
+ * not raise this", and a finding the panel raised in an earlier review is one the
+ * panel raised — filing it as a miss would put a false row in an eval corpus,
+ * which this module's header calls worse than not tuning at all. That direction
+ * does widen the suppression surface, which is why every suppression is counted
+ * and logged with the finding it matched.
+ */
+export function panelFindingsFromComments(comments) {
+  let seen = false;
+  let reviewedSha = "";
+  const findings = [];
+  for (const c of Array.isArray(comments) ? comments : []) {
+    if (!PANEL_LOGINS.has(str(c?.user?.login))) continue;
+    const parsed = parsePanelComment(c?.body);
+    if (!parsed) continue;
+    seen = true;
+    if (!reviewedSha) reviewedSha = parsed.reviewedSha;
+    findings.push(...parsed.findings);
+  }
+  return seen ? { reviewedSha, findings } : null;
+}
+
+/**
+ * Each on-demand review as a ROUND, in the same shape `panelRounds` produces.
+ *
+ * The point of expressing an advisory review this way is that everything downstream
+ * — ordering, `roundsUpTo`, `panelApprovedAt`, `panelSaw` — then works on one kind of
+ * thing. The previous code treated this channel as a whole-PR fallback, so an
+ * on-demand PR got a single comparison set for every CodeRabbit finding on it no
+ * matter which commit each was about; as a round it gets the same per-commit
+ * treatment the gating arm does, for free.
+ *
+ * `conclusion` is `""`, and that is not a missing value — an advisory review reaches
+ * no gate conclusion. It is also what keeps these rounds out of `panelApprovedAt`,
+ * which selects on `"success"`: an `@claude review` is not an approval and must never
+ * become signature 1's cutoff.
+ *
+ * `blockers` is carried already-parsed, so these rounds cost no second request. The
+ * `index` is where the reviewed commit sits on the PR, or -1 when that commit is no
+ * longer on the branch (see `roundsUpTo` for what -1 buys).
+ */
+export function commentRounds(comments, commits) {
+  const out = [];
+  for (const c of Array.isArray(comments) ? comments : []) {
+    if (!PANEL_LOGINS.has(str(c?.user?.login))) continue;
+    const parsed = parsePanelComment(c?.body);
+    if (!parsed) continue;
+    const sha = str(parsed.reviewedSha);
+    out.push({
+      sha,
+      index: commitIndex(commits, sha),
+      conclusion: "",
+      reviewedSha: sha,
+      completedAt: str(c?.created_at),
+      blockers: parsed.findings,
+      advisory: true,
+    });
+  }
+  return out;
+}
+
+/** Verdicts `attributeToPanel` can reach. `""` is a fourth state and means the
+ *  question was never asked — see `attributeToPanel`. */
+export const MATCH_VERDICTS = new Set(["match", "maybe", "no"]);
+
+/**
+ * Did the panel already raise this CodeRabbit finding, in different words?
+ *
+ * `blockers` is the panel's blocking findings, or `null` when we could not
+ * establish them (no readable check runs). Those are different questions and get
+ * different answers: `null` yields verdict `""` — "not asked" — which emits the
+ * candidate exactly as this module did before matching existed. An empty ARRAY is
+ * a real answer: the panel raised nothing blocking, so a CodeRabbit blocker is by
+ * definition unmatched.
+ *
+ * Both sides are compared LENS-NEUTRAL. CodeRabbit's lens is a category→lens guess
+ * that is often `""`, and `findingSimilarity` scores any lens mismatch 0 outright.
+ * `clusterFindings` already solved this upstream with a `{ ...f, lens: "" }` copy;
+ * this is the same move, not a second one. The deeper reason is that a defect the
+ * panel raised under a DIFFERENT lens is still a defect the panel raised.
+ *
+ * FAIL DIRECTION — `maybe`, deliberately in the middle. Suppressing on error would
+ * silently drop a real miss, which is the one loss this corpus cannot recover
+ * later; emitting unflagged would restore the noise the matcher exists to remove.
+ * `maybe` honours "never throw" without choosing either.
+ */
+export function attributeToPanel(finding, blockers) {
+  if (!Array.isArray(blockers)) return { verdict: "", score: 0, matchedSummary: "" };
+  try {
+    const neutral = (f) => ({
+      lens: "",
+      file: str(f?.file),
+      summary: str(f?.summary),
+      evidence: str(f?.evidence),
+    });
+    const best = bestMatch(neutral(finding), blockers.map(neutral), { crossSource: true });
+    if (!best) return { verdict: "no", score: 0, matchedSummary: "" };
+    return {
+      verdict: best.result.verdict,
+      score: Math.round(best.result.score * 100) / 100,
+      matchedSummary: str(best.candidate.summary),
+    };
+  } catch (err) {
+    return { verdict: "maybe", score: 0, matchedSummary: "", error: err.message };
+  }
 }
 
 /**
@@ -292,10 +1251,18 @@ export function toMissRecord(fields) {
     severity: f.severity == null || f.severity === "" ? "" : normalizeSeverity(f.severity),
     origin: ORIGINS.includes(f.origin) ? f.origin : "unknown",
     summary: str(f.summary),
+    // The match fields live INSIDE `panelSaw` rather than at the top level: they
+    // are three more things we know about what the panel saw, and `schema` is
+    // `wafflebase/miss@1`. They are present on every record, empty on the paths
+    // that never ask the question, because a corpus read in diffs is easier to
+    // scan when every line has the same shape.
     panelSaw: {
       reviewedSha: str(saw.reviewedSha),
       conclusion: str(saw.conclusion),
       blockingFindings: Number.isFinite(Number(saw.blockingFindings)) ? Number(saw.blockingFindings) : 0,
+      matchVerdict: MATCH_VERDICTS.has(saw.matchVerdict) ? saw.matchVerdict : "",
+      matchScore: Number.isFinite(Number(saw.matchScore)) ? Number(saw.matchScore) : 0,
+      matchedSummary: str(saw.matchedSummary),
     },
     verifiedBy: str(f.verifiedBy),
     notes: str(f.notes),
@@ -381,7 +1348,14 @@ export function dedupeById(records) {
 
 /**
  * What the panel concluded on a given commit: `{reviewedSha, conclusion,
- * blockingFindings}`.
+ * blockingFindings, blockers}`.
+ *
+ * `blockers` is the blocking findings THEMSELVES, and it is the whole reason
+ * signature 2 can be more than a guess. This function used to compute the count
+ * and drop the findings on the floor, so the CodeRabbit path could say the panel
+ * raised three blockers but never whether one of them was the comment in hand —
+ * every CodeRabbit blocker was filed as a miss by construction. `blockingFindings`
+ * stays a count because callers and the record format depend on it.
  *
  * `reviewedSha` comes from the lens run's `external_id` (incremental review's
  * state pointer) rather than from the commit the run is attached to, because on a
@@ -393,9 +1367,27 @@ export function dedupeById(records) {
  * per-lens because the question a miss record asks is "did the panel let this
  * through", and one failing lens means it did not.
  */
-export function panelVerdictAt(runsByLens) {
-  const runs = runsByLens instanceof Map ? runsByLens : new Map(Object.entries(runsByLens ?? {}));
-  const findings = tagPriorFindings(runs);
+const asRunMap = (runsByLens) =>
+  runsByLens instanceof Map ? runsByLens : new Map(Object.entries(runsByLens ?? {}));
+
+/**
+ * The CHEAP half of a verdict: `{reviewedSha, conclusion, completedAt}`.
+ *
+ * Split out because it is answerable from the check-runs LIST response, which omits
+ * `output.text` — so establishing WHICH commits the panel reviewed costs one call per
+ * commit, and the per-run refetch that carries the findings is spent only on the
+ * rounds a candidate is actually compared against. See `harvestPr`.
+ *
+ * Not merely an optimisation. `conclusion`'s aggregate rule is load-bearing ("one
+ * failing lens means the panel did not let it through") and this keeps it in ONE
+ * place rather than growing a second copy for the cheap path to use.
+ *
+ * `completedAt` is the LATEST `completed_at` across the lens runs, because the round
+ * is not over until its last lens is. It falls back to `started_at` on the same
+ * per-run basis `latestLensRuns` orders by, and to `""` when neither parses.
+ */
+export function panelRoundAt(runsByLens) {
+  const runs = asRunMap(runsByLens);
   const conclusions = [...runs.values()].map((r) => str(r?.conclusion));
   const conclusion =
     conclusions.length === 0 ? "" : conclusions.includes("failure") ? "failure" : "success";
@@ -411,7 +1403,148 @@ export function panelVerdictAt(runsByLens) {
       break;
     }
   }
-  return { reviewedSha, conclusion, blockingFindings: classify(findings).blockingCount };
+  // Compared as PARSED TIMES, not as strings. Lexicographic order happens to work for
+  // the `…Z` form GitHub returns and silently stops working for any offset form, which
+  // is the kind of latent bug a timestamp comparison should not have.
+  let completedAt = "";
+  let latest = -Infinity;
+  for (const r of runs.values()) {
+    const t = str(r?.completed_at) || str(r?.started_at);
+    const at = Date.parse(t);
+    if (t !== "" && Number.isFinite(at) && at > latest) {
+      latest = at;
+      completedAt = t;
+    }
+  }
+  return { reviewedSha, conclusion, completedAt };
+}
+
+/**
+ * What the panel concluded on a given commit: `{reviewedSha, conclusion,
+ * blockingFindings, blockers}`.
+ *
+ * `blockers` is the blocking findings THEMSELVES, and it is the whole reason
+ * signature 2 can be more than a guess. This function used to compute the count
+ * and drop the findings on the floor, so the CodeRabbit path could say the panel
+ * raised three blockers but never whether one of them was the comment in hand —
+ * every CodeRabbit blocker was filed as a miss by construction. `blockingFindings`
+ * stays a count because callers and the record format depend on it.
+ *
+ * `reviewedSha` comes from the lens run's `external_id` (incremental review's
+ * state pointer) rather than from the commit the run is attached to, because on a
+ * narrowed round those differ — the run hangs off the head commit while the
+ * verdict covers only the delta. The commit sha is the fallback.
+ *
+ * `conclusion` is the AGGREGATE: `failure` if any lens failed, `success` only if
+ * at least one ran and none failed, `""` if none ran. Aggregate rather than
+ * per-lens because the question a miss record asks is "did the panel let this
+ * through", and one failing lens means it did not.
+ *
+ * The return shape deliberately does NOT carry `panelRoundAt`'s `completedAt`:
+ * three callers `deepEqual` this object, and a field they do not use would make them
+ * assert about the timestamp of a fixture.
+ */
+export function panelVerdictAt(runsByLens) {
+  const runs = asRunMap(runsByLens);
+  const { reviewedSha, conclusion } = panelRoundAt(runs);
+  const classified = classify(tagPriorFindings(runs));
+  return {
+    reviewedSha,
+    conclusion,
+    blockingFindings: classified.blockingCount,
+    // The BLOCKING subset only. A CodeRabbit blocker "already raised" by a nit the
+    // panel filed is not a gate hit, and matching against non-blocking findings
+    // would suppress a real gate miss on the strength of a passing remark.
+    blockers: classified.findings.filter((f) => BLOCKING.has(f.severity)),
+  };
+}
+
+/**
+ * Position of a sha in the PR's commit list, or -1.
+ *
+ * The list is chronological, so the index is an ordering usable for "at or before".
+ * -1 means the sha is not on the PR at all, which is a real and reachable state: a
+ * force-push rewrites history and leaves a CodeRabbit comment's
+ * `original_commit_id` pointing at a commit no longer reachable from the branch.
+ */
+export function commitIndex(commits, sha) {
+  const want = str(sha);
+  if (want === "") return -1;
+  return (Array.isArray(commits) ? commits : []).findIndex((c) => str(c?.sha) === want);
+}
+
+/**
+ * Every ROUND of review on this PR: one entry per commit the panel concluded on,
+ * chronological, each `{sha, index, conclusion, reviewedSha, completedAt, runs}`.
+ *
+ * `runs` is the `latestLensRuns` map for that commit, kept so the caller can spend
+ * the expensive per-run refetch later without listing the commit's checks again.
+ *
+ * PURE, with `runsFor(sha)` injected: the whole ordering decision is testable
+ * without an API, which is the same reason `prior-findings.mjs` injects its `api`.
+ *
+ * A commit whose checks cannot be READ yields an `unreadable: true` round rather
+ * than nothing, and the distinction is load-bearing in two directions at once. It
+ * must not count as evidence the panel reviewed anything — so it carries
+ * `conclusion: ""`, which keeps it out of `panelApprovedAt` and makes `blockersOf`
+ * refuse it — but the SHA is a fact we hold regardless, and dropping the round would
+ * throw it away. "We know which commit the panel was looking at and we could not
+ * read what it concluded" is a more honest record than an empty one, and it is what
+ * tells an API hiccup apart from a PR the panel never touched.
+ *
+ * A commit with no lens runs AT ALL is not a round; that is a real, readable answer
+ * ("the panel did not review this commit"), not a failure. Either way the walk
+ * continues, so one bad commit never costs the rest of the PR.
+ */
+export function panelRounds(commits, runsFor, { log = () => {} } = {}) {
+  const rounds = [];
+  const list = Array.isArray(commits) ? commits : [];
+  for (let index = 0; index < list.length; index++) {
+    const sha = str(list[index]?.sha);
+    if (sha === "") continue;
+    let runs;
+    try {
+      runs = asRunMap(typeof runsFor === "function" ? runsFor(sha) : null);
+    } catch (err) {
+      log(`could not read the panel's verdict at ${sha} (${err.message}); recording it as unknown.`);
+      rounds.push({ sha, index, conclusion: "", reviewedSha: "", completedAt: "", unreadable: true });
+      continue;
+    }
+    if (runs.size === 0) continue;
+    const { reviewedSha, conclusion, completedAt } = panelRoundAt(runs);
+    if (conclusion === "") continue; // no lens actually completed here
+    rounds.push({ sha, index, conclusion, reviewedSha, completedAt, runs });
+  }
+  return rounds;
+}
+
+/**
+ * The rounds a finding on `index` may be compared against: every round AT OR BEFORE
+ * it, newest last. `index < 0` (a sha not on the PR) yields ALL rounds.
+ *
+ * "At or before" is the correction this exists for. The comparison set used to be a
+ * single set computed from the hand-off commit and then applied to every CodeRabbit
+ * finding regardless of which commit it was about — so on a multi-round PR a finding
+ * could be checked against a verdict the panel reached AFTER it, and suppressed as
+ * "already raised" by a finding that did not exist yet.
+ *
+ * ONE rule covers both unplaceable directions: **what cannot be placed cannot be
+ * excluded.** An `index < 0` finding sees every round; a round with `index < 0` (an
+ * advisory review of a commit no longer on the branch) is eligible for every finding.
+ * Both widen the set, and widening can only ever over-suppress a finding the panel
+ * really did raise somewhere on this PR — whereas narrowing on a guess files a miss
+ * against a reviewer that did raise it. The same middle-of-the-road direction
+ * `attributeToPanel` takes with `maybe`, and it is logged either way.
+ *
+ * The UNION rather than the newest single round, which is deliberate and unchanged
+ * from the behaviour `panelFindingsFromComments` documented: the record's claim is
+ * "the panel did not raise this", and a finding raised in an earlier round is one the
+ * panel raised. Narrowing to one round would file those as misses.
+ */
+export function roundsUpTo(rounds, index) {
+  const all = Array.isArray(rounds) ? rounds : [];
+  if (index < 0) return [...all];
+  return all.filter((r) => Number(r?.index) < 0 || Number(r?.index) <= index);
 }
 
 // --- gh-backed collection ----------------------------------------------------
@@ -434,96 +1567,223 @@ function listCommits(pr, api) {
   return Array.isArray(out) ? out : [];
 }
 
+/** The REVIEWS on a PR — a different endpoint from `pulls/{n}/comments`, and the
+ *  one that carries the nitpick, duplicate and outside-diff-range tiers. See
+ *  `parseCodeRabbitReview`: most of what CodeRabbit writes is in here. */
+function listReviews(pr, api) {
+  const out = api(["api", "--paginate", `repos/{owner}/{repo}/pulls/${pr}/reviews?per_page=100`]);
+  return Array.isArray(out) ? out : [];
+}
+
 function commitFiles(sha, api) {
   const out = api(["api", `repos/{owner}/{repo}/commits/${sha}`]);
   return Array.isArray(out?.files) ? out.files : [];
 }
 
-/** The `ready_for_review` timeline event's timestamp, or "". */
-function readyForReviewAt(pr, api) {
-  const events = api(["api", "--paginate", `repos/{owner}/{repo}/issues/${pr}/timeline?per_page=100`]);
-  const hit = (Array.isArray(events) ? events : []).find((e) => e?.event === "ready_for_review");
-  return str(hit?.created_at);
-}
+/**
+ * How many of a PR's commits to read check runs for.
+ *
+ * One LIST call each, so this is the only place this module's cost grows with PR
+ * size. Set well above the real distribution rather than tuned to it: the widest PR
+ * this corpus has looked at carries 9 commits, and `pulls/{n}/commits` itself stops
+ * at 250. A PR past this cap loses its OLDEST rounds, so a CodeRabbit finding down
+ * there is compared against a wider set than it should be (see `roundsUpTo`) — which
+ * is why exceeding it is logged rather than absorbed.
+ */
+const ROUND_WALK_LIMIT = 100;
 
 /**
  * Propose miss records for one PR. NEVER throws: every collection step is
  * individually caught and degrades to fewer candidates.
  *
- * Returns `{records, skipped}` — `skipped` is a human-readable reason when the PR
- * could not be examined at all, so the CLI can say WHY a PR produced nothing.
- * "Zero candidates" and "could not look" must never print the same way; the whole
- * point of the corpus is that an empty result is a claim, not a default.
+ * Returns `{records, skipped, suppressed}` — `skipped` is a human-readable reason
+ * when the PR could not be examined at all, so the CLI can say WHY a PR produced
+ * nothing. "Zero candidates" and "could not look" must never print the same way;
+ * the whole point of the corpus is that an empty result is a claim, not a default.
+ *
+ * THE TWO SIGNATURES HAVE DIFFERENT PRECONDITIONS, and conflating them cost this
+ * module its best data twice over.
+ *
+ * Signature 1 is defined relative to an approval — "a human changed reviewable code
+ * AFTER the panel approved" is meaningless without the moment it approved. Signature
+ * 2 needs no approval at all: "CodeRabbit flagged something our panel reviewed and
+ * did not raise" is exactly as true on a human PR reviewed via `@claude review`,
+ * where nothing was ever handed off.
+ *
+ * Gating both on `isAgentPr` plus a hand-off marker excluded, measurably: 18 of 33
+ * agent PRs (opened ready, so they have neither a marker nor a `ready_for_review`
+ * event), and every human PR — which is where the on-demand panel reviews and the
+ * bulk of CodeRabbit's blocking findings both live.
+ *
+ * The second conflation survived that fix and is what this rewrite removes:
+ * signature 2 still reached the panel's findings THROUGH signature 1's cutoff. The
+ * comparison set was read from whichever commit was head at hand-off, so a PR with
+ * no hand-off produced no comparison set and withheld every CodeRabbit candidate —
+ * even with perfectly readable check runs on every commit. `panelRounds` now
+ * establishes the review history directly from the check runs, `roundsUpTo` resolves
+ * a comparison set PER COMMENT, and the cutoff is one more thing derived from that
+ * history rather than the thing it all depends on.
  */
 export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}) {
   const records = [];
-  let meta;
-  try {
-    meta = api(["api", `repos/{owner}/{repo}/pulls/${pr}`]);
-  } catch (err) {
-    return { records, skipped: `could not read PR #${pr} (${err.message})` };
-  }
-  if (!isAgentPr(meta)) return { records, skipped: `#${pr} is not an agent PR` };
+  // CodeRabbit comments the matcher attributed to a panel finding, so they were
+  // NOT filed. Reported by the CLI: a suppression nobody can see is a deletion.
+  let suppressed = 0;
 
+  // Comments come FIRST and are load-bearing twice over: they carry the hand-off
+  // marker (signature 1's corroborating cutoff) and every on-demand review, which
+  // `commentRounds` turns into rounds. One call, both facts.
   let comments = [];
   try {
     comments = listComments(pr, api);
   } catch (err) {
-    log(`#${pr}: could not list comments (${err.message}); trying the timeline only.`);
-  }
-  let ready = "";
-  try {
-    ready = readyForReviewAt(pr, api);
-  } catch (err) {
-    log(`#${pr}: could not read the timeline (${err.message}).`);
-  }
-  const handoffAt = handoffTime({ comments, readyForReviewAt: ready });
-  if (!handoffAt) {
-    return { records, skipped: `#${pr} has no hand-off marker and no ready_for_review event` };
+    log(`#${pr}: could not list comments (${err.message}); no marker and no advisory rounds from this PR.`);
   }
 
-  // The verdict that LET THE PR THROUGH: the newest lens runs on or before the
-  // handoff. Runs from later rounds would describe a panel that had already seen
-  // the human's fix.
   let prCommits = [];
   try {
     prCommits = listCommits(pr, api);
   } catch (err) {
-    log(`#${pr}: could not list commits (${err.message}); no human-fix candidates from this PR.`);
+    log(`#${pr}: could not list commits (${err.message}); no rounds and no human-fix candidates from this PR.`);
   }
-  const cutoff = Date.parse(handoffAt);
-  const beforeHandoff = prCommits.filter((c) => {
-    const at = Date.parse(str(c?.commit?.committer?.date));
-    return Number.isFinite(at) && at <= cutoff;
-  });
-  // NO fallback to the PR's last commit. If every commit post-dates the handoff
-  // (a force-push or rebase after promotion rewrites committer dates), the last
-  // commit is one the panel saw only AFTER the human's fix — recording its verdict
-  // would describe a panel that had already been shown the answer. An empty
-  // `panelSaw` says "we could not establish what the panel saw", which is true; a
-  // post-handoff sha would be a wrong measurement that reads as a right one.
-  const headAtHandoff = beforeHandoff[beforeHandoff.length - 1];
+  if (prCommits.length > ROUND_WALK_LIMIT) {
+    log(
+      `#${pr}: ${prCommits.length} commits exceeds the ${ROUND_WALK_LIMIT}-commit round walk; ` +
+        `the oldest were NOT read, so a CodeRabbit finding on one is compared against a wider set than it should be.`,
+    );
+  }
+  const walked = prCommits.slice(0, ROUND_WALK_LIMIT);
 
-  // The sha is known for certain the moment we have the commit list, so it is
-  // recorded OUTSIDE the check-run fetch. Only `conclusion` and
-  // `blockingFindings` depend on the API call, and leaving those empty while the
-  // sha is present says exactly what happened: we know which commit the panel was
-  // looking at and we could not read what it concluded. Collapsing both into ""
-  // would make an API hiccup indistinguishable from a PR with no panel at all.
-  let panelSaw = { reviewedSha: str(headAtHandoff?.sha), conclusion: "", blockingFindings: 0 };
-  if (headAtHandoff?.sha) {
+  // PHASE 1 — which commits did the panel conclude on, and when. One check-runs
+  // LIST call per commit; the list response omits `output.text`, so this establishes
+  // the review history WITHOUT paying for the findings. Advisory reviews join as
+  // rounds of their own, already carrying their findings.
+  const rounds = [
+    ...panelRounds(walked, (sha) => latestLensRuns(commitCheckRuns(sha, { api }), names), {
+      log: (m) => log(`#${pr}: ${m}`),
+    }),
+    ...commentRounds(comments, walked),
+  ].sort((a, b) => a.index - b.index || (Date.parse(str(a.completedAt)) || 0) - (Date.parse(str(b.completedAt)) || 0));
+
+  // The cutoff, from the panel's own check runs — not from a comment, and no longer
+  // from `ready_for_review` at all. See `panelApprovedAt` for why that ordering is
+  // the whole point of this function.
+  const approvedAt = panelApprovedAt(rounds, markerHandoffAt(comments));
+  if (approvedAt === null && rounds.length > 0) {
+    log(`#${pr}: the panel reviewed this PR but never approved it; no human-fix candidates (the CodeRabbit signature still runs).`);
+  }
+
+  // PHASE 2 — the findings, fetched per round and ONLY for rounds a candidate is
+  // actually compared against. `withFullOutput` is one request per lens run, so this
+  // is the expensive half; caching by sha keeps a PR with many CodeRabbit comments
+  // from re-fetching the same round once per comment.
+  const blockersBySha = new Map();
+  const blockersOf = (round) => {
+    // An advisory round parsed its findings out of the comment already.
+    if (Array.isArray(round?.blockers)) return round.blockers;
+    // A round whose checks could not be listed has no findings to read and MUST NOT
+    // resolve to `[]`. Falling through would hand `withFullOutput` an absent `runs`,
+    // get an empty map back, and report "this round raised nothing blocking" about a
+    // round nobody has seen — filing every CodeRabbit finding on the PR as a miss.
+    if (round?.unreadable) return null;
+    const key = str(round?.sha);
+    if (blockersBySha.has(key)) return blockersBySha.get(key);
+    let out = null;
     try {
-      const runs = commitCheckRuns(headAtHandoff.sha, { api });
-      const verdict = panelVerdictAt(withFullOutput(latestLensRuns(runs, names), { api, log }));
-      panelSaw = { ...verdict, reviewedSha: verdict.reviewedSha || headAtHandoff.sha };
+      out = panelVerdictAt(withFullOutput(round.runs, { api, log })).blockers;
     } catch (err) {
-      log(`#${pr}: could not read the panel's verdict (${err.message}); recording it as unknown.`);
+      log(`#${pr}: could not read the panel's findings at ${key} (${err.message}); recording it as unknown.`);
     }
-  }
+    blockersBySha.set(key, out);
+    return out;
+  };
 
-  // Signature 1 — human commits after handoff.
+  /**
+   * The panel's blocking findings a candidate at `index` may be compared against, or
+   * `null` when that cannot be established.
+   *
+   * `null` vs `[]` is the same distinction it has always been, now decided per
+   * candidate: `[]` is a real answer ("the panel reviewed this and raised nothing
+   * blocking"), `null` is the absence of one. A single unreadable round in the
+   * eligible set collapses the whole set to `null` — a union missing one round would
+   * claim the panel raised nothing where it may have raised exactly this.
+   *
+   * GATING AND ADVISORY ROUNDS ARE UNIONED, not ranked, and that is a change from the
+   * fallback ordering this replaces. The record's claim is "the panel did not raise
+   * this", and `@claude review` runs the SAME lens panel — so a finding it raised is a
+   * finding the panel raised, whether or not a gating round also covered that commit.
+   * Ranking check runs above the comment made sense when there was one set per PR and
+   * the question was which rendering of ONE round to trust; across rounds it would
+   * discard real findings and file them as misses.
+   *
+   * It does widen the suppression surface, which is the direction
+   * `panelFindingsFromComments` already chose and for the same reason: a finding the
+   * panel raised in an earlier round is one the panel raised. The mitigation is
+   * unchanged — every suppression is counted and logged with the finding it matched.
+   */
+  const comparisonSetAt = (index) => {
+    const eligible = roundsUpTo(rounds, index);
+    if (eligible.length === 0) return null;
+    const out = [];
+    for (const r of eligible) {
+      const b = blockersOf(r);
+      if (b === null) return null;
+      out.push(...b);
+    }
+    return out;
+  };
+
+  /**
+   * What the panel had concluded as of `index`, for the record's `panelSaw`.
+   *
+   * The GATING round wins here, and only here. This is where "check runs are the
+   * structured record and the comment is a rendering of one" is actually observable
+   * in the output: a gating round carries a real `conclusion` and an `external_id`
+   * state pointer, an advisory one carries `""` and the comment's sha. Letting an
+   * advisory round supply these would report `conclusion: ""` for a PR the panel
+   * demonstrably passed, which is a wrong measurement rather than a missing one.
+   *
+   * The COMPARISON SET above does not work this way, on purpose — see
+   * `comparisonSetAt`. Which round is the better witness to "what did the panel
+   * conclude" and which findings count as "the panel raised this" are two different
+   * questions, and the old single-set code could only answer them the same way.
+   */
+  const panelSawAt = (index, blockers) => {
+    const eligible = roundsUpTo(rounds, index);
+    const newest = eligible.filter((r) => !r?.advisory).at(-1) ?? eligible.at(-1);
+    return {
+      // The round's own state pointer when it has one, else the commit it hung off.
+      reviewedSha: str(newest?.reviewedSha) || str(newest?.sha),
+      conclusion: str(newest?.conclusion),
+      blockingFindings: Array.isArray(blockers) ? blockers.length : 0,
+    };
+  };
+
+  // Signature 1's anchor is the round that FIRST approved — the same round
+  // `panelApprovedAt` takes its timestamp from, so the record's `handoffAt` and its
+  // `panelSaw` describe one event rather than two. Not the newest round: a push after
+  // approval opens rounds that say nothing about the approval the human reacted to,
+  // and one of them re-approving is what would drag the cutoff past their fix.
+  const approvingRound = rounds
+    .filter((r) => str(r?.conclusion) === "success")
+    .sort((a, b) => (Date.parse(str(a.completedAt)) || 0) - (Date.parse(str(b.completedAt)) || 0))[0];
+
+  // Signature 1 — human commits after the panel approved. Requires `approvedAt`:
+  // without the moment the panel let go, "after" has no referent and every commit on
+  // the PR would qualify. `isHumanFollowupCommit` returns false on an unusable
+  // cutoff, so this loop is already a no-op then; the guard is here to say so out
+  // loud and to keep the reason next to the code that depends on it.
+  //
+  // The cutoff is a check-run `completed_at`, which is why a rebase no longer breaks
+  // this: it rewrites the committer dates on the left of the comparison but cannot
+  // touch the timestamp on the right.
+  const sig1PanelSaw = panelSawAt(approvingRound ? approvingRound.index : -1,
+    approvingRound ? blockersOf(approvingRound) : null);
+  if (approvedAt === null && rounds.length === 0) {
+    log(`#${pr}: no panel round and no hand-off marker; no human-fix candidates (the CodeRabbit signature still runs).`);
+  }
   for (const c of prCommits) {
-    if (!isHumanFollowupCommit(c, handoffAt)) continue;
+    if (!isHumanFollowupCommit(c, approvedAt)) continue;
     let files = [];
     try {
       files = interestingFiles(commitFiles(c.sha, api));
@@ -538,24 +1798,58 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
         label: "miss",
         source: "human-fix",
         pr,
-        handoffAt,
+        handoffAt: str(approvedAt),
         evidence: { commitSha: c.sha, url: str(c.html_url) },
         files,
         summary: str(c.commit?.message).split("\n")[0],
-        panelSaw,
+        panelSaw: sig1PanelSaw,
         notes: "candidate: a human changed reviewable code after the panel approved",
       }),
     );
   }
 
   // Signature 2 — CodeRabbit findings the panel did not raise.
+  //
+  // REQUIRES evidence that the panel reviewed this PR, and that requirement is what
+  // makes widening the population safe. "The panel did not raise this" is only a
+  // claim about the panel if the panel looked; on a PR it never reviewed, every
+  // CodeRabbit blocker files as a miss and the corpus fills with rows measuring
+  // nothing.
+  //
+  // The evidence is EMPIRICAL — readable lens check runs, or a trusted on-demand
+  // comment — and authorship is deliberately not part of it. `isAgentPr` looks like
+  // a third signal ("the pipeline reviews every agent PR by construction") and it is
+  // wrong: of 11 agent PRs carrying CodeRabbit blockers, 9 have no `agent-review-*`
+  // check run on any commit, only `verify-*` and codecov. They match `isAgentPr` by
+  // branch prefix but never went through the panel — the same 18-of-33 population
+  // that has no hand-off marker because it was opened ready rather than promoted.
+  // Trusting authorship would have filed 15 rows about a reviewer that never looked.
+  //
+  // Withholding is also the RECOVERABLE direction. No row is written, so a later
+  // harvest re-proposes the candidate once the evidence exists; a wrong row, once
+  // curated, is permanent.
+  //
+  // The evidence is now resolved PER COMMENT rather than once per PR, and that is the
+  // correction this change exists for. The comparison set used to come from whichever
+  // commit was head at hand-off, and was then applied to every CodeRabbit finding on
+  // the PR — so on a multi-round PR a finding could be checked against a verdict the
+  // panel reached AFTER it and suppressed as "already raised" by a finding that did
+  // not exist yet. It also meant no hand-off (18 of 33 agent PRs) left the set at
+  // `null` and withheld every candidate on a PR whose check runs were sitting right
+  // there, readable. Signature 2 never needed a hand-off; now it does not consult one.
   let reviewComments = [];
   try {
     reviewComments = listReviewComments(pr, api);
   } catch (err) {
     log(`#${pr}: could not list review comments (${err.message}).`);
   }
-  for (const rc of reviewComments) {
+  // An unreadable round is not evidence of anything — it is the absence of evidence
+  // with a sha attached — so this counts only rounds we could actually read.
+  if (rounds.filter((r) => !r?.unreadable).length === 0 && reviewComments.length > 0) {
+    log(`#${pr}: ${reviewComments.length} review comment(s) but no evidence the panel ever reviewed this PR; no CodeRabbit candidates.`);
+  }
+  let panelReviewed = false;
+  for (const rc of rounds.length === 0 ? [] : reviewComments) {
     // EXACT login, not a prefix. `startsWith("coderabbitai")` also accepts
     // `coderabbitai-x`, and anyone can register that name and comment on a public
     // PR — which would let a stranger write rows into the corpus. Curation is the
@@ -564,15 +1858,78 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
     if (!CODERABBIT_LOGINS.has(str(rc?.user?.login))) continue;
     const finding = classifyCodeRabbitComment(rc.body);
     if (!finding) continue;
+    // BLOCKING ONLY, and this filter lives HERE rather than in the parser.
+    //
+    // It used to sit inside `classifyCodeRabbitComment`, which made "what
+    // CodeRabbit wrote" and "what this corpus files" the same function — so
+    // widening the parser to read the vintages it was blind to would have
+    // flooded this corpus with nits, in a change whose entire purpose is to READ
+    // more. The parser now returns everything CodeRabbit wrote; the corpus policy
+    // is stated here, where it is visible as a policy.
+    //
+    // The policy itself is unchanged: this corpus measures the GATE, and a minor
+    // maintainability note our panel also happened not to raise is not a gate
+    // failure. What changes is the INPUT — a two-field header carrying a major is
+    // now readable, so more real blockers reach this line and none that were
+    // reaching it stop.
+    //
+    // `severity: ""` (CodeRabbit stated a severity we do not recognise, or stated
+    // none) is not blocking and is withheld here, which is the recoverable
+    // direction: no row is written, so a later harvest re-proposes it once the
+    // vocabulary is mapped.
+    if (!BLOCKING.has(finding.severity)) continue;
     const files = interestingFiles([str(rc.path)]);
     if (files.length === 0) continue;
+
+    // WHICH COMMIT this finding is about, so it is compared against what the panel
+    // had concluded by then and not against a later round. `original_commit_id` is
+    // the commit the comment was first written on; `commit_id` is where GitHub
+    // currently places it, and is the fallback.
+    const at = commitIndex(walked, str(rc.original_commit_id || rc.commit_id));
+    if (at < 0) {
+      log(
+        `#${pr}: CodeRabbit comment ${rc.id} sits on a commit that is no longer on the PR; ` +
+          `comparing it against every round (see roundsUpTo — what cannot be placed cannot be excluded).`,
+      );
+    }
+    const panelBlockers = comparisonSetAt(at);
+    if (panelBlockers === null) {
+      // No round at or before this comment, or one of them was unreadable. Either
+      // way there is no basis for "the panel did not raise this".
+      log(`#${pr}: no readable panel round at or before CodeRabbit comment ${rc.id}; withheld.`);
+      continue;
+    }
+    panelReviewed = true;
+
+    // `rc.path` RAW, not the filtered `files` above: `interestingFiles` exists to
+    // decide what may carry a miss, and reusing it here would silently hand the
+    // matcher an empty file — i.e. no location evidence — for a comment we have a
+    // path for. The panel side's `file` may legitimately be empty (the infra-record
+    // shape), which `locationScore` reads as absent rather than as a match.
+    // Prose for the token comparison, the whole body for the anchor layer.
+    const attribution = attributeToPanel(
+      { file: str(rc.path), summary: finding.detail, evidence: str(rc.body) },
+      panelBlockers,
+    );
+    if (attribution.verdict === "match") {
+      // Counted and logged rather than dropped in silence. A matcher that quietly
+      // eats candidates is indistinguishable from a PR nobody reviewed, and this
+      // is the number that says whether the matcher is earning its place.
+      suppressed++;
+      log(
+        `#${pr}: CodeRabbit comment ${rc.id} restates a panel finding ` +
+          `(score ${attribution.score}: "${attribution.matchedSummary}"); not filed as a miss.`,
+      );
+      continue;
+    }
+
     records.push(
       toMissRecord({
         id: candidateId("coderabbit", pr, rc.id),
         label: "miss",
         source: "coderabbit",
         pr,
-        handoffAt,
+        handoffAt: str(approvedAt),
         evidence: {
           commitSha: str(rc.original_commit_id || rc.commit_id),
           commentId: String(rc.id ?? ""),
@@ -582,12 +1939,102 @@ export function harvestPr(pr, { api = gh, log = console.error, names = [] } = {}
         lens: finding.lens,
         severity: finding.severity,
         summary: finding.summary,
-        panelSaw,
-        notes: `candidate: CodeRabbit raised a ${finding.severity} ${finding.category} finding`,
+        panelSaw: {
+          ...panelSawAt(at, panelBlockers),
+          matchVerdict: attribution.verdict,
+          matchScore: attribution.score,
+          matchedSummary: attribution.matchedSummary,
+        },
+        notes:
+          `candidate: CodeRabbit raised a ${finding.severity} ${finding.category} finding` +
+          (attribution.verdict === "maybe"
+            ? ` — MAYBE already raised by the panel${attribution.error ? ` (matcher failed: ${attribution.error})` : ""}; needs a human decision`
+            : ""),
       }),
     );
   }
-  return { records, skipped: "" };
+  // `skipped` is reserved for "could not look", never "looked and found nothing".
+  // Nothing was examinable when the panel never approved (so signature 1 could not
+  // run) AND no CodeRabbit comment reached the matcher with a round behind it (so
+  // signature 2 had no input). Anything else produced a real, reportable zero.
+  const noSignature1 = approvedAt === null;
+  const noSignature2 = !panelReviewed;
+  return {
+    records,
+    skipped:
+      noSignature1 && noSignature2
+        ? `#${pr} has no panel approval and no panel round to compare CodeRabbit against — nothing to examine`
+        : "",
+    suppressed,
+  };
+}
+
+/**
+ * What CodeRabbit actually wrote on one PR, from BOTH endpoints, counted against
+ * the denominators CodeRabbit itself states.
+ *
+ * Reports rather than records: it writes nothing, proposes no candidate and does
+ * not touch `misses.jsonl`. It exists because every defect this parser has had
+ * was a smaller-than-truth count that looked like a working one — the three-field
+ * regex returned findings, the keyword tier match returned zero, the severity
+ * filter returned a clean list of blockers, and none of them errored. A count
+ * whose denominator is printed beside it is the only version of this that can be
+ * caught being wrong.
+ *
+ * `declared` is CodeRabbit's own per-section total. `shortfall` is what this
+ * parser could not read out of that. NEVER throws: each endpoint is caught
+ * separately and degrades to fewer records.
+ */
+export function auditCodeRabbit(pr, { api = gh, log = console.error } = {}) {
+  const bump = (o, k) => { o[k] = (o[k] ?? 0) + 1; };
+  const inline = { comments: 0, findings: 0, byVintage: {}, bySeverity: {} };
+  const review = { bodies: 0, withSections: 0, declared: 0, parsed: 0, byTier: {}, byVintage: {}, bySeverity: {} };
+  // Every body this audit reads, kept only long enough to census its `<details>`
+  // labels. `CR_MACHINERY_SUMMARY` is a denylist over a vocabulary CodeRabbit changes
+  // without notice, so a block type it has not seen is unwrapped into `detail` in
+  // silence — and silence is the failure mode this module keeps re-shipping.
+  const bodies = [];
+  try {
+    for (const rc of listReviewComments(pr, api)) {
+      if (!CODERABBIT_LOGINS.has(str(rc?.user?.login))) continue;
+      inline.comments++;
+      bodies.push(rc.body);
+      const f = classifyCodeRabbitComment(rc.body);
+      if (!f) continue;
+      inline.findings++;
+      bump(inline.byVintage, f.vintage);
+      bump(inline.bySeverity, f.severity === "" ? `(unrecognised: ${f.severityRaw || "none stated"})` : f.severity);
+    }
+  } catch (err) {
+    log(`#${pr}: could not list review comments (${err.message}); inline counts are incomplete.`);
+  }
+  try {
+    for (const rv of listReviews(pr, api)) {
+      if (!CODERABBIT_LOGINS.has(str(rv?.user?.login))) continue;
+      if (str(rv.body).trim() === "") continue;
+      review.bodies++;
+      bodies.push(rv.body);
+      const { findings, declared } = parseCodeRabbitReview(rv.body);
+      if (declared === 0 && findings.length === 0) continue;
+      review.withSections++;
+      review.declared += declared;
+      review.parsed += findings.length;
+      for (const f of findings) {
+        bump(review.byTier, f.tier);
+        bump(review.byVintage, f.vintage);
+        bump(review.bySeverity, f.severity === "" ? `(unrecognised: ${f.severityRaw || "none stated"})` : f.severity);
+      }
+      // Named, not summarised. A review whose sections declare more than this
+      // parser read is the exact failure this module keeps re-shipping, so it is
+      // reported per review with its own numbers rather than folded into a total.
+      if (declared !== findings.length) {
+        log(`#${pr}: review ${rv.id} declares ${declared} finding(s) in its section titles; this parser read ${findings.length}.`);
+      }
+    }
+  } catch (err) {
+    log(`#${pr}: could not list reviews (${err.message}); review-body counts are incomplete.`);
+  }
+  return { pr: String(pr), inline, review, detailsLabels: unrecognisedDetailsLabels(bodies) };
 }
 
 // --- CLI ---------------------------------------------------------------------
@@ -602,6 +2049,9 @@ function loadLensNames() {
 }
 
 const PR_LIST_LIMIT = 200;
+
+/** GitHub's search API maximum. Asking for more is a 422, not a clamp. */
+const SEARCH_PAGE_LIMIT = 100;
 
 /**
  * Merged agent PRs to examine. `--since` is passed straight to GitHub's search
@@ -624,7 +2074,44 @@ export function listCandidatePrs({ since, api, log = console.error }) {
         `window were NOT examined. Narrow --since and run again.`,
     );
   }
-  return all.filter(isAgentPr).map((p) => p.number);
+  const numbers = new Set(all.filter(isAgentPr).map((p) => p.number));
+
+  // Plus every PR the panel reviewed on demand. `isAgentPr` is the wrong question
+  // for signature 2 — "did our panel review this" is the right one, and a human PR
+  // someone ran `@claude review` on is as much a panel subject as an agent PR. That
+  // population is unreachable through `pr list` (authorship and branch name say
+  // nothing about it), so it is found by the marker the panel itself writes.
+  //
+  // ONE search call, and its failure is survivable by design: the agent PRs above
+  // are already in hand, so a search outage costs this run the on-demand PRs and
+  // nothing else. Same fail direction as every other read here.
+  try {
+    // `gh` expands `{owner}/{repo}` in an endpoint PATH, not inside a `-f` value, so
+    // the slug is resolved explicitly. Routed through the injected `api` (rather
+    // than hunt.mjs's direct `execFileSync`) so this stays testable.
+    const slug = str(api(["repo", "view", "--json", "nameWithOwner"])?.nameWithOwner);
+    if (slug === "") throw new Error("could not resolve owner/repo");
+    const found = api([
+      "api", "-X", "GET", "search/issues",
+      "-f", `q=repo:${slug} is:pr "${PANEL_COMMENT_TAG}" in:comments${since ? ` merged:>=${since}` : ""}`,
+      // The search API caps `per_page` at 100 regardless of what is asked, and a
+      // larger value is a 422 rather than a clamp.
+      "-f", `per_page=${SEARCH_PAGE_LIMIT}`,
+    ]);
+    const items = Array.isArray(found?.items) ? found.items : [];
+    if (Number(found?.total_count) > items.length) {
+      log(
+        `harvest: ${found.total_count} on-demand-reviewed PR(s) matched but only ${items.length} ` +
+          `were returned, so some were NOT examined. Narrow --since and run again.`,
+      );
+    }
+    let added = 0;
+    for (const it of items) if (Number.isFinite(it?.number) && !numbers.has(it.number)) { numbers.add(it.number); added++; }
+    if (added > 0) log(`harvest: ${added} additional PR(s) carry an on-demand panel review.`);
+  } catch (err) {
+    log(`harvest: could not search for on-demand-reviewed PRs (${err.message}); agent PRs only.`);
+  }
+  return [...numbers];
 }
 
 function cmdHarvest(args) {
@@ -647,10 +2134,18 @@ function cmdHarvest(args) {
   }
 
   const found = [];
+  let suppressed = 0;
   for (const pr of prs) {
-    const { records, skipped } = harvestPr(pr, { api, names });
-    if (skipped) console.error(`harvest: skipped ${skipped}`);
-    found.push(...records);
+    const result = harvestPr(pr, { api, names });
+    if (result.skipped) console.error(`harvest: skipped ${result.skipped}`);
+    found.push(...result.records);
+    suppressed += result.suppressed ?? 0;
+  }
+  if (suppressed > 0) {
+    console.error(
+      `harvest: ${suppressed} CodeRabbit finding(s) attributed to a panel finding and NOT filed. ` +
+        `Each one is named above with the panel finding it matched.`,
+    );
   }
 
   const existingText = existsSync(MISSES_PATH) ? readFileSync(MISSES_PATH, "utf8") : "";
@@ -710,8 +2205,63 @@ function cmdHarvest(args) {
   );
 }
 
+/** `--audit`: print what CodeRabbit wrote, per PR, with its own denominators.
+ *  Read-only — it never writes `misses.jsonl` and proposes no candidate. */
+function cmdAudit(args) {
+  const api = gh;
+  let prs;
+  if (args.pr) {
+    prs = [String(args.pr)];
+  } else {
+    try {
+      prs = listCandidatePrs({ since: args.since, api });
+    } catch (err) {
+      console.error(`harvest: could not list PRs (${err.message}); nothing audited.`);
+      process.exit(0);
+    }
+  }
+  const total = { comments: 0, inline: 0, declared: 0, parsed: 0 };
+  const tiers = {}, vintages = {}, detailsLabels = new Map();
+  for (const pr of prs) {
+    const a = auditCodeRabbit(pr, { api });
+    total.comments += a.inline.comments;
+    total.inline += a.inline.findings;
+    total.declared += a.review.declared;
+    total.parsed += a.review.parsed;
+    for (const [k, v] of Object.entries(a.review.byTier)) tiers[k] = (tiers[k] ?? 0) + v;
+    for (const o of [a.inline.byVintage, a.review.byVintage]) for (const [k, v] of Object.entries(o)) vintages[k] = (vintages[k] ?? 0) + v;
+    for (const { label, n } of a.detailsLabels) detailsLabels.set(label, (detailsLabels.get(label) ?? 0) + n);
+    console.log(
+      `#${a.pr}\tinline ${a.inline.findings}/${a.inline.comments} comment(s)` +
+        `\treview-body ${a.review.parsed}/${a.review.declared} declared across ${a.review.bodies} body(ies)`,
+    );
+  }
+  const pct = total.declared === 0 ? "n/a" : `${((total.parsed / total.declared) * 100).toFixed(1)}%`;
+  console.error(
+    `harvest: ${prs.length} PR(s). Inline: ${total.inline} finding(s) from ${total.comments} CodeRabbit comment(s). ` +
+      `Review bodies: ${total.parsed} of ${total.declared} declared (${pct}). ` +
+      `Total ${total.inline + total.parsed}.`,
+  );
+  if (total.parsed !== total.declared) {
+    console.error(`harvest: ${total.declared - total.parsed} declared review-body finding(s) were NOT read; each review is named above.`);
+  }
+  console.error(`harvest: by vintage ${JSON.stringify(vintages)}; by review-body tier ${JSON.stringify(tiers)}.`);
+  // The `<details>` labels `codeRabbitDetail` UNWRAPPED rather than recognised as
+  // machinery. Printed because `CR_MACHINERY_SUMMARY` is a denylist over a vocabulary
+  // CodeRabbit owns: a block type it adds is carried into the compared text silently,
+  // and this is the line that makes the next vintage visible. A long tail of
+  // "Proposed fix" phrasings is the EXPECTED output — those are content. A new
+  // high-count entry that reads like machinery is the signal.
+  const labels = [...detailsLabels].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  if (labels.length) {
+    const shown = labels.slice(0, 15).map(([label, n]) => `${label}=${n}`).join(" ");
+    console.error(`harvest: unrecognised <details> label(s), ${labels.length} distinct: ${shown}` +
+      (labels.length > 15 ? ` … and ${labels.length - 15} more` : ""));
+  }
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const args = parseArgs(process.argv, { booleans: ["append"] });
+  const args = parseArgs(process.argv, { booleans: ["append", "audit"] });
   if (args.pr !== undefined && !/^\d+$/.test(String(args.pr))) {
     console.error("harvest: --pr takes a PR number");
     process.exit(2);
@@ -720,5 +2270,6 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error("harvest: --since takes an ISO date (YYYY-MM-DD)");
     process.exit(2);
   }
-  cmdHarvest(args);
+  if (args.audit) cmdAudit(args);
+  else cmdHarvest(args);
 }

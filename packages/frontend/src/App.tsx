@@ -22,6 +22,26 @@ const InteractionHarnessPage = lazy(
   () => import("@/app/harness/interaction/page"),
 );
 const DocsHarnessPage = lazy(() => import("@/app/harness/docs/page"));
+/**
+ * DEV-only, unlike the three harness routes above, and the reason is measurable.
+ *
+ * This one mounts the real `DocsFormattingToolbar`, which makes it a SECOND
+ * separately-split importer of modules previously reached only through `docs-view`.
+ * Vite responds with the usual second-importer hoist, and a production build gained
+ * SEVEN chunks (147 -> 154): the route itself plus `docs-view`, `docx-actions`,
+ * `use-mobile`, `button`, `IconHash` and `IconPalette` lifted out of the docs route
+ * chunk. That changes the download shape of a real user-facing route to serve a page
+ * no user can reach.
+ *
+ * `import.meta.env.DEV` is statically replaced at build time, so the import edge
+ * disappears from the production graph entirely and the count returns to 147. The
+ * browser lanes are unaffected: they all run against `vite` dev servers created in
+ *-process (`verify-interaction-browser.mjs`, `verify-hunt-oracles.mjs`,
+ * `hunt-ui-runner.mjs`), where DEV is true.
+ */
+const HuntHarnessPage = import.meta.env.DEV
+  ? lazy(() => import("@/app/harness/hunt/page"))
+  : null;
 const DocsDetail = lazy(() => import("@/app/docs/docs-detail"));
 const SlidesDetail = lazy(() => import("@/app/slides/slides-detail"));
 const FileDetail = lazy(() => import("@/app/files/file-detail"));
@@ -66,6 +86,9 @@ function App() {
                   element={<InteractionHarnessPage />}
                 />
                 <Route path="/harness/docs" element={<DocsHarnessPage />} />
+                {HuntHarnessPage && (
+                  <Route path="/harness/hunt" element={<HuntHarnessPage />} />
+                )}
                 <Route path="/shared/:token" element={<SharedDocument />} />
                 <Route path="/" element={<HomeOrRedirect />} />
                 <Route element={<PrivateRoute />}>

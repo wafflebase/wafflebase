@@ -15,6 +15,7 @@ import {
   CreateDataSourceInWorkspaceDto,
   UpdateDataSourceDto,
   ExecuteQueryDto,
+  TestConnectionDto,
 } from './datasource.dto';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { AuthenticatedRequest } from 'src/auth/auth.types';
@@ -41,6 +42,23 @@ export class DataSourceController {
       await this.workspaceService.resolveId(workspaceIdOrSlug);
     await this.workspaceService.assertMember(workspaceId, userId);
     return this.datasourceService.create(userId, workspaceId, dto);
+  }
+
+  /**
+   * Validate connection settings without saving them, so the creation dialog
+   * can test a connection before the datasource exists.
+   */
+  @Post('workspaces/:workspaceId/datasources/test')
+  async testConfigInWorkspace(
+    @Param('workspaceId') workspaceIdOrSlug: string,
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: TestConnectionDto,
+  ) {
+    const userId = Number(req.user.id);
+    const workspaceId =
+      await this.workspaceService.resolveId(workspaceIdOrSlug);
+    await this.workspaceService.assertMember(workspaceId, userId);
+    return this.datasourceService.testConfig(dto);
   }
 
   @Get('workspaces/:workspaceId/datasources')

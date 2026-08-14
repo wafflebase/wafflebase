@@ -1,16 +1,16 @@
 {
   "name": "@wafflebase/board",
   "private": true,
-  "version": "0.6.2",
+  "version": "0.6.4",
   "license": "Apache-2.0",
   "description": "Infinite canvas engine for Wafflebase",
   "type": "module",
   "main": "dist/wafflebase-board.cjs",
   "module": "dist/wafflebase-board.es.js",
-  "types": "dist/wafflebase-board.es.d.ts",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/wafflebase-board.es.d.ts",
+      "types": "./dist/index.d.ts",
       "import": "./dist/wafflebase-board.es.js",
       "require": "./dist/wafflebase-board.cjs",
       "default": "./dist/wafflebase-board.es.js"
@@ -20,7 +20,7 @@
     "dev": "vite",
     "test": "vitest --run --passWithNoTests",
     "test:watch": "vitest --watch --passWithNoTests",
-    "build": "vite --config vite.build.ts build",
+    "build": "vite --config vite.build.ts build && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write ."
   },
@@ -34,7 +34,6 @@
     "prettier": "^3.3.2",
     "typescript": "^5.9.3",
     "vite": "^6.4.2",
-    "vite-plugin-dts": "^4.5.3",
     "vitest": "^4.1.8"
   }
 }

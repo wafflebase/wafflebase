@@ -257,7 +257,7 @@ deck using a fancy font would export with a fallback face, so P0–P2
 ### Risks and Mitigation
 
 - **Bundle bloat from the full catalog.** Mitigation: only the curated
-  JSON is in the editor bundle; `font-catalog.full.json` is
+  JSON is in the editor bundle; `packages/frontend/src/components/text-formatting/font-catalog.full.ts` is
   dynamic-imported by the dialog and counts against the chunk gate
   (`harness.config.json`) separately.
 - **Third-party request volume / CSP.** Per-font `<link>`s multiply

@@ -3,16 +3,20 @@ import assert from "node:assert/strict";
 import {
   isFilingVerdict,
   dropReason,
+  refutationDefects,
   huntSeverity,
   coerceCandidates,
   dedupeCandidates,
-  intersectSamples,
   codeLocations,
   citationPath,
   citationInScope,
   HUNT_GROUNDS,
   HUNT_VERIFIER_SCHEMA,
   EXPLORER_SCHEMA,
+  UI_GROUNDS,
+  UI_VERIFIER_SCHEMA,
+  UI_EXPLORER_SCHEMA,
+  SHARED_GROUNDS,
 } from "./hunt-gate.mjs";
 import { normalizeSeverity } from "./severity.mjs";
 
@@ -265,63 +269,6 @@ test("dedupeCandidates: keeps the first, never escalates severity", () => {
   assert.deepEqual(dedupeCandidates([{ fp: "" }, { fp: null }], fp), []);
 });
 
-test("intersectSamples: requires OVERLAPPING evidence, the inverse of unionSamples", () => {
-  // The matcher now receives each candidate's in-scope code-location SET.
-  const locs = (c) => new Set(c.locs);
-  const s1 = [{ locs: ["a.ts:1"], title: "x" }, { locs: ["b.ts:2"], title: "y" }];
-  const s2 = [{ locs: ["a.ts:1"], title: "x-again" }, { locs: ["c.ts:3"], title: "z" }];
-  const out = intersectSamples([s1, s2], locs);
-  assert.deepEqual(out.kept.map((c) => c.title), ["x"], "only the overlapping candidate survives");
-
-  // One sample is NOT agreement — unionSamples would return everything here.
-  assert.deepEqual(intersectSamples([s1], locs).kept, []);
-  assert.deepEqual(intersectSamples([], locs).kept, []);
-  assert.deepEqual(intersectSamples(null, locs).kept, []);
-});
-
-test("REGRESSION: agreement is OVERLAP, not equality — the two-live-run fix", () => {
-  const locs = (c) => new Set(c.locs);
-  // Real shape from run 2: same defect, overlapping but NOT identical evidence,
-  // listed in different order. Hashing any identity of these missed the match.
-  const a = { title: "exit 2 never produced", locs: ["packages/cli/src/output/formatter.ts:46", "packages/cli/src/output/formatter.ts:39", "packages/cli/src/commands/docs.ts:84"] };
-  const b = { title: "documented exit code 2 never set", locs: ["packages/cli/src/output/formatter.ts:39", "packages/cli/src/output/formatter.ts:46"] };
-  assert.equal(intersectSamples([[a], [b]], locs).kept.length, 1, "overlapping evidence = same defect");
-
-  // ...but a shared FILE is deliberately NOT enough. formatter.ts really does hold
-  // two distinct defects; keying on file alone would hide one of them.
-  const envelope = { title: "envelope omits `command`", locs: ["packages/cli/src/output/formatter.ts:43"] };
-  assert.equal(intersectSamples([[a], [envelope]], locs).kept.length, 0, "same file, different lines = different defects");
-});
-
-test("intersectSamples: explains every drop instead of discarding silently", () => {
-  // Run 1 reported "9 proposed -> 0 agreed" with an EMPTY drop table, which reads
-  // identically to "the explorer found nothing". A funnel that cannot explain its
-  // own biggest gap is useless for calibration.
-  const locs = (c) => new Set(c.locs);
-  const out = intersectSamples([[{ locs: ["a.ts:1"], title: "solo" }], [{ locs: ["z.ts:9"], title: "other" }]], locs);
-  assert.deepEqual(out.kept, []);
-  assert.equal(out.dropped.length, 2, "both unmatched candidates accounted for");
-  for (const d of out.dropped) {
-    assert.match(d.why, /only 1 of 2 samples cited an overlapping location/);
-    assert.ok(d.candidate, "the candidate is carried so the report can name it");
-  }
-
-  const thin = intersectSamples([[{ locs: ["a.ts:1"], title: "a" }]], locs);
-  assert.equal(thin.dropped.length, 1);
-  assert.match(thin.dropped[0].why, /only 1 sample\(s\) succeeded/);
-
-  const unlocatable = intersectSamples([[{ locs: [], title: "vague" }], [{ locs: [], title: "vague2" }]], locs);
-  assert.equal(unlocatable.kept.length, 0);
-  assert.match(unlocatable.dropped[0].why, /no in-scope code citation/);
-});
-
-test("intersectSamples: one sample cannot satisfy the threshold by itself", () => {
-  // Three near-identical candidates from ONE sample must not look like agreement.
-  const locs = (c) => new Set(c.locs);
-  const dupes = [{ locs: ["a.ts:1"], title: "p" }, { locs: ["a.ts:1"], title: "q" }, { locs: ["a.ts:1"], title: "r" }];
-  assert.equal(intersectSamples([dupes, [{ locs: ["z.ts:1"] }]], locs).kept.length, 0);
-});
-
 test("codeLocations: in-scope located citations only", () => {
   const scope = ["packages/cli/src/**"];
   const got = codeLocations(
@@ -363,4 +310,271 @@ test("EXPLORER_SCHEMA: evidence is CITED as journal indices, never authored", ()
   for (const forbidden of ["command", "shell", "script", "bash", "argv"]) {
     assert.doesNotMatch(json, new RegExp(`"${forbidden}"`, "i"), `schema must not offer a "${forbidden}" field`);
   }
+});
+
+// --- two hunters, one gate --------------------------------------------------
+//
+// The whole reason `isFilingVerdict` took options instead of being duplicated is
+// that a second gate would not be covered by anything above. These tests exist to
+// keep that true: the options must be able to NARROW the gate and never to open it.
+
+test("UI_GROUNDS is derived from its schema and overlaps HUNT_GROUNDS only where declared", () => {
+  const fromSchema = UI_VERIFIER_SCHEMA.properties.confirmationGround.enum;
+  assert.deepEqual([...UI_GROUNDS].sort(), [...fromSchema].sort());
+
+  // The overlap must equal SHARED_GROUNDS exactly — in BOTH directions, so neither
+  // an undeclared new overlap nor a declared-but-vanished one passes. A ground
+  // normally carries no meaning outside its own hunter, so this failing is the
+  // signal that someone added one to a set it does not belong in.
+  const shared = [...UI_GROUNDS].filter((g) => HUNT_GROUNDS.has(g)).sort();
+  assert.deepEqual(shared, [...SHARED_GROUNDS].sort(), "overlap must be exactly the declared allowlist");
+  for (const g of SHARED_GROUNDS) {
+    assert.ok(HUNT_GROUNDS.has(g) && UI_GROUNDS.has(g), `${g} is declared shared but is not in both sets`);
+  }
+});
+
+test("UI_VERIFIER_SCHEMA offers no ground for 'it looks wrong'", () => {
+  // The agent has no visual channel and a spatial claim traces to nothing, so this
+  // is not an omission to be filled in later — it is the design. A regex over the
+  // whole schema, because the failure mode is someone adding a friendly synonym.
+  const json = JSON.stringify(UI_VERIFIER_SCHEMA);
+  for (const forbidden of ["looks", "appears", "visual", "seems", "surprising", "unexpected"]) {
+    assert.doesNotMatch(json, new RegExp(`"[a-z-]*${forbidden}[a-z-]*"`, "i"), `no "${forbidden}" ground`);
+  }
+});
+
+test("UI_EXPLORER_SCHEMA: actions are cited, and the explorer supplies no citations", () => {
+  const cand = UI_EXPLORER_SCHEMA.properties.candidates.items;
+  for (const f of ["oracle", "severity", "title", "expected", "observed", "actionRefs", "failingRef"]) {
+    assert.ok(cand.required.includes(f), `${f} must be required`);
+  }
+  assert.deepEqual(cand.properties.actionRefs, { type: "array", items: { type: "integer" } });
+
+  // No `citations` field AT ALL. The verifier supplies the code location from source
+  // it actually read; a field the schema does not offer cannot be filled in badly.
+  assert.equal(cand.properties.citations, undefined, "the UI explorer must not cite code");
+  assert.ok(!cand.required.includes("citations"));
+  // And no way to author the actions themselves, same as the CLI side.
+  assert.equal(cand.properties.actions, undefined);
+});
+
+test("the gate's default options reproduce CLI behaviour exactly", () => {
+  const v = [confirmed(), confirmed()];
+  // Passing the defaults EXPLICITLY must be indistinguishable from omitting them.
+  // If this ever diverges, every existing hunt.mjs call site is silently affected.
+  assert.equal(
+    isFilingVerdict(candidate(), v, CHARTER),
+    isFilingVerdict(candidate(), v, CHARTER, { grounds: HUNT_GROUNDS, citationsOf: (c) => c.citations }),
+  );
+  assert.equal(isFilingVerdict(candidate(), v, CHARTER, {}), true);
+  assert.equal(dropReason(candidate(), v, CHARTER, {}), null);
+});
+
+test("a UI ground is rejected under the default ground set", () => {
+  // The narrowing has to be real: without passing `grounds`, a verifier naming a UI
+  // ground has named nothing this gate recognises.
+  const v = [confirmed({ confirmationGround: "expectation-violated" }), confirmed({ confirmationGround: "expectation-violated" })];
+  assert.equal(isFilingVerdict(candidate(), v, CHARTER), false);
+  assert.match(dropReason(candidate(), v, CHARTER), /no confirmation ground/);
+});
+
+test("a CLI ground is rejected once the UI ground set is passed", () => {
+  // And the reverse, so `grounds` is not merely additive.
+  const v = [confirmed(), confirmed()];
+  assert.equal(isFilingVerdict(candidate(), v, CHARTER, { grounds: UI_GROUNDS }), false);
+});
+
+test("grounds can narrow the gate but never open it", () => {
+  const v = [confirmed(), confirmed()];
+  // An EMPTY set admits nothing.
+  assert.equal(isFilingVerdict(candidate(), v, CHARTER, { grounds: new Set() }), false);
+  // "none" stays refused however it is offered — it is in both schemas so that a
+  // verifier can decline, not so that declining can pass.
+  const declined = [confirmed({ confirmationGround: "none" }), confirmed({ confirmationGround: "none" })];
+  assert.equal(isFilingVerdict(candidate(), declined, CHARTER, { grounds: new Set(["none"]) }), false);
+  // A malformed `grounds` drops rather than admits — the branch most likely to be
+  // got wrong by a caller, so its failure has to land on the quiet side. A
+  // duck-typed `{has}` is included deliberately: only a real Set is accepted, so a
+  // caller cannot hand in an always-true `has` and open the gate.
+  for (const broken of [null, [], "doc-contradicts-code", { has: () => true }, new Map()]) {
+    assert.equal(isFilingVerdict(candidate(), v, CHARTER, { grounds: broken }), false, `grounds=${JSON.stringify(broken)}`);
+  }
+  // `undefined` is NOT malformed — it is how JS spells "not passed", and the
+  // destructuring default fires, so this is the CLI ground set and reports.
+  assert.equal(isFilingVerdict(candidate(), v, CHARTER, { grounds: undefined }), true);
+  assert.equal(isFilingVerdict(candidate(), v, CHARTER, { citationsOf: undefined }), true);
+});
+
+test("citationsOf chooses WHICH strings are checked, never whether they are", () => {
+  const v = [confirmed(), confirmed()];
+  // Sourcing citations from the verifiers' groundedIn is what the UI hunter does.
+  // One in-scope citation, and a charter that only needs one, passes.
+  const oneCite = { ...CHARTER, minCitations: 1, requiresDocCitation: false };
+  const fromVerifiers = (_claimed, verdicts) => verdicts.flatMap((x) => x?.groundedIn ?? []);
+  assert.equal(isFilingVerdict(candidate(), v, oneCite, { citationsOf: fromVerifiers }), true);
+
+  // But the citations it returns must STILL match CITATION and still be in scope.
+  const outOfScope = [confirmed({ groundedIn: ["packages/frontend/src/app.tsx:1"] })];
+  assert.equal(
+    isFilingVerdict(candidate(), [outOfScope[0], outOfScope[0]], oneCite, { citationsOf: fromVerifiers }),
+    false,
+    "an out-of-scope groundedIn must not report",
+  );
+  const notALocation = [confirmed({ groundedIn: ["the formatter is wrong"] })];
+  assert.equal(
+    isFilingVerdict(candidate(), [notALocation[0], notALocation[0]], oneCite, { citationsOf: fromVerifiers }),
+    false,
+    "prose is not a citation, wherever it is sourced from",
+  );
+
+  // A citationsOf that throws, or returns a non-array, yields zero citations and
+  // therefore drops. It must never be a way to skip stage 4.
+  for (const broken of [() => { throw new Error("boom"); }, () => null, () => "a:1", () => 7]) {
+    assert.equal(isFilingVerdict(candidate(), v, oneCite, { citationsOf: broken }), false);
+  }
+});
+
+test("dropReason explains a UI drop through the UI's own options", () => {
+  // Not forwarding the options would blame `claimed.citations` — a field UI
+  // candidates do not have — for a candidate the panel actually refuted.
+  const uiCharter = { ...CHARTER, minCitations: 1, requiresDocCitation: false };
+  const opts = {
+    grounds: UI_GROUNDS,
+    citationsOf: (_c, verdicts) => verdicts.flatMap((x) => x?.groundedIn ?? []),
+  };
+  const good = confirmed({ confirmationGround: "expectation-violated" });
+  assert.equal(isFilingVerdict(candidate(), [good, good], uiCharter, opts), true);
+  assert.equal(dropReason(candidate(), [good, good], uiCharter, opts), null);
+
+  const refuted = { ...good, verdict: "refuted" };
+  assert.match(dropReason(candidate(), [good, refuted], uiCharter, opts), /verifier 1 refuted/);
+});
+
+test("coerceCandidates: evidenceOf can only reject, and its reason reaches the drop table", () => {
+  const base = { title: "t", severity: "major", probes: [{ argv: ["docs", "list"] }], failingIndex: 0 };
+  // Default is the CLI probe check, so today's behaviour is unchanged.
+  assert.equal(coerceCandidates([base]).kept.length, 1);
+  assert.equal(coerceCandidates([base], {}).kept.length, 1);
+
+  // A custom validator's REASON is what the run log shows.
+  const { kept, dropped } = coerceCandidates([base], { evidenceOf: () => "no actions — cannot be replayed" });
+  assert.equal(kept.length, 0);
+  assert.equal(dropped[0].why, "no actions — cannot be replayed");
+
+  // It cannot rescue a candidate that fails the checks BEFORE it: title and
+  // severity are not negotiable, so an always-passing validator changes nothing.
+  const yes = () => null;
+  assert.equal(coerceCandidates([{ ...base, title: "  " }], { evidenceOf: yes }).kept.length, 0);
+  assert.equal(coerceCandidates([{ ...base, severity: "catastrophic" }], { evidenceOf: yes }).kept.length, 0);
+  assert.equal(coerceCandidates(["not an object"], { evidenceOf: yes }).kept.length, 0);
+
+  // A validator that throws drops rather than admits.
+  const boom = coerceCandidates([base], { evidenceOf: () => { throw new Error("boom"); } });
+  assert.equal(boom.kept.length, 0);
+  assert.match(boom.dropped[0].why, /evidence check failed: boom/);
+
+  // A validator returning a non-string, non-null still drops — "not null" means
+  // rejected, and a caller that returns `false` meaning "fine" must not pass.
+  assert.equal(coerceCandidates([base], { evidenceOf: () => false }).kept.length, 0);
+  assert.equal(coerceCandidates([base], { evidenceOf: () => undefined }).kept.length, 0);
+});
+
+test("refutationDefects: a refutation is held to the confirmation's standard", () => {
+  const charter = { codeScope: ["packages/docs/**"] };
+  const sound = {
+    verdict: "refuted",
+    confidence: "high",
+    refutes: "that un-listing loses the heading",
+    groundedIn: ["packages/docs/src/store/memory.ts:250"],
+  };
+  assert.deepEqual(refutationDefects(sound, charter), [], "a grounded refutation naming its target is clean");
+
+  // Not applicable to anything that is not a refutation, so a caller can map over
+  // every verdict without branching — including junk, which must not throw.
+  assert.deepEqual(refutationDefects({ verdict: "confirmed", groundedIn: [] }, charter), []);
+  for (const junk of [null, undefined, 7, "refuted", []]) assert.deepEqual(refutationDefects(junk, charter), []);
+
+  // The #783 shape: real citations, but nothing said about WHAT they contradict.
+  const unnamed = { ...sound, refutes: "   " };
+  assert.deepEqual(refutationDefects(unnamed, charter), ["names no contradicted claim"]);
+  assert.deepEqual(refutationDefects({ ...sound, refutes: undefined }, charter), ["names no contradicted claim"]);
+
+  // Citations are held to the SAME shape and scope the confirmation path applies.
+  assert.deepEqual(refutationDefects({ ...sound, groundedIn: [] }, charter), ["cites nothing that locates code"]);
+  assert.deepEqual(refutationDefects({ ...sound, groundedIn: ["not a citation"] }, charter), [
+    "cites nothing that locates code",
+  ]);
+  assert.deepEqual(refutationDefects({ ...sound, groundedIn: ["scripts/agent/x.mjs:1"] }, charter), [
+    "all 1 citation(s) outside codeScope",
+  ]);
+
+  // Both shortfalls are reported together: a drop table that named only the first
+  // would send someone to fix one half and re-run for the other.
+  assert.deepEqual(
+    refutationDefects({ verdict: "refuted", confidence: "low", refutes: "", groundedIn: [] }, charter).length,
+    3,
+  );
+
+  // A refutation at LOW confidence still outvotes a colleague who confirmed at HIGH.
+  // The confirmation path has always required `high`, so the same standard requires it
+  // here — this is the asymmetry #785 left behind.
+  assert.deepEqual(refutationDefects({ ...sound, confidence: "low" }, charter), ["refuted at low confidence"]);
+  assert.deepEqual(refutationDefects({ ...sound, confidence: undefined }, charter), ["refuted at low confidence"]);
+
+  // `charter.minCitations` is read, not assumed to be 1: a charter that demands two
+  // citations to confirm must demand two to refute.
+  const strict = { codeScope: ["packages/docs/**"], minCitations: 2 };
+  assert.deepEqual(refutationDefects(sound, strict), ["cites 1 of the 2 citations this charter requires"]);
+  assert.deepEqual(
+    refutationDefects({ ...sound, groundedIn: [...sound.groundedIn, "packages/docs/src/view/editor.ts:3100"] }, strict),
+    [],
+  );
+
+  // A `citationsOf` that throws yields zero citations rather than escaping — same
+  // fail-quiet rule the confirmation path uses.
+  assert.deepEqual(
+    refutationDefects(sound, charter, { citationsOf: () => { throw new Error("boom"); } }),
+    ["cites nothing that locates code"],
+  );
+});
+
+test("dropReason carries the refuter's reasoning, and says when it fell short", () => {
+  // THE POINT: on issue #783 this row read only `verifier 1 refuted the candidate`,
+  // and the argument that killed a real defect was reachable only by reading raw
+  // execution JSON afterwards.
+  const uiCharter = { ...CHARTER, minCitations: 1, requiresDocCitation: false, codeScope: ["packages/**"] };
+  const opts = {
+    grounds: UI_GROUNDS,
+    citationsOf: (_c, verdicts) => verdicts.flatMap((x) => x?.groundedIn ?? []),
+  };
+  const good = confirmed({ confirmationGround: "expectation-violated" });
+
+  const sound = {
+    ...good,
+    verdict: "refuted",
+    reason: "the block model documents this as normal-styled",
+    refutes: "that the heading should survive",
+    groundedIn: ["packages/docs/src/model/named-styles.ts:97"],
+  };
+  const why = dropReason(candidate(), [good, sound], uiCharter, opts);
+  assert.match(why, /verifier 1 refuted/);
+  assert.match(why, /the block model documents this as normal-styled/, "the refuter's own words must reach the table");
+  assert.match(why, /that the heading should survive/, "and what it claims to contradict");
+  assert.match(why, /named-styles\.ts:97/, "and where it looked");
+  assert.doesNotMatch(why, /NOT HELD TO THE CONFIRMATION STANDARD/, "a sound refutation is not scolded");
+
+  // An unsound one still drops the candidate — hunting fails quiet, and a gate that
+  // promoted a finding because it disliked the argument against it would manufacture
+  // reports out of its own dissatisfaction.
+  const unsound = { ...sound, refutes: "", groundedIn: [] };
+  assert.equal(isFilingVerdict(candidate(), [good, unsound], uiCharter, opts), false, "still not reported");
+  const bad = dropReason(candidate(), [good, unsound], uiCharter, opts);
+  assert.match(bad, /NOT HELD TO THE CONFIRMATION STANDARD/);
+  assert.match(bad, /names no contradicted claim/);
+
+  // One verifier's essay must not swallow the row.
+  const windy = { ...sound, reason: "x".repeat(900) };
+  const long = dropReason(candidate(), [good, windy], uiCharter, opts);
+  assert.ok(long.length < 700, `drop row should be bounded, got ${long.length}`);
+  assert.match(long, /\.\.\./, "and should say it was cut");
 });

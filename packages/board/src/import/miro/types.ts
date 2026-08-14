@@ -1,11 +1,20 @@
 import type { ElementInit } from '@wafflebase/slides';
+import type { MiroGeometryLike, MiroParentLike, MiroPositionLike } from './geometry';
 
 /** Loose mirrors of the backend's Miro payload — the mapper reads no more. */
 export interface MiroItemLike {
   id: string;
   type: string;
-  position?: { x?: number; y?: number };
-  geometry?: { width?: number; height?: number; rotation?: number };
+  /**
+   * The item's CENTRE, measured against whatever `position.relativeTo` names —
+   * the canvas centre for a top-level item, the parent frame's top-left for
+   * one inside a frame. `resolveMiroFrames` turns the pair into board-absolute
+   * coordinates; reading `position` on its own is a bug.
+   */
+  position?: MiroPositionLike;
+  geometry?: MiroGeometryLike;
+  /** The containing frame, when the item sits inside one. */
+  parent?: MiroParentLike;
   data?: Record<string, unknown>;
   style?: Record<string, unknown>;
 }

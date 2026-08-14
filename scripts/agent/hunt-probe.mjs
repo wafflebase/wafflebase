@@ -59,7 +59,7 @@ function shQuote(token) {
   const s = String(token ?? "");
   // Only [A-Za-z0-9_./=:-] is safe bare; everything else gets single-quoted, and
   // an embedded single quote is closed, escaped, reopened ('\'').
-  if (/^[A-Za-z0-9_.\/=:@-]+$/.test(s)) return s;
+  if (/^[A-Za-z0-9_./=:@-]+$/.test(s)) return s;
   return `'${s.split("'").join(`'\\''`)}'`;
 }
 
@@ -93,6 +93,20 @@ export function renderReproSh(probes, { bin = "wafflebase", extra = [] } = {}) {
 // --- the clean room ---------------------------------------------------------
 
 /**
+ * Where a probe's network traffic goes when no hunt server has been named.
+ *
+ * Loopback port 1: nothing listens there, `connect` fails immediately with
+ * ECONNREFUSED, and no packet leaves the machine. Deliberately not a public
+ * black-hole address — a probe should fail fast and locally, not hang on a
+ * route that silently drops.
+ *
+ * The CLI turns this into its documented error envelope
+ * (`{"error":{"code":"ERROR","message":"fetch failed"}}`), so a backend-free
+ * charter still observes well-formed behaviour rather than a crash.
+ */
+export const NO_SERVER = "http://127.0.0.1:1";
+
+/**
  * Build the probe environment. REPLACES the ambient environment; never extends it.
  *
  * This is the load-bearing line in the module. Spreading `process.env` would let
@@ -120,9 +134,19 @@ export function buildProbeEnv(scratch, cfg = {}) {
     NO_COLOR: "1",
     CI: "1",
   };
-  // Only set when supplied — an undefined value would become the string
-  // "undefined" and the CLI would treat it as a real (broken) setting.
-  if (cfg.server) env.WAFFLEBASE_SERVER = cfg.server;
+  // WAFFLEBASE_SERVER is set UNCONDITIONALLY. Leaving it out does not mean "no
+  // server" — it means the CLI falls back to its own default, and that default is
+  // `https://api.wafflebase.io` (packages/cli/src/config/config.ts:7). A measurement
+  // run found this the expensive way: with no hunt server configured, every probe
+  // in the `contract` and `crash` charters was talking to PRODUCTION, and the
+  // 404 bodies in the journal came back from the live host.
+  //
+  // Nothing was harmed — both charters are non-mutating and unauthenticated, so it
+  // was read-only 404s — but the clean room was isolating credentials while leaving
+  // network egress wide open, and the safety argument rested on `assertSafeArgv`
+  // plus charter non-mutation rather than on isolation. Reaching a real deployment
+  // has to be something an operator opts into by naming a server, never a default.
+  env.WAFFLEBASE_SERVER = cfg.server || NO_SERVER;
   if (cfg.workspace) env.WAFFLEBASE_WORKSPACE = cfg.workspace;
   if (cfg.apiKey) env.WAFFLEBASE_API_KEY = cfg.apiKey;
   return env;
@@ -347,12 +371,24 @@ export function sameObservation(a, b, observedKey) {
  *     ordering are the top source of phantom repros, and they are cheap to
  *     detect this way — before any model is asked to verify anything.
  *
+ * `failingIndex` names WHICH observation carries the defect. It defaults to the
+ * last, which is what this used to assume unconditionally — and that assumption
+ * silently destroyed real findings. The caller keys the CLAIM on
+ * `observations[failingIndex]` (hunt.mjs), so whenever the failing probe was not
+ * last, the claim and the replay were comparing two different probes and the
+ * candidate could NEVER reproduce. Observed live: a candidate citing probes [3,4]
+ * with the defect at 3 compared
+ *   claim  `exit:1|to:0|err:none|kind:text`   (probe 3, the actual defect)
+ *   replay `exit:1|to:0|err:none|kind:json`   (probe 4, merely last)
+ * and was dropped as `not-reproduced`. Pure recall loss, invisible in the funnel:
+ * the drop table just said the replay failed.
+ *
  * Returns `{ status, deterministic, attempts, divergedAt }`.
  * `status` is `"reproduced"` only when every attempt matched the CLAIMED
  * observation. Anything else — divergence between attempts, or agreement on
  * something other than the claim — is not a reproduction.
  */
-export function replay(probes, claimedObserved, { attempts = 3, observedKey, runAttempt } = {}) {
+export function replay(probes, claimedObserved, { attempts = 3, observedKey, runAttempt, failingIndex = null } = {}) {
   if (typeof observedKey !== "function" || typeof runAttempt !== "function") {
     throw new Error("hunt-probe.replay: observedKey and runAttempt are required");
   }
@@ -368,8 +404,13 @@ export function replay(probes, claimedObserved, { attempts = 3, observedKey, run
     // `reproduced` without a single probe having executed. See the header:
     // safety here fails closed, and so must this.
     const ran = Array.isArray(observations) && observations.length > 0;
-    const failing = ran ? observations[observations.length - 1] : undefined;
-    results.push({ attempt: i, key: ran ? observedKey(failing) : null, observation: failing, ran });
+    // Out-of-range is treated as "no observation" rather than clamped to the last.
+    // Clamping would resurrect exactly the bug above — comparing the claim against
+    // a probe it does not describe — and silently, which is the worse failure.
+    const at = Number.isInteger(failingIndex) ? failingIndex : (ran ? observations.length - 1 : -1);
+    const inRange = ran && at >= 0 && at < observations.length;
+    const failing = inRange ? observations[at] : undefined;
+    results.push({ attempt: i, key: inRange ? observedKey(failing) : null, observation: failing, ran: inRange });
   }
   const anyEmpty = results.some((r) => !r.ran);
   const first = results[0]?.key ?? null;

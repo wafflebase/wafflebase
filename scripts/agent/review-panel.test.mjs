@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,7 @@ import {
   severityCounts,
   confidenceCounts,
   LENS_CLOSING_INSTRUCTION,
+  MECHANICAL_COVERAGE_NOTE,
   verifierTally,
   verifierFailureCounts,
   recordVerifierFailure,
@@ -48,10 +49,13 @@ import {
   clusterFindings,
   clusterCounts,
   resolveClusterVerdict,
+  sameFinding,
+  planPriorVerifications,
   VERIFIER_MAX_TURNS,
   buildVerifierPrompt,
   panelEntry,
   stageDetailCaptureEnabled,
+  stageDetailDiffContentEnabled,
   buildStageDetail,
   writeStageDetail,
 } from "./review-panel.mjs";
@@ -208,12 +212,14 @@ test("incremental review is inert without a scope note: identical rendered prefi
 // The TASK half. Its shape matters for one reason beyond tidiness: the closing
 // instruction has to stay LAST, with nothing after it (see the source guard far
 // below, and the injection-framing test that follows).
-test("the lens user prompt is identity + rubric + closing, and carries no shared diff", () => {
+test("the lens user prompt is identity + rubric + coverage note + closing, and carries no shared diff", () => {
   const p = buildLensPrompt(LENS, { rubric: PROMPT_IN.rubric });
   assert.equal(p, [
     "You are the Correctness reviewer. Stay strictly in your lane; defer other lenses' concerns.",
     "",
     "# rubric",
+    "",
+    MECHANICAL_COVERAGE_NOTE,
     "",
     LENS_CLOSING_INSTRUCTION,
   ].join("\n"));
@@ -610,6 +616,111 @@ test("both verifier catch sites record the failure instead of swallowing it", ()
   // would count that prose as a regression.
   const code = src.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
   assert.ok(!/\.catch\(\(\) => null\)/.test(code), "no verifier catch may discard the error");
+});
+
+// --- one verdict per claim, not one per list the claim appears in ----------
+
+test("sameFinding: dedupeFindings' key, and never looser than it", () => {
+  const f = (over) => ({ severity: "major", file: "a.ts", summary: "Missing null check", ...over });
+  // Case and surrounding whitespace are not the claim, exactly as in the key.
+  assert.ok(sameFinding(f(), f({ summary: "  MISSING NULL CHECK " })));
+  // Neither are the fields the carry-forward round trip rewrites anyway: it
+  // normalises severity and truncates evidence at 2000 chars, so requiring them
+  // would make this never fire on the one path it exists for.
+  assert.ok(sameFinding(f(), f({ severity: "critical", evidence: "line 12", searchedFor: ["x"] })));
+  assert.ok(!sameFinding(f(), f({ file: "b.ts" })), "a different file is a different claim");
+  assert.ok(!sameFinding(f(), f({ summary: "Missing bounds check" })));
+
+  // NEVER LOOSER THAN THE MERGE. Two findings this calls the same are two
+  // `dedupeFindings` was always going to collapse into one, which is the entire
+  // safety argument for skipping the second verification. The converse is not
+  // asserted: this is deliberately STRICTER in the two cases below.
+  const pairs = [
+    [f(), f()], [f(), f({ summary: " MISSING NULL CHECK" })], [f(), f({ file: "b.ts" })],
+    [f(), f({ summary: "other" })], [f(), f({ severity: "nit" })],
+  ];
+  for (const [a, b] of pairs) {
+    if (sameFinding(a, b)) assert.equal(dedupeFindings([a, b]).length, 1, `merge disagrees: ${b.file} ${b.summary}`);
+  }
+});
+
+test("sameFinding: claim type and empty summaries, where it is stricter than the key", () => {
+  const f = (over) => ({ severity: "major", file: "a.ts", summary: "No test covers parseX", ...over });
+  // Same words, opposite job. An absence claim is refuted by finding ONE
+  // counterexample and gets its own turn budget and its own dropping grounds, so
+  // a presence verdict cannot settle it however identically it is worded — and
+  // `dedupeFindings` WOULD collapse this pair, which is why it is checked here.
+  assert.ok(!sameFinding(f({ claimType: "absence" }), f()));
+  assert.ok(sameFinding(f({ claimType: "absence" }), f({ claimType: "absence" })));
+  assert.equal(dedupeFindings([f({ claimType: "absence" }), f()]).length, 1,
+    "the merge does collapse these — the claim-type guard is this rule's own");
+
+  // No summary, no claim to match on. `coerceFindings` rewrites a malformed
+  // summary to one shared placeholder, and two placeholders are not one defect.
+  assert.ok(!sameFinding(f({ summary: "" }), f({ summary: "" })));
+  // Both orders: the guard reads only the first argument, so symmetry rests on
+  // the keys differing in the other direction. It is the kind of thing that
+  // breaks silently, and an asymmetric "same" is a plan that depends on which
+  // list a finding happened to be in.
+  assert.ok(!sameFinding(f({ summary: "   " }), f()));
+  assert.ok(!sameFinding(f(), f({ summary: "   " })));
+  for (const junk of [null, undefined, "nope", 7, []]) {
+    assert.ok(!sameFinding(junk, f()), `junk must match nothing: ${JSON.stringify(junk)}`);
+    assert.ok(!sameFinding(f(), junk), `junk must match nothing: ${JSON.stringify(junk)}`);
+  }
+});
+
+test("planPriorVerifications: a re-found prior inherits its fresh twin's verdict", () => {
+  const detected = [
+    { severity: "major", file: "a.ts", summary: "Missing null check" },
+    { severity: "minor", file: "b.ts", summary: "Naming nit" },
+  ];
+  const prior = [
+    { severity: "major", file: "a.ts", summary: "  missing null check " }, // re-found → reuse
+    { severity: "major", file: "c.ts", summary: "Missing null check" },    // other file → verify
+    // The TRAP: the fresh twin is MINOR, so `verifyBlocking` never sent it and
+    // its verdict is null. Inheriting that would put a blocking finding on the
+    // gate unverified — `dedupeFindings` keeps the higher severity — where today
+    // it is checked. Reuse must require BOTH sides to be blocking.
+    { severity: "major", file: "b.ts", summary: "Naming nit" },
+    { severity: "nit", file: "a.ts", summary: "Missing null check" },      // never verified anyway
+  ];
+  const plan = planPriorVerifications(detected, prior);
+  assert.deepEqual(plan.reuseIdx, [0, -1, -1, -1]);
+  assert.deepEqual(plan.sentIdx, [1, 2, 3]);
+  // The two outputs are one decision expressed twice; nothing may fall between.
+  assert.equal(plan.reuseIdx.length, prior.length);
+  assert.deepEqual(plan.sentIdx, plan.reuseIdx.map((j, i) => (j < 0 ? i : -1)).filter((i) => i >= 0));
+});
+
+test("planPriorVerifications: claim type splits, and junk plans nothing", () => {
+  const absence = { severity: "major", file: "a.ts", summary: "No test covers parseX", claimType: "absence" };
+  const presence = { severity: "major", file: "a.ts", summary: "No test covers parseX" };
+  assert.deepEqual(planPriorVerifications([presence], [absence]).reuseIdx, [-1],
+    "a presence verdict must not settle an absence claim");
+  assert.deepEqual(planPriorVerifications([absence], [absence]).reuseIdx, [0]);
+
+  // Runs inside the per-lens path with a prior-findings file the panel does not
+  // control (`parsePriorFindings` only guarantees "objects"), so it must plan
+  // rather than throw. Everything unmatched simply gets verified, as today.
+  assert.deepEqual(planPriorVerifications(null, null), { reuseIdx: [], sentIdx: [] });
+  assert.deepEqual(planPriorVerifications([null, "x"], [null, {}, presence]).reuseIdx, [-1, -1, -1]);
+});
+
+test("the prior tally counts the SENT subset, not every prior finding", () => {
+  // The one link a unit test cannot reach: main() opens sessions. Two things must
+  // hold together or the change reports a saving it did not make — the verify
+  // loop must inherit on a match, and the tally must then exclude those. Tallying
+  // `priorForLens` would count one session twice in `sentToVerifier` and land a
+  // second `errored` on a finding the fresh pass already counted.
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  // Code lines only: the docblocks below quote both shapes to explain them, and a
+  // whole-file grep would read that prose as the code it warns about.
+  const code = src.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+  assert.match(code, /if \(reuseIdx\[i\] >= 0\) return verdicts\[reuseIdx\[i\]\] \?\? null;/,
+    "the verify loop must inherit the fresh verdict on a match");
+  assert.match(code, /verifierTally\(\s*sentIdx\.map/, "the prior tally must read the sent subset");
+  assert.ok(!/verifierTally\(priorForLens/.test(code), "the prior tally must not read every prior finding");
 });
 
 test("main() validates every manifest effort before spending a token", () => {
@@ -1241,7 +1352,7 @@ test("main() routes both skips to applicable:false and feeds runLens the slice",
   // ALSO called by the cacheability pre-pass (countPrefixSessions), which handles
   // a skip by `continue`-ing. Matching the first call site would inspect that one
   // and report main()'s routing as missing.
-  const branch = /const plan = lensReviewPlan\(lens, changedFiles, fileBlocks\);\s*\n\s*if \(plan\.skip\) \{[\s\S]*?\n    \}/.exec(src);
+  const branch = /const plan = lensReviewPlan\(lens, changedFiles, fileBlocks\);\s*\n\s*if \(plan\.skip\) \{[\s\S]*?\n {4}\}/.exec(src);
   assert.ok(branch, "main() no longer routes lens skipping through lensReviewPlan");
   assert.match(branch[0], /conclusion: "skipped"/);
   assert.match(branch[0], /applicable: false/,
@@ -1596,6 +1707,114 @@ test("the runLens closing instruction is coverage-first too", () => {
   const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
   assert.match(src, /parts\.push\(\s*""\s*,\s*LENS_CLOSING_INSTRUCTION\s*\)/,
     "runLens must append LENS_CLOSING_INSTRUCTION, or this guard covers nothing");
+});
+
+// --- what the mechanical lanes cover, told once instead of four ways ---------
+
+test("every lens is told what the mechanical lanes cover", () => {
+  // RENDERED for each manifest lens, not grepped from source: an exported
+  // constant nothing appends is a guard over dead text, and the note is only
+  // worth anything if it reaches the lenses that used to say nothing at all
+  // (test-adequacy, docs) as well as the four that said it four ways.
+  const ids = LENSES.map((l) => l.id);
+  assert.ok(ids.length >= 5, "manifest lost lenses — this guard would cover almost nothing");
+  for (const l of LENSES) {
+    const p = buildLensPrompt(l, { rubric: "# r" });
+    assert.ok(p.includes(MECHANICAL_COVERAGE_NOTE), `${l.id} must be told what CI covers`);
+    // Order is the security invariant: the note must not push the closing
+    // instruction off the end, and untrusted hunks must still precede both.
+    assert.ok(p.endsWith(LENS_CLOSING_INSTRUCTION), `${l.id}: closing instruction must stay LAST`);
+    assert.ok(p.indexOf(MECHANICAL_COVERAGE_NOTE) < p.indexOf(LENS_CLOSING_INSTRUCTION));
+  }
+  // Same anti-clamp rules as the rubrics and the closing instruction. A note that
+  // says "don't report X" is exactly the shape a clamp hides in.
+  assertNoClamp(MECHANICAL_COVERAGE_NOTE, "MECHANICAL_COVERAGE_NOTE");
+});
+
+test("the coverage note claims only mechanisms this repo actually runs", () => {
+  // The failure mode is SILENT: tell a lens something is covered when it is not
+  // and that finding class stops being reported, with nothing in the output to
+  // show for it. Each assertion below pins a fact read off the repo, so a change
+  // to the real lane breaks this test instead of quietly making the note a lie.
+  const N = MECHANICAL_COVERAGE_NOTE;
+
+  // NO FORMATTING CLAIM. Prettier is write-only here — nothing checks it — so
+  // "formatting is covered" would skip a class nothing else covers. It may only
+  // appear in the NOT-enforced half.
+  const enforced = N.slice(N.indexOf("ENFORCED"), N.indexOf("NOT ENFORCED"));
+  assert.ok(!/format|prettier/i.test(enforced), "no lane checks formatting — never claim one does");
+  assert.match(N, /Prettier is write-only/, "the gap must be stated, not merely omitted");
+
+  // packages/frontend has NO tsc: no `typecheck` script, no checker plugin, and
+  // `vite build` strips types. Claiming type coverage without scoping it would
+  // silence type findings in the largest package in the repo.
+  assert.match(N, /packages\/frontend\. It has no `tsc` at all/);
+  const tscLine = N.split("\n").find((l) => l.includes("`tsc --noEmit` in"));
+  assert.ok(!/frontend/.test(tscLine), `the tsc claim must not cover frontend: ${tscLine}`);
+  for (const pkg of ["sheets", "slides", "docs", "notes", "board", "cli"]) {
+    assert.ok(tscLine.includes(pkg), `verify:fast typechecks ${pkg} — the note must say so`);
+  }
+
+  // packages/core has a vitest suite and NOTHING runs it: `verify:fast` invokes
+  // `pnpm core build`, never `pnpm core test`, and the root `test` script omits it
+  // too. Listing core among the suites that run was the draft's second silent
+  // over-claim, in a package sheets/docs/slides/frontend all depend on.
+  const suitesLine = N.split("\n").find((l) => l.includes("The suites RUN"));
+  assert.ok(!/core/.test(suitesLine), `no lane runs core's suite: ${suitesLine}`);
+  assert.match(N, /packages\/core's own vitest suite\. It has one; no lane invokes it/);
+
+  // verify-entropy's doc check uses a NON-recursive readdir filtered to isFile(),
+  // so it sees the 22 top-level docs/design/*.md and none of the 81 nested ones.
+  // A `docs/design/**.md` claim — the draft's third over-claim — would have told
+  // every lens that broken refs in subsystem docs are somebody else's problem.
+  assert.match(N, /TOP-LEVEL docs\/design\/\*\.md/);
+  assert.ok(!/docs\/design\/\*\*/.test(N), "the doc check does not recurse — do not imply it does");
+  assert.match(N, /does not recurse/);
+
+  // `pnpm audit` fails on CRITICAL only (harness.config.json failOnCritical), and
+  // there are high-severity advisories outstanding that CI prints and ignores.
+  assert.match(N, /`pnpm audit`: fails the lane on a CRITICAL advisory/);
+  assert.match(N, /below critical; high\/moderate\/low are printed and ignored/);
+  // The first draft of that bullet read "CRITICAL severity only" and `assertNoClamp`
+  // rejected it on /severity ONLY/i. The guard was blunt but not wrong — a note
+  // saying "don't report X" is exactly where a clamp hides — so the WORDING moved
+  // rather than the rule. Kept as a note to whoever edits this line next.
+
+  // MECHANISMS, NEVER CATEGORIES. "type problems" also covers `as any`, non-null
+  // assertions and type-level lies tsc accepts; "lint issues" covers the backend,
+  // which is not linted here at all. Named tools and named packages only.
+  for (const category of [/\btype problems\b/i, /\btype issues\b/i, /\blint issues are\b/i, /\bstyle problems\b/i]) {
+    assert.ok(!category.test(N), `the note must name a mechanism, not a category: ${category}`);
+  }
+
+  // The tense claim. Since #651 the panel runs CONCURRENTLY with CI, so nothing
+  // here is proven at the moment a lens reads it — only that the lens is not the
+  // last line of defence. "already caught" would be false for the current round.
+  assert.ok(!/already (?:caught|checked|passed|proven)/i.test(N),
+    "the panel runs alongside CI now — the note may not claim these have already passed");
+  assert.match(N, /must pass before it can be promoted/);
+});
+
+test("no rubric asserts mechanical coverage on its own any more", () => {
+  // Four rubrics said this in four different phrasings and none named a
+  // mechanism; two said nothing. One trusted constant replaces all of it, so a
+  // rubric re-adding its own version is a divergence, not a redundancy.
+  for (const l of LENSES) {
+    const md = readFileSync(path.join(HERE, "lenses", `${l.id}.md`), "utf8");
+    assert.ok(!/mechanical/i.test(md), `${l.id}.md must defer to MECHANICAL_COVERAGE_NOTE`);
+  }
+  // The lane deferrals themselves must SURVIVE: dropping "don't report lint" from
+  // a rubric along with its stale justification would re-open the very class this
+  // change is meant to keep closed.
+  for (const [id, pattern] of [
+    ["correctness", /import-boundary and lint violations/i],
+    ["security", /import-boundary\/lint issues/i],
+    ["design-fit", /import-boundary\/lint/i],
+    ["blast-radius", /import-boundary and lint/i],
+  ]) {
+    const md = readFileSync(path.join(HERE, "lenses", `${id}.md`), "utf8");
+    assert.match(md, pattern, `${id}.md must still defer lint to another owner`);
+  }
 });
 
 test("verifierTally: only blocking findings are sent; refuted vs high-confidence vs dropped", () => {
@@ -2152,6 +2371,41 @@ test("annotateFindings marks an unsettled finding without changing its lane", ()
   assert.equal(classify(gatingFindings(out)).conclusion, "failure");
 });
 
+test("annotateFindings stamps the per-finding verifier outcome, reporting-only", () => {
+  const out = annotateFindings(
+    [
+      { severity: "major", summary: "confirmed high" },
+      { severity: "major", summary: "confirmed low" },
+      { severity: "major", summary: "session threw" },
+      { severity: "minor", summary: "never sent" },
+    ],
+    [
+      { verdict: "confirmed", confidence: "high", reason: "", refutationGround: "none", groundedIn: [] },
+      { verdict: "confirmed", confidence: "low", reason: "", refutationGround: "none", groundedIn: [] },
+      null, // a null verdict for a BLOCKING finding means verifyFinding threw
+      null,
+    ],
+    null,
+    {},
+  );
+  assert.equal(out[0].verification, "confirmed-high");
+  assert.equal(out[1].verification, "confirmed-low");
+  // The per-finding face of the aggregate `unverified` banner — the same null
+  // verifierTally counts as `errored`, so the two cannot disagree.
+  assert.equal(out[2].verification, "errored");
+  assert.equal(out[2].lane, "blocking"); // reporting only — still gates
+  // Non-blocking findings are untouched (never verified, so nothing to report).
+  assert.equal(out[3].verification, undefined);
+});
+
+test("annotateFindings stamps no outcome at all when no verdicts array was supplied", () => {
+  // A caller passing no array is saying "nothing was verified here" — stamping
+  // every blocker "errored" for that would report an outage that never happened.
+  const out = annotateFindings([{ severity: "critical", summary: "s" }], null, null, {});
+  assert.equal(out[0].verification, undefined);
+  assert.equal(out[0].lane, "blocking"); // routing is unchanged
+});
+
 test("verifierTally counts absence claims and unresolved outcomes separately", () => {
   const findings = [
     { severity: "critical", claimType: "absence", summary: "no test" },
@@ -2497,6 +2751,238 @@ test("writeStageDetail: disabled writes nothing at all", () => {
   }
 });
 
+const WORKFLOW_DIR = path.join(HERE, "..", "..", ".github", "workflows");
+
+/**
+ * A workflow file with its comment lines dropped.
+ *
+ * These workflows carry more prose than YAML and the comments quote `path:`,
+ * `retention-days:` and the flags being asserted here by name, so a whole-file
+ * grep would answer out of the explanation instead of the config — the same trap
+ * #630, #640 and #651 each had to work around.
+ *
+ * SHARED by both parsers below, and that is load-bearing rather than tidy: the
+ * step-ordering assertion compares line indexes across the two, so they must be
+ * indexing the same array. Two copies of this filter could drift and the
+ * comparison would quietly become meaningless.
+ */
+function strippedWorkflowLines(file) {
+  return readFileSync(path.join(WORKFLOW_DIR, file), "utf8")
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l));
+}
+
+const workflowFiles = () => readdirSync(WORKFLOW_DIR).filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
+
+/**
+ * Parse every `actions/upload-artifact` step out of the real workflows.
+ */
+function uploadArtifactSteps() {
+  const steps = [];
+  for (const file of workflowFiles()) {
+    const lines = strippedWorkflowLines(file);
+    for (let i = 0; i < lines.length; i++) {
+      const at = lines[i].indexOf("uses: actions/upload-artifact");
+      if (at < 0) continue;
+      // The step body: every following line indented deeper than this key, or at
+      // the same depth (its sibling keys, e.g. `with:`). A shallower line is the
+      // next step or the next job.
+      const body = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        if (!lines[j].trim()) { body.push(lines[j]); continue; }
+        const indent = lines[j].search(/\S/);
+        if (indent < at || /^\s*- /.test(lines[j].slice(0, at + 2))) break;
+        body.push(lines[j]);
+      }
+      // `name:` may precede `uses:`, so look backwards for the step's label too.
+      let name = "";
+      for (let j = i - 1; j >= 0 && !name; j--) {
+        if (!lines[j].trim()) continue;
+        const m = /^\s*-?\s*name:\s*(.+?)\s*$/.exec(lines[j]);
+        if (m) name = m[1];
+        else if (lines[j].search(/\S/) < at) break;
+      }
+      // `path:` is a scalar on one line, or a block scalar whose entries follow.
+      const paths = [];
+      for (let j = 0; j < body.length; j++) {
+        const m = /^(\s*)path:\s*(.*)$/.exec(body[j]);
+        if (!m) continue;
+        const [, indent, inline] = m;
+        if (inline && !/^[|>]/.test(inline)) { paths.push(inline.replace(/^["']|["']$/g, "")); continue; }
+        for (let k = j + 1; k < body.length; k++) {
+          if (!body[k].trim()) continue;
+          if (body[k].search(/\S/) <= indent.length) break;
+          paths.push(body[k].trim().replace(/^["']|["']$/g, ""));
+        }
+      }
+      // The ARTIFACT name (a `with:` input) as distinct from the step label read
+      // above. Both are spelled `name:`; only the one inside the step body is the
+      // artifact's, which is why it is picked out here and not by the backward
+      // scan.
+      let artifactName = null;
+      for (const l of body) {
+        const m = /^\s*name:\s*(.+?)\s*$/.exec(l);
+        if (m) { artifactName = m[1].replace(/^["']|["']$/g, ""); break; }
+      }
+      const retention = body.map((l) => /^\s*retention-days:\s*(\d+)\s*$/.exec(l)).find(Boolean);
+      steps.push({
+        file, name, paths, artifactName,
+        line: i,
+        retention: retention ? Number(retention[1]) : null,
+        includeHidden: body.some((l) => /^\s*include-hidden-files:\s*true\s*$/.test(l)),
+      });
+    }
+  }
+  return steps;
+}
+
+/**
+ * Parse the `capture-meta.mjs` step out of each workflow that has one.
+ *
+ * Read from the workflow source because that is the only place the wiring
+ * exists: the values are step-level `env:` and literal flags, so no unit test of
+ * `buildCaptureMeta` can reach them. The four facts asserted below — which
+ * channel, which workflow name, where the file lands, and that a failure cannot
+ * fail the review — are each a one-token edit away from being silently wrong,
+ * and three of them are what a copy of this step into the other workflow gets
+ * wrong first.
+ */
+function captureMetaSteps() {
+  const steps = [];
+  for (const file of workflowFiles()) {
+    const lines = strippedWorkflowLines(file);
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^(\s*)- name:\s*(Describe the capture.*?)\s*$/.exec(lines[i]);
+      if (!m) continue;
+      const keyIndent = m[1].length + 2;
+      const body = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        if (!lines[j].trim()) { body.push(lines[j]); continue; }
+        if (lines[j].search(/\S/) < keyIndent) break;
+        body.push(lines[j]);
+      }
+      const text = body.join("\n");
+      const flag = (name) => {
+        const f = new RegExp(`--${name}\\s+(\\S+)`).exec(text);
+        return f ? f[1].replace(/^["']|["']$/g, "") : null;
+      };
+      steps.push({
+        file, line: i, name: m[2], text,
+        runsBuilder: /node \.trusted\/scripts\/agent\/capture-meta\.mjs/.test(text),
+        continueOnError: /^\s*continue-on-error:\s*true\s*$/m.test(text),
+        out: flag("out"), channel: flag("channel"), workflow: flag("workflow"),
+      });
+    }
+  }
+  return steps;
+}
+
+test("every upload-artifact step that GLOBS a hidden path opts hidden files back in", () => {
+  // #641 shipped `path: .agent-review/*/stage-detail.json` without
+  // `include-hidden-files: true` and uploaded nothing on five consecutive real
+  // panel runs. The files were written; the glob never saw them.
+  //
+  // upload-artifact resolves globs with @actions/glob, whose search root is the
+  // pattern's non-wildcard prefix — here the DIRECTORY `.agent-review`. With
+  // hidden files excluded (the v4 default) the globber skips any traversed item
+  // whose basename starts with a dot, the root included, so it never reads the
+  // directory at all. `if-no-files-found: ignore` then swallows the report.
+  //
+  // A literal file path is immune, which is the trap: the sibling
+  // `review-panel-execution` step names its two files outright, so each search
+  // root is the FILE and no hidden component is ever inspected. Two steps reading
+  // the same hidden directory in the same job, one working and one silent, is
+  // what made this look like a write bug rather than an upload bug.
+  const risky = (p) => {
+    // Only a glob or a directory makes the globber WALK; a named file is handed
+    // straight to stat.
+    if (!/[*?[]/.test(p) && !p.endsWith("/")) return false;
+    return p.split("/").some((seg) => seg.startsWith(".") && seg !== "." && seg !== "..");
+  };
+
+  const steps = uploadArtifactSteps();
+  // Guard the parser itself: an upload step that silently stopped being found
+  // would make every assertion below vacuous.
+  assert.ok(steps.length >= 8, `expected to find the upload steps, found ${steps.length}`);
+  assert.ok(steps.every((s) => s.paths.length > 0), `every upload step must declare a path: ${JSON.stringify(steps.filter((s) => !s.paths.length))}`);
+
+  for (const step of steps) {
+    for (const p of step.paths) {
+      if (!risky(p)) continue;
+      assert.ok(
+        step.includeHidden,
+        `${step.file} "${step.name}" globs the hidden path ${p} without include-hidden-files: true — it will upload nothing, silently`,
+      );
+    }
+  }
+
+  // Named, so a rename or a path rewrite still fails loudly here rather than going
+  // quiet in production for another five rounds. `filter`, not `find`: BOTH panels
+  // upload this capture and a `find` would assert about whichever workflow the
+  // directory listing happened to yield first, leaving the other free to regress.
+  // Asserting the pair is also what pins the PARITY — one name, one path, one
+  // retention, from two producers — which is the property a collector depends on.
+  const stage = steps.filter((s) => s.name === "Upload per-lens stage detail");
+  assert.deepEqual(
+    stage.map((s) => s.file).sort(),
+    ["agent-review-on-demand.yml", "agent-review-panel.yml"],
+    "both the gating and the on-demand panel must upload the stage-detail capture",
+  );
+  const meta = captureMetaSteps();
+  for (const s of stage) {
+    assert.deepEqual(
+      s.paths,
+      [".agent-review/*/stage-detail.json", ".agent-review/meta.json"],
+      `${s.file}: the capture path must match the other producer, and must carry meta.json — the glob does NOT match a file at the root of .agent-review`,
+    );
+    assert.ok(s.includeHidden, `${s.file}: the stage-detail upload must set include-hidden-files: true`);
+
+    // 90 days, the maximum for a public repo, in BOTH producers. Nothing reads
+    // these artifacts yet, so retention is the only thing between a capture and
+    // deletion, and a collector must not find one channel expiring before the
+    // other. Deliberately does NOT touch the `retention-days: 1` steps, which are
+    // an intra-run hand-off.
+    assert.equal(s.retention, 90, `${s.file}: the stage-detail capture must be retained for 90 days (the public-repo maximum), got ${s.retention}`);
+
+    // The PR number in the artifact name, always as an expression — a literal
+    // would mean every run overwrote the same name.
+    assert.match(
+      s.artifactName ?? "",
+      /^review-panel-stage-detail-pr-\$\{\{ [^}]+ \}\}$/,
+      `${s.file}: the artifact name must carry the PR number, got ${JSON.stringify(s.artifactName)}`,
+    );
+
+    // Attribution must be WRITTEN before it is uploaded. A meta step that ran
+    // after the upload would produce a file nobody ever sees, and the artifact
+    // would still be unattributable — while every other assertion here passed.
+    const m = meta.find((x) => x.file === s.file);
+    assert.ok(m, `${s.file}: no "Describe the capture" step — the uploaded artifact would carry no meta.json and a collector would discard it`);
+    assert.ok(m.line < s.line, `${s.file}: the capture must be described BEFORE it is uploaded (meta step at line ${m.line}, upload at ${s.line})`);
+    assert.ok(m.runsBuilder, `${s.file}: the meta step must run the trusted capture-meta.mjs, not build the payload in YAML`);
+    assert.equal(m.out, ".agent-review/meta.json", `${s.file}: meta.json must land where the upload above looks for it`);
+    assert.ok(s.paths.includes(m.out), `${s.file}: the upload does not carry ${m.out}`);
+    // A capture problem must never fail a code review. The script's own exit 1
+    // is the signal; this is what keeps it off the critical path.
+    assert.ok(m.continueOnError, `${s.file}: the meta step must be continue-on-error — a capture must never fail a review`);
+    // Each producer names ITSELF. This is the assertion a copy-paste between the
+    // two workflows fails, which is how #664's naive copy would have gone wrong.
+    assert.equal(m.workflow, s.file, `${s.file}: --workflow must name this workflow, got ${JSON.stringify(m.workflow)}`);
+  }
+
+  // `channel` is the only field that can separate a gating round from an
+  // advisory one — the two producers are otherwise byte-identical in what they
+  // capture, so a single head sha reviewed twice would read as two gating rounds.
+  assert.deepEqual(
+    meta.map((m) => [m.file, m.channel]).sort(),
+    [["agent-review-on-demand.yml", "advisory"], ["agent-review-panel.yml", "gating"]],
+    "each producer must declare its own channel, and the two must differ",
+  );
+
+  // The invariant has to hold for a REASON, not by coincidence: at least one
+  // upload in the repo must be a hidden glob, or the loop above proves nothing.
+  assert.ok(steps.some((s) => s.paths.some(risky)), "no hidden-path upload found — this test would be vacuous");
+});
+
 test("writeStageDetail: a failed write NEVER propagates", () => {
   // The one property that matters operationally. This runs inside
   // `Promise.all(allLenses.map(...))`, so a throw here would abort the whole
@@ -2521,6 +3007,52 @@ test("writeStageDetail: a failed write NEVER propagates", () => {
   }
 });
 
+test("writeStageDetail: the failure notice goes to stderr, never to stdout", () => {
+  // This file calls `writeStageDetail` IN-PROCESS, so under `node --test` stdout
+  // is the runner's result channel: v8 frames the parent parses in
+  // `#processRawBuffer`, which re-checks the `0xFF 0x0F` magic only at the top of
+  // a call. Plain text behind a frame in the same read chunk is therefore read as
+  // the next frame's length — a large one stalls the stream and loses this file's
+  // remaining results, a small one deserializes garbage and throws `Unable to
+  // deserialize cloned data`. That is the `agent:tests` flake, and on `console.log`
+  // this one line put 421 bytes per run onto the channel.
+  //
+  // BOTH directions, as with `eval/run.mjs`'s heartbeat: dropping the notice would
+  // satisfy "stdout is clean" while removing the only report that a capture was
+  // lost. stdout is teed rather than swallowed — dropping writes here would
+  // discard the runner's own frames and corrupt the stream this defends.
+  const dir = mkdtempSync(path.join(os.tmpdir(), "stage-detail-fd-"));
+  const seen = [];
+  const realOut = process.stdout.write;
+  const realErr = process.stderr.write;
+  process.stdout.write = function (chunk, ...rest) {
+    seen.push({ fd: 1, text: typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8") });
+    return realOut.call(this, chunk, ...rest);
+  };
+  process.stderr.write = function (chunk) {
+    seen.push({ fd: 2, text: typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8") });
+    return true;
+  };
+  try {
+    const notADir = path.join(dir, "occupied");
+    writeFileSync(notADir, "i am a file\n");
+    assert.equal(writeStageDetail(path.join(notADir, "correctness"), { samples: [] }, {}), false);
+    process.stdout.write = realOut;
+    process.stderr.write = realErr;
+    const notice = /stage-detail capture failed/;
+    assert.ok(seen.some((w) => w.fd === 2 && notice.test(w.text)), "the failure must still be reported, on stderr");
+    assert.deepEqual(
+      seen.filter((w) => w.fd === 1 && notice.test(w.text)).map((w) => w.text),
+      [],
+      "stdout carries the test runner's v8 result frames; plain text there desynchronizes them",
+    );
+  } finally {
+    process.stdout.write = realOut;
+    process.stderr.write = realErr;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("buildStageDetail: records per-sample findings before the union collapses them", () => {
   // `unionSamples` dedupes across samples and `lensStats.agreement` keeps only a
   // score, so which sample raised what is unrecoverable afterwards. That is the
@@ -2532,6 +3064,7 @@ test("buildStageDetail: records per-sample findings before the union collapses t
     scopeNote: "",
     samples: [{ findings: [a] }, { findings: [a, b] }],
     fresh: [], freshVerdicts: [], prior: [], priorVerdicts: [],
+    env: { STAGE_DETAIL_DIFF_CONTENT: "1" },
   });
   assert.deepEqual(detail.samples, [[a], [a, b]]);
   assert.equal(detail.lensDiff, "diff --git a/a.ts b/a.ts\n");
@@ -2571,6 +3104,28 @@ test("buildStageDetail: verifications cover only what reached the verifier", () 
   assert.equal(errored.verifications[0].dropped, false);
 });
 
+test("buildStageDetail: an inherited prior verdict is marked as one", () => {
+  // The capture is the durable, replayable record of what the round did. A prior
+  // row whose verdict came from its fresh twin looks, unmarked, exactly like a
+  // row a session produced — so counting "prior-round verifications" in it would
+  // overstate the spend by precisely what the reuse saves.
+  const major = { severity: "major", file: "a.ts", summary: "blocking" };
+  const other = { severity: "major", file: "b.ts", summary: "also blocking" };
+  const keep = { verdict: "confirmed", confidence: "high", refutationGround: "none", groundedIn: [] };
+  const detail = buildStageDetail({
+    fresh: [major], freshVerdicts: [keep],
+    prior: [major, other], priorVerdicts: [keep, keep], priorReuseIdx: [0, -1],
+  });
+  const prior = detail.verifications.filter((v) => v.population === "prior-round");
+  assert.equal(prior[0].reused, true, "the re-found one inherited its verdict");
+  // Absent, not false: every row written before this shipped, and every row that
+  // really was verified, keeps its exact previous shape.
+  assert.ok(!("reused" in prior[1]), "a genuinely verified prior row is unmarked");
+  assert.ok(!("reused" in detail.verifications.find((v) => v.population === "fresh")));
+  const noPlan = buildStageDetail({ prior: [major], priorVerdicts: [keep] });
+  assert.ok(!("reused" in noPlan.verifications[0]), "an omitted plan marks nothing");
+});
+
 test("buildStageDetail: derives only — it never mutates its inputs", () => {
   // The claim the review cares about most: capture cannot change a verdict. The
   // payload builder is pure, so the findings the panel goes on to gate on are
@@ -2582,10 +3137,598 @@ test("buildStageDetail: derives only — it never mutates its inputs", () => {
   assert.equal(JSON.stringify({ findings, verdicts }), before);
 });
 
-test("buildStageDetail: a missing lensDiff or scopeNote degrades to an empty string", () => {
-  // JSON with a stable shape matters more than a faithful `undefined`: a consumer
-  // reading `detail.lensDiff.length` must not have to guard the field's absence.
-  const detail = buildStageDetail({});
-  assert.deepEqual(detail, { lensDiff: "", scopeNote: "", samples: [], verifications: [] });
-  assert.equal(typeof JSON.parse(JSON.stringify(detail)).lensDiff, "string");
+test("buildStageDetail: a fresh row carries the lane the gate routed on", () => {
+  // The lane is the gate's decision, and `backlog` is the one field in a capture
+  // that is unrecoverable rather than merely absent: it comes from `noveltyOf`,
+  // a blame of the tree as it stood during the review. `discarded` survives
+  // without this (it is `dropped` under another name), so a capture missing lanes
+  // cannot be told apart from one where nothing was demoted — which is exactly
+  // the difference between a finding that gated and one waved past.
+  const relocated = { severity: "major", file: "a.ts", summary: "moved, not added" };
+  const added = { severity: "major", file: "b.ts", summary: "genuinely new" };
+  const keep = { verdict: "confirmed", confidence: "high", refutationGround: "none", groundedIn: [] };
+  const novelties = [
+    { origin: "relocated", addedBy: "a".repeat(40), contentSha: null, alsoAt: "old.ts:4" },
+    { origin: "added", addedBy: "b".repeat(40), contentSha: null, alsoAt: null },
+  ];
+  const annotated = annotateFindings([relocated, added], [keep, keep], novelties);
+  const detail = buildStageDetail({
+    fresh: annotated, freshVerdicts: [keep, keep], prior: [], priorVerdicts: [],
+  });
+  const lanes = detail.verifications.map((v) => v.finding.lane);
+  assert.deepEqual(lanes, ["backlog", "blocking"]);
+  // Both were CONFIRMED, so `dropped` is false on both — the proof that the lane
+  // carries information no other recorded field does.
+  assert.deepEqual(detail.verifications.map((v) => v.dropped), [false, false]);
+  // The novelty itself rides along, so a later pass can see WHY it was demoted
+  // rather than having to trust the label.
+  assert.equal(detail.verifications[0].finding.novelty.origin, "relocated");
+  // A non-blocking finding has no lane, by design — `annotateFindings` returns it
+  // untouched. Absence there is not missing data, and a reader must not read it
+  // as `blocking`.
+  const nit = { severity: "nit", file: "c.ts", summary: "style" };
+  assert.ok(!("lane" in annotateFindings([nit], [null], [null])[0]));
+});
+
+test("buildStageDetail: the annotated array preserves verdict alignment; the kept array would not", () => {
+  // `annotateFindings` MAPS — same length, same order — which is what makes it a
+  // drop-in for `detected` at the capture call site. The obvious wrong fix is to
+  // pass `kept`, the post-`keepUnrefuted` array: it is annotated too, so lanes
+  // would appear and the capture would look correct while every row after the
+  // first drop is paired with another finding's verdict.
+  const a = { severity: "major", file: "a.ts", summary: "refuted one" };
+  const b = { severity: "major", file: "b.ts", summary: "confirmed one" };
+  const drop = { verdict: "refuted", confidence: "high", refutationGround: "not-present", groundedIn: ["a.ts:1"] };
+  const keep = { verdict: "confirmed", confidence: "high", refutationGround: "none", groundedIn: [] };
+  const verdicts = [drop, keep];
+  const annotated = annotateFindings([a, b], verdicts, [null, null]);
+  assert.equal(annotated.length, 2, "annotation must not filter");
+  const rows = buildStageDetail({ fresh: annotated, freshVerdicts: verdicts }).verifications;
+  assert.deepEqual(rows.map((v) => [v.finding.summary, v.dropped]),
+    [["refuted one", true], ["confirmed one", false]]);
+  // The misalignment the above rules out, stated as the thing it would produce:
+  // `kept` has dropped row 0, so its row 0 is `b` — which would then be paired
+  // with `drop` and recorded as a refuted finding the panel actually gated on.
+  const kept = keepUnrefuted(annotated);
+  assert.deepEqual(kept.map((f) => f.summary), ["confirmed one"]);
+  assert.equal(buildStageDetail({ fresh: kept, freshVerdicts: verdicts }).verifications[0].dropped, true,
+    "documents the bug passing `kept` would cause, so the call-site guard below has a reason");
+});
+
+test("the capture is wired to the ANNOTATED fresh findings, not the raw ones", () => {
+  // Read from the source, and only because the behaviour is genuinely out of
+  // reach: this call site lives inside `main`'s per-lens closure, which is not
+  // exported and needs a git repo plus live model sessions to enter. The tests
+  // above pin what `buildStageDetail` does with an annotated array; nothing but
+  // this can pin that the panel HANDS it one.
+  //
+  // Structural rather than a literal match, per the inertness note at the top of
+  // this file: the variable name is read out of the source instead of hardcoded,
+  // so renaming it keeps this green and reverting to the unannotated array does
+  // not.
+  const src = readFileSync(path.join(HERE, "review-panel.mjs"), "utf8");
+  const assigned = src.match(/const\s+(\w+)\s*=\s*annotateFindings\(\s*detected\s*,/);
+  assert.ok(assigned, "the fresh annotation must be assigned to a name the capture can reach");
+  const [, name] = assigned;
+  const call = src.match(/buildStageDetail\(\{[\s\S]*?\n\s*\}\)/);
+  assert.ok(call, "buildStageDetail call site not found");
+  const fresh = call[0].match(/^\s*fresh:\s*(\w+),/m);
+  assert.ok(fresh, "the call site must pass `fresh` as a plain identifier");
+  assert.equal(fresh[1], name,
+    `fresh: must be the annotated array (${name}); passing \`detected\` loses the lane forever`);
+  // And it must not be the filtered one — that is the misalignment the test above
+  // demonstrates, and it is the mistake a reader "simplifying" this would make.
+  assert.notEqual(fresh[1], "kept");
+});
+
+test("buildStageDetail: the default payload is valid JSON of the expected shape, with no diff body", () => {
+  // The whole default shape in one assertion, so a field added or dropped here
+  // has to be a decision rather than an accident. `lensDiff` is ABSENT — see the
+  // omitted-vs-empty test below — and everything else still degrades to a stable
+  // value rather than to `undefined`.
+  const detail = buildStageDetail({ env: {} });
+  assert.deepEqual(detail, {
+    lensDiffSha256: EMPTY_SHA256,
+    lensDiffBytes: 0,
+    lensFiles: [],
+    scopeNote: "",
+    samples: [],
+    verifications: [],
+  });
+  // Survives a serialisation round-trip unchanged: this is written with
+  // `JSON.stringify` and read back by a collector, so a value that stringifies
+  // to something else (a BigInt, an undefined) would be a silent corpus bug.
+  assert.deepEqual(JSON.parse(JSON.stringify(detail)), detail);
+});
+
+// ---------------------------------------------------------------------------
+// Diff tiering. `lensDiff` is 76-97% of the capture and the only part of it
+// that is verbatim contributor-authored text, so the body is opt-in and the
+// default path carries a hash, a byte count and the routed file list instead —
+// enough to detect later that a re-derived slice is not the one the lens read.
+// ---------------------------------------------------------------------------
+
+// SHA-256 of the empty string, as a literal. Recomputing the expectation with
+// the same `createHash` call the implementation uses would assert only that
+// the function is deterministic; a known-answer constant is what makes these
+// tests catch a change to WHAT is hashed (a trim, a normalisation, a re-encode).
+const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+// SHA-256 of exactly `DIFF_FIXTURE` below, likewise a fixed known answer.
+const DIFF_FIXTURE_SHA256 = "0dff7bf2a46b0592a675f3d9f164883582c35b79ed2c93ff19963e063fe0cecb";
+const DIFF_FIXTURE = [
+  "diff --git a/src/a.ts b/src/a.ts",
+  "index 111..222 100644",
+  "--- a/src/a.ts",
+  "+++ b/src/a.ts",
+  "@@ -1,2 +1,3 @@",
+  " const x = 1;",
+  "+const y = 2;",
+  "diff --git a/docs/b.md b/docs/b.md",
+  "index 333..444 100644",
+  "--- a/docs/b.md",
+  "+++ b/docs/b.md",
+  "@@ -1 +1,2 @@",
+  " # title",
+  "+more prose",
+  "",
+].join("\n");
+
+test("stageDetailDiffContentEnabled: unset, empty and whitespace all mean OFF", () => {
+  // The mirror image of the capture gate's trap, and the reason the two have
+  // opposite defaults on purpose. Bulky third-party content must not start
+  // riding along because a repo variable was never set; the capture itself must
+  // not stop running for the same reason.
+  assert.equal(stageDetailDiffContentEnabled({}), false, "absent must be OFF");
+  assert.equal(stageDetailDiffContentEnabled({ STAGE_DETAIL_DIFF_CONTENT: "" }), false, "empty string must be OFF");
+  assert.equal(stageDetailDiffContentEnabled({ STAGE_DETAIL_DIFF_CONTENT: "   " }), false, "whitespace must be OFF");
+  assert.equal(stageDetailDiffContentEnabled({ STAGE_DETAIL_DIFF_CONTENT: undefined }), false, "undefined must be OFF");
+  // Anything unrecognized also stays OFF — each gate falls to its OWN default
+  // on a value it cannot parse, which is why `banana` is ON for capture and OFF
+  // here rather than one of them being wrong.
+  for (const v of ["0", "false", "off", "banana", "yes", "2"]) {
+    assert.equal(stageDetailDiffContentEnabled({ STAGE_DETAIL_DIFF_CONTENT: v }), false, `${v} must be OFF`);
+  }
+});
+
+test("stageDetailDiffContentEnabled: only an explicit on-word turns it ON", () => {
+  for (const v of ["1", "true", "on", "TRUE", "On", " true "]) {
+    assert.equal(stageDetailDiffContentEnabled({ STAGE_DETAIL_DIFF_CONTENT: v }), true, `${v} must be ON`);
+  }
+});
+
+test("buildStageDetail: content OFF omits the diff body but still carries the hash", () => {
+  const detail = buildStageDetail({ lensDiff: DIFF_FIXTURE, samples: [], env: {} });
+  // Omitted, not empty. A consumer keys on `typeof detail.lensDiff === "string"`
+  // to decide whether it has a routed slice, so `""` would be read as "the lens
+  // reviewed nothing" and replayed against an empty diff, while an absent key
+  // lands on the pre-existing fallback for captures written before `lensDiff`.
+  assert.equal("lensDiff" in detail, false, "the body must be absent, not empty");
+  assert.equal(detail.lensDiffSha256, DIFF_FIXTURE_SHA256);
+  assert.equal(detail.lensDiffBytes, Buffer.byteLength(DIFF_FIXTURE, "utf8"));
+  assert.deepEqual(detail.lensFiles, ["src/a.ts", "docs/b.md"]);
+});
+
+test("buildStageDetail: content ON carries the body AND the same hash", () => {
+  // The hash is emitted in BOTH modes so the drift guard reads one field
+  // regardless of how the capture was configured — a replay that has the body
+  // can still prove it is the body production used.
+  const detail = buildStageDetail({ lensDiff: DIFF_FIXTURE, samples: [], env: { STAGE_DETAIL_DIFF_CONTENT: "1" } });
+  assert.equal(detail.lensDiff, DIFF_FIXTURE, "the body must be byte-identical to the router's output");
+  assert.equal(detail.lensDiffSha256, DIFF_FIXTURE_SHA256, "the same hash as the OFF path");
+  assert.equal(detail.lensDiffBytes, Buffer.byteLength(DIFF_FIXTURE, "utf8"));
+  assert.deepEqual(detail.lensFiles, ["src/a.ts", "docs/b.md"]);
+});
+
+test("buildStageDetail: the hash is of the RAW slice — never trimmed or normalised", () => {
+  // The one property that makes the hash worth keeping. A slice re-derived later
+  // is compared byte-for-byte, so hashing anything but the router's exact output
+  // would report drift that did not happen and hide drift that did. Leading and
+  // trailing whitespace, CRLF line endings and a trailing newline must every one
+  // of them change the digest.
+  const base = "diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n-a\n+b\n";
+  const variants = [base, ` ${base}`, `${base} `, `${base}\n`, base.replace(/\n/g, "\r\n"), base.trim()];
+  const digests = variants.map((v) => buildStageDetail({ lensDiff: v, env: {} }).lensDiffSha256);
+  assert.equal(new Set(digests).size, variants.length, "each byte-distinct slice must hash differently");
+  // And it is stable: the same bytes hash the same way on every call, in either
+  // mode, so a digest recorded today is comparable to one recorded next month.
+  assert.equal(digests[0], buildStageDetail({ lensDiff: base, env: {} }).lensDiffSha256);
+  assert.equal(digests[0], buildStageDetail({ lensDiff: base, env: { STAGE_DETAIL_DIFF_CONTENT: "on" } }).lensDiffSha256);
+});
+
+test("buildStageDetail: lensFiles and lensDiffBytes describe the slice, not the PR", () => {
+  // `lensFiles` is what keeps the scope-discipline metric computable once the
+  // body is gone, and it cannot be back-filled: `pulls/{n}/files` returns the
+  // PR's CURRENT diff, not the routed slice reviewed at this round. So it is
+  // derived from the slice itself, through the same splitter the router used.
+  const single = buildStageDetail({ lensDiff: "diff --git a/only.ts b/only.ts\n+x\n", env: {} });
+  assert.deepEqual(single.lensFiles, ["only.ts"]);
+  assert.equal(single.lensDiffBytes, Buffer.byteLength("diff --git a/only.ts b/only.ts\n+x\n", "utf8"));
+
+  // A multi-byte character costs its UTF-8 bytes, not its JS string length —
+  // the number has to be the size of what gets written, or corpus sizing lies.
+  const wide = buildStageDetail({ lensDiff: "diff --git a/i18n.ts b/i18n.ts\n+한글\n", env: {} });
+  assert.equal(wide.lensDiffBytes, Buffer.byteLength("diff --git a/i18n.ts b/i18n.ts\n+한글\n", "utf8"));
+  assert.ok(wide.lensDiffBytes > "diff --git a/i18n.ts b/i18n.ts\n+한글\n".length);
+
+  // An empty slice — the real `noNewHunks` case — is distinguishable from a
+  // missing capture by `lensDiffBytes: 0` plus the empty-string digest, which is
+  // exactly the discrimination that dropping the body would otherwise lose.
+  const empty = buildStageDetail({ lensDiff: "", env: {} });
+  assert.equal(empty.lensDiffBytes, 0);
+  assert.deepEqual(empty.lensFiles, []);
+  assert.equal(empty.lensDiffSha256, EMPTY_SHA256);
+});
+
+test("buildStageDetail: content ON still degrades a missing lensDiff to an empty string", () => {
+  // Unchanged from the merged behaviour: with the body requested, a caller that
+  // passes no slice gets `""` rather than `undefined`, so the field's type is
+  // stable whenever the key is present at all.
+  const detail = buildStageDetail({ env: { STAGE_DETAIL_DIFF_CONTENT: "true" } });
+  assert.equal(detail.lensDiff, "");
+  // The metadata is emitted in this mode too, and describes the same "" the body
+  // does — the two halves of the payload cannot disagree about what was reviewed.
+  assert.equal(detail.lensDiffSha256, EMPTY_SHA256);
+  assert.equal(detail.lensDiffBytes, 0);
+  assert.deepEqual(detail.lensFiles, []);
+});
+
+test("buildStageDetail: content ON keeps an EMPTY slice as a present, empty body", () => {
+  // The other side of the omitted-vs-empty rule, and the reason the OFF path had
+  // to omit rather than empty. A lens whose routed slice really is "" (the
+  // `noNewHunks` case) must serialise with `lensDiff` PRESENT and empty, so a
+  // reader can tell "this lens reviewed nothing" apart from "this capture does
+  // not carry bodies" — a distinction that collapses if "" is used for both.
+  const detail = buildStageDetail({ lensDiff: "", samples: [], env: { STAGE_DETAIL_DIFF_CONTENT: "1" } });
+  assert.equal("lensDiff" in detail, true, "an empty slice is still a recorded slice");
+  assert.equal(detail.lensDiff, "");
+  assert.equal(detail.lensDiffBytes, 0);
+  assert.deepEqual(detail.lensFiles, []);
+});
+
+test("buildStageDetail: tiering changes serialisation only, never a verdict", () => {
+  // Both modes must derive from the same inputs without touching them, and must
+  // agree on every field that is not the diff body. If they ever disagreed
+  // elsewhere, the flag would be changing what the panel recorded about its own
+  // decisions rather than merely how much of the input rode along.
+  const findings = [{ severity: "major", file: "a.ts", summary: "s" }];
+  const verdicts = [{ verdict: "confirmed", confidence: "low" }];
+  const before = JSON.stringify({ findings, verdicts });
+  const args = { lensDiff: DIFF_FIXTURE, scopeNote: "n", samples: [{ findings }], fresh: findings, freshVerdicts: verdicts, prior: [], priorVerdicts: [] };
+  const off = buildStageDetail({ ...args, env: {} });
+  const on = buildStageDetail({ ...args, env: { STAGE_DETAIL_DIFF_CONTENT: "1" } });
+  assert.equal(JSON.stringify({ findings, verdicts }), before, "neither mode may mutate its inputs");
+  const { lensDiff, ...onWithoutBody } = on;
+  assert.deepEqual(onWithoutBody, off, "the ONLY difference between the modes is the body");
+  assert.equal(lensDiff, DIFF_FIXTURE);
+});
+
+// --- the lens a finding is matched by -------------------------------------
+
+// `findingSimilarity` scores 0 unless both sides agree on `lens`, so a finding
+// that reaches adjudication without one can never be matched to a rebuttal. The
+// FINDING schema has no `lens` property (a lens is never asked for it), which is
+// why the panel has to stamp it. These tests assemble the REAL shape — fresh pass
+// + carry-forward, merged, gated, adjudicated — because both halves passed their
+// own unit tests while the loop was inert end to end.
+const LENS_ID = "security";
+const DEFECT = "the SSRF gate is missing on the outbound fetch call";
+// THE PRODUCTION function, imported — not a restatement of it. The first draft of
+// these tests defined a local copy of the same expression, and every one of them
+// passed with the real line deleted from the round loop: they were exercising the
+// test's own helper. That is why `stampLens` is exported at all.
+
+const freshFinding = () => ({ severity: "critical", confidence: "high", file: "src/a.ts", summary: DEFECT, claimType: "presence" });
+const rebuttalFor = () => ({ v: 1, lens: LENS_ID, file: "src/a.ts", summary: DEFECT, claim: "the allow-list at src/a.ts:12 covers this", evidence: ["src/a.ts:12"] });
+
+test("a RE-FOUND finding is matched to its rebuttal once the lens is stamped", async () => {
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, stampLens } = await import("./review-panel.mjs");
+  const fresh = freshFinding();
+  const prior = { ...freshFinding(), lens: LENS_ID }; // carried forward, lens already set
+
+  // Unstamped — the pre-fix behaviour, asserted so the fix cannot silently regress
+  // into "it never matched anyway".
+  const unstamped = gatingFindings(clusterFindings(dedupeFindings([fresh, prior])));
+  assert.equal(typeof unstamped[0].lens, "undefined", "the merge keeps the FRESH representative, which has no lens");
+  let calls = 0;
+  const before = await adjudicateRebuttals(unstamped, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => { calls++; return null; },
+  });
+  assert.equal(before.tally.matched, 0);
+  assert.equal(calls, 0, "without a lens the adjudicator is never even reached");
+
+  // Stamped — the rebuttal is found and adjudicated.
+  const stamped = gatingFindings(stampLens(clusterFindings(dedupeFindings([fresh, prior])), LENS_ID));
+  let after = 0;
+  const res = await adjudicateRebuttals(stamped, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => { after++; return { verdict: "upheld", confidence: "high", reason: "r", overturnGround: "none", groundedIn: [] }; },
+  });
+  assert.equal(res.tally.matched, 1);
+  assert.equal(after, 1);
+});
+
+test("the fresh pass alone — no carry-forward — is also matchable", async () => {
+  // The rebutted finding may not be carried forward at all (a lens can fail to
+  // persist output.text). It must still match on the fresh copy.
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, stampLens } = await import("./review-panel.mjs");
+  const gating = gatingFindings(stampLens(clusterFindings(dedupeFindings([freshFinding()])), LENS_ID));
+  const res = await adjudicateRebuttals(gating, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => ({ verdict: "upheld", confidence: "high", reason: "r", overturnGround: "none", groundedIn: [] }),
+  });
+  assert.equal(res.tally.matched, 1);
+});
+
+test("stamping preserves object IDENTITY, which substituteAdjudicated pairs by", async () => {
+  // This is why the stamp goes on `merged` and not on the gating subset. The
+  // caller substitutes adjudicated copies into `merged` by identity
+  // (`substituteAdjudicated`) and `gatingFindings` filters without copying, so a
+  // copy made at the gating step would make every overturned finding
+  // un-removable — overturned for the check run and still rendered as blocking
+  // for the human.
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, stampLens, substituteAdjudicated } = await import("./review-panel.mjs");
+  const merged = stampLens(clusterFindings(dedupeFindings([freshFinding()])), LENS_ID);
+  const gating = gatingFindings(merged);
+  assert.equal(gating[0], merged[0], "gatingFindings must hand back the same objects `merged` holds");
+
+  const res = await adjudicateRebuttals(gating, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => ({ verdict: "overturned", confidence: "high", reason: "r", overturnGround: "already-guarded", groundedIn: ["src/a.ts:12"] }),
+  });
+  assert.equal(res.tally.overturned, 1);
+  assert.equal(substituteAdjudicated(merged, gating, gating, res).length, 0, "the overturned finding must leave the summary too");
+});
+
+test("a model-supplied `lens` is OVERWRITTEN, not preserved", async () => {
+  const { stampLens } = await import("./review-panel.mjs");
+  // `lens` last, exactly as prior-findings.mjs stamps: "a finding cannot spoof its
+  // own origin by carrying a `lens` key, since these come from a previous round's
+  // model output." A FRESH finding is model output too, and nothing rejects an
+  // extra key — so filling blanks only (the first draft here) let a finding
+  // declare which lens raised it, and `findingSimilarity` gates rebuttal matching
+  // on exactly that field.
+  const spoofed = { ...freshFinding(), lens: "docs" };
+  const [out] = stampLens([spoofed], LENS_ID);
+  assert.equal(out.lens, LENS_ID);
+  assert.equal(spoofed.lens, "docs", "the input is not mutated");
+  // A carried-forward finding is already filtered to this lens, so the overwrite
+  // is a no-op for it.
+  assert.equal(stampLens([{ ...freshFinding(), lens: LENS_ID }], LENS_ID)[0].lens, LENS_ID);
+  // Non-objects pass through untouched rather than becoming `{lens}`.
+  assert.deepEqual(stampLens([null, 7], LENS_ID), [null, 7]);
+});
+
+test("a spoofed lens cannot pull in another lens's rebuttal", async () => {
+  // The two halves together: without the overwrite a finding could name a lens it
+  // did not come from, and `findingSimilarity` would then match that lens's
+  // rebuttals against it.
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, stampLens } = await import("./review-panel.mjs");
+  const spoofed = { ...freshFinding(), lens: "docs" };
+  const docsRebuttal = { v: 1, lens: "docs", file: "src/a.ts", summary: DEFECT, claim: "c", evidence: ["src/a.ts:1"] };
+  const gating = gatingFindings(stampLens(clusterFindings(dedupeFindings([spoofed])), LENS_ID));
+  let calls = 0;
+  const res = await adjudicateRebuttals(gating, {
+    rebuttals: [docsRebuttal], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => { calls++; return null; },
+  });
+  assert.equal(res.tally.matched, 0);
+  assert.equal(calls, 0);
+});
+
+test("adjudicateRebuttals partitions by lens itself, not by trusting the caller", async () => {
+  // The distinguishing case, and it has to be chosen carefully: `findingSimilarity`
+  // ALSO refuses a lens mismatch, so a foreign rebuttal against a correctly-stamped
+  // finding proves nothing — it fails either way, and an earlier draft of this test
+  // passed with the partition deleted.
+  //
+  // What the partition adds is robustness to the CALLER: findings and rebuttals
+  // that agree with each other but not with `lensId`. Similarity is happy; only the
+  // partition refuses. That makes "a lens adjudicates only its own disputes" a
+  // property of this function rather than an invariant every caller must maintain.
+  const { adjudicateRebuttals } = await import("./review-panel.mjs");
+  const docsFinding = { ...freshFinding(), lens: "docs" };
+  const docsRebuttal = { v: 1, lens: "docs", file: "src/a.ts", summary: DEFECT, claim: "c", evidence: ["src/a.ts:1"] };
+
+  // Control: they DO match each other, so the refusal below is the partition.
+  let control = 0;
+  await adjudicateRebuttals([docsFinding], {
+    rebuttals: [docsRebuttal], repo: ".", model: "m", sessionLog: null, lensId: "docs",
+    adjudicate: async () => { control++; return null; },
+  });
+  assert.equal(control, 1);
+
+  // Same pair, adjudicated as the security lens: refused.
+  let calls = 0;
+  const res = await adjudicateRebuttals([docsFinding], {
+    rebuttals: [docsRebuttal], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => { calls++; return null; },
+  });
+  assert.equal(res.tally.matched, 0);
+  assert.equal(calls, 0, "no session is opened for another lens's dispute");
+  assert.equal(res.findings[0], docsFinding, "and the finding passes through untouched");
+});
+
+test("the round loop actually routes `merged` through stampLens", async () => {
+  // The tests above prove `stampLens` is correct; they cannot prove the per-lens
+  // loop CALLS it, because that loop lives in `main()` and no test drives it —
+  // deleting the call left all of them green. This asserts the wiring at the
+  // source level, the same way checks.test.mjs asserts workflow invariants that
+  // no unit test can reach.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./review-panel.mjs", import.meta.url), "utf8");
+
+  const assignments = src.split("\n").filter((l) => /^\s*const merged =/.test(l));
+  assert.equal(assignments.length, 1, "exactly one `merged` assignment in the round loop");
+  assert.match(
+    assignments[0],
+    /stampLens\(\s*clusterFindings\(dedupeFindings\(/,
+    "`merged` must be stamped as it is built — see stampLens for why not at the gating step",
+  );
+  assert.match(assignments[0], /lens\.id/, "and stamped with THIS lens's id");
+});
+
+// --- applySkipClaims: uphold without a session ------------------------------
+
+test("applySkipClaims: a skipped claim upholds directly and advances the counter", async () => {
+  const { applySkipClaims } = await import("./review-panel.mjs");
+  const { upheldTwice } = await import("./rebuttal.mjs");
+  const W = "unvalidated user input reaches the fetch call";
+  const claims = [{ lens: "security", file: "a.ts", summary: W, note: "needs a migration", status: "skipped" }];
+  const finding = { lens: "security", file: "a.ts", summary: W, severity: "critical" };
+
+  const r1 = applySkipClaims([finding], claims)[0];
+  assert.equal(r1.adjudication.upheld, 1);
+  assert.equal(r1.adjudication.verdict, "skipped-by-author");
+  assert.equal(upheldTwice(r1), false);
+  // Second round: the same finding, skipped again, reaches the human-paging bound.
+  // This is the whole reason skipped claims are processed at all — an adjudicator
+  // session could only ever reach the same `upheld`, at 20 turns a time.
+  const r2 = applySkipClaims([r1], claims)[0];
+  assert.equal(r2.adjudication.upheld, 2);
+  assert.equal(upheldTwice(r2), true);
+});
+
+test("applySkipClaims: an unmatched finding is returned untouched, and no claims is inert", async () => {
+  const { applySkipClaims } = await import("./review-panel.mjs");
+  const finding = { lens: "security", file: "a.ts", summary: "unvalidated user input reaches the fetch call" };
+  const other = [{ lens: "docs", file: "z.md", summary: "a completely different problem entirely", note: "n", status: "skipped" }];
+  assert.equal(applySkipClaims([finding], other)[0].adjudication, undefined);
+  assert.equal(applySkipClaims([finding], [])[0], finding); // same object — no copy, no annotation
+  assert.deepEqual(applySkipClaims(undefined, other), []);
+});
+
+// --- substituteAdjudicated: the count must survive into verdict.json ---------
+
+// An upheld finding is RE-CREATED with its `adjudication`, and the copy used to
+// live only in `gating` while writeVerdict persisted `merged`'s pre-adjudication
+// originals. verdict.json feeds the check run's output.text, output.text feeds
+// the next round's carry-forward and the round guard's `exhaustedFindings` — so
+// the counter died in the same round that computed it, `upheldCount` restarted
+// at 0 every time, and the standstill page (MAX_REBUTTAL_ROUNDS upheld disputes)
+// was structurally unreachable. These tests assemble the round loop's real
+// wiring, because adjudicateRebuttals and writeVerdict each passed their own
+// tests while the bound stayed inert end to end.
+
+const upholding = async () => ({ verdict: "upheld", confidence: "high", reason: "r", overturnGround: "none", groundedIn: [] });
+
+test("an upheld adjudication reaches the array writeVerdict persists", async () => {
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, applySkipClaims, stampLens, substituteAdjudicated } = await import("./review-panel.mjs");
+  // A demoted finding rides along to prove the non-gating lane, which never
+  // reaches adjudication, passes through untouched and in place.
+  const demoted = { severity: "major", file: "src/c.ts", summary: "a stale cache header on a pre-existing endpoint", lane: "backlog" };
+  const merged = stampLens(clusterFindings(dedupeFindings([freshFinding(), demoted])), LENS_ID);
+  const gatingRaw = gatingFindings(merged);
+  const afterSkips = applySkipClaims(gatingRaw, []);
+  const adjudged = await adjudicateRebuttals(afterSkips, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: upholding,
+  });
+  const mergedAfter = substituteAdjudicated(merged, gatingRaw, afterSkips, adjudged);
+
+  assert.equal(mergedAfter.length, 2, "nothing dropped, nothing invented");
+  const upheld = mergedAfter.find((f) => f.summary === DEFECT);
+  // THE regression: `mergedAfter` is what writeVerdict serialises into
+  // verdict.json. The old inline filter passed the original through, so this
+  // field was always absent there no matter how many times a dispute was upheld.
+  assert.equal(upheld.adjudication.upheld, 1);
+  assert.equal(upheld, adjudged.findings.find((f) => f.summary === DEFECT), "the persisted object IS the adjudicated copy");
+  assert.equal(mergedAfter.find((f) => f.lane === "backlog"), merged.find((f) => f.lane === "backlog"), "the demoted lane passes through by identity");
+  assert.deepEqual(mergedAfter.map((f) => f.summary), merged.map((f) => f.summary), "order is merged's own");
+});
+
+test("a skip-claimed copy persists, and overturning it still clears the summary", async () => {
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, applySkipClaims, stampLens, substituteAdjudicated } = await import("./review-panel.mjs");
+  const claims = [{ lens: LENS_ID, file: "src/a.ts", summary: DEFECT, note: "needs a migration", status: "skipped" }];
+  const merged = stampLens(clusterFindings(dedupeFindings([freshFinding()])), LENS_ID);
+  const gatingRaw = gatingFindings(merged);
+  const afterSkips = applySkipClaims(gatingRaw, claims);
+  assert.notEqual(afterSkips[0], gatingRaw[0], "the skip uphold re-created the finding");
+
+  // No rebuttal: the skip copy itself is what must persist. This is the pairing
+  // substituteAdjudicated derives positionally from applySkipClaims' map.
+  const inert = await adjudicateRebuttals(afterSkips, { rebuttals: [], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID });
+  const kept = substituteAdjudicated(merged, gatingRaw, afterSkips, inert);
+  assert.equal(kept[0].adjudication.upheld, 1);
+  assert.equal(kept[0].adjudication.verdict, "skipped-by-author");
+
+  // A rebuttal that wins on the same finding: `dropped` then holds the skip
+  // COPY, not the `merged` original — an identity filter over `merged` could
+  // never remove it (the latent half of the same bug), so the finding would be
+  // overturned for the check run and still rendered as blocking for the human.
+  const overturned = await adjudicateRebuttals(afterSkips, {
+    rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+    adjudicate: async () => ({ verdict: "overturned", confidence: "high", reason: "r", overturnGround: "already-guarded", groundedIn: ["src/a.ts:12"] }),
+  });
+  assert.equal(overturned.dropped[0], afterSkips[0], "dropped holds the copy, not the original");
+  assert.equal(substituteAdjudicated(merged, gatingRaw, afterSkips, overturned).length, 0, "mapped back to the original and removed");
+});
+
+test("two rounds: the upheld count crosses the round boundary and reaches the paging bound", async () => {
+  const { clusterFindings, dedupeFindings, gatingFindings, adjudicateRebuttals, applySkipClaims, stampLens, substituteAdjudicated } = await import("./review-panel.mjs");
+  const { upheldTwice, exhaustedFindings } = await import("./rebuttal.mjs");
+
+  // One round of the real wiring: merge, gate, adjudicate a dispute, substitute.
+  const round = async (raised) => {
+    const merged = stampLens(clusterFindings(dedupeFindings(raised)), LENS_ID);
+    const gatingRaw = gatingFindings(merged);
+    const afterSkips = applySkipClaims(gatingRaw, []);
+    const adjudged = await adjudicateRebuttals(afterSkips, {
+      rebuttals: [rebuttalFor()], repo: ".", model: "m", sessionLog: null, lensId: LENS_ID,
+      adjudicate: upholding,
+    });
+    return substituteAdjudicated(merged, gatingRaw, afterSkips, adjudged);
+  };
+
+  // Round 1: fresh finding, disputed, upheld once.
+  const [persisted1] = await round([freshFinding()]);
+  assert.equal(persisted1.adjudication.upheld, 1);
+  assert.equal(upheldTwice(persisted1), false);
+
+  // Between rounds the workflow carries `{…, adjudication: {upheld}}` through
+  // output.text — integer only, exactly as the workflow trims it — and
+  // tagPriorFindings stamps the lens back on.
+  const carried = { ...freshFinding(), lens: LENS_ID, adjudication: { upheld: persisted1.adjudication.upheld } };
+
+  // Round 2, restated: the fresh pass re-finds the defect in DIFFERENT (here
+  // longer, so it wins the representative slot) words, and clusterFindings folds
+  // the carried twin into the fresh representative. The count must survive the
+  // fold — it rides in `mergedFrom`, where upheldCount reads the cluster max.
+  // This is the common case: a rebutted finding means the code did not change,
+  // so the next fresh pass almost always re-finds it.
+  const restated = { ...freshFinding(), summary: `${DEFECT} in the request handler` };
+  const [persisted2a] = await round([restated, carried]);
+  assert.equal(persisted2a.adjudication.upheld, 2, "round 2 counted ON TOP of round 1, not from zero");
+  assert.equal(upheldTwice(persisted2a), true);
+  assert.equal(exhaustedFindings([persisted2a]).length, 1, "the round guard now pages on it");
+
+  // Round 2, byte-identical: the twins collide in dedupeFindings instead, where
+  // the fresh copy wins the slot. The count must survive the collision too.
+  const [persisted2b] = await round([freshFinding(), carried]);
+  assert.equal(persisted2b.adjudication.upheld, 2);
+  assert.equal(upheldTwice(persisted2b), true);
+});
+
+test("the round loop persists the ADJUDICATED copies, not the originals", async () => {
+  // Same rationale as the stampLens wiring test above: substituteAdjudicated is
+  // proven correct by the tests around it, but the call lives in main()'s
+  // per-lens loop, which no unit test drives — deleting the call would leave
+  // every one of them green while verdict.json silently lost the counter again.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./review-panel.mjs", import.meta.url), "utf8");
+  const assignments = src.split("\n").filter((l) => /^\s*const mergedAfter =/.test(l));
+  assert.equal(assignments.length, 1, "exactly one `mergedAfter` assignment in the round loop");
+  assert.match(assignments[0], /substituteAdjudicated\(merged, gatingRaw, afterSkips, adjudged\)/);
+  assert.match(src, /writeVerdict\(lensOut, lens, mergedAfter, summary/, "and mergedAfter is what writeVerdict persists");
+});
+
+test("applySkipClaims: the verdict string comes from the code, not the claim", async () => {
+  const { applySkipClaims } = await import("./review-panel.mjs");
+  const W = "unvalidated user input reaches the fetch call";
+  // The author controls only whether a claim exists; its effect is to RAISE the
+  // uphold count, which moves the finding toward paging and never away from it.
+  const forged = [{ lens: "s", file: "a.ts", summary: W, status: "overturned", verdict: "overturned", note: "x" }];
+  const out = applySkipClaims([{ lens: "s", file: "a.ts", summary: W }], forged)[0];
+  assert.equal(out.adjudication.verdict, "skipped-by-author");
+  assert.equal(out.adjudication.upheld, 1);
 });

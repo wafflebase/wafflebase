@@ -13,7 +13,7 @@ import {
   readKeymap,
   writeKeymap,
 } from "./notes-settings";
-import { fetchMe } from "@/api/auth";
+import { fetchMe, isAuthExpiredError } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
 import { Loader } from "@/components/loader";
@@ -25,6 +25,7 @@ import { UserPresence } from "@/components/user-presence";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { initialNotesRoot, noteUserColor } from "@/types/notes-document";
+import { uploadImageFile } from "@/app/spreadsheet/image-upload";
 import { NotesView } from "./notes-view";
 import { NotesToolbar } from "./notes-toolbar";
 
@@ -119,6 +120,42 @@ function NotesLayout({ documentId }: { documentId: string }) {
     [navigate],
   );
 
+  const workspaceId = documentData?.workspaceId;
+
+  /**
+   * Upload a pasted / dropped / picked image into the workspace image bucket
+   * and hand the editor back an absolute URL to write into the markdown.
+   *
+   * Returns `null` on every failure — `uploadImageFile` throws for an
+   * unsupported type, an oversized file, and a failed request alike, and the
+   * user is told here via a toast. The engine treats `null` as "the host
+   * already reported this" and quietly drops its upload placeholder.
+   */
+  const handleUploadImage = useCallback(
+    async (file: File): Promise<string | null> => {
+      if (!workspaceId) {
+        toast.error("Still loading this note's workspace — try again.");
+        return null;
+      }
+      try {
+        const { url } = await uploadImageFile(file, workspaceId);
+        return url;
+      } catch (err) {
+        // An expired session is already redirecting to login; a failure toast
+        // on the way out is noise, not information.
+        if (isAuthExpiredError(err)) return null;
+        console.error("Note image upload failed", err);
+        toast.error(
+          err instanceof Error
+            ? `Image upload failed: ${err.message}`
+            : "Image upload failed",
+        );
+        return null;
+      }
+    },
+    [workspaceId],
+  );
+
   const handleRenameDocument = useCallback(
     async (newTitle: string) => {
       await renameDocument(documentId, newTitle);
@@ -160,6 +197,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
             viewMode={viewMode}
             keymap={keymap}
             onEditorReady={setEditor}
+            uploadImage={handleUploadImage}
           />
         </div>
       </SidebarInset>

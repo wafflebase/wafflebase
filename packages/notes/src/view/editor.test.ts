@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
 import { MemNoteStore } from '../store/memory.js';
 import { initialize } from './editor.js';
+import { NotePreview } from './preview.js';
 
 describe('initialize', () => {
   it('mounts an editor showing the store text and a rendered preview', () => {
@@ -84,6 +85,37 @@ describe('initialize', () => {
     container.remove();
   });
 
+  it('restores the caret the store returns after undo/redo', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    // Seed one undo unit directly so the pre/post-edit carets are known without
+    // depending on the view holding focus (the live-caret publisher is
+    // focus-gated, which jsdom cannot satisfy).
+    const store = new MemNoteStore('hello world');
+    store.setLocalSelection(3, 3); // pre-edit caret
+    store.batch(() => {
+      store.editText(3, 3, 'X');
+      store.recordSelectionForHistory({ anchor: 4, head: 4 }); // post-edit caret
+    });
+    const api = initialize(container, store, 'light');
+    const view = EditorView.findFromDOM(container)!;
+    expect(api.getText()).toBe('helXlo world');
+
+    api.undo();
+    // The reverted text arrives as a selection-less remote transaction; the
+    // caret lands at 3 only because the store's returned selection is applied.
+    expect(api.getText()).toBe('hello world');
+    expect(view.state.selection.main.anchor).toBe(3);
+    expect(view.state.selection.main.head).toBe(3);
+
+    api.redo();
+    expect(api.getText()).toBe('helXlo world');
+    expect(view.state.selection.main.head).toBe(4);
+
+    api.dispose();
+    container.remove();
+  });
+
   it('does not re-push an undo result into the store', () => {
     // Regression guard for the echo loop: the store's undo arrives as a
     // remote-tagged transaction, which noteSync must not send back as a
@@ -148,6 +180,89 @@ describe('initialize', () => {
       new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }),
     );
     expect(store.getText()).toBe('hello!');
+
+    api.dispose();
+    container.remove();
+  });
+
+  // A theme switch has to repaint the preview: mermaid bakes its palette into
+  // the SVG it emits, so diagrams would otherwise keep the old colours.
+  it('repaints the preview on a theme switch while it is visible', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const api = initialize(container, new MemNoteStore('# Hi'), 'light');
+    const previewEl = container.querySelector<HTMLElement>(
+      '[data-role="note-preview"]',
+    )!;
+
+    // A marker only survives if render() did not replace the preview's markup.
+    const marker = document.createElement('span');
+    marker.dataset.role = 'repaint-marker';
+    previewEl.appendChild(marker);
+
+    api.setTheme('dark');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeNull();
+    expect(previewEl.querySelector('h1')).toBeTruthy();
+
+    // Same theme again: no-op, so no repaint.
+    previewEl.appendChild(marker);
+    api.setTheme('dark');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeTruthy();
+
+    api.dispose();
+    container.remove();
+  });
+
+  // The repaint alone is not enough: the preview owns the mermaid palette, and
+  // re-rendering without pushing the new one just repaints the old colours.
+  it('pushes the new palette into the preview on a theme switch', () => {
+    const setTheme = vi.spyOn(NotePreview.prototype, 'setTheme');
+    try {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const api = initialize(container, new MemNoteStore('# Hi'), 'light');
+
+      api.setTheme('dark');
+      expect(setTheme).toHaveBeenCalledWith('dark');
+
+      // The palette follows the editor back, and an unchanged theme is a no-op.
+      api.setTheme('light');
+      expect(setTheme).toHaveBeenLastCalledWith('light');
+      api.setTheme('light');
+      expect(setTheme).toHaveBeenCalledTimes(2);
+
+      api.dispose();
+      container.remove();
+    } finally {
+      setTheme.mockRestore();
+    }
+  });
+
+  it('skips the theme repaint while the preview is hidden', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    // 'edit' hides the preview; repainting it there is wasted work (and would
+    // download the mermaid engine for a pane nobody is looking at).
+    const api = initialize(
+      container,
+      new MemNoteStore('# Hi'),
+      'light',
+      false,
+      'edit',
+    );
+    const previewEl = container.querySelector<HTMLElement>(
+      '[data-role="note-preview"]',
+    )!;
+    const marker = document.createElement('span');
+    marker.dataset.role = 'repaint-marker';
+    previewEl.appendChild(marker);
+
+    api.setTheme('dark');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeTruthy();
+
+    // Switching back into a preview-visible mode repaints it.
+    api.setViewMode('both');
+    expect(previewEl.querySelector('[data-role="repaint-marker"]')).toBeNull();
 
     api.dispose();
     container.remove();

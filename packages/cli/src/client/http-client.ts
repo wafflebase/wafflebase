@@ -1,6 +1,7 @@
 import type { Document } from '@wafflebase/docs';
 import type { SlidesDocument } from '@wafflebase/slides/node';
 import type { CliConfig } from '../config/config.js';
+import { parseContentDispositionFilename } from './content-disposition.js';
 import {
   loadSession,
   saveSession,
@@ -31,13 +32,33 @@ export interface ApiError {
   };
 }
 
+/** A blob document as returned by the files endpoint. */
+export interface FileDocument {
+  id: string;
+  title: string;
+  type: string;
+  fileId?: string | null;
+  fileSize?: number | null;
+  mimeType?: string | null;
+}
+
+export interface BinaryResponse {
+  ok: boolean;
+  status: number;
+  bytes?: Uint8Array;
+  /** Filename advertised by `Content-Disposition`, if the server sent one. */
+  fileName?: string;
+  /** Parsed error envelope when the request failed. */
+  data?: unknown;
+}
+
 export class HttpClient {
   constructor(private config: CliConfig) {}
 
-  private get headers(): Record<string, string> {
-    const h: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
+  /** Auth only — kept separate so multipart requests can omit Content-Type
+   *  and let fetch generate the boundary. */
+  private get authHeaders(): Record<string, string> {
+    const h: Record<string, string> = {};
 
     if (this.config.authMode === 'api-key' && this.config.apiKey) {
       h['Authorization'] = `Bearer ${this.config.apiKey}`;
@@ -46,6 +67,17 @@ export class HttpClient {
     }
 
     return h;
+  }
+
+  /**
+   * Auth plus the JSON content type — the single definition of a JSON
+   * request's headers. `send()` hands its per-attempt auth headers in;
+   * everything else takes the current ones.
+   */
+  private jsonHeaders(
+    auth: Record<string, string> = this.authHeaders,
+  ): Record<string, string> {
+    return { 'Content-Type': 'application/json', ...auth };
   }
 
   private get base(): string {
@@ -94,65 +126,81 @@ export class HttpClient {
     return true;
   }
 
-  async request<T>(
-    method: string,
-    path: string,
-    body?: unknown,
-  ): Promise<ApiResponse<T>> {
-    return this.send<T>(method, `${this.base}${path}`, body);
-  }
-
   /**
-   * One authenticated round trip, including the 401 refresh-and-retry.
-   * Every endpoint goes through here — the workspace-scoped `/api/v1`
-   * ones via `request()` and the management endpoints (API keys) with
-   * their own absolute URL — so a refreshable session is never reported
-   * as an auth failure just because of which base a call used.
+   * Send a request, retrying once with a refreshed session on a 401 under JWT
+   * auth. `build` is invoked per attempt so the retry picks up the new access
+   * token — and so a multipart body is rebuilt rather than replayed.
+   *
+   * `fetchOrThrow` rather than a bare `fetch`, so a request that never
+   * reached an HTTP server (DNS, refused connection, TLS) raises a
+   * `SystemError` and exits `2` — every request the CLI makes, including
+   * the multipart file endpoints, is classified the same way.
    */
-  private async send<T>(
-    method: string,
+  private async send(
     url: string,
-    body?: unknown,
-  ): Promise<ApiResponse<T>> {
-    const res = await fetchOrThrow(url, {
-      method,
-      headers: this.headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    build: (auth: Record<string, string>) => RequestInit,
+  ): Promise<{ res: Response; sessionExpired: boolean }> {
+    const res = await fetchOrThrow(url, build(this.authHeaders));
 
-    // Auto-refresh on 401 for JWT auth (one attempt only)
     if (
       res.status === 401 &&
       this.config.authMode === 'jwt' &&
       this.config.refreshToken
     ) {
-      const refreshed = await this.refreshSession();
-      if (refreshed) {
-        // Retry the original request with new token
-        const retryRes = await fetchOrThrow(url, {
-          method,
-          headers: this.headers,
-          body: body ? JSON.stringify(body) : undefined,
-        });
-        const retryData = (await retryRes.json().catch(() => null)) as T;
-        return { ok: retryRes.ok, status: retryRes.status, data: retryData };
+      if (!(await this.refreshSession())) {
+        return { res, sessionExpired: true };
       }
-
-      // Refresh failed — return a clear error
       return {
-        ok: false,
-        status: 401,
-        data: {
-          error: {
-            code: 'SESSION_EXPIRED',
-            message: 'Session expired. Run `wafflebase login`.',
-          },
-        } as T,
+        res: await fetchOrThrow(url, build(this.authHeaders)),
+        sessionExpired: false,
       };
+    }
+
+    return { res, sessionExpired: false };
+  }
+
+  /** The envelope returned when the session could not be refreshed. */
+  private sessionExpiredBody<T>(): T {
+    return {
+      error: {
+        code: 'SESSION_EXPIRED',
+        message: 'Session expired. Run `wafflebase login`.',
+      },
+    } as T;
+  }
+
+  /**
+   * One authenticated JSON round trip against an absolute URL. Every JSON
+   * endpoint goes through here — the workspace-scoped `/api/v1` ones via
+   * `request()` and the management endpoints (API keys) with their own
+   * base — so a refreshable session is never reported as an auth failure
+   * just because of which base a call used.
+   */
+  private async sendJson<T>(
+    method: string,
+    url: string,
+    body?: unknown,
+  ): Promise<ApiResponse<T>> {
+    const { res, sessionExpired } = await this.send(url, (auth) => ({
+      method,
+      headers: this.jsonHeaders(auth),
+      body: body ? JSON.stringify(body) : undefined,
+    }));
+
+    if (sessionExpired) {
+      return { ok: false, status: 401, data: this.sessionExpiredBody<T>() };
     }
 
     const data = (await res.json().catch(() => null)) as T;
     return { ok: res.ok, status: res.status, data };
+  }
+
+  async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<ApiResponse<T>> {
+    return this.sendJson<T>(method, `${this.base}${path}`, body);
   }
 
   // Documents
@@ -173,6 +221,77 @@ export class HttpClient {
   }
   deleteDocument(id: string) {
     return this.request('DELETE', `/documents/${id}`);
+  }
+
+  // Files (blob documents) — no CRDT content, just bytes. Upload stores the
+  // blob and creates the document in one call; see the controller comment in
+  // `packages/backend/src/api/v1/files.controller.ts` for why it is not the
+  // browser's two-step flow.
+  async uploadFileDocument(
+    bytes: Uint8Array,
+    fileName: string,
+    mimeType: string,
+    fields: { title?: string; folderId?: string } = {},
+  ): Promise<ApiResponse<FileDocument>> {
+    const { res, sessionExpired } = await this.send(
+      `${this.base}/files`,
+      (auth) => {
+        // Built per attempt: a FormData body is consumed by the first send.
+        const form = new FormData();
+        // A Blob part must be `Uint8Array<ArrayBuffer>`; a Node `Buffer` is
+        // typed over `ArrayBufferLike` to admit `SharedArrayBuffer`, which
+        // `readFileSync` never returns. Re-view the same memory rather than
+        // copying — these bytes can be 50 MB.
+        const part = new Uint8Array(
+          bytes.buffer as ArrayBuffer,
+          bytes.byteOffset,
+          bytes.byteLength,
+        );
+        form.append('file', new Blob([part], { type: mimeType }), fileName);
+        if (fields.title) form.append('title', fields.title);
+        if (fields.folderId) form.append('folderId', fields.folderId);
+        // No Content-Type — fetch sets it with the multipart boundary.
+        return { method: 'POST', headers: auth, body: form };
+      },
+    );
+
+    if (sessionExpired) {
+      return {
+        ok: false,
+        status: 401,
+        data: this.sessionExpiredBody<FileDocument>(),
+      };
+    }
+
+    const data = (await res.json().catch(() => null)) as FileDocument;
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  async downloadFileDocument(docId: string): Promise<BinaryResponse> {
+    const { res, sessionExpired } = await this.send(
+      `${this.base}/files/${encodeURIComponent(docId)}`,
+      (auth) => ({ method: 'GET', headers: auth }),
+    );
+
+    if (sessionExpired) {
+      return { ok: false, status: 401, data: this.sessionExpiredBody() };
+    }
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        data: await res.json().catch(() => null),
+      };
+    }
+
+    return {
+      ok: true,
+      status: res.status,
+      bytes: new Uint8Array(await res.arrayBuffer()),
+      fileName: parseContentDispositionFilename(
+        res.headers.get('content-disposition'),
+      ),
+    };
   }
 
   // Docs (word-processor) content
@@ -228,6 +347,12 @@ export class HttpClient {
   listTabs(docId: string) {
     return this.request<unknown[]>('GET', `/documents/${docId}/tabs`);
   }
+  createTab(docId: string, body: { name?: string; type?: string }) {
+    return this.request('POST', `/documents/${docId}/tabs`, body);
+  }
+  renameTab(docId: string, tabId: string, name: string) {
+    return this.request('PATCH', `/documents/${docId}/tabs/${tabId}`, { name });
+  }
 
   // Cells
   getCells(docId: string, tabId: string, range?: string) {
@@ -261,12 +386,15 @@ export class HttpClient {
     return `${server}/workspaces/${this.config.workspace}/api-keys`;
   }
   listApiKeys() {
-    return this.send('GET', this.apiKeysBase);
+    return this.sendJson('GET', this.apiKeysBase);
   }
   createApiKey(name: string) {
-    return this.send('POST', this.apiKeysBase, { name });
+    return this.sendJson('POST', this.apiKeysBase, { name });
   }
   revokeApiKey(id: string) {
-    return this.send('DELETE', `${this.apiKeysBase}/${encodeURIComponent(id)}`);
+    return this.sendJson(
+      'DELETE',
+      `${this.apiKeysBase}/${encodeURIComponent(id)}`,
+    );
   }
 }

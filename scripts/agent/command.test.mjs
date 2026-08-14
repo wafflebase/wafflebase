@@ -16,6 +16,7 @@ test("recognizes each verb regardless of trailing words", () => {
   assert.equal(cmd("@claude summarize this PR", "pr"), "summarize");
   assert.equal(cmd("@claude review this PR", "pr"), "review");
   assert.equal(cmd("@claude loop", "pr"), "loop");
+  assert.equal(cmd("@claude rerun this PR", "pr"), "rerun");
   // bare verb, no trailing phrase
   assert.equal(cmd("@claude fix", "issue"), "fix");
 });
@@ -43,7 +44,7 @@ test("first recognized verb wins when several appear", () => {
 test("no collision: the new verbs never fall through to reply", () => {
   // Regression guard for the agent-review-reply.yml double-fire bug: a review /
   // summarize / loop comment on a PR must NOT parse as the generic `reply`.
-  for (const body of ["@claude review this PR", "@claude summarize this PR", "@claude loop"]) {
+  for (const body of ["@claude review this PR", "@claude summarize this PR", "@claude loop", "@claude rerun"]) {
     assert.notEqual(cmd(body, "pr"), "reply");
   }
 });

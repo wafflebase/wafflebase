@@ -16,8 +16,10 @@ workflow.
   that includes the design doc and the code.
 - **Docs / refactor** → straight to PR.
 
-All PRs target `main`. CI runs `verify:self` and `verify:integration`
-and posts a summary as a PR comment.
+All PRs target `main`. CI runs `verify:self` and `verify:integration` —
+only the parts your change can affect (see
+[What CI actually runs](#what-ci-actually-runs)) — and posts a summary as
+a PR comment.
 
 ## Before you start
 
@@ -96,9 +98,26 @@ your change.
 | `pnpm verify:self`               | Before opening a PR. Adds full builds, chunk budgets, visual + entropy checks. |
 | `pnpm verify:integration:docker` | When touching backend, datasource, share-link, or Yorkie code paths. Spins up Postgres + Yorkie automatically. |
 
-CI re-runs `verify:self` and `verify:integration` on every PR and posts
-a per-lane summary comment. The two checkboxes in the PR template
-must be green (or the skip reason filled in) before review.
+CI re-runs these on every PR and posts a per-lane summary comment. The
+two checkboxes in the PR template must be green (or the skip reason
+filled in) before review.
+
+## What CI actually runs
+
+CI runs only what your change can affect. A `What changed` job decides
+which areas your diff touches, so a docs-only or `scripts/agent/`-only PR
+finishes in about a minute instead of fifteen.
+
+`verify-browser (22.x)` or `verify-integration (22.x)` passing in seconds
+is therefore normal, not broken: they always report, but do no work when
+nothing they cover changed. The `What changed` job summary says what it
+decided and why.
+
+Anything not listed under `ci.inert` in `harness.config.json` runs the
+full suite, so you cannot accidentally under-test. To force everything
+anyway, add the `full-ci` label and re-run.
+
+Details: [`docs/design/harness-engineering.md`](docs/design/harness-engineering.md#path-aware-ci).
 
 ## Commit messages
 
@@ -141,6 +160,12 @@ detached.
      reports green (or fill in the skip reason).
 6. **Merge.** Once CI is green and review is approved, capture lessons
    in `*-lessons.md`, archive the task, and merge.
+
+The **merge queue** absorbs the rebase loop: click **Merge when ready**
+and GitHub tests your PR merged onto `main`'s current tip, then merges it
+when green — so `main` moving while you wait is no longer your problem.
+See [MAINTAINING.md](MAINTAINING.md#merge-queue) and
+[`docs/design/harness-engineering.md`](docs/design/harness-engineering.md#merge-queue).
 
 We don't require a per-PR `CHANGELOG` entry — release notes are
 generated from merged PRs at release time

@@ -53,7 +53,10 @@ wafflebase
 │   └── import <file>                      --replace <id> --yes for in-place
 │
 ├── sheets (aliases: sheet, spreadsheet, spreadsheets)
-│   ├── tabs (alias: tab) list <doc-id>
+│   ├── tabs (alias: tab)
+│   │   ├── list <doc-id>
+│   │   ├── create <doc-id> [name]        --type sheet
+│   │   └── rename <doc-id> <tab-id> <name>
 │   ├── cells (alias: cell)
 │   │   ├── get <doc-id> [<range>]
 │   │   ├── set <doc-id> <ref> <value>     --formula
@@ -71,7 +74,9 @@ wafflebase
 ```
 
 **Global flags**: `--server`, `--api-key`, `--workspace`, `--profile`,
-`--format json|table|csv` (default `json`), `--quiet`, `--verbose`,
+`--format json|table|csv|yaml` (default `json`), `--quiet` (suppresses
+progress notices only — the result body and the JSON error envelope are
+always emitted), `--verbose`,
 `--dry-run`. The `--format` flag also doubles as the per-content shape
 on `docs content` (`json|md|text`) and the export type override on
 `docs export` (`pdf|docx`).
@@ -84,6 +89,8 @@ wafflebase docs list
 wafflebase docs create "Q1 Notes" --type doc
 
 # Spreadsheets
+wafflebase sheets tabs create abc-123 "History"
+wafflebase sheets tabs rename abc-123 tab-1 "Summary"
 wafflebase sheets cells get abc-123 A1:D100
 echo '{"A1":"Name","B1":"Score"}' | wafflebase sheets cells batch abc-123
 wafflebase sheets export abc-123 out.csv
@@ -109,7 +116,9 @@ wafflebase schema cell.get          # → sheets.cells.get
 - **Errors**: a single JSON line on stderr —
   `{"error":{"code":"…","message":"…"}}`. Typed errors (e.g.,
   `INVALID_DOCX`, `TYPE_MISMATCH`, `CONFIRMATION_REQ`) carry a
-  command-specific `code` agents can branch on; everything else
+  command-specific `code` agents can branch on; argument-parsing
+  failures (missing argument, unknown option, unknown command) report
+  `USAGE`; everything else
   reports `"ERROR"`.
 - **Exit codes**: `0` success, `1` user error (bad input, 404, type
   mismatch), `2` system error — an unreachable server

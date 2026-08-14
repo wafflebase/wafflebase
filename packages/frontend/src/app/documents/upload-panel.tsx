@@ -28,8 +28,6 @@ function StatusCell({ item }: { item: UploadItem }) {
     ) : (
       <CheckCircle2 className="h-4 w-4 text-primary" />
     );
-  if (item.status === "skipped")
-    return <span className="text-xs text-muted-foreground">Unsupported</span>;
   if (item.status === "error")
     // An item with nothing to replay from (an externally driven import, whose
     // credential is deliberately not kept) gets a plain failure marker. A
@@ -114,9 +112,7 @@ export function UploadPanel() {
                   {item.fileName}
                 </span>
                 <StatusCell item={item} />
-                {(item.status === "done" ||
-                  item.status === "skipped" ||
-                  item.status === "error") && (
+                {(item.status === "done" || item.status === "error") && (
                   <Button
                     variant="ghost"
                     size="icon"

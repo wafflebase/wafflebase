@@ -37,6 +37,12 @@ jobs:
       - name: Build CLI (bundles private workspace deps inline)
         run: pnpm --filter @wafflebase/cli... build
 
+      # This job runs no typecheck, so a `dist/` whose declarations were
+      # emitted incompletely would publish unnoticed. `--filter cli...` builds
+      # exactly core + docs + slides, so require those three.
+      - name: Verify engine type entries resolve
+        run: node ./scripts/verify-dts-entries.mjs core docs slides
+
       - name: Run CLI tests
         run: pnpm --filter @wafflebase/cli test
 

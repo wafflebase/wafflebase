@@ -6,11 +6,12 @@ import {
 import { Client, types } from 'pg';
 import { PrismaService } from 'src/database/prisma.service';
 import { encrypt, decrypt } from './crypto.util';
-import { validateSelectQuery } from './sql-validator';
+import { validateSelectQuery, wrapWithRowLimit } from './sql-validator';
 import {
   CreateDataSourceDto,
   UpdateDataSourceDto,
   ExecuteQueryDto,
+  TestConnectionDto,
 } from './datasource.dto';
 
 const QUERY_TIMEOUT_MS = 30_000;
@@ -36,6 +37,46 @@ const datasourceTypeParser: typeof types.getTypeParser = (oid, format) =>
     ? (value: string) => value
     : getDefaultParser(oid, format);
 
+const DEFAULT_PORT = 5432;
+
+/**
+ * Connection settings ready to hand to pg. The password field is deliberately
+ * named apart from the stored record's `password`, so passing a Prisma row here
+ * fails to compile instead of silently shipping ciphertext to the server.
+ */
+type ConnectionConfig = {
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  plaintextPassword: string;
+  sslEnabled: boolean;
+};
+
+/**
+ * `client.connect()` rejects with an AggregateError when every address resolved
+ * for the host fails — its `message` is empty and the real causes sit in
+ * `errors`. Flatten those so callers get a reason instead of a blank string.
+ */
+function describeConnectionError(error: unknown): string {
+  if (error instanceof AggregateError) {
+    const causes = [
+      ...new Set(
+        (error.errors ?? [])
+          .map((cause: unknown) => (cause as Error)?.message)
+          .filter((message: string | undefined): message is string =>
+            Boolean(message),
+          ),
+      ),
+    ];
+    if (causes.length > 0) {
+      return causes.join('; ');
+    }
+  }
+
+  return (error as Error)?.message || 'Connection failed';
+}
+
 @Injectable()
 export class DataSourceService {
   constructor(private prisma: PrismaService) {}
@@ -45,7 +86,7 @@ export class DataSourceService {
       data: {
         name: dto.name,
         host: dto.host,
-        port: dto.port ?? 5432,
+        port: dto.port ?? DEFAULT_PORT,
         database: dto.database,
         username: dto.username,
         password: encrypt(dto.password),
@@ -112,13 +153,34 @@ export class DataSourceService {
       throw new NotFoundException('DataSource not found');
     }
 
-    const client = this.createClient(ds);
+    return this.probe(this.toConnectionConfig(ds));
+  }
+
+  /**
+   * Validate connection settings that have not been saved yet, so the creation
+   * dialog can test before persisting anything.
+   */
+  async testConfig(dto: TestConnectionDto) {
+    return this.probe({
+      host: dto.host,
+      port: dto.port ?? DEFAULT_PORT,
+      database: dto.database,
+      username: dto.username,
+      plaintextPassword: dto.password,
+      sslEnabled: dto.sslEnabled ?? false,
+    });
+  }
+
+  private async probe(
+    config: ConnectionConfig,
+  ): Promise<{ success: boolean; error?: string }> {
+    const client = this.createClient(config);
     try {
       await client.connect();
       await client.query('SELECT 1');
       return { success: true };
     } catch (error) {
-      return { success: false, error: (error as Error).message };
+      return { success: false, error: describeConnectionError(error) };
     } finally {
       await client.end().catch(() => {});
     }
@@ -135,7 +197,7 @@ export class DataSourceService {
       throw new NotFoundException('DataSource not found');
     }
 
-    const client = this.createClient(ds);
+    const client = this.createClient(this.toConnectionConfig(ds));
     try {
       await client.connect();
 
@@ -146,8 +208,7 @@ export class DataSourceService {
       await client.query(`SET DateStyle = 'ISO'`);
       await client.query(`SET lc_monetary = 'C'`);
 
-      // Wrap with LIMIT to enforce max rows
-      const wrappedQuery = `SELECT * FROM (${dto.query}) AS _q LIMIT ${MAX_ROWS + 1}`;
+      const wrappedQuery = wrapWithRowLimit(dto.query, MAX_ROWS + 1);
       const startTime = Date.now();
       const result = await client.query(wrappedQuery);
       const executionTime = Date.now() - startTime;
@@ -187,21 +248,33 @@ export class DataSourceService {
     return ds;
   }
 
-  private createClient(ds: {
+  /** Decrypt a stored record into settings pg can consume. */
+  private toConnectionConfig(ds: {
     host: string;
     port: number;
     database: string;
     username: string;
     password: string;
     sslEnabled: boolean;
-  }): Client {
-    return new Client({
+  }): ConnectionConfig {
+    return {
       host: ds.host,
       port: ds.port,
       database: ds.database,
-      user: ds.username,
-      password: decrypt(ds.password),
-      ssl: ds.sslEnabled ? { rejectUnauthorized: false } : false,
+      username: ds.username,
+      plaintextPassword: decrypt(ds.password),
+      sslEnabled: ds.sslEnabled,
+    };
+  }
+
+  private createClient(config: ConnectionConfig): Client {
+    return new Client({
+      host: config.host,
+      port: config.port,
+      database: config.database,
+      user: config.username,
+      password: config.plaintextPassword,
+      ssl: config.sslEnabled ? { rejectUnauthorized: false } : false,
       connectionTimeoutMillis: 10_000,
       types: { getTypeParser: datasourceTypeParser },
     });

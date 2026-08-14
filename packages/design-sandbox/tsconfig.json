@@ -1,0 +1,82 @@
+{
+  /*
+   * The mirror image of `packages/design-editor/tsconfig.json`.
+   *
+   * That one is deliberately free of wafflebase path mappings because it is the
+   * GENERIC half, installed into a consumer's project where those directories do
+   * not exist. This is the half where they belong: the `@` alias into the
+   * frontend and the `@wafflebase/*` engine mappings are wafflebase's own, and
+   * `design-editor-local-plugin.md` §6 routes them here.
+   *
+   * They are declared even though nothing under `src/` imports them yet — the
+   * scene modules that will (providers, fixtures, the canvas shims) land with the
+   * scene runtime in PRs 10-12. Keeping the mappings and the Vite aliases in one
+   * commit is what makes them a matched pair; splitting them is how a `paths`
+   * entry and a `resolve.alias` entry drift apart.
+   */
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+
+    /*
+     * Required because `@wafflebase/design-editor` is consumed as SOURCE.
+     *
+     * That package's `exports` map points at its `.ts` files, and its own relative imports
+     * carry explicit `.ts` extensions so Node's type stripping can load them from a Vite
+     * config. Importing it pulls those files into this program, so this flag is not a
+     * preference here — without it every one of them is an error in a package that does not
+     * own them.
+     *
+     * The cost is real and belongs on the record: a TypeScript consumer of the package
+     * inherits this flag today. It goes away when the package is published, because a build
+     * emits `.js` specifiers; see that package's README.
+     */
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+
+    /*
+     * `allowJs` without `checkJs`, for the same reason the editor package does
+     * it: the injector this adapter reaches is `.mjs`, and `scripts/` is `.mjs`
+     * too. The per-file `// @ts-check` pragma decides, which is what it is for.
+     */
+    "allowJs": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+
+    /*
+     * `paths` WITHOUT `baseUrl`, which resolves them relative to this file. `baseUrl` is
+     * deprecated and errors in TypeScript 7, and it buys nothing here.
+     */
+    "paths": {
+      "@/*": ["../frontend/src/*"],
+      "@wafflebase/sheets": ["../sheets/src"],
+      "@wafflebase/docs": ["../docs/src"],
+      "@wafflebase/notes": ["../notes/src"],
+      "@wafflebase/slides": ["../slides/src"]
+    }
+  },
+  /*
+   * `vite.config.ts` and `scripts/` are included, unlike in the editor package.
+   *
+   * Both would otherwise go unchecked, and both matter here. The config is the artifact
+   * that demonstrates §6's couplings becoming options — a type error in it is the split
+   * failing — and `scripts/verify-tokens.mjs` opens with `// @ts-check`, which does nothing
+   * at all unless the file is in the program. That is precisely the "a pragma that does not
+   * run is worse than no pragma" trap the editor package's tsconfig describes, and leaving
+   * it here would have reproduced it in the package that quotes it.
+   */
+  "include": ["src", "test", "scripts", "vite.config.ts", "vitest.config.ts"]
+}

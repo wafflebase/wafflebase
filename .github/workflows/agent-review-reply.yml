@@ -22,6 +22,10 @@ permissions:
   pull-requests: write
   issues: write # reply in PR comment threads
 
+env:
+  # gh expands `{owner}/{repo}` via git; GH_REPO makes it skip that lookup.
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   # Parse the command verb (shared scripts/agent/command.mjs). Runs for any
   # "@claude" comment on a PR (issue_comment fires for PRs too — gate on

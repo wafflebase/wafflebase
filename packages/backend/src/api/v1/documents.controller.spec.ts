@@ -13,6 +13,7 @@ describe('ApiV1DocumentsController.remove permissions', () => {
     deleteDocument: jest.Mock;
   };
   let workspaceService: { assertMember: jest.Mock };
+  let fileService: { delete: jest.Mock };
 
   beforeEach(() => {
     documentService = {
@@ -24,10 +25,12 @@ describe('ApiV1DocumentsController.remove permissions', () => {
     workspaceService = {
       assertMember: jest.fn().mockResolvedValue({ role: 'member' }),
     };
+    fileService = { delete: jest.fn().mockResolvedValue(undefined) };
     controller = new ApiV1DocumentsController(
       documentService as never,
       { getEditors: jest.fn() } as never,
       workspaceService as never,
+      fileService as never,
     );
   });
 
@@ -68,5 +71,35 @@ describe('ApiV1DocumentsController.remove permissions', () => {
       controller.remove(WS, 'doc-1', req(0, true, ['read'])),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(documentService.deleteDocument).not.toHaveBeenCalled();
+  });
+
+  it('deletes the stored blob alongside a blob-backed document', async () => {
+    const fileId = '11111111-2222-3333-4444-555555555555.zip';
+    documentService.getDocumentOrThrow.mockResolvedValue({
+      id: 'doc-1',
+      workspaceId: WS,
+      authorID: AUTHOR,
+      fileId,
+    });
+    await controller.remove(WS, 'doc-1', req(AUTHOR));
+    expect(fileService.delete).toHaveBeenCalledWith(fileId);
+  });
+
+  it('does not attempt a blob delete for a CRDT document', async () => {
+    await controller.remove(WS, 'doc-1', req(AUTHOR));
+    expect(fileService.delete).not.toHaveBeenCalled();
+  });
+
+  it('still deletes the document when blob cleanup fails', async () => {
+    documentService.getDocumentOrThrow.mockResolvedValue({
+      id: 'doc-1',
+      workspaceId: WS,
+      authorID: AUTHOR,
+      fileId: '11111111-2222-3333-4444-555555555555.zip',
+    });
+    fileService.delete.mockRejectedValue(new Error('s3 down'));
+    await expect(
+      controller.remove(WS, 'doc-1', req(AUTHOR)),
+    ).resolves.toMatchObject({ id: 'doc-1' });
   });
 });

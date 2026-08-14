@@ -32,6 +32,11 @@ import {
   PdfCollabBody,
   type PdfPresenceUser,
 } from "@/app/files/pdf-collab";
+import { ImageViewer } from "@/app/files/image-viewer";
+import { GenericFileView } from "@/app/files/generic-file-view";
+import { fileUrl } from "@/api/files";
+import { Button } from "@/components/ui/button";
+import { Download } from "lucide-react";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import type { SlidesEditor, Theme } from "@wafflebase/slides";
 import type { YorkieSlidesStore } from "@/app/slides/yorkie-slides-store";
@@ -688,6 +693,68 @@ function SharedPdfLayout({
   );
 }
 
+/**
+ * Shared layout for blob documents with no CRDT: rendered outside the
+ * YorkieProvider entirely, since there is nothing to attach.
+ *
+ * `GenericFileView` tells the viewer to "Use Download in the header" — that
+ * instruction is only true if the header actually has a download control, so
+ * one is rendered here, mirroring `DownloadFileButton` in `file-detail.tsx`
+ * (same icon-ghost-button treatment) but as a plain anchor at the
+ * already-token-aware, permission-gated `fileUrl`, since an anonymous share
+ * viewer can't use `downloadDocumentFile`'s `fetchWithAuth` call. For a
+ * `file` document the backend sends `Content-Disposition: attachment`, so
+ * this always saves the file regardless of origin. For an `image` document
+ * the backend sends `inline`; in dev, frontend and backend are different
+ * origins, so the `download` attribute is ignored there and the anchor just
+ * navigates to the image — acceptable, since the viewer above already shows
+ * it and the browser's own save works from there.
+ */
+function SharedBlobLayout({
+  resolved,
+  token,
+}: {
+  resolved: ResolvedShareLink;
+  token?: string;
+}) {
+  return (
+    <div className="flex h-svh flex-col">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b px-4">
+        <span className="font-medium">{resolved.title}</span>
+        <Button asChild variant="ghost" size="icon">
+          <a
+            href={fileUrl(resolved.documentId, token)}
+            download
+            aria-label="Download file"
+            title="Download file"
+          >
+            <Download className="h-4 w-4" />
+          </a>
+        </Button>
+      </div>
+      {resolved.type === "image" ? (
+        <ImageViewer documentId={resolved.documentId} token={token} />
+      ) : (
+        <GenericFileView title={resolved.title} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * How a shared document should be mounted.
+ *
+ * `pdf` has its own Yorkie-backed layout (comments + presence). `image` and
+ * `file` are blobs with no CRDT at all, so they must mount NO Yorkie document
+ * — before this existed they matched no branch and fell through to the
+ * `sheet-<id>` fallback, rendering an empty spreadsheet over a real image.
+ */
+export function sharedBlobKind(type: string): "pdf" | "blob" | "crdt" {
+  if (type === "pdf") return "pdf";
+  if (type === "image" || type === "file") return "blob";
+  return "crdt";
+}
+
 function SharedDocumentInner({
   resolved,
   token,
@@ -713,10 +780,13 @@ function SharedDocumentInner({
   // early `pdf` return below), so exactly one session is recorded per visit.
   useViewAnalytics({ shareToken: token ?? "", enabled: Boolean(token) });
 
-  // SharedPdfLayout mounts its own YorkieProvider/DocumentProvider, so it must
-  // render before the shared provider wrapper below rather than nested inside
-  // it (nesting would create two competing Yorkie connections).
-  if (resolved.type === "pdf") {
+  // SharedPdfLayout mounts its own YorkieProvider/DocumentProvider, and
+  // SharedBlobLayout mounts no Yorkie document at all, so both must render
+  // before the shared provider wrapper below rather than nested inside it
+  // (nesting would create two competing Yorkie connections, or attach one
+  // that has nothing to represent).
+  const kind = sharedBlobKind(resolved.type);
+  if (kind === "pdf") {
     return (
       <SharedPdfLayout
         resolved={resolved}
@@ -729,6 +799,9 @@ function SharedDocumentInner({
         }}
       />
     );
+  }
+  if (kind === "blob") {
+    return <SharedBlobLayout resolved={resolved} token={token} />;
   }
 
   const presence = {

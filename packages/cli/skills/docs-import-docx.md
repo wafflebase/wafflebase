@@ -57,6 +57,9 @@ Without `--yes` on a non-interactive shell, the CLI exits with:
 { "error": { "code": "CONFIRMATION_REQ", "message": "Pass --yes to confirm replacing document \"<id>\"." } }
 ```
 
+`--dry-run` is exempt: a preview writes nothing, so it neither prompts
+nor requires `--yes`.
+
 ### Dry-run
 
 ```bash
@@ -77,6 +80,7 @@ endpoint is involved (yet) — the entire document is self-contained.
 - `INVALID_DOCX` — the file is not a parseable .docx (missing
   `word/document.xml`, malformed zip, etc.)
 - `CONFIRMATION_REQ` — `--replace` without `--yes` on a non-TTY shell
+  (not raised under `--dry-run`)
 - `HTTP_ERROR` — the server rejected the create or content PUT
 
 ## Safety

@@ -29,11 +29,18 @@
 //   keepUnrefuted         drops only on a refute     a crashed verifier reports
 //
 // The replacements below (`huntSeverity`, `coerceCandidates`, `dedupeCandidates`,
-// `intersectSamples`, `isFilingVerdict`) are the same five ideas with the failure
-// direction flipped. (The panel's null-verdict behaviour now lives in
+// `isFilingVerdict`) are those ideas with the failure direction flipped. There was a
+// fifth, `intersectSamples`, inverting `unionSamples` by keeping only what >=2
+// samples agreed on. It is gone: once the probe budget stopped starving samples they
+// explored deeply enough to diverge, and it discarded 6 of 6 reproducing findings
+// over citations one line apart. Precision now rests on replay and the panel.
+//
+// (The panel's null-verdict behaviour now lives in
 // `annotateFindings`/`keepUnrefuted`, which drop a finding only on a concrete
-// refutation — so a verdict that never arrived still KEEPS it there.) They are NOT thin wrappers — do not "simplify" them back
-// into their panel counterparts.
+// refutation — so a verdict that never arrived still KEEPS it there.)
+//
+// The survivors are NOT thin wrappers — do not "simplify" them back into their
+// panel counterparts.
 //
 // What IS safely shared, because it is polarity-neutral: `CITATION` from
 // citation.mjs (the repo's own shared home for it), `globToRegExp` from
@@ -145,6 +152,151 @@ export const HUNT_VERIFIER_SCHEMA = {
  * accept a removed ground or reject a legal one. */
 export const HUNT_GROUNDS = new Set(HUNT_VERIFIER_SCHEMA.properties.confirmationGround.enum);
 
+// --- the UI hunter's schemas -------------------------------------------------
+//
+// A second hunter, not a second gate. `isFilingVerdict` below serves both; only the
+// three things that genuinely differ between them are parameters. These schemas are
+// the data half of that difference and live beside their CLI siblings on purpose —
+// the property that the two ground sets must not overlap is only visible if both are
+// in one place.
+
+/**
+ * A UI candidate. Two deliberate differences from `CANDIDATE`.
+ *
+ * Evidence is `actionRefs` into the ACTION journal rather than `probeRefs` into the
+ * probe journal — same cited-not-authored contract, different vocabulary.
+ *
+ * And there is **no `citations` field at all.** Localising "the font-size button
+ * misbehaved" to a source line means tracing toolbar → `EditorAPI` → the docs style
+ * application, which is expensive in turns and exactly where a model invents a
+ * plausible wrong line. The VERIFIER supplies the location instead, from source it
+ * actually read, via `groundedIn`. Omitting the field rather than ignoring it is the
+ * point: a field the schema does not offer cannot be filled in badly.
+ */
+const UI_CANDIDATE = {
+  type: "object",
+  properties: {
+    oracle: { type: "string", enum: ["prediction", "crash", "dom-invariant"] },
+    severity: { type: "string", enum: ["critical", "major", "minor", "nit"] },
+    title: { type: "string" },
+    expected: { type: "string" },
+    observed: { type: "string" },
+    actionRefs: { type: "array", items: { type: "integer" } },
+    failingRef: { type: "integer" },
+  },
+  required: ["oracle", "severity", "title", "expected", "observed", "actionRefs", "failingRef"],
+};
+
+export const UI_EXPLORER_SCHEMA = {
+  type: "object",
+  properties: {
+    candidates: { type: "array", items: UI_CANDIDATE },
+    summary: { type: "string" },
+  },
+  required: ["candidates", "summary"],
+};
+
+/**
+ * The UI verifier's answer. Same shape as `HUNT_VERIFIER_SCHEMA`, different grounds.
+ *
+ * `groundedIn` carries more weight here than it does for the CLI hunter: it is not
+ * merely supporting evidence, it is the ONLY source of the `file:line` citations the
+ * gate's step 4 checks, because the explorer never supplies any.
+ */
+export const UI_VERIFIER_SCHEMA = {
+  type: "object",
+  properties: {
+    verdict: { type: "string", enum: ["confirmed", "refuted"] },
+    confidence: { type: "string", enum: ["high", "low"] },
+    reason: { type: "string" },
+    confirmationGround: {
+      type: "string",
+      enum: [
+        "expectation-violated", // a grounded prediction failed, and the failure is the app's fault
+        "invariant-violated", // a free oracle fired: duplicate id, dangling ARIA, placeholder text
+        "unhandled-failure", // pageerror, unhandled rejection, a console error from app code
+        "state-desync", // two readers disagree about the same state
+        // "looks-wrong" HAS NO ENTRY HERE, and that is the whole design. The agent has
+        // no visual channel, a spatial claim traces to nothing, and the moment a
+        // ground exists for "this seems off" the grounding tiers stop meaning
+        // anything. See the Phase 31 section in harness-engineering.md.
+        "none",
+      ],
+    },
+    groundedIn: { type: "array", items: { type: "string" } },
+    duplicateOf: { type: ["string", "null"] },
+    // THE CLAIM, RESTATED WITHIN THE EVIDENCE.
+    //
+    // The explorer's `title` was the one piece of model prose reaching the report
+    // unexamined. The design already routes the code LOCATION through the verifier,
+    // because the explorer's version could not be trusted; the CLAIM never got the
+    // same treatment, and every real finding so far has been filed-blocking wrong in
+    // the same way — observing a few instances and generalising to "never"/"any":
+    //
+    //   "Bold only removes bold, it can never apply it"      — applies fine normally
+    //   "after a scroll, clicks no longer select any cell"   — clicks work fine
+    //   "never removes italic from a right-to-left selection" — removes when the
+    //                                                           preceding run matches
+    //
+    // Each was a real observation wrapped in a false universal. So the verifier
+    // restates it, and the report uses THAT.
+    scopedTitle: { type: "string" },
+    // Whether the explorer's own title asserted more than its evidence supports.
+    // Deliberately NOT a gate input: overclaiming is a description defect, not a
+    // validity one, and letting it block would discard real findings over wording.
+    // It is counted instead, so a systemic drift toward overclaiming is visible.
+    overclaimed: { type: "boolean" },
+    // WHICH CLAIM THE REFUTATION CONTRADICTS. Empty when confirming.
+    //
+    // The gate demanded grounds for "yes" and accepted "no" unargued: a confirmation
+    // must be unanimous, high-confidence, carry an allowed `confirmationGround` and
+    // cite inside scope, while a refutation only had to exist. Measured cost of that
+    // asymmetry, on issue #783: a verifier refuted a real defect citing
+    // `named-styles.ts:97` ("list items map to `normal`") — a true line about how a
+    // block is STYLED WHILE IT IS a list item, which says nothing about what the block
+    // becomes when the list is toggled off. Two of its four citations were in fact
+    // evidence FOR the defect.
+    //
+    // Nothing mechanical can decide whether a real line supports a conclusion. What
+    // this field buys is that the verifier has to say WHICH claim it is contradicting,
+    // so the mismatch between "the claim" and "the evidence" is on the page instead of
+    // inside one model's reasoning.
+    refutes: { type: "string" },
+  },
+  required: [
+    "verdict",
+    "confidence",
+    "reason",
+    "confirmationGround",
+    "groundedIn",
+    "duplicateOf",
+    "scopedTitle",
+    "overclaimed",
+    "refutes",
+  ],
+};
+
+/** Derived, never hand-copied — same drift guard as `HUNT_GROUNDS`. */
+export const UI_GROUNDS = new Set(UI_VERIFIER_SCHEMA.properties.confirmationGround.enum);
+
+/**
+ * The grounds both hunters legitimately share — an ALLOWLIST, not an observation.
+ *
+ * A ground normally carries no meaning outside the hunter it was written for:
+ * `doc-contradicts-code` is meaningless in a browser, `expectation-violated` is
+ * meaningless for a CLI probe. So an overlap is almost always a mistake, and a test
+ * pins the actual overlap to exactly this set — which means adding a ground to one
+ * hunter cannot silently widen the other. Widening it is a deliberate edit with a
+ * reason written down, and these two have theirs:
+ *
+ *   none               both schemas' refusal value, and the gate refuses to act on
+ *                      it either way. Shared because DECLINING is universal.
+ *   unhandled-failure  a crash with no guarded path is the same defect whether the
+ *                      stack came out of a CLI process or a `pageerror`. This is the
+ *                      one genuinely surface-independent oracle in either hunter.
+ */
+export const SHARED_GROUNDS = new Set(["none", "unhandled-failure"]);
+
 // --- severity ---------------------------------------------------------------
 
 /**
@@ -172,13 +324,35 @@ export function huntSeverity(raw) {
  * probes cannot be replayed, and a candidate that cannot be replayed must never
  * be reported. Dropping is safe (the next run looks again); reporting junk is not.
  *
- * Requires: an object, a non-empty string `title`, a recognized `severity`, a
- * non-empty `probes` array whose every entry has a non-empty argv of strings, and
- * a `failingIndex` in range. Returns `{ kept, dropped }` so the caller can report
+ * Requires: an object, a non-empty string `title`, a recognized `severity`, and
+ * whatever `evidenceOf` demands. Returns `{ kept, dropped }` so the caller can report
  * how much was discarded — a silent drop rate is indistinguishable from a quiet
  * run, and the run log should be able to tell them apart.
+ *
+ * `evidenceOf` exists because the two hunters carry different evidence: a CLI
+ * candidate replays an argv sequence, a UI candidate replays an action sequence.
+ * Everything else about "structurally usable" is identical, so only that one check
+ * is a parameter. It returns a REJECTION REASON or `null` — never a boolean, so the
+ * drop table can say what was wrong rather than only that something was.
  */
-export function coerceCandidates(raw) {
+export function cliProbeEvidence(c) {
+  if (!Array.isArray(c.probes) || c.probes.length === 0) return "no probes — cannot be replayed";
+  const argvOk = c.probes.every(
+    (p) =>
+      p &&
+      typeof p === "object" &&
+      Array.isArray(p.argv) &&
+      p.argv.length > 0 &&
+      p.argv.every((a) => typeof a === "string"),
+  );
+  if (!argvOk) return "a probe has a malformed argv";
+  if (!Number.isInteger(c.failingIndex) || c.failingIndex < 0 || c.failingIndex >= c.probes.length) {
+    return `failingIndex ${JSON.stringify(c.failingIndex)} out of range`;
+  }
+  return null;
+}
+
+export function coerceCandidates(raw, { evidenceOf = cliProbeEvidence } = {}) {
   const kept = [];
   const dropped = [];
   const reject = (c, why) => dropped.push({ candidate: c, why });
@@ -195,24 +369,18 @@ export function coerceCandidates(raw) {
       reject(c, `unrecognized severity ${JSON.stringify(c.severity)}`);
       continue;
     }
-    if (!Array.isArray(c.probes) || c.probes.length === 0) {
-      reject(c, "no probes — cannot be replayed");
+    // A validator that throws, or that returns something other than a string or
+    // null, drops the candidate. Fail quiet: a broken evidence check must not be a
+    // way for junk to pass, and this is a gate whose every branch rejects.
+    let why;
+    try {
+      why = evidenceOf(c);
+    } catch (err) {
+      reject(c, `evidence check failed: ${err?.message ?? err}`);
       continue;
     }
-    const argvOk = c.probes.every(
-      (p) =>
-        p &&
-        typeof p === "object" &&
-        Array.isArray(p.argv) &&
-        p.argv.length > 0 &&
-        p.argv.every((a) => typeof a === "string"),
-    );
-    if (!argvOk) {
-      reject(c, "a probe has a malformed argv");
-      continue;
-    }
-    if (!Number.isInteger(c.failingIndex) || c.failingIndex < 0 || c.failingIndex >= c.probes.length) {
-      reject(c, `failingIndex ${JSON.stringify(c.failingIndex)} out of range`);
+    if (why !== null) {
+      reject(c, typeof why === "string" ? why : "evidence check returned no reason");
       continue;
     }
     kept.push(c);
@@ -280,70 +448,6 @@ export function sameDefect(locsA, locsB) {
   return false;
 }
 
-/**
- * INTERSECT independent explorer samples: keep only candidates that ≥2 samples
- * found. The inverse of `unionSamples`, and the cheapest precision lever here.
- *
- * The panel unions because a bug any sample spots is worth blocking on. Hunting
- * inverts that: a candidate only one sample produced is exactly the profile of a
- * one-off confabulation, and dropping it costs nothing. Fewer than 2 successful
- * samples therefore yields NOTHING — with one sample there is no agreement to
- * measure, and "no agreement" must not read as "agreed".
- *
- * `locationsOf` maps a candidate to its in-scope code-location SET (see
- * `codeLocations`) — NOT a fingerprint. Comparison is by location overlap, not
- * by prose, so two samples describing the same defect in different words still
- * agree.
- */
-export function intersectSamples(sampleCandidateLists, locationsOf, { minAgreement = 2 } = {}) {
-  const lists = (Array.isArray(sampleCandidateLists) ? sampleCandidateLists : []).filter(Array.isArray);
-  const dropped = [];
-  if (lists.length < minAgreement) {
-    // Report every candidate that is being discarded for lack of a second
-    // opinion. Returning a bare [] here is what made the first live run
-    // unexplainable: the funnel said "9 proposed → 0 agreed" with an empty drop
-    // table, which reads identically to "the explorer found nothing".
-    for (const list of lists) {
-      for (const c of list) {
-        dropped.push({ candidate: c, why: `only ${lists.length} sample(s) succeeded; need ${minAgreement} to compare` });
-      }
-    }
-    return { kept: [], dropped };
-  }
-  // `locationsOf` returns the candidate's in-scope code-location SET (see
-  // codeLocations). Matching is greedy clustering by overlap: take an unclaimed
-  // candidate as the anchor, then claim at most one overlapping candidate per
-  // OTHER sample. One-per-sample is what stops a sample that raised three
-  // near-identical candidates from satisfying the threshold by itself.
-  const pools = lists.map((list) => list.map((c) => ({ c, locs: locationsOf(c), taken: false })));
-  const kept = [];
-  for (let i = 0; i < pools.length; i++) {
-    for (const anchor of pools[i]) {
-      if (anchor.taken) continue;
-      anchor.taken = true;
-      if (!anchor.locs || anchor.locs.size === 0) {
-        dropped.push({ candidate: anchor.c, why: "no in-scope code citation that locates a line — cannot be matched across samples" });
-        continue;
-      }
-      let agreeing = 1;
-      for (let j = i + 1; j < pools.length; j++) {
-        const match = pools[j].find((o) => !o.taken && o.locs && sameDefect(anchor.locs, o.locs));
-        if (match) {
-          match.taken = true;
-          agreeing++;
-        }
-      }
-      if (agreeing >= minAgreement) kept.push(anchor.c);
-      else {
-        dropped.push({
-          candidate: anchor.c,
-          why: `only ${agreeing} of ${lists.length} samples cited an overlapping location (need ${minAgreement})`,
-        });
-      }
-    }
-  }
-  return { kept, dropped };
-}
 
 // --- citations --------------------------------------------------------------
 
@@ -400,8 +504,26 @@ export function citationInScope(citation, globs) {
  * the panel will read this as inverted logic. It is inverted, deliberately: a
  * crashed verifier has produced no evidence, and no evidence must never become a
  * report. `verdicts.every(...)` over a length-checked array gives exactly that.
+ *
+ * TWO HUNTERS, ONE GATE. The UI hunter reaches this same function with different
+ * grounds and a different source of citations. Those are the only two things that
+ * differ, so they are options rather than a second gate — a second gate would mean
+ * the mutation tests guarding this one guard nothing over there, and "every branch
+ * returns false" is a property that has to be TESTED, not asserted twice.
+ *
+ * Both options can only NARROW. `grounds` is intersected against nothing — it
+ * replaces the permitted set, and a smaller set rejects more. `citationsOf` selects
+ * WHICH strings are checked, and every one of them still has to match `CITATION`
+ * and fall inside `charter.codeScope`. Neither can skip a stage, and the defaults
+ * reproduce the CLI hunter's behaviour exactly, so every existing call site is
+ * unaffected.
  */
-export function isFilingVerdict(candidate, verdicts, charter) {
+export function isFilingVerdict(
+  candidate,
+  verdicts,
+  charter,
+  { grounds = HUNT_GROUNDS, citationsOf = (claimed) => claimed.citations } = {},
+) {
   // --- 1. TRUSTED: replay ---------------------------------------------------
   // Computed by hunt-probe.mjs, never by a model. A candidate that did not
   // reproduce in a clean room is dropped with no appeal, and a non-deterministic
@@ -444,7 +566,11 @@ export function isFilingVerdict(candidate, verdicts, charter) {
       v.verdict === "confirmed" &&
       v.confidence === "high" &&
       typeof v.confirmationGround === "string" &&
-      HUNT_GROUNDS.has(v.confirmationGround) &&
+      // A malformed `grounds` (not a Set, or missing `has`) drops every candidate
+      // rather than admitting them: this is the branch a caller is most likely to
+      // get wrong, and the failure has to land on the quiet side.
+      grounds instanceof Set &&
+      grounds.has(v.confirmationGround) &&
       v.confirmationGround !== "none" &&
       // A duplicate is a kill, not a note. `== null` is intentional: both null
       // and undefined mean "not a duplicate"; any string names one.
@@ -453,7 +579,18 @@ export function isFilingVerdict(candidate, verdicts, charter) {
   if (!allConfirm) return false;
 
   // --- 4. CHECKED: citations that locate something, in scope ---------------
-  const cites = (Array.isArray(claimed.citations) ? claimed.citations : []).filter(
+  // WHERE the citations come from is the caller's choice; what they have to prove is
+  // not. The CLI hunter reads them off the explorer's claim, the UI hunter off the
+  // verifiers' `groundedIn` — and either way each one still has to match `CITATION`
+  // and land inside `charter.codeScope`. A `citationsOf` that throws or returns a
+  // non-array yields zero citations, which fails the `minCitations` check below.
+  let sourced;
+  try {
+    sourced = citationsOf(claimed, verdicts);
+  } catch {
+    sourced = null;
+  }
+  const cites = (Array.isArray(sourced) ? sourced : []).filter(
     (s) => typeof s === "string" && CITATION.test(s),
   );
   const minCitations = Number.isInteger(charter.minCitations) ? charter.minCitations : 1;
@@ -474,6 +611,86 @@ export function isFilingVerdict(candidate, verdicts, charter) {
 }
 
 /**
+ * How does this refutation fall short of what a CONFIRMATION has to prove?
+ *
+ * Returns a list of shortfalls, empty when the refutation is held to the same
+ * standard — and empty for anything that is not a refutation, so a caller can run it
+ * over every verdict without branching.
+ *
+ * IT DOES NOT CHANGE THE OUTCOME, and that is deliberate. An unsound refutation still
+ * kills the candidate: hunting fails quiet, and a gate that promoted a finding because
+ * it disliked the argument against it would manufacture reports out of its own
+ * dissatisfaction — the exact polarity this pipeline exists to avoid. What the
+ * shortfalls do is make the drop AUDITABLE. On #783 the drop table said only
+ * `verifier 1 refuted the candidate`, and the reasoning that killed a real defect was
+ * reachable solely by reading raw execution JSON afterwards.
+ *
+ * The checks mirror the confirmation path exactly — same `CITATION` shape, same
+ * `codeScope` — because "the same standard" has to mean the same code, not a second
+ * implementation that drifts.
+ */
+export function refutationDefects(verdict, charter, options = {}) {
+  const { citationsOf = (v) => v?.groundedIn } = options;
+  if (!verdict || typeof verdict !== "object") return [];
+  if (verdict.verdict !== "refuted") return [];
+
+  const out = [];
+  // The asymmetry #785 left in place: a refutation at LOW confidence still outvotes a
+  // colleague who confirmed at HIGH. The confirmation path has required `high` all
+  // along, so "held to the same standard" has to mean this too — and an unsure verifier
+  // now has somewhere else to go, since the prompt routes uncertainty to
+  // `confirmed`+low rather than to a refutation.
+  if (verdict.confidence !== "high") {
+    out.push("refuted at low confidence");
+  }
+  if (typeof verdict.refutes !== "string" || verdict.refutes.trim() === "") {
+    out.push("names no contradicted claim");
+  }
+
+  let sourced;
+  try {
+    sourced = citationsOf(verdict);
+  } catch {
+    sourced = null;
+  }
+  const all = Array.isArray(sourced) ? sourced : [];
+  const cites = all.filter((s) => typeof s === "string" && CITATION.test(s));
+  // `charter.minCitations`, not a hardcoded 1 — the confirmation path reads it, so a
+  // charter that demands two citations to confirm must demand two to refute.
+  const minCitations = charter && Number.isInteger(charter.minCitations) ? charter.minCitations : 1;
+  if (cites.length === 0) {
+    out.push("cites nothing that locates code");
+  } else if (cites.length < minCitations) {
+    out.push(`cites ${cites.length} of the ${minCitations} citations this charter requires`);
+  } else if (charter && typeof charter === "object" && !cites.some((c) => citationInScope(c, charter.codeScope))) {
+    // Same rule the confirmation path applies: SOME citation must land in scope. A
+    // refutation resting entirely on files this charter does not govern is the shape
+    // of "I found an unrelated reason to say no".
+    out.push(`all ${cites.length} citation(s) outside codeScope`);
+  }
+  return out;
+}
+
+/** One line describing a refutation, for the drop table. Never used to decide. */
+function describeRefutation(index, verdict, charter, options) {
+  const parts = [`verifier ${index} refuted the candidate`];
+  const reason = typeof verdict?.reason === "string" ? verdict.reason.trim() : "";
+  if (reason !== "") parts.push(`: ${JSON.stringify(truncateReason(reason))}`);
+  const refutes = typeof verdict?.refutes === "string" ? verdict.refutes.trim() : "";
+  if (refutes !== "") parts.push(` — contradicting ${JSON.stringify(truncateReason(refutes))}`);
+  const cites = Array.isArray(verdict?.groundedIn) ? verdict.groundedIn.filter((s) => typeof s === "string") : [];
+  if (cites.length > 0) parts.push(` — grounded in ${cites.join(", ")}`);
+  const defects = refutationDefects(verdict, charter, options);
+  if (defects.length > 0) parts.push(` — NOT HELD TO THE CONFIRMATION STANDARD: ${defects.join("; ")}`);
+  return parts.join("");
+}
+
+/** Keep one verifier's prose from swallowing a drop table row. */
+function truncateReason(s) {
+  return s.length <= 240 ? s : `${s.slice(0, 237)}...`;
+}
+
+/**
  * Why was this candidate not reported? For the run log only — NEVER consulted to
  * decide anything.
  *
@@ -483,9 +700,15 @@ export function isFilingVerdict(candidate, verdicts, charter) {
  * detail; keeping the decision a bare boolean means there is nothing to branch
  * on. The cost is this function drifting from the gate, which the tests pin by
  * asserting the two always agree.
+ *
+ * The options MUST be forwarded, not defaulted: a UI drop explained through the
+ * CLI's citation source would blame `claimed.citations` — a field UI candidates do
+ * not even have — for a candidate the panel actually refuted. Same options in, same
+ * decision out.
  */
-export function dropReason(candidate, verdicts, charter) {
-  if (isFilingVerdict(candidate, verdicts, charter)) return null;
+export function dropReason(candidate, verdicts, charter, options = {}) {
+  const { grounds = HUNT_GROUNDS, citationsOf = (claimed) => claimed.citations } = options;
+  if (isFilingVerdict(candidate, verdicts, charter, { grounds, citationsOf })) return null;
   if (!candidate || typeof candidate !== "object") return "malformed candidate";
   const replay = candidate.replay;
   if (!replay || typeof replay !== "object") return "not replayed";
@@ -522,11 +745,17 @@ export function dropReason(candidate, verdicts, charter) {
   const unusableAt = verdicts.findIndex((v) => !v || typeof v !== "object");
   if (unusableAt !== -1) return `verifier ${unusableAt} produced no verdict (errored)`;
   const refutedAt = verdicts.findIndex((v) => v.verdict !== "confirmed");
-  if (refutedAt !== -1) return `verifier ${refutedAt} refuted the candidate`;
+  if (refutedAt !== -1) {
+    // The refuter's own words and citations travel with the drop. `citationsOf` here
+    // reads ONE verdict's `groundedIn`, which is not the same shape as the caller's
+    // `citationsOf(claimed, verdicts)` used above for the confirmation path — hence
+    // the default rather than threading that one through.
+    return describeRefutation(refutedAt, verdicts[refutedAt], charter, {});
+  }
   const lowAt = verdicts.findIndex((v) => v.confidence !== "high");
   if (lowAt !== -1) return `verifier ${lowAt} was not confident`;
   const ungroundedAt = verdicts.findIndex(
-    (v) => !HUNT_GROUNDS.has(v.confirmationGround) || v.confirmationGround === "none",
+    (v) => !(grounds instanceof Set) || !grounds.has(v.confirmationGround) || v.confirmationGround === "none",
   );
   if (ungroundedAt !== -1) return `verifier ${ungroundedAt} named no confirmation ground`;
   return "insufficient or out-of-scope citations";

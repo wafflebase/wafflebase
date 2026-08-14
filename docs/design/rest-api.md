@@ -159,10 +159,19 @@ These delegate to the existing `DocumentService` for Prisma operations.
 #### 5.2 Tabs (spreadsheets only)
 
 ```
-GET    /api/v1/workspaces/:wid/documents/:did/tabs    List tabs (id, name, type, order)
+GET    /api/v1/workspaces/:wid/documents/:did/tabs        List tabs (id, name, type, order)
+POST   /api/v1/workspaces/:wid/documents/:did/tabs        Create a sheet tab ({ name?, type? })
+PATCH  /api/v1/workspaces/:wid/documents/:did/tabs/:tid    Rename a tab ({ name })
 ```
 
-Reads tab metadata from the Yorkie document via `YorkieService`.
+Reads and mutates tab metadata on the Yorkie document via `YorkieService`.
+Create/rename reuse the shared `@wafflebase/sheets` tab-name helpers
+(`generateTabId` / `getUniqueTabName` / `getNextDefaultSheetName` /
+`normalizeTabName`) through `packages/backend/src/yorkie/tab-ops.ts`, so CLI/API
+tabs follow the same
+naming and uniqueness rules as the editor. Create mirrors the editor
+`addSheetTab` mutation (`tabs` + `tabOrder` + empty `sheets[id]`); rename returns
+`404` (missing), `400` (blank), `409` (duplicate name).
 
 #### 5.3 Cells (spreadsheets only)
 
@@ -239,7 +248,46 @@ is treated as safe to cache. Note this is a `public` policy on a
 bearer-token URL — a shared proxy/CDN may cache the object without
 re-running `CombinedAuthGuard`/`WorkspaceScopeGuard` on later hits.
 
-#### 5.6 Rate limiting
+#### 5.6 Files (blob documents)
+
+```
+POST   /api/v1/workspaces/:wid/files              Upload any file as a document (multipart `file`, optional `title`)
+GET    /api/v1/workspaces/:wid/files/:documentId  Download a blob document's bytes
+```
+
+`ApiV1FilesController` (`packages/backend/src/api/v1/files.controller.ts`)
+is the API-key-capable equivalent of dropping a file on the documents
+list, and the only v1 route that creates a blob-backed document. It is
+guarded by `CombinedAuthGuard` + `WorkspaceScopeGuard` and throttled at
+600/min like the image routes. `POST` additionally requires the `write`
+scope from an API-key caller — the guards prove only that the key is
+valid and bound to this workspace, so without that check a read-scoped
+key could create documents.
+
+Unlike §5.5, which stores a *raw blob* for inline use inside another
+document, this creates a first-class `Document` row: `POST` stores the
+blob **and** creates the document in one call, deleting the blob if the
+row fails, then returns the created document. The browser splits these
+into two calls because its upload queue must survive a reload and resume
+without orphaning a second blob; a CLI invocation has no resumable state,
+so the one-call form is both simpler and safer.
+
+The document `type` is derived server-side from the stored blob id —
+`.pdf` → `pdf`, `png|jpg|jpeg|gif|webp` → `image`, everything else →
+`file` — by the same extension table that then validates the pairing
+(`packages/backend/src/document/document-file-id.util.ts`), so the two cannot disagree. Nothing is
+parsed: an uploaded `.xlsx` is stored as bytes, not turned into a
+spreadsheet.
+
+`GET` reuses `fileResponseHeaders()`, so it inherits the derived-not-echoed
+`Content-Type` rule from [generic-file-upload.md](generic-file-upload.md)
+rather than introducing a second serving policy. Caps are unchanged: 50 MB,
+or 25 MB for image extensions.
+
+`DELETE /api/v1/workspaces/:wid/documents/:did` deletes the stored blob
+alongside the document row, matching the JWT delete.
+
+#### 5.7 Rate limiting
 
 The application registers a global NestJS `ThrottlerGuard` via
 `ThrottlerModule.forRoot` (default bucket: 120 requests / 60 s). Selected
@@ -270,6 +318,7 @@ packages/backend/src/
       cells.controller.ts
       docs-content.controller.ts
       images.controller.ts
+      files.controller.ts
       workspace-scope.guard.ts
 ```
 

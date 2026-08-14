@@ -9,9 +9,9 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 describe("upload-queue worker", () => {
   beforeEach(() => q.__resetForTest());
 
-  it("processes a mixed batch to done/skipped", async () => {
+  it("processes a mixed batch of supported extensions to done", async () => {
     const deps = {
-      importXlsx: vi.fn(async (f: File) => ({
+      importSheetFile: vi.fn(async (f: File) => ({
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
@@ -52,9 +52,70 @@ describe("upload-queue worker", () => {
     );
   });
 
+  it("imports JSON as a sheet and strips its extension from the title", async () => {
+    const deps = {
+      importSheetFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["tab-1"] },
+        fileName: f.name,
+      })),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "json-doc",
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: () => "/path/json-doc",
+      applyContent: vi.fn(async () => {}),
+    };
+    const json = new File(['{"name":"Alice"}'], "people.JSON");
+
+    q.enqueue([json], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    expect(deps.importSheetFile).toHaveBeenCalledWith(json);
+    expect(deps.createDoc).toHaveBeenCalledWith(
+      "ws1",
+      expect.objectContaining({ title: "people", type: "sheet" }),
+    );
+    expect(deps.applyContent).toHaveBeenCalledWith(
+      "json-doc",
+      expect.objectContaining({ type: "sheet" }),
+    );
+  });
+
+  it("does not create a backend document when JSON parsing fails", async () => {
+    const deps = {
+      importSheetFile: vi.fn(async () => {
+        throw new Error("Invalid NDJSON at line 2");
+      }),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(),
+      createDoc: vi.fn(),
+      getDocumentPath: () => "/unused",
+      applyContent: vi.fn(),
+    };
+
+    q.enqueue([new File(["broken"], "events.ndjson")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    expect(q.getSnapshot()[0]).toMatchObject({
+      status: "error",
+      reason: "Invalid NDJSON at line 2",
+    });
+    expect(deps.createDoc).not.toHaveBeenCalled();
+    expect(deps.applyContent).not.toHaveBeenCalled();
+  });
+
   it("creates dropped documents in the folder the list is viewing", async () => {
     const deps = {
-      importXlsx: vi.fn(async (f: File) => ({
+      importSheetFile: vi.fn(async (f: File) => ({
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
@@ -89,7 +150,7 @@ describe("upload-queue worker", () => {
 
   it("uploads an image blob and creates an image document", async () => {
     const deps = {
-      importXlsx: vi.fn(),
+      importSheetFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
       uploadFile: vi.fn(async () => ({ id: "img-1" })),
@@ -113,13 +174,134 @@ describe("upload-queue worker", () => {
     expect(deps.applyContent).not.toHaveBeenCalled();
   });
 
+  it("uploads an unknown extension as a file document", async () => {
+    const deps = {
+      importSheetFile: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => ({
+        id: "blob-1.zip",
+        size: 4096,
+        mimeType: "application/zip",
+      })),
+      createDoc: vi.fn(async () => ({ id: "doc-1", type: "file" })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("archive.zip")]);
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    expect(deps.uploadFile).toHaveBeenCalledTimes(1);
+    expect(deps.createDoc).toHaveBeenCalledWith(undefined, {
+      title: "archive.zip",
+      type: "file",
+      fileId: "blob-1.zip",
+      fileSize: 4096,
+      mimeType: "application/zip",
+    });
+    expect(deps.applyContent).not.toHaveBeenCalled();
+    expect(q.getSnapshot().find((i) => i.id === item.id)?.status).toBe("done");
+  });
+
+  it("keeps a regex-special extension in the title", async () => {
+    // "c++" built a `RegExp(\\.c++$)` under an older stripExt, which throws
+    // "Nothing to repeat" — the raw error text used to leak as the
+    // user-facing failure reason instead of the upload succeeding.
+    //
+    // The title is now also the *only* place this extension survives: the
+    // backend's `safeExtension` rejects `c++`, so the blob is stored under a
+    // bare uuid and the download filename has nothing to re-append.
+    const deps = {
+      importSheetFile: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => ({
+        id: "blob-1.c++",
+        size: 10,
+        mimeType: "text/x-c",
+      })),
+      createDoc: vi.fn(async () => ({ id: "doc-1", type: "file" })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("main.c++")]);
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    expect(deps.createDoc).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ title: "main.c++" }),
+    );
+    expect(q.getSnapshot().find((i) => i.id === item.id)?.status).toBe("done");
+  });
+
+  it("still strips the extension for a converted (non-blob) upload", async () => {
+    // An imported .xlsx becomes a native sheet, so its title is "budget", not
+    // "budget.xlsx". Only blob types are the file and keep the extension.
+    const deps = {
+      importSheetFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d" + p.title,
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    q.enqueue([file("budget.xlsx")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+    await flush();
+
+    expect(deps.createDoc).toHaveBeenCalledWith(
+      "ws1",
+      expect.objectContaining({ type: "sheet", title: "budget" }),
+    );
+  });
+
+  it("keeps a dotfile's full name", async () => {
+    const deps = {
+      importSheetFile: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => ({
+        id: "blob-1",
+        size: 5,
+        mimeType: "text/plain",
+      })),
+      createDoc: vi.fn(async () => ({ id: "doc-1", type: "file" })),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file(".env")]);
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    expect(deps.createDoc).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ title: ".env" }),
+    );
+    expect(q.getSnapshot().find((i) => i.id === item.id)?.status).toBe("done");
+  });
+
   it("retries a rate-limited (429) image upload with backoff", async () => {
     const rateLimited = Object.assign(new Error("Too Many Requests"), {
       status: 429,
     });
     let calls = 0;
     const deps = {
-      importXlsx: vi.fn(),
+      importSheetFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
       uploadFile: vi.fn(async () => {
@@ -152,7 +334,7 @@ describe("upload-queue worker", () => {
       status: 429,
     });
     const deps = {
-      importXlsx: vi.fn(),
+      importSheetFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
       uploadFile: vi.fn(async () => {
@@ -184,7 +366,7 @@ describe("upload-queue worker", () => {
     });
     let calls = 0;
     const deps = {
-      importXlsx: vi.fn(),
+      importSheetFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
       uploadFile: vi.fn(async () => {
@@ -216,7 +398,7 @@ describe("upload-queue worker", () => {
     });
     let createCalls = 0;
     const deps = {
-      importXlsx: vi.fn(),
+      importSheetFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
       uploadFile: vi.fn(async () => ({ id: "img-1" })),
@@ -246,7 +428,7 @@ describe("upload-queue worker", () => {
       importDocx: vi.fn(async () => {
         throw new Error("corrupt");
       }),
-      importXlsx: vi.fn(async (f: File) => ({
+      importSheetFile: vi.fn(async (f: File) => ({
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
@@ -279,7 +461,7 @@ describe("upload-queue worker", () => {
     let maxActive = 0;
     const releases: Array<() => void> = [];
     const deps = {
-      importXlsx: vi.fn(async (f: File) => {
+      importSheetFile: vi.fn(async (f: File) => {
         active++;
         maxActive = Math.max(maxActive, active);
         await new Promise<void>((resolve) => releases.push(resolve));
@@ -331,7 +513,7 @@ describe("upload-queue worker", () => {
   it("retrying after an apply failure reuses the created document (no duplicate createDoc)", async () => {
     let applyCalls = 0;
     const deps = {
-      importXlsx: vi.fn(async (f: File) => ({
+      importSheetFile: vi.fn(async (f: File) => ({
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
@@ -377,7 +559,7 @@ describe("upload-queue worker", () => {
   it("retrying a PDF whose createDoc failed does not re-upload the blob", async () => {
     let createCalls = 0;
     const deps = {
-      importXlsx: vi.fn(),
+      importSheetFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(),
       uploadFile: vi.fn(async () => ({ id: "blob-1" })),
@@ -413,10 +595,59 @@ describe("upload-queue worker", () => {
     expect(deps.createDoc).toHaveBeenCalledTimes(2);
   });
 
+  it("retries fileSize/mimeType through a createDoc failure, not just fileId", async () => {
+    // Regression for a bug where size/mimeType were local to the `if
+    // (!fileId)` upload branch: on re-entry (fileId already persisted) they
+    // were read as undefined and createDoc got NULLs for both.
+    let createCalls = 0;
+    const deps = {
+      importSheetFile: vi.fn(),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(async () => ({
+        id: "blob-1.zip",
+        size: 2048,
+        mimeType: "application/zip",
+      })),
+      createDoc: vi.fn(async (_ws, p) => {
+        createCalls++;
+        if (createCalls === 1) throw new Error("create failed");
+        return { id: "doc-1", title: p.title, type: p.type };
+      }),
+      getDocumentPath: (d: { id: string }) => `/path/${d.id}`,
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("archive.zip")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    let current = q.getSnapshot().find((i) => i.id === item.id);
+    expect(current?.status).toBe("error");
+    expect(current?.fileSize).toBe(2048); // persisted alongside fileId
+    expect(current?.mimeType).toBe("application/zip");
+
+    q.retry(item.id);
+    await flush();
+    await flush();
+
+    current = q.getSnapshot().find((i) => i.id === item.id);
+    expect(current?.status).toBe("done");
+    expect(deps.uploadFile).toHaveBeenCalledTimes(1); // blob not re-uploaded
+    expect(deps.createDoc).toHaveBeenLastCalledWith(
+      "ws1",
+      expect.objectContaining({
+        fileId: "blob-1.zip",
+        fileSize: 2048,
+        mimeType: "application/zip",
+      }),
+    );
+  });
+
   it("fires the settled callback on both done and error", async () => {
     const settled: Array<{ name: string; status: string }> = [];
     const deps = {
-      importXlsx: vi.fn(async (f: File) => ({
+      importSheetFile: vi.fn(async (f: File) => ({
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
@@ -449,7 +680,7 @@ describe("upload-queue worker", () => {
   it("dismissing an errored item that created a doc deletes the orphan", async () => {
     const deleteDoc = vi.fn(async () => {});
     const deps = {
-      importXlsx: vi.fn(async (f: File) => ({
+      importSheetFile: vi.fn(async (f: File) => ({
         document: { tabOrder: ["t"] },
         fileName: f.name,
       })),
@@ -481,10 +712,10 @@ describe("upload-queue worker", () => {
     expect(q.getSnapshot().find((i) => i.id === item.id)).toBeUndefined();
   });
 
-  it("dismissing a skipped item removes it without any remote delete", async () => {
+  it("dismissing a pending item removes it without any remote delete", async () => {
     const deleteDoc = vi.fn(async () => {});
     q.startUploads(undefined, { deleteDoc } as never);
-    const [item] = q.enqueue([file("x.zip")]); // unsupported -> skipped
+    const [item] = q.enqueue([file("x.zip")]); // not yet started, no docId
     q.dismissItem(item.id);
     expect(deleteDoc).not.toHaveBeenCalled();
     expect(q.getSnapshot()).toHaveLength(0);
@@ -492,7 +723,7 @@ describe("upload-queue worker", () => {
 
   it("surfaces a lossy PPTX import summary as a warning on the done item", async () => {
     const deps = {
-      importXlsx: vi.fn(),
+      importSheetFile: vi.fn(),
       importDocx: vi.fn(),
       importPptxFile: vi.fn(async (f: File) => ({
         document: {},
@@ -516,5 +747,70 @@ describe("upload-queue worker", () => {
     const current = q.getSnapshot().find((i) => i.id === item.id);
     expect(current?.status).toBe("done");
     expect(current?.warning).toBe("2 fallbacks applied.");
+  });
+
+  it("warns when a CSV import was stopped by the budget", async () => {
+    // A file past the budget yields a partial sheet rather than an error, so
+    // the row count has to reach the user rather than rows vanishing quietly.
+    const deps = {
+      importSheetFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+        truncated: true,
+        rowCount: 20000,
+      })),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d",
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: () => "/p",
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("big.csv")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    const current = q.getSnapshot().find((i) => i.id === item.id);
+    expect(current?.status).toBe("done");
+    // Formatted rather than spelled "20,000": the separator follows the
+    // runner's locale, so a hardcoded comma fails wherever that is not en-US
+    // (measured under LANG=de_DE, which produces "20.000").
+    expect(current?.warning).toBe(
+      `Only the first ${(20000).toLocaleString()} rows were imported.`,
+    );
+  });
+
+  it("leaves an untruncated sheet import without a warning", async () => {
+    // The other sheet formats report neither field, so an absent `truncated`
+    // must read as "not truncated" rather than tripping the warning.
+    const deps = {
+      importSheetFile: vi.fn(async (f: File) => ({
+        document: { tabOrder: ["t"] },
+        fileName: f.name,
+      })),
+      importDocx: vi.fn(),
+      importPptxFile: vi.fn(),
+      uploadFile: vi.fn(),
+      createDoc: vi.fn(async (_ws, p) => ({
+        id: "d",
+        title: p.title,
+        type: p.type,
+      })),
+      getDocumentPath: () => "/p",
+      applyContent: vi.fn(async () => {}),
+    };
+    const [item] = q.enqueue([file("small.csv")], "ws1");
+    q.startUploads(undefined, deps as never);
+    await flush();
+    await flush();
+
+    const current = q.getSnapshot().find((i) => i.id === item.id);
+    expect(current?.status).toBe("done");
+    expect(current?.warning).toBeUndefined();
   });
 });

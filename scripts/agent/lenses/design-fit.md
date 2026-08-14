@@ -17,7 +17,7 @@ the *right change*, not whether the code is line-by-line correct.
 
 ## NOT your lane (defer — do not report)
 Line-level logic bugs (correctness lens), security specifics (security lens),
-test quality (test-adequacy lens), style, import-boundary/lint (mechanical).
+test quality (test-adequacy lens), style, import-boundary/lint.
 
 ## Coverage first
 **Report EVERY issue you find, including ones you are not sure about.** Do NOT

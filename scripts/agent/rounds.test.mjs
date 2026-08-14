@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  isFixerCommit,
+  isSingleParentCommit,
   countFailedReviewRounds,
   summaryTokens,
   findingSimilarity,
@@ -14,6 +14,16 @@ import {
   PAGED_LATCH,
   PAGE_AUTHOR_LOGINS,
   isPagedLatchComment,
+  rerunPointFrom,
+  isRerunCommand,
+  fixAttemptCommits,
+  FIX_DISPATCH_MARKER,
+  FIX_DISPATCH_AUTHOR_LOGIN,
+  serializeFixDispatch,
+  renderFixDispatchComment,
+  parseFixDispatchComment,
+  collectFixDispatches,
+  fixRoundsUsed,
 } from "./rounds.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -135,12 +145,12 @@ const merge = (sha, checkRuns = []) => ({ sha, parents: [{ sha: "p1" }, { sha: "
 const failingRun = (name = "agent-review-correctness") => ({ name, app: { slug: "github-actions" }, conclusion: "failure" });
 const passingRun = (name = "agent-review-correctness") => ({ name, app: { slug: "github-actions" }, conclusion: "success" });
 
-test("isFixerCommit: one parent → true; merge (2) or root (0) → false", () => {
-  assert.equal(isFixerCommit({ parents: [{ sha: "a" }] }), true);
-  assert.equal(isFixerCommit({ parents: [{ sha: "a" }, { sha: "b" }] }), false);
-  assert.equal(isFixerCommit({ parents: [] }), false);
-  assert.equal(isFixerCommit({}), false);
-  assert.equal(isFixerCommit(undefined), false);
+test("isSingleParentCommit: one parent → true; merge (2) or root (0) → false", () => {
+  assert.equal(isSingleParentCommit({ parents: [{ sha: "a" }] }), true);
+  assert.equal(isSingleParentCommit({ parents: [{ sha: "a" }, { sha: "b" }] }), false);
+  assert.equal(isSingleParentCommit({ parents: [] }), false);
+  assert.equal(isSingleParentCommit({}), false);
+  assert.equal(isSingleParentCommit(undefined), false);
 });
 
 test("countFailedReviewRounds: PR #521 shape — 3 fixer + 3 merge, same failing check → 3, not 6", () => {
@@ -354,4 +364,469 @@ test("groupReviewRounds: other-app check ignored; newest run per lens wins", () 
   const older = run("agent-review-correctness", [{ severity: "major", file: "a.ts", summary: "OLD" }], { completed_at: "2026-07-27T05:00:00Z" });
   const newer = run("agent-review-correctness", [{ severity: "major", file: "a.ts", summary: "NEW" }], { completed_at: "2026-07-27T07:00:00Z" });
   assert.deepEqual(groupReviewRounds([commit("c1", [older, newer])], NAMES)[0].findings.map((x) => x.summary), ["NEW"]);
+});
+
+// --- the rerun resume point --------------------------------------------------
+
+const human = (body, over = {}) => ({
+  body, created_at: "2026-08-04T09:30:00Z",
+  user: { login: "harrykim8672", type: "User" }, author_association: "MEMBER", ...over,
+});
+
+test("rerunPointFrom: a maintainer's @claude rerun moves the floor", () => {
+  assert.equal(rerunPointFrom([]), null);
+  assert.equal(rerunPointFrom([human("just a comment")]), null);
+  assert.equal(rerunPointFrom([human("@claude rerun")]), "2026-08-04T09:30:00.000Z");
+  assert.equal(
+    rerunPointFrom([human("@claude rerun"), human("@claude rerun", { created_at: "2026-08-04T14:00:00Z" })]),
+    "2026-08-04T14:00:00.000Z",
+  );
+  assert.equal(rerunPointFrom([human("@claude rerun", { created_at: "nonsense" })]), null);
+  for (const bad of [null, undefined, "x", 7]) assert.equal(rerunPointFrom(bad), null);
+});
+
+test("isRerunCommand: A BOT CAN NEVER RESET ITS OWN BOUND", () => {
+  // The reason this reads the maintainer's COMMAND and not the workflow's result
+  // marker. agent-rerun.yml posts with the App token, so the trusted identity would
+  // be yorkie-agent[bot] — the same identity the fixer and implementer post their
+  // own free-form comments under (the self-review comment on every agent PR). A
+  // marker keyed on bot login let the party bounded by MAX_REVIEW_ROUNDS grant
+  // itself unlimited attempts, by accident or by injection from the diff it reads.
+  //
+  // Structural, not a secret: no App can present as a non-Bot.
+  for (const login of ["yorkie-agent[bot]", "github-actions[bot]", "coderabbitai[bot]"]) {
+    for (const assoc of ["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]) {
+      assert.equal(
+        isRerunCommand(human("@claude rerun", { user: { login, type: "Bot" }, author_association: assoc })),
+        false,
+        `${login}/${assoc}`,
+      );
+    }
+  }
+  assert.equal(rerunPointFrom([human("@claude rerun", { user: { login: "yorkie-agent[bot]", type: "Bot" } })]), null);
+});
+
+test("isRerunCommand: a stranger cannot reset it either; junk never throws", () => {
+  for (const assoc of ["NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR"]) {
+    assert.equal(isRerunCommand(human("@claude rerun", { author_association: assoc })), false, assoc);
+  }
+  for (const assoc of ["OWNER", "MEMBER", "COLLABORATOR"]) {
+    assert.equal(isRerunCommand(human("@claude rerun", { author_association: assoc })), true, assoc);
+  }
+  for (const bad of [null, undefined, "x", 7, {}]) assert.equal(isRerunCommand(bad), false);
+});
+
+test("isRerunCommand: it is parseCommand's verb, so the router cannot disagree", () => {
+  // A second regex here could recognise a rerun agent-rerun.yml's router did not,
+  // moving the floor for a hand-back that never happened.
+  assert.equal(isRerunCommand(human("@claude rerun")), true);
+  assert.equal(isRerunCommand(human("@claude rerun this please")), true);
+  assert.equal(isRerunCommand(human("@claude loop")), false);
+  assert.equal(isRerunCommand(human("@claude review")), false);
+  // A different account is not a command for us.
+  assert.equal(isRerunCommand(human("@claude-bot rerun")), false);
+});
+
+// --- the round count, against #648's real shape ------------------------------
+
+const ROUND_NAMES = ["agent-review-correctness", "agent-review-security"];
+const lensRun = (conclusion, completed_at) => ({
+  name: "agent-review-correctness", app: { slug: "github-actions" }, conclusion, completed_at,
+});
+const commitAt = (sha, date, runs) => ({
+  sha, parents: [{ sha: "p" }], commit: { committer: { date } }, checkRuns: runs,
+});
+
+// The exact shape of PR #648: the implement agent pushes its work, self-reviews,
+// fixes what it found and pushes AGAIN — two commits before the panel has ever
+// spoken — then the fix loop pushes once. The old count returned 3 and tripped a
+// cap of 3 after a SINGLE fix attempt.
+const PR648 = [
+  commitAt("cde0fad48", "2026-08-03T09:31:22Z", [lensRun("failure", "2026-08-03T10:05:15Z")]),
+  commitAt("1d9e19dee", "2026-08-03T09:43:53Z", [lensRun("failure", "2026-08-03T10:11:28Z")]),
+  commitAt("102e0fa73", "2026-08-03T10:32:17Z", [lensRun("failure", "2026-08-03T17:42:33Z")]),
+];
+
+test("countFailedReviewRounds: commits predating the FIRST verdict are not fix attempts", () => {
+  // A commit committed before the panel first spoke cannot be a response to it.
+  assert.equal(countFailedReviewRounds(PR648, ROUND_NAMES), 1);
+});
+
+test("countFailedReviewRounds: a retry moves the floor, granting a fresh budget", () => {
+  // #648 after a maintainer hands it back: the pre-retry attempt no longer counts,
+  // so the loop gets its full MAX_REVIEW_ROUNDS again instead of re-paging on the
+  // first round.
+  assert.equal(countFailedReviewRounds(PR648, ROUND_NAMES, { since: "2026-08-03T18:00:00Z" }), 0);
+  // A post-retry failure does count.
+  const after = [...PR648, commitAt("aaaaaaaaa", "2026-08-03T18:30:00Z", [lensRun("failure", "2026-08-03T18:45:00Z")])];
+  assert.equal(countFailedReviewRounds(after, ROUND_NAMES, { since: "2026-08-03T18:00:00Z" }), 1);
+  // A retry OLDER than the first verdict must not widen the count back out.
+  assert.equal(countFailedReviewRounds(PR648, ROUND_NAMES, { since: "2026-08-03T08:00:00Z" }), 1);
+});
+
+test("countFailedReviewRounds: FAILS TOWARD COUNTING when the floor is unknowable", () => {
+  // This number feeds a CAP. Over-counting pages a round early, which `@claude
+  // retry` undoes; under-counting means the cap never trips and the loop is
+  // unbounded, recoverable only if someone notices. So missing timestamps must
+  // not silently disable the bound.
+  //
+  // No verdict timestamps anywhere → no floor → every failing commit counts,
+  // exactly as before this refinement. (This is the PR #521 fixture's shape.)
+  const noStamps = PR648.map((c) => ({
+    ...c,
+    checkRuns: c.checkRuns.map((r) => ({ ...r, completed_at: undefined })),
+  }));
+  assert.equal(countFailedReviewRounds(noStamps, ROUND_NAMES), 3);
+  // A floor exists, but ONE commit has no committer date → it cannot be proven to
+  // predate the floor, so it counts.
+  const undated = [PR648[0], { ...PR648[1], commit: {} }, PR648[2]];
+  assert.equal(countFailedReviewRounds(undated, ROUND_NAMES), 2);
+  // Genuinely nothing to count.
+  const noRuns = PR648.map((c) => ({ ...c, checkRuns: [] }));
+  assert.equal(countFailedReviewRounds(noRuns, ROUND_NAMES), 0);
+  for (const bad of [null, undefined, "x", 7]) assert.equal(countFailedReviewRounds(bad, ROUND_NAMES), 0);
+  assert.equal(countFailedReviewRounds(PR648, []), 0);
+});
+
+test("countFailedReviewRounds: merges and passing rounds still do not count", () => {
+  const merge = { ...PR648[2], parents: [{ sha: "a" }, { sha: "b" }] };
+  assert.equal(countFailedReviewRounds([PR648[0], PR648[1], merge], ROUND_NAMES), 0);
+  const passed = { ...PR648[2], checkRuns: [lensRun("success", "2026-08-03T17:42:33Z")] };
+  assert.equal(countFailedReviewRounds([PR648[0], PR648[1], passed], ROUND_NAMES), 0);
+  // A same-named check from another app cannot inflate the count.
+  const foreign = { ...PR648[2], checkRuns: [{ ...lensRun("failure", "2026-08-03T17:42:33Z"), app: { slug: "other" } }] };
+  assert.equal(countFailedReviewRounds([PR648[0], PR648[1], foreign], ROUND_NAMES), 0);
+});
+
+test("countFailedReviewRounds: a malformed `since` is ignored, not treated as zero", () => {
+  // A `since` of NaN must fall back to the first-verdict floor rather than
+  // silently becoming epoch 0 (which would count every commit) or Infinity.
+  for (const bad of ["nonsense", "", null, undefined, 7, {}]) {
+    assert.equal(countFailedReviewRounds(PR648, ROUND_NAMES, { since: bad }), 1, JSON.stringify(bad));
+  }
+});
+
+test("firstVerdictAt: a foreign app's same-named check cannot lower the floor", () => {
+  // Reached through countFailedReviewRounds. A lower floor widens the count, which
+  // is the wrong direction for a value that gates a cap.
+  const spoofed = [
+    { ...PR648[0], checkRuns: [{ name: "agent-review-correctness", app: { slug: "impostor" }, conclusion: "failure", completed_at: "2026-08-03T09:00:00Z" }] },
+    PR648[1],
+    PR648[2],
+  ];
+  // Without the app guard the floor would drop to 09:00 and 1d9e19dee (09:43) would
+  // count as an attempt; with it, the floor stays at the real first verdict.
+  assert.equal(countFailedReviewRounds(spoofed, ROUND_NAMES), 1);
+});
+
+test("fixAttemptCommits: the STALL door sees fix rounds only, like the cap", () => {
+  // The stall bound ran over groupReviewRounds(ALL commits), which includes the two
+  // the implement workflow pushes before the panel has spoken — so three rounds of
+  // "evidence" existed immediately and the stall door could cut the loop to one real
+  // attempt, the same failure the cap fix closed arriving through the other bound.
+  const kept = fixAttemptCommits(PR648, ROUND_NAMES);
+  assert.deepEqual(kept.map((c) => c.sha), ["102e0fa73"]);
+  // Same predicate the cap uses — if these ever disagree, one bound is counting
+  // something the other is not.
+  assert.equal(kept.length, countFailedReviewRounds(PR648, ROUND_NAMES));
+  // A rerun floor narrows both together.
+  assert.deepEqual(fixAttemptCommits(PR648, ROUND_NAMES, { since: "2026-08-03T18:00:00Z" }), []);
+  for (const bad of [null, undefined, "x", 7]) assert.deepEqual(fixAttemptCommits(bad, ROUND_NAMES), []);
+});
+
+// --- the rerun floor must use permission, not author_association ------------
+
+test("isRerunCommand: a maintainer reported as CONTRIBUTOR still sets the floor", () => {
+  // #648, exactly. Four `@claude rerun` commands from a Maintain-level maintainer
+  // were all reported CONTRIBUTOR — association describes the relationship to the
+  // PR thread, not permission — so the floor was never set and the guard counted
+  // the PR's whole history, paging "tried 3 time(s) (limit 3)" against a rerun
+  // that had reset nothing.
+  const c = {
+    user: { login: "harrykim8672", type: "User" },
+    author_association: "CONTRIBUTOR",
+    body: "@claude rerun",
+    created_at: "2026-08-06T04:30:47Z",
+  };
+  assert.equal(isRerunCommand(c), false, "association alone still refuses — that is the bug");
+  assert.equal(isRerunCommand(c, { trusts: () => true }), true, "the authoritative check accepts");
+  assert.equal(rerunPointFrom([c], { trusts: () => true }), "2026-08-06T04:30:47.000Z");
+});
+
+test("isRerunCommand: the resolver OVERRIDES a trusted-looking association", () => {
+  // The gap this closes: `MEMBER` is membership of the owning ORG and
+  // `COLLABORATOR` is satisfied by a read-only invite, so neither proves repo
+  // write. Accepting them would move the floor for a commenter
+  // `agent-rerun.yml` then refuses to run — budget granted for a rerun that
+  // never happened, which is the same two-authorities-disagreeing bug this
+  // function exists to remove, pointed the other way.
+  const base = { user: { login: "m", type: "User" }, body: "@claude rerun", created_at: "2026-08-06T00:00:00Z" };
+  const asked = [];
+  const denies = (login) => { asked.push(login); return false; };
+
+  for (const a of ["OWNER", "MEMBER", "COLLABORATOR"]) {
+    assert.equal(
+      isRerunCommand({ ...base, author_association: a }, { trusts: denies }),
+      false,
+      `${a} must not bypass the authoritative check`,
+    );
+  }
+  assert.deepEqual(asked, ["m", "m", "m"], "every non-Bot rerun commenter is resolved");
+
+  // And it is a real check, not a blanket deny: the same associations pass when
+  // the resolver says the login actually has write access.
+  for (const a of ["OWNER", "MEMBER", "COLLABORATOR", "NONE", "CONTRIBUTOR"]) {
+    assert.equal(isRerunCommand({ ...base, author_association: a }, { trusts: () => true }), true);
+  }
+});
+
+test("isRerunCommand: without a resolver it stays pure and association-only", () => {
+  // The resolver-less form is the legacy behaviour, kept so the function is
+  // testable without a network. `loop-status.mjs` is its only caller and is a
+  // projection, never a gate — no gating caller reaches this path.
+  const base = { user: { login: "m", type: "User" }, body: "@claude rerun", created_at: "2026-08-06T00:00:00Z" };
+  for (const a of ["OWNER", "MEMBER", "COLLABORATOR"]) {
+    assert.equal(isRerunCommand({ ...base, author_association: a }), true);
+  }
+  assert.equal(isRerunCommand({ ...base, author_association: "NONE" }), false);
+});
+
+test("FAIL DIRECTION: an unresolvable login does NOT reset the budget", () => {
+  // Resetting on a failed lookup would hand more attempts to the very party the
+  // budget bounds. Leaving it paged sends the PR to a human, which is where one
+  // the loop cannot finish belongs.
+  const c = { user: { login: "who", type: "User" }, author_association: "NONE", body: "@claude rerun", created_at: "2026-08-06T00:00:00Z" };
+  assert.equal(isRerunCommand(c, { trusts: () => null }), false);
+  assert.equal(isRerunCommand(c, { trusts: () => undefined }), false);
+  assert.equal(isRerunCommand(c, { trusts: () => "yes" }), false, "only a strict true counts");
+  assert.equal(rerunPointFrom([c], { trusts: () => null }), null);
+  // And with no resolver at all the function is exactly what it was before.
+  assert.equal(isRerunCommand(c), false);
+});
+
+test("a BOT is refused before any permission lookup", () => {
+  // The structural exclusion is what stops the bounded party resetting its own
+  // bound; a resolver must never be able to override it.
+  let asked = 0;
+  const c = {
+    user: { login: "yorkie-agent[bot]", type: "Bot" },
+    author_association: "OWNER",
+    body: "@claude rerun",
+    created_at: "2026-08-06T00:00:00Z",
+  };
+  assert.equal(isRerunCommand(c, { trusts: () => { asked++; return true; } }), false);
+  assert.equal(asked, 0);
+});
+
+test("rerunPointFrom: the NEWEST qualifying rerun wins", () => {
+  const mk = (t) => ({ user: { login: "m", type: "User" }, author_association: "CONTRIBUTOR", body: "@claude rerun", created_at: t });
+  const got = rerunPointFrom([mk("2026-08-04T06:01:06Z"), mk("2026-08-06T04:30:47Z"), mk("2026-08-05T01:30:10Z")], { trusts: () => true });
+  assert.equal(got, "2026-08-06T04:30:47.000Z");
+});
+
+test("the guard actually passes a permission resolver to rerunPointFrom", async () => {
+  // The tests above prove the predicate; they cannot prove review-round-guard.mjs
+  // supplies `trusts`, because that call is top-level CLI code needing `gh`.
+  // Without it the module falls back to association-only — i.e. straight back to
+  // the #648 behaviour, with every one of these tests still green.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./review-round-guard.mjs", import.meta.url), "utf8");
+  assert.match(src, /rerunPointFrom\(comments,\s*\{\s*trusts:\s*permissionResolver\(/);
+  assert.match(src, /permissionResolver\(\{\s*api:\s*ghJson\s*\}\)/, "the resolver needs PARSED json, not this module's string-returning gh()");
+  assert.match(src, /import \{ permissionResolver \} from "\.\/gh-checks\.mjs"/);
+});
+
+// --- the dispatch ledger -----------------------------------------------------
+//
+// Replaces "a commit that looks like a fix" with "the guard says it sent the
+// fixer in". #695 is the case that forced it: three counted rounds, ONE fixer
+// invocation, and a page whose message was false.
+
+const dispatch = (over = {}, rec = {}) => ({
+  user: { login: FIX_DISPATCH_AUTHOR_LOGIN, type: "Bot" },
+  body: serializeFixDispatch(rec),
+  created_at: "2026-08-06T10:00:00Z",
+  ...over,
+});
+
+test("FIX_DISPATCH_MARKER is the exact marker, pinned as a literal", () => {
+  assert.equal(FIX_DISPATCH_MARKER, "<!-- agent-fix-dispatch ");
+  assert.equal(FIX_DISPATCH_AUTHOR_LOGIN, "github-actions[bot]");
+});
+
+test("a dispatch record round-trips through the comment body", () => {
+  const got = parseFixDispatchComment(dispatch({}, { from: "6d0b9229f", prior: 2 }));
+  assert.deepEqual({ from: got.from, prior: got.prior }, { from: "6d0b9229f", prior: 2 });
+});
+
+test("a `-->` in any field cannot truncate the record", () => {
+  // Unreachable today (every field is a number or a hex SHA) but the fail
+  // direction is the bad one: a truncated payload drops the record and LOWERS
+  // the count. Pinned so the next string field added here inherits the escape.
+  const body = serializeFixDispatch({ from: "abc--> injected", prior: 1 });
+  assert.ok(!body.slice(0, -4).includes("-->"), "the raw body must carry no early terminator");
+  const got = parseFixDispatchComment(dispatch({ body }));
+  assert.equal(got.from, "abc--> injected", "and JSON.parse must restore it exactly");
+  assert.equal(got.prior, 1);
+});
+
+test("the dispatch comment says something a human can read", () => {
+  // #690's lesson: a marker-only body is an empty-looking bot comment, and a
+  // dispatch was the one loop event with no timeline surface at all.
+  const body = renderFixDispatchComment({ from: "4d46871ac0", prior: 0, round: 2, max: 3 });
+  assert.match(body, /Fix round 2 of 3/);
+  assert.match(body, /`4d46871ac`/, "the round's head, short-form");
+  assert.ok(parseFixDispatchComment(dispatch({ body })), "and the record still round-trips");
+  // The body is written by a TRUSTED latch author, so it must not be able to
+  // carry a live latch of its own.
+  assert.ok(!body.includes(PAGED_LATCH));
+});
+
+test("an unknown round or cap degrades to a bare line, never 'undefined'", () => {
+  const body = renderFixDispatchComment({ from: "abc123def" });
+  assert.match(body, /\*\*Fix round\*\* —/);
+  assert.ok(!/undefined|null|NaN/.test(body), body);
+});
+
+test("the fixer's OWN identity cannot write a dispatch record", () => {
+  // THE point of the narrower author gate. `yorkie-agent[bot]` is a trusted
+  // paged-latch author AND the App identity the fix agent posts under, so
+  // accepting it would let the party bounded by MAX_REVIEW_ROUNDS plant the
+  // record that decides which counting rule applies to it.
+  const fixerAuthored = dispatch({ user: { login: "yorkie-agent[bot]", type: "Bot" } });
+  assert.equal(parseFixDispatchComment(fixerAuthored), null);
+});
+
+test("no association path: a maintainer's hand-written record is not believed", () => {
+  // Unlike the paged latch, where a human halting the loop by hand is supported.
+  for (const assoc of ["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR", "NONE"]) {
+    const byHand = dispatch({ user: { login: "harrykim8672", type: "User" }, author_association: assoc });
+    assert.equal(parseFixDispatchComment(byHand), null, assoc);
+  }
+  // Nor can an account merely NAMED like the bot — the type is checked too.
+  const impostor = dispatch({ user: { login: FIX_DISPATCH_AUTHOR_LOGIN, type: "User" } });
+  assert.equal(parseFixDispatchComment(impostor), null);
+});
+
+test("a malformed record is absent, never half-read", () => {
+  assert.equal(parseFixDispatchComment(dispatch({ body: "no marker here" })), null);
+  assert.equal(parseFixDispatchComment(dispatch({ body: `${FIX_DISPATCH_MARKER}{not json} -->` })), null);
+  assert.equal(parseFixDispatchComment(dispatch({ body: `${FIX_DISPATCH_MARKER}{"v":99} -->` })), null);
+  for (const bad of [null, undefined, "x", 7, {}]) assert.equal(parseFixDispatchComment(bad), null);
+  assert.deepEqual(collectFixDispatches(null), []);
+});
+
+test("collectFixDispatches orders oldest-first regardless of comment order", () => {
+  const got = collectFixDispatches([
+    dispatch({ created_at: "2026-08-06T12:00:00Z" }, { from: "c" }),
+    dispatch({ created_at: "2026-08-06T10:00:00Z" }, { from: "a" }),
+    dispatch({ created_at: "2026-08-06T11:00:00Z" }, { from: "b" }),
+  ]);
+  assert.deepEqual(got.map((d) => d.from), ["a", "b", "c"]);
+});
+
+test("fixRoundsUsed: with no ledger it IS countFailedReviewRounds", () => {
+  // A PR opened before the ledger shipped keeps the behaviour it started with.
+  assert.equal(fixRoundsUsed([], PR648, ROUND_NAMES), countFailedReviewRounds(PR648, ROUND_NAMES));
+  assert.equal(fixRoundsUsed([], PR648, ROUND_NAMES), 1);
+  // Comments that are not records leave the fallback in place.
+  assert.equal(fixRoundsUsed([human("nice work")], PR648, ROUND_NAMES), 1);
+});
+
+test("fixRoundsUsed: a forged record cannot switch a PR off the fallback", () => {
+  // The attack the author gate exists to stop: one planted record would otherwise
+  // make records authoritative and drop a 3-round PR to 1, handing back budget.
+  const forged = dispatch({ user: { login: "stranger", type: "User" }, author_association: "OWNER" });
+  assert.equal(fixRoundsUsed([forged], PR648, ROUND_NAMES), countFailedReviewRounds(PR648, ROUND_NAMES));
+});
+
+test("fixRoundsUsed: records are counted, and the lens set stops mattering", () => {
+  const ledger = [dispatch(), dispatch(), dispatch()];
+  assert.equal(fixRoundsUsed(ledger, PR648, ROUND_NAMES), 3);
+  // No commit or lens input is consulted once a ledger exists.
+  assert.equal(fixRoundsUsed(ledger, [], []), 3);
+});
+
+test("fixRoundsUsed: the FIRST record's baseline carries the pre-ledger history", () => {
+  // Otherwise a PR mid-flight when this shipped silently earns its spent rounds back.
+  const ledger = [dispatch({ created_at: "2026-08-06T10:00:00Z" }, { prior: 2 })];
+  assert.equal(fixRoundsUsed(ledger, [], []), 3);
+  ledger.push(dispatch({ created_at: "2026-08-06T11:00:00Z" }, { prior: 0 }));
+  assert.equal(fixRoundsUsed(ledger, [], []), 4);
+  // Only the first record's baseline is read — a later one cannot add to it.
+  const noisy = [...ledger, dispatch({ created_at: "2026-08-06T12:00:00Z" }, { prior: 7 })];
+  assert.equal(fixRoundsUsed(noisy, [], []), 5);
+});
+
+test("fixRoundsUsed: a rerun that cuts the ledger drops the baseline with it", () => {
+  const ledger = [
+    dispatch({ created_at: "2026-08-06T10:00:00Z" }, { prior: 2 }),
+    dispatch({ created_at: "2026-08-06T11:00:00Z" }),
+  ];
+  // Hand-back after both: a fresh budget, and the pre-rerun estimate must not
+  // ride across the floor and spend it before the first new attempt.
+  assert.equal(fixRoundsUsed(ledger, [], [], { since: "2026-08-06T12:00:00Z" }), 0);
+  // Hand-back between them: one attempt since, still no baseline.
+  assert.equal(fixRoundsUsed(ledger, [], [], { since: "2026-08-06T10:30:00Z" }), 1);
+  // A floor that cuts nothing keeps the baseline.
+  assert.equal(fixRoundsUsed(ledger, [], [], { since: "2026-08-06T09:00:00Z" }), 4);
+  // A malformed floor is ignored, not read as zero.
+  for (const bad of [null, undefined, "", "not-a-date"]) {
+    assert.equal(fixRoundsUsed(ledger, [], [], { since: bad }), 4, JSON.stringify(bad));
+  }
+});
+
+test("fixRoundsUsed: an undatable record is KEPT, not silently forgiven", () => {
+  // Same fail direction as fixAttemptCommits' undatable commit. A record whose
+  // timestamp cannot be read has not been shown to predate the floor, and
+  // dropping it would hand back a round rather than cost one.
+  const undatable = dispatch({ created_at: "" });
+  assert.equal(fixRoundsUsed([undatable], [], [], { since: "2026-08-06T12:00:00Z" }), 1);
+});
+
+test("PR #695: three counted rounds become the ONE fix round that happened", () => {
+  // The real shape. 8d85caa13 implement, 66b5b2833 + 3a6f5859f the implement
+  // job's own self-review pushes, 6d0b9229f the single fix round. The first
+  // verdict landed 09:57:43 — before the two self-review pushes, which is why
+  // the commit-shape rule counted them and paged after one real attempt.
+  const PR695 = [
+    commitAt("8d85caa13", "2026-08-06T09:49:04Z", [lensRun("failure", "2026-08-06T09:57:43Z")]),
+    commitAt("66b5b2833", "2026-08-06T10:00:33Z", [lensRun("failure", "2026-08-06T10:01:42Z")]),
+    commitAt("3a6f5859f", "2026-08-06T10:01:30Z", [lensRun("failure", "2026-08-06T10:11:19Z")]),
+    commitAt("6d0b9229f", "2026-08-06T10:38:05Z", [lensRun("failure", "2026-08-06T10:49:45Z")]),
+  ];
+  assert.equal(countFailedReviewRounds(PR695, ROUND_NAMES), 3, "the shape that paged #695");
+  assert.equal(fixRoundsUsed([dispatch()], PR695, ROUND_NAMES), 1, "what actually happened");
+});
+
+// --- a superseded round is not a failed round --------------------------------
+
+test("a superseded lens run does not count as a fix attempt", () => {
+  // close-stuck-checks marks a cancelled panel's lenses `cancelled`, and the
+  // whole point is that this predicate then ignores them. If that conclusion
+  // ever goes back to `failure`, #695's phantom round comes back with it.
+  const superseded = commitAt("66b5b2833", "2026-08-06T10:00:33Z", [
+    lensRun("cancelled", "2026-08-06T10:01:42Z"),
+  ]);
+  const commits = [
+    commitAt("8d85caa13", "2026-08-06T09:49:04Z", [lensRun("failure", "2026-08-06T09:57:43Z")]),
+    superseded,
+  ];
+  assert.equal(countFailedReviewRounds(commits, ROUND_NAMES), 0);
+});
+
+test("the panel workflow does not record verdicts for a cancelled round", () => {
+  // Prose in a YAML comment is not a guard. `always()` here is what wrote six
+  // fail-closed reds onto a commit nobody reviewed.
+  const from = PANEL_WORKFLOW.indexOf("- name: Post per-lens check runs");
+  assert.ok(from > 0, "the verdict step must still be findable by name");
+  const head = PANEL_WORKFLOW.slice(from, PANEL_WORKFLOW.indexOf("uses:", from));
+  assert.match(head, /!cancelled\(\)/, "a superseded panel must not write verdicts");
+  assert.doesNotMatch(head, /always\(\)/, "always() is exactly the bug");
+});
+
+test("close-stuck-checks distinguishes superseded from broken", () => {
+  const job = PANEL_WORKFLOW.slice(PANEL_WORKFLOW.indexOf("close-stuck-checks:"));
+  assert.match(job, /PANEL_RESULT: \$\{\{ needs\.review-panel\.result \}\}/);
+  assert.match(job, /superseded \? 'cancelled' : 'failure'/);
 });

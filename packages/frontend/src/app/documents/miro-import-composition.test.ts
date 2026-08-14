@@ -55,6 +55,25 @@ function backendPayload() {
         data: { shape: "circle", content: "<p>End</p>" },
         style: { fillColor: "#ff9d48" },
       },
+      // A frame far from the origin, and one sticky INSIDE it. Miro reports
+      // the sticky against the frame's top-left, so this pair is what tells
+      // absolute-position handling apart from frame-local.
+      {
+        id: "3458764500000000004",
+        type: "frame",
+        position: { x: 20000, y: -9000, relativeTo: "canvas_center" },
+        geometry: { width: 1000, height: 800 },
+        data: { title: "Sprint 12" },
+      },
+      {
+        id: "3458764500000000005",
+        type: "sticky_note",
+        position: { x: 250, y: 400, relativeTo: "parent_top_left" },
+        geometry: { width: 200, height: 200 },
+        parent: { id: "3458764500000000004" },
+        data: { content: "<p>Inside the frame</p>" },
+        style: { fillColor: "yellow" },
+      },
     ],
     connectors: [
       {
@@ -145,6 +164,43 @@ describe("Miro import composition (backend payload -> mapper -> store)", () => {
     // origin, so a persisted relative src 404s forever.
     expect(src).toMatch(/^https?:\/\//i);
     expect(src).toBe(resolveImageUrl("/api/v1/workspaces/ws-1/images/img-9"));
+  });
+
+  it("lands a framed item inside its frame, not beside the world origin", () => {
+    // Miro measures a framed item from its frame's TOP-LEFT. Persisting that
+    // offset as a world coordinate is how a real import put 96% of its
+    // elements into one box next to the origin while the frames stayed spread
+    // across x up to 46,000 — the board read as "everything shoved left".
+    const { items, connectors } = backendPayload();
+    const { inits, approximated } = mapMiroItems({
+      items,
+      connectors,
+      resolveImageUrl,
+    });
+
+    const store = emptyBoardStore();
+    applyBoardElements(store, inits);
+
+    const elements = writtenElements(store);
+    const frame = elements.find((e) => e.frame.w === 1000 && e.frame.h === 800);
+    const sticky = elements.find((e) => e.frame.w === 200 && e.frame.h === 200);
+    expect(frame).toBeDefined();
+    expect(sticky).toBeDefined();
+
+    // Frame top-left: (20000 - 500, -9000 - 400) = (19500, -9400).
+    expect(frame!.frame).toMatchObject({ x: 19500, y: -9400 });
+    // Sticky centre: frame top-left + (250, 400) → top-left (19650, -9100).
+    expect(sticky!.frame).toMatchObject({ x: 19650, y: -9100 });
+
+    // It resolved exactly, so nothing is reported as approximated.
+    expect(approximated["parent-position"]).toBeUndefined();
+
+    // And it really is inside the frame's box, which is the property that
+    // matters however the arithmetic is expressed.
+    expect(sticky!.frame.x).toBeGreaterThanOrEqual(frame!.frame.x);
+    expect(sticky!.frame.x + sticky!.frame.w).toBeLessThanOrEqual(
+      frame!.frame.x + frame!.frame.w,
+    );
   });
 
   it("reports connectors it had to drop rather than writing a dangling one", () => {

@@ -65,6 +65,14 @@ try {
     cwd: repoRoot,
     stdio: "inherit",
   });
+  // The UI hunter's free oracles. Runs here rather than in `verify:self` because it
+  // needs Chromium, and because an oracle that silently stops firing is invisible
+  // from the outside — a run with no findings and a run with a dead detector produce
+  // the same empty report, so the detector needs its own lane.
+  execSync("pnpm verify:hunt:oracles", {
+    cwd: repoRoot,
+    stdio: "inherit",
+  });
 } catch (error) {
   process.exit(error.status ?? 1);
 }

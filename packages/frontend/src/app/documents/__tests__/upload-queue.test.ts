@@ -1,19 +1,26 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as q from "@/app/documents/upload-queue";
 
-function file(name: string): File {
-  return new File([new Uint8Array([1])], name);
+function file(name: string, size = 1): File {
+  return new File([new Uint8Array(size)], name);
 }
 
 describe("upload-queue store", () => {
   beforeEach(() => q.__resetForTest());
 
-  it("enqueues supported files as pending and unsupported as skipped", () => {
+  it("enqueues every file as pending, including unknown types", () => {
     const items = q.enqueue([file("a.xlsx"), file("b.zip")], "ws1");
-    expect(items.map((i) => i.status)).toEqual(["pending", "skipped"]);
-    expect(items[0].kind).toBe("sheet");
-    expect(items[0].workspaceId).toBe("ws1");
-    expect(items[1].reason).toBe("Unsupported file type");
+    expect(items.map((i) => i.status)).toEqual(["pending", "pending"]);
+    expect(items.map((i) => i.kind)).toEqual(["sheet", "file"]);
+    expect(items[1].reason).toBeUndefined();
+  });
+
+  it("fails an over-cap file at enqueue time without pinning its blob", () => {
+    const [item] = q.enqueue([file("huge.zip", 60 * 1024 * 1024)]);
+    expect(item.status).toBe("error");
+    expect(item.reason).toBe("File is larger than the 50 MB limit");
+    expect(item.file).toBeUndefined();
+    expect(q.isRetryable(item)).toBe(false);
   });
 
   it("registers an externally driven item as active work the worker cannot claim", () => {
@@ -95,28 +102,23 @@ describe("upload-queue store", () => {
     expect(q.getSnapshot()).toHaveLength(0);
   });
 
-  it("clearFinished prunes done and skipped items but retains pending/in-flight/error items", () => {
-    const [done, skipped, pending, uploading, errored] = q.enqueue([
-      file("a.pptx"),
-      file("b.zip"), // unsupported -> auto "skipped"
-      file("c.docx"),
+  it("clearFinished prunes done items but retains pending/in-flight/errored", () => {
+    const [done, pending, uploading, errored] = q.enqueue([
+      file("a.xlsx"),
+      file("c.xlsx"),
       file("d.xlsx"),
-      file("e.pdf"),
+      file("e.xlsx"),
     ]);
     q.patchItem(done.id, { status: "done" });
-    expect(q.getSnapshot().find((i) => i.id === skipped.id)?.status).toBe(
-      "skipped",
-    );
-    q.patchItem(uploading.id, { status: "uploading", done: 1, total: 2 });
-    q.patchItem(errored.id, { status: "error", reason: "boom" });
+    q.patchItem(uploading.id, { status: "uploading" });
+    q.patchItem(errored.id, { status: "error" });
 
     q.clearFinished();
 
     const remainingIds = q.getSnapshot().map((i) => i.id);
     expect(remainingIds).not.toContain(done.id);
-    expect(remainingIds).not.toContain(skipped.id);
-    expect(remainingIds).toContain(pending.id);
-    expect(remainingIds).toContain(uploading.id);
-    expect(remainingIds).toContain(errored.id);
+    expect(remainingIds).toEqual(
+      expect.arrayContaining([pending.id, uploading.id, errored.id]),
+    );
   });
 });

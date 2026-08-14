@@ -1,6 +1,10 @@
-import { classifyUploadKind, SKIP_REASON, type UploadKind } from "./upload-kind";
+import { classifyUploadKind, type UploadKind } from "./upload-kind";
+import { uploadSizeError } from "./file-meta";
 import { getDocumentPath as getDocumentPathDefault } from "./document-list-utils";
-import { importXlsx } from "@/app/spreadsheet/xlsx-actions";
+import {
+  importSheetFile,
+  sheetImportBaseName,
+} from "@/app/spreadsheet/sheet-import-actions";
 import { importDocx } from "@/app/docs/docx-actions";
 import { importPptxFile } from "@/app/slides/pptx-actions";
 import { uploadFile } from "@/api/files";
@@ -14,14 +18,13 @@ export type UploadStatus =
   | "parsing"
   | "uploading"
   | "done"
-  | "error"
-  | "skipped";
+  | "error";
 
 export interface UploadItem {
   id: string;
   file?: File; // retained for the worker; omitted from public reasoning
   fileName: string;
-  kind: UploadKind | null;
+  kind: UploadKind;
   workspaceId?: string;
   /** Folder the list was viewing when the file was enqueued (null = workspace
    *  root). Threaded into createDoc so a dropped file lands where the user is,
@@ -40,9 +43,13 @@ export interface UploadItem {
   detail?: string;
   docId?: string;
   docPath?: string;
-  /** Uploaded blob id (pdf/image). Set before createDoc so a retry reuses the
-   *  blob instead of re-uploading/orphaning it. */
+  /** Uploaded blob id (pdf/image/file). Set before createDoc so a retry
+   *  reuses the blob instead of re-uploading/orphaning it. */
   fileId?: string;
+  /** Blob size/MIME, set alongside `fileId` so a retry or 429 re-entry still
+   *  has them to pass into createDoc (see the note in runItem). */
+  fileSize?: number;
+  mimeType?: string;
   reason?: string;
   /** Non-fatal note surfaced on success (e.g. lossy PPTX import fallbacks). */
   warning?: string;
@@ -79,19 +86,20 @@ export function enqueue(
 ): UploadItem[] {
   const created: UploadItem[] = files.map((file) => {
     const kind = classifyUploadKind(file.name);
+    // Fail over-cap files here rather than after uploading the whole body.
+    const reason = uploadSizeError(kind, file.size, file.type);
     return {
       id: `u${++seq}`,
-      // Skipped items are never processed, so don't pin their File blob in
-      // memory — only supported items need it for the worker.
-      file: kind ? file : undefined,
+      // An item that will never run should not pin its File blob in memory.
+      file: reason ? undefined : file,
       fileName: file.name,
       kind,
       workspaceId,
       folderId,
-      status: kind ? "pending" : "skipped",
+      status: reason ? "error" : "pending",
       done: 0,
       total: 0,
-      reason: kind ? undefined : SKIP_REASON,
+      reason,
     };
   });
   replace([...items, ...created]);
@@ -160,9 +168,7 @@ export function dismissItem(id: string): void {
 }
 
 export function clearFinished(): void {
-  replace(
-    items.filter((it) => it.status !== "done" && it.status !== "skipped"),
-  );
+  replace(items.filter((it) => it.status !== "done"));
 }
 
 export function nextPendingId(): string | undefined {
@@ -198,7 +204,7 @@ interface DocRef {
 }
 
 export interface UploadDeps {
-  importXlsx: typeof importXlsx;
+  importSheetFile: typeof importSheetFile;
   importDocx: typeof importDocx;
   importPptxFile: typeof importPptxFile;
   uploadFile: typeof uploadFile;
@@ -208,6 +214,8 @@ export interface UploadDeps {
       title: string;
       type: DocumentType;
       fileId?: string;
+      fileSize?: number;
+      mimeType?: string;
       folderId?: string | null;
     },
   ) => Promise<Document>;
@@ -218,7 +226,7 @@ export interface UploadDeps {
 }
 
 const defaultDeps: UploadDeps = {
-  importXlsx,
+  importSheetFile,
   importDocx,
   importPptxFile,
   uploadFile,
@@ -235,8 +243,16 @@ let activeDeps: UploadDeps = defaultDeps;
 // host can refresh the list, surface a failure, or warn about a lossy import.
 let onItemSettledCb: ((item: UploadItem) => void) | undefined;
 
-function stripExt(name: string, ext: string, fallback: string): string {
-  return name.replace(new RegExp(`\\.${ext}$`, "i"), "") || fallback;
+/**
+ * Strip the extension off a filename by index, not by building a RegExp out
+ * of it — `ext` can be arbitrary user text (e.g. `c++`), and `+ ? * [ (`
+ * right after the last dot make an unescaped-regex approach throw. `dot > 0`
+ * (not `>= 0`) so a dotfile like `.env` keeps its full name instead of
+ * being stripped down to the fallback.
+ */
+function stripExt(name: string, fallback: string): string {
+  const dot = name.lastIndexOf(".");
+  return (dot > 0 ? name.slice(0, dot) : name) || fallback;
 }
 
 /**
@@ -247,7 +263,13 @@ function stripExt(name: string, ext: string, fallback: string): string {
  */
 async function getOrCreateDoc(
   item: UploadItem,
-  payload: { title: string; type: DocumentType; fileId?: string },
+  payload: {
+    title: string;
+    type: DocumentType;
+    fileId?: string;
+    fileSize?: number;
+    mimeType?: string;
+  },
 ): Promise<DocRef> {
   if (item.docId) {
     return { id: item.docId, type: payload.type };
@@ -326,21 +348,32 @@ async function runItem(item: UploadItem): Promise<void> {
       try {
         if (item.kind === "sheet") {
           patchItem(item.id, { status: "parsing" });
-          const { document } = await d.importXlsx(file);
-          const title = stripExt(item.fileName, "xlsx", "Imported Sheet");
+          const { document, truncated, rowCount } =
+            await d.importSheetFile(file);
+          const title = sheetImportBaseName(item.fileName);
           const created = await getOrCreateDoc(item, { title, type: "sheet" });
           // Persist the parsed content into the Yorkie doc now (see
           // apply-imported-content.ts) so "done" means it is actually saved —
           // not merely stashed in memory awaiting an editor mount.
           patchItem(item.id, { status: "uploading" });
           await d.applyContent(created.id, { type: "sheet", document });
-          finish(item.id, created);
+          // A file past the import budget yields a partial sheet rather than a
+          // failure, so say which part arrived — silently dropping rows is the
+          // worse outcome. Only the CSV path has a budget; the other sheet
+          // formats report neither field.
+          //
+          // The count is the imported sheet's row extent, so it is one the user
+          // can check: it is the last row of the sheet they are about to open.
+          const truncation = truncated
+            ? `Only the first ${(rowCount ?? 0).toLocaleString()} rows were imported.`
+            : undefined;
+          finish(item.id, created, truncation);
         } else if (item.kind === "doc") {
           patchItem(item.id, { status: "parsing" });
           const { doc } = await d.importDocx(file, ({ done, total }) =>
             patchItem(item.id, { status: "uploading", done, total }),
           );
-          const title = stripExt(item.fileName, "docx", "Imported Document");
+          const title = stripExt(item.fileName, "Imported Document");
           const created = await getOrCreateDoc(item, { title, type: "doc" });
           patchItem(item.id, { status: "uploading" });
           await d.applyContent(created.id, { type: "doc", document: doc });
@@ -352,7 +385,7 @@ async function runItem(item: UploadItem): Promise<void> {
             ({ done, total }) =>
               patchItem(item.id, { status: "uploading", done, total }),
           );
-          const title = stripExt(item.fileName, "pptx", "Imported Presentation");
+          const title = stripExt(item.fileName, "Imported Presentation");
           const created = await getOrCreateDoc(item, { title, type: "slides" });
           patchItem(item.id, { status: "uploading" });
           await d.applyContent(created.id, { type: "slides", document });
@@ -361,24 +394,49 @@ async function runItem(item: UploadItem): Promise<void> {
           const warning =
             summary && summary !== "Imported with no fallbacks." ? summary : undefined;
           finish(item.id, created, warning);
-        } else if (item.kind === "pdf" || item.kind === "image") {
+        } else if (
+          item.kind === "pdf" ||
+          item.kind === "image" ||
+          item.kind === "file"
+        ) {
           patchItem(item.id, { status: "uploading" });
-          const dot = item.fileName.lastIndexOf(".");
-          const ext = dot >= 0 ? item.fileName.slice(dot + 1).toLowerCase() : "";
-          const fallback = item.kind === "pdf" ? "Untitled PDF" : "Untitled Image";
-          const title = stripExt(item.fileName, ext, fallback);
+          const fallback =
+            item.kind === "pdf"
+              ? "Untitled PDF"
+              : item.kind === "image"
+              ? "Untitled Image"
+              : "Untitled File";
+          // A blob document *is* the file, so its title is the whole
+          // filename. Unlike the converted branches above (an imported .xlsx
+          // becomes a native sheet named "Budget"), stripping here made
+          // `report.{zip,pdf,png}` indistinguishable in the list — and it
+          // discarded the only copy of an extension the backend's
+          // `safeExtension` rejects, which the download filename then could
+          // not restore.
+          const title = item.fileName.trim() || fallback;
           // Upload the blob at most once per item: persist the returned fileId
           // immediately so a retry whose earlier failure was in createDoc reuses
-          // the blob instead of orphaning it with a second upload.
+          // the blob instead of orphaning it with a second upload. fileSize/
+          // mimeType are persisted alongside it for the same reason — a 429
+          // backoff re-entry or an explicit retry() re-reads `item` from the
+          // store (see the loop-top re-read above), so without this they'd be
+          // dropped (undefined) on any attempt after the first.
           let fileId = item.fileId;
+          let size = item.fileSize;
+          let mimeType = item.mimeType;
           if (!fileId) {
-            ({ id: fileId } = await d.uploadFile(file));
-            patchItem(item.id, { fileId });
+            const uploaded = await d.uploadFile(file);
+            fileId = uploaded.id;
+            size = uploaded.size;
+            mimeType = uploaded.mimeType;
+            patchItem(item.id, { fileId, fileSize: size, mimeType });
           }
           const created = await getOrCreateDoc(item, {
             title,
             type: item.kind,
             fileId,
+            fileSize: size,
+            mimeType,
           });
           finish(item.id, created);
         }

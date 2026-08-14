@@ -30,6 +30,10 @@ permissions:
   pull-requests: write # open the draft PR + comment
   issues: write # comment back on the issue
 
+env:
+  # gh expands `{owner}/{repo}` via git; GH_REPO makes it skip that lookup.
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   # Parse the "@claude <verb>" command from the comment via the shared
   # scripts/agent/command.mjs (flexible/containment matching: case-insensitive,
@@ -171,14 +175,21 @@ jobs:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            await github.rest.issues.createComment({
-              owner: context.repo.owner, repo: context.repo.repo,
-              issue_number: context.payload.issue.number,
-              body: [
-                "<!-- agent-implement-ack -->",
-                `🤖 On it — I'm working on this issue now. I'll open a draft PR and link it here as soon as the code compiles. [Follow the run](${runUrl}).`,
-              ].join("\n"),
-            });
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: [
+                  "<!-- agent-implement-ack -->",
+                  `🤖 On it — I'm working on this issue now. I'll open a draft PR and link it here as soon as the code compiles. [Follow the run](${runUrl}).`,
+                ].join("\n"),
+              });
+            } catch (e) {
+              // OBSERVABILITY (Phase 3): continue-on-error hides this step's
+              // failure; without the annotation the commenter simply never
+              // hears back and nothing says why.
+              core.warning(`could not acknowledge the issue: ${e.message} — the commenter got no "On it" reply`);
+            }
 
       - uses: actions/checkout@v4
         with:
@@ -300,6 +311,7 @@ jobs:
         # Pinned to the v1 release commit (immutable) for supply-chain safety.
         # Re-check input names against https://code.claude.com/docs/en/github-actions
         # when bumping. github_token is the App token so pushes re-trigger CI.
+        id: agent
         uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -321,6 +333,19 @@ jobs:
           path: ${{ runner.temp }}/claude-execution-output.json
           if-no-files-found: warn
 
+      # OBSERVABILITY (Phase 1): the kickoff session's turns/cost/outcome on the
+      # run page, so "the run ended and no PR appeared" stops requiring an
+      # artifact download to explain. Display only; never blocks the pipeline.
+      - name: Write implement session job summary
+        if: always()
+        continue-on-error: true
+        run: |
+          [ -f ./scripts/agent/session-job-summary.mjs ] || { echo "session-job-summary.mjs not in this tree yet; skipping"; exit 0; }
+          node ./scripts/agent/session-job-summary.mjs \
+            --execution "$RUNNER_TEMP/claude-execution-output.json" \
+            --kind implement \
+            --title "Implement agent session"
+
       # Record this session's effort into the PR metrics ledger. The kickoff
       # created the PR mid-run, so resolve it by the `agent/<issue>-…` branch.
       # Fail-safe: continue-on-error + the script exits 0 on any error.
@@ -331,6 +356,54 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ISSUE: ${{ github.event.issue.number || github.event.inputs.issue_number }}
         run: node ./scripts/agent/metrics.mjs record --execution "$RUNNER_TEMP/claude-execution-output.json" --kind implement --issue "$ISSUE"
+
+      # OBSERVABILITY (Phase 3): the one silent termination left in the
+      # pipeline — the run dies (or exhausts its turns) before opening a PR,
+      # and the issue keeps the "On it" ack forever, looking in-progress to
+      # anyone watching. Resolve whether an agent/<issue>-* PR exists (the same
+      # branch-prefix lookup metrics.mjs::resolvePrByIssue uses) and, when none
+      # does, say so on the issue with the run link and artifact name.
+      #
+      # Three-state honesty (the stalled-net rule): PR found → silent (the
+      # normal flow posts the link); no PR found → the dead-run comment,
+      # worded by whether the agent step failed or merely ended; lookup FAILED
+      # → a comment that says the state could not be determined, never a
+      # failure claim this run did not verify. issue_comment only, matching
+      # the ack — a workflow_dispatch dry-run has no thread to update.
+      # Best-effort: continue-on-error, and posted with the App token so the
+      # reply comes from the same identity as the ack it corrects.
+      - name: Report a run that ended without a PR
+        if: always() && github.event_name == 'issue_comment'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const issue = context.payload.issue.number;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const failed = '${{ steps.agent.outcome }}' === 'failure';
+            // The same lookup metrics.mjs::resolvePrByIssue does over `gh pr
+            // list`: an open PR whose head branch is `agent/<issue>-…`.
+            let pr = null, lookupOk = true;
+            try {
+              const prs = await github.paginate(github.rest.pulls.list, {
+                owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100,
+              });
+              pr = prs.find((p) => (p.head?.ref || '').startsWith(`agent/${issue}-`)) ?? null;
+            } catch (e) {
+              lookupOk = false;
+              core.warning(`could not list PRs to verify the kickoff outcome: ${e.message}`);
+            }
+            if (lookupOk && pr) return; // the normal flow posts the PR link
+            const body = lookupOk
+              ? `<!-- agent-implement-no-pr -->\n🛑 The run started by this command ${failed ? 'failed' : 'ended'} without opening a PR — `
+                + `no open \`agent/${issue}-*\` branch has one. See the [run](${runUrl}) and its \`claude-execution-output\` artifact `
+                + `for the transcript. Comment \`@claude fix\` to retry.`
+              : `<!-- agent-implement-no-pr -->\n⚠️ The run started by this command has ended, but this step could not read the PR list `
+                + `to tell whether a PR was opened — check the issue's linked PRs and the [run](${runUrl}) before assuming it failed.`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: issue, body,
+            });
 
       # Classify the issue by category into a hidden `<!-- agent-class -->`
       # comment, mirroring the metrics ledger (Dimension A from the issue always;
@@ -368,6 +441,6 @@ jobs:
               body: [
                 "👋 Did you mean **`@claude fix`**? Commenting `@claude fix` on this issue starts an autonomous run that opens a draft PR.",
                 "",
-                "On a **pull request** you can also use `@claude review`, `@claude summarize`, or `@claude loop`.",
+                "On a **pull request** you can also use `@claude review`, `@claude summarize`, `@claude loop`, or `@claude rerun` (un-stick a paged agent PR).",
               ].join("\n"),
             });

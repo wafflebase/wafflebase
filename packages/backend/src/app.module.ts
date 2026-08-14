@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { DocumentModule } from './document/document.module';
 import { ShareLinkModule } from './share-link/share-link.module';
 import { DataSourceModule } from './datasource/datasource.module';
+import { BigQueryModule } from './bigquery/bigquery.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { ApiKeyModule } from './api-key/api-key.module';
 import { YorkieModule } from './yorkie/yorkie.module';
@@ -18,6 +19,7 @@ import { UserDocStylesModule } from './user-doc-styles/user-doc-styles.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { FolderModule } from './folder/folder.module';
 import { MiroModule } from './miro/miro.module';
+import { NotificationModule } from './notification/notification.module';
 
 @Module({
   imports: [
@@ -101,6 +103,7 @@ import { MiroModule } from './miro/miro.module';
     DocumentModule,
     ShareLinkModule,
     DataSourceModule,
+    BigQueryModule,
     WorkspaceModule,
     ApiKeyModule,
     YorkieModule,
@@ -112,6 +115,7 @@ import { MiroModule } from './miro/miro.module';
     AnalyticsModule,
     FolderModule,
     MiroModule,
+    NotificationModule,
   ],
   controllers: [],
   providers: [

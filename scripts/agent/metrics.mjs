@@ -32,17 +32,78 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// Node builtins only, transitively too: ask.mjs has no top-level imports at all,
+// which is what makes it importable here. The `agent:tests` lane runs with
+// scripts/agent/node_modules ABSENT, so a module that statically pulled in the
+// Agent SDK would take this whole file down with it (ask.test.mjs enforces this).
+import { classifyResult } from "./ask.mjs";
+import { emitBestEffortWarning } from "./guard-verdict.mjs";
 
 // Each session posts its OWN hidden metric comment (append-only) — no shared
 // ledger to read-modify-write, so concurrent sessions can't overwrite each
 // other's records. `summarize` aggregates them into one human-readable SUMMARY,
 // posted FRESH at the bottom of the thread (the old summary is deleted, not
-// edited in place, so the up-to-date one isn't buried mid-thread). On the
-// terminal promote (`--final`) it also sweeps the hidden per-session records,
-// whose totals are now captured in the summary and which otherwise render as
-// empty comment boxes.
+// edited in place, so the up-to-date one isn't buried mid-thread). It also folds
+// the raw records INTO the summary as a hidden data block and then SWEEPS the
+// per-session comments every round — they otherwise render as empty comment
+// boxes that flood the thread, and their history is now preserved in the summary
+// (so a later re-run still re-aggregates the full ledger). The terminal promote
+// (`--final`) strips the data block for a clean final artifact and sweeps every
+// remaining record.
 export const METRIC_PREFIX = "<!-- agent-metric ";
 export const SUMMARY_MARKER = "<!-- agent-metrics-summary -->";
+// Hidden data block appended to the summary, carrying the raw ledger as JSON so
+// the per-session comments can be swept without losing re-aggregation history.
+export const SUMMARY_DATA_MARKER = "<!-- agent-metrics-data ";
+// Keep summary body + data block under GitHub's 65 536-char comment cap. Records
+// that don't fit keep their standalone comment and fold in on a later round.
+export const SUMMARY_DATA_BUDGET = 55000;
+
+// A STANDALONE per-session effort comment, deliberately not part of the machinery
+// above. `@claude fix` is a maintainer-initiated one-off, and its cost has to be
+// legible as its own line item — not folded into a PR-wide total whose next
+// revision deletes and reposts it, and not hidden in a `METRIC_PREFIX` comment
+// that `summarize` sweeps. This marker matches NEITHER of the two above
+// (`agent-fix-effort` shares no prefix with `agent-metric ` or
+// `agent-metrics-summary`), so the sweep and the summary cannot touch it and it
+// stays where the maintainer read it. One comment per run, never edited in place:
+// two `@claude fix` invocations are two spends and must show as two.
+export const FIX_EFFORT_MARKER = "<!-- agent-fix-effort -->";
+
+/**
+ * Is this comment one WE wrote, rather than one that merely mentions a marker?
+ *
+ * `includes(marker)` was the old test, and it deleted other people's comments.
+ * Both sweeps below run over EVERY comment on the PR, so any body containing the
+ * literal marker string was removed — and the strings are `<!-- agent-metric … -->`
+ * and `<!-- agent-metrics-summary -->`, which anything discussing this module
+ * quotes as a matter of course.
+ *
+ * That is not hypothetical. On #681 (a PR about pipeline observability) the
+ * on-demand review's own findings comment named `<!-- agent-metrics-summary -->`
+ * while explaining the comment surfaces — so `summarize`, running five seconds
+ * later in the same job, deleted the review. The run was green end to end and
+ * `safeDeleteComment` is best-effort, so nothing failed and nothing logged: the
+ * comment simply vanished. CodeRabbit reviewing metrics.mjs, a maintainer pasting
+ * a marker, and the pipeline's own paged latch are all exposed the same way.
+ *
+ * Two conditions, both cheap:
+ *   - POSITION. `renderSummary` and `serializeRecord` both emit the marker as the
+ *     very first characters of the body. A quotation is prose *about* a marker and
+ *     appears mid-sentence; ours is the body's opening. This alone fixes the bug.
+ *   - AUTHOR. Every writer here posts through a token, so our comments are always
+ *     a Bot. `user.type` is set by GitHub and cannot be chosen by a commenter.
+ *
+ * Fails toward KEEPING. An unknown author or a marker that is not at position 0 is
+ * somebody else's comment, and leaving a stale summary behind costs a duplicate;
+ * deleting the wrong one destroys work with no record that it happened.
+ */
+export function isOwnComment(comment, marker) {
+  const c = comment && typeof comment === "object" ? comment : {};
+  const body = typeof c.body === "string" ? c.body : "";
+  if (!body.startsWith(marker)) return false;
+  return Boolean(c.user && typeof c.user === "object" && c.user.type === "Bot");
+}
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
@@ -126,6 +187,29 @@ export function sumExecutions(messages, kind = "review") {
     sessionId: results.length ? results[results.length - 1].session_id || "" : "",
     calls: results.length,
   };
+}
+
+/**
+ * The panel's TRUE wall-clock duration for one round, from review-panel.mjs's
+ * `review-timing.json` (written next to the execution log). This exists because
+ * the flat sum of `duration_ms` over the execution log is NOT wall-clock: the
+ * panel runs its lenses — and each lens's samples + verifier calls —
+ * CONCURRENTLY, so summing overcounts by the concurrency factor (a ~12-min panel
+ * was reported as 36-63). When the timing file is present and sane, its `wallMs`
+ * is the real elapsed time; absent or malformed → null, and the caller keeps the
+ * summed value (unchanged for pre-instrumentation logs). `timingPath` overrides
+ * the sibling default (for tests / explicit `--timing`).
+ */
+export function readWallMs(executionPath, timingPath) {
+  const p = timingPath
+    || (executionPath ? path.join(path.dirname(executionPath), "review-timing.json") : null);
+  if (!p) return null;
+  try {
+    const ms = Number(JSON.parse(readFileSync(p, "utf8"))?.wallMs);
+    return Number.isFinite(ms) && ms > 0 ? ms : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Per-message usage tally (raw + weighted tokens, turns, cost). */
@@ -253,6 +337,11 @@ export function aggregatePanelStats(entries) {
   // they coerce to 0 — but a non-zero value means those findings were never
   // filtered at all, which is the difference between a review and a raw dump.
   let errored = 0;
+  // Prior-round findings this round's fresh pass re-found, so one verdict settled
+  // both and only one session ran. Absent from entries written before the reuse
+  // existed, which coerce to 0 — the honest reading, since those rounds really
+  // did verify every carried-forward finding a second time.
+  let reusedPriorVerdicts = 0;
   // WHY those sessions threw, split by `classifyResult`'s kind. Absent from
   // pre-instrumentation entries, which contribute nothing — so an all-zero
   // `failures` means "no data yet", and the renderer omits the line rather than
@@ -290,6 +379,7 @@ export function aggregatePanelStats(entries) {
     absenceRefuted += Number(e.verifier && e.verifier.absenceRefuted) || 0;
     unresolved += Number(e.verifier && e.verifier.unresolved) || 0;
     errored += Number(e.verifier && e.verifier.errored) || 0;
+    reusedPriorVerdicts += Number(e.verifier && e.verifier.reusedPriorVerdicts) || 0;
     for (const k of Object.keys(failures)) {
       failures[k] += Number(e.verifier && e.verifier.failures && e.verifier.failures[k]) || 0;
     }
@@ -301,7 +391,7 @@ export function aggregatePanelStats(entries) {
   }
   return {
     agreementCounts, raised, raisedConfidence, kept,
-    verifier: { sentToVerifier, refuted, refutedHighConfidence, dropped, errored, absenceRaised, absenceRefuted, unresolved, failures },
+    verifier: { sentToVerifier, refuted, refutedHighConfidence, dropped, errored, absenceRaised, absenceRefuted, unresolved, reusedPriorVerdicts, failures },
     lanes: { blocking: laneBlocking, backlog: laneBacklog, unknownOrigin: laneUnknownOrigin },
     clusters: { clustered, collapsed },
   };
@@ -467,7 +557,80 @@ function renderAttribution(attr) {
   return out;
 }
 
-export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope }) {
+/** Session kinds the pipeline itself records. Everything else renders as
+ * `other`: metric records are parsed from ANY comment on a public repo (the
+ * append-only ledger has no author gate), so `kind` is the one free-text field
+ * an outsider could steer into this bot-authored summary — allow-list it, and
+ * keep every other cell numeric. */
+const LEDGER_KINDS = new Set(["implement", "ci-fix", "review-fix", "review"]);
+
+/** Row cap for the ledger table. The record list is open-ended (any comment
+ * can carry a metric record), and an unbounded table could push the summary
+ * past GitHub's comment-size cap — which fails the post and silences the
+ * whole summary, a denial of the one surface this exists to keep alive. 30
+ * covers double MAX_REVIEW_ROUNDS' worth of sessions with room for kickoff
+ * and CI fixes; when it overflows, the NEWEST rows win (they are the ones a
+ * reader is diagnosing) and the omission is stated rather than silent. */
+export const MAX_LEDGER_ROWS = 30;
+
+/** A number cell, or "—" when the record never measured it. NEVER coerce a
+ * missing value to 0 — `Number(null) === 0`, and a legacy record with no
+ * `turns` did not do zero turns, it did an unmeasured amount. */
+function measured(v) {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The per-session ledger: every record `cmdSummarize` aggregates, as one
+ * chronological row each, folded so the totals stay the headline. This is the
+ * answer to "what did round 3 cost" — the aggregates above it can only answer
+ * "what did everything cost". Zero new data collection: `dedupRecords` already
+ * yields these in ledger (chronological) order, and rendering happens before
+ * any sweep, so `--final` summaries carry the full table too.
+ *
+ * `review` and `review-fix` get a round ordinal from their position in that
+ * order — the nth panel record IS round n, the same reading `detectFlips`
+ * depends on. `implement`/`ci-fix` rows stay bare; the `#` column orders them.
+ */
+export function renderLedger(records) {
+  const list = (Array.isArray(records) ? records : []).filter((r) => r && typeof r === "object");
+  if (list.length === 0) return [];
+  const roundOf = { review: 0, "review-fix": 0 };
+  // Every row is BUILT (round ordinals and the # column come from the full
+  // chronological list) and then the table keeps only the newest
+  // MAX_LEDGER_ROWS — so a surviving row reads identically whether or not
+  // older ones were dropped, and the drop itself is stated.
+  const rows = list.map((r, i) => {
+    const kind = LEDGER_KINDS.has(r.kind) ? r.kind : "other";
+    const label = kind === "review" || kind === "review-fix" ? `${kind} (round ${++roundOf[kind]})` : kind;
+    const turns = measured(r.turns);
+    const weighted = measured(r.weightedTokens) ?? measured(r.tokens);
+    const cost = measured(r.costUsd);
+    const durMs = measured(r.durationMs);
+    // Seconds under a minute, same rule as renderFixEffort: a session that died
+    // in 18 seconds did no work, and "1m" hides exactly that.
+    const duration = durMs == null ? "—" : durMs < 60_000 ? `${Math.round(durMs / 1000)}s` : formatMinutes(durMs);
+    return `| ${i + 1} | ${label} | ${turns ?? "—"} | ${weighted == null ? "—" : formatTokens(weighted)} | ${cost == null ? "—" : formatUsd(cost)} | ${duration} |`;
+  });
+  const omitted = rows.length - MAX_LEDGER_ROWS;
+  return [
+    "",
+    `<details><summary>Per-session ledger (${list.length} session${list.length === 1 ? "" : "s"})</summary>`,
+    "",
+    ...(omitted > 0
+      ? [`_${omitted} earlier session(s) omitted — showing the most recent ${MAX_LEDGER_ROWS}; the totals above cover everything._`, ""]
+      : []),
+    "| # | Kind | Turns | Tokens (weighted) | Cost | Duration |",
+    "| --- | --- | --- | --- | --- | --- |",
+    ...rows.slice(-MAX_LEDGER_ROWS),
+    "",
+    "</details>",
+  ];
+}
+
+export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope, records }) {
   const hasPanel = !!panelAgg && panelAgg.sessions > 0;
   // An on-demand `@claude review` posts a review record but no code-fix session,
   // so `aggregate([])` yields an all-zero `agg`. Rendering a "Code-fix agent"
@@ -545,6 +708,16 @@ export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, fli
       // proxy, not recall (no ground truth here). Shown alongside, not instead.
       `- Weighted raised (effort proxy, not recall): ${weightSeverity(r)}`,
       `- Sent to verifier: ${v.sentToVerifier || 0}`,
+      // Why that number is lower on a round ≥ 2 than the finding count suggests.
+      // Each of these would have been one more verifier session under the old
+      // unconditional re-check, so this is literally the sessions not run — and
+      // without it a falling `Sent to verifier` is ambiguous between "the reuse
+      // is working" and "the lenses raised less", which call for opposite
+      // actions. Omitted at zero: round 1 has no prior findings at all, and
+      // rounds recorded before the reuse existed coerce to 0 and stay quiet.
+      ...(v.reusedPriorVerdicts
+        ? [`- Prior findings re-found this round: ${v.reusedPriorVerdicts} (verified once, not twice)`]
+        : []),
       // Read this BEFORE the refute counts. A verifier session that threw keeps
       // its finding, so an outage looks identical in the output to a verifier
       // that confirmed everything — this line is the only thing that tells them
@@ -607,12 +780,121 @@ export function renderSummary({ agg, panelAgg, panelStats, panelAttribution, fli
     // attribution, so pre-instrumentation PRs render exactly as before).
     lines.push(...renderAttribution(panelAttribution));
   }
+  // Per-session ledger last: the aggregates are the headline, the fold is the
+  // receipt. Callers that pass no `records` (older invocations, tests) render
+  // byte-identically to before the table existed.
+  lines.push(...renderLedger(records));
   return lines.join("\n");
 }
 
 /** One session's record as a self-contained HIDDEN comment (renders invisibly).
  * The record fields are machine-generated (no free text), so the JSON never
  * contains the ` -->` terminator the parser splits on. */
+/**
+ * The standalone effort comment for ONE fix-agent session.
+ *
+ * REPORTS THE OUTCOME, not just the spend, and that is most of the value. A fix
+ * run that dies on a 429 session limit produces a result message with
+ * `subtype:"success"`, `is_error:true` and `num_turns:1` — from the outside it is
+ * indistinguishable from a cheap successful round, and the only signal the
+ * pipeline emits is the generic "the branch head is unchanged" page. That page
+ * sends a maintainer looking for a code defect when the real answer is "retry
+ * later". `classifyResult` already knows the difference; this surfaces it at the
+ * one moment someone is reading.
+ *
+ * `rec` may be null (no result message at all) — a run that produced no execution
+ * log still gets a comment saying so, because silence there is what made the
+ * failure above take an artifact download to diagnose.
+ */
+/**
+ * Did this claude-code-action session succeed, and if not, how did it fail?
+ *
+ * NOT `classifyResult` alone, and the difference is the whole point. That
+ * function was written for Agent SDK sessions that return a json_schema payload:
+ * its success arm requires `m.structured_output`, which a claude-code-action
+ * transcript never carries. Handing it one makes EVERY successful fix run come
+ * back `{ok:false, kind:"no-output"}` — so the effort comment would tell a
+ * maintainer that a fix which worked had failed, and to escalate it. Verified
+ * against a realistic success message before this existed.
+ *
+ * So success is decided HERE, from the fields this log actually has, and
+ * `classifyResult` is used only for the failure taxonomy — which is the part it
+ * gets right, and the part worth reusing (it is what recognises the 429 that
+ * `subtype:"success"` disguises).
+ *
+ * Fail direction: toward FAILED. Anything other than a clean
+ * `subtype:"success"` with no error flag is reported as a failure, because
+ * over-reporting a failure costs a glance at the log while under-reporting one
+ * loses the whole signal.
+ */
+export function classifyFixResult(result) {
+  if (!result || typeof result !== "object") return null;
+  const clean = result.subtype === "success"
+    && !result.is_error
+    && !result.api_error_status
+    && result.terminal_reason !== "api_error"
+    && result.terminal_reason !== "max_turns";
+  return clean ? { ok: true } : classifyResult(result);
+}
+
+export function renderFixEffort({ rec, outcome, head, runUrl }) {
+  const lines = ["### 🧾 Fix agent effort", ""];
+  if (rec) {
+    const weighted = Number(rec.weightedTokens) || Number(rec.tokens) || 0;
+    lines.push(
+      "| | |",
+      "| --- | --- |",
+      `| Turns | ${rec.turns} |`,
+      `| Tokens | ${formatTokens(rec.tokens)} (weighted ${formatTokens(weighted)}) |`,
+      `| Cost | ${formatUsd(rec.costUsd)} |`,
+      // Seconds under a minute, unlike the PR-wide summary. `formatMinutes` floors
+      // at "1m", and for a fix run the sub-minute case is the whole diagnostic: an
+      // agent that died in 18 seconds did no work, and "1m" hides exactly that.
+      `| Duration | ${(Number(rec.durationMs) || 0) < 60_000 ? `${Math.round((Number(rec.durationMs) || 0) / 1000)}s` : formatMinutes(rec.durationMs)} |`,
+      `| Model | ${(rec.models || []).join(", ") || "unknown"} |`,
+      "",
+    );
+  } else {
+    lines.push("The fix agent produced no execution log, so no cost could be measured.", "");
+  }
+  if (outcome && outcome.ok === false) {
+    // Spelled out per kind: "limit" is a ceiling the run hit and will hit again
+    // unchanged, while a retryable api-error is a transient the same command
+    // clears. Telling a maintainer to retry a `max_turns` failure wastes a round.
+    const detail = String(outcome.detail || "").slice(0, 500);
+    // A SESSION LIMIT is neither of the other two, and calling it either sends a
+    // maintainer the wrong way. `classifyResult` marks it non-retryable — correct,
+    // because retrying inside the same run cannot help — but it clears on its own
+    // once the window resets, so the right advice is "wait, then re-run", not "a
+    // human should look at this". Both reruns on #632/#648 failed this way and the
+    // pipeline's only message was a generic page about the branch head.
+    const sessionLimited = /\b(?:session|usage)\s+limit\b/i.test(detail);
+    const advice = sessionLimited
+      ? "This is an account **session limit**, not a defect in the PR — no work was done. "
+        + "It clears when the window resets (the message above says when); comment `@claude fix` again after that."
+      : outcome.kind === "limit"
+        ? "This is a hard ceiling, not a transient — re-running as-is will hit it again."
+        : outcome.retryable
+          ? "This looks transient. Comment `@claude fix` again to retry."
+          : "Not retryable as-is; a human should take a look.";
+    lines.push(
+      `**Outcome: failed (${outcome.kind}${outcome.status ? ` ${outcome.status}` : ""})** — ${detail || "no detail reported"}`,
+      "",
+      advice,
+      "",
+    );
+  } else if (outcome && outcome.ok) {
+    lines.push("**Outcome: completed.**", "");
+  }
+  if (head) lines.push(`Findings were read from \`${String(head).slice(0, 8)}\`.`, "");
+  if (runUrl) lines.push(`[Workflow run](${runUrl})`, "");
+  // Separate from the review panel's effort summary by design — see
+  // FIX_EFFORT_MARKER. Stated in the comment so the two are not read as
+  // duplicates of each other.
+  lines.push("_This covers the on-demand fix agent only. The review panel's own effort is reported separately._");
+  return `${lines.join("\n")}\n${FIX_EFFORT_MARKER}`;
+}
+
 export function serializeRecord(rec) {
   return `${METRIC_PREFIX}${JSON.stringify(rec)} -->`;
 }
@@ -626,6 +908,43 @@ export function parseMetricComment(body) {
   } catch {
     return null;
   }
+}
+
+/** Serialize the cumulative ledger into the summary's hidden data block. */
+export function serializeSummaryData(records) {
+  return `${SUMMARY_DATA_MARKER}${JSON.stringify(records ?? [])} -->`;
+}
+
+/** Records embedded in a summary body; [] if none / unparseable. */
+export function parseSummaryData(body) {
+  const m = /<!-- agent-metrics-data ([\s\S]*?) -->/.exec(body || "");
+  if (!m) return [];
+  try {
+    const arr = JSON.parse(m[1]);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Dedup records by `sessionId`, keeping first occurrence so the caller's order
+ * (embedded/older first, then this round's standalone) is preserved — detectFlips
+ * depends on chronological order. Records with no `sessionId` (legacy) are all
+ * kept, since there is no key to collapse them on.
+ */
+export function dedupRecords(records) {
+  const seen = new Set();
+  const out = [];
+  for (const r of Array.isArray(records) ? records : []) {
+    const id = r && r.sessionId;
+    if (id) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    if (r) out.push(r);
+  }
+  return out;
 }
 
 // --- gh-backed CLI ---------------------------------------------------------
@@ -686,8 +1005,13 @@ function parseArgs(argv) {
 }
 
 // Metrics must NEVER fail the pipeline: log and exit 0 on any problem.
-function bail(msg) {
+// `consequence` is OPT-IN per call site, because bail() serves two different
+// sentences: genuine failures ("could not post the summary") and normal
+// no-ops ("no metrics recorded yet"). Warning on the no-ops would teach
+// readers to ignore the annotation — precision is what makes it worth having.
+function bail(msg, consequence) {
   console.error(`metrics: ${msg}`);
+  if (consequence) emitBestEffortWarning(`metrics: ${msg} — ${consequence}`);
   process.exit(0);
 }
 
@@ -699,7 +1023,7 @@ function cmdRecord(args) {
   try {
     messages = JSON.parse(readFileSync(args.execution, "utf8"));
   } catch (e) {
-    return bail(`cannot read execution log ${args.execution}: ${e.message}`);
+    return bail(`cannot read execution log ${args.execution}: ${e.message}`, "this session's cost is missing from the effort ledger");
   }
   let rec;
   if (kind === "review") {
@@ -708,6 +1032,11 @@ function cmdRecord(args) {
     rec = sumExecutions(messages, kind);
     if (rec.calls === 0) return bail("no result messages in the review execution log");
     delete rec.calls;
+    // Prefer the panel's real wall-clock over the concurrency-inflated sum of
+    // per-call duration_ms (see readWallMs). Falls back to the summed value when
+    // the timing file is absent (older logs / a crash before it was written).
+    const wallMs = readWallMs(args.execution, args.timing);
+    if (wallMs != null) rec.durationMs = wallMs;
     // Per-lens / detection-vs-verifier token split from the SAME messages. Carried
     // on the record so `summarize` can aggregate it across rounds. Empty object on
     // an un-instrumented log — harmless, just yields no attribution table.
@@ -731,9 +1060,42 @@ function cmdRecord(args) {
     // so concurrent sessions can't clobber each other's records.
     gh(["api", "-X", "POST", `repos/{owner}/{repo}/issues/${pr}/comments`, "-f", `body=${serializeRecord(rec)}`]);
   } catch (e) {
-    return bail(`could not record metrics for PR #${pr}: ${e.message}`);
+    return bail(`could not record metrics for PR #${pr}: ${e.message}`, "this session's cost is missing from the effort ledger");
   }
   console.log(`recorded ${rec.kind} for PR #${pr}: turns=${rec.turns} tokens=${rec.tokens} ${formatMinutes(rec.durationMs)}`);
+}
+
+/**
+ * Post the standalone fix-agent effort comment.
+ *
+ * ALWAYS POSTS, even with no execution log and even on a failed run: the comment
+ * is the record that a fix attempt happened and what it cost, and the runs worth
+ * recording most are the ones that went wrong. `bail` here would reproduce the
+ * silence this exists to end.
+ */
+function cmdEffort(args) {
+  const pr = args.pr;
+  if (!pr) return bail("effort needs --pr");
+  let messages = null;
+  try {
+    messages = JSON.parse(readFileSync(args.execution, "utf8"));
+  } catch (e) {
+    console.error(`metrics: cannot read execution log ${args.execution}: ${e.message}`);
+  }
+  const rec = messages ? parseExecution(messages, args.kind || "review-fix") : null;
+  // The last result message. Absent → no outcome line rather than a fabricated one.
+  const result = Array.isArray(messages) ? [...messages].reverse().find((m) => m && m.type === "result") : null;
+  const outcome = classifyFixResult(result);
+  const body = renderFixEffort({ rec, outcome, head: args.head, runUrl: args["run-url"] });
+  try {
+    postComment(pr, body);
+  } catch (e) {
+    return bail(`could not post fix-effort comment for PR #${pr}: ${e.message}`, "the fix run's cost/outcome comment is missing from the PR");
+  }
+  console.log(
+    `posted fix-agent effort for PR #${pr}`
+    + (rec ? `: turns=${rec.turns} tokens=${rec.tokens} ${formatUsd(rec.costUsd)}` : " (no execution log)"),
+  );
 }
 
 function cmdSummarize(args) {
@@ -744,9 +1106,17 @@ function cmdSummarize(args) {
     comments = listAllComments(pr);
     prInfo = ghJson(["pr", "view", pr, "--json", "additions,deletions"]);
   } catch (e) {
-    return bail(`could not read metrics/PR for #${pr}: ${e.message}`);
+    return bail(`could not read metrics/PR for #${pr}: ${e.message}`, "the agent-effort summary was not refreshed");
   }
-  const records = comments.map((c) => parseMetricComment(c.body || "")).filter(Boolean);
+  // Records live in two places: this round's fresh per-session <!-- agent-metric -->
+  // comments (append-only, one per session), and the CUMULATIVE ledger embedded in
+  // the prior summary's data block. Earlier rounds' standalone comments were swept
+  // once folded into the summary, so the summary is now their only copy — read both
+  // and dedup by sessionId (embedded first = older → keeps chronological order for
+  // detectFlips).
+  const embedded = comments.flatMap((c) => parseSummaryData(c.body || ""));
+  const standalone = comments.map((c) => parseMetricComment(c.body || "")).filter(Boolean);
+  const records = dedupRecords([...embedded, ...standalone]);
   if (records.length === 0) return bail(`no metrics recorded for PR #${pr}; skipping summary`);
   // Code-fix agent (implement/ci-fix/review-fix) and review panel (review) are
   // kept as separate aggregates — see renderSummary's doc comment for why.
@@ -765,34 +1135,60 @@ function cmdSummarize(args) {
   // relies on that, so pass it as-is without re-sorting.
   const flips = panelRecords.length ? detectFlips(panelRecords) : null;
   const scope = scopeSize(prInfo.additions, prInfo.deletions);
+  // Decide what raw ledger to persist inside the summary. On a non-final round we
+  // embed the cumulative records so the per-session comments can be swept without
+  // losing re-aggregation history; prior-embedded records are the summary's ONLY
+  // copy, so they are always kept, and fresh standalone records fold in while the
+  // block stays under the comment-size cap (any that don't fit keep their
+  // standalone comment and fold in later — no data is dropped). On --final the
+  // PR is terminal (no future re-aggregation), so we strip the block for a clean
+  // artifact and sweep every remaining record.
+  const isFinal = !!args.final;
+  const priorIds = new Set(embedded.map((r) => r && r.sessionId).filter(Boolean));
+  const embedList = [];
+  if (!isFinal) {
+    embedList.push(...embedded);
+    for (const r of standalone) {
+      if (r && r.sessionId && priorIds.has(r.sessionId)) continue; // already embedded
+      if (serializeSummaryData([...embedList, r]).length > SUMMARY_DATA_BUDGET) break;
+      embedList.push(r);
+    }
+  }
+  const embeddedIds = new Set(embedList.map((r) => r && r.sessionId).filter(Boolean));
   try {
     // Post the summary FRESH (not upsert-in-place): a prior summary was pinned at
     // its original creation point (often an early paged hand-off), so editing it
     // leaves the up-to-date summary buried mid-thread. Posting new lands it at the
     // BOTTOM where a human looks; the old one is deleted just below.
-    postComment(pr, renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope }));
+    const summary = renderSummary({ agg, panelAgg, panelStats, panelAttribution, flips, scope, records });
+    postComment(pr, isFinal ? summary : `${summary}\n${serializeSummaryData(embedList)}`);
   } catch (e) {
-    return bail(`could not post summary for PR #${pr}: ${e.message}`);
+    return bail(`could not post summary for PR #${pr}: ${e.message}`, "the agent-effort summary was not refreshed");
   }
   // Cleanup is best-effort (never fail the pipeline). Delete the OLD summary
   // comment(s) so only the fresh bottom one remains.
   for (const c of comments) {
-    if ((c.body || "").includes(SUMMARY_MARKER)) safeDeleteComment(c.id);
+    if (isOwnComment(c, SUMMARY_MARKER)) safeDeleteComment(c.id);
   }
-  // On the TERMINAL promote (--final), sweep the hidden per-session agent-metric
-  // records: their totals are now captured in the summary, and each renders as an
-  // empty comment box that clutters the thread. Only on --final — a paged /
-  // non-terminal summary keeps them so a later re-run still aggregates the full
-  // history. (SUMMARY_MARKER never matches METRIC_PREFIX — "agent-metrics-" vs
-  // "agent-metric " — so this can't delete the summary we just posted.)
-  if (args.final) {
-    for (const c of comments) {
-      if ((c.body || "").includes(METRIC_PREFIX)) safeDeleteComment(c.id);
+  // Sweep the hidden per-session agent-metric comments EVERY round: each renders
+  // as an empty comment box that floods the thread. On --final, sweep them all
+  // (terminal — the summary captured their totals). Otherwise sweep only the
+  // records we actually folded into the summary's data block (embeddedIds), so a
+  // record left out by the size cap keeps its standalone copy and is not lost.
+  // (SUMMARY_MARKER "agent-metrics-" never matches METRIC_PREFIX "agent-metric ",
+  // so this can't touch the summary just posted.)
+  for (const c of comments) {
+    if (!isOwnComment(c, METRIC_PREFIX)) continue;
+    if (isFinal) {
+      safeDeleteComment(c.id);
+      continue;
     }
+    const rec = parseMetricComment(c.body || "");
+    if (rec && rec.sessionId && embeddedIds.has(rec.sessionId)) safeDeleteComment(c.id);
   }
   console.log(
     `posted agent-effort summary for PR #${pr} (sessions=${agg.sessions} turns=${agg.turns} tokens=${agg.tokens})` +
-      (args.final ? " [final: reposted at bottom, swept per-session records]" : ""),
+      (isFinal ? " [final: reposted at bottom, swept all records]" : ` [folded ${embedList.length} record(s), swept per-session comments]`),
   );
 }
 
@@ -802,10 +1198,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const args = parseArgs(process.argv);
   if (cmd === "record") cmdRecord(args);
   else if (cmd === "summarize") cmdSummarize(args);
+  else if (cmd === "effort") cmdEffort(args);
   else {
     console.error(
-      "usage: metrics.mjs <record|summarize> [--pr N | --issue N] [--execution PATH] " +
-        "[--kind implement|ci-fix|review-fix|review] [--lens-stats PATH] [--final]",
+      "usage: metrics.mjs <record|summarize|effort> [--pr N | --issue N] [--execution PATH] " +
+        "[--kind implement|ci-fix|review-fix|review] [--lens-stats PATH] [--final] " +
+        "[--head SHA] [--run-url URL]",
     );
     process.exit(2);
   }

@@ -14,15 +14,30 @@
 // Writes `paged` and `proceed` ("true"/"false") to $GITHUB_OUTPUT.
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
-  countFailedReviewRounds,
+  collectFixDispatches,
+  fixAttemptCommits,
+  fixRoundsUsed,
   groupReviewRounds,
   detectStalledRounds,
+  renderFixDispatchComment,
   DEFAULT_SIMILARITY,
   PAGED_LATCH,
   isPagedLatchComment,
+  rerunPointFrom,
 } from "./rounds.mjs";
+import { exhaustedFindings, MAX_REBUTTAL_ROUNDS } from "./rebuttal.mjs";
+import {
+  appendStepSummary,
+  guardVerdictLine,
+  renderGuardSummary,
+  runUrlFromEnv,
+  whereToLookLine,
+} from "./guard-verdict.mjs";
+import { permissionResolver } from "./gh-checks.mjs";
 
 const [, , prArg, maxArg, allValidArg, requiredChecksArg, infraArg] = process.argv;
 const pr = Number(prArg);
@@ -39,6 +54,13 @@ const infra = (infraArg ?? "").trim();
 // .github/workflows/**).
 const stallRepeats = Number(process.env.STALL_REPEATS) || 2;
 const stallSimilarity = Number(process.env.STALL_SIMILARITY) || DEFAULT_SIMILARITY;
+
+// Where the round record is STAGED for the workflow's posting step. Under Actions
+// `RUNNER_TEMP` survives the branch checkout that replaces the workspace, which is
+// exactly why the file lives there and not in the tree. The workflow passes the
+// same path explicitly; the default only keeps a hand-run of this script working.
+const dispatchFile =
+  process.env.DISPATCH_FILE || join(process.env.RUNNER_TEMP || tmpdir(), "fix-dispatch.md");
 
 if (!Number.isInteger(pr) || pr <= 0 || !Number.isFinite(max)) {
   console.error(
@@ -79,8 +101,20 @@ const HANDOFF_NOTE =
   "`agent-review-*` checks are now frozen at their current state and the ready " +
   "gate will not promote it. Review and merge it manually.";
 
-function page(msg) {
-  gh(["pr", "comment", String(pr), "--body", `${PAGED}\n🛑 ${msg}${HANDOFF_NOTE}`]);
+// `reason` is a short machine-ish tag (infra / invalid-verdict / standstill /
+// stall / round-cap) — it only labels the page for the verdict line and the
+// job summary; the page comment itself stays exactly what `msg` says.
+function page(msg, reason = "paged") {
+  // "Where to look": the run this guard decided in, and the step whose log and
+  // summary carry the full decision detail. Empty (today's body, unchanged)
+  // when run outside Actions. No artifact named — the guard runs BEFORE the
+  // fixer, so at page time no fix transcript exists yet.
+  const where = whereToLookLine({
+    runUrl: runUrlFromEnv(),
+    job: process.env.GITHUB_JOB,
+    step: "Review-round guard",
+  });
+  gh(["pr", "comment", String(pr), "--body", `${PAGED}\n🛑 ${msg}${where}${HANDOFF_NOTE}`]);
   // Labeling is intentionally NOT done here: the single-value state machine
   // owns it. The "Set state → blocked (paged)" step (gated on this `paged`
   // output) runs set-state.mjs, which atomically strips every lifecycle label
@@ -88,7 +122,17 @@ function page(msg) {
   // be immediately overwritten and contradicts that clean single-label cutover.
   setOutput("paged", "true");
   setOutput("proceed", "false");
+  // OBSERVABILITY (display only — a rendering bug can mislabel a decision but
+  // never change one): the one-line verdict feeds loop-status.mjs's sticky
+  // comment via the workflow; the block goes to the run page.
+  const verdict = { decision: "page", reason, detail: msg, failedRounds: pagedRoundContext.failedRounds, max };
+  setOutput("verdict", guardVerdictLine(verdict));
+  appendStepSummary(renderGuardSummary(verdict));
 }
+
+// Round count context for page() — filled in once commits are fetched; the
+// infra/invalid-verdict pages fire before that and render without it.
+const pagedRoundContext = { failedRounds: null };
 
 // PAGED latch: paginate ALL comments (an iterating PR can exceed one page),
 // so a later page isn't missed and the fix loop doesn't re-fire after a human
@@ -99,8 +143,27 @@ function page(msg) {
 const comments = listAll(`repos/{owner}/{repo}/issues/${pr}/comments?per_page=100`);
 if (comments.some(isPagedLatchComment)) {
   setOutput("proceed", "false");
+  setOutput("verdict", guardVerdictLine({ decision: "latched" }));
+  appendStepSummary(renderGuardSummary({ decision: "latched" }));
   process.exit(0);
 }
+// `@claude rerun` (#650) deletes the paged comments, so the latch above is
+// already clear by the time we get here. What it cannot do on its own is give the
+// budget back — its summary says the PR is "still bounded by the pipeline's
+// round/attempt caps", which on a PR that reached the cap means one panel round
+// and an immediate re-page. That is exactly what #648 did when it was un-stuck by
+// hand. The marker rerun leaves behind moves the round floor forward.
+//
+// The floor is resolved against the SAME authority the command itself is gated on
+// (`getCollaboratorPermissionLevel`), not `author_association`. On #648 those two
+// disagreed: the verb ran — the label came off, CI re-ran — while GitHub reported
+// the maintainer's comments as `CONTRIBUTOR`, so the budget silently did not move
+// and the next round paged with "tried 3 time(s) (limit 3)" against a rerun that
+// had reset nothing. The resolver memoizes per login, so a PR with many comments
+// from few people costs at most one call each, and only for logins whose
+// association did not already settle it.
+const rerunAt = rerunPointFrom(comments, { trusts: permissionResolver({ api: ghJson }) });
+if (rerunAt) console.error(`rerun: counting fix rounds from ${rerunAt}`);
 
 // API/quota outage (every blocking lens failed on an API error) → the reviewer
 // never ran. Page with the REAL reason and DO NOT dispatch the fixer or count a
@@ -110,13 +173,14 @@ if (infra) {
   page(
     `The review panel could not run — Claude API/quota error: ${infra} ` +
       `This is an infrastructure/credential issue, not a code problem. Re-run the panel after the limit resets.`,
+    "infra",
   );
   process.exit(0);
 }
 
 // A lens that failed CLOSED (no valid verdict) → structural problem, page now.
 if (!allValid) {
-  page(`A review lens did not produce a valid verdict. A human should review PR #${pr}.`);
+  page(`A review lens did not produce a valid verdict. A human should review PR #${pr}.`, "invalid-verdict");
   process.exit(0);
 }
 
@@ -164,12 +228,72 @@ for (const c of commits.filter((x) => (x.checkRuns ?? []).some(isLensRun)).slice
   }
 }
 
-const stall = detectStalledRounds(groupReviewRounds(commits, requiredCheckNames), {
+const rounds = groupReviewRounds(commits, requiredCheckNames);
+
+// The stall detector gets FIX-ATTEMPT rounds only, for the same reason the round
+// cap counts them: `groupReviewRounds` over every commit includes the two the
+// implement workflow pushes before the panel has ever spoken, so with three rounds
+// of "evidence" available immediately the stall door could cut the loop to one real
+// attempt — the very failure the round-cap fix closed, arriving through the other
+// bound. `fixAttemptCommits` is the same predicate, exposed so both agree.
+const stallRounds = groupReviewRounds(
+  fixAttemptCommits(commits, requiredCheckNames, { since: rerunAt }),
+  requiredCheckNames,
+);
+
+// ARGUED TO A STANDSTILL, checked before convergence for the same reason the
+// infra branch is checked before `allValid`: the more specific reason wins, and
+// "the author disputed this twice and an independent adjudicator upheld it both
+// times" tells a human far more than "the panel keeps re-raising findings".
+//
+// The count is read from the check runs' `output.text` — the unforgeable channel
+// the panel writes — not from the author's own rebuttal comments. Counting those
+// would let the author drive the page. Paging is the SAFE direction, so a forged
+// extra count costs only an unnecessary human look; but a bound the disputing
+// party can move is not a bound, and it would be the one number in this file that
+// the party it constrains gets to choose.
+// Computed BEFORE the three page paths below, because all three are bounds on the
+// loop and a hand-back has to reset all three. Only the round cap honoured the
+// rerun floor at first, which left the earlier two pages looking at pre-rerun
+// history — so `@claude rerun` on a PR that had already stalled or exhausted its
+// rebuttals re-paged on the very first post-rerun round. That is the exact "one
+// panel round and an immediate re-page" this change exists to end, arriving through
+// a different door.
+// Reads the DISPATCH LEDGER (this script's own records) when the PR has one, and
+// falls back to the commit-shape inference when it does not — see
+// `rounds.mjs::fixRoundsUsed`. The number now means "times the fixer was actually
+// sent in", which is what `MAX_REVIEW_ROUNDS` was always meant to bound.
+const failedRounds = fixRoundsUsed(comments, commits, requiredCheckNames, { since: rerunAt });
+pagedRoundContext.failedRounds = failedRounds;
+// A hand-back buys the loop at least one attempt before the softer bounds may fire
+// again. The round cap needs no such rule — its count already starts at the rerun.
+// The other two cannot be filtered as cleanly: the stall detector reads rounds
+// whose findings carry no timestamp, and the rebuttal count is an integer riding
+// forward on the finding with no provenance at all. "At least one post-rerun
+// attempt" is the honest common denominator, and it fails toward paging: it delays
+// these two by exactly one round, never disables them.
+const heldByRerun = rerunAt !== null && failedRounds === 0;
+if (heldByRerun) console.error("rerun: holding the stall/standstill pages for one attempt");
+
+const latestRound = rounds.length ? rounds[rounds.length - 1] : null;
+const exhausted = heldByRerun ? [] : exhaustedFindings(latestRound?.findings);
+if (exhausted.length > 0) {
+  page(
+    `A finding has been disputed ${MAX_REBUTTAL_ROUNDS} times and upheld every time by an ` +
+      `independent adjudicator. The loop cannot settle this by itself — either the finding is ` +
+      `right and the author cannot act on it, or it is wrong in a way the adjudicator cannot see. ` +
+      `Standstill: ${exhausted.slice(0, 5).join("; ")}. A human should decide on PR #${pr}.`,
+    "standstill",
+  );
+  process.exit(0);
+}
+
+const stall = detectStalledRounds(stallRounds, {
   minRepeats: stallRepeats,
   similarity: stallSimilarity,
 });
 console.error(`convergence: ${stall.reason} (stalls=${stall.stalls}, rounds=${stall.rounds})`);
-if (stall.stalled) {
+if (stall.stalled && !heldByRerun) {
   const named = stall.repeated
     .slice(0, 5)
     .map((f) => `\`${f.file || "?"}\` — ${String(f.summary ?? "").slice(0, 160)}`)
@@ -179,16 +303,77 @@ if (stall.stalled) {
       `(${stall.stalls + 1} consecutive rounds with no reduction in blocking findings). ` +
       `Repeated: ${named}. Another fix round would spend budget on the same ground — ` +
       `a human should take over on PR #${pr}.`,
+    "stall",
   );
   process.exit(0);
 }
 
-const failedRounds = countFailedReviewRounds(commits, requiredCheckNames);
 if (failedRounds >= max) {
   page(
-    `The review panel requested changes ${failedRounds} times (limit ${max}) without converging. A human should take over on PR #${pr}.`,
+    `The fix agent has been dispatched ${failedRounds} time(s) (limit ${max}) without converging` +
+      `${rerunAt ? " since the last rerun" : ""}. A human should take over on PR #${pr}.`,
+    "round-cap",
   );
   process.exit(0);
 }
 
+// STAGE the round record here; the workflow POSTS it immediately before the
+// fixer. The split is the whole point, and the first version got it wrong.
+//
+// Posting from this step spends the round at the top of the `fix` job — and the
+// fixer is fourteen steps later, behind an App-token mint, a branch checkout and
+// a `pnpm install`. The panel workflow is `cancel-in-progress: true`, so any push
+// during those one-to-three minutes kills the run with the record already
+// written: a round consumed by a fixer that never started. That is the same shape
+// as the phantom round this whole change exists to remove (#695's cancelled panel
+// left six reds on a commit nobody reviewed), just smaller and self-inflicted, and
+// #695 itself had pushes 57 seconds apart. Deferring the post to the step before
+// `Address panel findings` shrinks the window from minutes to seconds.
+//
+// The window cannot be closed entirely — some instant separates "recorded" from
+// "running". What it CAN be is on the right side of the remaining risk: after the
+// post, a cancellation costs a round for a fixer that had genuinely begun, which
+// is a round honestly spent.
+//
+// Still NOT best-effort, on both halves. A dispatch whose record never landed is
+// a round spent off the books that the next guard hands out again — the one
+// direction this bound must not fail in. `writeFileSync` throwing reds this step;
+// the posting step is a plain `run:` with no `continue-on-error`, so a failure
+// there reds the job before the fixer is reached. Either way the `stalled` net
+// hands it to a human.
+//
+// `prior` seeds the ledger from the inference it replaces, and only ever on the
+// FIRST record: a PR mid-flight when this shipped has already spent rounds that
+// left no record, and starting its ledger at zero would quietly hand it those
+// rounds back. `failedRounds` is the fallback count at this moment precisely
+// because no record exists yet.
+const headSha = commits.length ? String(commits[commits.length - 1].sha ?? "") : "";
+const prior = collectFixDispatches(comments).length === 0 ? failedRounds : 0;
+const dispatchBody = renderFixDispatchComment({
+  from: headSha,
+  prior,
+  round: failedRounds + 1,
+  max: Number.isFinite(max) ? max : null,
+});
+writeFileSync(dispatchFile, dispatchBody);
+console.error(`dispatch: staged round ${failedRounds + 1} of ${max} (from ${headSha.slice(0, 9)}) at ${dispatchFile}`);
+
+// OBSERVABILITY: the PROCEED branch was the one silent decision in this loop —
+// only pages ever reached a human surface, so a continuing loop and a dead one
+// looked identical from the PR. Render the same inputs the decision used
+// (display only; guard-verdict.mjs holds no decision logic).
+const verdict = {
+  decision: "proceed",
+  failedRounds,
+  max,
+  stall,
+  standstillCount: exhausted.length,
+  rebuttalLimit: MAX_REBUTTAL_ROUNDS,
+  infra,
+  heldByRerun,
+  rerunAt,
+  requiredCheckNames,
+};
+setOutput("verdict", guardVerdictLine(verdict));
+appendStepSummary(renderGuardSummary(verdict));
 setOutput("proceed", "true");
