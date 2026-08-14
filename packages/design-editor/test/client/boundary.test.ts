@@ -5,14 +5,33 @@ import { builtinModules } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src');
-const CLIENT = path.join(SRC, 'client');
+/**
+ * Both browser trees, not just `client/`.
+ *
+ * `scenes/` arrived in 10a and runs in the scene frame — a different browser
+ * document, but a browser either way, so the same rule applies. Scoping this guard
+ * to one directory was how it would have stopped covering the package: a new browser
+ * subpath is exactly the moment a `node:` import slips in unnoticed.
+ */
+const BROWSER_DIRS = ['client', 'scenes'].map((d) => path.join(SRC, d));
 
 /** `node:fs` and `fs` are the same module; only the first form is obvious. */
 const BUILTINS = new Set(builtinModules);
 const isBuiltin = (spec: string) => BUILTINS.has(spec.replace(/^node:/, ''));
 
-// `import … from 'x'`, and bare `import 'x'`.
-const IMPORT_RE = /\bimport\s+(?!type\b)([\s\S]*?\bfrom\s*)?['"]([^'"]+)['"]/g;
+/**
+ * `import … from 'x'`, and bare `import 'x'`.
+ *
+ * LINE-ANCHORED, and the clause may not span a `;`. Both guards exist because the
+ * first version of this had neither, and 10a is where that bit: the word "import"
+ * in a doc comment — "an import specifier → the file it names" — started a match,
+ * the lazy clause scanned 28 lines through the comment, and it attached to the
+ * specifier of a genuinely TYPE-ONLY import far below. The file was reported as
+ * value-importing a module that reaches `node:path`, so a correct file failed the
+ * guard. Over-reporting is the safe direction for a leak, but a false FAILURE
+ * blocks correct code, which is worse than the thing it was protecting against.
+ */
+const IMPORT_RE = /^[ \t]*import\s+(?!type\b)([^;]*?\bfrom\s*)?['"]([^'"]+)['"]/gm;
 /**
  * `export { … } from 'x'` and `export * from 'x'` — runtime dependencies too, and
  * the form `client/index.ts` is almost entirely built from.
@@ -21,7 +40,8 @@ const IMPORT_RE = /\bimport\s+(?!type\b)([\s\S]*?\bfrom\s*)?['"]([^'"]+)['"]/g;
  * clause: `export const label = 'Color'` also ends in a quoted string, and a lazy
  * match would read that as a dependency named `Color`.
  */
-const EXPORT_RE = /\bexport\s+(?!type\b)(?:\*(?:\s+as\s+\w+)?|\{[^}]*\})\s*from\s*['"]([^'"]+)['"]/g;
+const EXPORT_RE =
+  /^[ \t]*export\s+(?!type\b)(?:\*(?:\s+as\s+\w+)?|\{[^}]*\})\s*from\s*['"]([^'"]+)['"]/gm;
 
 /** Specifiers a module depends on at RUNTIME — `import type` / `export type` are erased. */
 function valueImports(file: string): string[] {
@@ -43,10 +63,12 @@ function valueImports(file: string): string[] {
 /** Every module the client pulls in for its value, transitively. */
 function closure(): string[] {
   const seen = new Set<string>();
-  const queue = fs
-    .readdirSync(CLIENT)
-    .filter((f) => f.endsWith('.ts'))
-    .map((f) => path.join(CLIENT, f));
+  const queue = BROWSER_DIRS.flatMap((dir) =>
+    fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith('.ts'))
+      .map((f) => path.join(dir, f)),
+  );
   const reached: string[] = [];
   while (queue.length) {
     const file = queue.pop()!;
@@ -80,5 +102,12 @@ describe('the client bundle boundary', () => {
 
   it('sees the value import it is guarding, so it is not vacuously empty', () => {
     expect(closure()).toContain('tokens/adapter.ts');
+  });
+
+  it('covers the scene tree, not only the shell client', () => {
+    // `scenes/frame-protocol.ts` value-imports `base.ts` for `BASE`; if the scan
+    // were still scoped to `client/`, this list would not mention it at all.
+    expect(closure()).toContain('base.ts');
+    for (const dir of BROWSER_DIRS) expect(fs.existsSync(dir)).toBe(true);
   });
 });

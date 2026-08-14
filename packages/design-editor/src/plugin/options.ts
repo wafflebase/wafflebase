@@ -34,6 +34,7 @@ import path from 'node:path';
  */
 import type { TokenAdapter } from '../tokens/adapter.ts';
 export type { TokenAdapter };
+import { resolveAliases, type AliasEntry, type ViteAliasEntry } from './aliases.ts';
 
 export interface DesignEditorOptions {
   /**
@@ -74,6 +75,15 @@ export interface ResolvedOptions {
   providers: string | null;
   opaqueRoots: string[];
   tokens: TokenAdapter | null;
+  /**
+   * The consumer's import aliases, wire-safe and root-relative.
+   *
+   * NOT a user option — derived from Vite's own resolved `resolve.alias`, so it
+   * cannot drift from the config that actually resolves the consumer's modules.
+   * It sits on `ResolvedOptions` because that is this file's whole contract: every
+   * module downstream reads resolved state from here rather than from a global.
+   */
+  aliases: AliasEntry[];
 }
 
 /**
@@ -97,6 +107,7 @@ const absolutise = (root: string, p: string | undefined): string | null =>
 export function resolveOptions(
   options: DesignEditorOptions | undefined,
   viteRoot: string,
+  viteAlias: readonly ViteAliasEntry[] = [],
 ): ResolvedOptions {
   const root = path.resolve(options?.root ?? viteRoot);
   return {
@@ -109,5 +120,9 @@ export function resolveOptions(
       path.isAbsolute(r) ? path.normalize(r) : path.resolve(root, r),
     ),
     tokens: options?.tokens ?? null,
+    // Resolved against `root`, not `viteRoot`: a monorepo consumer editing a
+    // sibling package passes `root` explicitly, and an alias outside it is
+    // unreachable to the write boundary anyway.
+    aliases: resolveAliases(viteAlias, root),
   };
 }

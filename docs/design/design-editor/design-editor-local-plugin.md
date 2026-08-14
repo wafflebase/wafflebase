@@ -416,6 +416,7 @@ inspection. Corrections are marked ⚠.
 | `BUILD_CSS_FILE` / `THEME_CSS_FILE` | `vite.config.ts:1124,1132` | `TokenAdapter.plan()` | 8b |
 | `isTokenSourcePath()` regex on `packages/core/**` | `vite.config.ts:1342` | `TokenAdapter.sources()`. Also wrong in the other direction: it matched by PATTERN, so a file that merely looked like a token source triggered a regeneration | 8b |
 | `SEMANTIC_FILE` / `PALETTE_FILE` / `RADIUS_FILE` / `TYPOGRAPHY_FILE`, and the `FAMILY` map keyed on them | `vite.config.ts:1126-1129,1141-1187` | `TokenAdapter.plan()` / `read()` | 8b iface · 8c impl |
+| ⚠ `FRONTEND_SRC = 'packages/frontend/src'` + an `@/` prefix, **compiled into client code** | `src/scenes/import-paths.ts:24,41` | `AliasEntry[]` from `GET /health`, derived from the consumer's own resolved `config.resolve.alias`. Found while porting 10a, and it is the same shape as the `edits.ts` row below: a client-side duplicate of a fact only the server knows. Not cosmetic — a project whose alias is `~` or `#app` resolved nothing, and a mis-resolved drill-in target produces an **empty outline**, which reads as "this component has no editable nodes" rather than as a bug. Reading Vite's own resolved alias rather than adding a `designEditor({ aliases })` option is deliberate: an option can drift from the config that actually resolves the consumer's modules | 10a |
 | ✅ the same four paths again, **compiled into client code** | `src/sandbox/edits.ts:116-119` | server-supplied token metadata, as `TokenFamilyMeta` from `GET /tokens`. 8b made the metadata available and settled the reason the copy existed — `FAMILY` expressed each naming rule as a FUNCTION (`` cssVar: (k) => `--wb-${k}` ``), and a function cannot cross the wire. Every one of the four is prefix-plus-kebab, checked rather than assumed, so `cssVarPrefix` / `themeVarPrefix` / `utilityPrefix` carry the same rules as data. **Closed in 9b**, and it closed further than "read the path from the server": the server never wanted a path at all — see below | 8b server · 9b client |
 | `regenerateTokensCss` + the `build-css.ts` preview worker | `vite.config.ts:799-812,823-890` | ⚠ **two methods, not one** — `regenerate()` re-runs the emitter for real, `emit()` renders the preview map from patched text. See §4 | 8b iface · 8c impl |
 | `react`, `react-dom`, `@wafflebase/core` as `dependencies` | `package.json` | React → `peerDependencies`; core → gone from the published package | 8a React · 8c core |
@@ -581,9 +582,13 @@ cap is what sets the granularity.
 | 8b | the `TokenAdapter` seam | **merged** (#833) |
 | 8c | `packages/design-sandbox` — the token half | **merged** (#839) — see below |
 | 9a | bridge client (`bridge` · `states` · `property-labels`) | **merged** (#846) — see below |
-| 9b | `edits.ts` | in review — see below |
+| 9b | `edits.ts` | **merged** (#848) — see below |
+| gate | `fixtures/consumer` + `verify-consumer.mjs` | **merged** (#849) — see above |
 | 9c | `history` · `anchors` | held |
-| 10–12 | frame + scenes, shell chrome, token panels, canvas | held |
+| 10a | frame protocol · drill-in resolver · the alias seam | in review — see below |
+| 10b | `frame-picker` · `hmr-state` — the frame's DOM runtime | next |
+| 10c | `SceneHost` + outline/detail/class-editor + `scene-entry` | held — lands React |
+| 11–12 | token panels, shell chrome, canvas | held |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
 review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
@@ -704,6 +709,44 @@ So the cut follows the one that already worked for the module underneath it —
   (a `class-rewrite` genuinely addresses a source file), `insertedFp` (never sent — the
   wire has no `fp` on an insert; it exists to anchor the inverse), the ordering rule, and
   `editStateKey`'s hint stripping.
+
+- **10a — the frame contract, the drill-in resolver and the alias seam.**
+  `src/scenes/` behind a `./scenes` subpath, plus `src/plugin/aliases.ts`. A subpath
+  of its own rather than part of `./client`: both run in a browser, but in DIFFERENT
+  ones — `./client` is the shell talking to the dev server, and this is the contract
+  the shell shares with a scene frame, which is a separate document in a separate JS
+  realm. Folding them together would put the bridge client into every frame bundle.
+
+  **PR 10 does not fit two PRs, and the numbers say so rather than a judgement.**
+  The plan split it by line count; splitting it by *what each half needs* puts the
+  React dependency in one place instead of two:
+
+  | Layer | Lines | Blocker |
+  | --- | --- | --- |
+  | `frame-protocol` + `import-paths` | 249 | none — 10a |
+  | `frame-picker` + `hmr-state` | 794 | a DOM test environment — 10b |
+  | `SceneHost` + 3 panels + `scene-entry` | 1,805 | **React**, which this package does not depend on — 10c |
+
+  **Two defects the port found.** The prototype's `sceneFrameUrl` returned
+  `/scene.html?…`, correct when the editor *was* the Vite app with two HTML entries.
+  `shellServer` maps exactly `/scene` under `BASE`, so measured against a live
+  consumer server the old URL never reaches the shell middleware at all — it 404s in
+  the CONSUMER's app, which is the one place a wrong answer reads as their routing
+  bug rather than ours. And `FrameSide` was declared twice, here and in the wire
+  protocol that already owns it; the port imports it, as 9a's client does with the
+  intent types.
+
+  The alias row is the more interesting one because it is a **new §6 entry found by
+  porting**, and the same shape as the `edits.ts` row: a client-side duplicate of a
+  fact only the server knows. See the table.
+
+  **It also fixed the boundary guard 9b shipped.** That guard reported a false
+  failure on this PR's own code: the word "import" in a doc comment started a match,
+  the lazy clause scanned 28 lines, and it attached to the specifier of a genuinely
+  type-only import — so a correct file was reported as value-importing `node:path`.
+  Over-reporting is the safe direction against *missing* a leak, but a false failure
+  blocks correct code, which is worse than what it was protecting against. Now
+  line-anchored, with a clause that may not span a `;`.
 
 **8a's intermediate is green, and that was checked rather than assumed.**
 `vite.config.ts` imports nothing from `src/sandbox/` — only node builtins, `vite`,

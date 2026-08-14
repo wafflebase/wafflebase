@@ -27,6 +27,7 @@ import { API_BASE } from '../base.ts';
 import type { FrameSide, MutateRequest, MutateResult, Transaction } from '../plugin/protocol.ts';
 import type { TransactionSummary } from '../plugin/transactions.ts';
 import type { ExternalChange } from '../plugin/tracked.ts';
+import type { AliasEntry } from '../plugin/aliases.ts';
 import type { TokenFamilyMeta, TokenBindings, TokenVars } from '../tokens/adapter.ts';
 
 /** The subset of `fetch` this client uses. Injectable so tests need no server. */
@@ -57,6 +58,12 @@ export interface HealthResult extends BridgeResult {
   providers?: string | null;
   /** `'configured'` or null — null greys the token panels rather than hiding them. */
   tokens?: 'configured' | null;
+  /**
+   * The consumer's import aliases, root-relative — what `resolveImport` needs to
+   * turn `@/components/badge` into a file. Config, so it never changes for the life
+   * of the dev server; the client reads it once.
+   */
+  aliases?: AliasEntry[];
   /**
    * Bumps once per external change to a watched file. Staged edits captured the text
    * they expect to find, so any bump means re-validate rather than trust them.
