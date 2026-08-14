@@ -94,6 +94,26 @@ Two commits on `notes-image-upload`:
 Both engine fixes were verified by reverting them and confirming the new tests
 fail — they are real regression tests, not restatements of the code.
 
+### Second review round
+
+A second pass over the whole branch (the fixes above had not themselves been
+reviewed) found no bugs reachable today, and two things worth hardening:
+
+- **A throwing commit could wedge the rest of its batch.** Serializing the
+  inserts made that loop the single choke point for every file in a batch: one
+  failing insert would abandon every image behind it, leaving their
+  placeholders on screen with the rejection swallowed. Each commit now fails
+  on its own. Latent — no reachable throw in today's call sites — but the
+  upload half of the same path was already hardened and the insert half was
+  not.
+- **Editor torn down mid-upload had no test.** The `liveViews` guard was
+  written but never exercised; there is now a test that destroys the view
+  while an upload is in flight, and it fails when the guard is removed.
+
+Every test in `image-upload.test.ts` was checked by mutation: each was
+confirmed to fail when the behavior it claims to protect is broken. None are
+vacuous.
+
 ### Known limitations
 
 - **No image upload behind an editable share link.** A read-only mount never

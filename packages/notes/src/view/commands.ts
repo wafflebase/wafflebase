@@ -157,8 +157,9 @@ export function toggleLink(view: EditorView): void {
 /**
  * Escape the characters that would break out of a markdown image's alt text.
  * The alt comes from a filename, which may legitimately contain brackets or
- * backslashes; a newline is impossible in a filename but is stripped anyway so
- * a hostile name can never split the image into two lines.
+ * backslashes, and — on Linux, where a newline is a legal filename byte — line
+ * breaks too. Collapsing those keeps a hostile name from splitting the image
+ * across two lines.
  */
 function escapeAlt(alt: string): string {
   return alt.replace(/[\\[\]]/g, (c) => `\\${c}`).replace(/[\r\n]+/g, ' ');

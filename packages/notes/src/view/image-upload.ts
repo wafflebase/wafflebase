@@ -219,7 +219,17 @@ export function startImageUploads(
 ): void {
   const commits = files.map((file) => beginUpload(view, file, pos, upload));
   void (async () => {
-    for (const commit of commits) await commit();
+    for (const commit of commits) {
+      // Serializing the commits makes this loop the single choke point for the
+      // whole batch: one throwing insert would otherwise abandon every image
+      // behind it, leaving their placeholders on screen forever with the
+      // rejection swallowed. Each commit fails on its own.
+      try {
+        await commit();
+      } catch (err) {
+        console.error('Image insert failed', err);
+      }
+    }
   })();
 }
 

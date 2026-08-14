@@ -245,6 +245,27 @@ describe('note image upload', () => {
     );
   });
 
+  it('drops an upload whose editor was torn down mid-flight', async () => {
+    const gate = deferred<string | null>();
+    const view = mount('text', 4, () => gate.promise);
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    firePaste(view, [imageFile('gone.png')]);
+    // Navigating away while the upload is in flight. Dispatching into a
+    // destroyed view throws, so the commit has to notice and give up.
+    views.pop();
+    view.destroy();
+
+    gate.resolve('/img/gone.png');
+    await gate.promise;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(errors).not.toHaveBeenCalled();
+    expect(view.state.doc.toString()).toBe('text');
+    errors.mockRestore();
+  });
+
   it('does not upload into a read-only editor', () => {
     const upload = vi.fn<UploadImage>().mockResolvedValue('/img/x.png');
     const view = new EditorView({
