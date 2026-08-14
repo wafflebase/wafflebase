@@ -24,12 +24,8 @@ const SCALE_STEPS = [1, 0.7, 0.5, 0.35, 0.25];
 
 const QUALITY = 0.85;
 
-/**
- * MIME types a canvas re-encode would damage. A GIF drawn to a canvas keeps
- * its first frame only, so downscaling an animation silently destroys it —
- * better to report the size and let the user decide.
- */
-const NEVER_DOWNSCALE = new Set(["image/gif"]);
+/** How far into a PNG to look for the `acTL` chunk that makes it an APNG. */
+const APNG_SNIFF_BYTES = 64 * 1024;
 
 const MIME_TO_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -97,7 +93,7 @@ export async function downscaleImageFile(
   codec: ImageCodec = browserCodec,
 ): Promise<File> {
   if (file.size <= maxBytes) return file;
-  if (NEVER_DOWNSCALE.has(file.type)) return file;
+  if (await isAnimated(file)) return file;
 
   let image: DecodedImage;
   try {
@@ -135,6 +131,69 @@ export async function downscaleImageFile(
   } finally {
     image.close?.();
   }
+}
+
+/**
+ * Would a canvas re-encode destroy this image? Both `createImageBitmap` and
+ * `toBlob` deal in a single frame, so any animation is flattened to its first
+ * one — a silent, unrecoverable loss the user never asked for.
+ *
+ * The MIME type alone does not answer this: `image/webp` is as often an
+ * animated sticker as a still photo, and `image/png` covers APNG. So the
+ * container is sniffed instead: an animated WebP is a RIFF file with a `VP8X`
+ * chunk whose flags carry the ANIM bit, and an APNG is a PNG with an `acTL`
+ * chunk (which the spec requires before the first `IDAT`). A GIF is assumed
+ * animated without reading — a still GIF is rare, and this only costs the user
+ * a resize they would have done by hand anyway.
+ *
+ * An unreadable file is treated as animated: refusing to shrink something is
+ * recoverable, quietly flattening it is not.
+ */
+async function isAnimated(file: File): Promise<boolean> {
+  if (file.type === "image/gif") return true;
+  if (file.type !== "image/webp" && file.type !== "image/png") return false;
+
+  try {
+    if (file.type === "image/webp") {
+      const head = new Uint8Array(await file.slice(0, 21).arrayBuffer());
+      if (head.length < 21) return false;
+      if (ascii(head, 0, 4) !== "RIFF" || ascii(head, 8, 4) !== "WEBP") {
+        return false;
+      }
+      // Only the extended (VP8X) format can carry animation, and its ANIM
+      // flag is bit 1 of the byte right after the chunk header.
+      return ascii(head, 12, 4) === "VP8X" && (head[20] & 0x02) !== 0;
+    }
+
+    const head = new Uint8Array(
+      await file.slice(0, APNG_SNIFF_BYTES).arrayBuffer(),
+    );
+    const idat = indexOfChunk(head, "IDAT");
+    const actl = indexOfChunk(head, "acTL");
+    return actl !== -1 && (idat === -1 || actl < idat);
+  } catch {
+    return true;
+  }
+}
+
+function ascii(bytes: Uint8Array, offset: number, length: number): string {
+  return String.fromCharCode(...bytes.subarray(offset, offset + length));
+}
+
+/** Byte offset of a four-character PNG chunk name, or -1. */
+function indexOfChunk(bytes: Uint8Array, name: string): number {
+  const [a, b, c, d] = [0, 1, 2, 3].map((i) => name.charCodeAt(i));
+  for (let i = 0; i + 3 < bytes.length; i++) {
+    if (
+      bytes[i] === a &&
+      bytes[i + 1] === b &&
+      bytes[i + 2] === c &&
+      bytes[i + 3] === d
+    ) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /**

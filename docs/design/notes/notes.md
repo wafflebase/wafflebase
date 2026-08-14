@@ -288,8 +288,14 @@ smaller version: the longest side is capped at 4096 px, then progressively
 smaller scale steps are tried until the encode lands under the limit. A PNG
 source becomes WebP (alpha survives, and it is already in the backend's MIME
 allowlist); a JPEG stays JPEG rather than passing through a second lossy codec;
-a GIF is never re-encoded, because a canvas keeps its first frame only and a
-downscaled animation is a silently broken image. Downscaling never throws — a
+an animated image is never re-encoded at all, because both `createImageBitmap`
+and `toBlob` deal in a single frame and a flattened animation is a silent,
+unrecoverable loss. The MIME type cannot answer that question — `image/webp` is
+as often a sticker as a photo — so the container is sniffed: the `VP8X` ANIM
+flag for WebP, an `acTL` chunk before the first `IDAT` for APNG, and GIF is
+assumed animated without reading. A file that cannot be read is treated as
+animated, since refusing to shrink something is recoverable and quietly
+flattening it is not. Downscaling never throws — a
 failed decode or encode yields the original file and `uploadImageFile` produces
 the error, so exactly one place decides "too large". The size error names the
 limit *and* the sizes ("Image is still 12.5 MB after downscaling (was 40 MB),

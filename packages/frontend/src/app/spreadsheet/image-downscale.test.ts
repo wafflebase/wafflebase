@@ -15,6 +15,49 @@ function fileOf(size: number, type: string, name = "shot.png"): File {
   return file;
 }
 
+function bytesOf(...parts: Array<string | number[]>): Uint8Array<ArrayBuffer> {
+  const flat = parts.flatMap((part) =>
+    typeof part === "string" ? [...part].map((ch) => ch.charCodeAt(0)) : part,
+  );
+  return new Uint8Array(flat);
+}
+
+/** A WebP header, extended (`VP8X`) or not, with the ANIM flag set or not. */
+function webpFile(opts: { extended: boolean; animation: boolean }): File {
+  const header = opts.extended
+    ? bytesOf(
+        "RIFF",
+        [0, 0, 0, 0],
+        "WEBP",
+        "VP8X",
+        [10, 0, 0, 0],
+        [opts.animation ? 0x02 : 0x00],
+        new Array(64).fill(0),
+      )
+    : bytesOf("RIFF", [0, 0, 0, 0], "WEBP", "VP8 ", new Array(64).fill(0));
+  const file = new File([header], "sticker.webp", { type: "image/webp" });
+  Object.defineProperty(file, "size", { value: LIMIT * 5 });
+  return file;
+}
+
+/** A PNG header, with the `acTL` chunk that marks an APNG or without it. */
+function pngFile(animated: boolean): File {
+  const bytes = animated
+    ? bytesOf(
+        [0x89],
+        "PNG",
+        "IHDR",
+        new Array(16).fill(0),
+        "acTL",
+        new Array(8).fill(0),
+        "IDAT",
+      )
+    : bytesOf([0x89], "PNG", "IHDR", new Array(16).fill(0), "IDAT");
+  const file = new File([bytes], "shot.png", { type: "image/png" });
+  Object.defineProperty(file, "size", { value: LIMIT * 5 });
+  return file;
+}
+
 /**
  * Real bytes, not a faked `size` — `downscaleImageFile` re-wraps the blob in a
  * `File`, which recomputes its size from the actual content.
@@ -38,7 +81,10 @@ function codecOf(
     decode: vi.fn().mockResolvedValue(image),
     encode: vi.fn(async (_img, width, height, type) => {
       calls.push({ width, height });
-      return blobOf(Math.round(width * height * bytesPerPixel), outType ?? type);
+      return blobOf(
+        Math.round(width * height * bytesPerPixel),
+        outType ?? type,
+      );
     }),
   };
 }
@@ -60,10 +106,48 @@ describe("downscaleImageFile", () => {
     expect(codec.encode).not.toHaveBeenCalled();
   });
 
+  it("leaves an animated WebP alone but still shrinks a still one", async () => {
+    const animated = webpFile({ extended: true, animation: true });
+    const still = webpFile({ extended: true, animation: false });
+    const codecA = codecOf({ width: 10, height: 10 }, 0.001);
+    const codecS = codecOf({ width: 10, height: 10 }, 0.001);
+
+    expect(await downscaleImageFile(animated, LIMIT, codecA)).toBe(animated);
+    expect(codecA.encode).not.toHaveBeenCalled();
+    expect(await downscaleImageFile(still, LIMIT, codecS)).not.toBe(still);
+  });
+
+  it("leaves an APNG alone but still shrinks a plain PNG", async () => {
+    const apng = pngFile(true);
+    const plain = pngFile(false);
+    const codecA = codecOf({ width: 10, height: 10 }, 0.001);
+    const codecP = codecOf({ width: 10, height: 10 }, 0.001);
+
+    expect(await downscaleImageFile(apng, LIMIT, codecA)).toBe(apng);
+    expect(codecA.encode).not.toHaveBeenCalled();
+    expect(await downscaleImageFile(plain, LIMIT, codecP)).not.toBe(plain);
+  });
+
+  it("declines to shrink a file it cannot read rather than risk flattening it", async () => {
+    const file = fileOf(LIMIT * 2, "image/webp", "unreadable.webp");
+    file.slice = () =>
+      ({
+        arrayBuffer: () => Promise.reject(new Error("gone")),
+      }) as unknown as Blob;
+    const codec = codecOf({ width: 10, height: 10 }, 0.001);
+
+    expect(await downscaleImageFile(file, LIMIT, codec)).toBe(file);
+    expect(codec.encode).not.toHaveBeenCalled();
+  });
+
   it("re-encodes at full size when that alone gets under the limit", async () => {
     const image = { width: 100, height: 100 };
     const codec = codecOf(image, 0.05); // 100×100 → 500 bytes
-    const out = await downscaleImageFile(fileOf(LIMIT * 4, "image/png"), LIMIT, codec);
+    const out = await downscaleImageFile(
+      fileOf(LIMIT * 4, "image/png"),
+      LIMIT,
+      codec,
+    );
 
     expect(out.size).toBe(500);
     expect(codec.calls).toEqual([{ width: 100, height: 100 }]);
@@ -72,7 +156,11 @@ describe("downscaleImageFile", () => {
   it("escalates through scale steps until an encode fits", async () => {
     const image = { width: 100, height: 100 };
     const codec = codecOf(image, 0.3); // full size → 3000 bytes, 0.5 → 750
-    const out = await downscaleImageFile(fileOf(LIMIT * 9, "image/png"), LIMIT, codec);
+    const out = await downscaleImageFile(
+      fileOf(LIMIT * 9, "image/png"),
+      LIMIT,
+      codec,
+    );
 
     expect(out.size).toBeLessThanOrEqual(LIMIT);
     expect(codec.calls).toEqual([
@@ -117,8 +205,16 @@ describe("downscaleImageFile", () => {
     const png = codecOf(image, 1);
     const jpeg = codecOf(image, 1);
 
-    const fromPng = await downscaleImageFile(fileOf(LIMIT * 2, "image/png", "a.png"), LIMIT, png);
-    const fromJpeg = await downscaleImageFile(fileOf(LIMIT * 2, "image/jpeg", "b.jpg"), LIMIT, jpeg);
+    const fromPng = await downscaleImageFile(
+      fileOf(LIMIT * 2, "image/png", "a.png"),
+      LIMIT,
+      png,
+    );
+    const fromJpeg = await downscaleImageFile(
+      fileOf(LIMIT * 2, "image/jpeg", "b.jpg"),
+      LIMIT,
+      jpeg,
+    );
 
     expect(fromPng.type).toBe("image/webp");
     expect(fromPng.name).toBe("a.webp");
@@ -130,7 +226,11 @@ describe("downscaleImageFile", () => {
     // Safari's toBlob ignores an unsupported type and emits PNG instead;
     // storing those bytes under a .webp name would serve the wrong type.
     const codec = codecOf({ width: 10, height: 10 }, 1, "image/png");
-    const out = await downscaleImageFile(fileOf(LIMIT * 2, "image/png", "a.png"), LIMIT, codec);
+    const out = await downscaleImageFile(
+      fileOf(LIMIT * 2, "image/png", "a.png"),
+      LIMIT,
+      codec,
+    );
 
     expect(out.type).toBe("image/png");
     expect(out.name).toBe("a.png");

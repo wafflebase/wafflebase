@@ -24,9 +24,13 @@ once.
   PNG source may carry, and is in the backend's MIME allowlist already. JPEG
   sources stay JPEG because re-encoding a photo through a second lossy codec
   buys nothing.
-- **GIFs are never downscaled.** A canvas re-encode keeps the first frame only,
-  so a downscaled animation is a silently broken image. An oversized GIF is
-  rejected with the size message instead.
+- **An animated image is never downscaled.** A canvas re-encode keeps the first
+  frame only, so a downscaled animation is a silently broken image. The MIME
+  type does not answer "is this animated" — `image/webp` is as often a sticker
+  as a photo, and `image/png` covers APNG — so the container is sniffed: the
+  `VP8X` ANIM flag for WebP, an `acTL` chunk before the first `IDAT` for APNG,
+  GIF assumed animated without reading. An unreadable file counts as animated,
+  because refusing to shrink is recoverable and flattening is not.
 - **Downscaling never throws.** `downscaleImageFile` returns the original file
   when decode or encode fails, and `uploadImageFile` — which owns the limit —
   re-checks the size and produces the error. One place decides "too large".
@@ -36,19 +40,22 @@ once.
 
 ## Tasks
 
-- [ ] `packages/frontend/src/app/spreadsheet/image-downscale.ts` — codec seam,
-      dimension cap + scale steps, best-attempt tracking, GIF opt-out
-- [ ] `packages/frontend/src/app/spreadsheet/image-upload.ts` — downscale before
+- [x] `packages/frontend/src/app/spreadsheet/image-downscale.ts` — codec seam,
+      dimension cap + scale steps, best-attempt tracking, animation opt-out
+- [x] `packages/frontend/src/app/spreadsheet/image-upload.ts` — downscale before
       the size check; size error naming the limit, the original size, and the
       post-downscale size
-- [ ] `image-downscale.test.ts` — under-limit passthrough, GIF passthrough,
-      scale-step escalation, decode/encode failure passthrough, alpha-safe
-      output type, filename extension follows the encoded type
-- [ ] `image-upload.test.ts` — oversized file uploads its downscaled bytes;
-      error message shape; unsupported type still rejected first
-- [ ] `docs/design/image-viewer.md` — document the client-side downscale
-- [ ] `pnpm verify:fast` green
-- [ ] Self review over the branch diff
+- [x] `image-downscale.test.ts` — under-limit passthrough, animated
+      GIF/WebP/APNG passthrough vs still WebP/PNG shrink, scale-step
+      escalation, decode/encode failure passthrough, never-bigger-than-source,
+      alpha-safe output type, filename extension follows the encoded type
+- [x] `image-upload.test.ts` — oversized file uploads its downscaled bytes;
+      both error message shapes; unsupported type still rejected first
+- [x] `docs/design/notes/notes.md` — document the client-side downscale (the
+      image-upload pipeline is described there, not in `image-viewer.md`,
+      which covers the `image` *document type*)
+- [x] `pnpm verify:fast` green
+- [x] Self review over the branch diff — 1 finding, fixed (see Review)
 - [ ] Manual smoke in `pnpm dev` (paste a >10 MB screenshot into a note)
 
 ## Out of scope
@@ -64,4 +71,34 @@ once.
 
 ## Review
 
-_(filled in after the self-review)_
+### What the self-review caught
+
+- **An animated WebP would have been flattened.** The first cut opted GIF out
+  of the re-encode by MIME type, but `image/webp` is in the upload allowlist
+  and is just as often an animated sticker — an oversized one would have
+  uploaded successfully as a still first frame, with no error and nothing to
+  recover from. The same held for APNG under `image/png`. MIME type cannot
+  answer the question, so the container is sniffed instead (`VP8X` ANIM flag /
+  `acTL` before `IDAT`), which also keeps *still* WebP and PNG downscalable
+  rather than opting out two whole types to be safe.
+
+### Test honesty
+
+Every test was mutation-checked — the behavior it protects was broken in the
+source and the test confirmed to fail. Eight mutations, all caught: GIF opt-out
+removed, dimension cap removed, best-attempt tracking removed, encoder-type
+fallback ignored, WebP ANIM flag ignored, APNG `acTL` ignored, unreadable file
+treated as still, all WebP opted out. One test *did* start out vacuous — the
+best-attempt tracking survived its mutation until a case was added where every
+encode overshoots the source.
+
+### Known limitations
+
+- **The docs editor still rejects oversized images at the backend.** It uploads
+  through `docxImageUploader`, not this helper (see Out of scope).
+- **No progress feedback for a slow re-encode.** A 40 MB photo takes a beat to
+  decode and encode on a phone; the notes ghost widget covers the upload but
+  the encode happens before it appears.
+- **`MAX_DIMENSION` is a fixed 4096 px.** Enough to stay inside old iOS Safari
+  canvas-area limits, but a very wide panorama still loses more than it needs
+  to.
