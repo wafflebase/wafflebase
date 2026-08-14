@@ -16,8 +16,9 @@ import {
   withRetry,
   isAccountLimit,
   nextCredential,
+  credentialEnv,
 } from "./ask.mjs";
-import { createTokenPool } from "./token-pool.mjs";
+import { createTokenPool, poolEnvNames } from "./token-pool.mjs";
 import { REVIEW_TOOLS } from "./review-panel.mjs";
 
 // ask.mjs exists to make the read-only tool grant a CHECKED invariant instead of
@@ -183,6 +184,39 @@ test("buildSessionOptions: a pooled token rides in env, with process.env preserv
   // dropping it strips PATH/HOME and the CLI never starts. Asserting on PATH
   // turns that into a failing test rather than a session that cannot spawn.
   assert.equal(o.env.PATH, process.env.PATH);
+});
+
+test("credentialEnv: the child gets ONE credential, never the rest of the pool", () => {
+  // This process needs the whole pool — it fails over inside the round. The
+  // child does not: it holds one credential and runs with cwd set to the
+  // untrusted branch checkout. A plain `{...process.env}` spread would hand it
+  // all nine, which is the blast radius harness-engineering.md records.
+  const saved = {};
+  for (const name of poolEnvNames()) {
+    saved[name] = process.env[name];
+    process.env[name] = `secret-${name}`;
+  }
+  try {
+    const env = credentialEnv("chosen");
+    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, "chosen");
+    for (const name of poolEnvNames().filter((n) => n !== "CLAUDE_CODE_OAUTH_TOKEN")) {
+      assert.ok(!(name in env), `${name} must not reach the child`);
+    }
+    // Every value the pool did not own still has to survive, or the CLI cannot spawn.
+    assert.equal(env.PATH, process.env.PATH);
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test("credentialEnv: the failover path builds the same shape as the first attempt", () => {
+  // The two used to be built inline in separate places; they must not drift,
+  // because a failover that leaked the pool would undo the containment above.
+  const first = buildSessionOptions({ schema: {}, allowedTools: ["Read"], authToken: "a" });
+  assert.deepEqual(Object.keys(first.env).sort(), Object.keys(credentialEnv("a")).sort());
 });
 
 test("isAccountLimit: only a closed usage window, never another non-retryable failure", () => {

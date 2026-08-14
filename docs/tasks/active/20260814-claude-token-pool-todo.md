@@ -49,9 +49,11 @@ Unset slots resolve to the empty string and are filtered out, so the pool grows 
 secret with no workflow edit. `CLAUDE_CODE_OAUTH_TOKEN` (unsuffixed) stays valid as slot
 zero, which is what makes this land without a flag day.
 
-Selection is `startIndex = GITHUB_RUN_ID % poolSize`, so consecutive runs land on different
-tokens without any shared state. `GITHUB_RUN_ATTEMPT` joins the key so a re-run of a job
-that died on exhaustion does not immediately re-pick the exhausted token.
+`selectStartIndex` derives the starting slot from the run id, the run attempt and an
+optional per-job shard, reduced modulo the pool size, so consecutive runs land on different
+tokens without any shared state. The attempt is in the key so a re-run of a job that died on
+exhaustion does not immediately re-pick the exhausted token; the shard is there because
+`GITHUB_RUN_ID` identifies the run rather than the job, and every leg of a matrix shares it.
 
 ### `scripts/agent/token-pool.mjs` (new)
 

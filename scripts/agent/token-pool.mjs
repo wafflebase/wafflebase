@@ -26,6 +26,18 @@ export const MAX_SLOTS = 8;
 export const TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN";
 
 /**
+ * Every environment variable the pool occupies.
+ *
+ * Derived rather than written out, so the list cannot drift from `MAX_SLOTS`.
+ * `credentialEnv()` in ask.mjs subtracts these from the child environment: the
+ * process that reads the untrusted checkout needs the ONE credential it was
+ * given, and handing it the other eight only widens what a bug there could take.
+ */
+export function poolEnvNames() {
+  return [TOKEN_ENV, ...Array.from({ length: MAX_SLOTS }, (_, i) => `${TOKEN_ENV}_${i + 1}`)];
+}
+
+/**
  * Collect the configured tokens, in slot order.
  *
  * Every workflow passes all MAX_SLOTS variables so that registering a new secret
@@ -38,7 +50,7 @@ export const TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN";
  * "fail over" from a dead token to the same dead token.
  */
 export function readPoolSlots(env = process.env) {
-  const names = [TOKEN_ENV, ...Array.from({ length: MAX_SLOTS }, (_, i) => `${TOKEN_ENV}_${i + 1}`)];
+  const names = poolEnvNames();
   const seen = new Set();
   const slots = [];
   for (const name of names) {

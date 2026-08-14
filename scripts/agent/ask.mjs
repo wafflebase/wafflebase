@@ -28,7 +28,7 @@
 // The credential pool. Not the SDK, so a static import is fine here — the lazy
 // rule above exists to keep the pure helpers testable without the SDK on disk,
 // and token-pool.mjs has no dependencies at all.
-import { createTokenPool } from "./token-pool.mjs";
+import { createTokenPool, poolEnvNames } from "./token-pool.mjs";
 
 /**
  * The COMPLETE set of tools any agent spawned through this wrapper may ever be
@@ -468,16 +468,37 @@ export function buildSessionOptions({ systemPrompt, model, repo, schema, maxTurn
     // Pin THIS session to one pooled credential. Per-session rather than a
     // `process.env` mutation because the panel runs lenses and samples
     // concurrently: a global swap during a failover would hand a half-changed
-    // environment to sessions already in flight.
-    //
-    // The `process.env` spread is load-bearing. `Options.env` REPLACES the
-    // subprocess environment rather than merging it (sdk.d.ts:1408, pinned
-    // 0.3.217), so dropping the spread strips PATH/HOME and the CLI never
-    // starts. Omitted entirely when there is no pool, so an unconfigured
-    // environment keeps today's plain inheritance.
-    ...(authToken ? { env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: authToken } } : {}),
+    // environment to sessions already in flight. Omitted entirely when there is
+    // no pool, so an unconfigured environment keeps today's plain inheritance.
+    ...(authToken ? { env: credentialEnv(authToken) } : {}),
     outputFormat: { type: "json_schema", schema },
   };
+}
+
+/**
+ * The environment for a session's subprocess: the parent's, minus the rest of
+ * the pool, plus the one credential this session was given.
+ *
+ * Two things it has to get right, and both fail quietly:
+ *
+ *   1. The `process.env` spread is load-bearing. `Options.env` REPLACES the
+ *      subprocess environment rather than merging it (sdk.d.ts:1408, pinned
+ *      0.3.217), so dropping the spread strips PATH/HOME and the CLI never
+ *      starts.
+ *   2. The pool variables are then DELETED. This process needs all of them —
+ *      it fails over inside the round — but the child does not: it holds one
+ *      credential and runs with `cwd` set to the untrusted branch checkout. A
+ *      plain spread would hand that child all nine, which is the blast radius
+ *      `docs/design/harness-engineering.md` records as the pool's residual risk;
+ *      this is the half of it that costs nothing to close.
+ *
+ * One builder, used by the first attempt and by every failover, so the two can
+ * never disagree about what a session's environment contains.
+ */
+export function credentialEnv(authToken) {
+  const env = { ...process.env };
+  for (const name of poolEnvNames()) delete env[name];
+  return { ...env, CLAUDE_CODE_OAUTH_TOKEN: authToken };
 }
 
 /**
@@ -599,7 +620,7 @@ export async function askStructured({
       const next = nextCredential({ pool, err, authToken });
       if (next === null) throw err;
       authToken = next;
-      options = { ...options, env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: authToken } };
+      options = { ...options, env: credentialEnv(authToken) };
     }
   }
 }

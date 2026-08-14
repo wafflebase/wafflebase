@@ -1917,9 +1917,11 @@ moves to the approving human reviewer.
   capped by one account's usage window: when it closed, every lane failed at
   once. `scripts/agent/token-pool.mjs` reads `CLAUDE_CODE_OAUTH_TOKEN` plus
   `CLAUDE_CODE_OAUTH_TOKEN_1..8` from the `agent` environment, selects one per
-  **job** from `GITHUB_RUN_ID` (plus `CLAUDE_POOL_SHARD` where jobs of one run
-  would otherwise collide — every leg of `eval-replay`'s matrix shares a run id),
-  and replaces it only when that account's window closes. Per job rather than per
+  **job** from `GITHUB_RUN_ID` + `GITHUB_RUN_ATTEMPT` (so a re-run of a job that
+  died on exhaustion does not immediately re-pick the closed account) plus
+  `CLAUDE_POOL_SHARD` where jobs of one run would otherwise collide — every leg
+  of `eval-replay`'s matrix shares a run id — and replaces it only when that
+  account's window closes. Per job rather than per
   call because prompt caches are scoped to the account that wrote them, and
   `createWarmupGate()` exists to pay for the panel's shared diff prefix once; per-call
   rotation would pay that warm-up once per token instead.
