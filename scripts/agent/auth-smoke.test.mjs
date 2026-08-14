@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyFailure, describeFailure, EXIT } from "./auth-smoke.mjs";
+import { classifyFailure, describeFailure, EXIT, worstExit } from "./auth-smoke.mjs";
 
 // This script had no test suite, and it is the FIRST thing an adopter runs —
 // so its diagnosis is the first thing they read. It reported "auth almost
@@ -101,6 +101,22 @@ test("the exit codes are distinct and 0 is reserved for success", () => {
   for (const kind of ["quota", "auth", "unknown"]) {
     assert.notEqual(describeFailure(kind, "x").code, EXIT.ok, kind);
   }
+});
+
+test("worstExit: one broken credential outranks any number of working ones", () => {
+  // The failure mode this exists to prevent: a pool of four where one secret
+  // expired, three answer fine, and the check exits 0 because most of it worked.
+  assert.equal(worstExit([EXIT.ok, EXIT.ok, EXIT.auth, EXIT.ok]), EXIT.auth);
+  assert.equal(worstExit([EXIT.ok, EXIT.ok]), EXIT.ok);
+  assert.equal(worstExit([]), EXIT.ok, "an empty pool is not a failure by itself");
+});
+
+test("worstExit: a misconfiguration outranks a quota refusal", () => {
+  // Both are non-zero, but they send an operator to different places, and the
+  // reassuring one ('nothing is misconfigured, retry later') would bury the
+  // expired secret sitting next to it.
+  assert.equal(worstExit([EXIT.quota, EXIT.auth]), EXIT.auth);
+  assert.equal(worstExit([EXIT.ok, EXIT.quota]), EXIT.quota);
 });
 
 test("importing the module does not run the probe", () => {

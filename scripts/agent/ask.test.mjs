@@ -14,7 +14,11 @@ import {
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
   classifyResult,
   withRetry,
+  isAccountLimit,
+  nextCredential,
+  credentialEnv,
 } from "./ask.mjs";
+import { createTokenPool, poolEnvNames } from "./token-pool.mjs";
 import { REVIEW_TOOLS } from "./review-panel.mjs";
 
 // ask.mjs exists to make the read-only tool grant a CHECKED invariant instead of
@@ -163,6 +167,116 @@ test("buildSessionOptions: pins the read-only session shape", () => {
   );
   // The gate still runs here — this is the one place it is reached.
   assert.throws(() => buildSessionOptions({ schema: {}, allowedTools: ["Bash"] }), /is not permitted/);
+});
+
+// --- pooled credentials -------------------------------------------------------
+
+test("buildSessionOptions: no pooled token means today's plain env inheritance", () => {
+  const o = buildSessionOptions({ schema: {}, allowedTools: ["Read"] });
+  assert.ok(!("env" in o), "an unset credential must not appear at all");
+});
+
+test("buildSessionOptions: a pooled token rides in env, with process.env preserved", () => {
+  const o = buildSessionOptions({ schema: {}, allowedTools: ["Read"], authToken: "tok-2" });
+  assert.equal(o.env.CLAUDE_CODE_OAUTH_TOKEN, "tok-2");
+  // The spread is the load-bearing part: `Options.env` REPLACES the subprocess
+  // environment rather than merging it (sdk.d.ts:1408, pinned 0.3.217), so
+  // dropping it strips PATH/HOME and the CLI never starts. Asserting on PATH
+  // turns that into a failing test rather than a session that cannot spawn.
+  assert.equal(o.env.PATH, process.env.PATH);
+});
+
+test("credentialEnv: the child gets ONE credential, never the rest of the pool", () => {
+  // This process needs the whole pool — it fails over inside the round. The
+  // child does not: it holds one credential and runs with cwd set to the
+  // untrusted branch checkout. A plain `{...process.env}` spread would hand it
+  // all nine, which is the blast radius harness-engineering.md records.
+  const saved = {};
+  for (const name of poolEnvNames()) {
+    saved[name] = process.env[name];
+    process.env[name] = `secret-${name}`;
+  }
+  try {
+    const env = credentialEnv("chosen");
+    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, "chosen");
+    for (const name of poolEnvNames().filter((n) => n !== "CLAUDE_CODE_OAUTH_TOKEN")) {
+      assert.ok(!(name in env), `${name} must not reach the child`);
+    }
+    // Every value the pool did not own still has to survive, or the CLI cannot spawn.
+    assert.equal(env.PATH, process.env.PATH);
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test("credentialEnv: the failover path builds the same shape as the first attempt", () => {
+  // The two used to be built inline in separate places; they must not drift,
+  // because a failover that leaked the pool would undo the containment above.
+  const first = buildSessionOptions({ schema: {}, allowedTools: ["Read"], authToken: "a" });
+  assert.deepEqual(Object.keys(first.env).sort(), Object.keys(credentialEnv("a")).sort());
+});
+
+test("isAccountLimit: only a closed usage window, never another non-retryable failure", () => {
+  assert.ok(isAccountLimit({ kind: "api-error", detail: "You've hit your session limit · resets 3:30pm (UTC)" }));
+  assert.ok(isAccountLimit({ kind: "api-error", detail: "usage limit reached" }));
+  // A bad secret is the dangerous near-miss: failing over on a 401 would retire
+  // every healthy token in the pool over a problem none of them can fix.
+  assert.equal(isAccountLimit({ kind: "api-error", status: 401, detail: "invalid x-api-key" }), false);
+  // Our OWN ceilings, which classifyResult also marks non-retryable.
+  assert.equal(isAccountLimit({ kind: "limit", detail: "error_max_turns after 9 turns" }), false);
+  assert.equal(isAccountLimit({ kind: "no-output", detail: "subtype=error" }), false);
+  for (const bad of [null, undefined, {}, { kind: "api-error" }]) {
+    assert.equal(isAccountLimit(bad), false, JSON.stringify(bad));
+  }
+});
+
+/** A pool of exactly `tokens`, independent of the ambient environment. */
+function fakePool(tokens) {
+  const env = { CLAUDE_CODE_OAUTH_TOKEN: "" };
+  tokens.forEach((t, i) => { env[`CLAUDE_CODE_OAUTH_TOKEN_${i + 1}`] = t; });
+  return createTokenPool({ env, runId: "0", runAttempt: "1" });
+}
+
+test("nextCredential: a closed window moves to the next token", () => {
+  const pool = fakePool(["a", "b"]);
+  const err = { kind: "api-error", detail: "session limit" };
+  assert.equal(nextCredential({ pool, err, authToken: "a" }), "b");
+});
+
+test("nextCredential: anything that is not a closed window gives up immediately", () => {
+  const pool = fakePool(["a", "b"]);
+  for (const err of [
+    { kind: "api-error", status: 401, detail: "invalid x-api-key" },
+    { kind: "limit", detail: "error_max_turns after 9 turns" },
+    { kind: "api-error", status: 529, detail: "overloaded" },
+  ]) {
+    assert.equal(nextCredential({ pool, err, authToken: "a" }), null, err.detail);
+  }
+  // …and none of them consumed a credential.
+  assert.equal(pool.retiredCount(), 0);
+});
+
+test("nextCredential: a dry pool gives up rather than looping", () => {
+  const pool = fakePool(["solo"]);
+  const err = { kind: "api-error", detail: "session limit" };
+  assert.equal(nextCredential({ pool, err, authToken: "solo" }), null);
+});
+
+test("nextCredential: concurrent reports of one dead token retire it once", () => {
+  // The panel runs lenses and samples at once, so several sessions hit the same
+  // closed window within milliseconds. Without the authToken check the second
+  // report would retire the healthy token the first one just moved to, and a
+  // burst of concurrency would drain the pool in a single round.
+  const pool = fakePool(["a", "b", "c"]);
+  const err = { kind: "api-error", detail: "session limit" };
+  const first = nextCredential({ pool, err, authToken: "a" });
+  const second = nextCredential({ pool, err, authToken: "a" });
+  assert.equal(first, "b");
+  assert.equal(second, "b", "the late report must not burn a healthy token");
+  assert.equal(pool.retiredCount(), 1);
 });
 
 test("EFFORT_LEVELS pins the SDK's levels as a literal", () => {
