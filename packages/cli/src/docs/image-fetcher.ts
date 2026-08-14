@@ -1,6 +1,12 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import type { DocxImageFetcher } from '@wafflebase/docs';
-import { UserError, fetchOrThrow, httpError, redactUrl } from '../errors.js';
+import {
+  SystemError,
+  UserError,
+  fetchOrThrow,
+  httpError,
+  redactUrl,
+} from '../errors.js';
 
 /** Resolve a hostname to every address it currently answers with. */
 export type HostLookup = (hostname: string) => Promise<string[]>;
@@ -80,13 +86,21 @@ function ipLiteral(hostname: string): string | null {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) ? hostname : null;
 }
 
-function isPrivateIPv4(a: number, b: number): boolean {
+function isPrivateIPv4(a: number, b: number, c: number): boolean {
   if (a === 0 || a === 10 || a === 127) return true;
   if (a === 169 && b === 254) return true; // link-local incl. 169.254.169.254
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
   if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  if (a === 192 && b === 0 && c === 0) return true; // IETF protocol assignments
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking
+  if (a >= 224) return true; // multicast + reserved incl. 255.255.255.255
   return false;
+}
+
+/** The dotted quad packed into two 16-bit words, run through the v4 rules. */
+function isPrivateEmbeddedIPv4(hi: number, lo: number): boolean {
+  return isPrivateIPv4(hi >> 8, hi & 0xff, lo >> 8);
 }
 
 /**
@@ -130,7 +144,7 @@ function parseIPv6(ip: string): number[] | null {
 /** Loopback, RFC1918, CGNAT, link-local, unique-local — in any spelling. */
 export function isPrivateAddress(ip: string): boolean {
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
-  if (v4) return isPrivateIPv4(Number(v4[1]), Number(v4[2]));
+  if (v4) return isPrivateIPv4(Number(v4[1]), Number(v4[2]), Number(v4[3]));
 
   const words = parseIPv6(ip.replace(/%.*$/, ''));
   if (!words) return false;
@@ -138,13 +152,108 @@ export function isPrivateAddress(ip: string): boolean {
     // `::`, `::1` and the IPv4-mapped/-compatible range.
     if (words[5] === 0 && words[6] === 0 && words[7] <= 1) return true;
     if (words[5] === 0xffff || words[5] === 0) {
-      return isPrivateIPv4(words[6] >> 8, words[6] & 0xff);
+      return isPrivateEmbeddedIPv4(words[6], words[7]);
     }
   }
   const first = words[0] >> 8;
   if (first === 0xfc || first === 0xfd) return true; // fc00::/7
   if ((words[0] & 0xffc0) === 0xfe80) return true; // fe80::/10
+
+  // Transition ranges carry an IPv4 address in later words and are
+  // routed to it for real, so the v4 rules have to reach through them
+  // too: on a host behind a NAT64 gateway, `64:ff9b::a9fe:a9fe` *is*
+  // the metadata service, and matching only on the leading words would
+  // wave it through.
+  if (words[0] === 0x0064 && words[1] === 0xff9b) {
+    // RFC 6052 well-known prefix (`64:ff9b::/96`); the sibling
+    // `64:ff9b:1::/48` is local-use by definition, so it never resolves
+    // to anything the CLI should dereference.
+    if (words.slice(2, 6).every((w) => w === 0)) {
+      return isPrivateEmbeddedIPv4(words[6], words[7]);
+    }
+    return true;
+  }
+  if (words[0] === 0x2002) {
+    // 6to4 (RFC 3056): `2002:<v4>::/48`.
+    return isPrivateEmbeddedIPv4(words[1], words[2]);
+  }
+  if (words[0] === 0x2001 && words[1] === 0x0000) {
+    // Teredo (RFC 4380): server IPv4 in words 2-3, client IPv4 in words
+    // 6-7 stored as the bitwise complement.
+    return (
+      isPrivateEmbeddedIPv4(words[2], words[3]) ||
+      isPrivateEmbeddedIPv4(~words[6] & 0xffff, ~words[7] & 0xffff)
+    );
+  }
   return false;
+}
+
+/** The port a URL connects to, with the scheme's default filled in. */
+function effectivePort(url: URL): string {
+  if (url.port) return url.port;
+  return url.protocol === 'https:' ? '443' : '80';
+}
+
+/**
+ * Every address a URL's host currently answers with. A literal is its
+ * own answer; a name that cannot be resolved is a **system** failure,
+ * not an allow — the gate and the fetch resolve independently, so
+ * returning here would let a host whose nameserver stalls on this
+ * lookup and answers the connect-time one with `127.0.0.1` through.
+ */
+async function resolveHost(
+  url: URL,
+  lookup: HostLookup,
+  target: string,
+): Promise<string[]> {
+  const literal = ipLiteral(url.hostname);
+  if (literal) return [literal];
+
+  let addresses: string[];
+  try {
+    addresses = await lookup(url.hostname);
+  } catch (cause) {
+    throw new SystemError(
+      'NETWORK_ERROR',
+      `Could not resolve the host of image URL ${redactUrl(target)}.`,
+      { cause },
+    );
+  }
+  if (addresses.length === 0) {
+    throw new SystemError(
+      'NETWORK_ERROR',
+      `Could not resolve the host of image URL ${redactUrl(target)}.`,
+    );
+  }
+  return addresses;
+}
+
+/**
+ * Whether `url` names the same listener as the configured API server —
+ * the same address *and* the same port, however either is spelled. The
+ * frontend persists image `src` values absolute
+ * (`resolveImageUrl` in `packages/frontend/src/app/spreadsheet/image-upload.ts`),
+ * so a dev or self-hosted document stores whatever the browser called
+ * the server (`http://localhost:3000/...`) while the CLI may be pointed
+ * at another spelling of it (`--server http://127.0.0.1:3000`).
+ * Comparing origin strings would refuse those documents' own images;
+ * comparing resolved identities does not, and still grants nothing
+ * beyond the server the CLI already sends its credentials to.
+ */
+async function sharesAddressWithServer(
+  addresses: string[],
+  server: URL,
+  lookup: HostLookup,
+): Promise<boolean> {
+  let serverAddresses: string[];
+  try {
+    serverAddresses = await resolveHost(server, lookup, server.toString());
+  } catch {
+    // The server's own host is unresolvable — nothing to match against.
+    return false;
+  }
+  const seen = new Set(serverAddresses.map((a) => a.toLowerCase()));
+  return addresses.some((a) => seen.has(a.toLowerCase()));
 }
 
 /**
@@ -161,7 +270,7 @@ export function isPrivateAddress(ip: string): boolean {
  */
 export async function assertFetchableImageUrl(
   target: string,
-  serverOrigin: string | null,
+  server: URL | null,
   lookup: HostLookup,
 ): Promise<void> {
   let url: URL;
@@ -178,38 +287,37 @@ export async function assertFetchableImageUrl(
     );
   }
 
-  // The configured server is the one internal origin still allowed —
+  // Cheap exact match first, so the common case costs no lookup.
+  if (server && url.origin === server.origin) return;
+
+  // The configured server is the one internal listener still allowed —
   // `--server http://localhost:3000` is the normal dev setup, and a
-  // self-hosted deployment stores absolute internal URLs.
-  if (serverOrigin && url.origin === serverOrigin) return;
-
-  const literal = ipLiteral(url.hostname);
-  if (literal) {
-    if (isPrivateAddress(literal)) {
-      throw blocked(
-        `Refusing to fetch image URL on an internal address (${redactUrl(target)}).`,
-      );
-    }
-    return;
-  }
-
-  if (isInternalHostname(url.hostname)) {
-    throw blocked(
+  // self-hosted deployment stores absolute internal URLs. A different
+  // port is a different listener, so only a port match is worth
+  // resolving a name for; anything else that is plainly internal is
+  // refused without asking a resolver about it.
+  const mayBeServer =
+    server !== null && effectivePort(url) === effectivePort(server);
+  const internalHost = () =>
+    blocked(
       `Refusing to fetch image URL on an internal host (${redactUrl(target)}).`,
     );
+  const internalName = isInternalHostname(url.hostname);
+  if (internalName && !mayBeServer) throw internalHost();
+
+  const addresses = await resolveHost(url, lookup, target);
+
+  if (server && mayBeServer) {
+    if (await sharesAddressWithServer(addresses, server, lookup)) return;
   }
 
-  let addresses: string[];
-  try {
-    addresses = await lookup(url.hostname);
-  } catch {
-    // Unresolvable: let the fetch itself report it as a network error
-    // rather than mislabelling a DNS outage as a blocked document.
-    return;
-  }
+  if (internalName) throw internalHost();
+
   if (addresses.some(isPrivateAddress)) {
     throw blocked(
-      `Refusing to fetch image URL that resolves to an internal address (${redactUrl(target)}).`,
+      ipLiteral(url.hostname)
+        ? `Refusing to fetch image URL on an internal address (${redactUrl(target)}).`
+        : `Refusing to fetch image URL that resolves to an internal address (${redactUrl(target)}).`,
     );
   }
 }
@@ -239,11 +347,11 @@ const defaultLookup: HostLookup = async (hostname) =>
 export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher {
   const fetchImpl = opts.fetch ?? globalThis.fetch;
   const lookup = opts.lookup ?? defaultLookup;
-  let serverOrigin: string | null = null;
+  let server: URL | null = null;
   try {
-    serverOrigin = new URL(opts.serverBase).origin;
+    server = new URL(opts.serverBase);
   } catch {
-    serverOrigin = null;
+    server = null;
   }
 
   return async (url: string): Promise<Blob> => {
@@ -251,7 +359,7 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
     let target = resolved;
 
     for (let hop = 0; ; hop++) {
-      await assertFetchableImageUrl(target, serverOrigin, lookup);
+      await assertFetchableImageUrl(target, server, lookup);
       const res = await fetchOrThrow(
         target,
         { redirect: 'manual' },
@@ -265,6 +373,9 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
             `Image fetch failed: too many redirects for ${redactUrl(resolved)}`,
           );
         }
+        // Release the hop's connection before opening the next one;
+        // an undrained body keeps the undici socket alive until GC.
+        await res.body?.cancel().catch(() => {});
         target = new URL(location, target).toString();
         continue;
       }

@@ -4,9 +4,11 @@ import { CliAuthStore } from './cli-auth.store';
 
 /**
  * The guard is what decides whether a CLI login code will ever be minted
- * and shipped to a loopback port, so both halves matter: a well-formed
- * request must carry its nonce into the stored state, and a request
- * missing (or faking) one must not create state at all.
+ * and shipped to a loopback port, so all three cases matter: a
+ * well-formed request must carry its nonce into the stored state, a
+ * malformed one must create no state at all, and an *absent* one must
+ * still be served — published CLIs older than nonce-bound login send no
+ * nonce, and the binding that protects a login is the CLI-side check.
  */
 describe('GitHubAuthGuard', () => {
   let store: CliAuthStore;
@@ -65,12 +67,23 @@ describe('GitHubAuthGuard', () => {
     });
   });
 
-  it('rejects a CLI login with no nonce instead of minting state', () => {
+  it('still serves a nonce-less CLI login, without a nonce in the state', () => {
+    // `@wafflebase/cli` is published, so released versions that predate
+    // nonce-bound login keep working: they get the same nonce-less
+    // redirect they get today, which their own callback accepts. The
+    // current CLI always sends a nonce, so it is unaffected.
     const { context, req } = contextFor({ mode: 'cli', port: '54321' });
 
-    expect(() => guard.canActivate(context)).toThrow(BadRequestException);
-    expect(req.__cliStateToken).toBeUndefined();
-    expect(superCanActivate).not.toHaveBeenCalled();
+    expect(guard.canActivate(context)).toBe(true);
+    expect(superCanActivate).toHaveBeenCalled();
+
+    const stateToken = req.__cliStateToken as string;
+    expect(store.consumeState(stateToken)).toEqual({
+      csrf: expect.any(String) as string,
+      mode: 'cli',
+      port: 54321,
+      nonce: undefined,
+    });
   });
 
   it.each([

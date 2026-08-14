@@ -265,10 +265,11 @@ export function registerDocsCommand(program: Command) {
 
         // Image inlines reference URLs that PdfExporter and DocxExporter
         // can't resolve on their own. The fetcher walks each unique
-        // `src`, GETs it (via `globalThis.fetch`), and hands back a
-        // Blob. Relative URLs (`/images/<id>`) resolve against the
-        // configured server base so the same doc round-trips between
-        // the editor (browser-relative) and the CLI.
+        // `src`, gates it (document content is attacker-influenced, so
+        // internal addresses are refused — see `image-fetcher.ts`), GETs
+        // it, and hands back a Blob. Relative URLs (`/images/<id>`)
+        // resolve against the configured server base so the same doc
+        // round-trips between the editor (browser-relative) and the CLI.
         const imageFetcher = createImageFetcher({
           serverBase: getConfig(opts).server,
         });

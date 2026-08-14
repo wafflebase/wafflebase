@@ -184,11 +184,28 @@ describe('isPrivateAddress', () => {
     'fe80::1',
     '::ffff:127.0.0.1',
     '::ffff:7f00:1',
+    '255.255.255.255',
+    '224.0.0.1',
+    '198.18.0.1',
+    '192.0.0.1',
+    '64:ff9b::a9fe:a9fe', // NAT64 → 169.254.169.254
+    '64:ff9b::7f00:1', // NAT64 → 127.0.0.1
+    '64:ff9b:1::1', // local-use NAT64 prefix
+    '2002:7f00:1::1', // 6to4 → 127.0.0.1
+    '2001:0:5db8:d822:0:0:80ff:fffe', // Teredo, client ~(127.0.0.1)
   ])('blocks %s', (ip) => {
     expect(isPrivateAddress(ip)).toBe(true);
   });
 
-  it.each(['93.184.216.34', '8.8.8.8', '172.32.0.1', '2606:4700::1111'])(
+  it.each([
+    '93.184.216.34',
+    '8.8.8.8',
+    '172.32.0.1',
+    '2606:4700::1111',
+    '64:ff9b::808:808', // NAT64 → 8.8.8.8 stays reachable
+    '2002:5db8:d822::1', // 6to4 → 93.184.216.34
+    '2001:0:5db8:d822:0:0:f7f7:f7f7', // Teredo, client ~(8.8.8.8)
+  ])(
     'allows %s',
     (ip) => {
       expect(isPrivateAddress(ip)).toBe(false);
@@ -267,14 +284,62 @@ describe('createImageFetcher SSRF gate', () => {
     expect(calls).toEqual(['https://cdn.example.com/photo.jpg']);
   });
 
-  it('does not block on an unresolvable name — the fetch reports it', async () => {
+  it('fails closed when the name cannot be resolved', async () => {
     const { fetcher, calls } = fetcherWith({
       lookup: async () => {
         throw new Error('ENOTFOUND');
       },
     });
-    await fetcher('https://cdn.example.com/photo.jpg');
-    expect(calls).toEqual(['https://cdn.example.com/photo.jpg']);
+    const err = await fetcher('https://cdn.example.com/photo.jpg')
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SystemError);
+    expect((err as SystemError).code).toBe('NETWORK_ERROR');
+    expect(exitCodeFor(err)).toBe(EXIT_SYSTEM_ERROR);
+    expect(calls).toEqual([]);
+  });
+
+  it('fails closed when the resolver answers with no addresses', async () => {
+    const { fetcher, calls } = fetcherWith({ lookup: async () => [] });
+    const err = await fetcher('https://cdn.example.com/photo.jpg')
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SystemError);
+    expect(calls).toEqual([]);
+  });
+
+  it('allows the configured server spelled as another name for it', async () => {
+    // The frontend persists absolute image URLs, so a dev document says
+    // `http://localhost:3000/...` while the CLI may be pointed at
+    // `--server http://127.0.0.1:3000`. Same listener, different name.
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://127.0.0.1:3000',
+      lookup: async (h) => (h === 'localhost' ? ['127.0.0.1'] : []),
+    });
+    await fetcher('http://localhost:3000/api/v1/workspaces/w/images/abc');
+    expect(calls).toEqual([
+      'http://localhost:3000/api/v1/workspaces/w/images/abc',
+    ]);
+  });
+
+  it('allows the configured server named where the doc used its address', async () => {
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://localhost:3000',
+      lookup: async (h) => (h === 'localhost' ? ['127.0.0.1'] : []),
+    });
+    await fetcher('http://127.0.0.1:3000/images/abc');
+    expect(calls).toEqual(['http://127.0.0.1:3000/images/abc']);
+  });
+
+  it('does not extend the server exemption to another port on that host', async () => {
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://localhost:3000',
+      lookup: async (h) => (h === 'localhost' ? ['127.0.0.1'] : []),
+    });
+    await expect(fetcher('http://127.0.0.1:9200/_search')).rejects.toThrow(
+      /Refusing to fetch/,
+    );
+    expect(calls).toEqual([]);
   });
 
   it('still allows the configured server even on localhost', async () => {

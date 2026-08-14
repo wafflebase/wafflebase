@@ -765,16 +765,25 @@ cannot bounce the CLI onto an internal one):
   `.internal` and `.local` (a name is not an address: `fc2.com` is a
   public site, not `fc00::/7`), and are then resolved, so a record
   pointing at `169.254.169.254` is refused as well;
-- the configured server's **origin** is the one internal destination
-  still allowed, because `--server http://localhost:3000` is the normal
-  dev setup and self-hosted documents store absolute internal URLs.
+- the configured **server** is the one internal destination still
+  allowed, because `--server http://localhost:3000` is the normal dev
+  setup and self-hosted documents store absolute internal URLs. It is
+  matched by *identity*, not by spelling: same resolved address and same
+  port counts, whatever either side was called. The frontend persists
+  image `src` values absolute, so a dev document says
+  `http://localhost:3000/...` while the CLI may be pointed at
+  `--server http://127.0.0.1:3000`; comparing origin strings would
+  refuse those documents' own images. Another port on the same host is
+  not covered — the exemption is the API server, not the machine.
 
 A blocked `src` fails the export with `IMAGE_URL_BLOCKED` (exit `1` — the
-document is wrong, not the environment). An unresolvable name is not
-blocked; the fetch reports it as `NETWORK_ERROR` instead, so a DNS outage
-never reads as a bad document. Residual gap: rebinding between the
-lookup and the connect, which needs a pinned connection undici does not
-expose.
+document is wrong, not the environment). A name that cannot be resolved
+fails **closed**, as `NETWORK_ERROR` (exit `2`): the gate and the fetch
+resolve independently, so allowing an unresolvable name would let a host
+whose nameserver stalls the gate's lookup and answers the connect-time
+one with `127.0.0.1` straight through. Residual gap: rebinding between
+the lookup and the connect, which needs a pinned connection undici does
+not expose.
 
 ##### Nonce-bound login callback
 
@@ -788,13 +797,24 @@ requests get `403` and are ignored — they can neither complete nor cancel
 the pending login, so a hostile page cannot fix the CLI onto its own
 account.
 
-The binding is required on both ends. `GitHubAuthGuard` rejects
-`?mode=cli` without a well-formed nonce (`[A-Za-z0-9_-]{16,128}`) with a
-`400` rather than minting a code for an arbitrary loopback port, and a
-callback that arrives *without* a nonce is refused by the CLI and named
-in the timeout message ("the server predates nonce-bound CLI login"), so
-a CLI pointed at an older backend fails with a cause instead of a hang.
-Backend and CLI ship from the same tree; upgrade the server first.
+The binding is enforced on the **CLI** side, which is where it works: a
+callback that arrives without the expected nonce is refused and named in
+the timeout message ("the server predates nonce-bound CLI login"), so a
+CLI pointed at an older backend fails with a cause instead of a hang.
+
+`GitHubAuthGuard` rejects a *malformed* nonce (anything but
+`[A-Za-z0-9_-]{16,128}`, including a repeated query parameter) with a
+`400`, but still serves a request that carries **no** nonce, logging a
+warning. That is a deliberate compatibility window, not an oversight:
+`@wafflebase/cli` is published to npm, so users run whatever version
+they installed, and 400-ing a nonce-less request would break every
+released CLI the moment a server deploys. It would also buy nothing —
+an attacker minting a code for a loopback port they control simply
+supplies a nonce of their own, so requiring one server-side only
+guarantees the redirect carries something for a *current* CLI to
+compare against, which a current CLI already gets by always sending one.
+When published CLIs older than nonce-bound login are out of support, the
+guard can turn the warning into a `400`.
 
 #### 8.2 Dry-Run
 

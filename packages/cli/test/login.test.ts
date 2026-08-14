@@ -10,6 +10,7 @@ import {
   EXIT_SYSTEM_ERROR,
   EXIT_USER_ERROR,
   SystemError,
+  UserError,
   exitCodeFor,
 } from '../src/errors.js';
 
@@ -202,6 +203,11 @@ describe('classifyLoginFailure', () => {
       EXIT_SYSTEM_ERROR,
     );
     expect(classifyLoginFailure(new LoginError(EXIT_USER_ERROR, 'bad'))).toBe(
+      EXIT_USER_ERROR,
+    );
+    // An unparseable `--server` reaches `login` as a `UserError` from
+    // `fetchOrThrow`; it is part of the contract, not a bug to rethrow.
+    expect(classifyLoginFailure(new UserError('INVALID_URL', 'bad url'))).toBe(
       EXIT_USER_ERROR,
     );
   });

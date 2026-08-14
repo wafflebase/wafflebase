@@ -282,15 +282,24 @@ The CLI uses three endpoints in addition to the standard
 GitHub OAuth flow. Full design in [cli.md](cli.md) "Login flow"; the
 backend surface is:
 
-- **`GET /auth/github?mode=cli&port=<port>`** — extends the existing
-  endpoint to carry CLI parameters through OAuth `state`. The backend
-  generates a CSRF token (random 32 bytes, TTL 5 minutes, in-memory
-  map) and embeds it in the encoded `state`.
+- **`GET /auth/github?mode=cli&port=<port>&nonce=<nonce>`** — extends the
+  existing endpoint to carry CLI parameters through OAuth `state`. The
+  backend generates a CSRF token (random 32 bytes, TTL 5 minutes,
+  in-memory map) and embeds it in the encoded `state`; `nonce` is stored
+  alongside it. `nonce` must match `[A-Za-z0-9_-]{16,128}` — a malformed
+  or repeated one is a `400` and mints no state. A **missing** `nonce`
+  is accepted (with a server-side warning) so published CLI versions
+  that predate nonce-bound login keep working; see
+  [cli.md](cli.md) "Nonce-bound login callback" for why refusing it
+  would add no security, and when this becomes a hard `400`.
 - **`GET /auth/github/callback`** — when the decoded state has
   `mode === 'cli'`, generates a short-lived authorization code (random,
   TTL 60 seconds, same in-memory map), redirects to
-  `http://127.0.0.1:<port>/callback?code=<auth-code>`. `port` must be
+  `http://127.0.0.1:<port>/callback?code=<auth-code>&nonce=<nonce>`
+  (`&nonce=` omitted when the state carries none). `port` must be
   `1024–65535`; the redirect host is always `127.0.0.1` (hard-coded).
+  Both parameters are `encodeURIComponent`d, and `port` is an integer,
+  so neither is injectable into the redirect.
 - **`POST /auth/cli/exchange`** — accepts `{ code }`, looks it up,
   validates TTL, deletes it (single-use), and returns
   `{ accessToken, refreshToken }`. No authentication required (the code
@@ -316,3 +325,4 @@ exchanged server-to-server.
 | Yorkie key prefix for word-processor docs differs from `doc-<id>` | The frontend convention is the source of truth; the backend service is the only adjustment point if it changes. |
 | Open redirect via CLI port parameter | `port` is range-validated; the redirect host is hard-coded to `127.0.0.1`. |
 | OAuth state forgery (CSRF) | Backend generates a random 32-byte CSRF token per OAuth request, stores in a 5-minute in-memory map, and validates on callback. |
+| A local process or a web page feeds the CLI's loopback listener a code it did not ask for | The CLI generates a nonce per login, the backend stores it in the CLI state and echoes it on the loopback redirect, and the CLI accepts only a constant-time match. See [cli.md](cli.md) "Nonce-bound login callback". |

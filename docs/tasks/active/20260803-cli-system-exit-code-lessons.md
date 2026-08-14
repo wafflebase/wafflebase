@@ -35,9 +35,10 @@ the objections that got them descoped, which is the useful part:
   `CliAuthStore` → echoed on the `127.0.0.1` redirect). The original
   version made a CLI pointed at an older backend hang the full 30s and
   then throw an unclassified timeout. Now the missing-nonce case is
-  *named* in the timeout message, and the backend refuses `?mode=cli`
-  without a nonce (`400`) instead of treating the binding as optional —
-  fail-closed on both ends, with the failure legible. Refusing without
+  *named* in the timeout message, and the CLI refuses a callback that
+  does not echo its nonce — fail-closed where it counts, with the
+  failure legible. (The backend's matching `400` for a nonce-*less*
+  request was walked back later; see below.) Refusing without
   settling still matters: a hostile local page must not be able to
   cancel a pending login either. The nonce does travel in the printed
   OAuth URL and the browser argv, so it does not defend against a
@@ -50,11 +51,55 @@ the objections that got them descoped, which is the useful part:
   redirect hop is revalidated (`redirect: 'manual'`), address rules run
   only against literals — expanded to eight words, so `::ffff:7f00:1`
   and `::ffff:127.0.0.1` are one address and `fc2.com` is not an IPv6
-  range — and the allowance for the configured server compares
-  **origins**, so a self-hosted absolute `src` no longer has to be
-  byte-identical to `--server`. What is still open is documented rather
-  than implied: rebinding between lookup and connect.
+  range — and the configured server stays reachable regardless of how
+  its URL is spelled. What is still open is documented rather than
+  implied: rebinding between lookup and connect.
 
 The lesson worth keeping: "this belongs in another PR" is only true if
 the other PR exists. A control removed from a diff that ships the code
 it was protecting is not deferred, it is deleted.
+
+## What the review panel then found (and what it changed)
+
+- **A gate that fails open is not a gate.** `assertFetchableImageUrl`
+  returned — i.e. allowed — when the pre-resolution threw, on the theory
+  that "the fetch will report it anyway". But the gate and the fetch
+  resolve *independently*, so an attacker-run nameserver that stalls the
+  first lookup and answers the second with `127.0.0.1` walked straight
+  through, and any resolver hiccup silently disabled the control. It now
+  fails closed as `NETWORK_ERROR`, which costs nothing: the exit class
+  is the same one the fetch would have produced.
+- **Address rules have to reach through the transition ranges.** The
+  IPv6 table matched `fc00::/7` and `fe80::/10` but not the prefixes
+  that *embed* an IPv4 address — on a host behind a NAT64 gateway,
+  `64:ff9b::a9fe:a9fe` is the metadata service. Same for 6to4 and
+  Teredo, and on the v4 side for `224.0.0.0/4` and `240.0.0.0/4`.
+- **Compare identities, not spellings.** Allowing the configured server
+  by *origin string* silently broke dev and self-hosted exports: the
+  frontend persists image `src` absolute, so a document says
+  `http://localhost:3000/...` while the CLI may be pointed at
+  `--server http://127.0.0.1:3000`. The exemption now matches resolved
+  address + port, which covers every spelling of the same listener and
+  still grants nothing beyond it.
+- **A security requirement that breaks published clients has to earn
+  it.** `@wafflebase/cli` is on npm, so a `400` for a nonce-less
+  `?mode=cli` would break every installed CLI on the next deploy. The
+  fail-closed instinct was right but pointed at the wrong end: the
+  binding that defends a login is the CLI's own check, and an attacker
+  minting a code for a port they control just picks their own nonce, so
+  server-side rejection buys nothing it costs. Malformed → `400`,
+  absent → serve and warn, hard `400` once old CLIs are out of support.
+- **Classification has to follow the network calls out of the package.**
+  Every CLI `fetch` was routed through `fetchOrThrow`, but the PDF
+  exporter downloads Noto KR fonts from inside `@wafflebase/docs` with a
+  raw `fetch` — so an offline export of a Korean document still exited
+  `1`. `PdfFonts` now takes a `fetchImpl`, and the CLI injects a
+  classifying one. The seam is a *transport* the classifier wraps, not a
+  replacement for it: the first version let the test's stub bypass the
+  very code under test, and the test passed for the wrong reason.
+- **A refactor's motivation is a test.** Rerouting the API-key endpoints
+  through `send()` (so a refreshable session is not reported as an auth
+  failure just because of which base a call used) shipped with nothing
+  exercising `HttpClient`. `test/http-client.test.ts` now pins the
+  refresh-and-retry across that base, the session-file persistence, and
+  the `encodeURIComponent` on revoke.

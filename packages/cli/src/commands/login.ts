@@ -13,6 +13,7 @@ import {
   EXIT_SYSTEM_ERROR,
   EXIT_USER_ERROR,
   SystemError,
+  UserError,
   exitCodeFor,
   exitCodeForStatus,
   fetchOrThrow,
@@ -44,7 +45,14 @@ function loginHttpError(status: number, message: string): LoginError {
  * its stack trace instead of being flattened to one prose line.
  */
 export function classifyLoginFailure(error: unknown): number | null {
-  if (error instanceof LoginError || error instanceof SystemError) {
+  if (
+    error instanceof LoginError ||
+    error instanceof SystemError ||
+    // `fetchOrThrow` raises `UserError('INVALID_URL')` for an
+    // unparseable `--server`; without this it escapes `login` as an
+    // unhandled rejection instead of the documented one-line message.
+    error instanceof UserError
+  ) {
     return exitCodeFor(error);
   }
   return null;
