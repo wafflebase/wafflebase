@@ -27,6 +27,12 @@ import {
   insertTable,
   type NoteInlineFormats,
 } from './commands.js';
+import {
+  imageFilesOf,
+  noteImageUpload,
+  startImageUploads,
+  type UploadImage,
+} from './image-upload.js';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -122,6 +128,14 @@ export interface NoteEditorAPI {
   /** Insert a `rows`×`cols` markdown table skeleton at the cursor. */
   insertTable(rows: number, cols: number): void;
   /**
+   * Upload the image files and insert each as `![alt](url)` at the cursor.
+   * Non-image files are ignored. A no-op unless the editor was mounted with an
+   * `uploadImage` option (read-only mounts never have one).
+   */
+  insertImageFiles(files: ArrayLike<File>): void;
+  /** Whether image upload is available on this editor. */
+  canInsertImage(): boolean;
+  /**
    * Undo this client's last edit through the store's history. In a
    * collaborative session a peer's concurrent edit is preserved.
    */
@@ -154,14 +168,25 @@ export interface NoteEditorAPI {
  * markdown preview re-rendered from the editor content on every change
  * (so both local and remote edits reflect).
  */
+export interface NoteEditorOptions {
+  /**
+   * Upload an image file and resolve with the URL to reference it by, or
+   * `null` if the host handled the failure itself. Omit to disable image
+   * insertion entirely (paste, drop, and `insertImageFiles` all become no-ops).
+   */
+  uploadImage?: UploadImage;
+}
+
 export function initialize(
   container: HTMLElement,
   store: NoteStore,
   theme: ThemeMode = 'light',
   readOnly = false,
   viewMode: NoteViewMode = 'both',
+  options: NoteEditorOptions = {},
 ): NoteEditorAPI {
   routeVimHistoryToStore();
+  const uploadImage = readOnly ? undefined : options.uploadImage;
   container.style.display = 'flex';
   container.style.alignItems = 'stretch';
   container.style.height = '100%';
@@ -328,6 +353,9 @@ export function initialize(
         selectionCb?.(computeActiveFormats(u.state));
       }
     }),
+    // A read-only mount has no write permission, so there is nothing to upload
+    // into — the extension is left off entirely rather than guarded per event.
+    uploadImage ? noteImageUpload(uploadImage) : [],
     noteStoreFacet.of(store),
     noteSync,
     noteRemoteSelectionsTheme,
@@ -463,6 +491,21 @@ export function initialize(
     toggleStrikethrough: () => toggleStrikethrough(view),
     toggleLink: () => toggleLink(view),
     insertTable: (rows, cols) => insertTable(view, rows, cols),
+    insertImageFiles: (files) => {
+      if (!uploadImage) return;
+      const images = imageFilesOf(files);
+      if (images.length === 0) return;
+      startImageUploads(
+        view,
+        images,
+        view.state.selection.main.to,
+        uploadImage,
+      );
+      // The file picker took focus; hand it back so the caret is where the
+      // image will land and typing continues normally.
+      view.focus();
+    },
+    canInsertImage: () => Boolean(uploadImage),
     undo: () => {
       runHistory('undo');
       view.focus();

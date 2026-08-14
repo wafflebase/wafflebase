@@ -13,11 +13,13 @@ export type { Unsubscribe } from './types.js';
 export {
   initialize,
   type NoteEditorAPI,
+  type NoteEditorOptions,
   type ThemeMode,
   type NoteViewMode,
   type NoteKeymap,
 } from './view/editor.js';
 export type { NoteInlineFormats } from './view/commands.js';
+export type { UploadImage } from './view/image-upload.js';
 export { noteStoreFacet, noteSync } from './view/note-sync.js';
 export {
   noteRemoteSelections,

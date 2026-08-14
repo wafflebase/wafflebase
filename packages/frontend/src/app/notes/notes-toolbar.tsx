@@ -33,6 +33,7 @@ import {
   IconStrikethrough,
   IconLink,
   IconTable,
+  IconPhoto,
   IconKeyboard,
   IconArrowBackUp,
   IconArrowForwardUp,
@@ -155,6 +156,38 @@ function TableDropdown({ editor }: { editor: NoteEditorAPI }) {
 }
 
 /**
+ * Image insert via a hidden file input — the keyboard/touch equivalent of
+ * pasting or dropping a file, which the editor handles on its own. The accept
+ * list mirrors the upload endpoint's allowed types so the picker filters what
+ * the server would reject anyway.
+ */
+function ImageButton({ editor }: { editor: NoteEditorAPI }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <TooltipButton
+        label="Insert image"
+        onClick={() => inputRef.current?.click()}
+      >
+        <IconPhoto size={16} />
+      </TooltipButton>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files?.length) editor.insertImageFiles(e.target.files);
+          // Clear the value so picking the same file again still fires change.
+          e.target.value = "";
+        }}
+      />
+    </>
+  );
+}
+
+/**
  * Thin notes toolbar: a markdown-formatting group (bold / italic /
  * strikethrough toggles, link toggle, table insert) on the left when editing,
  * and a view-mode dropdown (Editor / Split / Preview) pinned to the far right
@@ -249,6 +282,7 @@ export function NotesToolbar({
             <IconLink size={16} />
           </TooltipToggle>
           <TableDropdown editor={editor} />
+          {editor.canInsertImage() && <ImageButton editor={editor} />}
         </>
       )}
 
