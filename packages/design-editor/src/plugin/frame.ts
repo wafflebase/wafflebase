@@ -15,7 +15,7 @@
  */
 
 import path from 'node:path';
-import type { FrameSide } from './protocol';
+import type { FrameSide } from './protocol.ts';
 
 /**
  * Extensions the frame query may be attached to: JS/TS modules only.

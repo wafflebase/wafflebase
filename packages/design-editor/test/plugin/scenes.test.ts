@@ -8,7 +8,7 @@ import {
   renderScenesModule,
   sceneSpecifier,
   type SceneConfig,
-} from '../../src/plugin/scenes';
+} from '../../src/plugin/scenes.ts';
 
 /**
  * The manifest is the consumer's to author, and §5 calls it the real onboarding

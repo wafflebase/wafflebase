@@ -63,7 +63,7 @@ import { gh, parseArgs, commitCheckRuns, withFullOutput } from "./vendor/pipelin
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MISSES_PATH = path.join(HERE, "misses.jsonl");
-const LENSES_PATH = path.join(HERE, "lenses", "lenses.json");
+const LENSES_PATH = path.join(HERE, "vendor", "pipeline", "lenses", "lenses.json");
 
 /** Record-format version. A consumer that does not know this string must refuse
  *  the record rather than read it optimistically — the fields it would miss are

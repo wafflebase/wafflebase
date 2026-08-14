@@ -164,3 +164,112 @@ test("a malformed record degrades to empty coverage instead of killing the run",
     assert.deepEqual(mergeCoverage(null, junk).shapes, []);
   }
 });
+
+test("the inventory gives the memory the denominator it lacked", () => {
+  // Past journals answer "what was used". Only an inventory answers "what was never
+  // touched" — a control nobody clicked appears in no journal, which is why `Clear
+  // formatting` was invisible to this memory for eight doc runs.
+  const inv = {
+    action: { type: "read", reader: "dom.controls" },
+    ok: true,
+    value: [
+      { role: "button", name: "Bold" },
+      { role: "button", name: "Italic" },
+      { role: "button", name: "Clear formatting" },
+    ],
+  };
+  const c = coverageFromJournal([inv, click("Bold")], { sha: "aaa111111" });
+  assert.deepEqual(c.inventory.map((x) => x.control), ["Bold", "Clear formatting", "Italic"]);
+  assert.equal(c.inventory[0].sha, "aaa111111", "the inventory carries provenance like everything else");
+
+  const md = renderCoverageBrief(c, { sha: "aaa111111" });
+  assert.match(md, /NEVER TRIED/);
+  assert.match(md, /- `Clear formatting`/);
+  assert.match(md, /- `Italic`/);
+  // Bold WAS clicked, so it belongs to the already-tried lists, not the untried one.
+  const untriedBlock = md.slice(md.indexOf("NEVER TRIED"));
+  assert.doesNotMatch(untriedBlock.split("\n\n")[0], /`Bold`/);
+});
+
+test("the inventory UNIONS across runs, because a closed menu hides controls", () => {
+  // A run that read `dom.controls` with the Text style menu closed sees fewer controls
+  // than one that opened it. Letting the newer reading replace the older would delete
+  // every menu item from the memory and re-mark them untried for ever.
+  const closed = coverageFromJournal(
+    [{ action: { type: "read", reader: "dom.controls" }, ok: true, value: [{ role: "button", name: "Text style" }] }],
+    { sha: "aaa" },
+  );
+  const open = coverageFromJournal(
+    [{ action: { type: "read", reader: "dom.controls" }, ok: true, value: [{ role: "menuitem", name: "Heading 2" }] }],
+    { sha: "bbb" },
+  );
+  const merged = mergeCoverage(closed, open);
+  assert.deepEqual(merged.inventory.map((x) => x.control).sort(), ["Heading 2", "Text style"]);
+
+  // A failed read contributes nothing rather than emptying the memory.
+  const failed = coverageFromJournal([{ action: { type: "read", reader: "dom.controls" }, ok: false, error: "boom" }]);
+  assert.deepEqual(failed.inventory, []);
+  // As does junk inside a successful one.
+  const junk = coverageFromJournal([
+    { action: { type: "read", reader: "dom.controls" }, ok: true, value: [null, 7, { role: "button" }, { name: "  " }] },
+  ]);
+  assert.deepEqual(junk.inventory, []);
+});
+
+test("role is part of a control's identity, and a missing one is refused", () => {
+  // `target` takes `{role, name}`. A `menuitem` and a `button` can legitimately share a
+  // name, so collapsing on name alone loses a control and leaves the survivor's role a
+  // coin toss — and a GUESSED role produces a target that does not resolve, which is the
+  // failure this reader exists to prevent.
+  const c = coverageFromJournal(
+    [
+      {
+        action: { type: "read", reader: "dom.controls" },
+        ok: true,
+        value: [
+          { role: "button", name: "Bold" },
+          { role: "menuitem", name: "Bold" },
+          { name: "no-role-at-all" },
+          { role: "   ", name: "blank-role" },
+        ],
+      },
+    ],
+    { sha: "aaa" },
+  );
+  assert.deepEqual(
+    c.inventory.map((x) => `${x.role}|${x.control}`),
+    ["button|Bold", "menuitem|Bold"],
+    "both roles survive; entries without a usable role are dropped rather than defaulted",
+  );
+
+  // And the pair survives a merge, which keyed on name alone before.
+  const a = coverageFromJournal([{ action: { type: "read", reader: "dom.controls" }, ok: true, value: [{ role: "button", name: "Bold" }] }], { sha: "a" });
+  const b = coverageFromJournal([{ action: { type: "read", reader: "dom.controls" }, ok: true, value: [{ role: "menuitem", name: "Bold" }] }], { sha: "b" });
+  const merged = mergeCoverage(a, b);
+  assert.deepEqual(merged.inventory.map((x) => `${x.role}|${x.control}`), ["button|Bold", "menuitem|Bold"]);
+  assert.equal(merged.inventory.every((x) => typeof x.role === "string" && x.role !== ""), true, "role survives serialisation");
+});
+
+test("a run that discovered controls and clicked nothing still renders its brief", () => {
+  // The most valuable brief there is — an entire surface offered as never-tried — and the
+  // early return on `shapes` silenced it completely.
+  const discovered = coverageFromJournal(
+    [
+      {
+        action: { type: "read", reader: "dom.controls" },
+        ok: true,
+        value: [{ role: "button", name: "Clear formatting" }, { role: "button", name: "Insert table" }],
+      },
+    ],
+    { sha: "aaa" },
+  );
+  assert.deepEqual(discovered.shapes, [], "nothing was clicked");
+  const md = renderCoverageBrief(discovered, { sha: "aaa" });
+  assert.notEqual(md, "", "an inventory-only run must still say something");
+  assert.match(md, /NEVER TRIED/);
+  assert.match(md, /- `Clear formatting`/);
+  assert.match(md, /- `Insert table`/);
+
+  // Genuinely nothing still renders nothing.
+  assert.equal(renderCoverageBrief(coverageFromJournal([]), { sha: "aaa" }), "");
+});

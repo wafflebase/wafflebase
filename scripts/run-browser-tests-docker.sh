@@ -8,6 +8,7 @@
 # Modes:
 #   visual          — run visual baseline comparison
 #   visual:update   — regenerate visual baselines
+#   visual:record   — refresh the recorded Google Fonts cache (needs network)
 #   interaction     — run interaction regression tests
 #   all             — run visual + interaction (default)
 
@@ -73,6 +74,14 @@ case "$MODE" in
     DOCKER_CMD="node ./packages/frontend/scripts/verify-visual-browser.mjs"
     DOCKER_ENV="-e WAFFLEBASE_DOCKER_BROWSER=true -e UPDATE_VISUAL_BROWSER_BASELINE=true"
     ;;
+  visual:record)
+    # Refreshes packages/frontend/tests/visual/fonts/ from the network. The
+    # only mode here that talks to fonts.googleapis.com; every other mode
+    # replays what this one wrote. Run it in Docker so the recorded bytes are
+    # the ones CI's Chromium asks for.
+    DOCKER_CMD="node ./packages/frontend/scripts/verify-visual-browser.mjs"
+    DOCKER_ENV="-e WAFFLEBASE_DOCKER_BROWSER=true -e RECORD_GOOGLE_FONT_CACHE=true"
+    ;;
   interaction)
     DOCKER_CMD="node ./packages/frontend/scripts/verify-interaction-browser.mjs"
     DOCKER_ENV="-e WAFFLEBASE_DOCKER_BROWSER=true"
@@ -83,7 +92,7 @@ case "$MODE" in
     ;;
   *)
     echo "[docker-browser] Unknown mode: $MODE"
-    echo "  Valid modes: visual, visual:update, interaction, all"
+    echo "  Valid modes: visual, visual:update, visual:record, interaction, all"
     exit 1
     ;;
 esac

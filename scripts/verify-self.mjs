@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { extractFailureSummary } from "./failure-summary.mjs";
 import { readHeadSha } from "./agent/vendor/pipeline/git-env.mjs";
 import {
   laneOrderViolations,
@@ -279,8 +280,10 @@ const LANES = [
     pkgs: ["slides"],
     needs: ["core:build", "docs:build"],
   },
-  // notes and design-editor declare no workspace dependency at all, so they are
-  // the two lanes that can run against a tree with nothing built.
+  // notes, design-editor and design-sandbox reach no BUILT workspace output, so they
+  // are the lanes that can run against a tree with nothing built. design-sandbox does
+  // declare `@wafflebase/design-editor`, but consumes its SOURCE through that package's
+  // `exports` map rather than a `dist/`, so it still needs no `needs:` entry.
   {
     name: "notes:check",
     cmd: "pnpm --filter @wafflebase/notes typecheck && pnpm --filter @wafflebase/notes test",
@@ -290,6 +293,22 @@ const LANES = [
     name: "design-editor:check",
     cmd: "pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test",
     pkgs: ["design-editor"],
+    // `pkgs` alone would never select this lane: harness.config.json lists
+    // packages/design-editor/** as inert, and an inert match short-circuits the
+    // packages/ classification, so the package never reaches `packages`. The tag
+    // is what keeps the lane reachable — same shape as documentation:build.
+    tags: ["designEditor"],
+  },
+  {
+    name: "design-sandbox:check",
+    cmd: "pnpm --filter @wafflebase/design-sandbox typecheck && pnpm --filter @wafflebase/design-sandbox test",
+    // Tagged on the same `designEditor` tag as the lane above, deliberately: this
+    // package imports design-editor's source directly, so its typecheck program
+    // contains that package's files and a change to either can break the other. Two
+    // separate tags would let a design-editor-only change skip the lane that would
+    // have caught it.
+    pkgs: ["design-sandbox"],
+    tags: ["designEditor"],
   },
   {
     name: "board:check",
@@ -356,7 +375,13 @@ const LANES = [
     name: "verify:entropy",
     cmd: "pnpm verify:entropy",
     anyPkg: true,
-    tags: ["docsProse"],
+    // `designEditor` is here because `anyPkg` cannot reach it. An inert package
+    // never lands in `packages`, so the one gate a design-editor change CAN fail
+    // — knip's dead-code pass, which analyses packages/design-editor since #819
+    // added it to knip.json's `workspaces` — would otherwise be skipped on the PR
+    // and first fail on main's push run. It costs the four engine builds in
+    // `needs`; the heavy jobs and the frontend/backend suites still skip.
+    tags: ["docsProse", "designEditor"],
     needs: ["core:build", "sheets:build", "docs:build", "slides:build"],
   },
 ];
@@ -465,19 +490,6 @@ function runCommand(cmd, cwd) {
       resolve({ exitCode: exitCode ?? 1, output: Buffer.concat(chunks).toString() });
     });
   });
-}
-
-function extractFailureSummary(output) {
-  const lines = output.split("\n").filter((l) => l.trim().length > 0);
-  for (const line of lines) {
-    if (
-      /\b(FAIL|ERROR|error|Error|✗|✘|FAILED)\b/.test(line) &&
-      line.trim().length > 5
-    ) {
-      return line.trim().slice(0, 500);
-    }
-  }
-  return lines.length > 0 ? lines[lines.length - 1].trim().slice(0, 500) : null;
 }
 
 function laneFileName(lane) {

@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "description": "Dev-only Vite plugin that renders a project's real routes and writes edits back into its JSX and token source.",
+  "exports": {
+    ".": "./src/plugin/index.ts",
+    "./injector": "./src/server/inject.mjs"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest --run"

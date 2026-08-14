@@ -1,0 +1,96 @@
+// WHAT EXISTS ON THE PAGE, so "never tried" is computable.
+//
+// The coverage memory can say "you already used Bold" from past journals, but it has no
+// DENOMINATOR: a control nobody has ever clicked appears in no journal, so it is
+// invisible to a memory built from them. `Clear formatting` sat unclicked for eight doc
+// runs purely because no text named it, and the moment one did it was exercised properly
+// and answered a real question. This is that list, derived instead of written.
+//
+// It also ends the guessing. `target` takes `{role, name}` and nothing enumerated them,
+// so the explorer had to guess accessible names and a wrong guess is a failed action —
+// which is a plausible part of why the sheet persona, on a surface with fewer guessable
+// names, produced nothing across six runs.
+//
+// DELIBERATELY NARROWER THAN `dom.snapshot`. Roles and names only: no text content, no
+// positions, no state, no ordering promises beyond a stable sort. The design keeps the
+// page hard to DESCRIBE so the explorer predicts rather than narrates, and a list of
+// things that can be clicked does not tell it what any of them did.
+//
+// ITS OWN MODULE, not a function in the runner, because `hunt-ui-runner.mjs` parses argv
+// and exits at import time — importing it from the oracle lane runs the CLI. The lane has
+// to exercise the REAL implementation rather than a copy of the query, or the check and
+// the reader drift apart and the check starts passing for the wrong reason.
+
+/**
+ * Every control that can be clicked right now, as `{role, name}`, stably sorted.
+ *
+ * Two exclusions, each a way the list would otherwise mislead:
+ *
+ *   DISABLED controls are omitted rather than reported. Offering one costs the explorer
+ *   a wasted action, and a control that does nothing when clicked is exactly the shape
+ *   of a false finding. Their absence leaks less than their state would.
+ *
+ *   ZERO-SIZE controls are omitted because they cannot be hit. A name that resolves to
+ *   something unclickable sends a run at a dead target, which is the failure this reader
+ *   exists to prevent rather than to cause.
+ */
+export function domControls(page) {
+  return page.evaluate(() => {
+    const ROLES = ["button", "menuitem", "menuitemcheckbox", "menuitemradio", "tab", "link"];
+    const seen = new Set();
+    const out = [];
+    for (const el of document.querySelectorAll("button, [role], a[href]")) {
+      if (el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true") continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+
+      const explicit = el.getAttribute("role");
+      const role = explicit || (el.tagName === "BUTTON" ? "button" : el.tagName === "A" ? "link" : "");
+      if (!ROLES.includes(role)) continue;
+
+      // THE ORDER THE BROWSER USES, not a convenient approximation. The accessible-name
+      // computation `getByRole` resolves against is `aria-labelledby` > `aria-label` >
+      // content, and skipping the first means a control labelled by reference gets named
+      // from its content instead — a name the explorer's own targeting then cannot find.
+      // There is no DOM API for the computed name (`getComputedAccessibleNode` is not
+      // shipped), so the first branch is resolved by hand rather than approximated away.
+      const labelledBy = (el.getAttribute("aria-labelledby") || "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((id) => document.getElementById(id)?.textContent ?? "")
+        .join(" ")
+        .trim();
+      // CONTENT IS JOINED AT ELEMENT BOUNDARIES, not concatenated. The accessible-name
+      // computation appends a space between the contents of adjacent elements, and
+      // `textContent` does not — so a menu item rendered as
+      //
+      //     <span>Heading 2</span><span>⌘+⌥2</span>
+      //
+      // has `textContent` "Heading 2⌘+⌥2" and an accessible name "Heading 2 ⌘+⌥2".
+      // Measured, and it cost real money: a run copied the concatenated form out of this
+      // list, `getByRole` could not match it, two clicks failed, and the explorer
+      // proposed "the Text style dropdown opens into an unusable state" — a false
+      // candidate this reader manufactured, which then spent two verifier sessions
+      // (~$3.41, ~10 minutes) being refuted. Items with no shortcut are a single element
+      // and matched fine, which is why the base-page check never saw it.
+      const fromContent = () => {
+        const parts = [];
+        for (const node of el.childNodes) {
+          const text = (node.textContent ?? "").trim();
+          if (text !== "") parts.push(text);
+        }
+        return parts.join(" ");
+      };
+      const name = (labelledBy || el.getAttribute("aria-label") || fromContent() || "")
+        .trim()
+        .replace(/\s+/g, " ");
+      if (name === "") continue;
+
+      const key = `${role}|${name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ role, name });
+    }
+    return out.sort((a, b) => `${a.role}${a.name}`.localeCompare(`${b.role}${b.name}`));
+  });
+}

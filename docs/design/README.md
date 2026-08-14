@@ -159,6 +159,7 @@ Infrastructure, frontend/backend, and cross-cutting concerns.
 | [rest-api.md](rest-api.md)                             | REST API v1 — workspace-scoped API keys, `/api/v1/` documents/tabs/cells/content endpoints, Yorkie service, CLI auth endpoints |
 | [cli.md](cli.md)                                       | `wafflebase` CLI — OAuth login + API keys, ctx switching, docs/sheets/slides/notes/api-keys namespaces, content/export/import, agent integration |
 | [harness-engineering.md](harness-engineering.md)       | Verification lane strategy, phase roadmap, rollout status, and harness v1 completion criteria      |
+| [hunter-usage.md](hunter-usage.md)                     | Running the CLI and UI issue hunters — prerequisites, commands, measured cost, how to read a report, and what to do with a finding. The operator's guide to what harness-engineering.md designs |
 | [homepage.md](homepage.md)                             | Homepage landing page — sections, live demo, theme support, developer examples                     |
 | [docs-site.md](docs-site.md)                           | Documentation site — VitePress setup, package structure, deployment under /docs subpath            |
 | [design-system-unification.md](design-system-unification.md) | Design-system unification — shared tokens package, toolbar/popover consolidation, mobile and a11y roadmap |

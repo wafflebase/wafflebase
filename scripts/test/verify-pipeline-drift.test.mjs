@@ -24,7 +24,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { mirrorImports } from "../verify-pipeline-drift.mjs";
+import { mirrorImports, reappearedMirrorFiles, readPins, stalePipelinePaths } from "../verify-pipeline-drift.mjs";
 
 // Stands in for the 34 files the pipeline repo owns. `lens_v2.mjs` is deliberately
 // shaped so the original `[a-z-]+` pattern could not have matched it.
@@ -132,6 +132,51 @@ test("skips node_modules and vendor trees", () => {
   assert.deepEqual(bad, []);
 });
 
+// ---------------------------------------------------------------------------
+// The mirror must stay deleted. This replaced the byte-comparison, which had
+// nothing left to compare once F2 removed the copy.
+// ---------------------------------------------------------------------------
+
+/** Build a throwaway tree and ask which files the pipeline repo owns. */
+function reappeared(files, owned) {
+  const root = mkdtempSync(path.join(tmpdir(), "drift-grow-"));
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = path.join(root, rel);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, body);
+  }
+  return reappearedMirrorFiles(root, new Set(owned));
+}
+
+test("reports a pipeline file that has come back", () => {
+  assert.deepEqual(reappeared({ "severity.mjs": "" }, ["severity.mjs"]), ["severity.mjs"]);
+});
+
+test("does NOT report the vendored copy", () => {
+  // The trap: vendor/pipeline/ holds those same files by design, and reporting them
+  // would tell people to delete the thing they are supposed to use.
+  //
+  // Two independent things prevent it — `vendor/` is in STAYS so `walk` never
+  // descends, and the comparison is by full relative path so `vendor/pipeline/x.mjs`
+  // would not equal `x.mjs` anyway. Mutation-tested: this fails only when BOTH are
+  // removed, so read it as pinning the property, not either mechanism.
+  assert.deepEqual(reappeared({ "vendor/pipeline/severity.mjs": "" }, ["severity.mjs"]), []);
+});
+
+test("does NOT report measurement files", () => {
+  assert.deepEqual(
+    reappeared({ "harvest.mjs": "", "eval/run.mjs": "", "hunt-gate.mjs": "" }, ["harvest.mjs", "eval/run.mjs"]),
+    [],
+  );
+});
+
+test("does NOT report package.json, which outlived the mirror", () => {
+  // It declares what the RETAINED half needs — the hunters `await import` the SDK
+  // and eval/run.test.mjs reads the pinned version out of it — so it stays and is
+  // free to diverge from the pipeline's own manifest.
+  assert.deepEqual(reappeared({ "package.json": "{}" }, ["package.json"]), []);
+});
+
 test("fires after the mirror is deleted", () => {
   // F2 removes the mirror from disk. `mirrorModules` comes from the pipeline repo,
   // so a retained file that still points at a deleted sibling must still be caught —
@@ -144,4 +189,145 @@ test("fires after the mirror is deleted", () => {
     "eval/run.mjs imports ../review-panel.mjs",
     "harvest.mjs imports ./severity.mjs",
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// Paths BUILT as strings. The import check is blind to these, and they are the
+// worse failure: an import breaks at load, a built path breaks when it is used,
+// and a fail-quiet reader turns it into wrong data rather than an error.
+// ---------------------------------------------------------------------------
+
+/** Build a throwaway tree and ask which files name a pipeline path outside vendor/. */
+function stale(files, owned) {
+  const root = mkdtempSync(path.join(tmpdir(), "drift-paths-"));
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = path.join(root, rel);
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, body);
+  }
+  return stalePipelinePaths(root, new Set(owned));
+}
+
+test("flags a path built to a deleted pipeline file", () => {
+  const bad = stale(
+    { "harvest.mjs": 'const P = path.join(HERE, "lenses", "lenses.json");\n' },
+    ["lenses/lenses.json"],
+  );
+  assert.deepEqual(bad, ["harvest.mjs builds a path to lenses"]);
+});
+
+test("flags one built with a parent hop", () => {
+  const bad = stale(
+    { "eval/run.mjs": 'export const P = path.join(HERE, "..", "review-panel.mjs");\n' },
+    ["review-panel.mjs"],
+  );
+  assert.deepEqual(bad, ["eval/run.mjs builds a path to review-panel.mjs"]);
+});
+
+test("accepts the vendored form", () => {
+  assert.deepEqual(
+    stale({ "harvest.mjs": 'path.join(HERE, "vendor", "pipeline", "lenses", "lenses.json");\n' }, ["lenses/lenses.json"]),
+    [],
+  );
+});
+
+test("does NOT flag a path into a temp directory that happens to share a name", () => {
+  // The precision this check lives or dies by: `path.join(work, "lenses")` is a
+  // materialised fixture, not a reference to this repo's tree. Anchoring on HERE is
+  // what separates them — a basename match would report every replay harness.
+  assert.deepEqual(
+    stale({ "eval/adapters/reviewer.test.mjs": 'const d = path.join(work, "lenses");\n' }, ["lenses/lenses.json"]),
+    [],
+  );
+});
+
+test("ignores paths to things the pipeline does not own", () => {
+  assert.deepEqual(stale({ "harvest.mjs": 'path.join(HERE, "misses.jsonl");\n' }, ["lenses/lenses.json"]), []);
+});
+
+// ---------------------------------------------------------------------------
+// readPins. A ref that is not a full sha used to be dropped on the floor, which
+// made a mutable `ref: main` invisible here while still satisfying "all pins
+// agree" — the invariant the deleted scripts/agent/checks.test.mjs guarded.
+// ---------------------------------------------------------------------------
+
+/** Write throwaway workflows and read their pins. */
+function pins(files) {
+  const dir = mkdtempSync(path.join(tmpdir(), "drift-pins-"));
+  for (const [name, body] of Object.entries(files)) writeFileSync(path.join(dir, name), body);
+  return readPins(dir);
+}
+
+const SHA = "a".repeat(40);
+const checkout = (ref) => `      - uses: actions/checkout@v4\n        with:\n          repository: wafflebase/agent-pipeline\n          ref: ${ref}\n`;
+
+test("readPins collects a full sha and reports where", () => {
+  const { pins: p, loose } = pins({ "agent-a.yml": checkout(SHA) });
+  assert.deepEqual(loose, []);
+  assert.deepEqual([...p.keys()], [SHA]);
+  assert.match(p.get(SHA)[0], /^agent-a\.yml:\d+$/);
+});
+
+test("readPins REFUSES to silently drop a tag or branch pin", () => {
+  for (const ref of ["main", "v0.3.1", "refs/tags/v0.3.1", "a".repeat(39)]) {
+    const { pins: p, loose } = pins({ "agent-a.yml": checkout(ref) });
+    assert.deepEqual([...p.keys()], [], `${ref} must not be read as a pinned commit`);
+    assert.equal(loose.length, 1, `${ref} must be reported, not dropped`);
+    assert.match(loose[0], /agent-a\.yml/);
+  }
+});
+
+test("readPins reports a loose ref even when another workflow is pinned", () => {
+  // The shape that made this dangerous: one sha-pinned site is enough for
+  // "all workflows agree on one commit" to hold while another runs a moving ref.
+  const { pins: p, loose } = pins({ "agent-a.yml": checkout(SHA), "agent-b.yml": checkout("main") });
+  assert.deepEqual([...p.keys()], [SHA], "the sha-pinned site still resolves");
+  assert.equal(loose.length, 1, "and the moving ref is still reported");
+});
+
+test("readPins reports a checkout with no ref at all", () => {
+  const { loose } = pins({
+    "agent-a.yml": "      - uses: actions/checkout@v4\n        with:\n          repository: wafflebase/agent-pipeline\n",
+  });
+  assert.equal(loose.length, 1);
+  assert.match(loose[0], /no ref: at all/);
+});
+
+test("readPins ignores non-agent workflows and other repositories", () => {
+  const { pins: p, loose } = pins({
+    "ci.yml": checkout(SHA),
+    "agent-a.yml": "      - uses: actions/checkout@v4\n        with:\n          repository: some/other\n          ref: main\n",
+  });
+  assert.deepEqual([...p.keys()], []);
+  assert.deepEqual(loose, []);
+});
+
+test("a NEAR-MATCH vendor directory does not buy an exemption", () => {
+  // The exemption used to be a substring test for "vendor", so any directory whose
+  // name merely contained it — `vendor-backup`, `vendor/pipeline-old`, `my-vendor` —
+  // silenced the check. It now resolves the path and requires it to land under
+  // vendor/pipeline on a SEGMENT boundary.
+  for (const dir of ["vendor-backup", "vendored", "not-vendor"]) {
+    assert.deepEqual(
+      stale({ "harvest.mjs": `path.join(HERE, "${dir}", "lenses", "lenses.json");\n` }, ["lenses/lenses.json"]),
+      ["harvest.mjs builds a path to lenses"],
+      `${dir}/ must not be treated as the vendored copy`,
+    );
+  }
+  // A sibling of vendor/pipeline is not vendor/pipeline either.
+  assert.deepEqual(
+    stale({ "harvest.mjs": 'path.join(HERE, "vendor", "pipeline-old", "lenses");\n' }, ["lenses/lenses.json"]),
+    ["harvest.mjs builds a path to lenses"],
+  );
+});
+
+test("the exemption survives a parent hop, which is how eval/ reaches vendor", () => {
+  // `path.join(HERE, "..", "vendor", "pipeline", …)` from a subdirectory is the
+  // correct form and must not be flagged. A first version of the segment check
+  // compared the joined literals as a string, so the leading `../` broke it and
+  // every legitimate call in eval/ was reported.
+  assert.deepEqual(
+    stale({ "eval/run.mjs": 'path.join(HERE, "..", "vendor", "pipeline", "review-panel.mjs");\n' }, ["review-panel.mjs"]),
+    [],
+  );
 });

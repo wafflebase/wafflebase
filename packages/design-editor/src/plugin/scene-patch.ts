@@ -12,12 +12,12 @@
  */
 
 import type { Plugin } from 'vite';
-import type { MutateRequest, FrameSide } from './protocol';
-import { planFiles } from './protocol';
-import { fileOf, frameOf, stripFrameQuery, withFrameQuery, type ModuleClassifier } from './frame';
-import type { PathGuard } from './paths';
-import type { IntentContext } from './intents';
-import { applyIntentToCache } from './intents';
+import type { MutateRequest, FrameSide } from './protocol.ts';
+import { planFiles } from './protocol.ts';
+import { fileOf, frameOf, stripFrameQuery, withFrameQuery, type ModuleClassifier } from './frame.ts';
+import type { PathGuard } from './paths.ts';
+import type { IntentContext } from './intents.ts';
+import { applyIntentToCache } from './intents.ts';
 
 /**
  * Accessors, not values. The guard and classifier are rebuilt in `configResolved`
@@ -83,7 +83,7 @@ export function scenePatch(deps: ScenePatchDeps): Plugin {
           // serve the module would blank the frame instead of showing the node the
           // edit could not be applied to. The bridge's `/validate` is what reports
           // the failure to the client.
-          applyIntentToCache(ctx, intent, cache);
+          await applyIntentToCache(ctx, intent, cache);
         }
         text = cache.get(abs) ?? text;
       }

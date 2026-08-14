@@ -1,10 +1,11 @@
 /**
  * Turning one intent into file writes — and a batch of them into ONE composition.
  *
- * Everything here is layout-only, which is 8a's boundary. A token intent resolves
- * its files through `TokenAdapter.plan()`, and with no adapter configured it is
- * refused with a note rather than mis-handled: §3 makes that the permanent state
- * for any project outside the support matrix, not a stub.
+ * A layout intent is applied by `inject.mjs` against the anchor's file; a token intent
+ * is planned by the configured `TokenAdapter` and applied through `./tokens`. With no
+ * adapter configured a token intent is still refused with a note rather than
+ * mis-handled: §3 makes that the permanent state for any project outside the support
+ * matrix, not a stub.
  *
  * `composeIntents` is shared by `/validate` and `/commit` on purpose. The whole
  * value of validation is answering "would a save succeed right now?", which is
@@ -14,10 +15,11 @@
  */
 
 import fs from 'node:fs';
-import { layoutFileOf, type MutateRequest } from './protocol';
-import type { PathGuard } from './paths';
-import type { Tracker } from './tracked';
-import type { TokenAdapter } from './options';
+import { layoutFileOf, type MutateRequest } from './protocol.ts';
+import type { PathGuard } from './paths.ts';
+import type { Tracker } from './tracked.ts';
+import type { TokenAdapter } from './options.ts';
+import { applyTokenPlan, planTokenIntent, TOKEN_KINDS } from './tokens.ts';
 
 /** The subset of `inject.mjs` this module calls. Loaded dynamically by the host. */
 export interface Injector {
@@ -49,14 +51,6 @@ export interface IntentOutcome {
 }
 
 const LAYOUT_KINDS = new Set(['layout-props', 'layout-insert', 'layout-remove']);
-const TOKEN_KINDS = new Set([
-  'token-value',
-  'token-add',
-  'token-rebind',
-  'palette-value',
-  'member-add',
-  'member-remove',
-]);
 
 /** A short human label for the transaction log and the client's history list. */
 export function labelOf(intent: MutateRequest): string {
@@ -69,6 +63,21 @@ export function labelOf(intent: MutateRequest): string {
       return `remove ${intent.anchor?.tag ?? ''}`.trim();
     case 'class-rewrite':
       return `classes ${intent.cvaName ?? ''}${intent.axis ? `.${intent.axis}` : ''}`.trim();
+    // Token labels name the VARIABLE, not the file. The transaction log and the
+    // client's history list are the only readers, and "semantic.ts" is the same string
+    // for every colour edit in wafflebase's pipeline — useless for telling two entries
+    // apart. The path is what distinguishes them.
+    case 'token-value':
+      return `token ${(intent.path ?? []).join('.')}`;
+    case 'token-rebind':
+      return `rebind ${(intent.path ?? []).join('.')} → ${intent.tokenValue ?? ''}`;
+    case 'palette-value':
+      return `palette ${(intent.path ?? []).join('.')}`;
+    case 'token-add':
+    case 'member-add':
+      return `add token ${intent.kebabKey ?? intent.camelKey ?? ''}`;
+    case 'member-remove':
+      return `drop token ${intent.kebabKey ?? intent.camelKey ?? ''}`;
     default:
       return intent.kind ?? 'unknown';
   }
@@ -82,6 +91,18 @@ export interface IntentContext {
 }
 
 /**
+ * One message for the no-adapter case, shared by the file-set and apply paths.
+ *
+ * They are reached separately — `/mutate` resolves files first, `scene-patch` applies
+ * straight in — and two hand-written copies drifted in 8a: one named the option to pass
+ * and the other did not, so the same misconfiguration produced two different
+ * explanations depending on which endpoint the client happened to hit.
+ */
+export const NO_ADAPTER =
+  'no token adapter configured — token editing is unavailable in this project ' +
+  '(pass `tokens:` to designEditor())';
+
+/**
  * The files one intent touches.
  *
  * For a layout intent that is the ANCHOR's file, never `intent.file` — a layout
@@ -93,17 +114,10 @@ export function filesForIntent(
   intent: MutateRequest,
 ): { files: { rel: string; abs: string }[] } | { error: string } {
   if (TOKEN_KINDS.has(intent.kind ?? '')) {
-    if (!ctx.tokens) {
-      return {
-        error:
-          'no token adapter configured — token editing is unavailable in this project ' +
-          '(pass `tokens:` to designEditor())',
-      };
-    }
-    // 8b routes these through `TokenAdapter.plan()`. Reaching here with an adapter
-    // present is not possible yet, and saying so is better than returning an empty
-    // file list that would read as a successful no-op.
-    return { error: 'token intents are not implemented by this version of the plugin host' };
+    if (!ctx.tokens) return { error: NO_ADAPTER };
+    const plan = planTokenIntent(ctx.tokens, ctx.guard, intent);
+    if ('error' in plan) return { error: plan.error };
+    return { files: plan.files };
   }
 
   const rel = LAYOUT_KINDS.has(intent.kind ?? '')
@@ -121,11 +135,11 @@ export function filesForIntent(
  * first. On success the cache is updated; on a locate failure it is left untouched,
  * which is what lets a partially-failing batch still be all-or-nothing.
  */
-export function applyIntentToCache(
+export async function applyIntentToCache(
   ctx: IntentContext,
   intent: MutateRequest,
   cache: Map<string, string>,
-): IntentOutcome {
+): Promise<IntentOutcome> {
   const get = (abs: string) => cache.get(abs) ?? '';
 
   if (LAYOUT_KINDS.has(intent.kind ?? '')) {
@@ -210,12 +224,14 @@ export function applyIntentToCache(
   }
 
   if (TOKEN_KINDS.has(intent.kind ?? '')) {
-    return {
-      located: false,
-      reason: ctx.tokens
-        ? 'token intents are not implemented by this version of the plugin host'
-        : 'no token adapter configured — token editing is unavailable in this project',
-    };
+    if (!ctx.tokens) return { located: false, reason: NO_ADAPTER };
+    // Re-planned rather than threaded through from `filesForIntent`. `plan()` is
+    // required to be deterministic (see `TokenAdapter.plan`), and this path is also
+    // reached WITHOUT a preceding `filesForIntent` — `scene-patch` applies staged
+    // intents straight in — so there is no plan to be handed one.
+    const plan = planTokenIntent(ctx.tokens, ctx.guard, intent);
+    if ('error' in plan) return { located: false, reason: plan.error };
+    return applyTokenPlan(plan, ctx.guard, cache);
   }
 
   return { located: false, reason: `unknown intent kind: ${intent.kind ?? '(none)'}` };
@@ -273,7 +289,7 @@ export async function composeIntents(
     }
     if (missing) continue;
 
-    const out = applyIntentToCache(ctx, intent, cache);
+    const out = await applyIntentToCache(ctx, intent, cache);
     results.push({ ...out, label, file: rf.files[0]?.rel ?? '' });
   }
 

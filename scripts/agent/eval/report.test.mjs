@@ -16,6 +16,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   AVAILABILITY,
+  PRODUCTION_LATENCY_PAIR,
   SELF_REVIEW_ITEMS,
   SCORER_IDS,
   SECTIONS,
@@ -110,6 +111,63 @@ const RELIABILITY = {
   completeness: { verdict: "complete", reasons: [], corpus_item_count: 7 },
 };
 
+/**
+ * A `cost-latency-v1` payload, cut to the fields §4 reads — and the numbers are the
+ * pilot's REAL ones, printed by the scorer against the real store on 2026-08-13.
+ *
+ * The three denominators are why they are real rather than round. The same seven pull
+ * requests produce `n=3` (replicates), `n=7` (items, on the other arm) and `n=21`
+ * (observations), and a fixture with one invented `n` would let a cell quote a figure
+ * at the wrong denominator without anything going red. The two latency medians — ours
+ * 9.3 min, theirs 6.8 — are the pair this section exists to keep apart.
+ */
+const COST_LATENCY = {
+  schema_version: 2,
+  scorer_id: "cost-latency-v1",
+  scope: "cross-run",
+  reviewer: { config_hash: CONFIG_HASH, panel_sha: PANEL_SHA },
+  corpus_version: CORPUS_VERSION,
+  run_ids: RUNS,
+  completeness: { verdict: "complete", reasons: [], corpus_item_count: 7, items_priced_in_every_replicate: RELIABILITY.items, totals_caveat: "every total here is recomputed from the envelopes present" },
+  panel: {
+    unit: "usd_per_review_metered",
+    latency_interval: "panel-process-elapsed-on-offline-replay",
+    replicates: [
+      { run_id: "pilot-01__k1", cost_vs_size: { n: 7, min_n: 3, intercept_usd: 2.1978, slope_usd_per_1000_lines: 5.1988, fixed_share: 0.4675, reason: null } },
+      { run_id: "pilot-01__k2", cost_vs_size: { n: 7, min_n: 3, intercept_usd: 2.1039, slope_usd_per_1000_lines: 4.4133, fixed_share: 0.4988, reason: null } },
+      { run_id: "pilot-01__k3", cost_vs_size: { n: 7, min_n: 3, intercept_usd: 1.7734, slope_usd_per_1000_lines: 5.3777, fixed_share: 0.4066, reason: null } },
+    ],
+    per_item: [],
+    by_size_bucket: [],
+    replicate_spend_usd: { n: 3, min: 29.5323875, median: 30.4926709, max: 32.9072012, mean: 30.9774198, range: 3.3748137, spread_over_min: 0.1142 },
+    review_cost_usd: { n: 21, min: 1.8934, median: 4.1731795, max: 7.5711, mean: 4.4253, range: 5.6777, spread_over_min: 2.9986 },
+    review_wall_ms: { n: 21, min: 243928, median: 557075, max: 1128782, mean: 609095, range: 884854, spread_over_min: 3.6275 },
+    duration_source: { n: 21, counts: { "review-timing.json": 21, absent: 0, "not-run": 0 }, unrecognised: {} },
+  },
+  coderabbit: {
+    unit: "amortised_usd_per_pr",
+    cost: { basis: "flat-subscription", metered: false, comparable_to_panel_cost: false, amortised_usd_per_pr: null, inputs: null, reason: "a flat subscription has no per-review price; an amortised one needs BOTH a list price and the pull-request volume it is spread over, and neither is in the store" },
+    latency: {
+      requested: true,
+      n_items: 7,
+      self_timed: { interval: "coderabbit-start-marker-to-first-finding", ms: { n: 7, min: 154000, median: 409000, max: 864000, mean: 417714, range: 710000, spread_over_min: 4.6104 }, n: 7, n_items: 7, n_measured: 7 },
+      push_proxy: { interval: "earliest-check-run-start-to-first-finding", ms: { n: 5, min: 167000, median: 402000, max: 891000, mean: 413600, range: 724000, spread_over_min: 4.3353 }, n: 5, n_items: 7, n_measured: 7 },
+      triggers: { automatic: 5, "on-demand": 2, unknown: 0 },
+      census: { n: 7, ended: 7, self_timed: { measured: 7, poolable: 7, absent: {} }, push_proxy: { measured: 7, poolable: 5, absent: {} } },
+      reason: null,
+    },
+  },
+  cost_per_real_finding: null,
+  declared_gaps: [
+    {
+      metric: "cost_per_real_finding",
+      value: null,
+      reason: "it needs CONFIRMED-REAL findings and no adjudicated labels exist yet. The available substitute — cost divided by all findings — is the worst option on the table precisely because it looks like this metric and would be quoted as it, while a reviewer that raised twice as many false findings would score twice as cheap",
+      unblocked_by: "adjudicated labels",
+    },
+  ],
+};
+
 /** The full report with a segmentation section attached, so §5's own rendering can be
  *  asserted without rebuilding the whole input at each call. */
 const withSegmentation = (built) => {
@@ -117,15 +175,45 @@ const withSegmentation = (built) => {
   return { ...r, sections: { ...r.sections, segmentation: built } };
 };
 
-const FULL = () =>
+const FULL = (extraScores = {}) =>
   buildReport({
     configHash: CONFIG_HASH,
     corpusVersion: CORPUS_VERSION,
     panelSha: PANEL_SHA,
     runIds: RUNS,
     corpusItemIds: RELIABILITY.items,
-    scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY },
+    scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY, ...extraScores },
   });
+
+/**
+ * One numbered section of the rendered markdown, header to header.
+ *
+ * Asserting against the WHOLE document is what let §4's own text be satisfied by a
+ * sentence in §6, and the two say opposite things about where the production pair
+ * belongs — so the tests that police that boundary have to be able to see it.
+ */
+/** Every markdown table in a chunk, as text — a contiguous run of pipe-rows. The unit
+ *  the cross-arm guard checks, because two rows of one table are as divisible as one
+ *  row of two columns. */
+function tables(markdown) {
+  const out = [];
+  let cur = [];
+  for (const line of markdown.split("\n")) {
+    if (line.startsWith("|")) cur.push(line);
+    else if (cur.length) { out.push(cur.join("\n")); cur = []; }
+  }
+  if (cur.length) out.push(cur.join("\n"));
+  return out;
+}
+
+function section(markdown, n) {
+  const lines = markdown.split("\n");
+  const start = lines.findIndex((l) => l.startsWith(`## ${n}. `));
+  assert.notEqual(start, -1, `the report has no section ${n}`);
+  const rest = lines.slice(start + 1);
+  const end = rest.findIndex((l) => /^## \d+\. /.test(l));
+  return [lines[start], ...(end === -1 ? rest : rest.slice(0, end))].join("\n");
+}
 
 // --- the four availability states -------------------------------------------
 
@@ -395,15 +483,15 @@ test("a missing reliability figure prints why rather than 'undefined'", () => {
   assert.match(hollowRecurrence, /gate verdict agreement \| \*\*1\.000\*\* \(7\/7\)/);
 });
 
-// --- the two unbuilt sections ----------------------------------------------
+// --- §4, cost and latency ----------------------------------------------------
 
-test("cost and latency is 'not computed', and its cross-arm cell is 'not measurable'", () => {
+test("cost and latency with no score file is 'not computed', and its cross-arm cell is 'not measurable'", () => {
   const cl = costLatencyFigures(null);
-  // TWO FLAVOURS IN ONE SECTION, and they mean different things: nobody has run the
-  // scorer (#791 is open), AND there is no cross-arm ratio even once it lands, because
-  // CodeRabbit is a flat subscription with no per-review price.
+  // TWO FLAVOURS IN ONE SECTION, and they mean different things: nobody ran the
+  // scorer against this store, AND there is no cross-arm ratio even when they do,
+  // because CodeRabbit is a flat subscription with no per-review price.
   assert.equal(cl.availability, "not-computed");
-  assert.match(cl.reason, /not merged/);
+  assert.match(cl.reason, /nobody ran the cost\/latency scorer/);
   assert.equal(cl.cross_arm.availability, "not-measurable");
   assert.match(cl.cross_arm.reason, /flat subscription/);
   const rendered = renderReport(FULL());
@@ -411,6 +499,354 @@ test("cost and latency is 'not computed', and its cross-arm cell is 'not measura
   // The store DOES hold each replay's cost, and the report says why it does not read
   // it rather than quietly not reading it.
   assert.match(rendered, /recomputed from the envelopes\n\*present\*/);
+});
+
+test("§4 unpacks the payload: the panel's money and minutes, each with its own n and unit", () => {
+  const cl = costLatencyFigures(COST_LATENCY);
+  assert.equal(cl.availability, "present");
+  // THREE DENOMINATORS OVER ONE CORPUS, and each cell says which it is. The same
+  // seven pull requests are 3 replicates, 7 items or 21 observations depending on the
+  // question, and decision 33 is that the figure carries the one it was measured at.
+  assert.equal(cl.panel.spend.n, 3);
+  assert.match(cl.panel.spend.unit, /replicates/);
+  assert.equal(cl.panel.cost_per_review.n, 21);
+  assert.match(cl.panel.cost_per_review.unit, /observations/);
+  assert.equal(cl.panel.wall.n, 21);
+  // Our minutes name OUR interval, in the unit, so the figure cannot travel without it.
+  assert.match(cl.panel.wall.unit, /panel-process-elapsed-on-offline-replay/);
+  const md = section(renderReport(FULL({ cost_latency: COST_LATENCY })), "4");
+  assert.match(md, /\| spend per replicate \| \*\*\$30\.49 \(\$29\.53–\$32\.91\)\*\* \| replicates/);
+  assert.match(md, /\| wall clock per review \| \*\*9\.3 min\*\* \(4\.1 min–18\.8 min\) \| observations, interval `panel-process-elapsed-on-offline-replay` \|/);
+});
+
+test("🔴 §4 CANNOT PRODUCE A CROSS-ARM LATENCY RATIO, with both arms' figures present", () => {
+  // The state this test exists for: both arms have minutes, in the same section, on
+  // the same page. 9.3 against 6.8 looks like a fair fight and is not one — ours times
+  // a replay PROCESS, theirs a production reviewer end to end — so the division must
+  // not be on the page, and it must not be one a reader can read off a shared row.
+  const cl = costLatencyFigures(COST_LATENCY);
+  assert.equal(cl.panel.wall.availability, "present");
+  assert.equal(cl.coderabbit.latency.availability, "present");
+  const ourMs = cl.panel.wall.value.median;
+  const theirMs = cl.coderabbit.latency.value.median;
+  const md = section(renderReport(FULL({ cost_latency: COST_LATENCY })), "4");
+
+  // 1. NO QUOTIENT, in any of the ways one would be written. Computed from the
+  //    fixture rather than hard-coded, so the guard follows the data if it moves.
+  const quotients = [ourMs / theirMs, theirMs / ourMs];
+  for (const q of quotients) {
+    for (const s of [`${q.toFixed(1)}×`, `${q.toFixed(1)}x`, `${q.toFixed(2)}×`, `${q.toFixed(2)}x`, `${q.toFixed(1)} times`]) {
+      assert.equal(md.includes(s), false, `§4 contains ${s}, which is one arm's minutes divided by the other's`);
+    }
+  }
+  // 2. NO SHARED TABLE. A ratio a reader computes themselves is the one this section
+  //    is shaped to prevent, and ADJACENCY is what invites it — so the unit of this
+  //    check is the table, not the line.
+  //
+  //    🔴 Found by mutation: a per-line check passes happily when the two figures sit
+  //    in two ROWS of one table, which is precisely the layout the recorded decision
+  //    forbids ("separate keys, separate units, separate blocks, no ratio"). A reader
+  //    divides what is next to each other; they do not need it on one line.
+  const ours = cl.panel.interval;
+  const theirs = cl.coderabbit.self_timed.interval;
+  const ourMinutes = `${(ourMs / 60000).toFixed(1)} min`;
+  const theirMinutes = `${(theirMs / 60000).toFixed(1)} min`;
+  for (const table of tables(md)) {
+    assert.equal(table.includes(ours) && table.includes(theirs), false, `one table carries both intervals, which is a shared axis:\n${table}`);
+    assert.equal(table.includes(ourMinutes) && table.includes(theirMinutes), false, `one table carries both arms' minutes (${ourMinutes} and ${theirMinutes}), which is the subtraction done for the reader:\n${table}`);
+  }
+  // 3. And they are under separate headings, so the two tables cannot be read as one.
+  assert.match(md, /### Our panel/);
+  assert.match(md, /### CodeRabbit/);
+  assert.ok(md.indexOf("### CodeRabbit") > md.indexOf("### Our panel"));
+  // 4. THE CROSS-ARM CELL SAYS PERMANENTLY. `not-measurable` rather than
+  //    `not-computed` is the whole point: a re-run does not close it.
+  assert.equal(cl.cross_arm.availability, "not-measurable");
+  assert.match(md, /\*\*not measurable\*\* — PERMANENTLY, and this is a result rather than a gap/);
+  assert.equal(md.includes("not computed** — PERMANENTLY"), false);
+});
+
+test("§4 shows all four availability states, and a measured ZERO renders as present", () => {
+  const withThinFit = {
+    ...COST_LATENCY,
+    panel: {
+      ...COST_LATENCY.panel,
+      // One replicate priced only two items, which is fewer than the scorer's own
+      // `MIN_FIT_ITEMS`. That is MEASURED AND WITHHELD — the fourth state — and it
+      // carries both the n it had and the n it wanted.
+      replicates: [
+        COST_LATENCY.panel.replicates[0],
+        { run_id: "pilot-01__k2", cost_vs_size: { n: 2, min_n: 3, intercept_usd: null, slope_usd_per_1000_lines: null, fixed_share: null, reason: "a floor-plus-slope fit needs at least 3 items, got 2" } },
+      ],
+    },
+  };
+  const cl = costLatencyFigures(withThinFit);
+  const states = new Set([
+    cl.panel.wall.availability,
+    cl.panel.untimed.availability,
+    cl.coderabbit.cost.availability,
+    cl.cost_per_real_finding.availability,
+    cl.panel.fits[1].cell.availability,
+  ]);
+  assert.deepEqual([...states].sort(), [...AVAILABILITY].sort(), "§4 must exercise every one of the four states, or one of them is a shape nothing produces");
+  // 🔴 A MEASURED ZERO IS `present`, NOT AN ABSENCE. 0 of 21 replays lacked a wall
+  // clock; the cell must say so with its denominator, because `0` and a blank are the
+  // same width on the page and opposite in meaning.
+  assert.equal(cl.panel.untimed.availability, "present");
+  assert.equal(cl.panel.untimed.value, 0);
+  assert.equal(cl.panel.untimed.n, 21);
+  const md = section(renderReport(FULL({ cost_latency: withThinFit })), "4");
+  assert.match(md, /\| replays with no wall clock \| \*\*0\*\* of 21 \| envelopes \|/);
+  assert.match(md, /\*\*suppressed\*\*: n=2 < 3/);
+  // 🔴 THE THRESHOLD IS THE SCORER'S AND IS READ, not defaulted to today's value.
+  // Found by mutation: hard-coding `3` here passes every assertion above, and would
+  // keep captioning the grid with `< 3` after the scorer moved its own minimum —
+  // a caption that contradicts the refusal it captions. So it is asserted against a
+  // payload whose threshold is NOT 3.
+  const moved = { ...withThinFit, panel: { ...withThinFit.panel, replicates: [withThinFit.panel.replicates[0], { run_id: "pilot-01__k2", cost_vs_size: { n: 4, min_n: 6, intercept_usd: null, slope_usd_per_1000_lines: null, fixed_share: null, reason: "a floor-plus-slope fit needs at least 6 items, got 4" } }] } };
+  assert.match(section(renderReport(FULL({ cost_latency: moved })), "4"), /\*\*suppressed\*\*: n=4 < 6/);
+  // And a NON-zero untimed count is a different number, so the zero above is read
+  // rather than printed.
+  const untimed = costLatencyFigures({ ...COST_LATENCY, panel: { ...COST_LATENCY.panel, duration_source: { n: 21, counts: { "review-timing.json": 19, absent: 1, "not-run": 1 }, unrecognised: {} } } });
+  assert.equal(untimed.panel.untimed.value, 2);
+});
+
+test("cost per real finding stays a declared gap after the latency lands, with its reason", () => {
+  const cl = costLatencyFigures(COST_LATENCY);
+  // The scorer measured CodeRabbit's latency and still cannot price a real finding —
+  // two absences with different causes, and only one of them closed.
+  assert.equal(cl.coderabbit.latency.availability, "present");
+  assert.equal(cl.cost_per_real_finding.availability, "not-computed");
+  // THE SCORER'S OWN WORDS, not a second copy of them here: a reason the renderer
+  // authored would drift from what the scorer actually refused to compute.
+  assert.equal(cl.cost_per_real_finding.reason, COST_LATENCY.declared_gaps[0].reason);
+  assert.equal(cl.cost_per_real_finding_unblocked_by, "adjudicated labels");
+  const md = section(renderReport(FULL({ cost_latency: COST_LATENCY })), "4");
+  assert.match(md, /Cost per real finding: \*\*not computed\*\* — it needs CONFIRMED-REAL findings/);
+  assert.match(md, /Unblocked by: adjudicated labels\./);
+});
+
+test("a schema-1 payload with no latency block renders the gap, it does not throw", () => {
+  // A store may hold a score written before the arm's timing read was wired in. The
+  // renderer must degrade to the payload's own reason rather than crash, because a
+  // renderer that cannot re-render last week's score file cannot be diffed against it
+  // — which is what this module's purity is for.
+  const old = {
+    ...COST_LATENCY,
+    schema_version: 1,
+    coderabbit: { unit: "amortised_usd_per_pr", cost: COST_LATENCY.coderabbit.cost, latency: { wall_ms: null, reason: "MEASURABLE, and not from anything this scorer reads" } },
+    declared_gaps: [...COST_LATENCY.declared_gaps, { metric: "coderabbit_latency_ms", value: null, reason: "MEASURABLE, and not from anything this scorer reads", unblocked_by: "a timing read in the arm's adapter" }],
+  };
+  const cl = costLatencyFigures(old);
+  assert.equal(cl.availability, "present");
+  assert.equal(cl.coderabbit.latency.availability, "not-computed");
+  assert.match(cl.coderabbit.latency.reason, /MEASURABLE, and not from anything this scorer reads/);
+  assert.equal(cl.coderabbit.latency_secondary, null);
+  const md = section(renderReport(FULL({ cost_latency: old })), "4");
+  assert.match(md, /\| latency \| \*\*not computed\*\* — MEASURABLE/);
+  // The panel's own figures still render — one arm's absence is not the section's.
+  assert.match(md, /wall clock per review \| \*\*9\.3 min\*\*/);
+  // And no interval is captioned onto a figure that does not exist.
+  assert.equal(md.includes("coderabbit-start-marker-to-first-finding"), false);
+});
+
+test("a latency figure with no interval name is REFUSED, not captioned 'unnamed'", () => {
+  // The caption and the number must fail together. A renderer that fell back to a
+  // constant of its own would keep printing the old interval after the scorer changed
+  // which instant it starts from, and nothing would go red.
+  const noInterval = {
+    ...COST_LATENCY,
+    coderabbit: { ...COST_LATENCY.coderabbit, latency: { ...COST_LATENCY.coderabbit.latency, self_timed: { ...COST_LATENCY.coderabbit.latency.self_timed, interval: "" } } },
+  };
+  assert.throws(() => costLatencyFigures(noInterval), /carries no interval name/);
+});
+
+test("§6 bounds §4's minutes with the n=2 production pair, and §4 does not print it", () => {
+  const rendered = renderReport(FULL({ cost_latency: COST_LATENCY }));
+  // S2: the honest comparison does not flatter us, and it belongs in the limits with
+  // its `n` rather than as a headline over two data points.
+  const limits = section(rendered, "6");
+  assert.match(limits, /§4's latency understates our panel, and here is the measurement that says so — n=2/);
+  assert.match(limits, /ours \*\*18\.7 and 19\.0 min\*\*, theirs \*\*8\.0 and 8\.6 min\*\*/);
+  // 🔴 THE RATIO MUST AGREE WITH THE MINUTES ON ITS OWN LINE, and it is checked by
+  // recomputing it from the constant rather than by pinning a literal. Found in
+  // review: the first version printed a hard-coded `2.2x` beside four numbers whose
+  // mean ratio is 2.3, so the sentence contradicted its own inputs and a literal
+  // assertion happily agreed with it. Recomputing here means the test cannot bless a
+  // number the pair does not support.
+  const pairs = Object.values(PRODUCTION_LATENCY_PAIR);
+  const expected = (pairs.reduce((a, p) => a + p.panel_min / p.coderabbit_min, 0) / pairs.length).toFixed(1);
+  assert.match(limits, new RegExp(`about \\*\\*${expected}x longer\\*\\*`));
+  assert.equal(expected, "2.3", "the pilot pair's mean ratio, recorded so a change to the constants is visible here");
+  // NOT in §4, which is the half that keeps it from becoming the headline.
+  const four = section(rendered, "4");
+  assert.equal(four.includes(`${expected}x`), false, "the production pair in §4 is a headline ratio over two data points");
+  assert.equal(four.includes("18.7"), false);
+});
+
+test("a fit refused for too few points is RE-RUNNABLE, never 'not measurable'", () => {
+  // Found in review. A scorer that states no threshold used to land in
+  // `notMeasurable`, which means "no such quantity exists however long anyone runs
+  // anything" — and a third priced item disproves that outright. The label decides
+  // what a reader does next: stop, or score more replicates.
+  const refused = { n: 2, intercept_usd: null, slope_usd_per_1000_lines: null, fixed_share: null, reason: "a floor-plus-slope fit needs at least 3 items, got 2" };
+  const noThreshold = { ...COST_LATENCY, panel: { ...COST_LATENCY.panel, replicates: [{ run_id: "pilot-01__k1", cost_vs_size: refused }] } };
+  const cell = costLatencyFigures(noThreshold).panel.fits[0].cell;
+  assert.equal(cell.availability, "not-computed", "a refusal a third item would lift is not structural");
+  assert.match(cell.reason, /needs at least 3 items, got 2/);
+  assert.match(section(renderReport(FULL({ cost_latency: noThreshold })), "4"), /\*\*not computed\*\* — a floor-plus-slope fit needs at least 3 items/);
+  // The no-spread-in-x refusal is the same species — more items with different sizes
+  // would fit it — so it is not structural either.
+  const flat = { ...refused, n: 3, reason: "every item is the same size, so there is no slope to fit" };
+  assert.equal(costLatencyFigures({ ...COST_LATENCY, panel: { ...COST_LATENCY.panel, replicates: [{ run_id: "k", cost_vs_size: flat }] } }).panel.fits[0].cell.availability, "not-computed");
+  // And WITH a stated threshold it is still the fourth state, carrying both numbers.
+  assert.equal(costLatencyFigures({ ...COST_LATENCY, panel: { ...COST_LATENCY.panel, replicates: [{ run_id: "k", cost_vs_size: { ...refused, min_n: 3 } }] } }).panel.fits[0].cell.availability, "suppressed");
+});
+
+test("a latency cell's n follows the SERIES that was validated, not its parent", () => {
+  // Found in review, and it needs a fixture where the two disagree: in today's producer
+  // `self_timed.n` and `self_timed.ms.n` are equal by construction, so reading the
+  // wrong one is invisible. `series()` validates `ms.n`; printing a sibling count is a
+  // denominator nobody checked.
+  const drifted = {
+    ...COST_LATENCY,
+    coderabbit: {
+      ...COST_LATENCY.coderabbit,
+      latency: {
+        ...COST_LATENCY.coderabbit.latency,
+        self_timed: { ...COST_LATENCY.coderabbit.latency.self_timed, n: 99 },
+        // No sibling count at all — `figure` refuses a non-finite `n`, so reading the
+        // parent here aborted the whole render rather than printing one bad cell.
+        push_proxy: { interval: "earliest-check-run-start-to-first-finding", ms: { n: 5, min: 167000, median: 402000, max: 891000, mean: 413600 } },
+      },
+    },
+  };
+  const cl = costLatencyFigures(drifted);
+  assert.equal(cl.coderabbit.latency.n, 7, "the series says 7; the parent says 99");
+  assert.equal(cl.coderabbit.latency_secondary.n, 5, "and a parent with no count at all must not reach `figure`");
+  assert.match(section(renderReport(FULL({ cost_latency: drifted })), "4"), /\*\*6\.8 min\*\* \(2\.6 min–14\.4 min\) \| items, interval/);
+});
+
+test("§6's latency limit survives a payload with OUR minutes and not CodeRabbit's", () => {
+  // Found in review. The gate required CodeRabbit's latency to be `present`, so on a
+  // score file carrying our wall clock and not theirs — the shape every scorer run
+  // produces until the arm's timing read is wired in — the caveat vanished entirely,
+  // fallback included. That is the payload where it matters most: §4 prints OUR
+  // minutes and nothing bounds how they may be read against a number a reader already
+  // has. Absence of a caveat is indistinguishable from "there is nothing to caveat".
+  const ourMinutesOnly = {
+    ...COST_LATENCY,
+    coderabbit: { ...COST_LATENCY.coderabbit, latency: { wall_ms: null, reason: "the arm's timing read was not supplied" } },
+    declared_gaps: [...COST_LATENCY.declared_gaps, { metric: "coderabbit_latency_ms", value: null, reason: "the arm's timing read was not supplied", unblocked_by: "passing the records" }],
+  };
+  const cl = costLatencyFigures(ourMinutesOnly);
+  assert.equal(cl.panel.wall.availability, "present");
+  assert.equal(cl.coderabbit.latency.availability, "not-computed");
+  assert.match(section(renderReport(FULL({ cost_latency: ourMinutesOnly })), "6"), /§4's latency understates our panel/);
+  // And with NEITHER arm's minutes there is genuinely nothing to bound, so it is silent.
+  const noMinutes = { ...ourMinutesOnly, panel: { ...ourMinutesOnly.panel, review_wall_ms: { n: 0, min: null, median: null, max: null, mean: null } } };
+  assert.equal(costLatencyFigures(noMinutes).panel.wall.availability, "not-computed");
+  assert.equal(section(renderReport(FULL({ cost_latency: noMinutes })), "6").includes("§4's latency understates"), false);
+});
+
+test("OUR minutes refuse an unnamed interval too, symmetrically with CodeRabbit's", () => {
+  // Found in review: this side fell back to the literal `unnamed` while the other arm
+  // refused. Ours is the figure a reader is likeliest to quote against theirs, so an
+  // unnamed interval here is exactly how the two come to look commensurable.
+  const noInterval = { ...COST_LATENCY, panel: { ...COST_LATENCY.panel, latency_interval: null } };
+  assert.throws(() => costLatencyFigures(noInterval), /carries no interval name/);
+  assert.equal(renderReport(FULL({ cost_latency: COST_LATENCY })).includes("interval `unnamed`"), false);
+});
+
+test("the CodeRabbit block renders its second anchor and says why it pools fewer items", () => {
+  // Both were rendered by new code that no test read. The second anchor is the row a
+  // reader is most likely to mistake for a disagreement, and the paragraph is the only
+  // thing on the page that explains why its `n` is smaller.
+  const md = section(renderReport(FULL({ cost_latency: COST_LATENCY })), "4");
+  assert.match(md, /\| latency, second anchor \| 6\.7 min \(2\.8 min–14\.8 min\) \| items, interval `earliest-check-run-start-to-first-finding` \|/);
+  assert.match(md, /The two anchors agree on the 5 automatically-triggered item\(s\)/);
+  assert.match(md, /2 on-demand one\(s\): where a human asked for the review, the second anchor times the human's delay in/);
+  // The secondary ROW is absent, not "n/a", when the payload has no push proxy — the
+  // row, not the phrase: the paragraph above explains what the second anchor is and
+  // says so whether or not there is a figure, which is why this checks the table.
+  const noProxy = { ...COST_LATENCY, coderabbit: { ...COST_LATENCY.coderabbit, latency: { ...COST_LATENCY.coderabbit.latency, push_proxy: null } } };
+  assert.equal(costLatencyFigures(noProxy).coderabbit.latency_secondary, null);
+  assert.equal(section(renderReport(FULL({ cost_latency: noProxy })), "4").includes("| latency, second anchor |"), false);
+});
+
+test("a PRESENT cost-vs-size fit renders its money and its percentage, not just the withheld case", () => {
+  // Only the suppressed row was asserted, so the formatting of the row that actually
+  // renders on every real payload was uncovered — including `fixed_share`, which is a
+  // fraction and reads as 0.4675 rather than 46.8% if it misses the percent formatter.
+  const md = section(renderReport(FULL({ cost_latency: COST_LATENCY })), "4");
+  assert.match(md, /\| `pilot-01__k1` \| \$2\.20 per item \+ \$5\.20 per 1000 lines — 46\.8% of the replicate is the per-item floor \|/);
+  assert.equal(md.includes("0.4675"), false, "a raw fraction where a percentage belongs");
+});
+
+test("a PRESENT CodeRabbit price renders as a figure, and only when both inputs exist", () => {
+  // The `present` branch of this cell had never been exercised: every payload so far
+  // carries a null price, because nobody has stated the subscription terms.
+  const priced = {
+    ...COST_LATENCY,
+    coderabbit: { ...COST_LATENCY.coderabbit, cost: { basis: "flat-subscription", metered: false, comparable_to_panel_cost: false, amortised_usd_per_pr: 3, inputs: { list_price_usd_per_month: 30, prs_per_month: 10 }, reason: null } },
+  };
+  const cl = costLatencyFigures(priced);
+  assert.equal(cl.coderabbit.cost.availability, "present");
+  assert.equal(cl.coderabbit.cost.value, 3);
+  assert.match(cl.coderabbit.cost.unit, /amortised USD per pull request/);
+  const md = section(renderReport(FULL({ cost_latency: priced })), "4");
+  assert.match(md, /\| cost per review \| 3 \(n=1 amortised USD per pull request/);
+  // 🔴 EVEN PRICED, IT IS NOT COMPARABLE. An amortised subscription share opposite a
+  // metered per-review cost is the cross-arm division this section exists to prevent,
+  // and the permanent cell must not soften because a number appeared.
+  assert.equal(cl.cross_arm.availability, "not-measurable");
+  for (const table of tables(md)) {
+    assert.equal(table.includes("$4.17") && table.includes("amortised"), false, "the two arms' prices share a table");
+  }
+});
+
+test("the production-latency pair is intersected with the corpus, never asserted over it", () => {
+  // Same rule as the self-review caveat: it is a fact about two specific commits, so a
+  // report over a corpus without them must not claim it — and must still say that it
+  // could not bound the figure, because "unmeasured" and "not thought of" are the
+  // distinction this module is built around.
+  const other = buildReport({
+    configHash: CONFIG_HASH,
+    corpusVersion: "some-other-corpus",
+    panelSha: PANEL_SHA,
+    runIds: RUNS,
+    corpusItemIds: ["pr-101", "pr-102"],
+    scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY, cost_latency: COST_LATENCY },
+  });
+  const limits = section(renderReport(other), "6");
+  assert.match(limits, /no production pair to bound them on this corpus/);
+  assert.equal(limits.includes("18.7"), false, "a corpus without pr-549 must not be told about pr-549's timings");
+});
+
+// --- §2's adjudication budget ------------------------------------------------
+
+test("§2 distinguishes the FLOOR's budget from the CEILING's, and does not call it tens of pairs", () => {
+  const md = section(renderReport(FULL()), "2");
+  const k1 = COMPLEMENTARITY.per_replicate[0].unresolved;
+  // 🔴 THE DEFECT THIS REPLACES. The old sentence read the ≥ threshold head as the
+  // whole cost — "so adjudicating this costs tens of pairs rather than hundreds" —
+  // which conflates the two bounds. The head moves the FLOOR; the ceiling does not
+  // move until a CodeRabbit finding has every one of its pairs decided, and that is a
+  // budget in the hundreds.
+  assert.equal(md.includes("costs tens of"), false, "the old sentence understates the ceiling's budget by an order of magnitude");
+  assert.match(md, /hundreds of decisions, not tens/);
+  assert.match(md, /\*\*The floor\*\* rises when a pair is labelled `same`/);
+  assert.match(md, /\*\*The ceiling\*\* only falls when a CodeRabbit finding has EVERY one of its pairs decided/);
+  // Both numbers come from the payload and are labelled with which bound they buy.
+  assert.match(md, new RegExp(`The queue is ${k1.maybe_links} undecided pairs`));
+  assert.match(md, new RegExp(`\\*\\*${k1.strong_maybe_links} score ≥ ${k1.triage_threshold}\\*\\*`));
+  assert.match(md, new RegExp(`${k1.coderabbit_classes_with_a_panel_candidate} of this replicate's findings carry an undecided panel candidate`));
+  // AND IT SAYS WHICH REPLICATE. The figures are k1's; the table three lines above
+  // lists three, and an unlabelled queue size reads as all of them.
+  assert.match(md, /on `pilot-01__k1`/);
+  // The one deduction that is real and not derivable here is NAMED as not stated,
+  // rather than approximated into the sentence.
+  assert.match(md, /needs a per-finding pair count this\nscorer does not emit, so it is not stated here as a number/);
 });
 
 test("a segmentation value is formatted, not stringified — the fmt parameter is passed", () => {

@@ -12,9 +12,9 @@
  * session-pristine escape hatch, and git is the real one.
  */
 
-import type { FileCheckpoint, Transaction } from './protocol';
-import type { PathGuard } from './paths';
-import type { Tracker } from './tracked';
+import type { FileCheckpoint, Transaction } from './protocol.ts';
+import type { PathGuard } from './paths.ts';
+import type { Tracker } from './tracked.ts';
 
 export interface TransactionStore {
   record(labels: string[], files: FileCheckpoint[]): Transaction;

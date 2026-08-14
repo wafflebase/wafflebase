@@ -7,6 +7,7 @@ model User {
   documents Document[]
   shareLinks ShareLink[]
   datasources DataSource[]
+  bigquerySources BigQuerySource[]
   workspaceMembers  WorkspaceMember[]
   workspaceInvites  WorkspaceInvite[]
   apiKeys           ApiKey[]
@@ -36,6 +37,25 @@ model DataSource {
   author     User     @relation(fields: [authorID], references: [id])
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model BigQuerySource {
+  id          String   @id @default(uuid())
+  name        String
+  projectId   String
+  dataset     String?
+  location    String?
+  // service-account JSON key, AES-256-GCM encrypted (reuse crypto.util.ts)
+  credentials String
+  // per-connection bytes-scanned ceiling; stored as BigInt (converted to
+  // Number at the API boundary since values stay well under 2^53)
+  maximumBytesBilled BigInt?
+  authorID    Int
+  author      User      @relation(fields: [authorID], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
@@ -109,6 +129,7 @@ model Workspace {
   documents   Document[]
   invites     WorkspaceInvite[]
   datasources DataSource[]
+  bigquerySources BigQuerySource[]
   apiKeys     ApiKey[]
   folders     Folder[]
   notifications Notification[]

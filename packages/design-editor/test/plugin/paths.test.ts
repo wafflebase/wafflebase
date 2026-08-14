@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createPathGuard } from '../../src/plugin/paths';
-import { resolveOptions } from '../../src/plugin/options';
+import { createPathGuard } from '../../src/plugin/paths.ts';
+import { resolveOptions } from '../../src/plugin/options.ts';
 
 /**
  * THE WRITE BOUNDARY.

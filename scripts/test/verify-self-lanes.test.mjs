@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   laneOrderViolations,
+  readCiConfig,
   readWorkspaceGraph,
   selectLaneNames,
 } from "../changed-areas.mjs";
@@ -60,6 +61,23 @@ test("the lane graph", async (t) => {
         assert.ok(
           Object.hasOwn(graph, pkg),
           `lane ${lane.name} names package "${pkg}", which is not in packages/`,
+        );
+      }
+    }
+  });
+
+  await t.test("every inert tag in harness.config.json is claimed by a lane", () => {
+    // The failure this catches is silent and expensive: an inert entry whose tag
+    // no lane selects stops forcing a full run AND leaves its paths tested by
+    // nothing, which reads as a fast CI rather than as missing coverage. It bites
+    // hardest for the inert *packages* — an inert match short-circuits the
+    // packages/ classification, so `pkgs` alone can never select their lane.
+    const laneTags = new Set(LANES.flatMap((l) => l.tags));
+    for (const entry of readCiConfig(REPO_ROOT).inert) {
+      for (const tag of entry.tags ?? []) {
+        assert.ok(
+          laneTags.has(tag),
+          `inert tag "${tag}" (${entry.paths.join(", ")}) is claimed by no lane`,
         );
       }
     }
@@ -140,6 +158,39 @@ test("selection against the real lane graph", async (t) => {
     });
     assert.ok(selected.has("documentation:build"));
     assert.ok(!selected.has("frontend:build"));
+    assert.ok(!selected.has("sheets:check"));
+  });
+
+  await t.test("a design-editor change runs its check AND the knip gate", () => {
+    // `packages` is empty on purpose: harness.config.json lists
+    // packages/design-editor/** as inert, so the resolver never puts the package
+    // in the closure and the tag is each lane's only route in.
+    const selected = select({
+      full: false,
+      packages: [],
+      tags: ["designEditor"],
+    });
+    assert.ok(selected.has("design-editor:check"));
+    // The consumer of that package's SOURCE. design-sandbox imports design-editor
+    // through its `exports` map, so its typecheck program contains design-editor's
+    // files and a change here can break it. Neither package lands in `packages`
+    // (both are inert), so the shared tag is the only thing that runs this lane —
+    // which is why changed-areas.test.mjs asserts the two share one.
+    assert.ok(
+      selected.has("design-sandbox:check"),
+      "a design-editor change must typecheck the package that consumes its source",
+    );
+    // knip analyses packages/design-editor, so this is the one gate a change here
+    // can fail. `anyPkg` cannot reach it for an inert package — only the tag can.
+    assert.ok(
+      selected.has("verify:entropy"),
+      "a design-editor change must still run the dead-code gate",
+    );
+    // Pulled in by entropy's `needs`, not by the tag.
+    assert.ok(selected.has("core:build"));
+    // Still nothing that cannot be affected.
+    assert.ok(!selected.has("frontend:test"));
+    assert.ok(!selected.has("backend:test"));
     assert.ok(!selected.has("sheets:check"));
   });
 

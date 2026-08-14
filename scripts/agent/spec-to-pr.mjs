@@ -25,7 +25,7 @@
 // `git`/`gh` and to the sibling set-state.mjs / review-panel.mjs.
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -117,6 +117,35 @@ export function parseRepoFromRemoteUrl(url) {
 function fail(msg) {
   console.error(`spec-to-pr: ${msg}`);
   process.exit(1);
+}
+
+// The pipeline no longer lives in this repo. Two different answers, on purpose:
+//
+//   * `set-state.mjs` is VENDORED (`vendor/pipeline/`), pinned to the same commit
+//     the workflows run and verified offline, so `handoff` keeps working with no
+//     checkout and no flag. It has to: handoff writes the advisory lifecycle label,
+//     and a hand-rolled label PUT would drop the mutual-exclusion and reconcile
+//     semantics that module exists to provide.
+//
+//   * `review` needs the RUBRICS (`lenses/*.md`), which are prose, not code, and
+//     are being parameterized in phase C4 — vendoring a second copy of a moving
+//     target is how the copies drift. It already needs the network and the SDK, so
+//     "works offline" was never on the table. It takes a checkout instead, and
+//     SKIPS with a warning when it has none, rather than failing the command.
+const PIPELINE_SUBDIR = path.join("packages", "pipeline");
+const VENDOR_DIR = path.join(HERE, "vendor", "pipeline");
+
+/** A checkout of wafflebase/agent-pipeline, or null. Never guesses a location. */
+export function pipelineDir(args, env = process.env, onError = fail) {
+  const raw = typeof args["pipeline-dir"] === "string" ? args["pipeline-dir"] : env.AGENT_PIPELINE_DIR;
+  if (!raw) return null;
+  const dir = path.resolve(raw);
+  const inner = path.join(dir, PIPELINE_SUBDIR);
+  if (existsSync(path.join(inner, "review-panel.mjs"))) return inner;
+  // A path that exists but isn't a pipeline checkout is a typo, not a missing
+  // option — say so rather than silently falling through to the skip path.
+  onError(`--pipeline-dir ${raw} is not a checkout of wafflebase/agent-pipeline (no ${PIPELINE_SUBDIR}/review-panel.mjs)`);
+  return null;
 }
 
 function parseArgs(argv, start) {
@@ -226,7 +255,7 @@ function cmdHandoff(args) {
     console.log(`  branch:  ${branch} (${messages.length} commit(s), all carry the trailer)`);
     console.log(`  push:    git push -u origin ${branch}`);
     console.log(`  pr:      gh pr create --repo ${baseRepo} --draft --base main --title "${title}"`);
-    console.log(`  state:   node ./scripts/agent/set-state.mjs <pr> awaiting-ci`);
+    console.log(`  state:   node ./scripts/agent/vendor/pipeline/set-state.mjs <pr> awaiting-ci`);
     console.log("  --- PR body ---");
     console.log(body);
     return;
@@ -254,7 +283,7 @@ function cmdHandoff(args) {
   let pr = "";
   try {
     pr = String(ghJson(["pr", "view", branch, "--json", "number"]).number);
-    execFileSync("node", [path.join(HERE, "set-state.mjs"), pr, "awaiting-ci"], { stdio: "inherit" });
+    execFileSync("node", [path.join(VENDOR_DIR, "set-state.mjs"), pr, "awaiting-ci"], { stdio: "inherit" });
   } catch (e) {
     console.warn(`spec-to-pr: PR opened but could not set the advisory state: ${e.message}`);
   }
@@ -265,7 +294,7 @@ function cmdHandoff(args) {
   console.log("    push follow-up commits to it. DO NOT push to it again — a local push");
   console.log("    races the cloud fixer, and a force-push would clobber its commits and");
   console.log("    break the append-only loop counters. End this session now.");
-  if (pr) console.log(`\nPreview the ready-gate locally (no promotion): node ./scripts/agent/mark-ready.mjs ${pr}`);
+  if (pr) console.log(`\nPreview the ready-gate locally (no promotion), from a pipeline checkout:\n  node <agent-pipeline>/${PIPELINE_SUBDIR}/mark-ready.mjs ${pr}`);
 }
 
 function cmdReview(args) {
@@ -300,19 +329,32 @@ function cmdReview(args) {
   try {
     baseSha = execFileSync("git", ["merge-base", "origin/main", "HEAD"], { encoding: "utf8" }).trim();
   } catch { /* gate runs inert */ }
+  // The panel and its rubrics come from the SAME checkout, never a vendored module
+  // against another checkout's lenses: the two are versioned together, and a mixed
+  // pair reviews your diff under rules the panel was not written for.
+  const pipeline = pipelineDir(args);
+  if (!pipeline) {
+    console.warn("spec-to-pr: skipping the local review panel — no pipeline checkout.");
+    console.warn("  The pipeline lives in wafflebase/agent-pipeline now. To run it here:");
+    console.warn("    git clone https://github.com/wafflebase/agent-pipeline");
+    console.warn("    node ./scripts/agent/spec-to-pr.mjs review --pipeline-dir <path-to-that-clone>");
+    console.warn("  (or set AGENT_PIPELINE_DIR). CI reviews this branch regardless — this");
+    console.warn("  command is a local preview, so a missing checkout is not a failure.");
+    return;
+  }
   if (dryRun) {
-    console.log(`[dry-run] would review ${diffFile} via review-panel.mjs → ${outDir}`);
+    console.log(`[dry-run] would review ${diffFile} via ${path.join(pipeline, "review-panel.mjs")} → ${outDir}`);
     return;
   }
   try {
     execFileSync(
       "node",
       [
-        path.join(HERE, "review-panel.mjs"),
+        path.join(pipeline, "review-panel.mjs"),
         "--diff-file", diffFile,
         "--changed-files", changedFile,
         ...(baseSha ? ["--base-sha", baseSha] : []),
-        "--lenses-dir", path.join(HERE, "lenses"),
+        "--lenses-dir", path.join(pipeline, "lenses"),
         "--out", outDir,
       ],
       { stdio: "inherit" },

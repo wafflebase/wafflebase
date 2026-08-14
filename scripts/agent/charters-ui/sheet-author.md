@@ -12,6 +12,11 @@ or `unevaluable` — never the measured value. That is deliberate: if you could 
 the number you would be able to invent a claim that fits it, and a prediction you
 made after looking is not evidence of anything.
 
+**START BY READING `dom.controls`.** It lists every control you can click right now,
+as the exact `{role, name}` pairs a click target takes — so you never have to guess a
+name, and a wrong guess is a wasted action. On this surface that matters more than on
+the other one: the toolbar's names are less guessable, and six runs here found nothing.
+
 **A `violated` verdict is the only thing that starts an investigation.** Not a
 feeling that something looked odd — you cannot see the grid, and you have no
 screenshot. You have named readers and comparisons, and that is the whole instrument.

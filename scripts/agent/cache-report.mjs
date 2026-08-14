@@ -245,7 +245,7 @@ function main() {
     : sliceDiffByFile(diff).map((b) => b.path).filter(Boolean);
   const { scopeNote } = resolveReviewScope(args, changedFiles);
   const fileBlocks = sliceDiffByFile(diff);
-  const lenses = loadLenses(path.resolve(String(args["lenses-dir"] ?? path.join(HERE, "lenses"))));
+  const lenses = loadLenses(path.resolve(String(args["lenses-dir"] ?? path.join(HERE, "vendor", "pipeline", "lenses"))));
 
   const { sessions, skipped, noNewHunks } = planSessions(lenses, {
     changedFiles, fileBlocks, issue, scopeNote,

@@ -54,6 +54,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
 
 const HOST = "127.0.0.1";
+import { domControls } from "./hunt-ui-dom.mjs";
+
 const BRIDGE_KEY = "__WB_HUNT__";
 const READY_SELECTOR = "[data-testid='hunt-harness-root'][data-hunt-harness-ready='true']";
 const HOST_TESTID = "hunt-harness-host";
@@ -181,6 +183,7 @@ async function readValue(page, name, args) {
     const [role, accName] = args;
     return await page.getByRole(role, { name: accName }).first().innerText();
   }
+  if (name === "dom.controls") return await domControls(page);
   if (name === "dom.count") {
     const [role, accName] = args;
     const loc = accName === undefined ? page.getByRole(role) : page.getByRole(role, { name: accName });
