@@ -168,9 +168,9 @@ async function isAnimated(file: File): Promise<boolean> {
     const head = new Uint8Array(
       await file.slice(0, APNG_SNIFF_BYTES).arrayBuffer(),
     );
-    const idat = indexOfChunk(head, "IDAT");
-    const actl = indexOfChunk(head, "acTL");
-    return actl !== -1 && (idat === -1 || actl < idat);
+    // Undetermined — a chunk chain longer than the window — counts as
+    // animated, the same as an unreadable file.
+    return hasAnimationChunk(head) ?? true;
   } catch {
     return true;
   }
@@ -180,20 +180,35 @@ function ascii(bytes: Uint8Array, offset: number, length: number): string {
   return String.fromCharCode(...bytes.subarray(offset, offset + length));
 }
 
-/** Byte offset of a four-character PNG chunk name, or -1. */
-function indexOfChunk(bytes: Uint8Array, name: string): number {
-  const [a, b, c, d] = [0, 1, 2, 3].map((i) => name.charCodeAt(i));
-  for (let i = 0; i + 3 < bytes.length; i++) {
-    if (
-      bytes[i] === a &&
-      bytes[i + 1] === b &&
-      bytes[i + 2] === c &&
-      bytes[i + 3] === d
-    ) {
-      return i;
-    }
+/**
+ * Walk a PNG's chunk chain looking for `acTL`, which is what makes it an APNG.
+ * Returns `undefined` when the answer lies past the end of `bytes`.
+ *
+ * The chain has to be walked by its length prefixes rather than scanned for the
+ * four bytes `acTL`: chunk payloads are arbitrary data, so a still PNG whose
+ * `iTXt` metadata happens to spell `acTL` would otherwise be read as an
+ * animation and refused a downscale it could have had. Walking also skips over
+ * a fat colour profile in one jump, so a large `iCCP` before `acTL` cannot
+ * push the answer out of the window the way a byte scan would.
+ */
+function hasAnimationChunk(bytes: Uint8Array): boolean | undefined {
+  const SIGNATURE = 8;
+  const HEADER = 8; // 4-byte length + 4-byte type
+  const CRC = 4;
+
+  if (bytes.length < SIGNATURE + HEADER) return undefined;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+  let offset = SIGNATURE;
+  while (offset + HEADER <= bytes.length) {
+    const type = ascii(bytes, offset + 4, 4);
+    if (type === "acTL") return true;
+    // `acTL` is required before the first `IDAT`, so reaching the pixels
+    // settles it: this is a still image.
+    if (type === "IDAT") return false;
+    offset += HEADER + view.getUint32(offset) + CRC;
   }
-  return -1;
+  return undefined;
 }
 
 /**

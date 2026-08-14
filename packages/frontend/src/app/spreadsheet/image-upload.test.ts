@@ -49,9 +49,9 @@ describe("uploadImageFile", () => {
   });
 
   it("rejects an unsupported type before trying to downscale it", async () => {
-    await expect(uploadImageFile(fileOf(1, "image/svg+xml"), "ws-1")).rejects.toThrow(
-      "Unsupported file type: image/svg+xml",
-    );
+    await expect(
+      uploadImageFile(fileOf(1, "image/svg+xml"), "ws-1"),
+    ).rejects.toThrow("Unsupported file type: image/svg+xml");
     expect(downscaleImageFile).not.toHaveBeenCalled();
   });
 
@@ -83,6 +83,17 @@ describe("uploadImageFile", () => {
       "Image is still 12.5 MB after downscaling (was 40 MB), over the 10 MB limit",
     );
     expect(fetchWithAuth).not.toHaveBeenCalled();
+  });
+
+  it("never reports an over-limit size as the limit itself", async () => {
+    // A hair over 10 MB rounded to "10 MB" made the message say that 10 MB is
+    // over the 10 MB limit, which explains nothing.
+    const barely = fileOf(10 * MB + 1, "image/gif", "loop.gif");
+    vi.mocked(downscaleImageFile).mockResolvedValue(barely);
+
+    await expect(uploadImageFile(barely, "ws-1")).rejects.toThrow(
+      "Image is 10.1 MB, over the 10 MB limit",
+    );
   });
 
   it("names the limit and the actual size when downscaling was not possible", async () => {

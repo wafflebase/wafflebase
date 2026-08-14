@@ -293,9 +293,12 @@ and `toBlob` deal in a single frame and a flattened animation is a silent,
 unrecoverable loss. The MIME type cannot answer that question — `image/webp` is
 as often a sticker as a photo — so the container is sniffed: the `VP8X` ANIM
 flag for WebP, an `acTL` chunk before the first `IDAT` for APNG, and GIF is
-assumed animated without reading. A file that cannot be read is treated as
-animated, since refusing to shrink something is recoverable and quietly
-flattening it is not. Downscaling never throws — a
+assumed animated without reading. The PNG chain is walked by its chunk length
+prefixes rather than scanned for the four bytes `acTL`, so neither a payload
+that happens to spell `acTL` nor a fat colour profile sitting in front of it
+changes the answer. Anything the sniff cannot settle — an unreadable file, a
+chunk chain longer than the read window — counts as animated, since refusing to
+shrink something is recoverable and quietly flattening it is not. Downscaling never throws — a
 failed decode or encode yields the original file and `uploadImageFile` produces
 the error, so exactly one place decides "too large". The size error names the
 limit *and* the sizes ("Image is still 12.5 MB after downscaling (was 40 MB),

@@ -82,13 +82,30 @@ once.
   `acTL` before `IDAT`), which also keeps *still* WebP and PNG downscalable
   rather than opting out two whole types to be safe.
 
+### PR review (CodeRabbit, PR #856)
+
+Two findings, both real, both fixed:
+
+- **APNG detection scanned raw bytes.** Searching the first 64 KB for the
+  letters `acTL` reads a still PNG whose `iTXt` metadata mentions them as an
+  animation (harmless — it just refuses a downscale), but worse, it misses an
+  `acTL` pushed past the window by a fat `iCCP` colour profile and flattens a
+  real animation. The chain is now walked by its chunk length prefixes, and an
+  answer that runs off the end of the window counts as animated rather than
+  still.
+- **A file a hair over the cap reported as the cap.** `formatBytes` rounded to
+  the nearest tenth, so 10 MB + 1 byte read "Image is 10 MB, over the 10 MB
+  limit". Sizes now round up.
+
 ### Test honesty
 
 Every test was mutation-checked — the behavior it protects was broken in the
-source and the test confirmed to fail. Eight mutations, all caught: GIF opt-out
+source and the test confirmed to fail. Eleven mutations, all caught: GIF opt-out
 removed, dimension cap removed, best-attempt tracking removed, encoder-type
 fallback ignored, WebP ANIM flag ignored, APNG `acTL` ignored, unreadable file
-treated as still, all WebP opted out. One test *did* start out vacuous — the
+treated as still, all WebP opted out, chunk walk replaced by a byte scan,
+undetermined chain treated as still, size rounded instead of ceilinged. One
+test *did* start out vacuous — the
 best-attempt tracking survived its mutation until a case was added where every
 encode overshoots the source.
 

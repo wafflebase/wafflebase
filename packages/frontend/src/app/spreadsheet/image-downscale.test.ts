@@ -7,10 +7,12 @@ import {
 
 const LIMIT = 1000;
 
+/**
+ * A file whose bytes are a still PNG — enough for the animation sniff to read
+ * it — but whose reported size is whatever the test needs.
+ */
 function fileOf(size: number, type: string, name = "shot.png"): File {
-  const file = new File(["x"], name, { type });
-  // `File` in jsdom sizes itself from its parts; the tests care about the
-  // size/type pair, not the bytes.
+  const file = new File([stillPngBytes()], name, { type });
   Object.defineProperty(file, "size", { value: size });
   return file;
 }
@@ -40,22 +42,42 @@ function webpFile(opts: { extended: boolean; animation: boolean }): File {
   return file;
 }
 
-/** A PNG header, with the `acTL` chunk that marks an APNG or without it. */
-function pngFile(animated: boolean): File {
-  const bytes = animated
-    ? bytesOf(
-        [0x89],
-        "PNG",
-        "IHDR",
-        new Array(16).fill(0),
-        "acTL",
-        new Array(8).fill(0),
-        "IDAT",
-      )
-    : bytesOf([0x89], "PNG", "IHDR", new Array(16).fill(0), "IDAT");
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+function charCodes(text: string): number[] {
+  return [...text].map((ch) => ch.charCodeAt(0));
+}
+
+/** A length-prefixed PNG chunk: length, type, payload, and a zeroed CRC. */
+function pngChunk(type: string, data: number[] = []): number[] {
+  const n = data.length;
+  return [
+    (n >>> 24) & 0xff,
+    (n >>> 16) & 0xff,
+    (n >>> 8) & 0xff,
+    n & 0xff,
+    ...charCodes(type),
+    ...data,
+    0,
+    0,
+    0,
+    0,
+  ];
+}
+
+function pngFileOf(...chunks: number[][]): File {
+  const bytes = new Uint8Array([...PNG_SIGNATURE, ...chunks.flat()]);
   const file = new File([bytes], "shot.png", { type: "image/png" });
   Object.defineProperty(file, "size", { value: LIMIT * 5 });
   return file;
+}
+
+const IHDR = pngChunk("IHDR", new Array(13).fill(0));
+const IDAT = pngChunk("IDAT", new Array(8).fill(0));
+const ACTL = pngChunk("acTL", new Array(8).fill(0));
+
+function stillPngBytes(): Uint8Array<ArrayBuffer> {
+  return new Uint8Array([...PNG_SIGNATURE, ...IHDR, ...IDAT]);
 }
 
 /**
@@ -118,14 +140,42 @@ describe("downscaleImageFile", () => {
   });
 
   it("leaves an APNG alone but still shrinks a plain PNG", async () => {
-    const apng = pngFile(true);
-    const plain = pngFile(false);
+    const apng = pngFileOf(IHDR, ACTL, IDAT);
+    const plain = pngFileOf(IHDR, IDAT);
     const codecA = codecOf({ width: 10, height: 10 }, 0.001);
     const codecP = codecOf({ width: 10, height: 10 }, 0.001);
 
     expect(await downscaleImageFile(apng, LIMIT, codecA)).toBe(apng);
     expect(codecA.encode).not.toHaveBeenCalled();
     expect(await downscaleImageFile(plain, LIMIT, codecP)).not.toBe(plain);
+  });
+
+  it("does not mistake the letters acTL inside a chunk payload for animation", async () => {
+    const withMetadata = pngFileOf(
+      IHDR,
+      pngChunk("iTXt", charCodes("Comment\0made from an acTL sample")),
+      IDAT,
+    );
+    const codec = codecOf({ width: 10, height: 10 }, 0.001);
+
+    expect(await downscaleImageFile(withMetadata, LIMIT, codec)).not.toBe(
+      withMetadata,
+    );
+  });
+
+  it("does not call a PNG still just because acTL sits past the sniff window", async () => {
+    // A colour profile fat enough to push `acTL` out of the read window: the
+    // chunk chain runs off the end, which is undetermined, not "still".
+    const apng = pngFileOf(
+      IHDR,
+      pngChunk("iCCP", new Array(100 * 1024).fill(0)),
+      ACTL,
+      IDAT,
+    );
+    const codec = codecOf({ width: 10, height: 10 }, 0.001);
+
+    expect(await downscaleImageFile(apng, LIMIT, codec)).toBe(apng);
+    expect(codec.encode).not.toHaveBeenCalled();
   });
 
   it("declines to shrink a file it cannot read rather than risk flattening it", async () => {

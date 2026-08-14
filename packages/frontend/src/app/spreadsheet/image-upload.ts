@@ -74,12 +74,16 @@ function tooLargeMessage(original: File, downscaled: File): string {
   );
 }
 
+/**
+ * Rounds *up*, so a file a hair over the cap never reads as the cap itself —
+ * "Image is 10 MB, over the 10 MB limit" explains nothing. One decimal, but
+ * "10 MB" rather than "10.0 MB": rounding a 12.5 MB image to "13 MB" would be
+ * the same kind of unhelpful the old message was.
+ */
 function formatBytes(bytes: number): string {
   const mb = bytes / (1024 * 1024);
-  if (mb < 0.1) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  // One decimal, but "10 MB" rather than "10.0 MB": rounding a 12.5 MB image
-  // to "13 MB" would be the same kind of unhelpful the old message was.
-  return `${mb.toFixed(1).replace(/\.0$/, "")} MB`;
+  if (mb < 0.1) return `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+  return `${(Math.ceil(mb * 10) / 10).toFixed(1).replace(/\.0$/, "")} MB`;
 }
 
 function loadImageDimensions(
