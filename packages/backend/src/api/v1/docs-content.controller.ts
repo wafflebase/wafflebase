@@ -656,19 +656,31 @@ function assertValidTextBody(body: unknown, path: string): void {
  * Deliberately narrower than the docs arm's `assertValidBlock`: slide text
  * bodies are persisted verbatim as JSON (there is no attribute codec to
  * normalize them on read), so requiring fields the docs writer dereferences —
- * `id`, a present `style` — would 400 a `GET` → edit → `PUT` round-trip of any
- * deck whose stored blocks predate them. What it does check is every value
- * that would otherwise reach the layout engine unusable: a `style` that is not
- * an object, and the alignment/geometry values inside it. The one field the
- * shared layout engine cannot survive missing — `inlines` — is filled in
- * rather than demanded; see {@link normalizeSlideInlines}.
+ * `id` — would 400 a `GET` → edit → `PUT` round-trip of any deck whose stored
+ * blocks predate them. What it does check is every value that would otherwise
+ * reach the layout engine unusable: a `style` that is not an object, and the
+ * alignment/geometry values inside it.
+ *
+ * The fields the shared consumers cannot survive missing — a body's `blocks`,
+ * a block's `inlines` and `style`, an inline's `style` — are *filled in* with
+ * their empty shape rather than demanded, for the same reason: absence must
+ * not 400 a round-trip, but it must not be stored either. `TextBody.blocks` is
+ * required by the model and every reader of a stored deck dereferences it
+ * unconditionally (`body.blocks.map` in the slides text renderer,
+ * `for (const block of body.blocks)` in the PDF exporter,
+ * `data.blocks.length` in the animation paragraph counter), so an absent
+ * `blocks` is the same TypeError-for-every-viewer as an absent `inlines`.
+ * See {@link normalizeSlideInlines}.
  */
 function assertValidTextBodyBlocks(
   body: Record<string, unknown>,
   path: string,
 ): void {
   const blocks = body.blocks;
-  if (blocks === undefined || blocks === null) return;
+  if (blocks === undefined || blocks === null) {
+    body.blocks = [];
+    return;
+  }
   if (!Array.isArray(blocks)) {
     throw new BadRequestException(
       `Invalid element at ${path}: 'blocks' must be an array`,
@@ -691,8 +703,16 @@ function assertValidSlideBlocks(blocks: unknown, path: string): void {
         `Invalid block at ${path}[${i}]: not an object`,
       );
     }
-    if (block.style !== undefined && block.style !== null) {
-      if (typeof block.style !== 'object') {
+    if (block.style === undefined || block.style === null) {
+      // `Block.style` is required by the model and the PPTX exporter reads it
+      // unconditionally (`ALGN.get(block.style.alignment)` in
+      // packages/slides/src/export/pptx/text.ts), so an absent one throws when
+      // the stored deck is exported. Fill in the empty shape — every reader
+      // resolves the individual fields through `normalizeBlockStyle`'s
+      // defaults anyway, so `{}` is semantically identical to absent.
+      block.style = {};
+    } else {
+      if (typeof block.style !== 'object' || Array.isArray(block.style)) {
         throw new BadRequestException(
           `Invalid block at ${path}[${i}]: 'style' must be an object`,
         );

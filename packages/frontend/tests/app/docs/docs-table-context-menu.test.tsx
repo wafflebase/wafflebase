@@ -55,3 +55,38 @@ describe('DocsTableContextMenu read-only bail (issue #482)', () => {
     expect(editor.isInTable).not.toHaveBeenCalled();
   });
 });
+
+describe('DocsTableContextMenu cell background reset (issue #728)', () => {
+  it('clears the key instead of writing an empty string', () => {
+    const applyTableCellStyle = vi.fn();
+    const editor = makeEditor({ applyTableCellStyle } as Partial<EditorAPI>);
+    render(<Wrapper editor={editor} />);
+
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), { clientX: 10, clientY: 10 });
+    fireEvent.click(screen.getByText('Cell background'));
+    fireEvent.click(screen.getByText('Reset'));
+
+    expect(applyTableCellStyle).toHaveBeenCalledTimes(1);
+    const style = applyTableCellStyle.mock.calls[0][0] as Record<string, unknown>;
+    // `toHaveBeenCalledWith({ backgroundColor: undefined })` would pass against
+    // `{}` too — vitest treats an explicitly-undefined property as absent. The
+    // property has to be *present* and undefined: that is what
+    // `removedCellStyleAttrs` keys off to emit a CRDT attribute removal.
+    expect(Object.keys(style)).toEqual(['backgroundColor']);
+    expect(style.backgroundColor).toBeUndefined();
+  });
+
+  it('control: picking a swatch still passes the color through', () => {
+    const applyTableCellStyle = vi.fn();
+    const editor = makeEditor({ applyTableCellStyle } as Partial<EditorAPI>);
+    render(<Wrapper editor={editor} />);
+
+    fireEvent.contextMenu(screen.getByTestId('doc-container'), { clientX: 10, clientY: 10 });
+    fireEvent.click(screen.getByText('Cell background'));
+    const swatch = document.querySelector('[aria-label^="Background "]')!;
+    fireEvent.click(swatch);
+
+    const style = applyTableCellStyle.mock.calls[0][0] as Record<string, unknown>;
+    expect(typeof style.backgroundColor).toBe('string');
+  });
+});

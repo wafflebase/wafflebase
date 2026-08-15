@@ -16,6 +16,19 @@ export const ROLE_TO_SCHEME: Record<ColorRole, string> = {
   visitedHyperlink: 'folHlink',
 };
 
+/**
+ * The lookup form of {@link ROLE_TO_SCHEME}.
+ *
+ * `ThemeColor.role` is a closed 12-value union to TypeScript, but the model
+ * holds whatever the importer or the content PUT API stored, so at runtime the
+ * key is untrusted. A bare `ROLE_TO_SCHEME[role]` reaches the prototype chain
+ * (`role: 'constructor'` stringifies the `Object` constructor straight into the
+ * attribute) and yields `undefined` — i.e. `val="undefined"` — for anything
+ * else. A `Map` has no prototype keys, which is what makes the emitted
+ * `val` genuinely closed rather than closed-by-convention.
+ */
+const SCHEME_BY_ROLE = new Map<string, string>(Object.entries(ROLE_TO_SCHEME));
+
 export function colorFromStringOrTheme(c: ThemeColor | string): ThemeColor {
   return typeof c === 'string' ? { kind: 'srgb', value: c } : c;
 }
@@ -28,7 +41,7 @@ export function colorFromStringOrTheme(c: ThemeColor | string): ThemeColor {
  * leaves the base color intact. This is what keeps the attributes in this
  * file injection-free now that the hex `val` is normalized instead of
  * escaped — every attribute this function emits is either `[0-9A-F]{6}`, a
- * closed `ROLE_TO_SCHEME` value, or a finite number.
+ * value out of the closed {@link SCHEME_BY_ROLE} map, or a finite number.
  */
 function modifierXml(tag: string, value: number | undefined): string {
   if (value === undefined) return '';
@@ -46,7 +59,12 @@ export function colorChildXml(c: ThemeColor): string {
   mods.push(modifierXml('alpha', c.alpha));
   const inner = mods.join('');
   if (c.kind === 'role') {
-    const val = ROLE_TO_SCHEME[c.role];
+    const val = SCHEME_BY_ROLE.get(c.role);
+    // Unknown role → black, matching `storedColorToThemeColor` in `text.ts`,
+    // rather than a schema-invalid `val="undefined"`.
+    if (val === undefined) {
+      return inner ? `<a:srgbClr val="000000">${inner}</a:srgbClr>` : `<a:srgbClr val="000000"/>`;
+    }
     return inner ? `<a:schemeClr val="${val}">${inner}</a:schemeClr>` : `<a:schemeClr val="${val}"/>`;
   }
   // `<a:srgbClr val>` is `ST_HexColorRGB` — exactly six hex digits. The model

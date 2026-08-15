@@ -36,8 +36,10 @@ inline highlights and every nested-table cell included. The existing
 block-level calls get away with the same shape only because the keys they
 remove (`listKind`, `listLevel`) exist on no descendant; the moment the key
 is shared with a child node type the range is wrong. Yorkie has no
-single-node removal, so `removeCellNodeStyle` drops to the index API and
-removes over `[pathToIndex(cell), +1)` — the cell's opening tag alone.
+single-node removal, so `removeNodeStyle` drops to the index API and removes
+over `[pathToIndex(node), +1)` — the node's opening tag alone. The helper is
+deliberately generic, not cell-specific: `setBlockType`'s stale-attribute
+removal needs exactly the same scoping on a table block.
 
 Takeaway: before reusing a `removeStyleByPath` range, ask whether any
 descendant node type carries the same attribute name.
@@ -101,3 +103,43 @@ validation safe: the write side rejects exactly the values the read side
 refuses to hand back, so `GET` → edit → `PUT` of a legacy document cannot 400
 on a value the caller never touched. A validator stricter than its own reader
 is a round-trip break waiting to happen.
+
+## Repairing "the empty shape" means every field of it, not the one that crashed
+
+The slides PUT walk grew a repair for an absent `Block.inlines` (the docs
+layout engine dereferences it unconditionally) and, one round later, for an
+absent `Inline.style`. Both were found the same way: someone traced *one*
+consumer. Review then pointed out the two siblings that crash exactly the same
+consumers and were still accepted — `TextBody.blocks` (`body.blocks.map` in the
+slides text renderer, `for (const block of body.blocks)` in the PDF exporter,
+`data.blocks.length` in the animation paragraph counter) and `Block.style`
+(`ALGN.get(block.style.alignment)` in the PPTX exporter).
+
+The asymmetry is the tell. Once a validator decides that *absent* means
+"fill in the empty shape" rather than 400 (which is the right call on a
+`replace` endpoint whose readers hand back legacy shapes), that decision is
+about the whole model shape, not about the one field whose TypeError got
+reported. Enumerate the required fields of the type — `TextBody.blocks`,
+`Block.inlines`, `Block.style`, `Inline.style` are all non-optional in
+`packages/docs/src/model/types.ts` — and repair each one, rather than adding
+them one blocking review round at a time.
+
+Corollary from the same round: `typeof x === 'object'` is not an object check.
+`typeof [] === 'object'`, so a block style arriving as an array passed a guard
+whose whole job was to keep non-records out of a field every reader spreads.
+
+## A `Record` lookup keyed by untrusted data is not a closed set
+
+The OOXML hardening pass converted every attribute lookup to a `Map` — except
+`ROLE_TO_SCHEME[c.role]` in `export/pptx/color.ts`, whose doc comment then
+claimed the emitted attribute was "either `[0-9A-F]{6}`, a closed
+`ROLE_TO_SCHEME` value, or a finite number". It was not: `ThemeColor.role` is a
+closed union to TypeScript but holds whatever the importer or the content PUT
+API stored, and `role: 'constructor'` stringified the entire `Object`
+constructor into `<a:schemeClr val="…">`. An out-of-set role emitted
+`val="undefined"`.
+
+Takeaway: a `Record` with an untrusted key reaches `Object.prototype`. When a
+hardening pass converts lookups to `Map`, the one that got skipped is the one
+whose comment now lies about it — grep the pass for the pattern, don't trust
+the prose.

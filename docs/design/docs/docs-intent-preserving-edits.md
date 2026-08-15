@@ -237,9 +237,12 @@ pattern as Phase 5's `applyCellStyle`.
 | `deleteColumn()` colSpan adjust | `store.updateTableCell` (full cell replace) | `store.applyCellSpan` (styleByPath) |
 | `splitCell()` top-left span clear | `store.updateTableCell` (full cell replace) | `store.applyCellSpan` (styleByPath) |
 
-`applyCellSpan` uses `styleByPath` to set span values and `removeStyleByPath`
-to clear them (value 1 = default = remove from tree). Covered cell block reset
-in `splitCell` still uses `updateTableCell` (Phase 8).
+`applyCellSpan` uses `styleByPath` to set span values and the node-scoped
+`removeNodeStyle` to clear them (value 1 = default = remove from tree).
+`removeStyleByPath(cellPath, cellPath + 1, …)` reads as "this cell" but spans
+the cell's whole subtree, so it would drop `colSpan`/`rowSpan` from every
+nested-table cell inside it as well — see `docs-tables.md`. Covered cell block
+reset in `splitCell` still uses `updateTableCell` (Phase 8).
 
 ### Phase 7: Table-Level Attributes ✅
 

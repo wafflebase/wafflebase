@@ -17,9 +17,25 @@ import { createRoot, type Root } from "react-dom/client";
 import { TooltipProvider } from "../../../src/components/ui/tooltip.tsx";
 import { TextFormatGroup } from "../../../src/components/text-formatting/index.ts";
 import type { TextFormattingEditor } from "../../../src/components/text-formatting/types.ts";
+import { DocsFormattingToolbar } from "../../../src/app/docs/docs-formatting-toolbar.tsx";
+import type { EditorAPI } from "@wafflebase/docs";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
+
+// jsdom ships no `window.matchMedia`; `useIsMobile` reads it on mount.
+if (typeof window !== "undefined" && !window.matchMedia) {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}
 
 function makeEditor(): TextFormattingEditor {
   return {
@@ -108,4 +124,50 @@ describe("TextFormatGroup color reset (issue #728)", () => {
     clickResetIn("Highlight color", editor);
     expectClearedOnly(editor, "backgroundColor");
   });
+});
+
+/**
+ * The header/footer editing context does not use `TextFormatGroup` — it renders
+ * its own slimmed-down toolbar with a second pair of color pickers wired to
+ * their own handlers. That is a separate call site of the same bug, so it needs
+ * its own regression coverage: the shared-group test above passes whatever the
+ * slim toolbar does.
+ */
+function makeDocsEditor(): EditorAPI {
+  return {
+    focus: vi.fn(),
+    applyStyle: vi.fn(),
+    applyBlockStyle: vi.fn(),
+    getSelectionStyle: vi.fn(() => ({})),
+    getBlockStyle: vi.fn(() => ({})),
+    getRangeStyleSummary: vi.fn(() => ({})),
+    onCursorMove: vi.fn(() => () => {}),
+    getStore: vi.fn(() => ({})),
+    undo: vi.fn(),
+    redo: vi.fn(),
+    insertPageNumber: vi.fn(),
+  } as unknown as EditorAPI;
+}
+
+describe("DocsFormattingToolbar header/footer color reset (issue #728)", () => {
+  for (const editContext of ["header", "footer"] as const) {
+    test(`${editContext}: text color reset clears the key`, () => {
+      const editor = makeDocsEditor();
+      render(h(DocsFormattingToolbar, { editor, editContext }));
+      clickEl(document.querySelector('[aria-label="Text color"]')!);
+      clickEl(document.querySelector("[data-none-control]")!);
+      expectClearedOnly(editor as unknown as TextFormattingEditor, "color");
+    });
+
+    test(`${editContext}: highlight color reset clears the key`, () => {
+      const editor = makeDocsEditor();
+      render(h(DocsFormattingToolbar, { editor, editContext }));
+      clickEl(document.querySelector('[aria-label="Highlight color"]')!);
+      clickEl(document.querySelector("[data-none-control]")!);
+      expectClearedOnly(
+        editor as unknown as TextFormattingEditor,
+        "backgroundColor",
+      );
+    });
+  }
 });

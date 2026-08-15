@@ -28,6 +28,23 @@ describe('color', () => {
     expect(colorChildXml({ kind: 'srgb', value: '#FF0000' })).toBe('<a:srgbClr val="FF0000"/>');
   });
 
+  // `ThemeColor.role` is a closed 12-value union in TypeScript, but the model
+  // holds whatever the importer or the content PUT API stored. A bare object
+  // lookup reaches `Object.prototype` for keys like `constructor` and yields
+  // `undefined` for anything else, so the scheme name must come from a closed
+  // container with a fallback — not from `ROLE_TO_SCHEME[role]`.
+  it('falls back to black for a role outside the closed set', () => {
+    for (const role of ['constructor', 'toString', '__proto__', 'nope', '"/>']) {
+      const xml = colorChildXml({ kind: 'role', role } as never);
+      expect(xml).toBe('<a:srgbClr val="000000"/>');
+    }
+  });
+
+  it('keeps the modifiers when an unknown role falls back', () => {
+    const xml = colorChildXml({ kind: 'role', role: 'constructor', alpha: 50000 } as never);
+    expect(xml).toBe('<a:srgbClr val="000000"><a:alpha val="50000"/></a:srgbClr>');
+  });
+
   it('wraps in solidFill', () => {
     expect(solidFillXml({ kind: 'srgb', value: '#00FF00' })).toBe('<a:solidFill><a:srgbClr val="00FF00"/></a:solidFill>');
   });

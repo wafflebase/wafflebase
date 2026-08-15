@@ -181,11 +181,14 @@ cellPath+1, …)` reads as "this cell" but spans the cell's whole subtree,
 and Yorkie removes the attribute from every element node in the range —
 that would strip `backgroundColor` from the text highlight of every inline
 in the cell and from every nested-table cell as well. Yorkie has no
-single-node removal, so `removeCellNodeStyle` (`yorkie-doc-store.ts`)
-converts the path to an index and removes over `[idx, idx + 1)`, the range
-covering the cell's opening tag alone: the first child starts exactly at
-`idx + 1`, a zero-width overlap the range walk excludes. `applyCellStyle`
-and `applyCellSpan` both go through it.
+single-node removal, so `removeNodeStyle` (`yorkie-doc-store.ts`) converts
+the path to an index and removes over `[idx, idx + 1)`, the range covering
+the node's opening tag alone: the first child starts exactly at `idx + 1`, a
+zero-width overlap the range walk excludes. It is not cell-specific — the
+same helper backs the block-level stale-attribute removal in `setBlockType`,
+which on a table block would otherwise strip `listKind`/`listLevel`/
+`headingLevel` from every block nested in its cells — but `applyCellStyle`
+and `applyCellSpan` are the cell-level call sites.
 
 ### Concurrent Editing Behavior
 

@@ -1146,6 +1146,98 @@ describe('ApiV1DocsContentController', () => {
         expect(blocks[0].inlines).toEqual([]);
         expect(blocks[1].inlines![0].style).toEqual({});
       });
+
+      it('fills in an absent blocks list instead of storing a crashing shape', async () => {
+        // `TextBody.blocks` is required by the model and every consumer of a
+        // stored deck dereferences it unconditionally (`body.blocks.map` in
+        // the slides text renderer, `for (const block of body.blocks)` in the
+        // PDF exporter, `data.blocks.length` in the animation paragraph
+        // counter). Accepting an absent `blocks` therefore persists a shape
+        // that is a TypeError for every viewer — the same failure mode as an
+        // absent `inlines`, and it gets the same repair.
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        const body = withTextElement({ autofit: 'none' }) as {
+          slides: Array<{ elements: Array<{ data: { blocks?: unknown } }> }>;
+        };
+        await expect(
+          controller.putContent('ws-1', 'd1', body as never),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        expect(body.slides[0].elements[0].data.blocks).toEqual([]);
+      });
+
+      it('fills in an absent block style instead of storing a crashing shape', async () => {
+        // `Block.style` is required by the model and the PPTX exporter reads
+        // it unconditionally (`ALGN.get(block.style.alignment)` in
+        // packages/slides/src/export/pptx/text.ts), so a stored block without
+        // one throws when the deck is exported.
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        const body = withTextElement({
+          blocks: [{ id: 'b1', type: 'paragraph', inlines: [] }],
+        }) as {
+          slides: Array<{
+            elements: Array<{ data: { blocks: Array<{ style?: unknown }> } }>;
+          }>;
+        };
+        await expect(
+          controller.putContent('ws-1', 'd1', body as never),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        expect(body.slides[0].elements[0].data.blocks[0].style).toEqual({});
+      });
+
+      it('repairs an absent blocks list inside notes, shape text and table cells', async () => {
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        const body = withSlides({
+          slides: [
+            {
+              id: 's1',
+              layoutId: 'l',
+              background: {},
+              elements: [
+                { id: 'e1', type: 'shape', frame: {}, data: { text: {} } },
+                {
+                  id: 'e2',
+                  type: 'table',
+                  frame: {},
+                  data: { rows: [{ cells: [{ body: {} }] }] },
+                },
+              ],
+              notes: [{ id: 'n1', type: 'paragraph', inlines: [] }],
+            },
+          ] as unknown as [],
+        }) as {
+          slides: Array<{
+            elements: Array<{ data: Record<string, never> }>;
+            notes: Array<{ style?: unknown }>;
+          }>;
+        };
+        await expect(
+          controller.putContent('ws-1', 'd1', body as never),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        const [shape, table] = body.slides[0].elements as unknown as [
+          { data: { text: { blocks?: unknown } } },
+          { data: { rows: Array<{ cells: Array<{ body: { blocks?: unknown } }> }> } },
+        ];
+        expect(shape.data.text.blocks).toEqual([]);
+        expect(table.data.rows[0].cells[0].body.blocks).toEqual([]);
+        expect(body.slides[0].notes[0].style).toEqual({});
+      });
+
+      it('rejects an array as a slide block style', async () => {
+        // `typeof [] === 'object'`, so the object check alone lets an array
+        // through into a field every reader spreads as a record.
+        await expectReject(
+          withTextElement({
+            blocks: [{ id: 'b1', type: 'paragraph', style: [], inlines: [] }],
+          }),
+          /elements\[0\]\.data\.blocks\[0\].*'style'.*object/,
+        );
+      });
     });
   });
 });
