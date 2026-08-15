@@ -43,6 +43,12 @@ describe('formatTable', () => {
     expect(formatTable([])).toBe('(no results)');
   });
 
+  it('JSON-serializes a nested value in a row, not just in a record', () => {
+    const lines = formatTable([{ id: '1', meta: { x: 1 } }]).split('\n');
+    expect(lines[2]).toContain('{"x":1}');
+    expect(lines[2]).not.toContain('[object Object]');
+  });
+
   it('formats a single object as a key/value table', () => {
     const result = formatTable({ loggedIn: true, user: 'hackerwins' });
     const lines = result.split('\n');
@@ -85,7 +91,7 @@ describe('formatCsv', () => {
       { name: 'Alice', score: 95 },
       { name: 'Bob', score: 87 },
     ];
-    const result = formatCsv(data);
+    const result = formatCsv(data, { neutralizeFormulas: true });
     const lines = result.split('\n');
     expect(lines[0]).toBe('name,score');
     expect(lines[1]).toBe('Alice,95');
@@ -94,18 +100,18 @@ describe('formatCsv', () => {
 
   it('escapes commas and quotes', () => {
     const data = [{ value: 'has, comma' }, { value: 'has "quotes"' }];
-    const result = formatCsv(data);
+    const result = formatCsv(data, { neutralizeFormulas: true });
     const lines = result.split('\n');
     expect(lines[1]).toBe('"has, comma"');
     expect(lines[2]).toBe('"has ""quotes"""');
   });
 
   it('returns empty string for empty array', () => {
-    expect(formatCsv([])).toBe('');
+    expect(formatCsv([], { neutralizeFormulas: true })).toBe('');
   });
 
   it('formats a single object as one-row CSV', () => {
-    const result = formatCsv({ id: '1', title: 'Doc' });
+    const result = formatCsv({ id: '1', title: 'Doc' }, { neutralizeFormulas: true });
     const lines = result.split('\n');
     expect(lines[0]).toBe('id,title');
     expect(lines[1]).toBe('1,Doc');
@@ -113,7 +119,7 @@ describe('formatCsv', () => {
 
   it('serializes nested objects as JSON', () => {
     const data = [{ name: 'a', meta: { x: 1 } }];
-    const result = formatCsv(data);
+    const result = formatCsv(data, { neutralizeFormulas: true });
     const lines = result.split('\n');
     // JSON is CSV-escaped: {"x":1} → "{""x"":1}"
     expect(lines[1]).toBe('a,"{""x"":1}"');
@@ -131,22 +137,35 @@ describe('formatCsv', () => {
       { v: '\t=cmd' },
       { v: '\r=cmd' },
     ];
-    const lines = formatCsv(data).split('\n');
+    const lines = formatCsv(data, { neutralizeFormulas: true }).split('\n');
     expect(lines[1]).toBe('"\'=HYPERLINK(""http://evil"",""click"")"');
     expect(lines[2]).toBe("'+1+1");
     expect(lines[3]).toBe("'-1+1");
     expect(lines[4]).toBe("'@SUM(A1)");
-    expect(lines[5]).toBe("'\t=cmd");
-    expect(lines[6]).toBe("'\r=cmd");
+    // Quoted, not bare: a control character inside an unquoted field
+    // would let the importer end the record early (see below).
+    expect(lines[5]).toBe('"\'\t=cmd"');
+    expect(lines[6]).toBe('"\'\r=cmd"');
+  });
+
+  // A bare CR terminates a record in importers that honour classic-Mac
+  // line endings, so an unquoted `\r` lets a value smuggle a whole new
+  // row past the neutralizer: only the *start* of the value is
+  // inspected, and after the split the payload sits at column 0.
+  it('quotes control characters so a value cannot forge a new record', () => {
+    const data = [{ v: 'ok\r=cmd|/C calc!A0' }, { v: 'a\tb' }];
+    const lines = formatCsv(data, { neutralizeFormulas: true }).split('\n');
+    expect(lines[1]).toBe('"ok\r=cmd|/C calc!A0"');
+    expect(lines[2]).toBe('"a\tb"');
   });
 
   it('neutralizes a formula in a header key too', () => {
-    expect(formatCsv([{ '=evil()': 1 }]).split('\n')[0]).toBe("'=evil()");
+    expect(formatCsv([{ '=evil()': 1 }], { neutralizeFormulas: true }).split('\n')[0]).toBe("'=evil()");
   });
 
   it('leaves plain signed numbers untouched', () => {
     const data = [{ v: -3 }, { v: '+1.5' }, { v: '-2e10' }, { v: '.5' }];
-    const lines = formatCsv(data).split('\n');
+    const lines = formatCsv(data, { neutralizeFormulas: true }).split('\n');
     expect(lines.slice(1)).toEqual(['-3', '+1.5', '-2e10', '.5']);
   });
 });

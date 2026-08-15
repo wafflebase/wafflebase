@@ -98,6 +98,55 @@ describe('startCallbackServer', () => {
     }
   });
 
+  /**
+   * The nonce is a backend contract: a server older than this CLI does
+   * not echo it, and every genuine redirect is then refused. Failing
+   * silently and hanging until the timeout leaves the user with nothing
+   * to act on, so the refusal has to reach the error the wait rejects
+   * with.
+   */
+  it('names the missing nonce when the timeout is reached', async () => {
+    const nonce = createLoginNonce();
+    const { port, waitForCallback, close } = await startCallbackServer(nonce, {
+      timeoutMs: 150,
+    });
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/callback?code=c`);
+      expect(res.status).toBe(403);
+      await expect(waitForCallback()).rejects.toThrow(/no `state`/);
+      await expect(waitForCallback()).rejects.toThrow(/older than this CLI/);
+    } finally {
+      close();
+    }
+  });
+
+  it('names a refused cross-origin callback when the timeout is reached', async () => {
+    const nonce = createLoginNonce();
+    const { port, waitForCallback, close } = await startCallbackServer(nonce, {
+      timeoutMs: 150,
+    });
+    try {
+      await fetch(`http://127.0.0.1:${port}/callback?code=c&state=${nonce}`, {
+        headers: { Origin: 'https://evil.example' },
+      });
+      await expect(waitForCallback()).rejects.toThrow(/Origin/);
+    } finally {
+      close();
+    }
+  });
+
+  it('times out with the plain message when nothing was refused', async () => {
+    const { waitForCallback, close } = await startCallbackServer(
+      createLoginNonce(),
+      { timeoutMs: 150 },
+    );
+    try {
+      await expect(waitForCallback()).rejects.toThrow(/Login timed out\./);
+    } finally {
+      close();
+    }
+  });
+
   it('404s any path other than /callback', async () => {
     const { port, close } = await startCallbackServer(createLoginNonce());
     try {

@@ -83,3 +83,76 @@ Textual conflict resolution is not enough for a change whose thesis is
 "every call site does X". After the merge, re-run the audit that
 justified the change (`grep -rn "output(.*opts\.format" packages/cli/src`
 here) and treat any survivor as a conflict the merge did not report.
+
+## A shared serializer has two audiences; a safety transform belongs to one
+
+Round 2 asked for CSV formula neutralization, and it went in where the
+CSV is built — `formatCsv`. That looked like the single chokepoint, and
+for the `--format csv` render path it is. But `formatCsv` has a second
+caller the diff never touched: `sheets export --file-format csv`, whose
+output is the *input* of `sheets import`. Every exported `=SUM(B2:B100)`
+came back as the literal text `'=SUM(B2:B100)`, silently corrupting the
+round trip the repo documents in `skills/recipe-csv-pipeline.md`.
+
+Display safety and data interchange want opposite answers from the same
+function. The fix is not a default that happens to suit the current
+callers but an explicit, **required** `neutralizeFormulas` option: the
+next call site added has to state which audience it serves instead of
+inheriting one. Before adding a transform to a formatter, list its
+callers and ask which of them writes bytes something else will read
+back.
+
+## A neutralizer reading position 0 depends on the quoter for the rest
+
+`neutralizeFormula` looks at position 0. That is only sound while a
+value cannot *become* the start of a record, and the quoting predicate
+allowed exactly that: it covered `,`, `"` and `\n` but not `\r`. A cell
+holding `ok\r=HYPERLINK(...)` was emitted unquoted, and an importer
+honouring a bare CR as a record terminator starts the next record with
+an unneutralized formula. The original test even pinned the bare form
+(`expect(lines[6]).toBe("'\r=cmd")`), so the gap was recorded as
+intended behaviour.
+
+Two lessons: a defence that inspects one position depends on every
+other layer preserving the framing it assumed, and a test that pins a
+serializer's exact bytes is also pinning its escaping — read it as a
+security assertion, not a formatting one.
+
+## A hard version contract has to name itself when it breaks
+
+The loopback nonce makes the CLI depend on a backend new enough to echo
+`state`. Against an older one, the CLI refused its own genuine redirect
+and — correctly, since a forged hit must not end the wait — did nothing
+else, so login hung for the full 30 seconds and failed with a bare
+"Login timed out". Correct security, undiagnosable behaviour.
+
+Refusing silently is what turns a compatibility break into a support
+ticket. Each refusal is now reported on stderr as it happens, answered
+in the browser tab, and repeated in the timeout error, with "no `state`
+at all" (server too old) distinguished from "`state` mismatch" (a
+callback that is not ours). The security property is unchanged: the
+wait still never settles on a refused callback. Making the timeout
+injectable (`{ timeoutMs }`) is what made this testable at all — a
+30-second constant is untestable, and untestable diagnostics rot.
+
+## Test the wiring, not just the helper it calls
+
+The nonce chain is query param → stored state → loopback `state`.
+Every test covered a link in the middle: `parseCliNonce` in isolation,
+`createState` handed a nonce directly, the controller's redirect built
+from a hand-made state. The entry point — `GitHubAuthGuard.canActivate`
+reading `req.query.nonce` — had no test, so changing it to
+`req.query.state` kept all of them green while disabling the whole
+protection (verified by making exactly that edit). When a security
+property is a chain, pin the link that reads the untrusted input.
+
+## Reviews that block on "scope creep" can be blocking on their own asks
+
+Round 5's design-fit lens flagged the OAuth nonce and CSV
+neutralization as scope creep beyond an output-formatting issue. Both
+came from round 2 of the same panel (`todo.md` "Review round 2"). The
+finding is a fair *description* — the PR is larger than its issue — but
+it is not actionable as a fix, since unbundling means dropping work an
+earlier round required. Answer it with the history rather than by
+reverting, and take the real lesson at the other end: when a review
+asks for a change outside the PR's thesis, land it in its own PR.

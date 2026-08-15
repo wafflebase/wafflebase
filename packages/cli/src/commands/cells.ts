@@ -115,10 +115,10 @@ export function registerCellsCommand(parent: Command) {
       }>();
 
       // Parse inside a try: a malformed `--data`/stdin payload is user
-      // input, so it has to reach `outputError` as a structured error
-      // body. Left uncaught it rejects the action's promise, and
-      // `bin.ts` installs no rejection handler — the agent would get a
-      // raw stack trace instead of `{"error":{...}}`.
+      // input, and the message has to name which one it came from.
+      // `runCli` would envelope an uncaught `SyntaxError` anyway, but
+      // as a bare "Unexpected token …" with no mention of `--data` or
+      // stdin, and it has to be caught here to add that.
       let cells: Record<string, unknown>;
       try {
         let raw: string;

@@ -331,15 +331,30 @@ The CLI uses three endpoints in addition to the standard
 GitHub OAuth flow. Full design in [cli.md](cli.md) "Login flow"; the
 backend surface is:
 
-- **`GET /auth/github?mode=cli&port=<port>`** — extends the existing
-  endpoint to carry CLI parameters through OAuth `state`. The backend
-  generates a CSRF token (random 32 bytes, TTL 5 minutes, in-memory
-  map) and embeds it in the encoded `state`.
-- **`GET /auth/github/callback`** — when the decoded state has
+- **`GET /auth/github?mode=cli&port=<port>&nonce=<hex>`** — extends the
+  existing endpoint to carry CLI parameters through OAuth `state`. The
+  backend generates a state token (random 32 bytes, TTL 5 minutes,
+  in-memory map) and forwards it to GitHub as `state`; `mode`, `port`
+  and `nonce` are stored against it, never put in the URL.
+  `nonce` is the CLI's per-attempt secret and is accepted only as
+  `[0-9a-f]{32,128}`, so nothing that could smuggle another query
+  parameter into the loopback redirect gets through. It is optional:
+  omitted (or malformed), the login still completes, but with no
+  binding for the CLI to verify.
+- **`GET /auth/github/callback`** — when the consumed state has
   `mode === 'cli'`, generates a short-lived authorization code (random,
   TTL 60 seconds, same in-memory map), redirects to
-  `http://127.0.0.1:<port>/callback?code=<auth-code>`. `port` must be
-  `1024–65535`; the redirect host is always `127.0.0.1` (hard-coded).
+  `http://127.0.0.1:<port>/callback?code=<auth-code>&state=<nonce>`.
+  `port` must be `1024–65535`; the redirect host is always `127.0.0.1`
+  (hard-coded). The `state` fragment is the CLI's own nonce echoed back
+  and is omitted when the authorization carried none.
+
+  Echoing the nonce is a **backend contract**: the CLI accepts a `code`
+  only from a callback carrying it, so a CLI at this version or later
+  needs a backend at this version or later. Against an older backend
+  the CLI does not hang silently — it reports the refusal ("the
+  redirect carried no `state` … the server is likely older than this
+  CLI") on stderr as it happens and repeats it in the timeout error.
 - **`POST /auth/cli/exchange`** — accepts `{ code }`, looks it up,
   validates TTL, deletes it (single-use), and returns
   `{ accessToken, refreshToken }`. No authentication required (the code
@@ -364,4 +379,6 @@ exchanged server-to-server.
 | `PUT /content` race with live collaborators (lost work) | The CLI marks the `--replace` path `safety: destructive` and forces confirmation. A future iteration may add an optimistic `lastSeq` check. |
 | Yorkie key prefix for word-processor docs differs from `doc-<id>` | The frontend convention is the source of truth; the backend service is the only adjustment point if it changes. |
 | Open redirect via CLI port parameter | `port` is range-validated; the redirect host is hard-coded to `127.0.0.1`. |
-| OAuth state forgery (CSRF) | Backend generates a random 32-byte CSRF token per OAuth request, stores in a 5-minute in-memory map, and validates on callback. |
+| OAuth state forgery (CSRF) | Backend generates a random 32-byte state token per OAuth request, stores it in a 5-minute in-memory map, and consumes it on callback (single-use; an unknown or expired token is a 400, never a fall-through to the web flow). |
+| Login CSRF on the CLI loopback callback | The port space is small enough for a page the user visits to scan, so a `code` alone is not trusted: the CLI mints a per-attempt nonce, the backend echoes it as the loopback `state`, and the CLI compares it in constant time. A callback without it is refused, reported, and never ends the wait — the genuine redirect can still arrive. |
+| Login CSRF on the **web** callback | **Open.** `GET /auth/github/callback` has no `state` for browser logins, so a code obtained by an attacker and replayed through the victim's browser sets that attacker's session cookies. Closing it needs a state store that survives restarts and spans replicas, unlike the in-memory CLI map — tracked separately, not part of the CLI work. |

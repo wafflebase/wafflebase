@@ -207,6 +207,16 @@ does *not* end the wait, so the real redirect can still land. The nonce
 round trip is a backend contract: the loopback redirect echoes it, so a
 CLI at this version or later needs a backend at this version or later.
 
+Because a refusal never ends the wait, it must not be silent either —
+otherwise a CLI pointed at an older backend refuses its own genuine
+redirect and hangs for the full 30 seconds with nothing to act on.
+Every refusal names its cause on stderr as it happens, answers the
+browser tab with the same sentence, and is repeated in the timeout
+error, distinguishing the three cases: no `state` at all (the server
+does not echo the nonce — most likely older than the CLI), a `state`
+that does not match (a callback that is not ours), and a request that
+does not look like a browser navigation.
+
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
 port-validation details live in [rest-api.md](rest-api.md) "CLI Auth
@@ -826,11 +836,13 @@ Agents can branch on the exit code without parsing the error body. A
 missing local session is user error, not a system error, so
 `NOT_LOGGED_IN` exits `1`.
 
-Every command that renders a *result* routes it through `output()`,
-including the session commands `status` and `ctx list`, which used to
-print English sentences and ignore `--format`. (Commands that only
-acknowledge an action — `login`, `logout`, `ctx switch` — still print a
-prose line.) `status` reports the answer to "am I logged in?" as data
+Every command that renders a *structured result* routes it through
+`output()`, including the session commands `status` and `ctx list`,
+which used to print English sentences and ignore `--format`. (Commands
+that only acknowledge an action — `login`, `logout`, `ctx switch` —
+still print a prose line, and the file writers — `sheets export`,
+`docs`/`slides`/`notes` `export` — write their body straight to the
+file or stdout, since it is a document, not a command result.) `status` reports the answer to "am I logged in?" as data
 and still exits `0` when there is no session:
 
 ```json
@@ -855,7 +867,20 @@ stays a plain `ERROR`.
 starting with `=`, `+`, `-`, `@`, tab, or CR is emitted with a leading
 `'` so it lands as text, since every value in the output is
 server-supplied and another workspace member can set it. Plain signed
-numbers (`-3`, `+1.5e6`) are left alone.
+numbers (`-3`, `+1.5e6`) are left alone. Any value carrying a comma,
+quote, or control character is quoted — `\r` included, or a bare CR
+would end the record early in importers that honour it and start the
+next one with a formula the neutralizer never inspected.
+
+Neutralization belongs to this **render** path only. `sheets export
+<doc> out.csv` writes a data file that `sheets import` reads back
+(`skills/recipe-csv-pipeline.md`), so it serializes verbatim: an exported
+`=SUM(B2:B100)` must re-import as that formula, not as the text
+`'=SUM(B2:B100)`. `formatCsv` therefore takes an explicit
+`neutralizeFormulas` flag rather than defaulting — the two callers want
+opposite answers, and a default would silently pick one for the next
+caller added. Quoting is shared: it is CSV correctness, and a parser
+unquotes it on the way back in.
 
 #### 8.2 Dry-Run
 
@@ -1102,7 +1127,7 @@ is the agent interface. This approach has key advantages:
 | Case                                                | Exit | Code                | Message                                                            |
 | --------------------------------------------------- | ---- | ------------------- | ------------------------------------------------------------------ |
 | Unsupported `--format` value (any command)          | 1    | INVALID_FORMAT      | "Invalid --format \"<input>\". Use one of: <that command's list>." |
-| `ctx list` (and other session-required commands) without a session | 1 | NOT_LOGGED_IN | "Not logged in. Run `wafflebase login`."                     |
+| `ctx list` without a session (`ctx switch` still prints prose — out of scope for #635) | 1 | NOT_LOGGED_IN | "Not logged in. Run `wafflebase login`."          |
 | Malformed `--data` / stdin JSON (`sheets cells batch`) | 1  | ERROR               | "Invalid JSON cell data in --data: <parser message>"               |
 | `docs.content` on sheet document                    | 1    | TYPE_MISMATCH       | "Use `sheets cells get` for spreadsheet documents"                 |
 | `sheets.cells.get` on doc                           | 1    | TYPE_MISMATCH       | "Use `docs content` for document files"                            |

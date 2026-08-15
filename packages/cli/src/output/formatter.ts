@@ -56,7 +56,9 @@ export function format(data: unknown, fmt: OutputFormat): string {
     case 'table':
       return formatTable(data);
     case 'csv':
-      return formatCsv(data);
+      // The render path: this CSV is opened by a human, so a
+      // server-supplied value must not execute as a formula.
+      return formatCsv(data, { neutralizeFormulas: true });
     case 'yaml':
       return formatYaml(data);
     default:

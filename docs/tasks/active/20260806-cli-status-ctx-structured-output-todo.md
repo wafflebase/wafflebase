@@ -120,3 +120,44 @@ command succeeding):
       rejects non-GET and `Origin`-bearing requests
 - [x] `cells batch` parses `--data`/stdin inside the try, so malformed
       JSON is a structured error body, not an unhandled rejection
+
+## Review round 5 (panel changes-requested)
+
+- [x] `formatCsv` takes a required `neutralizeFormulas` option; the
+      `--format csv` render path passes `true`, `sheets export
+      --file-format csv` passes `false`, so an exported formula
+      re-imports as a formula (`test/sheets-export.test.ts`)
+- [x] CSV quoting covers `\r` and `\t`, closing the embedded-CR bypass
+      that let a value forge a new record past the neutralizer
+- [x] loopback callback refusals are reported (stderr + browser tab +
+      timeout error), distinguishing "no `state`" (backend older than
+      the CLI) from "`state` mismatch"; `startCallbackServer` takes an
+      injectable `timeoutMs` so that is testable
+- [x] `GitHubAuthGuard.canActivate` covered — the nonce chain's entry
+      point was untested (`github-auth.guard.spec.ts`)
+- [x] `rest-api.md` §7 documents the `nonce` param, the echoed `state`,
+      and the version coupling; risk table gains the loopback-CSRF row
+      and records the **web** OAuth `state` gap as open
+- [x] `cli.md` §8.1 scopes the `output()` claim to structured results
+      and the neutralization to the render path; §10 no longer implies
+      `ctx switch` emits `NOT_LOGGED_IN`
+- [x] `formatTable` JSON-serializes nested values in array rows too
+- [x] stale comments corrected (`cells.ts` on `runCli`'s envelope,
+      `scripts/agent/hunt-workspace.mjs` on `status` ignoring `--format`)
+
+Not fixed, with reasons:
+
+- **Web OAuth `state` (security, major)** — real and pre-existing
+  (`github.strategy.ts` sets `state` only for CLI logins), but out of
+  this PR's diff and not a CLI change. A fix needs a state store that
+  survives restarts and spans replicas; the CLI's in-memory map does
+  neither. Recorded in the `rest-api.md` risk table for a separate PR.
+- **Scope creep (design-fit, major)** — accurate as a description, but
+  the OAuth nonce, CSV neutralization and `cells batch` restructure are
+  this panel's own round-2 requests (see "Review round 2" above).
+  Reverting them to satisfy round 5 would re-open round 2.
+- **`cells batch --dry-run` outside the try/catch (minor)** — every
+  dry-run call site is structured that way (`cells.ts:52-60` for `cells
+  set`), so this is not a `batch`-specific regression. Making
+  `--dry-run` validate `--format` is a change across every command;
+  deliberately not bundled here.

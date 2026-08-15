@@ -174,6 +174,40 @@ export function nonceMatches(
   return timingSafeEqual(a, b);
 }
 
+/** Default wait for the browser to come back. */
+const CALLBACK_TIMEOUT_MS = 30_000;
+
+/**
+ * Why a callback that reached the loopback server was not accepted.
+ *
+ * Refusing silently is what made the nonce a hard backend contract with
+ * no diagnosis: against a server too old to echo `state`, every genuine
+ * redirect is refused and the login hangs for the full timeout with
+ * nothing to act on. The reason is reported as it happens and repeated
+ * in the timeout error, so the failure names its cause.
+ */
+const REFUSAL = {
+  noState:
+    'the redirect carried no `state`. This CLI sends a per-attempt ' +
+    '`nonce` and requires the server to echo it back, so the server is ' +
+    'likely older than this CLI — update the server, or use a CLI ' +
+    'matching it.',
+  badState:
+    'a callback carried a `state` that does not match this login ' +
+    'attempt, so it did not come from the browser window this command ' +
+    'opened and was ignored.',
+  notNavigation:
+    'a callback was refused for not looking like the browser redirect ' +
+    '(non-GET, or carrying an `Origin` header). Only the plain GET ' +
+    'navigation the server redirects to is accepted.',
+} as const;
+
+/** The wait's failure message, naming the last refusal when there was one. */
+export function loginTimeoutMessage(refusal?: string): string {
+  const base = 'Login timed out. Try again with `wafflebase login`.';
+  return refusal ? `${base}\nThe last callback was refused: ${refusal}` : base;
+}
+
 /**
  * Serve the loopback OAuth callback.
  *
@@ -186,14 +220,33 @@ export function nonceMatches(
  * session fixation). Requests carrying an `Origin` header or using a
  * method other than GET are rejected outright: our redirect is a
  * top-level GET navigation and never looks like that.
+ *
+ * A refusal never settles the wait — the genuine redirect may still be
+ * on its way — but it is recorded and surfaced, so a refused login is
+ * diagnosable rather than a silent 30-second hang.
  */
-export function startCallbackServer(nonce: string): Promise<{
+export function startCallbackServer(
+  nonce: string,
+  options: { timeoutMs?: number } = {},
+): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
 }> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let lastRefusal: string | undefined;
+
+    const refuse = (
+      res: import('node:http').ServerResponse,
+      status: number,
+      reason: string,
+    ) => {
+      lastRefusal = reason;
+      console.error(`Refused a login callback: ${reason}`);
+      res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(`Wafflebase CLI refused this callback: ${reason}\n`);
+    };
     let callbackResolve: (code: string) => void;
     let callbackReject: (err: Error) => void;
 
@@ -212,8 +265,7 @@ export function startCallbackServer(nonce: string): Promise<{
       }
 
       if (req.method !== 'GET' || req.headers.origin !== undefined) {
-        res.writeHead(403);
-        res.end('Forbidden');
+        refuse(res, 403, REFUSAL.notNavigation);
         return;
       }
 
@@ -224,11 +276,14 @@ export function startCallbackServer(nonce: string): Promise<{
         return;
       }
 
-      if (!nonceMatches(nonce, url.searchParams.get('state'))) {
+      const state = url.searchParams.get('state');
+      if (!nonceMatches(nonce, state)) {
         // Never settle the promise here: a forged hit must not end the
-        // wait, so the real redirect can still arrive.
-        res.writeHead(403);
-        res.end('State mismatch');
+        // wait, so the real redirect can still arrive. `state` missing
+        // entirely and `state` wrong are different failures — the first
+        // is an out-of-date server, the second a callback that is not
+        // ours — so they are reported apart.
+        refuse(res, 403, state === null ? REFUSAL.noState : REFUSAL.badState);
         return;
       }
 
@@ -280,12 +335,10 @@ export function startCallbackServer(nonce: string): Promise<{
     const timeout = setTimeout(() => {
       if (!settled) {
         settled = true;
-        callbackReject(
-          new Error('Login timed out. Try again with `wafflebase login`.'),
-        );
+        callbackReject(new Error(loginTimeoutMessage(lastRefusal)));
       }
       srv.close();
-    }, 30_000);
+    }, options.timeoutMs ?? CALLBACK_TIMEOUT_MS);
 
     // Try to listen on a random port (up to 3 attempts)
     let attempts = 0;

@@ -43,7 +43,14 @@ export function registerSheetsExportCommand(parent: Command) {
         }
 
         const fmt = detectFormat(file, localOpts.fileFormat);
-        const formatted = fmt === 'csv' ? formatCsv(res.data) : formatJson(res.data);
+        // Data interchange, not a render: the file this writes is the
+        // input of `sheets import` (skills/recipe-csv-pipeline.md), so
+        // an exported `=SUM(B2:B100)` has to come back as that formula.
+        // Neutralizing it here would re-import it as literal text.
+        const formatted =
+          fmt === 'csv'
+            ? formatCsv(res.data, { neutralizeFormulas: false })
+            : formatJson(res.data);
 
         if (file === '-') {
           process.stdout.write(formatted + '\n');

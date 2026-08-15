@@ -1,8 +1,10 @@
 /**
- * Render one value of a key/value table. Nested values are
- * JSON-serialized rather than left to `String()`, which would print
- * `[object Object]` for the nested payloads some commands emit
- * (`schema <command>`). Mirrors what `formatCsv` already does.
+ * Render one table value. Nested values are JSON-serialized rather than
+ * left to `String()`, which would print `[object Object]` for the
+ * nested payloads some commands emit (`schema <command>`, a document
+ * row carrying `meta`). Mirrors what `formatCsv` already does, and is
+ * shared by both layouts — a nested value is no more readable in a row
+ * than in a key/value pair.
  */
 function cell(value: unknown): string {
   if (value !== null && typeof value === 'object') return JSON.stringify(value);
@@ -41,16 +43,13 @@ export function formatTable(data: unknown): string {
   const keys = Object.keys(rows[0]);
 
   const widths = keys.map((key) =>
-    Math.max(
-      key.length,
-      ...rows.map((row) => String(row[key] ?? '').length),
-    ),
+    Math.max(key.length, ...rows.map((row) => cell(row[key]).length)),
   );
 
   const header = keys.map((k, i) => k.padEnd(widths[i])).join('  ');
   const separator = widths.map((w) => '-'.repeat(w)).join('  ');
   const lines = rows.map((row) =>
-    keys.map((k, i) => String(row[k] ?? '').padEnd(widths[i])).join('  '),
+    keys.map((k, i) => cell(row[k]).padEnd(widths[i])).join('  '),
   );
 
   return [header, separator, ...lines].join('\n');
