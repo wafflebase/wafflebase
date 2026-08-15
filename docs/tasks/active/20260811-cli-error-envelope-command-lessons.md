@@ -34,3 +34,49 @@ Issue: #661
   root program. Aliases resolve for free: `name()` returns the canonical
   name, so `wafflebase doc content` still reports `docs.content` — the same
   string the `schema` command uses.
+
+## Review round: OAuth/CLI login hardening follow-ups
+
+- A rewritten predicate is only rewritten if the old test is *removed*.
+  `secureCookies` was reworked so `__Host-` follows `GITHUB_CALLBACK_URL`'s
+  scheme, but the original `if (NODE_ENV === 'production') return true;`
+  stayed in front of it. The new rule was then unreachable in exactly the
+  configuration the shipped image ships: `NODE_ENV=production` plus an
+  `http://` callback, where `Secure` cookies are discarded and every login
+  dead-ends. When replacing a condition, delete the one being replaced and
+  check the ordering, not just the new branch.
+- A `Secure` cookie on a plain-http origin is not a stricter cookie, it is
+  no cookie. Two of these bugs in one file (login cookies and session
+  cookies) came from reading `secure: true` as "safer by default" instead of
+  "only meaningful over TLS".
+- Fixing one cookie in a chain fixes nothing. Making only the login cookie
+  scheme-aware would have moved the dead end from the callback to the
+  session that the callback hands out. Follow the whole path a login walks
+  before deciding a cookie fix is complete.
+- Redaction rules are per-route, so they need a *grep for the credential's
+  other carriers*, not a fix for the reported one. The share-token
+  redaction shipped with `share-links/*/resolve` and missed
+  `invites/*/accept`, which is worse: it is a mutation, so it logs at `info`
+  on success, not only at `warn` on failure.
+- One key, one purpose. `JWT_SECRET` signed both session tokens and the
+  OAuth state binding, and the binding is *published* — an unauthenticated
+  `GET /auth/github` returns the MAC's input in `Set-Cookie` and its output
+  in `state`. HKDF with a fixed label separates the two without a new env
+  var or any deployment action, because the derivation is deterministic and
+  the bindings live five minutes. Be honest in the comment about what it
+  does not buy: derivation is not entropy, and a weak secret is still
+  testable through it.
+- A double-submit token should name what it authorized. The CLI consent
+  token was a bare random value, so it proved "some consent page was shown"
+  rather than "the page naming port 9876" — and the port is the only thing
+  the person was asked to read. Signing the displayed parameters into the
+  token costs one HMAC and makes the claim match the defence.
+- "Separate names so two flows can coexist" is an argument that recurses.
+  It was written for browser-vs-CLI and left two logins of the *same* flow
+  colliding on one cookie value. The fix is not a third name — a name the
+  callback can derive is a name a crafted start can plant — but a bounded
+  ring of values inside the one cookie, spending the matched one.
+- A single-use link needs an *exit*, not just a refusal. `/launch/<token>`
+  returned a bare 404 on its second visit, which is correct security and a
+  dead end for the human who lost the race to a prefetch. `410` plus the
+  remedy costs nothing and leaks nothing.
