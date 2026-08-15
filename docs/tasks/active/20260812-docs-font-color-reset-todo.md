@@ -122,9 +122,14 @@ Root cause — two layers:
             `{}`, not text only), a table cell's `style` and a `null` cell are
             repaired too, and a non-object cell / non-array `rows` / `children`
             is rejected rather than skipped
-      - [x] backend: `docs-content.controller.spec.ts` — `PUT /content` is
-            `write`-scope gated, so a read-scoped API key gets a 403 before
-            any Yorkie work
+      - [x] backend: `api-key-write-scope.guard.spec.ts` — a read-scoped API
+            key gets a 403 on every mutating method, and the guard is asserted
+            mounted on all six v1 controllers, so `PUT /content` and the six
+            other mutating routes that were never gated are covered by one
+            mechanism rather than a per-handler check
+      - [x] backend: `docs-content.controller.spec.ts` — a chart's absent
+            `categories` / `series` is repaired, and the element walk is
+            depth-bounded
       - [x] slides: `model/migrate.test.ts` — a `layoutId` of `constructor` /
             `__proto__` / `toString` migrates to itself, not to a value off
             `Object.prototype`

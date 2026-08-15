@@ -97,11 +97,24 @@ Request arrives
 
 The v1 API endpoints use `CombinedAuthGuard`. Neither it nor
 `WorkspaceScopeGuard` reads `scopes` — the guards prove the key is valid and
-bound to the workspace, nothing more — so **every destructive handler checks
-the `write` scope itself** (`document.delete`, `files.upload`, and the content
-`PUT`, which replaces a document's whole content). A key minted with
-`scopes: ['read']` gets a `403` from those routes. Existing endpoints
-continue to use `JwtAuthGuard` only. `JwtStrategy` accepts JWTs from
+bound to the workspace, nothing more — so every v1 controller also mounts
+**`ApiKeyWriteScopeGuard`**
+(`packages/backend/src/api/v1/api-key-write-scope.guard.ts`), which refuses an
+API-key caller without the `write` scope on any `POST` / `PUT` / `PATCH` /
+`DELETE`. A key minted with `scopes: ['read']` gets a `403` from every
+mutating v1 route.
+
+It is one guard keyed on the HTTP method rather than a check written per
+handler, because the per-handler form is an absence waiting to happen: it was
+present on `documents.delete` and `files.upload` and missing from the other
+seven mutating routes, which made the surface *read* as covered while
+`PUT …/content` — a destructive replace of a document's whole content — was
+open to a read-only credential. A new mutating route is gated the moment it
+is added to a controller that mounts the guard. JWT callers are unaffected:
+their authority is workspace membership and document ownership, resolved by
+the per-handler checks.
+
+Existing endpoints continue to use `JwtAuthGuard` only. `JwtStrategy` accepts JWTs from
 both the `wafflebase_session` cookie and the
 `Authorization: Bearer` header so the CLI can call JWT-guarded
 endpoints with its OAuth-issued access token (see [cli.md](cli.md)
@@ -296,7 +309,10 @@ an inline needs a string `text` and a `style` object; a table cell needs a
     `isElementEmpty`), `{ rows: [], columnWidths: [] }` for a table
     (`data.columnWidths.length` in `drawTable`, `data.rows` in the height
     scaler and the PDF exporter), `{ children: [] }` for a group
-    (`data.children` in `flattenElements`), `{}` otherwise;
+    (`data.children` in `flattenElements`), `{ categories: [], series: [] }`
+    for a chart (`data.series` / `data.categories` in `drawChart`), `{}`
+    otherwise;
+  - inside a chart: an absent `categories` / `series` → `[]`;
   - inside a table: an absent `columnWidths` / `rows` / `row.cells` → `[]`, a
     `null` row → an empty row, a `null` cell → an empty cell, and a cell's
     absent `style` → `{}` and `body` → `{ blocks: [] }`. The cell repair covers
@@ -312,9 +328,20 @@ an inline needs a string `text` and a `style` object; a table cell needs a
   point that would otherwise repair in place: an element's `data`, a text body
   (a shape's `data.text`, a table cell's `body`), and a docs table cell nested
   in a slide text body. A present-but-wrong structural value (`rows`,
-  `columnWidths`, `children`, `cells` that is not an array; a row or cell that
-  is a primitive) is likewise a `400` rather than a silent skip, so no deck is
-  persisted in a shape that would be a `TypeError` for its viewers.
+  `columnWidths`, `children`, `series`, `cells` that is not an array; a row or
+  cell that is a primitive) is likewise a `400` rather than a silent skip.
+
+  The scope of the guarantee is exactly the list above: a deck stored through
+  this endpoint cannot be *missing* a field the shared renderers, layout engine
+  or exporters dereference without a guard. It is **not** a full model
+  validation — the values inside a repaired collection (a chart series entry, a
+  `row.height`, an image `src`) are stored as given, so a deck can still render
+  wrongly; it cannot render fatally.
+
+- The element walk is depth-bounded (`MAX_ELEMENT_DEPTH`, 32). Groups nest a
+  handful of levels in any real deck, but the walk recurses through
+  `data.children` against a 25 MB body limit, which is enough for a compact
+  payload to exhaust the stack on an authenticated endpoint.
 
 `GET` → edit → `PUT` stays lossless for docs bodies: the read side of the
 Tree codec (`@wafflebase/docs` `model/crdt-attrs.ts`) drops exactly the values
@@ -418,6 +445,7 @@ packages/backend/src/
       images.controller.ts
       files.controller.ts
       workspace-scope.guard.ts
+      api-key-write-scope.guard.ts
 ```
 
 Registered in the root application module: `ApiKeyModule`,

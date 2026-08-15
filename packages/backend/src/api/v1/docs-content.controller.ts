@@ -3,16 +3,14 @@ import {
   Body,
   ConflictException,
   Controller,
-  ForbiddenException,
   Get,
   Param,
   Put,
-  Req,
   UseGuards,
 } from '@nestjs/common';
-import { AuthenticatedRequest } from '../../auth/auth.types';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
+import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { DocumentService } from '../../document/document.service';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import {
@@ -74,7 +72,7 @@ type ContentDocument = DocsDocument | SlidesDocument | NoteDocument;
  * these endpoints so it never needs to ship a Yorkie SDK dependency.
  */
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/content')
-@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
+@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
 export class ApiV1DocsContentController {
   constructor(
     private readonly documentService: DocumentService,
@@ -131,16 +129,11 @@ export class ApiV1DocsContentController {
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
     @Body() body: unknown,
-    @Req() req: AuthenticatedRequest,
   ): Promise<ContentDocument> {
-    // `CombinedAuthGuard` only proves the key is valid and
-    // `WorkspaceScopeGuard` only that it is bound to this workspace — neither
-    // reads `scopes`. This route is a *destructive replace* of a document's
-    // whole content, so a read-scoped key must not reach it. Mirrors the
-    // checks on `documents.remove` and `files.upload`.
-    if (req.user.isApiKey && !req.user.scopes?.includes('write')) {
-      throw new ForbiddenException('This API key does not have write access');
-    }
+    // This route is a *destructive replace* of a document's whole content.
+    // `ApiKeyWriteScopeGuard` on the controller has already refused a
+    // read-scoped API key before this handler runs.
+    //
     // Hand-rolled shape guard. `@Body()` is compile-time typed only, so a
     // malformed payload would otherwise reach the writer and surface as
     // HTTP 500 deep inside Yorkie. We validate just the fields the writer
@@ -604,12 +597,24 @@ function assertValidElement(element: unknown, path: string): void {
  * `GET` → edit → `PUT` round-trip of an existing deck into a 400. What we do
  * check is the same thing we check everywhere else: the text bodies inside.
  */
-function assertValidNestedElement(element: unknown, path: string): void {
+function assertValidNestedElement(
+  element: unknown,
+  path: string,
+  depth = 0,
+): void {
   if (!element || typeof element !== 'object') {
     throw new BadRequestException(`Invalid element at ${path}: not an object`);
   }
-  assertValidElementData(element as Record<string, unknown>, path);
+  assertValidElementData(element as Record<string, unknown>, path, depth);
 }
+
+/**
+ * Depth ceiling for the element walk. Group nesting is a handful of levels in
+ * any real deck (PPTX and Google Slides both keep it shallow), but the walk
+ * recurses through `data.children` and the JSON body limit is 25 MB — enough
+ * for a compact payload to exhaust the stack on an authenticated endpoint.
+ */
+const MAX_ELEMENT_DEPTH = 32;
 
 /**
  * Validate the text bodies an element's `data` carries.
@@ -641,7 +646,13 @@ function assertValidNestedElement(element: unknown, path: string): void {
 function assertValidElementData(
   e: Record<string, unknown>,
   path: string,
+  depth = 0,
 ): void {
+  if (depth > MAX_ELEMENT_DEPTH) {
+    throw new BadRequestException(
+      `Invalid element at ${path}: elements are nested too deeply`,
+    );
+  }
   const raw = e.data;
   if (Array.isArray(raw)) {
     throw new BadRequestException(
@@ -669,6 +680,20 @@ function assertValidElementData(
     }
   } else if (e.type === 'table') {
     assertValidTableData(data, path);
+  } else if (e.type === 'chart') {
+    // `drawChart` reads `data.series` and `data.categories` unconditionally
+    // (`packages/slides/src/view/canvas/chart-renderer.ts`), so they get the
+    // same treatment as a table's `rows` / `columnWidths`.
+    for (const key of ['categories', 'series'] as const) {
+      const value = data[key];
+      if (value === undefined || value === null) {
+        data[key] = [];
+      } else if (!Array.isArray(value)) {
+        throw new BadRequestException(
+          `Invalid element at ${path}.data: '${key}' must be an array`,
+        );
+      }
+    }
   } else if (e.type === 'group') {
     const children = data.children;
     if (children === undefined || children === null) {
@@ -681,17 +706,32 @@ function assertValidElementData(
       );
     }
     for (let i = 0; i < children.length; i++) {
-      assertValidNestedElement(children[i], `${path}.data.children[${i}]`);
+      assertValidNestedElement(
+        children[i],
+        `${path}.data.children[${i}]`,
+        depth + 1,
+      );
     }
   }
 }
 
-/** The empty `data` an element of `type` must carry for its readers. */
+/**
+ * The empty `data` an element of `type` must carry for its readers.
+ *
+ * A `Map` rather than a chain of `===` on an object literal lookup, so the
+ * untrusted `type` string can never reach a prototype key.
+ */
+const EMPTY_ELEMENT_DATA = new Map<string, () => Record<string, unknown>>([
+  ['text', () => ({ blocks: [] })],
+  ['table', () => ({ rows: [], columnWidths: [] })],
+  ['group', () => ({ children: [] })],
+  ['chart', () => ({ categories: [], series: [] })],
+]);
+
 function emptyElementData(type: unknown): Record<string, unknown> {
-  if (type === 'text') return { blocks: [] };
-  if (type === 'table') return { rows: [], columnWidths: [] };
-  if (type === 'group') return { children: [] };
-  return {};
+  const build =
+    typeof type === 'string' ? EMPTY_ELEMENT_DATA.get(type) : undefined;
+  return build ? build() : {};
 }
 
 /**

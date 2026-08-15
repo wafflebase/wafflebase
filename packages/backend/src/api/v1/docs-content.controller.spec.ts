@@ -1,10 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import type { AuthenticatedRequest } from '../../auth/auth.types';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ApiV1DocsContentController } from './docs-content.controller';
 import { DocumentService } from '../../document/document.service';
@@ -64,19 +62,12 @@ describe('ApiV1DocsContentController', () => {
   let documentService: { getDocumentOrThrow: jest.Mock };
   let yorkieService: { withDocument: jest.Mock };
 
-  // A JWT (human) caller: `isApiKey` is unset, so the `write`-scope gate on
-  // `putContent` does not apply. API-key callers are covered by their own
-  // tests below.
-  const JWT_REQ = {
-    user: { id: '1', workspaceId: 'ws-1' },
-  } as unknown as AuthenticatedRequest;
-
-  const putContent = (
-    workspaceId: string,
-    documentId: string,
-    body: unknown,
-    req: AuthenticatedRequest = JWT_REQ,
-  ) => controller.putContent(workspaceId, documentId, body, req);
+  // The API key `write` scope is enforced by `ApiKeyWriteScopeGuard` on the
+  // controller rather than inside the handler, so a read-scoped key never
+  // reaches `putContent` — see `api-key-write-scope.guard.spec.ts`, which
+  // covers every mutating method and asserts the guard is mounted here.
+  const putContent = (workspaceId: string, documentId: string, body: unknown) =>
+    controller.putContent(workspaceId, documentId, body);
 
   beforeEach(async () => {
     documentService = { getDocumentOrThrow: jest.fn() };
@@ -1538,38 +1529,64 @@ describe('ApiV1DocsContentController', () => {
           /cells\[0\]\.body.*text body must be an object/,
         );
       });
-    });
 
-    describe('API key write scope', () => {
-      const apiKeyReq = (scopes: string[]) =>
-        ({
-          user: { id: '1', workspaceId: 'ws-1', isApiKey: true, scopes },
-        }) as unknown as AuthenticatedRequest;
+      function withElements(elements: unknown[]): unknown {
+        return withSlides({
+          slides: [
+            { id: 's1', layoutId: 'l', background: {}, elements, notes: [] },
+          ] as unknown as [],
+        });
+      }
 
-      it('rejects a read-scoped API key', async () => {
-        // `CombinedAuthGuard` / `WorkspaceScopeGuard` never read `scopes`, so
-        // without this gate a read-only key could destructively replace the
-        // content of every doc, deck and note in the workspace.
-        await expect(
-          putContent('ws-1', 'd1', makeDocFixture(), apiKeyReq(['read'])),
-        ).rejects.toBeInstanceOf(ForbiddenException);
-        expect(documentService.getDocumentOrThrow).not.toHaveBeenCalled();
-        expect(yorkieService.withDocument).not.toHaveBeenCalled();
-      });
-
-      it('lets a write-scoped API key through', async () => {
+      it("fills in a chart element's absent categories and series", async () => {
+        // `drawChart` reads `data.series[i]`, `data.series.length` and
+        // `data.categories.length` unconditionally, so an absent one is the
+        // same stored TypeError as a table's absent `rows`.
         documentService.getDocumentOrThrow.mockRejectedValue(
           new NotFoundException('sentinel'),
         );
+        const body = withElements([
+          { id: 'e1', type: 'chart', frame: {} },
+          { id: 'e2', type: 'chart', frame: {}, data: { kind: 'bar' } },
+        ]) as { slides: Array<{ elements: Array<{ data: unknown }> }> };
         await expect(
-          putContent(
-            'ws-1',
-            'd1',
-            makeDocFixture(),
-            apiKeyReq(['read', 'write']),
-          ),
+          controller.putContent('ws-1', 'd1', body as never),
         ).rejects.toBeInstanceOf(NotFoundException);
+        const [absent, partial] = body.slides[0].elements;
+        expect(absent.data).toEqual({ categories: [], series: [] });
+        expect(partial.data).toEqual({
+          kind: 'bar',
+          categories: [],
+          series: [],
+        });
+      });
+
+      it('rejects a non-array series on a chart element', async () => {
+        await expectReject(
+          withElements([
+            { id: 'e1', type: 'chart', frame: {}, data: { series: 'nope' } },
+          ]),
+          /'series'.*array/,
+        );
+      });
+
+      it('rejects an element tree nested past the depth limit', async () => {
+        // The walk recurses through `data.children` with no bound, against a
+        // 25 MB body limit — a compact payload can exhaust the stack on an
+        // authenticated endpoint.
+        let node: Record<string, unknown> = {
+          type: 'text',
+          data: { blocks: [] },
+        };
+        for (let i = 0; i < 200; i++) {
+          node = { type: 'group', data: { children: [node] } };
+        }
+        await expectReject(
+          withElements([{ id: 'e1', frame: {}, ...node }]),
+          /nested too deeply/,
+        );
       });
     });
+
   });
 });

@@ -183,3 +183,59 @@ Takeaway: before implementing a review finding, open the cited `file:line` on
 the head commit and confirm the quoted text is still there. `git show
 <prev>:<file>` will usually tell you which revision a stale quote came from,
 which is stronger counter-evidence than "I could not reproduce it".
+
+## An authz check written per handler is an absence waiting to happen
+
+The critical finding this round was that `PUT /api/v1/…/content` never checked
+the API key `write` scope, so a key minted with `scopes: ['read']` could
+destructively replace the content of every doc, deck and note in a workspace.
+The reason it survived is the shape of the surrounding code: two of the nine
+mutating v1 handlers *did* carry the check, hand-written inline, each with a
+comment explaining exactly why it was needed. Anyone grepping `scopes` found
+hits under `api/v1/` and moved on. Seven routes were open.
+
+Takeaway: a cross-cutting authorization rule belongs in one enforcement point
+that cannot be forgotten — here a guard keyed on the HTTP method, mounted on
+every v1 controller — not in the handlers written by whoever remembered it.
+Two correct copies are worse than zero: zero looks like a gap, two look like
+coverage. When you close a finding of this kind, delete the copies too, or
+"one mechanism" quietly becomes "one mechanism plus two things that can
+drift". Then enumerate the call sites in a test — the guard spec here asserts
+the guard is mounted on all six v1 controllers, so a seventh that forgets it
+fails CI instead of shipping.
+
+## "Repairs the contents" is not "repairs the container" — one level up again
+
+The previous round's lesson was that a walk repairing a container's contents
+while tolerating the container's absence has a hole the size of the type it
+protects. This round found the same hole one level up *again*, which means the
+lesson needed a stronger form. The fix repaired `data` for `type === 'text'`
+and `cell.body` for a table cell, and left every other element type, plus
+`data.children`, `data.rows`, `data.columnWidths`, `row.cells` and
+`cell.style` — all read without a guard, and several of them read *earlier* in
+the same render pass than the field that was repaired.
+
+Takeaway: do not derive the repair list from the failure you were shown.
+Derive it from the consumers — grep the renderers, the layout engine and the
+exporters for every unguarded dereference of the value, and repair that whole
+set. A field repaired at the end of a pass is worthless if the pass throws on
+a sibling field at the start of it. And state the resulting coverage in the
+design doc as an enumerated table with its limits, not as prose: the prose
+version here ("no deck is ever persisted in a shape that would be a TypeError
+for its viewers") was three findings' worth of overclaim.
+
+## Scope a defect-class sweep by the class, not by the directory
+
+This file already said, of the `ROLE_TO_SCHEME[c.role]` prototype-chain fix,
+"grep the pass for the pattern, don't trust the prose". The sweep still missed
+`LAYOUT_ID_MIGRATIONS[slide?.layoutId]` in `packages/slides/src/model/migrate.ts`,
+because it was scoped to the export path where the first instance was found
+and this lookup lives in the model.
+
+Takeaway: scope the sweep by the class (an untrusted key into a plain-object
+map), not by the directory. `migrate.ts` is where such a lookup does the most
+damage: it runs on every read of every stored deck, so the corrupted value
+enters the live model rather than one output file. The remaining instances in
+this repo are on the PPTX/DOCX *import* path (`EXT_TO_MIME`, `PRESET_COLORS`,
+`TYPE_TO_BUILT_IN`, `PH_TYPE_ALIAS`, `HIGHLIGHT_COLORS`, …); they predate this
+branch and are left for a dedicated pass rather than widened into it.
