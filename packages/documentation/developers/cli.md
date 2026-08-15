@@ -388,7 +388,10 @@ CSV export prefixes anything a spreadsheet would evaluate (`=`, `+`,
 `-`, `@`, with or without leading whitespace) with `'`, so opening the
 file cannot execute a formula another workspace member put in a cell.
 Plain numbers are untouched. `--raw` turns the guard off, which is what
-you want when the file is going straight back into `sheets import`.
+you want when the file is going straight back into `sheets import`:
+that command recognizes the `ref,value,formula[,style]` header this
+export writes and re-imports by reference, sending each formula as a
+formula rather than as text.
 
 ## slides (aliases: slide, deck)
 

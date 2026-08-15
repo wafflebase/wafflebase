@@ -24,7 +24,7 @@ import { CliAuthStore } from './cli-auth.store';
 import { GitHubAuthGuard } from './github-auth.guard';
 import {
   isWebOAuthState,
-  OAUTH_STATE_COOKIE,
+  oauthStateCookieName,
   oauthStateCookieOptions,
   webOAuthStateMatches,
 } from './oauth-state';
@@ -149,8 +149,13 @@ export class AuthController {
       // Browser flow: the state is the hash of a secret that only this
       // browser holds, in an httpOnly cookie. A code replayed with a
       // stolen or guessed `state` cannot bring the cookie with it.
-      const cookieSecret = req.cookies?.[OAUTH_STATE_COOKIE];
-      res.clearCookie(OAUTH_STATE_COOKIE, {
+      // Only the name the guard would mint *now* is read: in production
+      // that is the `__Host-` prefixed one, and honouring an unprefixed
+      // leftover would re-admit the sibling-subdomain cookie-tossing the
+      // prefix exists to block (see `oauth-state.ts`).
+      const cookieName = oauthStateCookieName();
+      const cookieSecret = req.cookies?.[cookieName];
+      res.clearCookie(cookieName, {
         ...oauthStateCookieOptions(),
         maxAge: undefined,
       });

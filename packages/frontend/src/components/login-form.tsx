@@ -28,8 +28,13 @@ export function LoginForm({
   error,
   ...props
 }: React.ComponentPropsWithoutRef<"form"> & { error?: string | null }) {
+  // `hasOwn`, not a bare index: `error` comes off the query string, and
+  // `?error=constructor` would otherwise pull a function off the
+  // prototype chain and hand it to React as the message.
   const message = error
-    ? (LOGIN_ERRORS[error] ?? GENERIC_LOGIN_ERROR)
+    ? Object.hasOwn(LOGIN_ERRORS, error)
+      ? LOGIN_ERRORS[error]
+      : GENERIC_LOGIN_ERROR
     : null;
 
   return (

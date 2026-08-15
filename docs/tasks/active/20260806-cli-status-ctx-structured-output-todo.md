@@ -273,3 +273,43 @@ Rebutted rather than fixed:
 - **Web OAuth `state` deferral** — no longer applicable. Round 6 closed
   the gap and rewrote the `rest-api.md` risk row; round 8 only corrects
   that row's now-stale "a callback with no `state` is a 400".
+
+## Review round 9 (panel changes-requested)
+
+- [x] `--raw`'s contract now actually holds at the import call site.
+      `sheets export` writes one row per cell (`ref,value,formula,
+      style`), which `sheets import` read as a positional grid — the
+      round trip landed the word `ref` in A1 and every formula as text,
+      because `buildCellMap` only ever emitted `{ value }` and the batch
+      API stores `f` and `v` in different fields. `csv-parse.ts` gains
+      `isCellTable`/`buildCellMapFromTable` (import by reference, formula
+      as `formula`) and `buildCellMap` routes `=`-leading text to
+      `formula`; `sheets-import.ts` picks the branch. Skill/published/
+      design prose updated to describe what now happens
+- [x] the browser state cookie is `__Host-` prefixed in production
+      (`Path=/`, `Secure`, no `Domain`), and the callback reads only the
+      name it would mint now. Without the prefix a sibling-subdomain
+      foothold can toss `wafflebase_oauth_state=<its own secret>;
+      Domain=<parent>` and pair it with a `state` it minted itself,
+      restoring the login CSRF the state closes; an HMAC cannot help,
+      since the attacker can mint a legitimate pair by starting their
+      own login. New `oauth-state.spec.ts` pins the prefix, the cookie
+      attributes and `timingSafeEqualStr`
+- [x] `login-form.tsx` / `login/page.tsx` covered
+      (`components/__tests__/login-form.test.tsx`): the `oauth_state`
+      message, the generic fallback, no alert without `?error=`, and the
+      page wiring `useSearchParams()` through. The lookup is now
+      `Object.hasOwn`-guarded, so `?error=constructor` cannot hand React
+      a prototype-chain function
+- [x] `rest-api.md` §7 no longer says a stateless callback is a 400 —
+      it redirects to `FRONTEND_URL/login?error=oauth_state`, which is
+      what `auth.controller.ts` and `backend.md` already described
+
+Rebutted rather than fixed:
+
+- **Scope creep (design-fit, major)** — raised for the fourth round, now
+  against `cli-login-confirm.middleware.ts` and `login.ts`. The answer
+  is unchanged: the OAuth work, CSV neutralization and `cells batch`
+  restructure are this panel's own round-2 and round-6 requests (see
+  those sections). Reverting them re-opens the rounds that asked for
+  them.

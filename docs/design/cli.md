@@ -921,6 +921,12 @@ spreadsheet app, so it neutralizes too. Its one caller that must not is
 the round-trip pipeline (`packages/cli/skills/recipe-csv-pipeline.md`),
 where an exported `=SUM(B2:B100)` has to re-import as that formula and
 not as the text `'=SUM(B2:B100)` — that asks for `--raw` explicitly.
+The other half of that round trip lives in `sheets import`: it detects
+the `ref,value,formula[,style]` header this export writes and imports
+**by reference** (not as a positional grid, which would land the word
+`ref` in A1), sending a cell's `formula` as `formula` and any other
+`=`-leading text likewise — the batch API stores `f` and `v` in
+different fields, so a formula sent as a value is never evaluated.
 Opting out is the caller saying they trust the sheet, which is not a
 thing the default may assume. `formatCsv` still takes an explicit
 `neutralizeFormulas` flag rather than defaulting, so the answer stays a

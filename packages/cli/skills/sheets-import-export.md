@@ -48,6 +48,12 @@ cat data.csv | wafflebase sheets import <doc-id> -
 - `--file-format csv|json` — override auto-detection from file extension
 - `--start <ref>` — top-left cell to begin import (default: `A1`)
 
+A CSV whose header row is `ref,value,formula[,style]` — the shape
+`sheets export` writes — is imported **by reference**, not as a grid, so
+an exported file lands back on the cells it came from and `--start` does
+not apply. Any other CSV is a positional grid; a cell whose text starts
+with `=` is sent as a formula.
+
 ### Import to a specific position
 
 ```bash
@@ -101,10 +107,16 @@ likely to be opened in a spreadsheet app, and any co-member of the
 workspace could have planted an `=HYPERLINK("http://evil","x")` in it,
 so it must not execute on open.
 
-That guard is one-way: `sheets import` maps every CSV cell verbatim, so a
-re-imported `'=SUM(...)` comes back as literal text, not a formula. **For
-an export → import round trip, pass `--raw`** — which is the caller
-saying they trust the sheet's contents.
+That guard is one-way: `sheets import` sends a cell whose text starts
+with `=` as a **formula**, but `'=SUM(...)` starts with `'`, so a
+neutralized export comes back as literal text. **For an export → import
+round trip, pass `--raw`** — which is the caller saying they trust the
+sheet's contents.
+
+```bash
+wafflebase sheets export "$SRC" out.csv --raw
+wafflebase sheets import "$DST" out.csv   # =SUM(B2:B100) is a formula again
+```
 
 ## Note
 

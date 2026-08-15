@@ -8,7 +8,13 @@ import {
   parseOutputFormat,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
-import { parseCsv, parseStartRef, buildCellMap } from '../util/csv-parse.js';
+import {
+  parseCsv,
+  parseStartRef,
+  buildCellMap,
+  buildCellMapFromTable,
+  isCellTable,
+} from '../util/csv-parse.js';
 
 const VALID_FORMATS = ['csv', 'json'] as const;
 
@@ -77,8 +83,16 @@ export function registerSheetsImportCommand(parent: Command) {
           throw new Error('No data to import');
         }
 
+        // `sheets export` writes one row per cell (`ref,value,formula,
+        // style`), not a grid, so re-importing its output as a grid
+        // filled A1 with the word "ref". Recognising that header is what
+        // makes the export → import round trip an identity: with
+        // `--raw`, a `=SUM(B2:B100)` comes back as that formula rather
+        // than as text. Any other CSV is still a positional grid.
         const { row: startRow, col: startCol } = parseStartRef(localOpts.start);
-        const cells = buildCellMap(rows, startRow, startCol);
+        const cells = isCellTable(rows)
+          ? buildCellMapFromTable(rows)
+          : buildCellMap(rows, startRow, startCol);
         const cellCount = Object.keys(cells).length;
 
         if (opts.dryRun) {

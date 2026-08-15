@@ -107,7 +107,9 @@ imports the full module set listed below.
   request as `__oauthState` — the single key `GitHubStrategy.authenticate`
   reads to put `state` on the wire. The two flows mint it differently:
   - **Browser** — a double-submit pair (`oauth-state.ts`): a random secret
-    goes into the `wafflebase_oauth_state` cookie, its SHA-256 goes to
+    goes into the `__Host-wafflebase_oauth_state` cookie (unprefixed
+    outside production, where the browser will not honour `__Host-`
+    without `Secure`), its SHA-256 goes to
     GitHub as `web.<hash>`. No server-side map, so it survives a restart
     and works across replicas. The hash, not the secret, is what travels
     through GitHub, referrers and access logs.
@@ -133,8 +135,9 @@ imports the full module set listed below.
      server started; accepting it is login CSRF — an attacker replays a
      code obtained for *their* account through the victim's browser and
      the victim is silently signed into it (session fixation).
-     - Browser `state` must match the `wafflebase_oauth_state` cookie,
-       which is cleared on use.
+     - Browser `state` must match the `__Host-wafflebase_oauth_state`
+       cookie, which is cleared on use. Only that name is read — an
+       unprefixed leftover is not accepted in production.
      - Otherwise it is consumed as a CLI state token, and the callback
        redirects to `http://127.0.0.1:<port>/callback` echoing the CLI's
        nonce as `state`.
@@ -348,11 +351,25 @@ Created by `AuthService.createTokens()`:
 |--------|------------|-------------|
 | `wafflebase_session` | httpOnly, secure, sameSite=`lax`, maxAge=1h by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=1h by default |
 | `wafflebase_refresh` | httpOnly, secure, sameSite=`lax`, maxAge=7d by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=7d by default |
-| `wafflebase_oauth_state` | httpOnly, secure, sameSite=`lax`, path=`/auth`, maxAge=10m | same, secure=`false` |
+| `__Host-wafflebase_oauth_state` | httpOnly, secure, sameSite=`lax`, path=`/`, maxAge=10m | `wafflebase_oauth_state` (unprefixed), secure=`false` |
 | `wafflebase_cli_confirm` | httpOnly, secure, sameSite=`lax`, path=`/auth`, short-lived | same, secure=`false` |
 
-The two OAuth cookies are single-use and scoped to `path=/auth`: they
-exist only for the duration of one login and are cleared when consumed.
+The two OAuth cookies are single-use: they exist only for the duration
+of one login and are cleared when consumed.
+
+The state cookie carries the **`__Host-` prefix** in production, which
+costs it the narrower `path=/auth` (the prefix is honoured only on a
+`Secure` cookie with `Path=/` and no `Domain`). That trade is the point:
+a double-submit pair is only as strong as the browser's guarantee that
+nothing but this exact origin can write the cookie, and without the
+prefix a foothold on any sibling subdomain can set
+`wafflebase_oauth_state=<attacker secret>; Domain=<parent>` and restore
+the login CSRF the state exists to close. An HMAC would not help — the
+attacker can mint a legitimate pair by starting their own login — so the
+write restriction is the only property that does. The callback reads
+**only** the name it would mint now, with no fallback to the unprefixed
+one. The prefix requires `Secure`, which a plain-HTTP dev server cannot
+set, hence the unprefixed development name.
 Both are `lax` rather than `strict` for the same reason as the session
 cookies — GitHub redirects the browser back to us, and a `strict` cookie
 is withheld on that cross-site navigation, so every login would fail its

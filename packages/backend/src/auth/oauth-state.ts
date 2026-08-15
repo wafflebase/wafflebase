@@ -17,7 +17,38 @@ import type { CookieOptions } from 'express';
  * through GitHub, referrers and access logs, and a leaked hash cannot be
  * replayed without the cookie the browser never exposes.
  */
-export const OAUTH_STATE_COOKIE = 'wafflebase_oauth_state';
+const OAUTH_STATE_COOKIE_BASE = 'wafflebase_oauth_state';
+
+/**
+ * The cookie's name, `__Host-` prefixed wherever the browser will honour
+ * the prefix.
+ *
+ * A double-submit pair is only as strong as the browser's guarantee that
+ * nothing but this origin can write the cookie. Without the prefix, a
+ * foothold on *any* sibling subdomain (`docs.example.com`, a stale
+ * preview host, a vendor subdomain) can set
+ * `wafflebase_oauth_state=<attacker secret>; Domain=example.com`, which
+ * the browser then sends here — and the callback happily matches it
+ * against the attacker's own `state`, restoring exactly the login CSRF /
+ * session fixation this module exists to close.
+ *
+ * `__Host-` is what forbids that: a browser accepts such a cookie only
+ * when it is `Secure`, has `Path=/` and carries **no** `Domain`, so it is
+ * bound to this exact host and a sibling subdomain cannot write it.
+ * (An HMAC over the secret would not help — the attacker can mint a
+ * legitimate pair by starting their own login and toss *that* secret.
+ * The write restriction is the property that matters, and only the
+ * prefix provides it.)
+ *
+ * The prefix requires `Secure`, which a plain-HTTP dev server cannot
+ * set, so the name follows `secure`: `__Host-` in production, the bare
+ * name locally. There is deliberately no fallback to the unprefixed
+ * cookie in production — accepting it would hand the attack straight
+ * back.
+ */
+export function oauthStateCookieName(): string {
+  return isSecureCookie() ? `__Host-${OAUTH_STATE_COOKIE_BASE}` : OAUTH_STATE_COOKIE_BASE;
+}
 
 /** Marks a `state` as belonging to the web flow, not the CLI store. */
 export const WEB_STATE_PREFIX = 'web.';
@@ -57,14 +88,22 @@ export function webOAuthStateMatches(
 export function oauthStateCookieOptions(): CookieOptions {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecureCookie(),
     // Lax, not Strict: GitHub redirects the browser back to us, and a
     // Strict cookie is withheld on that cross-site navigation, so every
     // login would fail its own state check.
     sameSite: 'lax',
-    path: '/auth',
+    // `/`, not `/auth`: the `__Host-` prefix is only honoured on a
+    // cookie with no `Domain` and `Path=/`, and that write restriction
+    // is worth more here than the narrower path. Nothing reads the
+    // cookie but the callback, and it is httpOnly and lives ten minutes.
+    path: '/',
     maxAge: STATE_COOKIE_MAX_AGE_MS,
   };
+}
+
+function isSecureCookie(): boolean {
+  return process.env.NODE_ENV === 'production';
 }
 
 /** Comparison that does not leak the answer through its timing. */

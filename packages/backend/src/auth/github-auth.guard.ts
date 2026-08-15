@@ -4,7 +4,7 @@ import type { Response } from 'express';
 import { CliAuthStore } from './cli-auth.store';
 import {
   createWebOAuthState,
-  OAUTH_STATE_COOKIE,
+  oauthStateCookieName,
   oauthStateCookieOptions,
 } from './oauth-state';
 
@@ -63,7 +63,7 @@ export class GitHubAuthGuard extends AuthGuard('github') {
       req.__oauthState = stateToken;
     } else {
       const { secret, state } = createWebOAuthState();
-      res.cookie(OAUTH_STATE_COOKIE, secret, oauthStateCookieOptions());
+      res.cookie(oauthStateCookieName(), secret, oauthStateCookieOptions());
       req.__oauthState = state;
     }
 

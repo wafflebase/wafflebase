@@ -390,7 +390,8 @@ stored, so a rejected value costs no upload.
 1. Frontend links to GET /auth/github
 2. GitHubAuthGuard mints an OAuth `state` and attaches it as __oauthState:
    a double-submit pair for the browser (secret in the
-   `wafflebase_oauth_state` cookie, its SHA-256 sent as `web.<hash>`), or
+   `__Host-wafflebase_oauth_state` cookie, its SHA-256 sent as
+   `web.<hash>`), or
    a CliAuthStore token for `?mode=cli`
 3. Passport redirects to GitHub OAuth consent screen, carrying `state`
 4. GitHub redirects to GET /auth/github/callback
