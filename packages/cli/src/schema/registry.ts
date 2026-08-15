@@ -573,6 +573,13 @@ const registry: CommandSchema[] = [
       '--tab': { type: 'string', required: false, description: 'Source tab', default: 'tab-1' },
       '--range': { type: 'string', required: false, description: 'Cell range (e.g. A1:D100)' },
       '--file-format': { type: 'string', required: false, description: 'File format (csv, json)' },
+      '--raw': {
+        type: 'boolean',
+        required: false,
+        description:
+          'CSV only: write cell text verbatim, without the leading-quote formula guard, so `sheets import` round-trips formulas',
+        default: 'false',
+      },
     },
     response: { type: 'string', description: 'Formatted cell data' },
     aliases: ['export', 'sheet.export'],

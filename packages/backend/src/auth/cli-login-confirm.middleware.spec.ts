@@ -55,6 +55,34 @@ describe('CliLoginConfirmMiddleware', () => {
     expect(html).toContain(`confirm=${encodeURIComponent(secret)}`);
   });
 
+  /**
+   * The Continue link is the only way the login's parameters survive the
+   * confirmation hop: the click re-enters `/auth/github`, and whatever
+   * the href omits is simply gone by the time the guard runs. Drop the
+   * `nonce` and the CLI's loopback server refuses every genuine redirect
+   * ("the redirect carried no `state`") until the wait times out; drop
+   * the `port` and the callback has nowhere to redirect. Neither shows
+   * up as a failure anywhere else, so it is asserted here.
+   */
+  it('carries the CLI port and nonce into the Continue link', () => {
+    const nonce = 'a'.repeat(64);
+    const { res } = run({ mode: 'cli', port: '49152', nonce });
+
+    const [html] = res.send.mock.calls[0] as [string];
+    // The href is HTML-escaped in the attribute (`&` → `&amp;`); read
+    // the URL a browser would actually navigate to.
+    const href = (/href="([^"]+)"/.exec(html)?.[1] ?? '').replace(
+      /&amp;/g,
+      '&',
+    );
+    const params = new URLSearchParams(href.split('?')[1] ?? '');
+
+    expect(href.startsWith('/auth/github?')).toBe(true);
+    expect(params.get('mode')).toBe('cli');
+    expect(params.get('port')).toBe('49152');
+    expect(params.get('nonce')).toBe(nonce);
+  });
+
   it('proceeds when the confirm param matches the cookie', () => {
     const nonce = 'a'.repeat(64);
     const { req, res, next } = run(

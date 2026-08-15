@@ -91,6 +91,20 @@ wafflebase sheets export <doc-id> - --file-format csv | head -20
 - `--tab <tab-id>` — source tab (default: `tab-1`)
 - `--range <range>` — cell range to export (default: all data)
 - `--file-format csv|json` — override auto-detection from file extension
+- `--raw` — CSV only: write cell text verbatim
+
+### Formulas in exported CSV
+
+By default a CSV export prefixes every formula-looking cell with `'`
+(`=SUM(B2:B100)` → `'=SUM(B2:B100)`). The exported file is the one most
+likely to be opened in a spreadsheet app, and any co-member of the
+workspace could have planted an `=HYPERLINK("http://evil","x")` in it,
+so it must not execute on open.
+
+That guard is one-way: `sheets import` maps every CSV cell verbatim, so a
+re-imported `'=SUM(...)` comes back as literal text, not a formula. **For
+an export → import round trip, pass `--raw`** — which is the caller
+saying they trust the sheet's contents.
 
 ## Note
 

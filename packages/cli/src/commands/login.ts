@@ -348,13 +348,16 @@ export function startCallbackServer(
       }
     });
 
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        callbackReject(new Error(loginTimeoutMessage(lastRefusal)));
-      }
-      srv.close();
-    }, options.timeoutMs ?? CALLBACK_TIMEOUT_MS);
+    // Armed only once the server is actually listening, and only there:
+    // the timer bounds the wait for a callback, and there is nothing to
+    // wait for until a browser can reach us. Arming it during setup
+    // instead leaks it out of every path that rejects before the caller
+    // is handed the `close()` that clears it — the timer then holds the
+    // process open for the whole wait and finally rejects
+    // `callbackPromise`, which on those paths nobody is awaiting, so the
+    // command dies on an unhandled rejection minutes after it already
+    // reported the real error.
+    let timeout: ReturnType<typeof setTimeout> | undefined;
 
     // Try to listen on a random port (up to 3 attempts)
     let attempts = 0;
@@ -363,9 +366,17 @@ export function startCallbackServer(
       srv.listen(0, '127.0.0.1', () => {
         const addr = srv.address();
         if (!addr || typeof addr === 'string') {
+          srv.close();
           reject(new Error('Failed to start callback server'));
           return;
         }
+        timeout = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            callbackReject(new Error(loginTimeoutMessage(lastRefusal)));
+          }
+          srv.close();
+        }, options.timeoutMs ?? CALLBACK_TIMEOUT_MS);
         resolve({
           port: addr.port,
           waitForCallback: () => callbackPromise,

@@ -199,3 +199,82 @@ branches testable, so it is a change to that seam and belongs in its own
 PR. The doc now names the gap as a gap rather than quietly widening the
 exception list to cover it. When writing "every X does Y", grep for X
 first — and if the answer is "all but three", say which three.
+
+## A timer armed during setup outlives every path that fails setup
+
+`startCallbackServer` armed the login's wait timeout before it tried to
+listen, and the only handle that cleared it was the `close()` handed back
+when the promise *resolved*. Every rejection path therefore leaked it.
+The symptom is badly delayed: the command prints its real error, appears
+to be done, and three minutes later dies on an unhandled rejection from a
+promise nobody on that path ever awaited.
+
+Raising the timeout from 30 s to 180 s in the same change made a latent
+leak six times more visible, which is the general shape: a constant that
+looks like a tuning knob is load-bearing when a resource's lifetime is
+keyed to it.
+
+The fix is not "clear it on the error paths too" — that is a rule every
+future path has to remember. Arm the timer where the thing it bounds
+begins: there is nothing to wait for until the server is listening, so
+that is the only place it should exist.
+
+## Refusing a request and stranding the user are separate decisions
+
+The web OAuth `state` check was correct and its failure mode was a
+thrown `BadRequestException`, which put the user on the *backend* origin
+looking at raw Nest JSON with no link back. The security property (issue
+no session) and the presentation (where the browser ends up) are
+independent, and only the first was designed.
+
+What made it more than cosmetic is that the failure needs no attacker:
+the state cookie lives ten minutes, which a first-time GitHub sign-up
+with 2FA can outlast, and because the cookie has one fixed name and path,
+opening a second login tab overwrites the first tab's secret. Both are
+ordinary user behavior.
+
+When adding a precondition to a redirect-based flow, ask what the browser
+renders when it fails — and check whether the consumer on the other side
+has any path for that outcome. Here it had none: the frontend's only
+OAuth entry point was a `<Link>`, and the login page read no `?error=`.
+
+## Test the reader of a contract, not just the writer
+
+`GitHubAuthGuard` attaches the OAuth state as `req.__oauthState` and
+`GitHubStrategy.authenticate` reads it back out. The guard spec asserted
+the write; nothing asserted the read. That key is the single hinge both
+login paths pass through, so a spelling mismatch would have sent every
+login to GitHub stateless and had the new callback reject every one of
+them — with a completely green backend suite.
+
+The same shape appeared in the confirmation page: `renderConfirmPage`
+re-encodes `port` and `nonce` into the Continue href, which is the only
+way those survive the confirmation hop, and the test that rendered the
+page passed no nonce while the test that passed one never rendered HTML.
+Confirmed by mutation both times: renaming the key, and dropping the
+`nonce` line, each fail exactly one new test and nothing else.
+
+Where two components agree on a string key, the test that matters is the
+one that would fail if only one side changed.
+
+## The schema registry is an interface, so treat drift as a build error
+
+`sheets export --raw` shipped in commander, in `cli.md`, and in the
+published docs — but not in `schema/registry.ts`, which is what an agent
+reads to learn what it may pass. Pinning the one missing flag would have
+fixed the instance; instead the test walks commander's own option list
+for the command and asserts each flag appears in the registry, so the
+next flag added to it fails locally rather than shipping unreachable.
+
+Prefer a test that expresses the invariant over one that pins today's
+answer, when the invariant is cheap to state.
+
+## A lens that fails in ~14 minutes can still be an infrastructure failure
+
+Duration is a good first filter for "did this lens actually review the
+code" — a ~9 s failure never did — but it is not sufficient. The security
+lens here ran the full ~14 minutes and still produced no verdict: its
+message was "every credential in the pool (3) was retired". Read the
+summary before treating a lens's failure as a finding; a long run that
+reports a pool or quota condition carries no more code signal than a
+short one.

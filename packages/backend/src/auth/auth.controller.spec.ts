@@ -1,4 +1,4 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { UserService } from 'src/user/user.service';
@@ -302,41 +302,71 @@ describe('AuthController', () => {
       );
     });
 
-    it('rejects a callback carrying no state at all', async () => {
+    /**
+     * Refusing and stranding the user are separate things. Every path
+     * below issues no session — that is the CSRF property — but it also
+     * has to land the browser back on the sign-in page: losing the state
+     * cookie needs no attacker (it expires in ten minutes, and a second
+     * login tab overwrites the first tab's), and a thrown 400 leaves the
+     * user on the backend origin looking at raw JSON.
+     */
+    const LOGIN_ERROR_URL = 'http://localhost:5173/login?error=oauth_state';
+
+    it('sends a callback carrying no state back to the sign-in page', async () => {
       const res = createMockResponse();
 
-      await expect(
-        controller.githubAuthCallback(webRequest({}) as any, res, undefined),
-      ).rejects.toThrow(BadRequestException);
+      await controller.githubAuthCallback(
+        webRequest({}) as any,
+        res,
+        undefined,
+      );
 
+      expect(res.redirect).toHaveBeenCalledWith(LOGIN_ERROR_URL);
       expect(res.cookie).not.toHaveBeenCalled();
-      expect(res.redirect).not.toHaveBeenCalled();
     });
 
-    it('rejects a state that does not match the cookie', async () => {
+    it('sends a state that does not match the cookie back to the sign-in page', async () => {
       const { state } = createWebOAuthState();
       const other = createWebOAuthState();
       const res = createMockResponse();
 
-      await expect(
-        controller.githubAuthCallback(
-          webRequest({ wafflebase_oauth_state: other.secret }) as any,
-          res,
-          state,
-        ),
-      ).rejects.toThrow(BadRequestException);
+      await controller.githubAuthCallback(
+        webRequest({ wafflebase_oauth_state: other.secret }) as any,
+        res,
+        state,
+      );
 
+      expect(res.redirect).toHaveBeenCalledWith(LOGIN_ERROR_URL);
       expect(res.cookie).not.toHaveBeenCalled();
     });
 
-    it('rejects a state presented without the cookie', async () => {
+    it('sends a state presented without the cookie back to the sign-in page', async () => {
       const { state } = createWebOAuthState();
       const res = createMockResponse();
 
-      await expect(
-        controller.githubAuthCallback(webRequest({}) as any, res, state),
-      ).rejects.toThrow(BadRequestException);
+      await controller.githubAuthCallback(webRequest({}) as any, res, state);
 
+      expect(res.redirect).toHaveBeenCalledWith(LOGIN_ERROR_URL);
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+
+    /**
+     * `?state=a&state=b` reaches the handler as an array. It is not a
+     * login this server started either, and before it was normalized it
+     * reached `isWebOAuthState`, where `.startsWith` on an array threw a
+     * TypeError — a 500 in place of the refusal.
+     */
+    it('sends a repeated state parameter back to the sign-in page', async () => {
+      const { secret, state } = createWebOAuthState();
+      const res = createMockResponse();
+
+      await controller.githubAuthCallback(
+        webRequest({ wafflebase_oauth_state: secret }) as any,
+        res,
+        [state, state] as unknown as string,
+      );
+
+      expect(res.redirect).toHaveBeenCalledWith(LOGIN_ERROR_URL);
       expect(res.cookie).not.toHaveBeenCalled();
     });
   });

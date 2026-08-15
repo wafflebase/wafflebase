@@ -92,3 +92,29 @@ describe('sheets export --file-format csv', () => {
     expect(written).not.toContain("'-7");
   });
 });
+
+/**
+ * `wafflebase schema` is the agent-facing interface: an agent decides
+ * what it can pass by reading it, so a flag that changes output
+ * semantics and is missing there is a flag agents cannot reach.
+ * Asserting parity against commander's own option list — rather than
+ * spot-checking one name — is what makes the next flag added to this
+ * command fail here instead of shipping undiscoverable.
+ */
+describe('sheets export schema parity', () => {
+  it('registers every command-line flag in the schema registry', async () => {
+    const { getCommandSchema } = await import('../src/schema/registry.js');
+    const program = createProgram();
+    registerSheetsCommand(program);
+
+    const sheets = program.commands.find((c) => c.name() === 'sheets')!;
+    const exportCmd = sheets.commands.find((c) => c.name() === 'export')!;
+    const flags = exportCmd.options.map((o) => o.long).filter(Boolean);
+
+    const schema = getCommandSchema('sheets.export')!;
+    expect(flags.length).toBeGreaterThan(0);
+    for (const flag of flags) {
+      expect(Object.keys(schema.parameters)).toContain(flag);
+    }
+  });
+});

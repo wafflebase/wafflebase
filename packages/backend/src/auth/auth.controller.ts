@@ -128,10 +128,21 @@ export class AuthController {
     // stateless callback is login CSRF — an attacker replays a code they
     // obtained through the victim's browser and the victim ends up in
     // the attacker's account (session fixation).
-    if (!stateToken) {
-      throw new BadRequestException(
-        'OAuth state missing. Start the login again from the sign-in page.',
-      );
+    //
+    // The refusal is a redirect back to the sign-in page, not a thrown
+    // 400. This is reachable without any attacker — the state cookie
+    // lives ten minutes, which a first-time sign-up with 2FA can
+    // outlast, and a second login tab overwrites the first tab's cookie
+    // — and a raw Nest error page on the *backend* origin leaves the
+    // user staring at JSON with no way back. Refusing and returning them
+    // somewhere they can retry are independent: no session is issued on
+    // either path.
+    //
+    // A repeated `?state=` arrives as an array, which is likewise not a
+    // login we started; it is normalized away here so it cannot reach
+    // the string checks below as a 500.
+    if (typeof stateToken !== 'string' || !stateToken) {
+      return res.redirect(this.loginErrorUrl('oauth_state'));
     }
 
     if (isWebOAuthState(stateToken)) {
@@ -144,9 +155,7 @@ export class AuthController {
         maxAge: undefined,
       });
       if (!webOAuthStateMatches(stateToken, cookieSecret)) {
-        throw new BadRequestException(
-          'OAuth state mismatch. Start the login again from the sign-in page.',
-        );
+        return res.redirect(this.loginErrorUrl('oauth_state'));
       }
     } else {
       // Otherwise it is a CLI state token; consume it.
@@ -248,6 +257,20 @@ export class AuthController {
 
       throw new UnauthorizedException('Invalid refresh token');
     }
+  }
+
+  /**
+   * Where a browser login goes when it cannot be completed.
+   *
+   * The sign-in page reads `?error=` and says so, which is the whole
+   * point of not throwing: the failure is reported on a page the user
+   * can retry from, on the frontend origin, rather than as backend JSON.
+   * The code is a fixed identifier, never upstream text.
+   */
+  private loginErrorUrl(code: string): string {
+    const frontend = (this.configService.get<string>('FRONTEND_URL') ?? '')
+      .replace(/\/+$/, '');
+    return `${frontend}/login?error=${encodeURIComponent(code)}`;
   }
 
   private clearAuthCookies(res: Response) {

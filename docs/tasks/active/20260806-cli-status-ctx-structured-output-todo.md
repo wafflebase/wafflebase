@@ -207,3 +207,69 @@ Rebutted rather than fixed:
   the design-fit lens would re-open round 2 and contradict this round's
   own security findings, which ask for those same changes to be
   *strengthened*. Filed as a structured rebuttal on the PR.
+
+## Review round 8 (panel changes-requested; panel now frozen)
+
+The panel's three fix rounds were spent, and one lens (security) failed
+without a verdict — its credential pool was exhausted, not a finding —
+so the round-8 blocking set was worked through by hand.
+
+- [x] `startCallbackServer` arms the wait timer only once the server is
+      listening. It was armed during setup, and the only handle that
+      clears it is the `close()` returned when the promise *resolves*,
+      so both rejection paths (an unusable address, a non-retryable
+      `listen` error) leaked it: the timer held the process open for the
+      full three minutes and then rejected a `callbackPromise` nobody on
+      that path awaits — an unhandled rejection minutes after the real
+      error was already printed (`login.ts`,
+      `test/login-listen-failure.test.ts`)
+- [x] a browser login that fails its `state` check is redirected to
+      `FRONTEND_URL/login?error=oauth_state` instead of throwing a 400.
+      Losing the state needs no attacker — the cookie lives ten minutes,
+      which a first-time sign-up with 2FA can outlast, and a second
+      login tab overwrites the first tab's — and the frontend had no
+      error path, so the user landed on the *backend* origin looking at
+      raw Nest JSON. Refusing the login and returning the user somewhere
+      they can retry are independent; no session is issued either way.
+      The sign-in page now reads `?error=` and says so
+      (`auth.controller.ts`, `login-form.tsx`, `login/page.tsx`)
+- [x] a repeated `?state=` (which arrives as an array) is normalized to
+      the same refusal instead of reaching `isWebOAuthState`, where
+      `.startsWith` on an array was a TypeError — a 500 in place of the
+      refusal
+- [x] `sheets export --raw` registered in the schema registry — the
+      agent-facing interface omitted a flag that changes output
+      semantics. Pinned by a **parity** test that walks commander's own
+      option list for the command, so the next flag added fails there
+      rather than shipping undiscoverable (`registry.ts`,
+      `test/sheets-export.test.ts`)
+- [x] `GitHubStrategy.authenticate` covered: it reads `__oauthState` and
+      forwards it as `state`, the single hinge both login paths depend
+      on. The guard spec asserted only that the guard *sets* the key, so
+      a spelling mismatch would have made every login reach GitHub
+      stateless — and every callback be rejected — with a green suite
+      (`github.strategy.spec.ts`)
+- [x] the confirmation page's Continue link is asserted to carry `port`
+      and `nonce`. It is the only path by which the CLI's per-attempt
+      nonce survives the confirmation hop; dropping it breaks CLI login
+      silently (the loopback refuses "no `state`" until the timeout)
+      (`cli-login-confirm.middleware.spec.ts`)
+- [x] `docs/design/backend.md` folds in the backend architecture change:
+      the AuthModule middleware, the now-mandatory callback `state` with
+      both flows' vocabularies, and the two new cookies in the cookie
+      table. `packages/backend/README.md`'s auth flow and endpoint table
+      follow
+- [x] the `--raw` contract's stale consumers updated: the export skill
+      doc (which documented verbatim CSV) and the agent round-trip
+      charter (which asserted two identities the default guard makes
+      false)
+
+Rebutted rather than fixed:
+
+- **Scope creep (design-fit, major)** — raised for the third round. The
+  answer is unchanged: the OAuth work, CSV neutralization and `cells
+  batch` restructure are this panel's own round-2 requests (see "Review
+  round 2"). Reverting them re-opens round 2.
+- **Web OAuth `state` deferral** — no longer applicable. Round 6 closed
+  the gap and rewrote the `rest-api.md` risk row; round 8 only corrects
+  that row's now-stale "a callback with no `state` is a 400".
