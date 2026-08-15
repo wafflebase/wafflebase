@@ -22,11 +22,25 @@ import { AuthGuard } from '@nestjs/passport';
 import { AuthenticatedRequest } from './auth.types';
 import { CliAuthStore } from './cli-auth.store';
 import { GitHubAuthGuard } from './github-auth.guard';
+import { OAUTH_STATE_COOKIE_NAME, baseCookieOptions } from './cookies';
+import { timingSafeEqual } from 'node:crypto';
 
 const ACCESS_COOKIE_NAME = 'wafflebase_session';
 const REFRESH_COOKIE_NAME = 'wafflebase_refresh';
 const DEFAULT_ACCESS_COOKIE_MAX_AGE_MS = 60 * 60 * 1000;
 const DEFAULT_REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Compare two secrets without leaking their common prefix through timing.
+ * `timingSafeEqual` throws on a length mismatch, so the lengths are
+ * compared first — that much is public, and the values here are
+ * fixed-length anyway.
+ */
+function timingSafeEqualString(a: string, b: string): boolean {
+  const left = Buffer.from(a, 'utf8');
+  const right = Buffer.from(b, 'utf8');
+  return left.length === right.length && timingSafeEqual(left, right);
+}
 
 @Controller('auth')
 export class AuthController {
@@ -86,9 +100,10 @@ export class AuthController {
     @Query('port') port: string | undefined,
     @Req() req: Request,
   ) {
-    // NOTE(hackerwins): Redirect to GitHub for authentication.
-    // For CLI mode, the state token is injected in the guard via
-    // __cliStateToken (see below). The guard handles the redirect.
+    // NOTE(hackerwins): Redirect to GitHub for authentication. The guard
+    // mints the `state` (`req.__oauthState`) and handles the redirect —
+    // a cookie-mirrored random value for the web flow, a CLI state token
+    // for `?mode=cli`. Both are verified in the callback below.
     void mode;
     void port;
     void req;
@@ -102,6 +117,16 @@ export class AuthController {
     @Res() res: Response,
     @Query('state') stateToken: string | undefined,
   ) {
+    // Which flow this is, decided BEFORE a user is touched: a callback
+    // that cannot prove it belongs to a login this backend started must
+    // not create an account as a side effect of being rejected.
+    const cliState = stateToken
+      ? this.cliAuthStore.consumeState(stateToken)
+      : undefined;
+    if (cliState?.mode !== 'cli') {
+      this.consumeWebOAuthState(req, res, stateToken);
+    }
+
     const githubUser = req.user;
 
     const user = await this.userService.findOrCreateUser({
@@ -115,34 +140,24 @@ export class AuthController {
       throw new Error('User not found or created');
     }
 
-    // Check if this is a CLI OAuth flow by consuming the state token.
-    if (stateToken) {
-      const state = this.cliAuthStore.consumeState(stateToken);
-      if (state && state.mode === 'cli') {
-        const port = state.port;
-        if (port < 1024 || port > 65535) {
-          throw new BadRequestException('Invalid CLI port');
-        }
-        const code = this.cliAuthStore.createCode(user.id);
-        // Echo the CLI's nonce so it can tell this callback from one
-        // injected by another local process or a web page that guessed
-        // the port (see `packages/cli/src/commands/login.ts`).
-        const nonceParam = state.nonce
-          ? `&nonce=${encodeURIComponent(state.nonce)}`
-          : '';
-        return res.redirect(
-          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${nonceParam}`,
-        );
+    if (cliState?.mode === 'cli') {
+      const port = cliState.port;
+      if (port < 1024 || port > 65535) {
+        throw new BadRequestException('Invalid CLI port');
       }
-
-      // State token was provided but invalid/expired — this is a CLI flow
-      // that failed. Return an error instead of falling through to web flow.
-      throw new BadRequestException(
-        'CLI login state expired or invalid. Please run `wafflebase login` again.',
+      const code = this.cliAuthStore.createCode(user.id);
+      // Echo the CLI's nonce so it can tell this callback from one
+      // injected by another local process or a web page that guessed
+      // the port (see `packages/cli/src/commands/login.ts`).
+      const nonceParam = cliState.nonce
+        ? `&nonce=${encodeURIComponent(cliState.nonce)}`
+        : '';
+      return res.redirect(
+        `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${nonceParam}`,
       );
     }
 
-    // Default web flow: set cookies and redirect to frontend.
+    // Web flow: set cookies and redirect to frontend.
     const tokens = this.authService.createTokens(user);
     this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
 
@@ -216,6 +231,41 @@ export class AuthController {
     }
   }
 
+  /**
+   * Spend the web flow's OAuth `state`, refusing a callback that is not
+   * the one this browser started.
+   *
+   * Without it the callback accepts any `?code=` presented to it: an
+   * attacker mints a code against their own GitHub account, gets the
+   * victim's browser to load the callback with it, and the victim is
+   * silently seated inside the attacker's account (OAuth login CSRF /
+   * session fixation) — everything they then write goes to the attacker.
+   *
+   * The cookie is cleared whatever the outcome, so a state that has been
+   * presented once cannot be replayed. A callback carrying no `state` at
+   * all lands here too and is refused: after this change every login
+   * this backend starts carries one, so its absence means the request
+   * did not come from one (or predates a deploy, which costs one retry).
+   */
+  private consumeWebOAuthState(
+    req: Request,
+    res: Response,
+    stateToken: string | undefined,
+  ) {
+    const cookie: unknown = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
+    res.clearCookie(OAUTH_STATE_COOKIE_NAME, baseCookieOptions());
+
+    if (
+      !stateToken ||
+      typeof cookie !== 'string' ||
+      !timingSafeEqualString(cookie, stateToken)
+    ) {
+      throw new BadRequestException(
+        'Login state expired or invalid. Please start the login again (run `wafflebase login` again for the CLI).',
+      );
+    }
+  }
+
   private clearAuthCookies(res: Response) {
     const clearOptions = this.baseCookieOptions();
     res.clearCookie(ACCESS_COOKIE_NAME, clearOptions);
@@ -259,11 +309,9 @@ export class AuthController {
   }
 
   private baseCookieOptions(): CookieOptions {
-    // SameSite=Lax for CSRF defense; assumes frontend + backend share eTLD+1.
-    return {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-    };
+    // Shared with `GitHubAuthGuard`'s OAuth state cookie — one definition,
+    // so the state cookie can never drift into weaker attributes than the
+    // session it protects.
+    return baseCookieOptions();
   }
 }

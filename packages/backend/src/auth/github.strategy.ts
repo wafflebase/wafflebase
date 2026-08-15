@@ -50,15 +50,17 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
   }
 
   /**
-   * Override authenticate to inject a custom `state` parameter when the
-   * request carries a CLI state token (set by AuthController before the
-   * guard runs).
+   * Override authenticate to forward the `state` `GitHubAuthGuard` minted
+   * for this request — a cookie-bound random value for a web login, a CLI
+   * state token for `?mode=cli`. passport-oauth2 is given no state store
+   * of its own (that would need express-session, which this backend does
+   * not run), so the guard mints and the callback verifies.
    */
   authenticate(req: Request, options?: Record<string, unknown>) {
     const opts = { ...options };
-    const cliState = (req as { __cliStateToken?: string }).__cliStateToken;
-    if (cliState) {
-      opts.state = cliState;
+    const state = (req as { __oauthState?: string }).__oauthState;
+    if (state) {
+      opts.state = state;
     }
     super.authenticate(req, opts);
   }

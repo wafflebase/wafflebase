@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { UserService } from 'src/user/user.service';
@@ -228,27 +228,60 @@ describe('AuthController', () => {
       );
     });
 
-    it('falls back to web flow when state token is not CLI', async () => {
+    /**
+     * The web flow's own binding. Without it the callback mints a session
+     * for whatever `?code=` it is handed, so an attacker's code loaded in
+     * the victim's browser seats the victim inside the attacker's account.
+     */
+    function webRequest(cookies: Record<string, string>) {
+      return {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: {},
+        cookies,
+      } as unknown as Request;
+    }
+
+    it('completes the web flow when the state matches the browser cookie', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({
         accessToken: 'at',
         refreshToken: 'rt',
       });
 
-      const req = {
-        user: {
-          username: 'bob',
-          email: 'bob@example.com',
-          photo: null,
-        },
-        query: {},
-      } as unknown as Request;
+      const req = webRequest({ wafflebase_oauth_state: 'web-state' });
       const res = createMockResponse();
 
-      await controller.githubAuthCallback(req as any, res, undefined);
+      await controller.githubAuthCallback(req as any, res, 'web-state');
 
       expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173');
       expect(res.cookie).toHaveBeenCalledTimes(2);
+      // Spent, so a leaked state cannot be replayed.
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        'wafflebase_oauth_state',
+        expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+      );
+    });
+
+    it.each([
+      ['the state does not match the cookie', { wafflebase_oauth_state: 'mine' }, 'theirs'],
+      ['there is no state cookie', {}, 'theirs'],
+      ['the callback carries no state at all', { wafflebase_oauth_state: 'mine' }, undefined],
+    ])('refuses the web callback when %s', async (_label, cookies, state) => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(
+          webRequest(cookies) as any,
+          res,
+          state as string | undefined,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+      // A rejected callback creates no account either.
+      expect(userService.findOrCreateUser).not.toHaveBeenCalled();
     });
   });
 

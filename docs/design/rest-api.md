@@ -333,15 +333,21 @@ backend surface is:
 
 - **`GET /auth/github?mode=cli&port=<port>&nonce=<nonce>`** — extends the
   existing endpoint to carry CLI parameters through OAuth `state`. The
-  backend generates a CSRF token (random 32 bytes, TTL 5 minutes,
-  in-memory map) and embeds it in the encoded `state`; `nonce` is stored
-  alongside it. `nonce` must match `[A-Za-z0-9_-]{16,128}` — a malformed
+  backend generates a random 32-byte state token (TTL 5 minutes,
+  in-memory map) and sends it as `state`; `port` and `nonce` are stored
+  against it. Requests *without* `mode=cli` get a state too — a random
+  value mirrored into the `wafflebase_oauth_state` cookie, checked on the
+  callback — because passport-oauth2 is given no state store of its own. `nonce` must match `[A-Za-z0-9_-]{16,128}` — a malformed
   or repeated one is a `400` and mints no state. A **missing** `nonce`
   is accepted (with a server-side warning) so published CLI versions
   that predate nonce-bound login keep working; see
   [cli.md](cli.md) "Nonce-bound login callback" for why refusing it
   would add no security, and when this becomes a hard `400`.
-- **`GET /auth/github/callback`** — when the decoded state has
+- **`GET /auth/github/callback`** — validates `state` before it touches a
+  user, so a callback it did not start creates no account: a CLI state is
+  consumed from the map, anything else must match the browser's
+  `wafflebase_oauth_state` cookie (a missing state is refused). When the
+  decoded state has
   `mode === 'cli'`, generates a short-lived authorization code (random,
   TTL 60 seconds, same in-memory map), redirects to
   `http://127.0.0.1:<port>/callback?code=<auth-code>&nonce=<nonce>`
@@ -373,5 +379,6 @@ exchanged server-to-server.
 | `PUT /content` race with live collaborators (lost work) | The CLI marks the `--replace` path `safety: destructive` and forces confirmation. A future iteration may add an optimistic `lastSeq` check. |
 | Yorkie key prefix for word-processor docs differs from `doc-<id>` | The frontend convention is the source of truth; the backend service is the only adjustment point if it changes. |
 | Open redirect via CLI port parameter | `port` is range-validated; the redirect host is hard-coded to `127.0.0.1`. |
-| OAuth state forgery (CSRF) | Backend generates a random 32-byte CSRF token per OAuth request, stores in a 5-minute in-memory map, and validates on callback. |
+| OAuth state forgery (CSRF) — CLI flow | `GitHubAuthGuard` mints a random 32-byte state token per request, stores the CLI parameters against it in a 5-minute in-memory map, and the callback only redirects to a loopback port for a state it can consume. |
+| OAuth state forgery (CSRF) — web flow | The same guard mints a random 32-byte state, mirrors it into a short-lived `wafflebase_oauth_state` cookie (httpOnly, SameSite=Lax), and the callback refuses any `?state=` that does not match the cookie — constant-time, single-use. Without it passport-oauth2 falls back to a `NullStore` that verifies nothing, so an attacker's `?code=` loaded in a victim's browser would seat the victim inside the attacker's account. A cookie rather than a server-side map because the callback may be served by a different replica than the request that started the login. |
 | A local process or a web page feeds the CLI's loopback listener a code it did not ask for | The CLI generates a nonce per login, the backend stores it in the CLI state and echoes it on the loopback redirect, and the CLI accepts only a constant-time match. See [cli.md](cli.md) "Nonce-bound login callback". |
