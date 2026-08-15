@@ -50,18 +50,34 @@ export function registerLoginCommand(program: Command): void {
       const { port, waitForCallback, close } = await startCallbackServer(nonce);
 
       // 3. Build OAuth URL and open browser
+      //
+      // The URL carries both bindings of this login — the nonce and the PKCE
+      // challenge — so anyone who reads it can start their own login against
+      // the same pair and push the resulting code at this port. stderr is
+      // exactly what an agent harness captures into logs and issue reports, so
+      // the URL is printed only when the browser could not be opened, where it
+      // is the sole way to continue, and it is labelled as a secret when it is.
       const oauthUrl =
         `${server}/auth/github?mode=cli&port=${port}` +
         `&nonce=${encodeURIComponent(nonce)}` +
         `&code_challenge=${encodeURIComponent(codeChallenge)}`;
-      console.error(`Opening browser: ${oauthUrl}`);
-      console.error('If the browser does not open, visit the URL above.');
+      console.error('Opening browser for GitHub login...');
 
+      let opened = false;
       try {
         const open = (await import('open')).default;
         await open(oauthUrl);
+        opened = true;
       } catch {
-        // Browser open failed — URL was already printed
+        // Browser open failed — fall through and print the URL
+      }
+
+      if (!opened) {
+        console.error(
+          'Could not open a browser. Visit this URL to continue — it carries ' +
+            'one-time login secrets, so do not share or paste it anywhere:',
+        );
+        console.error(oauthUrl);
       }
 
       // 4. Wait for callback
@@ -80,10 +96,11 @@ export function registerLoginCommand(program: Command): void {
       });
 
       if (!exchangeRes.ok) {
-        await failFromBackend(exchangeRes, name, {
-          code: 'UNAUTHORIZED',
-          message: 'Token exchange failed. Try again with `wafflebase login`.',
-        });
+        return await failFromBackend(
+          exchangeRes,
+          name,
+          'Token exchange failed. Try again with `wafflebase login`.',
+        );
       }
 
       const tokens = (await exchangeRes.json()) as {
@@ -97,10 +114,7 @@ export function registerLoginCommand(program: Command): void {
       });
 
       if (!meRes.ok) {
-        await failFromBackend(meRes, name, {
-          code: 'UNAUTHORIZED',
-          message: 'Failed to fetch user info.',
-        });
+        return await failFromBackend(meRes, name, 'Failed to fetch user info.');
       }
 
       const user = (await meRes.json()) as {
@@ -116,10 +130,11 @@ export function registerLoginCommand(program: Command): void {
       });
 
       if (!wsRes.ok) {
-        await failFromBackend(wsRes, name, {
-          code: 'UNAUTHORIZED',
-          message: `Failed to fetch workspaces (HTTP ${wsRes.status}). Try again with \`wafflebase login\`.`,
-        });
+        return await failFromBackend(
+          wsRes,
+          name,
+          `Failed to fetch workspaces (HTTP ${wsRes.status}).`,
+        );
       }
 
       const workspaces = (await wsRes.json()) as WorkspaceInfo[];
@@ -163,21 +178,44 @@ export function registerLoginCommand(program: Command): void {
 }
 
 /**
+ * The Error Matrix code for a backend status (docs/design/cli.md §10).
+ *
+ * Coding every failure `UNAUTHORIZED` told an agent to re-run `login` when
+ * the backend was simply down: a 500 from `/workspaces` is a system failure,
+ * not a rejected credential, and the two are retried differently.
+ */
+function codeForStatus(status: number): string {
+  if (status === 401 || status === 403) return 'UNAUTHORIZED';
+  if (status >= 500) return 'SYSTEM';
+  return 'HTTP_ERROR';
+}
+
+/**
  * Report a backend failure as the standard one-line error envelope and exit.
  *
  * `login` used to print prose here. It is the first command an agent runs, so
  * a failure it cannot parse is the worst place to break the convention
  * (docs/design/cli.md §9); the backend's own reason is preserved when the
  * response carries one.
+ *
+ * Returns `never`, but every call site still `return`s it: TypeScript does not
+ * treat an awaited `Promise<never>` as a terminator, so without the `return`
+ * the code after it stays reachable and would re-read a consumed body if
+ * `process.exit` were ever stubbed or intercepted.
  */
 async function failFromBackend(
-  res: { json: () => Promise<unknown> },
+  res: { status: number; json: () => Promise<unknown> },
   command: string,
-  fallback: { code: string; message: string },
+  fallbackMessage: string,
 ): Promise<never> {
   const body = await res.json().catch(() => null);
-  console.error(backendErrorEnvelope(body, fallback, command));
-  return process.exit(1);
+  const code = codeForStatus(res.status);
+  console.error(
+    backendErrorEnvelope(body, { code, message: fallbackMessage }, command),
+  );
+  // Auth and system failures are the Error Matrix's exit-2 rows; every other
+  // status is an ordinary command failure.
+  return process.exit(code === 'HTTP_ERROR' ? 1 : 2);
 }
 
 function ask(prompt: string): Promise<string> {

@@ -231,27 +231,162 @@ describe('AuthController', () => {
       expect(new URL(target).searchParams.get('state')).toBe('n0nce-x/y');
     });
 
-    it('falls back to web flow when state token is not CLI', async () => {
+    // The state the guard stored is what makes the exchange PKCE-bound: drop
+    // it here and the minted code is a plain bearer, redeemable by whoever
+    // lifts it off the loopback redirect, with every other test still green.
+    it('carries the login`s PKCE challenge onto the code it mints', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const verifier = randomBytes(32).toString('base64url');
+      const challenge = createHash('sha256')
+        .update(verifier)
+        .digest('base64url');
+      const { stateToken } = cliAuthStore.createState(
+        'cli',
+        9876,
+        undefined,
+        challenge,
+      );
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: { state: stateToken },
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await controller.githubAuthCallback(req as any, res, stateToken);
+
+      const target = new URL(
+        (res.redirect as jest.Mock).mock.calls[0][0] as string,
+      );
+      const code = target.searchParams.get('code')!;
+      // No `state` echo — this login sent no nonce — but the code is bound.
+      expect(target.searchParams.get('state')).toBeNull();
+      expect(cliAuthStore.consumeCode(code, 'not-the-verifier')).toBeUndefined();
+
+      const { stateToken: second } = cliAuthStore.createState(
+        'cli',
+        9876,
+        undefined,
+        challenge,
+      );
+      const res2 = createMockResponse();
+      await controller.githubAuthCallback(
+        { ...req, query: { state: second } } as any,
+        res2,
+        second,
+      );
+      const code2 = new URL(
+        (res2.redirect as jest.Mock).mock.calls[0][0] as string,
+      ).searchParams.get('code')!;
+      expect(cliAuthStore.consumeCode(code2, verifier)).toBe(mockUser.id);
+    });
+
+    it('mints an unchallenged code when the login carried no challenge', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const { stateToken } = cliAuthStore.createState('cli', 9876);
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: { state: stateToken },
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await controller.githubAuthCallback(req as any, res, stateToken);
+
+      const code = new URL(
+        (res.redirect as jest.Mock).mock.calls[0][0] as string,
+      ).searchParams.get('code')!;
+      expect(cliAuthStore.consumeCode(code)).toBe(mockUser.id);
+    });
+  });
+
+  // A browser login now carries a `state` too — half of it in the query, half
+  // in a cookie. Without it the callback completed any GitHub redirect,
+  // letting an attacker have the victim's browser issued cookies for the
+  // attacker's account (forced-login CSRF).
+  describe('githubAuthCallback — browser flow', () => {
+    const mockUser = {
+      id: 42,
+      authProvider: 'github',
+      username: 'bob',
+      email: 'bob@example.com',
+      photo: null,
+    };
+
+    function webRequest(cookieValue?: string): Request {
+      return {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: {},
+        cookies: cookieValue ? { wafflebase_oauth_state: cookieValue } : {},
+      } as unknown as Request;
+    }
+
+    it('completes the web flow when the state matches its cookie', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({
         accessToken: 'at',
         refreshToken: 'rt',
       });
 
-      const req = {
-        user: {
-          username: 'bob',
-          email: 'bob@example.com',
-          photo: null,
-        },
-        query: {},
-      } as unknown as Request;
+      const value = randomBytes(32).toString('base64url');
       const res = createMockResponse();
 
-      await controller.githubAuthCallback(req as any, res, undefined);
+      await controller.githubAuthCallback(
+        webRequest(value) as any,
+        res,
+        `w.${value}`,
+      );
 
       expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173');
       expect(res.cookie).toHaveBeenCalledTimes(2);
+      // Single use: the state cookie is cleared on the way through.
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        'wafflebase_oauth_state',
+        expect.objectContaining({ path: '/auth' }),
+      );
+    });
+
+    it('refuses a callback whose state does not match the cookie', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(
+          webRequest(randomBytes(32).toString('base64url')) as any,
+          res,
+          `w.${randomBytes(32).toString('base64url')}`,
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.cookie).not.toHaveBeenCalled();
+      // The user is never even looked up for a callback we did not start.
+      expect(userService.findOrCreateUser).not.toHaveBeenCalled();
+    });
+
+    it('refuses a callback that carries no state at all', async () => {
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(webRequest() as any, res, undefined),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+
+    it('refuses a web state when the cookie is missing', async () => {
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(
+          webRequest() as any,
+          res,
+          `w.${randomBytes(32).toString('base64url')}`,
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(res.redirect).not.toHaveBeenCalled();
     });
   });
 

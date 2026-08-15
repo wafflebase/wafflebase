@@ -19,7 +19,15 @@ was reverted for landing half-done: no test over the guard's ingestion, no
 assertion that the CLI even sent the parameter, no PKCE, and a hard
 requirement on a `state` echo only the new backend sends (an older server
 turned every login into a silent 30-second timeout). This is that work
-done as its own change.
+redone in full — plan, tests, and docs of its own.
+
+**Where it landed.** It rides the #661 branch again (PR #786), not a
+separate one. What was wrong the first time was *half-done work* riding
+along, not the sharing of a branch: the two touch `login.ts` from opposite
+ends (the OAuth handshake vs. the failure envelope), so splitting them now
+would mean two PRs whose only conflict is that file. Recorded here rather
+than left as an unexplained divergence from the paragraph above; the next
+piece of login work starts from `main` on its own branch.
 
 ## Plan
 
@@ -57,6 +65,14 @@ done as its own change.
       a *same-length* wrong nonce, which a length-only compare would let
       through) and over the real `login` action's wire format.
 - [x] Docs: `cli.md` §3.1 login flow, `rest-api.md` §7 + risk table.
+- [x] The authorization URL carries both bindings, so it is handed to the
+      browser and printed only when the browser cannot be opened; the
+      backend redacts `/auth` query strings out of its access log for the
+      same reason (a 4xx there logs at `warn`).
+- [x] `login` codes a backend failure from its status — 401/403
+      `UNAUTHORIZED`, 5xx `SYSTEM`, otherwise `HTTP_ERROR` — instead of
+      calling every one an auth failure, and each call site `return`s the
+      failure rather than trusting `process.exit` to unwind.
 
 ## Out of scope
 
@@ -67,13 +83,15 @@ done as its own change.
 - Rotating the loopback listener onto a fixed registered port or a
   `Sec-Fetch-Site` check. The two bindings above are the RFC's own
   prescription; origin headers are advisory on a plain-`GET` navigation.
-- CSRF state on the **browser** login. `GitHubAuthGuard` mints a state
-  token only for `mode=cli`, so the web entry point still sends no
-  `state` to GitHub and a forced-login CSRF is possible there. That gap
-  predates this task and needs its own change (a state cookie minted and
-  validated on the web flow); it is now recorded as an explicit
-  "not mitigated" row in `rest-api.md` rather than left to read as
-  covered.
+- (No longer out of scope.) CSRF state on the **browser** login was
+  deferred here as its own change, and review would not carry the
+  deferral: leaving `GitHubAuthGuard` minting a state only for
+  `mode=cli` means a plain browser login sends none, and the callback
+  validates nothing (forced-login CSRF). It is closed in this change
+  instead — a `w.`-prefixed random `state` with its other half in a
+  short-lived `wafflebase_oauth_state` cookie, compared constant-time on
+  the callback before the user is touched, and a callback with no
+  `state` at all is refused.
 
 ## Acceptance criteria
 
@@ -84,6 +102,8 @@ done as its own change.
       verifier either.
 - [x] A CLI that sends neither parameter still completes `login` end to
       end against a current backend.
+- [x] A browser login whose callback carries no `state`, or one that does
+      not match its cookie, is refused before any user record is touched.
 - [x] `wafflebase login` against a backend that ignores both parameters
       fails closed with a message naming the cause (it does **not**
       complete — see the plan bullet above; this replaces the earlier

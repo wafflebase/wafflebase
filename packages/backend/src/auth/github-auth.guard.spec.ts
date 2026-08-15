@@ -1,7 +1,11 @@
 import { BadRequestException, ExecutionContext } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import { CliAuthStore } from './cli-auth.store';
-import { GitHubAuthGuard } from './github-auth.guard';
+import {
+  GitHubAuthGuard,
+  OAUTH_STATE_COOKIE,
+  WEB_STATE_PREFIX,
+} from './github-auth.guard';
 
 /**
  * The guard is the only place the CLI's `nonce` and `code_challenge` enter
@@ -13,10 +17,15 @@ import { GitHubAuthGuard } from './github-auth.guard';
  */
 function contextFor(query: Record<string, unknown>) {
   const req: Record<string, unknown> = { query };
+  const cookies: Array<{ name: string; value: string }> = [];
+  const res = {
+    cookie: (name: string, value: string) => cookies.push({ name, value }),
+  };
   return {
     req,
+    cookies,
     context: {
-      switchToHttp: () => ({ getRequest: () => req }),
+      switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
     } as unknown as ExecutionContext,
   };
 }
@@ -44,8 +53,10 @@ describe('GitHubAuthGuard', () => {
   function stateFor(query: Record<string, unknown>) {
     const { req, context } = contextFor(query);
     guard.canActivate(context);
-    const token = req.__cliStateToken as string | undefined;
-    return token ? store.consumeState(token) : undefined;
+    const token = req.__oauthState as string | undefined;
+    return token && !token.startsWith(WEB_STATE_PREFIX)
+      ? store.consumeState(token)
+      : undefined;
   }
 
   it('remembers the CLI nonce so the callback can echo it', () => {
@@ -123,10 +134,10 @@ describe('GitHubAuthGuard', () => {
     expect(state?.codeChallenge).toBeUndefined();
   });
 
-  it('stores nothing for a non-CLI request or an out-of-range port', () => {
+  it('stores no CLI state for a non-CLI request or an out-of-range port', () => {
     const { req: web, context: webCtx } = contextFor({ nonce: 'n' });
     guard.canActivate(webCtx);
-    expect(web.__cliStateToken).toBeUndefined();
+    expect(store.consumeState(web.__oauthState as string)).toBeUndefined();
 
     const { req: low, context: lowCtx } = contextFor({
       mode: 'cli',
@@ -134,6 +145,41 @@ describe('GitHubAuthGuard', () => {
       nonce: 'n',
     });
     guard.canActivate(lowCtx);
-    expect(low.__cliStateToken).toBeUndefined();
+    expect(store.consumeState(low.__oauthState as string)).toBeUndefined();
+  });
+
+  // A browser login used to reach GitHub with no `state` at all, which left
+  // the callback nothing to validate — any redirect completed a login
+  // (forced-login CSRF). Every request now carries one, cookie-backed.
+  it('mints a cookie-backed `state` for a browser login', () => {
+    const { req, cookies, context } = contextFor({});
+    guard.canActivate(context);
+
+    const state = req.__oauthState as string;
+    expect(state.startsWith(WEB_STATE_PREFIX)).toBe(true);
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0].name).toBe(OAUTH_STATE_COOKIE);
+    // The cookie is the other half of the double submit: same value, sent
+    // separately from the query parameter.
+    expect(state.slice(WEB_STATE_PREFIX.length)).toBe(cookies[0].value);
+  });
+
+  it('leaves the CLI state alone rather than overwriting it with a web one', () => {
+    const { req, cookies, context } = contextFor({ mode: 'cli', port: '9876' });
+    guard.canActivate(context);
+
+    expect((req.__oauthState as string).startsWith(WEB_STATE_PREFIX)).toBe(
+      false,
+    );
+    expect(cookies).toHaveLength(0);
+  });
+
+  it('mints a fresh browser state per request', () => {
+    const first = contextFor({});
+    guard.canActivate(first.context);
+    const second = contextFor({});
+    guard.canActivate(second.context);
+
+    expect(first.req.__oauthState).not.toBe(second.req.__oauthState);
   });
 });

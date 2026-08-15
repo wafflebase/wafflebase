@@ -21,6 +21,24 @@ import { FolderModule } from './folder/folder.module';
 import { MiroModule } from './miro/miro.module';
 import { NotificationModule } from './notification/notification.module';
 
+/**
+ * A request URL safe to log.
+ *
+ * `/auth` query strings carry single-use login secrets — the CLI's `nonce`
+ * and PKCE `code_challenge` on the way out, GitHub's `code` and `state` on
+ * the way back — and every 4xx there is logged at `warn`, so keeping them
+ * would park a replayable login in the access log for anyone who can read
+ * it. The path is what the access log is read for; elsewhere the query is
+ * kept, since it is the only thing that distinguishes two calls.
+ */
+function logSafeUrl(url: unknown): unknown {
+  if (typeof url !== 'string') return url;
+  const query = url.indexOf('?');
+  if (query === -1) return url;
+  const path = url.slice(0, query);
+  return /^\/auth(?:\/|$)/.test(path) ? `${path}?<redacted>` : url;
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -66,7 +84,7 @@ import { NotificationModule } from './notification/notification.module';
           req: (req) => ({
             id: req.id,
             method: req.method,
-            url: req.url,
+            url: logSafeUrl(req.url),
             remoteAddress: req.remoteAddress,
             userAgent: req.headers?.['user-agent'],
           }),

@@ -344,7 +344,13 @@ backend surface is:
   a dropped parameter: continuing would hand a bearer-only code to a
   client that believes its login is PKCE-bound, a downgrade neither end
   can see.
-- **`GET /auth/github/callback`** — when the decoded state has
+  A request with no `mode=cli` is a browser login and gets a `state` too:
+  a random value sent as `w.<value>` with its other half in a short-lived
+  `wafflebase_oauth_state` cookie, so the callback has something to check
+  (see the CSRF risk row).
+- **`GET /auth/github/callback`** — validates `state` first: a `w.`-prefixed
+  one against its cookie, anything else against the CLI state map, and a
+  callback carrying none at all is a `401`. When the decoded state has
   `mode === 'cli'`, generates a short-lived authorization code (random,
   TTL 60 seconds, same in-memory map, carrying the state's
   `code_challenge`), redirects to
@@ -386,5 +392,6 @@ exchanged server-to-server.
 | Yorkie key prefix for word-processor docs differs from `doc-<id>` | The frontend convention is the source of truth; the backend service is the only adjustment point if it changes. |
 | Open redirect via CLI port parameter | `port` is range-validated; the redirect host is hard-coded to `127.0.0.1`. |
 | OAuth state forgery (CSRF) on the **CLI** flow | The `state` GitHub carries is an opaque random 32-byte token, minted for every `mode=cli` request into a 5-minute in-memory map and consumed single-use on callback; an unknown or expired one is a 400, never a fall-through to the web flow. (`StateEntry.csrf` is a second value minted alongside it that nothing reads yet — the guard above is the state token itself.) |
-| OAuth state forgery (CSRF) on the **browser** flow | **Not mitigated.** `GitHubAuthGuard` mints a state token only for `mode=cli`, so a plain browser login sends no `state` to GitHub and the callback has nothing to validate — an attacker can complete the consent dance and have a victim's browser issued cookies for the attacker's account (forced login). The gap predates the CLI loopback binding and is not closed by it; closing it means minting and validating a state cookie on the web entry point too, tracked separately. |
+| OAuth state forgery (CSRF) on the **browser** flow | `GitHubAuthGuard` mints a `state` for every authorization request, not just `mode=cli`: a browser login gets a random 32-byte value sent to GitHub under a `w.` prefix and stored in a 5-minute httpOnly `wafflebase_oauth_state` cookie (`SameSite=Lax`, `path=/auth`), which the callback compares constant-time and then clears. A double submit rather than a server-side entry, because the callback may land on a different replica than the one that started the login. A callback whose `state` is missing, unprefixed-but-unknown, or does not match its cookie is refused **before** the user is looked up — so an attacker can no longer complete consent for their own account and have a victim's browser issued cookies for it (forced login). |
+| Login secrets in access logs | The `req` serializer replaces the query string of any `/auth` URL with `?<redacted>`. `/auth` query strings carry single-use login material — the CLI's `nonce` and `code_challenge` outbound, GitHub's `code` and `state` inbound — and every 4xx there is logged at `warn`, so an unredacted line would park a replayable login in the access log. Other paths keep their query, which is what distinguishes two calls. |
 | Authorization-code injection at the CLI's loopback port (RFC 8252 §8.9) | The CLI's `nonce` is echoed back as `state` and compared constant-time before any code is redeemed, so a code pushed at the guessable port is refused; PKCE S256 independently makes an intercepted code unredeemable without the verifier, which never leaves the CLI process. A verifier presented against a code minted with *no* challenge is refused too (RFC 7636 §4.6), so the second binding cannot be downgraded away by starting an unchallenged login at the victim's port. |

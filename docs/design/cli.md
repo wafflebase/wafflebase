@@ -175,7 +175,7 @@ wafflebase login
   │     and mints a nonce + a PKCE verifier/challenge pair
   ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>
   │       &nonce=<nonce>&code_challenge=<S256(verifier)>
-  │     (also prints URL for copy-paste in headless environments)
+  │     (printed for copy-paste only when the browser cannot be opened)
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
   ├─ 6. Backend detects mode=cli in OAuth state →
@@ -221,6 +221,16 @@ this CLI can redeem it, wherever it leaked). A code that is presented with
 a verifier but was minted with no challenge is refused as well
 (RFC 7636 §4.6), so an attacker cannot start an unchallenged login at the
 victim's port and nonce and have the victim's CLI spend it.
+
+They are *not* independent against an observer of the authorization URL,
+though: it carries both, and someone who reads it can start their own login
+under the same nonce and challenge and push the resulting code at the port.
+So the URL is handed to the browser and printed only when the browser could
+not be opened — where it is the sole way to continue, and is labelled as
+carrying one-time secrets. stderr is what an agent harness captures into
+logs and issue reports, which is the exposure this avoids. Server-side, the
+access log redacts `/auth` query strings for the same reason (4xx there is
+logged at `warn`).
 
 **Compatibility runs one way.** Both parameters are optional *server*-side,
 so a CLI that predates them still logs in against a current backend: no
@@ -1116,6 +1126,10 @@ is the agent interface. This approach has key advantages:
 | `--out` / `<file>` directory missing                | 1    | PATH_NOT_FOUND      | (system message)                                                   |
 | Backend 401/403                                     | 2    | UNAUTHORIZED        | "Authentication failed. Run `wafflebase login`"                    |
 | Backend 5xx or network                              | 2    | SYSTEM              | (original message preserved)                                       |
+| Backend 4xx with no more specific code              | 1    | HTTP_ERROR          | (backend's own message, else "HTTP <status>")                       |
+| `login`: exchange / `me` / `workspaces` rejected    | 1/2  | (status-derived)    | (backend's own message, else the step that failed)                  |
+| `ctx switch` with no session / unknown workspace    | 1    | UNAUTHORIZED / NOT_FOUND | "Not logged in. Run `wafflebase login`." / "Workspace not found: <q>" |
+| `schema` for an unknown command                     | 1    | NOT_FOUND           | "Unknown command: <name>"                                          |
 | Yorkie attach failure                               | 2    | YORKIE_ERROR        | "Failed to attach to document <id>"                                |
 | DOCX parse failure                                  | 1    | INVALID_DOCX        | (DocxImporter message)                                             |
 | Fontkit font load failure                           | 2    | FONT_LOAD_ERROR     | (after fallback exhausted)                                         |

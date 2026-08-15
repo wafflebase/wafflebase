@@ -4,7 +4,23 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { randomBytes } from 'node:crypto';
 import { CliAuthStore } from './cli-auth.store';
+
+/**
+ * Cookie holding the browser flow's OAuth `state`, double-submitted back by
+ * GitHub's redirect and compared on the callback.
+ */
+export const OAUTH_STATE_COOKIE = 'wafflebase_oauth_state';
+
+/**
+ * Marks a `state` as the browser flow's (cookie-checked) rather than the
+ * CLI's (store-checked). The two arrive on the same callback parameter.
+ */
+export const WEB_STATE_PREFIX = 'w.';
+
+/** Browser `state` lives only as long as the consent screen takes. */
+const WEB_STATE_MAX_AGE_MS = 5 * 60 * 1000;
 
 /** Upper bound on the CLI-supplied values we will store and echo back. */
 const MAX_NONCE_LENGTH = 128;
@@ -33,10 +49,20 @@ function boundedToken(
 }
 
 /**
- * Custom GitHub OAuth guard that detects CLI login params
- * (`?mode=cli&port=<port>&nonce=<nonce>&code_challenge=<challenge>`) and
- * injects a state token onto the request so GitHubStrategy.authenticate()
- * can forward it to GitHub.
+ * Custom GitHub OAuth guard that puts a `state` on every authorization
+ * request it starts, so the callback always has something to validate.
+ *
+ * CLI login params (`?mode=cli&port=<port>&nonce=<nonce>&code_challenge=
+ * <challenge>`) are detected here and a state token is injected onto the
+ * request so GitHubStrategy.authenticate() can forward it to GitHub.
+ *
+ * A browser login gets a `state` too: a random value sent to GitHub under the
+ * `w.` prefix and stored in a short-lived first-party cookie the callback
+ * compares it against. It is a double submit rather than a server-side entry
+ * because the callback may land on a different replica than the one that
+ * started the login. Without it the callback accepted any GitHub redirect,
+ * which is a forced-login CSRF: an attacker completes consent for their own
+ * account and gets the victim's browser issued cookies for it.
  *
  * The optional `nonce` is remembered with the state and handed back to the
  * CLI's localhost callback, which redeems a code only for its own flow. The
@@ -82,10 +108,33 @@ export class GitHubAuthGuard extends AuthGuard('github') {
           boundedToken(req.query?.nonce, 1, MAX_NONCE_LENGTH),
           codeChallenge,
         );
-        req.__cliStateToken = stateToken;
+        req.__oauthState = stateToken;
       }
     }
 
+    if (!req.__oauthState) {
+      req.__oauthState = this.startWebState(context);
+    }
+
     return super.canActivate(context);
+  }
+
+  /**
+   * Mint the browser flow's `state` and set its half of the double submit.
+   *
+   * `SameSite=Lax` still travels on GitHub's top-level redirect back here,
+   * which is the only request that reads it.
+   */
+  private startWebState(context: ExecutionContext): string {
+    const value = randomBytes(32).toString('base64url');
+    const res = context.switchToHttp().getResponse();
+    res.cookie?.(OAUTH_STATE_COOKIE, value, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/auth',
+      maxAge: WEB_STATE_MAX_AGE_MS,
+    });
+    return `${WEB_STATE_PREFIX}${value}`;
   }
 }

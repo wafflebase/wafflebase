@@ -21,7 +21,19 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthenticatedRequest } from './auth.types';
 import { CliAuthStore } from './cli-auth.store';
-import { GitHubAuthGuard } from './github-auth.guard';
+import {
+  GitHubAuthGuard,
+  OAUTH_STATE_COOKIE,
+  WEB_STATE_PREFIX,
+} from './github-auth.guard';
+import { timingSafeEqual } from 'node:crypto';
+
+/** Constant-time compare of two `state` halves (never leak by timing). */
+function secretEquals(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
 
 const ACCESS_COOKIE_NAME = 'wafflebase_session';
 const REFRESH_COOKIE_NAME = 'wafflebase_refresh';
@@ -87,8 +99,9 @@ export class AuthController {
     @Req() req: Request,
   ) {
     // NOTE(hackerwins): Redirect to GitHub for authentication.
-    // For CLI mode, the state token is injected in the guard via
-    // __cliStateToken (see below). The guard handles the redirect.
+    // The guard injects the OAuth `state` via __oauthState — a stored token
+    // for CLI mode, a cookie-backed one for the browser — and handles the
+    // redirect itself.
     void mode;
     void port;
     void req;
@@ -102,6 +115,10 @@ export class AuthController {
     @Res() res: Response,
     @Query('state') stateToken: string | undefined,
   ) {
+    // Validated before the user is touched: a callback we did not start is
+    // not a login, whichever flow it claims to be.
+    const cliState = this.verifyCallbackState(req, res, stateToken);
+
     const githubUser = req.user;
 
     const user = await this.userService.findOrCreateUser({
@@ -115,24 +132,65 @@ export class AuthController {
       throw new Error('User not found or created');
     }
 
-    // Check if this is a CLI OAuth flow by consuming the state token.
+    if (cliState) {
+      const port = cliState.port;
+      if (port < 1024 || port > 65535) {
+        throw new BadRequestException('Invalid CLI port');
+      }
+      const code = this.cliAuthStore.createCode(user.id, cliState.codeChallenge);
+      // Echo the CLI's nonce back as `state`. Its localhost callback port
+      // is guessable, so this is what lets the CLI tell a code from its own
+      // flow apart from one an attacker pushed at that port.
+      const stateEcho = cliState.nonce
+        ? `&state=${encodeURIComponent(cliState.nonce)}`
+        : '';
+      return res.redirect(
+        `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${stateEcho}`,
+      );
+    }
+
+    // Default web flow: set cookies and redirect to frontend.
+    const tokens = this.authService.createTokens(user);
+    this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
+
+    return res.redirect(this.configService.get('FRONTEND_URL')!);
+  }
+
+  /**
+   * Validate the `state` GitHub handed back, and say which flow it belongs to.
+   *
+   * Returns the consumed CLI state for a CLI login, or `undefined` for a
+   * browser one. Every authorization request `GitHubAuthGuard` starts carries
+   * a `state` — a store-backed token for the CLI, a `w.`-prefixed half of a
+   * double-submit cookie for the browser — so a callback with none did not
+   * come from a login this server began and is refused rather than completed
+   * (forced-login CSRF).
+   */
+  private verifyCallbackState(
+    req: Request,
+    res: Response,
+    stateToken: string | undefined,
+  ): { port: number; nonce?: string; codeChallenge?: string } | undefined {
+    if (stateToken?.startsWith(WEB_STATE_PREFIX)) {
+      const presented = stateToken.slice(WEB_STATE_PREFIX.length);
+      const expected = req.cookies?.[OAUTH_STATE_COOKIE];
+      // Single use: the cookie goes whether or not it matched.
+      res.clearCookie(OAUTH_STATE_COOKIE, {
+        ...this.baseCookieOptions(),
+        path: '/auth',
+      });
+      if (typeof expected !== 'string' || !secretEquals(expected, presented)) {
+        throw new UnauthorizedException(
+          'Login session expired or invalid. Please sign in again.',
+        );
+      }
+      return undefined;
+    }
+
     if (stateToken) {
       const state = this.cliAuthStore.consumeState(stateToken);
       if (state && state.mode === 'cli') {
-        const port = state.port;
-        if (port < 1024 || port > 65535) {
-          throw new BadRequestException('Invalid CLI port');
-        }
-        const code = this.cliAuthStore.createCode(user.id, state.codeChallenge);
-        // Echo the CLI's nonce back as `state`. Its localhost callback port
-        // is guessable, so this is what lets the CLI tell a code from its own
-        // flow apart from one an attacker pushed at that port.
-        const stateEcho = state.nonce
-          ? `&state=${encodeURIComponent(state.nonce)}`
-          : '';
-        return res.redirect(
-          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${stateEcho}`,
-        );
+        return state;
       }
 
       // State token was provided but invalid/expired — this is a CLI flow
@@ -142,11 +200,9 @@ export class AuthController {
       );
     }
 
-    // Default web flow: set cookies and redirect to frontend.
-    const tokens = this.authService.createTokens(user);
-    this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
-
-    return res.redirect(this.configService.get('FRONTEND_URL')!);
+    throw new UnauthorizedException(
+      'Login session expired or invalid. Please sign in again.',
+    );
   }
 
   /**
