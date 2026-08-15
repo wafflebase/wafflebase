@@ -261,7 +261,16 @@ that:
   `frame-ancestors 'none'`, so the page cannot be framed and overlaid
   (`SameSite=Lax` alone would only stop a *cross-site* framer, and the
   frontend is expected to share eTLD+1 with the backend), and `no-store`,
-  because the markup carries a single-use confirm token.
+  because the markup carries a single-use confirm token. The gate is only
+  as good as that cookie, though: without `Secure` it loses `__Host-` and
+  becomes an ordinary host cookie a sibling subdomain can write — and
+  whoever writes it holds the query half too, harvested from their own
+  start. So `?mode=cli` is refused outright (`400`) on a plain-http origin
+  that is not loopback, rather than run behind a gate anyone on the origin
+  can open. Loopback is exempt because planting a cookie on
+  `http://localhost` already means running code on the machine the terminal
+  is on; every other cleartext origin was carrying the code and the token
+  it buys in the clear anyway.
 
 The four are not redundant: the nonce protects the *client* (this CLI only
 redeems a code from its own flow), PKCE protects the *code* (nobody but

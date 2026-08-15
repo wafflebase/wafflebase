@@ -87,6 +87,13 @@ WAFFLEBASE_STARROCKS_DSN=               # Optional, StarRocks DSN
                                         # `enabled: false`).
 ```
 
+`GITHUB_CALLBACK_URL`'s scheme is read as the deployment's public scheme: it
+decides whether the login cookies are `Secure` (and so `__Host-`-prefixed), and
+with it whether `wafflebase login` is available at all. CLI sign-in answers
+`400 Command-line sign-in requires an https server` on a plain-http origin that
+is not loopback, because its consent gate is a cookie that anything on such an
+origin can plant. Serve over https (or keep it on `localhost`) to use it.
+
 ### Yorkie auth webhook (per-document access control)
 
 `POST /internal/yorkie/auth` enforces per-document read/write access at the

@@ -119,6 +119,18 @@ Related: #654/#655, RFC 8252 §8.9, RFC 7636
   the Continue link and harvest the click. When a control is "the user
   deliberately pressed this", clickjacking is in its threat model, and the
   response has to carry the headers itself if nothing global does.
+- A control that only exists on some deployments is a control the other
+  deployments do not have, and the feature resting on it has to say so. The
+  consent gate is one cookie, and `__Host-` — the only thing stopping that
+  cookie from being planted — needs `Secure`, so on a plain-http origin the
+  gate was open to anything on the origin while the code, the comments and
+  the design doc all described it as closed. Fixing the *documentation
+  asymmetry* the review flagged would not have closed anything. When a
+  defence degrades with configuration, either the feature degrades with it
+  (here: `?mode=cli` is a `400` off loopback) or the degradation is the
+  feature's real security level. Loopback stayed exempt because there the
+  precondition for the attack (writing the origin's cookie jar) already
+  means owning the machine.
 - Asserting the *subset* of a link's query that a test happened to think of
   lets the rest be deleted silently. The consent-page test pinned `mode`,
   `port` and `cli_confirm`; dropping `nonce` or `code_challenge` from the

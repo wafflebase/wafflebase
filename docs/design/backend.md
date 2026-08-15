@@ -133,6 +133,12 @@ imports the full module set listed below.
     confirm cookie only covers a cross-site framer, not a same-site page on
     a deployment where frontend and backend share eTLD+1), plus
     `Cache-Control: no-store` for the single-use token in its markup.
+    Because that cookie is the whole gate, `?mode=cli` is a `400` on a
+    plain-http origin that is not loopback: there the cookie cannot carry
+    `__Host-`, so anything on the origin can plant it and skip the page —
+    and such a deployment was already handing the code and the token over
+    the wire in the clear. Loopback (`localhost`, `127.0.0.0/8`) is exempt,
+    since planting a cookie there means already being on the machine.
 
 **`GET /auth/github/callback`**
 - Guard: `AuthGuard('github')`
@@ -379,7 +385,9 @@ prefix carries the whole load it is not keyed to `NODE_ENV`: it applies
 whenever `GITHUB_CALLBACK_URL` is `https://` — i.e. on every https
 deployment, whether or not that variable happens to be set. A plain-http
 origin (localhost development) still gets the unprefixed name, and with it no
-defence against cookie planting on that origin.
+defence against cookie planting on that origin — which is why the CLI login,
+whose consent gate is exactly such a cookie, refuses to start on a plain-http
+origin unless it is loopback.
 
 SameSite=`lax` blocks third-party cross-site requests from carrying the
 session — the common CSRF vector — while still letting the OAuth

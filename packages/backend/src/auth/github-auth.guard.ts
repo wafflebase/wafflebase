@@ -75,6 +75,52 @@ function secureCookies(configService: ConfigService): boolean {
 }
 
 /**
+ * Whether a plain-http origin here never leaves the machine it serves.
+ *
+ * `127.0.0.0/8` and `localhost` are the loopback the CLI flow is built around
+ * (RFC 8252 §8.3); an unset or unparseable callback URL is not one of them,
+ * because "we cannot tell what this deployment's public origin is" must not
+ * read as "it is safe".
+ */
+function loopbackCallback(configService: ConfigService): boolean {
+  const configured = configService.get<string>('GITHUB_CALLBACK_URL') ?? '';
+  let host: string;
+  try {
+    host = new URL(configured).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return (
+    host === 'localhost' ||
+    host === '[::1]' ||
+    /^127(?:\.\d{1,3}){3}$/.test(host)
+  );
+}
+
+/**
+ * Whether a CLI login can be held shut on this deployment.
+ *
+ * The consent gate is one cookie: the interstitial sets a token and only a
+ * request presenting both halves continues. Without `Secure` the cookie is not
+ * `__Host-` prefixed (see `loginCookieName`), which makes it an ordinary host
+ * cookie that a sibling subdomain — or anyone with a network position on
+ * cleartext — can write. Whoever can write it also holds the query half, since
+ * one unauthenticated start hands out a matching pair, so on such an origin the
+ * click a crafted link cannot carry becomes a click it can, and the page naming
+ * the port is never shown to the person it protects.
+ *
+ * Loopback is the exception, and only there: planting a cookie on
+ * `http://localhost` already means running code on the machine the terminal is
+ * on, which is the thing this flow protects. Every other plain-http origin is
+ * refused rather than started — the authorization code and the token it buys
+ * cross the network in the clear there anyway, so this names a deployment that
+ * cannot carry a CLI login instead of narrowing one that can.
+ */
+function cliLoginAvailable(configService: ConfigService): boolean {
+  return secureCookies(configService) || loopbackCallback(configService);
+}
+
+/**
  * The wire name of a login cookie.
  *
  * `__Host-` is not decoration: without it these are ordinary host cookies, and
@@ -242,6 +288,18 @@ export class GitHubAuthGuard extends AuthGuard('github') {
     const port = req.query?.port;
 
     if (mode === 'cli') {
+      // The consent click below rests entirely on a cookie an attacker must
+      // not be able to plant, and on a plain-http origin that is not loopback
+      // they can — see `cliLoginAvailable`. Refuse the flow there rather than
+      // run it behind a gate anyone on the origin can open: the person would
+      // never see the page naming the port, which is the only thing standing
+      // between a link they were sent and a code at someone else's listener.
+      if (!cliLoginAvailable(this.configService)) {
+        throw new BadRequestException(
+          'Command-line sign-in requires an https server',
+        );
+      }
+
       // Missing and malformed are the same failure: a login that continues
       // without one of these is a bearer-only code at a guessable loopback
       // port, and neither end can see the downgrade (a copy-pasted start

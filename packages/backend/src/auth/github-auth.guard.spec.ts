@@ -18,8 +18,25 @@ const SECRET = 'test-secret';
 
 /** Config for a plain-http development origin (no `__Host-` available). */
 const configService = {
-  get: (key: string) => (key === 'JWT_SECRET' ? SECRET : undefined),
+  get: (key: string) =>
+    key === 'JWT_SECRET'
+      ? SECRET
+      : key === 'GITHUB_CALLBACK_URL'
+        ? 'http://localhost:3000/auth/github/callback'
+        : undefined,
 } as unknown as ConfigService;
+
+/** A plain-http deployment on a real hostname — cleartext, and plantable. */
+function insecureConfig(): ConfigService {
+  return {
+    get: (key: string) =>
+      key === 'JWT_SECRET'
+        ? SECRET
+        : key === 'GITHUB_CALLBACK_URL'
+          ? 'http://app.example.test/auth/github/callback'
+          : undefined,
+  } as unknown as ConfigService;
+}
 
 /** The same deployment reached over https, which is the normal case. */
 function httpsConfig(): ConfigService {
@@ -279,6 +296,36 @@ describe('GitHubAuthGuard', () => {
 
       expect(req.__oauthState).toBeUndefined();
       expect(req.__cliConsent).toBeDefined();
+    });
+
+    // The gate is one cookie, and without `Secure` it is not `__Host-`
+    // prefixed — an ordinary host cookie anything on the origin (a sibling
+    // subdomain, a network position on cleartext) can write. Whoever writes
+    // it also holds the query half, harvested from their own start, so the
+    // click a crafted link cannot carry becomes one it can: the pair below is
+    // the forgery, and it must not open the gate.
+    it('refuses a CLI login on a plain-http origin that is not loopback', () => {
+      const exposed = new GitHubAuthGuard(store, insecureConfig());
+      const { req, cookies, context } = confirmedContext(cliQuery());
+
+      expect(() => exposed.canActivate(context)).toThrow(BadRequestException);
+      // Nothing was started, and no consent page was rendered either: the
+      // gate cannot be held shut here, so there is nothing to ask.
+      expect(req.__oauthState).toBeUndefined();
+      expect(req.__cliConsent).toBeUndefined();
+      expect(cookies).toHaveLength(0);
+    });
+
+    // Loopback is the exception the whole flow exists for: planting a cookie
+    // on `http://localhost` already means running code on the machine the
+    // terminal is on. Refusing it would break `pnpm dev` for no gain.
+    it('still starts a loopback CLI login over plain http', () => {
+      const { req, context } = confirmedContext(cliQuery());
+      guard.canActivate(context);
+
+      expect(store.consumeState(req.__oauthState as string)).toMatchObject({
+        port: 9876,
+      });
     });
 
     it('starts the login once the click is confirmed, and spends the token', () => {
