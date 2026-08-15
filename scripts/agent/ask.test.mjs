@@ -598,3 +598,63 @@ test("no module under scripts/agent statically imports a third-party package", (
       offenders.join("\n  "),
   );
 });
+
+// --- credential safety at the source (docs/tasks/active/20260815-…) -----------
+
+test("classifyResult: `detail` is scrubbed where it is born, not at each renderer", () => {
+  // `detail` reaches six published surfaces. A per-surface redaction list is one
+  // nobody can keep complete — the incident happened because one renderer was
+  // missing from it — so the scrub happens once, here.
+  const token = "sk-ant-oat01-AbCdEf1234567890XyZw QqRrSs9876543210AbCd";
+  const c = classifyResult({
+    subtype: "success",
+    is_error: true,
+    result: `Header 'Authorization' has invalid value: ${token}`,
+  });
+  for (const fragment of token.split(/\s+/)) {
+    assert.ok(!c.detail.includes(fragment), `raw detail survived: ${c.detail}`);
+  }
+  assert.equal(c.code, "AUTH_MALFORMED_CREDENTIAL");
+  assert.ok(!c.reason.includes("Authorization"), "reason quoted upstream prose");
+});
+
+test("classifyResult: scrubbing cannot change a classification", () => {
+  // Retryability is decided from the RAW text, before the scrub. If it were decided
+  // afterwards, a session limit whose prose got masked would come back RETRYABLE and
+  // burn the credential pool retrying a window that cannot reopen inside this run.
+  const limit = classifyResult({
+    subtype: "success",
+    is_error: true,
+    api_error_status: 429,
+    result: "You've hit your session limit · resets 3:30pm (UTC)",
+  });
+  assert.equal(limit.retryable, false, "a session limit must stay non-retryable");
+  assert.equal(limit.code, "USAGE_LIMIT");
+  assert.ok(isAccountLimit(limit), "failover must still recognise a closed window");
+
+  // A plain 429 is still retryable — the distinction the pool depends on.
+  const rate = classifyResult({ subtype: "success", is_error: true, api_error_status: 429, result: "rate limit" });
+  assert.equal(rate.retryable, true);
+  assert.equal(rate.code, "RATE_LIMITED");
+  assert.equal(isAccountLimit(rate), false);
+});
+
+test("classifyResult: a standardized code on every failure branch", () => {
+  assert.equal(classifyResult({ subtype: "error_max_turns", is_error: true, num_turns: 9 }).code, "RUN_LIMIT_TURNS");
+  assert.equal(classifyResult({ subtype: "error_max_budget_usd", is_error: true }).code, "RUN_LIMIT_BUDGET");
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 401 }).code, "AUTH_REJECTED");
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 500 }).code, "UPSTREAM_ERROR");
+  assert.equal(classifyResult({ subtype: "error" }).code, "NO_OUTPUT");
+  // A successful verdict carries no failure vocabulary at all.
+  assert.equal(classifyResult({ subtype: "success", structured_output: { findings: [] } }).code, undefined);
+});
+
+test("isAccountLimit: prefers the code, falls back to prose for pre-vocabulary callers", () => {
+  // `code` is decided before redaction, so it is authoritative.
+  assert.ok(isAccountLimit({ kind: "api-error", code: "USAGE_LIMIT", detail: "<REDACTED>" }));
+  assert.equal(isAccountLimit({ kind: "api-error", code: "AUTH_REJECTED", detail: "session limit" }), false,
+    "a code must win over prose that merely mentions a limit");
+  // Bare `{ kind, detail }` — several call sites and every stored record predating
+  // the vocabulary look like this.
+  assert.ok(isAccountLimit({ kind: "api-error", detail: "You've hit your usage limit" }));
+});

@@ -32,6 +32,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readPoolSlots, TOKEN_ENV } from "./token-pool.mjs";
+import { redactSecrets } from "./redact.mjs";
 
 export const EXIT = Object.freeze({ ok: 0, auth: 1, quota: 2, tooling: 3 });
 
@@ -83,7 +84,15 @@ export function classifyFailure(message) {
 
 /** The message and exit code for a classified failure. */
 export function describeFailure(kind, detail) {
-  const raw = String(detail ?? "").trim() || "(no detail)";
+  // REDACTED, because this text is printed to a public Actions log and this is the
+  // tool you reach for when a credential is broken — so a malformed secret, whose
+  // value the HTTP client quotes back verbatim, arrives here by design rather than
+  // by accident. GitHub's own log masking is no defence: it is exact-substring, and
+  // it splits registered secrets on whitespace, which is precisely the shape that
+  // leaked. `classifyFailure` runs on the RAW text upstream of this, so scrubbing
+  // cannot change the diagnosis. What survives — "invalid value: <REDACTED>" —
+  // still names the fault exactly.
+  const raw = redactSecrets(String(detail ?? "").trim()) || "(no detail)";
   if (kind === "quota") {
     return {
       code: EXIT.quota,
@@ -147,10 +156,12 @@ async function checkCredential(query, model, authToken) {
       }
     }
   } catch (err) {
-    return { ...describeFailure(classifyFailure(err.message), err.message), detail: err.message };
+    // `detail` is redacted too. Nothing prints it today, but leaving raw upstream
+    // text on the returned object is the trap this whole change exists to remove.
+    return { ...describeFailure(classifyFailure(err.message), err.message), detail: redactSecrets(err.message) };
   }
   if (ok) return { code: EXIT.ok, detail: "" };
-  return { ...describeFailure(classifyFailure(lastSubtype), lastSubtype), detail: lastSubtype };
+  return { ...describeFailure(classifyFailure(lastSubtype), lastSubtype), detail: redactSecrets(lastSubtype) };
 }
 
 /**
