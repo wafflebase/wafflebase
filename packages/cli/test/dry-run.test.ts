@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProgram } from '../src/commands/root.js';
 import { registerCellsCommand } from '../src/commands/cells.js';
+import { printDryRun } from '../src/client/dry-run.js';
+import type { CliConfig } from '../src/config/config.js';
 
 /**
  * `--dry-run` is the second place a request URL is built (`printDryRun`), and
@@ -108,5 +110,73 @@ describe('dry-run URL building', () => {
     expect(stdout).toEqual([]);
     expect(stderr.join('\n')).toContain('Invalid path segment');
     expect(process.exitCode).toBe(1);
+  });
+});
+
+/**
+ * The command-driven tests above reach `printDryRun` through call sites that
+ * already applied `seg()`, so `seg()` is what refuses there. `printDryRun`'s
+ * own guard is the backstop for a *future* call site that forgets — the case
+ * no command can currently produce — so it is exercised directly, by handing
+ * the printer a raw path the way a forgetful caller would.
+ */
+describe('printDryRun path guard', () => {
+  const config: CliConfig = {
+    server: SERVER,
+    apiKey: 'wfb_test',
+    workspace: 'ws-1',
+    authMode: 'api-key',
+  };
+
+  let stdout: string[];
+
+  beforeEach(() => {
+    stdout = [];
+    vi.spyOn(console, 'log').mockImplementation((v) => {
+      stdout.push(String(v));
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('refuses a raw ".." segment a call site failed to encode', () => {
+    expect(() =>
+      printDryRun(config, 'DELETE', '/documents/../../workspaces/other-ws'),
+    ).toThrow('Invalid path segment: ".."');
+    expect(stdout).toEqual([]);
+  });
+
+  it('refuses a raw "." segment too', () => {
+    expect(() => printDryRun(config, 'GET', '/documents/./tabs')).toThrow(
+      'Invalid path segment: "."',
+    );
+    expect(stdout).toEqual([]);
+  });
+
+  it('prints a dot-free path, ids encoded by the caller', () => {
+    printDryRun(config, 'GET', '/documents/doc%2F1/tabs/tab-1');
+
+    expect(JSON.parse(stdout.join('\n'))).toEqual({
+      dry_run: true,
+      method: 'GET',
+      url: `${SERVER}/api/v1/workspaces/ws-1/documents/doc%2F1/tabs/tab-1`,
+    });
+  });
+
+  it('leaves the query string alone — it cannot move the endpoint', () => {
+    // `?range=A1:C10` is the shipped shape; the `..` value is the reason the
+    // exemption is scoped to the query rather than applied to the whole string.
+    printDryRun(
+      config,
+      'GET',
+      '/documents/doc-1/tabs/tab-1/cells?range=A1:C10&x=..',
+    );
+
+    const { url } = JSON.parse(stdout.join('\n'));
+    expect(url).toBe(
+      `${SERVER}/api/v1/workspaces/ws-1/documents/doc-1/tabs/tab-1/cells?range=A1:C10&x=..`,
+    );
   });
 });

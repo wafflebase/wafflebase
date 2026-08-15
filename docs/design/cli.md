@@ -1112,6 +1112,33 @@ and run. The commands encode with the same `seg()` when they assemble a
 previewed path, the printer encodes the workspace, and it re-checks the
 assembled path for a dot segment, since after encoding there cannot be one.
 
+The same reasoning applies wherever else an id or a name chooses something
+outside the process:
+
+- **A downloaded file lands on a name, not a path.** `files download` writes
+  to the caller's `out` when they gave one — they typed a path, so a path is
+  what they meant. Everything else is a *name*: both the server's
+  `Content-Disposition` filename (derived from a document title) and the
+  document id from argv are reduced with `basename` and refused if they are
+  `.`, `..` or empty, falling back to `download` in the CWD
+  (`packages/cli/src/files/download.ts`).
+- **An image `src` in a document cannot aim an export at the local network.**
+  `docs export` / `slides export` fetch every image inline from the operator's
+  machine, and the `src` is content someone else may have written. So the
+  fetcher only speaks `http`/`https`/`data` — no `file:` reading local disk —
+  and refuses a loopback, private, link-local (`169.254.169.254`) or CGNAT
+  host unless it is the configured `--server`'s own origin, which is what
+  keeps `--server http://localhost:3000` working
+  (`assertFetchableImageUrl`, `packages/cli/src/docs/image-fetcher.ts`). It is
+  an address guard, not a full SSRF defense: a public hostname that *resolves*
+  to a private address still gets fetched, which would need DNS resolution
+  plus connection pinning below `fetch`.
+
+The rule is not CLI-only. The frontend talks to the same API with the user's
+session, and interpolates route-param ids the same way, so it carries the same
+primitive (`seg()`, `packages/frontend/src/api/url.ts`), applied to the
+document routes.
+
 **Forwarding is bounded, not byte-for-byte.** On the "body *is* the envelope"
 row the `code` is the upstream's own — that is the contract, and it is never
 rewritten or reclassified. The text around it is not echoed unchanged,

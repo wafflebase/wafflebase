@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
+  assertFetchableImageUrl,
   createImageFetcher,
   resolveImageUrl,
 } from '../src/docs/image-fetcher.js';
@@ -49,6 +50,87 @@ describe('resolveImageUrl', () => {
   });
 });
 
+describe('assertFetchableImageUrl', () => {
+  const server = 'https://api.wafflebase.io';
+
+  it('allows public http(s) and data URLs', () => {
+    expect(() =>
+      assertFetchableImageUrl('https://cdn.example.com/a.png', server),
+    ).not.toThrow();
+    expect(() =>
+      assertFetchableImageUrl('http://cdn.example.com/a.png', server),
+    ).not.toThrow();
+    expect(() =>
+      assertFetchableImageUrl('data:image/png;base64,AAA', server),
+    ).not.toThrow();
+  });
+
+  it('refuses schemes that are not http, https, or data', () => {
+    for (const url of [
+      'file:///etc/passwd',
+      'blob:https://x/abc',
+      'ftp://internal.example/a.png',
+    ]) {
+      expect(() => assertFetchableImageUrl(url, server)).toThrow(
+        /Refusing to fetch image over/,
+      );
+    }
+  });
+
+  it('refuses loopback, private, link-local and CGNAT literals', () => {
+    for (const host of [
+      '169.254.169.254',
+      '127.0.0.1',
+      '0.0.0.0',
+      '10.1.2.3',
+      '172.16.0.1',
+      '172.31.255.255',
+      '192.168.1.1',
+      '100.100.0.1',
+      'localhost',
+      'app.localhost',
+      '[::1]',
+      '[fd00::1]',
+      '[fe80::1]',
+      '[::ffff:169.254.169.254]',
+    ]) {
+      expect(() =>
+        assertFetchableImageUrl(`http://${host}/a.png`, server),
+      ).toThrow(/non-public address/);
+    }
+  });
+
+  it('does not mistake public addresses for private ones', () => {
+    for (const host of ['172.15.0.1', '172.32.0.1', '11.0.0.1', '8.8.8.8']) {
+      expect(() =>
+        assertFetchableImageUrl(`http://${host}/a.png`, server),
+      ).not.toThrow();
+    }
+  });
+
+  it('exempts the configured server, so a local --server keeps working', () => {
+    expect(() =>
+      assertFetchableImageUrl(
+        'http://localhost:3000/images/abc',
+        'http://localhost:3000',
+      ),
+    ).not.toThrow();
+    // A different port on the same host is a different origin — still refused.
+    expect(() =>
+      assertFetchableImageUrl(
+        'http://localhost:9200/images/abc',
+        'http://localhost:3000',
+      ),
+    ).toThrow(/non-public address/);
+  });
+
+  it('refuses a URL that never resolved to an absolute one', () => {
+    expect(() => assertFetchableImageUrl('/images/abc', '')).toThrow(
+      /no server to resolve it against/,
+    );
+  });
+});
+
 describe('createImageFetcher', () => {
   it('GETs the resolved URL via the injected fetch and returns the blob', async () => {
     const calls: string[] = [];
@@ -86,6 +168,39 @@ describe('createImageFetcher', () => {
 
     await fetcher('https://cdn.example.com/photo.jpg');
     expect(calls).toEqual(['https://cdn.example.com/photo.jpg']);
+  });
+
+  it('refuses an image src pointing at a non-public address', async () => {
+    // The `src` is document content, so an export must not be talked into
+    // GETting the instance-metadata endpoint from the operator's machine.
+    const stubFetch = vi.fn();
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(
+      fetcher('http://169.254.169.254/latest/meta-data/iam/security-credentials/'),
+    ).rejects.toThrow(/non-public address/);
+    await expect(fetcher('file:///etc/passwd')).rejects.toThrow(
+      /Refusing to fetch image over "file:"/,
+    );
+    expect(stubFetch).not.toHaveBeenCalled();
+  });
+
+  it('still fetches the configured server even when it is local', async () => {
+    const calls: string[] = [];
+    const stubFetch: typeof globalThis.fetch = async (input) => {
+      calls.push(String(input));
+      return new Response(new Uint8Array([1]), { status: 200 });
+    };
+    const fetcher = createImageFetcher({
+      serverBase: 'http://localhost:3000',
+      fetch: stubFetch,
+    });
+
+    await fetcher('/images/abc');
+    expect(calls).toEqual(['http://localhost:3000/images/abc']);
   });
 
   it('throws a descriptive error on non-OK responses', async () => {

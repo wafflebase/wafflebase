@@ -86,6 +86,28 @@ describe('resolveDownloadTarget', () => {
     expect(resolveDownloadTarget(undefined, '..', 'doc-1')).toBe('doc-1');
     expect(resolveDownloadTarget(undefined, '../..', 'doc-1')).toBe('doc-1');
   });
+
+  it('strips any directory component from the document id fallback too', () => {
+    // The id comes from argv, so it gets the same treatment as the server's
+    // name — it names a file, it does not choose a directory.
+    expect(resolveDownloadTarget(undefined, undefined, '../../.bashrc')).toBe(
+      '.bashrc',
+    );
+    expect(
+      resolveDownloadTarget(undefined, undefined, '/etc/cron.d/wafflebase'),
+    ).toBe('wafflebase');
+    expect(resolveDownloadTarget(undefined, undefined, '/etc/passwd')).toBe(
+      'passwd',
+    );
+  });
+
+  it('uses a fixed in-CWD name when no usable name survives', () => {
+    expect(resolveDownloadTarget(undefined, undefined, '..')).toBe('download');
+    expect(resolveDownloadTarget(undefined, '..', '../../..')).toBe('download');
+    expect(resolveDownloadTarget(undefined, undefined, '/')).toBe('download');
+    // `-` is stdout to the writer; an id must not redirect the bytes there.
+    expect(resolveDownloadTarget(undefined, undefined, '-')).toBe('download');
+  });
 });
 
 describe('runFilesDownload', () => {

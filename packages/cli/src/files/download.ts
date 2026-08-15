@@ -9,13 +9,18 @@ import { upstreamErrorJson } from '../output/formatter.js';
 
 /**
  * Where the bytes go: the caller's path when given, otherwise the filename the
- * server advertised in `Content-Disposition`.
+ * server advertised in `Content-Disposition`, otherwise the document id.
  *
- * That name is server-supplied but derived from a user-controlled document
- * title, so it is reduced to a bare filename before it can reach the
- * filesystem — a title of `../../.bashrc` must not decide where the CLI
- * writes. `basename` handles the traversal; the dot cases and the empty string
- * are rejected explicitly because `basename` happily returns them.
+ * Only the caller's own `out` is taken at face value — they typed it, so a
+ * path is what they asked for. Everything else is a *name*, not a path, and is
+ * reduced to a bare filename before it can reach the filesystem. The server's
+ * name is derived from a user-controlled document title, and the document id
+ * comes straight from argv (an agent may have written it), so a value of
+ * `../../.bashrc` must not decide where the CLI writes in either case.
+ * `basename` handles the traversal; the dot cases and the empty string are
+ * rejected explicitly because `basename` happily returns them. With neither
+ * name usable there is still a download to land, so it lands on a fixed
+ * in-CWD name rather than on whatever the id spelled.
  */
 export function resolveDownloadTarget(
   out: string | undefined,
@@ -23,8 +28,19 @@ export function resolveDownloadTarget(
   docId: string,
 ): string {
   if (out) return out;
-  const safe = serverName ? basename(serverName).trim() : '';
-  if (!safe || safe === '.' || safe === '..') return docId;
+  return bareFilename(serverName) ?? bareFilename(docId) ?? FALLBACK_FILENAME;
+}
+
+/** Name used when neither the server nor the document id yields a usable one. */
+const FALLBACK_FILENAME = 'download';
+
+/** `name` reduced to a single filename, or `undefined` if nothing is left. */
+function bareFilename(name: string | undefined): string | undefined {
+  const safe = name ? basename(name).trim() : '';
+  if (!safe || safe === '.' || safe === '..') return undefined;
+  // `-` means stdout to `writeBinary`; a document id must not redirect the
+  // bytes there behind the caller's back.
+  if (safe === '-') return undefined;
   return safe;
 }
 
