@@ -202,8 +202,16 @@ wafflebase login
 
 The local server binds to `127.0.0.1` only, accepts only `GET /callback`
 and the single-use `GET /launch/<token>` redirect that starts the login, and
-shuts down after a single accepted callback with a 30-second timeout. On timeout it prints: "Login timed out. Try again with
-`wafflebase login`."
+shuts down after a single accepted callback with a five-minute timeout. On
+timeout it prints: "Login timed out. Try again with `wafflebase login`."
+
+Five minutes, not thirty seconds, because the browser leg is no longer
+GitHub's consent screen alone: the server stops a CLI start on an
+interstitial naming the loopback port and waits for a deliberate click.
+Five minutes is also the server's own budget for one login
+(`STATE_COOKIE_MAX_AGE_MS` and the `CliAuthStore` state entry), so the two
+ends now expire together instead of the CLI abandoning logins the server
+still holds open.
 
 **Loopback binding (RFC 8252 §8.9).** Binding to loopback is not by itself
 protection: the port is guessable and any page in the user's browser can
@@ -279,7 +287,7 @@ from one that never had them, so the RFC 8252 §8.9 injection would stay open
 for every client that did not opt in. A CLI predating them upgrades, or
 authenticates with `--api-key`, which needs no browser at all. In the other
 direction a current CLI refuses a callback carrying no `state` — exactly
-what an older backend sends — and ends at the 30-second timeout with a
+what an older backend sends — and ends at the callback timeout with a
 message naming that cause rather than blaming the clock.
 
 Tokens are NOT passed as URL query parameters. The short-lived

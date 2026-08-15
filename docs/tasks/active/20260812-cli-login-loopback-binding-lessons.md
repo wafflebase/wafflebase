@@ -54,3 +54,51 @@ Related: #654/#655, RFC 8252 §8.9, RFC 7636
   GitHubAuthGuard.prototype), 'canActivate')`. The mixin `AuthGuard('github')`
   returns *is* the prototype chain link, so this replaces the redirect
   machinery without a module mock.
+
+## Round 3 — panel review of PR #786 (blast-radius / security / correctness)
+
+- Adding a human gate to a flow changes the *other* end's budget. The
+  consent interstitial put a person's reading-and-clicking time inside a
+  window the CLI still bounded at 30 seconds, while the server held the
+  login for five minutes. Neither end was wrong on its own; together they
+  disagreed by an order of magnitude, and the CLI's own headless notice had
+  been promising the server's number all along. When a step is inserted into
+  a flow, re-derive every timeout that has to span it — and prefer naming
+  the constant after the budget it must match (`CALLBACK_TIMEOUT_MS` ==
+  `STATE_COOKIE_MAX_AGE_MS`) so the next change surfaces the coupling.
+- Two flows sharing one cookie *name* is two flows sharing one slot. The
+  browser and CLI logins each set `wafflebase_oauth_state`, so starting one
+  while the other was mid-flight silently overwrote its binding and the
+  first callback was then refused as a forgery — a login failing for a
+  reason no log line and no user could see. A binding that is per-login
+  needs a namespace that is per-flow.
+- "Missing and malformed are the same failure" has to cover *every*
+  parameter, or the exception is the hole. `nonce` and `code_challenge`
+  each got that rule; `port` kept an `if (valid) { … }` whose else-branch
+  fell through to the browser login, so an unusable port issued the person
+  real session cookies for a sign-in they had asked to hand to a terminal.
+  A validation rule stated in a comment should be checked against each
+  input the comment claims to cover.
+- A signature over a value the server hands out is not a secret. The
+  browser `state` is `HMAC(secret, cookieValue)`, documented as making
+  cookie planting insufficient — but `GET /auth/github` is unauthenticated
+  and returns *both* halves (the cookie in `Set-Cookie`, its signature in
+  the redirect's `state`), so an attacker just harvests a valid pair. The
+  signature's real value is narrower: a `state` the server never issued
+  cannot be invented. `__Host-` is the whole of the cookie-planting
+  defence. Before writing "X means an attacker cannot Y", ask what one
+  unauthenticated request to the endpoint returns.
+- A security control keyed on `NODE_ENV` is keyed on a variable nobody
+  audits. `__Host-` was applied only under `NODE_ENV=production`, so every
+  https deployment that did not set it lost the one control holding the
+  double submit together. Derive it from something the deployment *must*
+  get right for the feature to work at all — here `GITHUB_CALLBACK_URL`'s
+  scheme, which GitHub itself has to agree with, and which is identical on
+  the request that sets the cookie and the callback that reads it (a
+  per-request `req.secure` behind a proxy would not be).
+- Redaction lists that only know query parameters miss credentials in the
+  path. `?token=` was scrubbed while `GET /share-links/:token/resolve`
+  logged the same share token verbatim — and that route 4xxes on a revoked
+  or expired link, which is logged at `warn`. When adding a parameter to a
+  redaction list, grep for the credential's *other* carriers before calling
+  it covered.

@@ -229,7 +229,7 @@ describe('AuthController', () => {
             user: { username: 'bob', email: 'bob@example.com', photo: null },
             query: { state: stateToken },
             cookies: cookieValue
-              ? { wafflebase_oauth_state: cookieValue }
+              ? { wafflebase_cli_state: cookieValue }
               : {},
           }) as unknown as Request,
       };
@@ -254,7 +254,7 @@ describe('AuthController', () => {
       expect(res.cookie).not.toHaveBeenCalled();
       // The state cookie is single-use and cleared on the way through.
       expect(res.clearCookie).toHaveBeenCalledWith(
-        'wafflebase_oauth_state',
+        'wafflebase_cli_state',
         expect.objectContaining({ path: '/' }),
       );
     });
@@ -314,7 +314,7 @@ describe('AuthController', () => {
       ).rejects.toThrow(BadRequestException);
 
       expect(res.clearCookie).toHaveBeenCalledWith(
-        'wafflebase_oauth_state',
+        'wafflebase_cli_state',
         expect.objectContaining({ path: '/' }),
       );
     });
@@ -424,9 +424,48 @@ describe('AuthController', () => {
       );
     });
 
-    // Echoing the cookie's value would make the pair forgeable by anyone who
-    // can plant a cookie for the registrable domain; the query half is its
-    // HMAC, which they cannot compute.
+    // The two flows start independently and one browser can hold both — a
+    // `wafflebase login` run while a sign-in waits on GitHub's consent
+    // screen. When they shared a cookie name the second start overwrote the
+    // first's binding, so the first callback was refused as a forgery and the
+    // person was bounced to `/login?error=login_state` for no visible reason.
+    it('completes a browser login while a CLI login is also in flight', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+
+      const webValue = randomBytes(32).toString('base64url');
+      const cliValue = randomBytes(32).toString('base64url');
+      const res = createMockResponse();
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: {},
+        cookies: {
+          wafflebase_oauth_state: webValue,
+          wafflebase_cli_state: cliValue,
+        },
+      } as unknown as Request;
+
+      await controller.githubAuthCallback(req as any, res, webState(webValue));
+
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173');
+      expect(res.cookie).toHaveBeenCalledTimes(2);
+      // And the CLI login it was racing is left intact: only the web flow's
+      // own half is spent.
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        'wafflebase_oauth_state',
+        expect.objectContaining({ path: '/' }),
+      );
+      expect(res.clearCookie).not.toHaveBeenCalledWith(
+        'wafflebase_cli_state',
+        expect.anything(),
+      );
+    });
+
+    // Echoing the cookie's value would let a `state` this server never issued
+    // be presented against a planted cookie; the query half is its HMAC.
     it('refuses a state that merely copies the cookie value', async () => {
       const res = createMockResponse();
       const value = randomBytes(32).toString('base64url');

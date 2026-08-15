@@ -5,8 +5,10 @@ import { CliAuthStore } from './cli-auth.store';
 import {
   CLI_CONFIRM_COOKIE,
   CLI_CONFIRM_PARAM,
+  CLI_STATE_COOKIE,
   CliConsentRequest,
   GitHubAuthGuard,
+  loginCookieName,
   OAUTH_STATE_COOKIE,
   stateSignature,
   WEB_STATE_PREFIX,
@@ -14,9 +16,22 @@ import {
 
 const SECRET = 'test-secret';
 
+/** Config for a plain-http development origin (no `__Host-` available). */
 const configService = {
   get: (key: string) => (key === 'JWT_SECRET' ? SECRET : undefined),
 } as unknown as ConfigService;
+
+/** The same deployment reached over https, which is the normal case. */
+function httpsConfig(): ConfigService {
+  return {
+    get: (key: string) =>
+      key === 'JWT_SECRET'
+        ? SECRET
+        : key === 'GITHUB_CALLBACK_URL'
+          ? 'https://api.example.test/auth/github/callback'
+          : undefined,
+  } as unknown as ConfigService;
+}
 
 /**
  * The guard is the only place the CLI's `nonce` and `code_challenge` enter
@@ -188,11 +203,27 @@ describe('GitHubAuthGuard', () => {
     guard.canActivate(context);
 
     expect(cookies).toHaveLength(1);
-    expect(cookies[0].name).toBe(OAUTH_STATE_COOKIE);
+    expect(cookies[0].name).toBe(CLI_STATE_COOKIE);
 
     const state = store.consumeState(req.__oauthState as string);
     expect(state?.browserBinding).toBe(cookies[0].value);
     expect(cookies[0].value.length).toBeGreaterThan(0);
+  });
+
+  // A browser can hold both logins at once — `wafflebase login` run while a
+  // sign-in waits on GitHub's consent screen. Sharing one cookie name meant
+  // the second start silently overwrote the first's binding, so whichever
+  // callback arrived was refused as a forgery: a login that fails for a
+  // reason neither end can see.
+  it('keeps the CLI binding on a cookie of its own, not the browser flow’s', () => {
+    const web = contextFor({});
+    guard.canActivate(web.context);
+    const cli = confirmedContext(cliQuery());
+    guard.canActivate(cli.context);
+
+    expect(web.cookies[0].name).toBe(OAUTH_STATE_COOKIE);
+    expect(cli.cookies[0].name).toBe(CLI_STATE_COOKIE);
+    expect(cli.cookies[0].name).not.toBe(web.cookies[0].name);
   });
 
   it('binds each CLI login to its own cookie value', () => {
@@ -262,19 +293,47 @@ describe('GitHubAuthGuard', () => {
     });
   });
 
-  it('stores no CLI state for a non-CLI request or an out-of-range port', () => {
+  it('stores no CLI state for a non-CLI request', () => {
     const { req: web, context: webCtx } = contextFor({ nonce: 'n' });
     guard.canActivate(webCtx);
     expect(store.consumeState(web.__oauthState as string)).toBeUndefined();
+    expect((web.__oauthState as string).startsWith(WEB_STATE_PREFIX)).toBe(
+      true,
+    );
+  });
 
-    const { req: low, context: lowCtx } = contextFor({
+  // An unusable port used to fall through to the *browser* flow: the person
+  // was walked through GitHub and issued real session cookies for a sign-in
+  // they asked to hand to a terminal, while the CLI sat waiting out its
+  // timeout on a callback that was never going to arrive. The port is held to
+  // the same "missing and malformed are the same failure" rule as the nonce
+  // and the challenge.
+  it('refuses a CLI start whose port is missing or out of range', () => {
+    for (const port of [undefined, '', '80', '65536', 'http', '8080.5']) {
+      const query: Record<string, unknown> = {
+        mode: 'cli',
+        nonce: 'n',
+        code_challenge: CHALLENGE,
+      };
+      if (port !== undefined) query.port = port;
+      const { context } = contextFor(query);
+      expect(() => guard.canActivate(context)).toThrow(BadRequestException);
+    }
+  });
+
+  it('does not downgrade a refused CLI start into a browser login', () => {
+    const { req, cookies, context } = contextFor({
       mode: 'cli',
       port: '80',
       nonce: 'n',
       code_challenge: CHALLENGE,
     });
-    guard.canActivate(lowCtx);
-    expect(store.consumeState(low.__oauthState as string)).toBeUndefined();
+
+    expect(() => guard.canActivate(context)).toThrow(BadRequestException);
+    // Nothing was started: no browser `state`, no cookie, no consent page.
+    expect(req.__oauthState).toBeUndefined();
+    expect(req.__cliConsent).toBeUndefined();
+    expect(cookies).toHaveLength(0);
   });
 
   // A browser login used to reach GitHub with no `state` at all, which left
@@ -288,10 +347,10 @@ describe('GitHubAuthGuard', () => {
     expect(state.startsWith(WEB_STATE_PREFIX)).toBe(true);
     expect(cookies).toHaveLength(1);
     expect(cookies[0].name).toBe(OAUTH_STATE_COOKIE);
-    // The query half is the *signature* of the cookie, not a copy of it.
-    // Echoing the value would make the pair forgeable by anyone who can
-    // plant a cookie — a sibling subdomain, an http injection — which is the
-    // forced-login CSRF this exists to stop.
+    // The query half is the signature of the cookie, not a copy of it, so a
+    // `state` this server never issued cannot be invented. It is not a
+    // defence against cookie planting — `GET /auth/github` hands any caller a
+    // matching pair — which is what `__Host-` below is for.
     expect(state.slice(WEB_STATE_PREFIX.length)).not.toBe(cookies[0].value);
     expect(state.slice(WEB_STATE_PREFIX.length)).toBe(
       stateSignature(SECRET, cookies[0].value),
@@ -307,9 +366,10 @@ describe('GitHubAuthGuard', () => {
     });
   });
 
-  // A cookie a sibling subdomain can write is not a binding. In production
-  // the name carries `__Host-`, which the browser only accepts from this
-  // exact host, with `Secure` and `Path=/` and no `Domain`.
+  // A cookie a sibling subdomain can write is not a binding — and the
+  // signature is no backstop, since one unauthenticated `GET /auth/github`
+  // hands out a matching (cookie, state) pair. `__Host-` is the whole of the
+  // defence, so it must not be optional on a real deployment.
   it('prefixes the state cookie with `__Host-` in production', () => {
     const previous = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
@@ -319,6 +379,52 @@ describe('GitHubAuthGuard', () => {
 
       expect(cookies[0].name).toBe(`__Host-${OAUTH_STATE_COOKIE}`);
       expect(cookies[0].options).toMatchObject({ secure: true, path: '/' });
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+
+  // Keying the prefix on `NODE_ENV` alone dropped it on every https
+  // deployment that did not happen to set the variable — a staging box, a
+  // self-hosted install — leaving the forced-login CSRF wide open there. The
+  // deployment's own callback URL says what its public scheme is.
+  it('prefixes the cookie on an https deployment even outside production', () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    try {
+      const secureGuard = new GitHubAuthGuard(store, httpsConfig());
+      const { cookies, context } = contextFor({});
+      secureGuard.canActivate(context);
+
+      expect(cookies[0].name).toBe(`__Host-${OAUTH_STATE_COOKIE}`);
+      expect(cookies[0].options).toMatchObject({ secure: true, path: '/' });
+      // And the callback looks for the very name that was set.
+      expect(loginCookieName(httpsConfig(), OAUTH_STATE_COOKIE)).toBe(
+        cookies[0].name,
+      );
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+
+  it('keeps the bare name on a plain-http origin, which cannot carry `Secure`', () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    try {
+      const httpConfig = {
+        get: (key: string) =>
+          key === 'GITHUB_CALLBACK_URL'
+            ? 'http://localhost:3000/auth/github/callback'
+            : key === 'JWT_SECRET'
+              ? SECRET
+              : undefined,
+      } as unknown as ConfigService;
+      const localGuard = new GitHubAuthGuard(store, httpConfig);
+      const { cookies, context } = contextFor({});
+      localGuard.canActivate(context);
+
+      expect(cookies[0].name).toBe(OAUTH_STATE_COOKIE);
+      expect(cookies[0].options).toMatchObject({ secure: false });
     } finally {
       process.env.NODE_ENV = previous;
     }

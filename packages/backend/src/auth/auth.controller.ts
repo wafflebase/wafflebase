@@ -27,6 +27,7 @@ import {
   CliConsentRequest,
   GitHubAuthGuard,
   loginCookieName,
+  CLI_STATE_COOKIE,
   loginCookieOptions,
   OAUTH_STATE_COOKIE,
   secretEquals,
@@ -272,10 +273,10 @@ export class AuthController {
   ): CliCallbackState | undefined {
     if (stateToken?.startsWith(WEB_STATE_PREFIX)) {
       const presented = stateToken.slice(WEB_STATE_PREFIX.length);
-      const cookie = this.takeStateCookie(req, res);
-      // The `state` is the *signature* of the cookie, not a copy of it, so
-      // planting a cookie (a sibling subdomain, an http injection) does not
-      // also produce the query half that matches it.
+      const cookie = this.takeStateCookie(req, res, OAUTH_STATE_COOKIE);
+      // The cookie is the binding; the signature only says this server issued
+      // the start (see `stateSignature` — one unauthenticated request hands
+      // out a matching pair, so it is no defence against cookie planting).
       const expected =
         typeof cookie === 'string'
           ? stateSignature(bindingSecret(this.configService), cookie)
@@ -290,7 +291,7 @@ export class AuthController {
 
     if (stateToken) {
       const state = this.cliAuthStore.consumeState(stateToken);
-      const binding = this.takeStateCookie(req, res);
+      const binding = this.takeStateCookie(req, res, CLI_STATE_COOKIE);
       if (
         state &&
         state.mode === 'cli' &&
@@ -314,15 +315,17 @@ export class AuthController {
   }
 
   /**
-   * Read the login `state` cookie and clear it in the same breath.
+   * Read one flow's login `state` cookie and clear it in the same breath.
    *
    * Single use: it goes whether or not it matched, so a failed callback
-   * cannot be retried against the same half.
+   * cannot be retried against the same half. Only the flow's own cookie is
+   * touched — the browser and CLI logins keep separate names precisely so
+   * that one starting (or failing) does not take the other down with it.
    */
-  private takeStateCookie(req: Request, res: Response): unknown {
-    const name = loginCookieName(OAUTH_STATE_COOKIE);
+  private takeStateCookie(req: Request, res: Response, base: string): unknown {
+    const name = loginCookieName(this.configService, base);
     const value = req.cookies?.[name];
-    res.clearCookie(name, loginCookieOptions());
+    res.clearCookie(name, loginCookieOptions(this.configService));
     return value;
   }
 

@@ -65,9 +65,49 @@ describe('logSafeUrl', () => {
     expect(logSafeUrl('/x?token')).toBe('/x?token');
   });
 
+  // The same share token that `?token=` redacts also rides as a *path
+  // segment* on `GET /share-links/:token/resolve`, which a query-only rule
+  // never sees. That request is how an anonymous visitor turns a link into a
+  // document, so the segment is the credential, and a revoked or expired link
+  // is a 4xx — logged at `warn`.
+  it('redacts a share token that rides in the path', () => {
+    expect(logSafeUrl('/share-links/s3cret-token/resolve')).toBe(
+      '/share-links/<redacted>/resolve',
+    );
+    // With a query string, both halves are handled.
+    expect(logSafeUrl('/share-links/s3cret-token/resolve?from=email')).toBe(
+      '/share-links/<redacted>/resolve?from=email',
+    );
+    // Every spelling the router accepts: case-insensitive, percent-decoded,
+    // repeated slashes collapsed.
+    expect(logSafeUrl('/Share-Links/s3cret-token/RESOLVE')).toBe(
+      '/Share-Links/<redacted>/RESOLVE',
+    );
+    expect(logSafeUrl('//share-links//s3cret-token//resolve')).toBe(
+      '/share-links/<redacted>/resolve',
+    );
+    expect(logSafeUrl('/share-links/s3cret-token/resolve/')).toBe(
+      '/share-links/<redacted>/resolve',
+    );
+  });
+
+  // Only that shape. `DELETE /share-links/:id` carries a row id, not a
+  // credential, and over-matching would blind the log to which link was
+  // revoked.
+  it('leaves other share-link routes readable', () => {
+    expect(logSafeUrl('/share-links/link-id')).toBe('/share-links/link-id');
+    expect(logSafeUrl('/documents/abc/share-links')).toBe(
+      '/documents/abc/share-links',
+    );
+    expect(logSafeUrl('/share-links/a/resolve/b')).toBe(
+      '/share-links/a/resolve/b',
+    );
+  });
+
   it('passes through a URL with no query string unchanged', () => {
     expect(logSafeUrl('/auth/github')).toBe('/auth/github');
     expect(logSafeUrl('/health')).toBe('/health');
+    expect(logSafeUrl('/documents/abc/file')).toBe('/documents/abc/file');
   });
 
   // pino calls the serializer with whatever is on the request object.

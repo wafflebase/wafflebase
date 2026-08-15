@@ -180,7 +180,7 @@ export function registerLoginCommand(program: Command): void {
  * the child, after this `try` has already been left — which, unhandled,
  * takes the process down. So the event is absorbed and the caller announces
  * the URL regardless: treating "spawned" as "opened" is what left headless
- * users staring at a 30-second timeout with no way to continue.
+ * users staring at the callback timeout with no way to continue.
  *
  * Exported for tests: the `error` listener is the whole point of the helper
  * and nothing else observes it.
@@ -302,6 +302,25 @@ function nonceMatches(expected: string, received: string | null): boolean {
 
 /** Path prefix of the single-use redirect that starts the login. */
 const LAUNCH_PREFIX = '/launch/';
+
+/**
+ * How long the loopback listener waits for GitHub's redirect.
+ *
+ * This has to cover everything the person does in the browser, and that is no
+ * longer just GitHub's consent screen: the server now stops a CLI start on an
+ * interstitial that names the loopback port and waits for a deliberate click,
+ * precisely so a link nobody ran cannot walk someone through sign-in. Thirty
+ * seconds was already tight for GitHub alone — a password manager, a 2FA
+ * prompt, a tab switched away from — and with a human gate in front of it the
+ * CLI was giving up on logins the server still considered live. Five minutes
+ * is the server's own budget for one (`STATE_COOKIE_MAX_AGE_MS`, and the
+ * `CliAuthStore` state entry), so the two ends now expire together instead of
+ * by an order of magnitude apart; it is also what this command's own headless
+ * message has been telling people all along.
+ *
+ * Exported so a test can assert the two ends agree without waiting them out.
+ */
+export const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Exported for tests — the nonce gate is the only thing guarding this port. */
 export function startCallbackServer(expectedNonce: string): Promise<{
@@ -448,7 +467,7 @@ export function startCallbackServer(expectedNonce: string): Promise<{
         );
       }
       srv.close();
-    }, 30_000);
+    }, CALLBACK_TIMEOUT_MS);
 
     // Try to listen on a random port (up to 3 attempts)
     let attempts = 0;

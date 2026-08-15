@@ -17,6 +17,20 @@ import { CliAuthStore } from './cli-auth.store';
 export const OAUTH_STATE_COOKIE = 'wafflebase_oauth_state';
 
 /**
+ * Cookie holding the CLI login's browser binding.
+ *
+ * Deliberately *not* `OAUTH_STATE_COOKIE`. The two flows start independently
+ * and a browser can hold both at once — a `wafflebase login` run while a
+ * browser sign-in sits on GitHub's consent screen is an ordinary Tuesday. One
+ * shared name means the second start overwrites the first's binding and the
+ * first callback is refused as a forgery, which is a login that fails for a
+ * reason no one can see. Separate names let the two run side by side; the
+ * callback already knows which flow it is validating, so it reads the one it
+ * issued.
+ */
+export const CLI_STATE_COOKIE = 'wafflebase_cli_state';
+
+/**
  * Cookie holding the half of the CLI consent click that a crafted link cannot
  * carry; see `GitHubAuthGuard`'s class comment.
  */
@@ -40,9 +54,24 @@ const MAX_NONCE_LENGTH = 128;
 const MIN_CHALLENGE_LENGTH = 43;
 const MAX_CHALLENGE_LENGTH = 128;
 
-/** Whether cookies are set `Secure` (and so can carry the `__Host-` prefix). */
-function secureCookies(): boolean {
-  return process.env.NODE_ENV === 'production';
+/**
+ * Whether login cookies are set `Secure` (and so can carry `__Host-`).
+ *
+ * `NODE_ENV === 'production'` used to be the whole test, which quietly dropped
+ * the prefix — the only thing that stops a sibling subdomain from planting the
+ * browser's half of the double submit — on any HTTPS deployment that does not
+ * happen to set that variable (a staging box, a self-hosted install, a
+ * container image whose entrypoint forgot it). So the deployment's own
+ * `GITHUB_CALLBACK_URL` is asked as well: it is the URL GitHub redirects the
+ * login to, so its scheme *is* this server's public scheme. Reading a
+ * configured value rather than the live request keeps the answer identical on
+ * the request that sets the cookie and the callback that reads it, which a
+ * per-request `req.secure` behind a proxy would not.
+ */
+function secureCookies(configService: ConfigService): boolean {
+  if (process.env.NODE_ENV === 'production') return true;
+  const callbackUrl = configService.get<string>('GITHUB_CALLBACK_URL') ?? '';
+  return callbackUrl.trimStart().toLowerCase().startsWith('https://');
 }
 
 /**
@@ -50,14 +79,21 @@ function secureCookies(): boolean {
  *
  * `__Host-` is not decoration: without it these are ordinary host cookies, and
  * any sibling subdomain (or anything that can inject a `Set-Cookie` for the
- * registrable domain) can write the browser's half of the double submit. The
- * prefix makes the browser refuse such a cookie — it is only accepted from the
- * exact host, with `Secure` and `Path=/` and no `Domain`. It requires
- * `Secure`, so outside production (plain http on localhost) the bare name is
- * used and the HMAC binding below carries the weight on its own.
+ * registrable domain) can write the browser's half of the double submit —
+ * and, as `stateSignature` explains, whoever can write that half can obtain
+ * the query half for free. The prefix makes the browser refuse such a cookie:
+ * it is only accepted from the exact host, with `Secure` and `Path=/` and no
+ * `Domain`. It is the control here, not a bonus, so it is applied to every
+ * deployment served over https rather than only to `NODE_ENV=production`. It
+ * requires `Secure`, so a plain-http origin (localhost development) still gets
+ * the bare name — and, with it, no defence against an attacker who can plant
+ * cookies on that origin.
  */
-export function loginCookieName(base: string): string {
-  return secureCookies() ? `__Host-${base}` : base;
+export function loginCookieName(
+  configService: ConfigService,
+  base: string,
+): string {
+  return secureCookies(configService) ? `__Host-${base}` : base;
 }
 
 /**
@@ -65,10 +101,10 @@ export function loginCookieName(base: string): string {
  * is httpOnly, single-use and expires with the consent screen, so the wider
  * path costs nothing.
  */
-export function loginCookieOptions(): CookieOptions {
+export function loginCookieOptions(configService: ConfigService): CookieOptions {
   return {
     httpOnly: true,
-    secure: secureCookies(),
+    secure: secureCookies(configService),
     sameSite: 'lax',
     path: '/',
   };
@@ -97,13 +133,18 @@ export function bindingSecret(configService: ConfigService): string {
 /**
  * The `state` value that belongs to a given cookie value.
  *
- * A plain double submit (send the cookie's value back as `state`) is only as
- * good as the browser's cookie jar: whoever can plant a cookie can also send
- * the matching `state`, which is the sibling-subdomain injection the
- * `__Host-` prefix closes in production and nothing closed elsewhere. Signing
- * the cookie value with a server key means the attacker can plant a cookie but
- * cannot produce the `state` that matches it, so the forced-login CSRF stays
- * shut even where the prefix cannot be used.
+ * What this does buy: the browser flow needs no server-side entry, so a
+ * callback may land on a different replica than the start, and a `state` the
+ * server never issued cannot be invented.
+ *
+ * What it does **not** buy, despite the shape suggesting otherwise: protection
+ * against an attacker who can plant cookies. `GET /auth/github` is
+ * unauthenticated, and one request hands the caller a matching pair — the
+ * cookie in `Set-Cookie`, its signature in the `Location`'s `state`. An
+ * attacker who can write the victim's cookie jar therefore just harvests a
+ * pair and plants its cookie half, and signing changes nothing. Cookie
+ * planting is closed by `__Host-` (see `loginCookieName`) and by nothing else
+ * here; do not read this signature as a second line of defence against it.
  */
 export function stateSignature(secret: string, cookieValue: string): string {
   return createHmac('sha256', secret).update(cookieValue).digest('base64url');
@@ -149,11 +190,14 @@ function boundedToken(
  * short-lived first-party cookie, sent to GitHub under the `w.` prefix and
  * recomputed from the cookie on the callback. It is a double submit rather
  * than a server-side entry because the callback may land on a different
- * replica than the one that started the login, and it is *signed* rather than
- * echoed so that planting a cookie is not enough to forge the pair. Without
- * any of it the callback accepted any GitHub redirect, which is a
- * forced-login CSRF: an attacker completes consent for their own account and
- * gets the victim's browser issued cookies for it.
+ * replica than the one that started the login. Without any of it the callback
+ * accepted any GitHub redirect, which is a forced-login CSRF: an attacker
+ * completes consent for their own account and gets the victim's browser
+ * issued cookies for it. What holds that shut is the *cookie* — the signature
+ * only proves this server issued some start, and an attacker who can write
+ * the victim's cookie jar can harvest a matching pair from one unauthenticated
+ * request (see `stateSignature`). Cookie planting is closed by `__Host-`,
+ * which is why it now follows the deployment's scheme rather than `NODE_ENV`.
  *
  * A CLI login carries four bindings, and the first three are required — a
  * login that is missing one is refused rather than started, because "the
@@ -197,53 +241,61 @@ export class GitHubAuthGuard extends AuthGuard('github') {
     const mode = req.query?.mode;
     const port = req.query?.port;
 
-    if (mode === 'cli' && port) {
+    if (mode === 'cli') {
+      // Missing and malformed are the same failure: a login that continues
+      // without one of these is a bearer-only code at a guessable loopback
+      // port, and neither end can see the downgrade (a copy-pasted start
+      // URL truncated at the terminal edge looks exactly like an older
+      // client). Refusing costs an upgrade; accepting costs the account.
+      //
+      // The port is held to that rule too. Falling through to the browser
+      // flow instead — which is what an unusable port used to do — is the
+      // worst of both: the person is walked through GitHub and issued real
+      // session cookies for a login they asked to give to a terminal, while
+      // the CLI waits out its timeout on a callback that will never come.
       const portNum = Number(port);
-      if (Number.isInteger(portNum) && portNum >= 1024 && portNum <= 65535) {
-        // Missing and malformed are the same failure: a login that continues
-        // without one of these is a bearer-only code at a guessable loopback
-        // port, and neither end can see the downgrade (a copy-pasted start
-        // URL truncated at the terminal edge looks exactly like an older
-        // client). Refusing costs an upgrade; accepting costs the account.
-        const nonce = boundedToken(req.query?.nonce, 1, MAX_NONCE_LENGTH);
-        if (nonce === undefined) {
-          throw new BadRequestException('Missing or invalid nonce');
-        }
+      if (!Number.isInteger(portNum) || portNum < 1024 || portNum > 65535) {
+        throw new BadRequestException('Missing or invalid port');
+      }
 
-        const codeChallenge = boundedToken(
-          req.query?.code_challenge,
-          MIN_CHALLENGE_LENGTH,
-          MAX_CHALLENGE_LENGTH,
-          /^[A-Za-z0-9\-._~]+$/,
-        );
-        if (codeChallenge === undefined) {
-          throw new BadRequestException('Missing or invalid code_challenge');
-        }
+      const nonce = boundedToken(req.query?.nonce, 1, MAX_NONCE_LENGTH);
+      if (nonce === undefined) {
+        throw new BadRequestException('Missing or invalid nonce');
+      }
 
-        // Nothing about this request says the CLI wrote it — an attacker's
-        // link reaches here identically, pointing `port` at a listener they
-        // own. Stop before GitHub and ask the person, once, naming the port.
-        if (!this.hasConfirmation(req)) {
-          const consent: CliConsentRequest = {
-            port: portNum,
-            nonce,
-            codeChallenge,
-            confirmToken: this.issueLoginCookie(context, CLI_CONFIRM_COOKIE),
-          };
-          req.__cliConsent = consent;
-          return true;
-        }
+      const codeChallenge = boundedToken(
+        req.query?.code_challenge,
+        MIN_CHALLENGE_LENGTH,
+        MAX_CHALLENGE_LENGTH,
+        /^[A-Za-z0-9\-._~]+$/,
+      );
+      if (codeChallenge === undefined) {
+        throw new BadRequestException('Missing or invalid code_challenge');
+      }
 
-        this.clearLoginCookie(context, CLI_CONFIRM_COOKIE);
-        const { stateToken } = this.cliAuthStore.createState({
-          mode,
+      // Nothing about this request says the CLI wrote it — an attacker's
+      // link reaches here identically, pointing `port` at a listener they
+      // own. Stop before GitHub and ask the person, once, naming the port.
+      if (!this.hasConfirmation(req)) {
+        const consent: CliConsentRequest = {
           port: portNum,
-          browserBinding: this.issueLoginCookie(context, OAUTH_STATE_COOKIE),
           nonce,
           codeChallenge,
-        });
-        req.__oauthState = stateToken;
+          confirmToken: this.issueLoginCookie(context, CLI_CONFIRM_COOKIE),
+        };
+        req.__cliConsent = consent;
+        return true;
       }
+
+      this.clearLoginCookie(context, CLI_CONFIRM_COOKIE);
+      const { stateToken } = this.cliAuthStore.createState({
+        mode,
+        port: portNum,
+        browserBinding: this.issueLoginCookie(context, CLI_STATE_COOKIE),
+        nonce,
+        codeChallenge,
+      });
+      req.__oauthState = stateToken;
     }
 
     if (!req.__oauthState) {
@@ -263,7 +315,8 @@ export class GitHubAuthGuard extends AuthGuard('github') {
     cookies?: Record<string, unknown>;
   }): boolean {
     const presented = req.query?.[CLI_CONFIRM_PARAM];
-    const expected = req.cookies?.[loginCookieName(CLI_CONFIRM_COOKIE)];
+    const expected =
+      req.cookies?.[loginCookieName(this.configService, CLI_CONFIRM_COOKIE)];
     return (
       typeof presented === 'string' &&
       typeof expected === 'string' &&
@@ -288,8 +341,8 @@ export class GitHubAuthGuard extends AuthGuard('github') {
     if (typeof res?.cookie !== 'function') {
       throw new InternalServerErrorException('Cannot start a login session');
     }
-    res.cookie(loginCookieName(base), value, {
-      ...loginCookieOptions(),
+    res.cookie(loginCookieName(this.configService, base), value, {
+      ...loginCookieOptions(this.configService),
       maxAge: STATE_COOKIE_MAX_AGE_MS,
     });
     return value;
@@ -299,7 +352,10 @@ export class GitHubAuthGuard extends AuthGuard('github') {
   private clearLoginCookie(context: ExecutionContext, base: string): void {
     const res = context.switchToHttp().getResponse();
     if (typeof res?.clearCookie === 'function') {
-      res.clearCookie(loginCookieName(base), loginCookieOptions());
+      res.clearCookie(
+        loginCookieName(this.configService, base),
+        loginCookieOptions(this.configService),
+      );
     }
   }
 }

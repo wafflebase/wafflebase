@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import open from 'open';
 import {
+  CALLBACK_TIMEOUT_MS,
   openBrowser,
   registerLoginCommand,
   startCallbackServer,
@@ -102,6 +103,42 @@ describe('login callback server', () => {
       ).toBe(404);
     } finally {
       close();
+    }
+  });
+
+  // The window this listener waits out is not GitHub's consent screen alone
+  // any more: the server stops a CLI start on an interstitial that names the
+  // loopback port and waits for a deliberate click. Thirty seconds had to
+  // cover a human reading that page, GitHub's sign-in, a password manager and
+  // a 2FA prompt — so the CLI gave up on logins the server still held open
+  // for five minutes, and the code it then refused looked, from the terminal,
+  // like a plain timeout.
+  it('waits out the server’s whole five-minute login window', async () => {
+    // The server's budget: `STATE_COOKIE_MAX_AGE_MS` and the `CliAuthStore`
+    // state entry both expire at five minutes. The two ends must agree.
+    expect(CALLBACK_TIMEOUT_MS).toBe(5 * 60 * 1000);
+
+    vi.useFakeTimers();
+    try {
+      const { waitForCallback, close } = await startCallbackServer('the-nonce');
+      const settled = { done: false };
+      const pending = waitForCallback().then(
+        () => (settled.done = true),
+        () => (settled.done = true),
+      );
+
+      // Well past the old 30-second cutoff, and past a slow consent click.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(settled.done).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(CALLBACK_TIMEOUT_MS);
+      await pending;
+      expect(settled.done).toBe(true);
+
+      await expect(waitForCallback()).rejects.toThrow(/timed out/i);
+      close();
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
