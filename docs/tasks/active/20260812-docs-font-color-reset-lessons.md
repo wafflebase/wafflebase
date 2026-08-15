@@ -143,3 +143,43 @@ Takeaway: a `Record` with an untrusted key reaches `Object.prototype`. When a
 hardening pass converts lookups to `Map`, the one that got skipped is the one
 whose comment now lies about it — grep the pass for the pattern, don't trust
 the prose.
+
+## A repair pass has to cover the container, not just its contents
+
+The round above filled in every required field *inside* a slide text body —
+`blocks`, `inlines`, a block's `style`, an inline's `style`. The next review
+round found the walk still returned early one level up: `assertValidElementData`
+opened with `if (!data || typeof data !== 'object') return;`, and a text
+element's `data` **is** its `TextBody`. So an element with no `data` at all
+skipped the whole repair pass and was stored in precisely the shape the pass
+exists to prevent — `isElementEmpty` reads `el.data.blocks` unconditionally,
+and `migrateElement` repairs nothing but shapes. The same early `continue`
+skipped a table cell with no `body`, which the table renderer reads as
+`cell.body.blocks`.
+
+Takeaway: when a validator's guard clause is "nothing here, nothing to check",
+ask whether *the missing thing itself* is required by the model. A walk that
+repairs a container's contents but tolerates the container's absence has a
+hole exactly the size of the type it is protecting.
+
+Second-order, from the same finding: a repair can only be applied to a value
+the writer will actually persist. `typeof [] === 'object'`, so `data: []`
+would have taken the repair as an array expando (`[].blocks = []`) that JSON
+serialization silently drops — the endpoint would have echoed a "repaired"
+body and stored the crashing one. Where the empty shape cannot be written
+back, reject instead of repairing.
+
+## Check a lens finding against the head commit, not the diff it read
+
+One of the two blocking correctness findings this round — "a slide block with
+no `style` is accepted, but the PPTX exporter dereferences `block.style`" —
+quoted `docs-content.controller.ts:694` as
+`if (block.style !== undefined && block.style !== null)`. That is verbatim the
+*previous* commit (`d14be04d5`); the head commit (`eab6825ed`) already replaced
+it with the repair at line 706. The finding was true when the code it quoted
+was written and stale by the time it was reported.
+
+Takeaway: before implementing a review finding, open the cited `file:line` on
+the head commit and confirm the quoted text is still there. `git show
+<prev>:<file>` will usually tell you which revision a stale quote came from,
+which is stronger counter-evidence than "I could not reproduce it".

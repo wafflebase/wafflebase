@@ -1238,6 +1238,103 @@ describe('ApiV1DocsContentController', () => {
           /elements\[0\]\.data\.blocks\[0\].*'style'.*object/,
         );
       });
+
+      it("fills in a text element's absent data instead of storing a crashing shape", async () => {
+        // `TextElement.data` *is* the `TextBody`. Skipping the walk when it
+        // is absent stores the very shape the walk exists to prevent:
+        // `isElementEmpty` reads `el.data.blocks` unconditionally
+        // (packages/slides/src/model/element.ts:640) and `migrateElement`
+        // only repairs shapes, so nothing fixes it on read. Group children
+        // and layout placeholders reach the same walk.
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        const body = withSlides({
+          slides: [
+            {
+              id: 's1',
+              layoutId: 'l',
+              background: {},
+              elements: [
+                { id: 'e1', type: 'text', frame: {} },
+                {
+                  id: 'e2',
+                  type: 'group',
+                  frame: {},
+                  data: { children: [{ type: 'text', frame: {} }] },
+                },
+              ],
+              notes: [],
+            },
+          ] as unknown as [],
+        }) as {
+          slides: Array<{
+            elements: Array<{ data?: { blocks?: unknown; children?: unknown } }>;
+          }>;
+        };
+        await expect(
+          controller.putContent('ws-1', 'd1', body as never),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        const [text, group] = body.slides[0].elements as unknown as [
+          { data: { blocks?: unknown } },
+          { data: { children: Array<{ data?: { blocks?: unknown } }> } },
+        ];
+        expect(text.data.blocks).toEqual([]);
+        expect(group.data.children[0].data!.blocks).toEqual([]);
+      });
+
+      it("rejects an array as a text element's data", async () => {
+        // `typeof [] === 'object'`, so an array would pass an object check
+        // and then take the repair as an array expando (`[].blocks = []`),
+        // which JSON serialization drops — the deck would be stored in the
+        // crashing shape the repair claims to have fixed. Reject instead:
+        // no editor writes it, so nothing round-trips through here.
+        await expectReject(
+          withTextElement([]),
+          /elements\[0\].*'data'.*object/,
+        );
+      });
+
+      it("fills in a table cell's absent body instead of storing a crashing shape", async () => {
+        // `TableCell.body` is required by the model and the table renderer
+        // reads `cell.body.blocks` unconditionally
+        // (packages/slides/src/view/canvas/table-renderer.ts:229), so an
+        // absent body is a TypeError for every viewer of the deck — the
+        // same failure mode as an absent `blocks`, and the same repair.
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        const body = withSlides({
+          slides: [
+            {
+              id: 's1',
+              layoutId: 'l',
+              background: {},
+              elements: [
+                {
+                  id: 'e1',
+                  type: 'table',
+                  frame: {},
+                  data: { rows: [{ cells: [{ style: {} }] }] },
+                },
+              ],
+              notes: [],
+            },
+          ] as unknown as [],
+        }) as {
+          slides: Array<{
+            elements: Array<{
+              data: { rows: Array<{ cells: Array<{ body?: unknown }> }> };
+            }>;
+          }>;
+        };
+        await expect(
+          controller.putContent('ws-1', 'd1', body as never),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        expect(
+          body.slides[0].elements[0].data.rows[0].cells[0].body,
+        ).toEqual({ blocks: [] });
+      });
     });
   });
 });

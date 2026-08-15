@@ -277,6 +277,17 @@ an inline needs a string `text` and a `style` object; a table cell needs a
   the caller sees is what is stored. A value that is *present but wrong* is
   still a 400: `inlines` must be an array, each entry an object with a string
   `text`, and a present `style` must be an object.
+- The same repair covers every other field a stored deck's readers dereference
+  unconditionally: a text body's `blocks` (`body.blocks.map` in the slides text
+  renderer), a block's `style` (`ALGN.get(block.style.alignment)` in the PPTX
+  exporter), a text element's whole `data` — which *is* its `TextBody`, read as
+  `el.data.blocks` by `isElementEmpty` — and a table cell's `body`
+  (`cell.body.blocks` in the table renderer). Each becomes its empty shape
+  (`[]`, `{}`, `{ blocks: [] }`). Nothing on read repairs them: `migrateElement`
+  touches shapes only. Where the empty shape cannot be written back — an array
+  is `typeof 'object'`, so a repair on one is an expando that JSON
+  serialization drops — the value is rejected instead, so no deck is ever
+  persisted in a shape that would be a `TypeError` for its viewers.
 
 `GET` → edit → `PUT` stays lossless for docs bodies: the read side of the
 Tree codec (`@wafflebase/docs` `model/crdt-attrs.ts`) drops exactly the values

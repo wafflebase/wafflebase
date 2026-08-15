@@ -608,16 +608,37 @@ function assertValidNestedElement(element: unknown, path: string): void {
  * layout engine. `writeSlidesRoot` stores them as plain JSON verbatim, so
  * without this walk the slides arm of this endpoint is a hole through which
  * a `NaN` margin reaches the deck.
+ *
+ * A text element's `data` *is* its `TextBody`, so an absent one is the same
+ * TypeError-for-every-viewer as an absent `blocks`, and it gets the same
+ * repair — returning early here would store exactly the shape the walk below
+ * exists to prevent (`isElementEmpty` reads `el.data.blocks` unconditionally
+ * in `packages/slides/src/model/element.ts`, and `migrateElement` repairs
+ * nothing but shapes). An array is rejected rather than repaired:
+ * `typeof [] === 'object'`, so the repair would land as an array expando that
+ * JSON serialization drops, leaving the crashing shape stored anyway.
  */
 function assertValidElementData(
   e: Record<string, unknown>,
   path: string,
 ): void {
+  if (e.type === 'text') {
+    const body = e.data;
+    if (body === undefined || body === null) {
+      e.data = { blocks: [] };
+      return;
+    }
+    if (typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException(
+        `Invalid element at ${path}: 'data' must be an object`,
+      );
+    }
+    assertValidTextBodyBlocks(body as Record<string, unknown>, `${path}.data`);
+    return;
+  }
   const data = e.data as Record<string, unknown> | undefined;
   if (!data || typeof data !== 'object') return;
-  if (e.type === 'text') {
-    assertValidTextBodyBlocks(data, `${path}.data`);
-  } else if (e.type === 'shape') {
+  if (e.type === 'shape') {
     // A shape's inline text body is lazily created, so it is often absent.
     if (data.text !== undefined && data.text !== null) {
       assertValidTextBody(data.text, `${path}.data.text`);
@@ -628,9 +649,22 @@ function assertValidElementData(
       const cells = (rows[r] as { cells?: unknown })?.cells;
       if (!Array.isArray(cells)) continue;
       for (let c = 0; c < cells.length; c++) {
-        const body = (cells[c] as { body?: unknown })?.body;
-        if (body === undefined || body === null) continue;
-        assertValidTextBody(body, `${path}.data.rows[${r}].cells[${c}].body`);
+        const cell = cells[c] as Record<string, unknown> | null;
+        if (!cell || typeof cell !== 'object' || Array.isArray(cell)) continue;
+        if (cell.body === undefined || cell.body === null) {
+          // `TableCell.body` is required by the model and the table renderer
+          // reads `cell.body.blocks` unconditionally
+          // (`packages/slides/src/view/canvas/table-renderer.ts`), so an
+          // absent body crashes every viewer of the stored deck. Fill in the
+          // same empty shape the store itself writes (`MemSlidesStore` clears
+          // a cell to `{ blocks: [] }`).
+          cell.body = { blocks: [] };
+          continue;
+        }
+        assertValidTextBody(
+          cell.body,
+          `${path}.data.rows[${r}].cells[${c}].body`,
+        );
       }
     }
   } else if (e.type === 'group') {

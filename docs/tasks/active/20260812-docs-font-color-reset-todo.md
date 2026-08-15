@@ -109,6 +109,11 @@ Root cause — two layers:
             `TextBody.blocks` / `Block.style` is filled in with its empty
             shape (text element, shape text, table-cell body, notes), and an
             array is rejected as a block style
+      - [x] backend: `docs-content.controller.spec.ts` — a text element's
+            absent `data` (its whole `TextBody`, on a slide element and on a
+            group child) and a table cell's absent `body` are filled in too,
+            and an array `data` is rejected rather than repaired into an
+            expando JSON drops
       - [x] slides: `export/pptx/color.test.ts` — a `role` outside the closed
             set (`constructor`, `__proto__`, …) emits black, not a
             prototype-chain value or `val="undefined"`
@@ -162,8 +167,14 @@ either the same color path or the validator that feeds it; landing them
 separately would mean shipping a branch that the review panel already
 rejected, and re-basing five dependent PRs through the same panel. The cost
 is a large diff for a small title, which this section exists to explain.
-Design-fit review rated the same scope minor/non-blocking in an earlier
-round.
+
+Scope is a **maintainer call, not a lens verdict** — restructuring the branch
+is the one remedy that cannot be applied by an agent acting on a review
+finding, because every candidate split reopens a hop the panel already
+blocked. The decision on record is the maintainer's: land the chain as one
+PR. A reviewer who disagrees should say so on the PR and the branch will be
+split — this paragraph records what was decided, it does not claim the
+question is unarguable, and it is not evidence about the finding's merits.
 
 ## Acceptance criteria (from the issue)
 
