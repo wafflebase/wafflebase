@@ -50,3 +50,29 @@
   whole fix either: `encodeURIComponent('..') === '..'`, and the URL
   parser resolves a dot segment however it is spelled (`%2e%2e` decodes
   back), so a bare `.`/`..` id has to be refused rather than encoded.
+- …and then the same mistake was made one layer out: the browser client
+  got the `seg()` primitive applied to `documents.ts` **only**, while
+  workspaces / folders / share-links / datasources / files / analytics /
+  Miro / the sheet image upload still interpolated route-param ids raw.
+  Three lenses flagged it independently. A half-applied guard is worse
+  than an absent one, because the new module plus the design doc read as
+  "the client is covered". The rule for a client-wide invariant: enumerate
+  the call sites with a grep that finds *interpolation*, not the ones the
+  original bug report happened to name, and pin them with a test that
+  drives every id-bearing route.
+- An address allow-list that runs once is not a guard on the request, it
+  is a guard on the *string*. `fetch` follows redirects itself, so a
+  public host the check allowed could answer `302 Location:
+  http://169.254.169.254/…` and the export followed it with nothing in
+  between. Owning the hop (`redirect: 'manual'` + re-check per
+  `Location`) is the only version that holds. Same class of error one
+  line up: an exact-match hostname set missed `localhost.`, which the
+  WHATWG parser preserves and every resolver treats as `localhost` —
+  normalize before you compare.
+- A security guard with no escape hatch becomes an availability bug for
+  someone. Refusing every non-public image origin is right by default,
+  but a self-hosted install may genuinely serve blobs from an internal
+  MinIO; the fix is not to weaken the default but to let the *operator*
+  (never the document) name the exception — and to say so in the refusal
+  message, so the person who hits it can act on it without reading the
+  source.

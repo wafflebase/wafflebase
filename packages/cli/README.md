@@ -32,6 +32,19 @@ export WAFFLEBASE_API_KEY=wfb_…
 export WAFFLEBASE_WORKSPACE=ws-…
 ```
 
+`docs export` / `slides export` fetch the images a document references. An
+image `src` is content someone else may have written, so the fetcher speaks
+only `http`/`https`/`data` and refuses a non-public address (loopback,
+private, `169.254.169.254`, CGNAT) unless it is the configured `--server`.
+If your deployment really serves images from an internal host — an internal
+MinIO, a reverse proxy on a second port — name it:
+
+```bash
+export WAFFLEBASE_IMAGE_HOSTS=10.0.0.5:9000,minio.internal
+```
+
+Entries are `host` or `host:port`; a portless entry matches any port.
+
 ## Command Tree (v0.3.7)
 
 Plural namespaces are canonical; singular forms are accepted as

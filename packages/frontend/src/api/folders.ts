@@ -1,13 +1,14 @@
 import type { Folder } from "@/types/documents";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
+import { seg } from "./url";
 
 /**
  * Fetches folders in a workspace.
  */
 export async function fetchFolders(workspaceId: string): Promise<Folder[]> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/workspaces/${workspaceId}/folders`
+    `${import.meta.env.VITE_BACKEND_API_URL}/workspaces/${seg(workspaceId)}/folders`
   );
   await assertOk(response, "Failed to fetch folders");
   return response.json();
@@ -21,7 +22,7 @@ export async function createFolder(
   payload: { name: string; parentId?: string | null }
 ): Promise<Folder> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/workspaces/${workspaceId}/folders`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/workspaces/${seg(workspaceId)}/folders`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -39,7 +40,7 @@ export async function createFolder(
  */
 export async function renameFolder(id: string, name: string): Promise<Folder> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/folders/${id}`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/folders/${seg(id)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -61,7 +62,7 @@ export async function moveFolder(
   parentId: string | null
 ): Promise<Folder> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/folders/${id}`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/folders/${seg(id)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -79,7 +80,7 @@ export async function moveFolder(
  */
 export async function deleteFolder(id: string): Promise<void> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/folders/${id}`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/folders/${seg(id)}`,
     {
       method: "DELETE",
     }

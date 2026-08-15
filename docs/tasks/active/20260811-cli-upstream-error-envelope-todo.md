@@ -70,7 +70,18 @@ Sites:
 - No id the client interpolates into a request path — workspace,
   document, tab, cell ref — can leave its own path segment. `fetch`
   resolves `..`, so an unencoded id could otherwise send the command's
-  method and the session's bearer token at an unrelated endpoint.
+  method and the session's bearer token at an unrelated endpoint. This
+  holds for the **whole** browser client too, not only `api/documents.ts`:
+  workspaces, folders, share links, datasources, files, analytics, the
+  Miro import and the sheet image upload all route ids through `seg()`,
+  pinned by `packages/frontend/src/api/url.test.ts`.
+- An image `src` cannot aim an export at the local network, and cannot do
+  it via a redirect either: the fetcher takes the hops itself
+  (`redirect: 'manual'`, re-checked per `Location`, capped at 5) and
+  normalizes a hostname before comparing it, so `localhost.` is refused
+  like `localhost`. A deployment that genuinely serves images from an
+  internal host stays exportable through `WAFFLEBASE_IMAGE_HOSTS`, which
+  the refusal message names.
 - Every CLI path that prints an upstream body shares one guard
   (`isErrorEnvelope`) in `src/output/formatter.ts`.
 - `packages/cli/README.md` and `docs/design/cli.md`'s error matrix

@@ -1129,15 +1129,32 @@ outside the process:
   and refuses a loopback, private, link-local (`169.254.169.254`) or CGNAT
   host unless it is the configured `--server`'s own origin, which is what
   keeps `--server http://localhost:3000` working
-  (`assertFetchableImageUrl`, `packages/cli/src/docs/image-fetcher.ts`). It is
-  an address guard, not a full SSRF defense: a public hostname that *resolves*
-  to a private address still gets fetched, which would need DNS resolution
-  plus connection pinning below `fetch`.
+  (`assertFetchableImageUrl`, `packages/cli/src/docs/image-fetcher.ts`).
+  A name is normalized before it is compared, because `http://localhost./x`
+  parses to the hostname `localhost.` and resolves to the same machine.
+  Redirects are the fetcher's, not `fetch`'s: `redirect: 'manual'` plus a
+  re-check on every `Location` (capped at 5 hops), since a host the guard
+  allows could otherwise answer `302 Location: http://169.254.169.254/…` and
+  the export would follow it with no check in between.
+  A self-hosted install may genuinely serve images from an internal host that
+  is not the API server — an internal MinIO, a reverse proxy on a second port
+  — so `WAFFLEBASE_IMAGE_HOSTS` (comma-separated `host` or `host:port`) names
+  those, and the refusal message points at it. The operator opts in; the
+  document never can. It is still an address guard, not a full SSRF defense:
+  a public hostname that *resolves* to a private address still gets fetched,
+  which would need DNS resolution plus connection pinning below `fetch`.
 
 The rule is not CLI-only. The frontend talks to the same API with the user's
 session, and interpolates route-param ids the same way, so it carries the same
-primitive (`seg()`, `packages/frontend/src/api/url.ts`), applied to the
-document routes.
+primitive (`seg()`, `packages/frontend/src/api/url.ts`), applied to **every**
+browser API module that interpolates one — documents, workspaces, folders,
+share links, datasources, files, analytics, Miro import and the sheet image
+upload. A partially applied guard would be worse than none, because it reads
+as covered: ids reach these modules from `useParams`, so a crafted link like
+`/workspaces/..%2F..%2Fauth%2Flogout/settings` is enough (react-router
+percent-decodes route params before handing them over). `url.test.ts` drives
+one call per id-bearing route and asserts the normalized pathname still names
+the route that was asked for.
 
 **Forwarding is bounded, not byte-for-byte.** On the "body *is* the envelope"
 row the `code` is the upstream's own — that is the contract, and it is never
