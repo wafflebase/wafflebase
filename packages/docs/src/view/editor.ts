@@ -23,6 +23,7 @@ import { computeTableMergeContext, type TableMergeContext } from './table-merge-
 import { createPendingStyle } from './pending-style.js';
 import { findLinkRunAt } from './link-run.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
+import { dirtyBlockIdsForRange } from '../model/range-slices.js';
 import { caretInlineStyle } from '../model/caret-style.js';
 import { SpellSession, type SpellError } from '../spell/session.js';
 import { SpellRouter } from '../spell/router.js';
@@ -1028,25 +1029,9 @@ export function initialize(
     }
 
     doc.applyInlineStyle(range, style);
-    // Mark affected blocks as dirty
-    const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
-    const focusCI = layout.blockParentMap.get(range.focus.blockId);
-    if (anchorCI) {
-      // Cell block: mark the parent table block dirty
-      markDirty(anchorCI.tableBlockId);
-    } else if (focusCI) {
-      markDirty(focusCI.tableBlockId);
-    } else {
-      const startIdx = doc.getBlockIndex(range.anchor.blockId);
-      const endIdx = doc.getBlockIndex(range.focus.blockId);
-      if (startIdx >= 0 && endIdx >= 0) {
-        const lo = Math.min(startIdx, endIdx);
-        const hi = Math.max(startIdx, endIdx);
-        for (let i = lo; i <= hi; i++) {
-          markDirty(doc.document.blocks[i].id);
-        }
-      }
-    }
+    // Repaint exactly what was written — same traversal, so the two cannot
+    // drift apart (see `dirtyBlockIdsForRange`).
+    for (const id of dirtyBlockIdsForRange(doc, range)) markDirty(id);
     render();
     notifyStyleApplied();
   }
@@ -2962,24 +2947,7 @@ export function initialize(
 
         doc.applyInlineStyle(range, { href: url });
         // Mark affected blocks as dirty (mirrors applyStyleImpl)
-        const anchorCI = layout.blockParentMap.get(range.anchor.blockId);
-        const focusCI = layout.blockParentMap.get(range.focus.blockId);
-        if (anchorCI) {
-          // Cell block: mark the parent table block dirty
-          markDirty(anchorCI.tableBlockId);
-        } else if (focusCI) {
-          markDirty(focusCI.tableBlockId);
-        } else {
-          const startIdx = doc.getBlockIndex(range.anchor.blockId);
-          const endIdx = doc.getBlockIndex(range.focus.blockId);
-          if (startIdx >= 0 && endIdx >= 0) {
-            const lo = Math.min(startIdx, endIdx);
-            const hi = Math.max(startIdx, endIdx);
-            for (let i = lo; i <= hi; i++) {
-              markDirty(doc.document.blocks[i].id);
-            }
-          }
-        }
+        for (const id of dirtyBlockIdsForRange(doc, range)) markDirty(id);
         render();
         notifyStyleApplied();
       } else {

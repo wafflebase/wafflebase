@@ -827,3 +827,102 @@ describe('cell-rectangle routing for clear formatting and the format painter', (
     expect(storedCell(store, 2).inlines[0].style.italic).toBeUndefined();
   });
 });
+
+/**
+ * A style write inside a header/footer region resolves its blocks against the
+ * *context* block array (`Doc.getContextBlocks()`), never the body's — that is
+ * what `Doc.getBlockIndex` returns indices into. The dirty-marking that
+ * follows the write used to feed those context-relative indices to
+ * `doc.document.blocks` (body only): with a header longer than the body it
+ * dereferenced `undefined.id` and threw, aborting the write's repaint on both
+ * the toolbar path (`view/editor.ts`) and the single keyboard write path
+ * (`view/text-editor.ts`, which the diff made shared by the B/I/U/S toggles,
+ * clear formatting and the format painter).
+ *
+ * The header here is deliberately three blocks long against a one-block body,
+ * which is what makes the mismatch observable rather than merely wrong.
+ */
+describe('style write inside a header region', () => {
+  const editors: EditorAPI[] = [];
+
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    for (const editor of editors.splice(0)) editor.dispose();
+    document.body.innerHTML = '';
+  });
+
+  function para(text: string): Block {
+    return {
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: [{ text, style: {} }],
+      style: EMPTY_BLOCK_STYLE,
+    };
+  }
+
+  /** One body block, three header blocks, all three header blocks selected. */
+  function setup(): {
+    editor: EditorAPI;
+    store: MemDocStore;
+    container: HTMLElement;
+  } {
+    const header = [para('one'), para('two'), para('three')];
+    const store = new MemDocStore();
+    store.setDocument({
+      blocks: [para('body')],
+      header: { blocks: header, marginFromEdge: 48 },
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editors.push(editor);
+    editor._setEditContextForTest('header');
+    editor._setSelectionForTest({
+      anchor: { blockId: header[0].id, offset: 0 },
+      focus: { blockId: header[2].id, offset: 'three'.length },
+    });
+    return { editor, store, container };
+  }
+
+  /** Bold flag of the first run of each stored header block. */
+  function headerBold(store: MemDocStore): Array<boolean | undefined> {
+    return store.getDocument().header!.blocks.map(
+      (block) => block.inlines[0].style.bold,
+    );
+  }
+
+  function bodyBold(store: MemDocStore): boolean | undefined {
+    return store.getDocument().blocks[0].inlines[0].style.bold;
+  }
+
+  test('the toolbar path bolds every selected header block', () => {
+    const { editor, store } = setup();
+
+    editor.applyStyle({ bold: true });
+
+    expect(headerBold(store)).toEqual([true, true, true]);
+    expect(bodyBold(store)).toBeUndefined();
+  });
+
+  test('the keyboard path bolds every selected header block', () => {
+    const { store, container } = setup();
+    // A listener exception inside `dispatchEvent` is reported to the window
+    // rather than rethrown, so the keyboard path needs this to see the crash.
+    const errors: string[] = [];
+    const onError = (e: ErrorEvent): void => {
+      errors.push(String(e.message ?? e.error));
+    };
+    window.addEventListener('error', onError);
+
+    dispatchKey(container, 'b');
+
+    window.removeEventListener('error', onError);
+    expect(errors).toEqual([]);
+    expect(headerBold(store)).toEqual([true, true, true]);
+    expect(bodyBold(store)).toBeUndefined();
+  });
+});

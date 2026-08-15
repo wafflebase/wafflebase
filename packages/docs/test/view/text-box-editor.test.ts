@@ -931,6 +931,58 @@ describe('initializeTextBox — named-style defaults in the style reads', () => 
     api.detach();
   });
 
+  /**
+   * The collapsed-caret half of the same rule, which the range test above
+   * cannot reach (it selects all first). The branch reads the size it steps
+   * from the *effective* style but stages a *raw* base, and heading-3 tells
+   * the two apart: it supplies `fontSize: 14` (so a raw read would step the
+   * 11pt fallback to 12) and `color: '#434343'` (which must not be baked into
+   * the run the next keystroke writes, or the run stops tracking the style
+   * when it is redefined).
+   */
+  it('steps a collapsed caret from the named-style size and stages a raw base', async () => {
+    const clamp = (n: number) => Math.max(1, Math.min(400, Math.round(n)));
+    const block = {
+      id: 'h3',
+      type: 'heading',
+      headingLevel: 3,
+      inlines: [{ text: 'abc', style: {} }],
+      style: {},
+    } as unknown as Block;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const committed: Block[][] = [];
+    const api = initializeTextBox({
+      container, canvas, blocks: [block], contentWidth: 400, contentHeight: 200,
+      onCommit: (blocks) => committed.push(blocks),
+    });
+
+    // No selectAll — the caret stays collapsed at the start of the run.
+    api.stepSelectionFontSize(1, clamp);
+    expect(api.getRangeStyleSummary().fontSize).toBe(15);
+
+    // Type, so the staged pending style is written into a real run.
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    api.focus();
+    textarea.value = 'X';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    api.detach();
+
+    const blocks = committed.at(-1);
+    expect(blocks).toBeDefined();
+    const typed = blocks![0].inlines.find((inline) => inline.text.includes('X'));
+    expect(typed).toBeDefined();
+    // The stepped value is written explicitly...
+    expect(typed!.style.fontSize).toBe(15);
+    // ...but nothing heading-3 merely supplies is.
+    expect(typed!.style.color).toBeUndefined();
+    expect(typed!.style.italic).toBeUndefined();
+  });
+
   it('steps the font size from the named-style default, not the 11pt fallback', async () => {
     const clamp = (n: number) => Math.max(1, Math.min(400, Math.round(n)));
     // heading-1 supplies fontSize 20; the run carries none.

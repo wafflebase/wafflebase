@@ -420,6 +420,11 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
     };
 
     const slimSelectionStyle = editor?.getSelectionStyle();
+    // The pressed state comes from the same range summary the click decides
+    // from, so the button can never render "on" while clicking it turns the
+    // style on — the caret/range disagreement issue #715 is about. Matches
+    // `TextFormatGroup`, which the slim toolbar deliberately does not share.
+    const slimSummary = editor?.getRangeStyleSummary();
     const slimAlignment = editor?.getBlockStyle()?.alignment ?? "left";
     const SlimAlignIcon =
       slimAlignment === "center"
@@ -446,7 +451,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
         {/* ── Font Styles ── */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Toggle size="sm" onPressedChange={toggleBold} className="h-7 w-7 cursor-pointer" aria-label="Bold">
+            <Toggle size="sm" pressed={isStyleOn(slimSummary?.bold)} onPressedChange={toggleBold} className="h-7 w-7 cursor-pointer" aria-label="Bold">
               <IconBold size={16} />
             </Toggle>
           </TooltipTrigger>
@@ -455,7 +460,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Toggle size="sm" onPressedChange={toggleItalic} className="h-7 w-7 cursor-pointer" aria-label="Italic">
+            <Toggle size="sm" pressed={isStyleOn(slimSummary?.italic)} onPressedChange={toggleItalic} className="h-7 w-7 cursor-pointer" aria-label="Italic">
               <IconItalic size={16} />
             </Toggle>
           </TooltipTrigger>
@@ -464,7 +469,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Toggle size="sm" onPressedChange={toggleUnderline} className="h-7 w-7 cursor-pointer" aria-label="Underline">
+            <Toggle size="sm" pressed={isStyleOn(slimSummary?.underline)} onPressedChange={toggleUnderline} className="h-7 w-7 cursor-pointer" aria-label="Underline">
               <IconUnderline size={16} />
             </Toggle>
           </TooltipTrigger>

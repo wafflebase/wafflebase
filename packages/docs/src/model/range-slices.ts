@@ -72,6 +72,49 @@ function visitWholeBlock(block: Block, visit: RangeSliceVisitor): void {
 }
 
 /**
+ * The top-level block that paints `blockId`: itself, or — for a block inside a
+ * table cell — the table block containing it, following the parentage chain
+ * out through nested tables. The `seen` guard bounds a parent map left cyclic
+ * by a stale layout; the chain is otherwise as deep as the table nesting.
+ */
+function topLevelBlockId(doc: Doc, blockId: string): string {
+  const seen = new Set<string>();
+  let id = blockId;
+  for (
+    let cellInfo = doc.blockParentMap.get(id);
+    cellInfo && !seen.has(id);
+    cellInfo = doc.blockParentMap.get(id)
+  ) {
+    seen.add(id);
+    id = cellInfo.tableBlockId;
+  }
+  return id;
+}
+
+/**
+ * The top-level block ids a style write over `range` has to repaint.
+ *
+ * Derived from `visitRangeSlices`, so the blocks marked dirty are exactly the
+ * blocks `Doc.applyInlineStyle` wrote — the same structural agreement the read
+ * and the write already have, extended to the repaint. It also retires the
+ * index arithmetic the three write sites each kept a copy of: `getBlockIndex`
+ * counts within the *context* region (body / header / footer), and feeding
+ * those indices back into the body block array marked an unrelated body block
+ * dirty — or threw a `TypeError` while editing a header longer than the body,
+ * aborting the write's repaint.
+ *
+ * A cell rectangle (`range.tableCellRange`) is not handled here, matching
+ * `visitRangeSlices`; its callers mark the table block they route to.
+ */
+export function dirtyBlockIdsForRange(doc: Doc, range: DocRange): Set<string> {
+  const ids = new Set<string>();
+  visitRangeSlices(doc, range, (blockId) => {
+    ids.add(topLevelBlockId(doc, blockId));
+  });
+  return ids;
+}
+
+/**
  * Visit every block slice the range covers, in document order.
  *
  * Four cases, all of which fall out of where the two endpoints live:

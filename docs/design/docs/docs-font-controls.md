@@ -210,7 +210,7 @@ through the existing single-value path. Callers wire the mixed case to
 the new `editor.stepSelectionFontSize(delta, clamp)` (see below), which
 does the per-run work: it walks the inline runs intersecting the selection
 through the shared `visitStyledRunsInRange` walk (see *The shared range
-walk* below) — literally the same traversal and style-defaults resolution
+traversal* below) — literally the same traversal and style-defaults resolution
 `getRangeStyleSummary` and the keyboard toggles use — and
 applies `clamp(effectiveSize + delta)` to each run's own sub-range via
 `store.applyStyle`. `clamp` stays a caller-supplied function (`FONT_SIZE_MIN`
@@ -389,6 +389,20 @@ the matching dirty-marking) once. Clear formatting and the format painter
 previously called `applyInlineStyle` directly and so restyled the whole
 table; `view/editor.ts`'s `applyStyleImpl` is the toolbar's equivalent single
 path.
+
+**The repaint is derived, not restated.** Each write site used to recompute
+the blocks to mark dirty by hand: parent-table lookup for a cell endpoint,
+otherwise `Doc.getBlockIndex(anchor)`…`getBlockIndex(focus)` fed back into
+`doc.document.blocks`. Those indices count within the *context* region (body /
+header / footer) while that array is the body's, so editing a header longer
+than the body dereferenced `undefined.id` and threw — killing the repaint the
+write had just earned. `dirtyBlockIdsForRange(doc, range)`
+(`model/range-slices.ts`) replaces all three copies by folding
+`visitRangeSlices` down to the top-level block that paints each visited slice.
+Repaint therefore covers exactly what was written, for the same structural
+reason the read covers exactly what the write touches — no index arithmetic,
+and no region to get wrong. Cell rectangles keep marking the table block they
+route to.
 
 ### Toolbar layout — body context
 

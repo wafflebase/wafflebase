@@ -103,5 +103,21 @@ describe('DocsFormattingToolbar header/footer toggles (issue #715)', () => {
 
       expect(editor.applyStyle).toHaveBeenCalledWith({ [key]: true });
     });
+
+    // The button's own state has to come from the same source as its click,
+    // or it renders "on" while clicking it turns the style on.
+    it(`${label} renders pressed only when the whole range carries it`, () => {
+      const editor = makeEditor({ [key]: true }, { [key]: true } as Summary);
+      mount(editor);
+
+      expect(screen.getByLabelText(label).getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it(`${label} renders unpressed for a mixed range, caret style notwithstanding`, () => {
+      const editor = makeEditor({ [key]: true }, { [key]: 'mixed' } as Summary);
+      mount(editor);
+
+      expect(screen.getByLabelText(label).getAttribute('aria-pressed')).toBe('false');
+    });
   }
 });

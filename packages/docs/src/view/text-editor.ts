@@ -19,6 +19,7 @@ import { detectTableBorder, createDragState, type BorderDragState } from './tabl
 import { computeMergedCellLineLayouts } from './table-renderer.js';
 import type { PendingStyle } from './pending-style.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
+import { dirtyBlockIdsForRange } from '../model/range-slices.js';
 import { caretInlineStyle, caretStyleDefaults } from '../model/caret-style.js';
 
 /**
@@ -2913,8 +2914,9 @@ export class TextEditor {
    * table. Clear-formatting and the format painter used to call it directly
    * and did exactly that.
    *
-   * Dirty-marking follows the shape too: a rectangle marks its table, a
-   * cell-internal range marks the parent table, a body range marks the span.
+   * Dirty-marking follows the shape too: a rectangle marks its table, every
+   * other shape marks whatever `dirtyBlockIdsForRange` derives from the very
+   * slices the write covered.
    */
   private applyStyleToSelection(
     range: DocRange,
@@ -2931,25 +2933,9 @@ export class TextEditor {
     }
 
     this.doc.applyInlineStyle(range, style);
-    // Mark all blocks in the selection range as dirty
-    const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
-    const endIdx = this.doc.getBlockIndex(range.focus.blockId);
-    if (startIdx < 0 || endIdx < 0) {
-      // Cell-internal block — mark the parent table block dirty
-      const cellInfo =
-        this.getCellInfo(range.anchor.blockId) ??
-        this.getCellInfo(range.focus.blockId);
-      if (cellInfo) {
-        this.markDirty(cellInfo.tableBlockId);
-      }
-      this.requestRender();
-      return;
-    }
-    const lo = Math.min(startIdx, endIdx);
-    const hi = Math.max(startIdx, endIdx);
-    for (let i = lo; i <= hi; i++) {
-      this.markDirty(this.doc.document.blocks[i].id);
-    }
+    // Repaint exactly what was written — same traversal, so the two cannot
+    // drift apart (see `dirtyBlockIdsForRange`).
+    for (const id of dirtyBlockIdsForRange(this.doc, range)) this.markDirty(id);
     this.requestRender();
   }
 

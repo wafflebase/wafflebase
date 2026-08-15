@@ -85,3 +85,35 @@
   the *call* (`applyInlineStyle(`) did. Both now go through one private
   `applyStyleToSelection`, so the routing exists once per editor rather than
   once per command.
+
+- **Consolidating N copies of a walk hides the N copies of its epilogue.**
+  Collapsing the write into one `applyStyleToSelection` per editor left each
+  site's *dirty-marking* untouched — and that epilogue carried the real bug:
+  `Doc.getBlockIndex` counts within the current edit context (body / header /
+  footer) while `doc.document.blocks` is always the body's, so a style write
+  over a header longer than the body dereferenced `undefined.id` and threw,
+  aborting the repaint. The defect predated the refactor in all three copies;
+  consolidation just made one of them the single path for every keyboard style
+  command. The fix follows the same rule as the traversal itself:
+  `dirtyBlockIdsForRange` *derives* the repaint set from `visitRangeSlices`
+  instead of recomputing it, so "what was written" and "what is repainted"
+  cannot drift. When a refactor unifies a walk, unify what happens *after* it
+  too — that is where the hand-rolled index arithmetic hides.
+
+- **A crash inside a DOM event listener does not fail a test by itself.**
+  jsdom reports a listener exception to `window` rather than rethrowing at the
+  `dispatchEvent` call, so the keyboard half of the header regression passed
+  its style assertions while throwing on every run. Only the toolbar path
+  (a plain function call) surfaced the `TypeError`. Tests that drive the editor
+  through synthetic keydowns need an explicit `window.addEventListener('error')`
+  capture, or they silently accept a broken render path.
+
+- **A "no test can tell these apart" finding is answered by picking better
+  fixture data, not by adding more tests.** The text box's collapsed-caret
+  font-size step reads the *effective* size and stores a *raw* base; the
+  existing tests used a plain paragraph (raw == effective) and heading-1
+  (`fontSize: 20` but nothing else), so neither half was pinned. Heading-3
+  (`fontSize: 14` *and* `color: '#434343'`) distinguishes both in a single
+  test. Mutating each half of the implementation in turn — and watching a
+  different assertion fail each time — is what proves the test can tell them
+  apart.
