@@ -356,6 +356,49 @@ test("resolve fail-safes", async (t) => {
     assert.equal(changedPaths(undefined, REPO_ROOT), null);
   });
 
+  await t.test("git reads answer about the repo passed in, not GIT_DIR's", () => {
+    // The other half of the hazard the module preamble describes. Clearing
+    // `GIT_*` here protects the *fixtures*; this protects the module under
+    // test, which spawns git itself. `cwd` loses to `GIT_DIR`, and git
+    // exports `GIT_DIR` into every hook — and `pre-push` runs `verify:self`,
+    // which imports these functions. Unscoped, lane selection under a hook
+    // is computed against whatever repository `GIT_DIR` names: the wrong
+    // answer, arrived at silently, in the one place it is load-bearing.
+    const target = twoCommitRepo();
+    const decoy = twoCommitRepo();
+    const inRepo = (dir, ...args) =>
+      execFileSync("git", args, {
+        cwd: dir,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    // A commit of its own, or the two fixtures agree: identical content,
+    // message and author make identical shas, and a decoy indistinguishable
+    // from the target proves nothing.
+    writeFileSync(path.join(decoy, "decoy.txt"), "decoy\n");
+    inRepo(decoy, "add", "-A");
+    inRepo(decoy, "commit", "-qm", "decoy");
+    const targetHead = inRepo(target, "rev-parse", "HEAD");
+    assert.notEqual(targetHead, inRepo(decoy, "rev-parse", "HEAD"));
+
+    process.env.GIT_DIR = path.join(decoy, ".git");
+    process.env.GIT_WORK_TREE = decoy;
+    try {
+      assert.deepEqual(resolveRefs({}, target), {
+        base: targetHead,
+        head: "HEAD",
+      });
+      assert.deepEqual(changedPaths({ base: `${targetHead}~1`, head: targetHead }, target), [
+        "second.txt",
+      ]);
+    } finally {
+      delete process.env.GIT_DIR;
+      delete process.env.GIT_WORK_TREE;
+      rmSync(target, { recursive: true, force: true });
+      rmSync(decoy, { recursive: true, force: true });
+    }
+  });
+
   await t.test("changedPaths attributes only the head's own commits", () => {
     // THE #805 REGRESSION, as a real git scenario rather than a description.
     //

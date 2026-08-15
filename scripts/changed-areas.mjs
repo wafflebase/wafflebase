@@ -33,6 +33,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { repoScopedEnv } from "./agent/git-env.mjs";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..");
 
@@ -254,6 +256,12 @@ export function resolveRefs(env = process.env, repoRoot = REPO_ROOT) {
     try {
       return execFileSync("git", args, {
         cwd: repoRoot,
+        // `cwd` alone does not select the repository — `GIT_DIR` outranks
+        // it, and git exports it into every hook. `pre-push` runs
+        // `verify:self`, which imports this module, so an unscoped read
+        // here selects lanes from whatever repository the hook was
+        // invoked for. See scripts/agent/git-env.mjs.
+        env: repoScopedEnv(repoRoot),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
       }).trim();
@@ -349,6 +357,8 @@ export function changedPaths(refs, repoRoot = REPO_ROOT) {
   try {
     const out = execFileSync("git", ["diff", "--name-only", `${base}...${head}`], {
       cwd: repoRoot,
+      // Scoped for the same reason as `resolveRefs`'s reads above.
+      env: repoScopedEnv(repoRoot),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     });
