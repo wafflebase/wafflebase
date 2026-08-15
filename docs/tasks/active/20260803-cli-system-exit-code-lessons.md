@@ -147,3 +147,52 @@ it was protecting is not deferred, it is deleted.
   the URL, flag unwired, dispatcher removed, proxy ignored, old timeout
   message restored. Each failed for the reason it names. That step is
   what separates the tests above from the ones this round replaced.
+- **An address is not an identity.** The server exemption in the image
+  gate matched on resolved address plus port, so any name a document
+  author pointed at the API server's address on its port was waved
+  through — arbitrary paths on the internal API host, under an
+  attacker-chosen `Host`, reaching whatever virtual host is co-located
+  there. The same comparison was simultaneously too *narrow*: with
+  `--server http://localhost:3000` on a host where `localhost` answers
+  only `::1`, a document's own `http://127.0.0.1:3000/images/...` was
+  refused. Both are the same mistake — asking DNS a question that is
+  really about names. It is now the same name, or loopback-under-either-
+  spelling (a *name*-level equivalence, so a foreign name resolving to
+  `127.0.0.1` is not covered), or an address literal, which keeps the
+  resolved comparison because no resolver can steer a literal.
+- **The half of a flow nobody was reviewing is where the hole was.**
+  Hardening the CLI login made the *web* login's missing OAuth `state`
+  visible: passport-oauth2 with no state and no store installs a
+  `NullStore` whose verify always succeeds, so any `?code=` presented to
+  the callback minted a session — classic login CSRF. `CliAuthStore` had
+  been minting a `csrf` value since day one and nothing ever read it,
+  which is how a mitigation the design doc claimed had never existed.
+  Generalisation: when a risk table asserts a control, grep for its
+  consumer, not for the code that produces it.
+- **Fail-closed belongs before the side effects.** The callback created
+  the user account and *then* decided whether the callback was
+  legitimate. Rejecting it after the write is not rejecting it, so
+  state validation now runs first and the test asserts
+  `findOrCreateUser` was never called.
+- **A repo-scoped read has to be scoped in the module, not the test.**
+  The previous round cleared `GIT_*` in `changed-areas.test.mjs`, which
+  protected the fixtures from re-initialising the real repository. The
+  module under test still spawned `git` with an inherited environment,
+  so under `pre-push` (which runs `verify:self`, which imports it) lane
+  selection was computed against whatever `GIT_DIR` named. Both halves
+  were needed; the repo already shipped `repoScopedEnv()` for exactly
+  this. The regression test needed its own lesson too: two throwaway
+  repos built from identical content, message and author produce
+  identical shas, so the decoy has to differ before it can prove
+  anything.
+- **State an accepted risk as accepted, not as absent.** The proxy path
+  drops the address pin, and the note said that "costs nothing that was
+  ever held". It costs something real: the proxy performs the
+  connect-time resolution the CLI no longer performs, so a rebinding
+  nameserver can still reach the proxy's network. The behaviour is
+  right — the proxy protocols carry a name, so there is nothing to pin,
+  and refusing to proxy names would break every machine that only
+  egresses through one — but the write-up now records the residual risk
+  instead of denying it. Same for the printed OAuth URL, which carries
+  the login nonce and is therefore a credential while the login is
+  pending.

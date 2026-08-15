@@ -235,9 +235,19 @@ export async function runLogin(
   );
 
   // 3. Build OAuth URL and open browser
+  // The URL carries the nonce, so while this login is pending it is a
+  // credential: anyone who can both read it and reach this machine's
+  // callback port can complete the login as themselves and leave this
+  // CLI holding *their* session. It is printed anyway because it is the
+  // only fallback when the browser cannot be opened (`open()` resolves
+  // when the child process spawns, not when a browser appears, so the
+  // CLI cannot tell), and it is the listener's 30-second lifetime that
+  // bounds the exposure. Say so rather than printing it silently.
   const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${encodeURIComponent(nonce)}`;
   console.error(`Opening browser: ${oauthUrl}`);
-  console.error('If the browser does not open, visit the URL above.');
+  console.error(
+    'If the browser does not open, visit the URL above. Do not share it while this login is pending — it carries the nonce binding the callback to this terminal.',
+  );
 
   try {
     await deps.openBrowser(oauthUrl);

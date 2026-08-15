@@ -890,14 +890,27 @@ cannot bounce the CLI onto an internal one):
   pointing at `169.254.169.254` is refused as well;
 - the configured **server** is the one internal destination still
   allowed, because `--server http://localhost:3000` is the normal dev
-  setup and self-hosted documents store absolute internal URLs. It is
-  matched by *identity*, not by spelling: same resolved address and same
-  port counts, whatever either side was called. The frontend persists
-  image `src` values absolute, so a dev document says
+  setup and self-hosted documents store absolute internal URLs. The
+  frontend persists image `src` values absolute, so a dev document says
   `http://localhost:3000/...` while the CLI may be pointed at
   `--server http://127.0.0.1:3000`; comparing origin strings would
-  refuse those documents' own images. Another port on the same host is
-  not covered — the exemption is the API server, not the machine.
+  refuse those documents' own images. Three ways to be the server, on
+  the same port: the **same name**; **loopback under either spelling**
+  (`localhost` / `127.0.0.1` / `::1` / `[::1]` name one listener, and
+  the equivalence is between the *names*, so `localhost` answering only
+  `::1` still admits the `127.0.0.1` spelling); or an **address
+  literal** that is one of the server's resolved addresses.
+
+  A name that is not the server's name is never the server, however it
+  resolves. Matching purely on the resolved address — which this did at
+  first — hands the document author a name of their own pointed at the
+  API server's address on its port, and with it any path there under an
+  attacker-chosen `Host`, including a co-located virtual host. An
+  address literal keeps the resolved-identity comparison because a
+  literal designates one machine and no resolver can steer it.
+
+  Another port on the same host is not covered — the exemption is the
+  API server, not the machine.
 
 A blocked `src` fails the export with `IMAGE_URL_BLOCKED` (exit `1` — the
 document is wrong, not the environment). A name that cannot be resolved
@@ -924,12 +937,20 @@ letter case) *are* the proxy configuration surface. When one applies to
 a hop, that hop is dispatched through a `ProxyAgent` and the address pin
 is dropped — the two cannot be combined, because the pin works by
 overriding the connector's resolver and the only name a proxied
-connector resolves is the proxy's own. Nothing is lost by dropping it
-there: the pin exists to stop the CLI's *own* resolver from being
-rebound between the gate and the connect, and under a proxy the CLI
-performs no connect-time resolution at all. The gate itself is
-unchanged — a `src` that resolves to an internal address is refused
-before any request is made, proxied or not. Forcing the pinned `Agent`
+connector resolves is the proxy's own. The gate itself is unchanged — a
+`src` that resolves to an internal address is refused before any request
+is made, proxied or not.
+
+The pin is **not** replaced by anything on that path, and the residual
+risk is real rather than nil: the proxy performs the connect-time
+resolution the CLI no longer performs, and its answer is not the one the
+gate approved, so a ~0s-TTL nameserver can answer the gate publicly and
+the proxy privately. The reachable target is then the *proxy's* network
+rather than the CLI's. It is accepted because the alternatives are
+worse: the proxy protocols carry a name, not an address (`CONNECT`
+included), so there is nothing to pin, and refusing to proxy names at
+all would fail every external image on exactly the machines that can
+only egress through a proxy. Forcing the pinned `Agent`
 regardless (the behavior this replaced) overrode whatever the operator
 configured and dialed the resolved addresses directly, so on a machine
 whose only route out is a proxy every external image in a document
@@ -950,6 +971,17 @@ account.
 The binding is enforced on the **CLI** side, which is where it works: a
 callback that arrives without the expected nonce is refused, and the
 login then times out with the same message as any other timeout.
+
+**The printed OAuth URL is a credential while the login is pending.**
+The nonce travels in it, and in the browser's argv, so anything that
+captures the CLI's stderr — a shared terminal, an agent transcript, a CI
+log — captures the nonce too. What it does *not* leak is remote access:
+the callback is `127.0.0.1`, so completing the fixation also requires
+reaching the victim machine's loopback within the listener's 30-second
+lifetime, i.e. already running code there. The URL is printed regardless
+because it is the only fallback when the browser fails to open (`open()`
+resolves when the child process spawns, not when a browser appears), so
+the CLI says so on the line beneath it rather than printing it silently.
 
 The timeout message is deliberately invariant. An earlier version named
 the likely cause ("the server predates nonce-bound CLI login") and
