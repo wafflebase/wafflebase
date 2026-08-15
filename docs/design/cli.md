@@ -243,6 +243,10 @@ When the CLI authenticates a request, it checks sources in this order:
 2. Session → `activeWorkspace`.
 3. Config profile → `workspace`.
 
+A resolved workspace id is interpolated into the request path like any
+other id, so it goes through the same one-segment encoding — and the same
+refusal of a `.` / `..` id — described in §10.
+
 #### 3.4 Token refresh
 
 The CLI wraps HTTP requests with automatic refresh:
@@ -1066,6 +1070,7 @@ is the agent interface. This approach has key advantages:
 | Backend error body is not the envelope              | 1    | HTTP_ERROR          | "HTTP <status>" (+ ": <upstream message>" when the body had one)   |
 | Backend 5xx                                         | 1    | HTTP_ERROR          | "HTTP 500" (+ the upstream message when the body had one)          |
 | Network failure (no response at all)                | 1    | ERROR               | (fetch's own message preserved)                                     |
+| Workspace / document / tab / cell id is `.` or `..` | 1    | ERROR               | "Invalid path segment: \"..\"" (refused before any request is sent) |
 | Yorkie attach failure †                             | 2    | YORKIE_ERROR        | "Failed to attach to document <id>"                                |
 | DOCX parse failure                                  | 1    | INVALID_DOCX        | (DocxImporter message)                                             |
 | Fontkit font load failure †                         | 2    | FONT_LOAD_ERROR     | (after fallback exhausted)                                         |
@@ -1078,6 +1083,25 @@ reports `SESSION_EXPIRED` (the client's own synthesized envelope, the one case
 the CLI knows is an auth failure) or `HTTP_ERROR` — a single classifier for
 every command, so the code an agent branches on never depends on which
 subcommand it ran.
+
+**Ids are one path segment each.** Every id the client interpolates into a
+request URL — the workspace, a document id, a tab id, a cell reference —
+comes from argv, a config file, or a document an agent generated, and
+`fetch` resolves `.` / `..` per the WHATWG URL rules. So `HttpClient`
+percent-encodes each id (`seg()`, `packages/cli/src/client/http-client.ts`),
+which pins it to the segment it was meant to fill: an id of
+`../../../../workspaces/w/api-keys/k` is sent as a literal (escaped)
+document id and 404s, instead of walking the request out of the
+`/api/v1/workspaces/<ws>` base and issuing the command's own method, with
+the session's bearer token, against an endpoint it never named.
+
+Encoding cannot pin `.` and `..` themselves — `encodeURIComponent` leaves a
+dot untouched and the URL parser resolves those two segments however they
+are spelled — so they are the one id the client refuses outright. No real
+id is ever a dot segment, so this is the matrix's `ERROR` row above: a
+plain throw before the request is built (nothing reaches the network), and
+therefore the classifier's default code rather than a code of its own.
+Every other id, however strange, is encoded and sent.
 
 **Forwarding is bounded, not byte-for-byte.** On the "body *is* the envelope"
 row the `code` is the upstream's own — that is the contract, and it is never
