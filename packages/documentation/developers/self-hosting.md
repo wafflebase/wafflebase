@@ -121,6 +121,15 @@ document through a share link to emit events, then visit the workspace
 3. Set the **Authorization callback URL** to `http://your-domain:3000/auth/github/callback`
 4. Copy the Client ID and Client Secret into your `.env` file
 
+Serve it over **https** once it leaves your machine. `GITHUB_CALLBACK_URL`'s
+scheme is what tells the backend its public scheme, and only an `https://`
+one lets the login cookies carry `Secure` and the `__Host-` prefix — the
+control that stops anything else on the origin from writing them. Because
+`wafflebase login`'s consent step is exactly such a cookie, CLI sign-in
+answers `400 Command-line sign-in requires an https server` on a plain-http
+deployment that is not `localhost`; the browser login still works there, but
+it, and the token the CLI would have received, are travelling in the clear.
+
 ## Architecture
 
 ```

@@ -188,7 +188,7 @@ pnpm --filter @wafflebase/backend exec prisma migrate deploy
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow |
+| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow (always carries an OAuth `state`). CLI mode (`?mode=cli`) requires `port`, `nonce` and `code_challenge`, stops on a consent page naming the loopback port, and is a `400` on a plain-http non-loopback origin |
 | `GET` | `/auth/github/callback` | - | OAuth callback, sets access/refresh cookies, redirects to frontend |
 | `GET` | `/auth/me` | JWT | Get current authenticated user |
 | `POST` | `/auth/refresh` | Refresh cookie | Rotate access/refresh cookies |
