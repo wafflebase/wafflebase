@@ -9,11 +9,20 @@ import { WbButton } from "@/app/home/primitives/wb-button";
  * browser whose check fails is sent back here rather than shown a JSON 401 it
  * cannot act on. The usual cause is time — the state cookie lives five
  * minutes — so the message says what to do rather than blaming the visitor.
+ *
+ * A `Map` rather than an object literal because the key is a query parameter,
+ * so the lookup is over a string the URL chose. An object literal answers for
+ * its prototype too: `?error=toString` returns an inherited function, which
+ * React renders as nothing, and `?error=__proto__` returns an object, which
+ * React refuses to render at all — so the banner explaining one failed
+ * sign-in would become a second one.
  */
-const ERROR_MESSAGES: Record<string, string> = {
-  login_state:
+const ERROR_MESSAGES = new Map<string, string>([
+  [
+    "login_state",
     "That sign-in link expired or did not come from this browser. Please try again.",
-};
+  ],
+]);
 
 const FALLBACK_ERROR = "Sign-in did not complete. Please try again.";
 
@@ -45,7 +54,7 @@ export function LoginForm({
           role="alert"
           className="rounded-lg border border-[color:var(--wb-rule)] bg-[color:var(--wb-bg)] px-4 py-3 text-[13.5px] leading-[1.5] text-[color:var(--wb-ink)]"
         >
-          {ERROR_MESSAGES[error] ?? FALLBACK_ERROR}
+          {ERROR_MESSAGES.get(error) ?? FALLBACK_ERROR}
         </div>
       )}
       <WbButton asChild variant="primary" size="lg" className="w-full">

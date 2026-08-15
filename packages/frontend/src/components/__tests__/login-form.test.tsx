@@ -48,4 +48,23 @@ describe("LoginForm", () => {
     // Never echo the raw code back into the page.
     expect(alert.textContent).not.toContain("something_new");
   });
+
+  // `?error=` is whatever the URL says, so a lookup that walks the prototype
+  // chain has answers for codes nobody defined: `toString` and friends give a
+  // function, which React renders as nothing, and `__proto__` gives an object,
+  // which React refuses to render at all — taking the login page down with it.
+  // Enumerated rather than sampled, because the two failure modes differ.
+  it.each(["toString", "constructor", "valueOf", "hasOwnProperty", "__proto__"])(
+    "falls back for the inherited member %s",
+    (name) => {
+      renderAt(`?error=${name}`);
+
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Sign-in did not complete. Please try again.",
+      );
+      expect(
+        screen.getByRole("link", { name: /continue with github/i }),
+      ).toBeTruthy();
+    },
+  );
 });
