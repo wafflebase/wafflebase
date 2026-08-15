@@ -1126,12 +1126,26 @@ outside the process:
   `docs export` / `slides export` fetch every image inline from the operator's
   machine, and the `src` is content someone else may have written. So the
   fetcher only speaks `http`/`https`/`data` — no `file:` reading local disk —
-  and refuses a loopback, private, link-local (`169.254.169.254`) or CGNAT
-  host unless it is the configured `--server`'s own origin, which is what
-  keeps `--server http://localhost:3000` working
+  and refuses a non-public host unless it is the configured `--server`'s own
+  host, which is what keeps `--server http://localhost:3000` working
   (`assertFetchableImageUrl`, `packages/cli/src/docs/image-fetcher.ts`).
-  A name is normalized before it is compared, because `http://localhost./x`
-  parses to the hostname `localhost.` and resolves to the same machine.
+  "Non-public" is the whole set, not the famous members: loopback, private,
+  link-local (`169.254.169.254`), CGNAT, multicast, the 240/4 reserved block
+  and the broadcast address, plus every IPv6 spelling that is not global
+  unicast — which is checked the other way round (only `2000::/3` is public)
+  because enumerating prefixes had let `64:ff9b::a9fe:a9fe` (NAT64) and
+  `2002:a9fe:a9fe::` (6to4) through as public. The two tunnelling prefixes
+  inside global unicast are unwrapped to the IPv4 address they carry, or
+  refused. A name is normalized before it is compared, because
+  `http://localhost./x` parses to the hostname `localhost.` and resolves to
+  the same machine.
+  The server exemption is by **host**, not origin: the frontend writes
+  *absolute* image URLs into document content, so a document authored against
+  `http://localhost:3000` carries that spelling forever and an export run with
+  another port or scheme for the same machine would otherwise have every image
+  in it refused. The operator already pointed the CLI at that host; a second
+  port on it is not a host they did not choose. A *different* internal host
+  still needs the opt-in below.
   Redirects are the fetcher's, not `fetch`'s: `redirect: 'manual'` plus a
   re-check on every `Location` (capped at 5 hops), since a host the guard
   allows could otherwise answer `302 Location: http://169.254.169.254/…` and
@@ -1152,14 +1166,35 @@ outside the process:
   failing closed costs nothing and never leaves the check silently skipped.
   Exempt hosts are not resolved at all, so a local `--server` and a listed
   internal host still work with no DNS involved.
-  What remains open is DNS rebinding — a record that changes between the
-  lookup and the connection — which needs connection pinning below `fetch`;
-  an attack now has to control a resolver and win a race rather than type one
-  extra label.
+  The addresses that check approved are *returned*, not discarded, because a
+  check whose answer is thrown away is a check-then-connect race: `fetch`
+  resolves the name a second time, so a resolver the attacker controls can
+  answer publicly for the check and `169.254.169.254` for the connection. An
+  `http:` hop is therefore dialled at the approved address with the original
+  name in the `Host` header (`pinnedUrl`), so the address checked is the
+  address connected to and virtual hosts keep resolving. `https:` is dialled
+  by name — an IP literal has no SNI and no matching certificate — and leans
+  on TLS instead: a rebound internal host would have to present a valid
+  certificate for the attacker's name.
+  Every hop is also bounded — a 30 s timeout and a 25 MB body cap (the
+  backend's own image upload limit), checked against the declared
+  `Content-Length` first and then against the stream, since the header is a
+  claim and the stream is the fact. Which host is dialled and how much it
+  sends are both decided by document content, so neither may be unbounded.
+  A refusal is **not** fatal to the export: `collectAndEmbedImages` and
+  `DocxExporter.collectImages` report the failed `src` on stderr and drop that
+  one image (the DOCX run is omitted rather than left pointing at a
+  relationship that was never written). One image the user cannot fix must not
+  cost them the export they asked for — which is also what keeps a document
+  full of URLs from an origin this install cannot reach exportable.
 
 The rule is not CLI-only. The frontend talks to the same API with the user's
 session, and interpolates route-param ids the same way, so it carries the same
-primitive (`seg()`, `packages/frontend/src/api/url.ts`), applied to **every**
+primitive — literally the same one: `seg()` lives in `@wafflebase/core/url`
+alongside `isSafeUrl`, the existing home for shared URL-safety rules, and both
+`packages/cli/src/client/url.ts` and `packages/frontend/src/api/url.ts`
+re-export it from there rather than keeping a second copy that can drift. It is
+applied to **every**
 browser API module that interpolates one — documents, workspaces, folders,
 share links, datasources, files, analytics, Miro import and the sheet image
 upload. A partially applied guard would be worse than none, because it reads

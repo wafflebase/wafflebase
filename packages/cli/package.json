@@ -33,6 +33,7 @@
     "@types/fontkit": "^2.0.0",
     "@types/node": "^25.4.0",
     "@vitest/coverage-v8": "4.1.8",
+    "@wafflebase/core": "workspace:*",
     "@wafflebase/docs": "workspace:*",
     "@wafflebase/slides": "workspace:*",
     "eslint": "^9.18.0",

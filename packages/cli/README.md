@@ -35,12 +35,19 @@ export WAFFLEBASE_WORKSPACE=ws-…
 `docs export` / `slides export` fetch the images a document references. An
 image `src` is content someone else may have written, so the fetcher speaks
 only `http`/`https`/`data` and refuses a non-public address (loopback,
-private, `169.254.169.254`, CGNAT) unless it is the configured `--server`.
+private, `169.254.169.254`, CGNAT, multicast/reserved, and any IPv6 that is
+not global unicast) unless it is the host of the configured `--server`.
 A hostname is resolved before it is fetched and refused the same way if it
 answers with a non-public address, so `169.254.169.254.nip.io` and friends
-get no further than the literal would. If your deployment really serves
-images from an internal host — an internal MinIO, a reverse proxy on a
-second port — name it:
+get no further than the literal would; an `http:` request is then sent to the
+address that check approved (with the original name in `Host`), so DNS cannot
+answer differently between the check and the connection. `https:` is dialled
+by name — a certificate cannot be validated against an IP literal — so there
+it is TLS, not the resolver check, that stands between a rebound name and an
+internal host. Each image also gets 30 seconds and 25 MB, and an image that
+is refused or unreachable is reported and skipped rather than failing the
+whole export. If your deployment really serves images from an internal host —
+an internal MinIO, a reverse proxy on a second port — name it:
 
 ```bash
 export WAFFLEBASE_IMAGE_HOSTS=10.0.0.5:9000,minio.internal

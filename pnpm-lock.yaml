@@ -338,6 +338,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 4.1.8
         version: 4.1.8(vitest@4.1.8)
+      '@wafflebase/core':
+        specifier: workspace:*
+        version: link:../core
       '@wafflebase/docs':
         specifier: workspace:*
         version: link:../docs

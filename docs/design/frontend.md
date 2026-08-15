@@ -439,8 +439,8 @@ caching and mutations.
 
 Every id interpolated into a request path — document, workspace, folder, share
 link, datasource, file, analytics — goes through `seg()`
-(`packages/frontend/src/api/url.ts`), and this is a rule for the whole API
-layer, not a habit of one module:
+(`packages/frontend/src/api/url.ts`, re-exporting `@wafflebase/core/url`), and
+this is a rule for the whole API layer, not a habit of one module:
 
 ```ts
 const res = await fetchWithAuth(`${BACKEND_BASE}/documents/${seg(id)}/file`);
@@ -462,9 +462,13 @@ query error state.
 
 A partially applied guard is worse than none, because it reads as covered: add
 `seg()` with the interpolation, in every module, at the time you add it. The
-CLI enforces the same rule against the same API with its own copy
-(`packages/cli/src/client/url.ts`); see `docs/design/cli.md` §10 for the
-end-to-end argument.
+CLI enforces the same rule against the same API, and it is the *same* rule, not
+a parallel one: the implementation lives in `@wafflebase/core/url` next to
+`isSafeUrl` — the package's existing home for URL-safety primitives that had
+already been duplicated once — and `packages/frontend/src/api/url.ts` and
+`packages/cli/src/client/url.ts` are both re-exports of it, so a fix to the
+refusal set cannot land on one client and miss the other. See
+`docs/design/cli.md` §10 for the end-to-end argument.
 
 **Document list** uses TanStack Table with sorting, filtering, and pagination.
 Row click navigates to the type-specific detail route via `getDocumentPath()`.

@@ -7,6 +7,12 @@ import { CONTENT_TYPES, ROOT_RELS, STYLES, DOC_RELS } from './docx-templates.js'
 
 export type ImageFetcher = (url: string) => Promise<Blob>;
 
+/**
+ * One image collected into the zip — or, when `rId` is empty, one image the
+ * export could not fetch. A failed entry is still recorded so the src is not
+ * retried, and so `inlineToXml` can tell "this image was dropped" (emit no
+ * run) from "no fetcher ran at all" (a caller bug, which still throws).
+ */
 type ImageEntry = { rId: string; path: string; ext: string; src: string };
 
 const MIME_TO_EXT: Record<string, string> = {
@@ -124,7 +130,9 @@ export class DocxExporter {
     // plus any header/footer part relationships (header/footer image
     // rels live in their own .rels files, not here).
     const docRels: string[] = [];
-    for (const e of docImageEntries) {
+    // Entries with no rId are images whose fetch failed; nothing was written
+    // to `word/media`, so they get no relationship either.
+    for (const e of docImageEntries.filter((e) => e.rId)) {
       docRels.push(`  <Relationship Id="${e.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${e.path}"/>`);
     }
     if (headerRId) {
@@ -200,6 +208,9 @@ ${bodyXml}
           `Did you forget to pass an imageFetcher to DocxExporter.export()?`,
         );
       }
+      // The fetch for this src failed and was reported; emit no run rather
+      // than a picture pointing at a relationship that does not exist.
+      if (!entry.rId) return '';
       const cx = pxToEmus(inline.style.image.width);
       const cy = pxToEmus(inline.style.image.height);
       return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">
@@ -380,6 +391,8 @@ ${blocks}
    */
   private static buildPartRelsXml(imageEntries: ImageEntry[]): string {
     const rels = imageEntries
+      // Skip entries whose fetch failed — no media file was written for them.
+      .filter((e) => e.rId)
       .map(
         (e) =>
           `  <Relationship Id="${e.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${e.path}"/>`,
@@ -425,7 +438,21 @@ ${rels}
         const src = inline.style.image.src;
         // Skip if this src was already fetched for the same part (dedupe).
         if (entries.some((e) => e.src === src)) continue;
-        const blob = await fetcher(src);
+        // One unreachable or refused image must not cost the whole export —
+        // the URL is document content (stale, external, or blocked by the
+        // CLI's SSRF guard), while the export is what the user asked for. The
+        // image is dropped, reported on stderr, and recorded as a failed entry
+        // so the run is omitted instead of referencing a relationship that was
+        // never written.
+        let blob: Blob;
+        try {
+          blob = await fetcher(src);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          console.warn(`Skipping image ${src}: ${reason}`);
+          entries.push({ rId: '', path: '', ext: '', src });
+          continue;
+        }
         const ext = deriveExt(blob);
         const rId = nextRId();
         const path = nextMediaName(ext);

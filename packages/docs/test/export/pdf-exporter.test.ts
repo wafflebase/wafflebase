@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -284,6 +284,29 @@ describe('PdfExporter (images)', () => {
     await expect(
       PdfExporter.export(imageFixture, exportOpts()),
     ).rejects.toThrow(/imageFetcher/i);
+  });
+
+  it('drops an image whose fetch fails instead of failing the export', async () => {
+    // A `src` is document content — it can be stale, external, unreachable,
+    // or refused by the CLI's SSRF guard. Losing the whole export over one
+    // image the user cannot fix is worse than losing the image, so the
+    // failure is reported and the rest of the document still renders.
+    const warned: string[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation((msg: string) => {
+      warned.push(String(msg));
+    });
+    try {
+      const blob = await PdfExporter.export(imageFixture, exportOpts({
+        imageFetcher: async () => {
+          throw new Error('Refusing to fetch image from a non-public address');
+        },
+      }));
+      const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+      expect(pdfDoc.getPageCount()).toBe(1);
+    } finally {
+      warn.mockRestore();
+    }
+    expect(warned.join('\n')).toMatch(/Skipping image test:\/\/image1/);
   });
 });
 

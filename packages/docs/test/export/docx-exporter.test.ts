@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { DocxExporter } from '../../src/export/docx-exporter.js';
 import { DocxImporter } from '../../src/import/docx-importer.js';
 import type { Document } from '../../src/model/types.js';
@@ -295,6 +295,45 @@ describe('DocxExporter', () => {
     await expect(DocxExporter.export(doc)).rejects.toThrow(
       'DOCX export: image inline references https://example.com/photo.jpg but no matching media entry was collected.',
     );
+  });
+
+  it('should drop an image whose fetch fails rather than failing the export', async () => {
+    // An image URL is document content and can be stale, unreachable, or
+    // refused by the CLI's SSRF guard; the export is what the user asked for.
+    // The run is omitted (no dangling r:embed) and the rest still exports.
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [
+          { text: 'before ', style: {} },
+          { text: '￼', style: { image: { src: 'http://10.0.0.5/photo.jpg', width: 100, height: 80 } } },
+        ],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+    };
+
+    const warned: string[] = [];
+    const warn = vi
+      .spyOn(console, 'warn')
+      .mockImplementation((msg: string) => void warned.push(String(msg)));
+    let blob: Blob;
+    try {
+      blob = await DocxExporter.export(doc, async () => {
+        throw new Error('Refusing to fetch image from a non-public address');
+      });
+    } finally {
+      warn.mockRestore();
+    }
+    expect(warned.join('\n')).toContain('Skipping image http://10.0.0.5/photo.jpg');
+
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const documentXml = await zip.file('word/document.xml')!.async('string');
+    expect(documentXml).toContain('before ');
+    expect(documentXml).not.toContain('<w:drawing>');
+    const rels = await zip.file('word/_rels/document.xml.rels')!.async('string');
+    expect(rels).not.toContain('/image"');
   });
 
   it('should derive media extension from blob MIME type, not URL', async () => {
