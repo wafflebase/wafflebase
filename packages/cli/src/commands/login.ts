@@ -1,6 +1,8 @@
 import { Command } from 'commander';
 import { createServer } from 'node:http';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
   loadSession,
@@ -8,7 +10,7 @@ import {
   decodeJwtExpiry,
 } from '../config/session.js';
 import type { Session, WorkspaceInfo } from '../config/session.js';
-import { DEFAULT_SERVER } from '../config/config.js';
+import { DEFAULT_SERVER, getConfigPath } from '../config/config.js';
 import { backendErrorEnvelope, commandPath } from '../output/formatter.js';
 
 export function registerLoginCommand(program: Command): void {
@@ -50,35 +52,14 @@ export function registerLoginCommand(program: Command): void {
       const { port, waitForCallback, close } = await startCallbackServer(nonce);
 
       // 3. Build OAuth URL and open browser
-      //
-      // The URL carries both bindings of this login — the nonce and the PKCE
-      // challenge — so anyone who reads it can start their own login against
-      // the same pair and push the resulting code at this port. stderr is
-      // exactly what an agent harness captures into logs and issue reports, so
-      // the URL is printed only when the browser could not be opened, where it
-      // is the sole way to continue, and it is labelled as a secret when it is.
       const oauthUrl =
         `${server}/auth/github?mode=cli&port=${port}` +
         `&nonce=${encodeURIComponent(nonce)}` +
         `&code_challenge=${encodeURIComponent(codeChallenge)}`;
       console.error('Opening browser for GitHub login...');
 
-      let opened = false;
-      try {
-        const open = (await import('open')).default;
-        await open(oauthUrl);
-        opened = true;
-      } catch {
-        // Browser open failed — fall through and print the URL
-      }
-
-      if (!opened) {
-        console.error(
-          'Could not open a browser. Visit this URL to continue — it carries ' +
-            'one-time login secrets, so do not share or paste it anywhere:',
-        );
-        console.error(oauthUrl);
-      }
+      await openBrowser(oauthUrl);
+      const urlFile = announceLoginUrl(oauthUrl);
 
       // 4. Wait for callback
       let code: string;
@@ -86,6 +67,9 @@ export function registerLoginCommand(program: Command): void {
         code = await waitForCallback();
       } finally {
         close();
+        // The URL is spent either way: it is one login's secrets, not a
+        // bookmark. Leaving it on disk past the flow is a stale credential.
+        if (urlFile) rmSync(urlFile, { force: true });
       }
 
       // 5. Exchange code for tokens
@@ -175,6 +159,74 @@ export function registerLoginCommand(program: Command): void {
       saveSession(session);
       console.log(`Logged in as ${user.username}.`);
     });
+}
+
+/**
+ * Hand the authorization URL to the system browser, best effort.
+ *
+ * Nothing here is evidence a browser appeared. `open()` resolves as soon as
+ * the child process is *spawned*, so on a headless box `xdg-open` resolves
+ * and then exits non-zero a moment later; and when the opener binary is
+ * missing entirely the failure arrives as an asynchronous `error` event on
+ * the child, after this `try` has already been left — which, unhandled,
+ * takes the process down. So the event is absorbed and the caller announces
+ * the URL regardless: treating "spawned" as "opened" is what left headless
+ * users staring at a 30-second timeout with no way to continue.
+ */
+async function openBrowser(url: string): Promise<void> {
+  try {
+    const open = (await import('open')).default;
+    const child = await open(url);
+    child?.on?.('error', () => {});
+  } catch {
+    // No opener at all — the announced URL is the way through.
+  }
+}
+
+/**
+ * Tell the user where to continue, and return the file the URL was left in
+ * (if any) so the caller can delete it once the login settles.
+ *
+ * The URL carries both bindings of this login — the nonce and the PKCE
+ * challenge — so anyone who reads it can start their own login against the
+ * same pair and push the resulting code at this port. When stderr is a
+ * terminal, the only reader is the person logging in and printing is safe.
+ * When it is not — a pipe, a CI log, an agent harness transcript — printing
+ * parks a live login secret in a file somebody else can read, so the URL goes
+ * to an owner-only file and only its path is printed. That is the headless
+ * case, which is precisely where the browser cannot open.
+ */
+function announceLoginUrl(url: string): string | undefined {
+  if (process.stderr.isTTY) {
+    console.error(
+      'If no browser opened, visit this URL to continue — it carries ' +
+        'one-time login secrets, so do not share or paste it anywhere:',
+    );
+    console.error(url);
+    return undefined;
+  }
+
+  try {
+    const file = join(dirname(getConfigPath()), 'login-url.txt');
+    mkdirSync(dirname(file), { recursive: true });
+    // Remove first: `mode` applies only when the file is created, so an
+    // existing world-readable file would keep its permissions.
+    rmSync(file, { force: true });
+    writeFileSync(file, `${url}\n`, { mode: 0o600 });
+    console.error(
+      `If no browser opened, the login URL was written to ${file} ` +
+        '(readable only by you). It carries one-time login secrets: open it ' +
+        'yourself, do not share it, and it expires in 5 minutes.',
+    );
+    return file;
+  } catch {
+    console.error(
+      'Could not open a browser, and stderr is redirected, so the login URL ' +
+        '(which carries one-time login secrets) was not printed. Run ' +
+        '`wafflebase login` from a terminal, or use `--api-key`.',
+    );
+    return undefined;
+  }
 }
 
 /**

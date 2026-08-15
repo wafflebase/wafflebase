@@ -1,8 +1,23 @@
 import { Injectable } from '@nestjs/common';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
+/**
+ * A CLI login in flight.
+ *
+ * Every field is required: a state entry that is missing one of them is a
+ * login with a binding switched off, and each binding closes an attack the
+ * others do not (see the field comments). Making them non-optional is what
+ * keeps "the CLI simply did not send it" from silently becoming "this login
+ * is unbound".
+ */
 interface StateEntry {
-  csrf: string;
+  /**
+   * Random value whose twin sits in the `wafflebase_oauth_state` cookie set
+   * on the browser that started this login. The callback must present it, so
+   * a `state` minted in the attacker's browser (pointing at a loopback port
+   * the attacker owns) cannot be walked through consent by the victim's.
+   */
+  browserBinding: string;
   mode: string;
   port: number;
   /**
@@ -10,14 +25,23 @@ interface StateEntry {
    * callback as `state` so the CLI can tell its own flow's code from one an
    * attacker pushed at the guessable callback port (RFC 8252 §8.9).
    */
-  nonce?: string;
+  nonce: string;
   /**
    * PKCE S256 challenge (RFC 7636) the CLI derived from a verifier it never
    * puts on the wire. Carried onto the authorization code so a code that
    * leaks out of the loopback redirect is not redeemable by whoever holds it.
    */
-  codeChallenge?: string;
+  codeChallenge: string;
   expiresAt: number;
+}
+
+/** The bindings a CLI login must carry; see `StateEntry`. */
+export interface CliStateParams {
+  mode: string;
+  port: number;
+  browserBinding: string;
+  nonce: string;
+  codeChallenge: string;
 }
 
 interface CodeEntry {
@@ -39,35 +63,17 @@ export class CliAuthStore {
   private states = new Map<string, StateEntry>();
   private codes = new Map<string, CodeEntry>();
 
-  createState(
-    mode: string,
-    port: number,
-    nonce?: string,
-    codeChallenge?: string,
-  ): { stateToken: string; csrf: string } {
-    const csrf = randomBytes(32).toString('base64url');
+  createState(params: CliStateParams): { stateToken: string } {
     const stateToken = randomBytes(32).toString('base64url');
     this.states.set(stateToken, {
-      csrf,
-      mode,
-      port,
-      nonce,
-      codeChallenge,
+      ...params,
       expiresAt: Date.now() + 5 * 60 * 1000,
     });
     this.cleanup();
-    return { stateToken, csrf };
+    return { stateToken };
   }
 
-  consumeState(stateToken: string):
-    | {
-        csrf: string;
-        mode: string;
-        port: number;
-        nonce?: string;
-        codeChallenge?: string;
-      }
-    | undefined {
+  consumeState(stateToken: string): CliStateParams | undefined {
     const entry = this.states.get(stateToken);
     if (!entry || entry.expiresAt < Date.now()) {
       this.states.delete(stateToken);
@@ -75,7 +81,7 @@ export class CliAuthStore {
     }
     this.states.delete(stateToken);
     return {
-      csrf: entry.csrf,
+      browserBinding: entry.browserBinding,
       mode: entry.mode,
       port: entry.port,
       nonce: entry.nonce,

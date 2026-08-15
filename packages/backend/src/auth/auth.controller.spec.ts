@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { Request, Response } from 'express';
@@ -187,29 +187,132 @@ describe('AuthController', () => {
       photo: null,
     };
 
+    const CHALLENGE_VERIFIER = randomBytes(32).toString('base64url');
+    const CHALLENGE = createHash('sha256')
+      .update(CHALLENGE_VERIFIER)
+      .digest('base64url');
+
+    /**
+     * Start a CLI login the way `GitHubAuthGuard` does — every binding filled
+     * in, including the cookie half that ties it to one browser — and return
+     * both the `state` GitHub would hand back and a request carrying that
+     * browser's cookie.
+     */
+    function startCliLogin(
+      over: Partial<{
+        port: number;
+        nonce: string;
+        codeChallenge: string;
+        browserBinding: string;
+      }> = {},
+    ) {
+      const browserBinding =
+        over.browserBinding ?? randomBytes(32).toString('base64url');
+      const { stateToken } = cliAuthStore.createState({
+        mode: 'cli',
+        port: over.port ?? 9876,
+        browserBinding,
+        nonce: over.nonce ?? 'n0nce-x/y',
+        codeChallenge: over.codeChallenge ?? CHALLENGE,
+      });
+      return {
+        stateToken,
+        browserBinding,
+        // `null` means "this browser has no state cookie" — distinct from
+        // omitting the argument, which is the matching cookie.
+        request: (cookieValue: string | null = browserBinding) =>
+          ({
+            user: { username: 'bob', email: 'bob@example.com', photo: null },
+            query: { state: stateToken },
+            cookies: cookieValue
+              ? { wafflebase_oauth_state: cookieValue }
+              : {},
+          }) as unknown as Request,
+      };
+    }
+
     it('redirects to CLI localhost when state is a valid CLI token', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
 
-      const { stateToken } = cliAuthStore.createState('cli', 9876);
-      const req = {
-        user: {
-          username: 'bob',
-          email: 'bob@example.com',
-          photo: null,
-        },
-        query: { state: stateToken },
-      } as unknown as Request;
+      const login = startCliLogin();
       const res = createMockResponse();
 
-      await controller.githubAuthCallback(req as any, res, stateToken);
+      await controller.githubAuthCallback(
+        login.request() as any,
+        res,
+        login.stateToken,
+      );
 
       expect(res.redirect).toHaveBeenCalledWith(
-        expect.stringMatching(
-          /^http:\/\/127\.0\.0\.1:9876\/callback\?code=.+/,
-        ),
+        expect.stringMatching(/^http:\/\/127\.0\.0\.1:9876\/callback\?code=.+/),
       );
-      // Should NOT set cookies for CLI flow
+      // Should NOT set session cookies for CLI flow
       expect(res.cookie).not.toHaveBeenCalled();
+      // The state cookie is single-use and cleared on the way through.
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        'wafflebase_oauth_state',
+        expect.objectContaining({ path: '/auth' }),
+      );
+    });
+
+    // The nonce and the PKCE verifier are both held by whoever *starts* the
+    // login, so neither stops an attacker minting a state that points at a
+    // loopback port they own and walking the victim through consent. The
+    // cookie is what says this browser began this login.
+    it('refuses a CLI callback presented by a different browser', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const login = startCliLogin();
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(
+          login.request(randomBytes(32).toString('base64url')) as any,
+          res,
+          login.stateToken,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(res.redirect).not.toHaveBeenCalled();
+      // Refused before any user record is touched.
+      expect(userService.findOrCreateUser).not.toHaveBeenCalled();
+    });
+
+    it('refuses a CLI callback that carries no state cookie at all', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const login = startCliLogin();
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(
+          login.request(null) as any,
+          res,
+          login.stateToken,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    // A refused callback must not leave the browser half spendable on a
+    // retry, so the cookie is cleared whether or not it matched.
+    it('clears the state cookie even when the CLI callback is refused', async () => {
+      const login = startCliLogin();
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(
+          login.request('not-the-binding') as any,
+          res,
+          login.stateToken,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        'wafflebase_oauth_state',
+        expect.objectContaining({ path: '/auth' }),
+      );
     });
 
     // The CLI's callback port is guessable, so it only redeems a code whose
@@ -218,14 +321,14 @@ describe('AuthController', () => {
     it('echoes the CLI nonce back as `state`', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
 
-      const { stateToken } = cliAuthStore.createState('cli', 9876, 'n0nce-x/y');
-      const req = {
-        user: { username: 'bob', email: 'bob@example.com', photo: null },
-        query: { state: stateToken },
-      } as unknown as Request;
+      const login = startCliLogin({ nonce: 'n0nce-x/y' });
       const res = createMockResponse();
 
-      await controller.githubAuthCallback(req as any, res, stateToken);
+      await controller.githubAuthCallback(
+        login.request() as any,
+        res,
+        login.stateToken,
+      );
 
       const target = (res.redirect as jest.Mock).mock.calls[0][0] as string;
       expect(new URL(target).searchParams.get('state')).toBe('n0nce-x/y');
@@ -237,66 +340,32 @@ describe('AuthController', () => {
     it('carries the login`s PKCE challenge onto the code it mints', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
 
-      const verifier = randomBytes(32).toString('base64url');
-      const challenge = createHash('sha256')
-        .update(verifier)
-        .digest('base64url');
-      const { stateToken } = cliAuthStore.createState(
-        'cli',
-        9876,
-        undefined,
-        challenge,
-      );
-      const req = {
-        user: { username: 'bob', email: 'bob@example.com', photo: null },
-        query: { state: stateToken },
-      } as unknown as Request;
+      const first = startCliLogin();
       const res = createMockResponse();
-
-      await controller.githubAuthCallback(req as any, res, stateToken);
-
-      const target = new URL(
-        (res.redirect as jest.Mock).mock.calls[0][0] as string,
-      );
-      const code = target.searchParams.get('code')!;
-      // No `state` echo — this login sent no nonce — but the code is bound.
-      expect(target.searchParams.get('state')).toBeNull();
-      expect(cliAuthStore.consumeCode(code, 'not-the-verifier')).toBeUndefined();
-
-      const { stateToken: second } = cliAuthStore.createState(
-        'cli',
-        9876,
-        undefined,
-        challenge,
-      );
-      const res2 = createMockResponse();
       await controller.githubAuthCallback(
-        { ...req, query: { state: second } } as any,
-        res2,
-        second,
+        first.request() as any,
+        res,
+        first.stateToken,
       );
-      const code2 = new URL(
-        (res2.redirect as jest.Mock).mock.calls[0][0] as string,
-      ).searchParams.get('code')!;
-      expect(cliAuthStore.consumeCode(code2, verifier)).toBe(mockUser.id);
-    });
-
-    it('mints an unchallenged code when the login carried no challenge', async () => {
-      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
-
-      const { stateToken } = cliAuthStore.createState('cli', 9876);
-      const req = {
-        user: { username: 'bob', email: 'bob@example.com', photo: null },
-        query: { state: stateToken },
-      } as unknown as Request;
-      const res = createMockResponse();
-
-      await controller.githubAuthCallback(req as any, res, stateToken);
 
       const code = new URL(
         (res.redirect as jest.Mock).mock.calls[0][0] as string,
       ).searchParams.get('code')!;
-      expect(cliAuthStore.consumeCode(code)).toBe(mockUser.id);
+      expect(cliAuthStore.consumeCode(code, 'not-the-verifier')).toBeUndefined();
+
+      const second = startCliLogin();
+      const res2 = createMockResponse();
+      await controller.githubAuthCallback(
+        second.request() as any,
+        res2,
+        second.stateToken,
+      );
+      const code2 = new URL(
+        (res2.redirect as jest.Mock).mock.calls[0][0] as string,
+      ).searchParams.get('code')!;
+      expect(cliAuthStore.consumeCode(code2, CHALLENGE_VERIFIER)).toBe(
+        mockUser.id,
+      );
     });
   });
 

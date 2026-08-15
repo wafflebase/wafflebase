@@ -1,5 +1,21 @@
 import { CliAuthStore } from './cli-auth.store';
 
+/**
+ * A CLI login's bindings. Every one of them is required — the store has no
+ * way to represent a login with a binding switched off — so the tests fill
+ * them in and override only what they are about.
+ */
+function params(over: Partial<Parameters<CliAuthStore['createState']>[0]> = {}) {
+  return {
+    mode: 'browser',
+    port: 9876,
+    browserBinding: 'binding-value',
+    nonce: 'the-nonce',
+    codeChallenge: 'a'.repeat(43),
+    ...over,
+  };
+}
+
 describe('CliAuthStore', () => {
   let store: CliAuthStore;
 
@@ -12,31 +28,31 @@ describe('CliAuthStore', () => {
   });
 
   describe('createState', () => {
-    it('returns non-empty stateToken and csrf strings', () => {
-      const result = store.createState('browser', 9876);
+    it('returns a non-empty stateToken', () => {
+      const result = store.createState(params());
       expect(typeof result.stateToken).toBe('string');
       expect(result.stateToken.length).toBeGreaterThan(0);
-      expect(typeof result.csrf).toBe('string');
-      expect(result.csrf.length).toBeGreaterThan(0);
     });
 
     it('returns unique tokens on each call', () => {
-      const a = store.createState('browser', 9876);
-      const b = store.createState('browser', 9876);
+      const a = store.createState(params());
+      const b = store.createState(params());
       expect(a.stateToken).not.toBe(b.stateToken);
-      expect(a.csrf).not.toBe(b.csrf);
     });
   });
 
   describe('consumeState', () => {
-    it('returns { csrf, mode, port } for a valid stateToken', () => {
-      const { stateToken, csrf } = store.createState('browser', 9876);
-      const result = store.consumeState(stateToken);
-      expect(result).toEqual({ csrf, mode: 'browser', port: 9876 });
+    // The browser binding is the half of the double submit the callback
+    // compares against its cookie: lose it here and a CLI `state` minted in
+    // one browser completes in any other.
+    it('returns every binding it was given for a valid stateToken', () => {
+      const given = params({ mode: 'cli', browserBinding: 'b-1' });
+      const { stateToken } = store.createState(given);
+      expect(store.consumeState(stateToken)).toEqual(given);
     });
 
     it('is single-use: second call returns undefined', () => {
-      const { stateToken } = store.createState('browser', 9876);
+      const { stateToken } = store.createState(params());
       store.consumeState(stateToken);
       expect(store.consumeState(stateToken)).toBeUndefined();
     });
@@ -46,7 +62,7 @@ describe('CliAuthStore', () => {
     });
 
     it('returns undefined for expired state entry', () => {
-      const { stateToken } = store.createState('browser', 9876);
+      const { stateToken } = store.createState(params());
       // Simulate time past the 5-minute TTL
       jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 6 * 60 * 1000);
       expect(store.consumeState(stateToken)).toBeUndefined();
@@ -93,12 +109,12 @@ describe('CliAuthStore', () => {
 
   describe('cleanup', () => {
     it('removes expired state entries on createState', () => {
-      const { stateToken } = store.createState('browser', 9876);
+      const { stateToken } = store.createState(params());
       // Advance time past TTL so the entry is expired
       const futureNow = Date.now() + 6 * 60 * 1000;
       jest.spyOn(Date, 'now').mockReturnValue(futureNow);
       // Creating a new state triggers cleanup
-      store.createState('browser', 1234);
+      store.createState(params({ port: 1234 }));
       // The expired entry should be gone (consumeState returns undefined without the entry existing)
       expect(store.consumeState(stateToken)).toBeUndefined();
     });

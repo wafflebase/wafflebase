@@ -175,7 +175,8 @@ wafflebase login
   │     and mints a nonce + a PKCE verifier/challenge pair
   ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>
   │       &nonce=<nonce>&code_challenge=<S256(verifier)>
-  │     (printed for copy-paste only when the browser cannot be opened)
+  │     (backend sets a short-lived `wafflebase_oauth_state` cookie on
+  │      that browser; the URL is announced for copy-paste — see below)
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
   ├─ 6. Backend detects mode=cli in OAuth state →
@@ -214,34 +215,45 @@ that:
   code, and is required at `POST /auth/cli/exchange`. So even a code lifted
   off the redirect — from a browser history entry, a proxy, a shoulder — is
   not redeemable by whoever holds it.
+- **Browser binding.** `GET /auth/github?mode=cli` sets a short-lived
+  httpOnly `wafflebase_oauth_state` cookie (`SameSite=Lax`, `path=/auth`)
+  and remembers its value beside the state; the callback must present it.
+  The other two bindings are both held by whoever *starts* a login, so
+  neither sees an attacker who mints a CLI state pointing at a loopback
+  port they own and walks the victim through GitHub's consent screen — on
+  a shared or multi-user host that hands the attacker an authorization
+  code for the victim's account, verifier and all. The cookie is what says
+  the browser completing consent is the browser that began the login.
 
-The two are not redundant: the nonce protects the *client* (this CLI only
+The three are not redundant: the nonce protects the *client* (this CLI only
 redeems a code from its own flow), PKCE protects the *code* (nobody but
-this CLI can redeem it, wherever it leaked). A code that is presented with
-a verifier but was minted with no challenge is refused as well
-(RFC 7636 §4.6), so an attacker cannot start an unchallenged login at the
-victim's port and nonce and have the victim's CLI spend it.
+this CLI can redeem it, wherever it leaked), and the cookie protects the
+*user* (nobody else's login can be walked through this browser). A code
+that is presented with a verifier but was minted with no challenge is
+refused as well (RFC 7636 §4.6).
 
-They are *not* independent against an observer of the authorization URL,
-though: it carries both, and someone who reads it can start their own login
-under the same nonce and challenge and push the resulting code at the port.
-So the URL is handed to the browser and printed only when the browser could
-not be opened — where it is the sole way to continue, and is labelled as
-carrying one-time secrets. stderr is what an agent harness captures into
-logs and issue reports, which is the exposure this avoids. Server-side, the
-access log redacts `/auth` query strings for the same reason (4xx there is
-logged at `warn`).
+The authorization URL carries the first two, so an observer of it can start
+their own login under the same nonce and challenge and push the resulting
+code at the port. It therefore never goes to stderr, which is what an agent
+harness captures into logs and issue reports. `open()` resolving is not
+evidence a browser appeared — it only means the child process was spawned —
+so the URL is announced either way, through whichever channel is safe:
+stderr when it is a terminal (the only reader is the person logging in), and
+otherwise a `login-url.txt` beside the config file, written `0600` and
+deleted as soon as the login settles.  Server-side, the access log redacts
+`/auth` query strings for the same reason (4xx there is logged at `warn`).
 
-**Compatibility runs one way.** Both parameters are optional *server*-side,
-so a CLI that predates them still logs in against a current backend: no
-`nonce` means no `state` echo, no `code_challenge` means an unchallenged
-code, and the exchange takes the code alone. The reverse does not hold. A
-current CLI refuses a callback carrying no `state` — which is exactly what
-an older backend sends — so its browser login cannot complete there; it
-ends at the 30-second timeout with a message naming that cause rather than
-blaming the clock. Accepting the unbound code instead would reintroduce the
-injection this section exists to close, so an older deployment upgrades the
-server or authenticates with `--api-key`, which needs no browser at all.
+**Compatibility runs one way, and no longer runs at all for old clients.**
+All three bindings are required server-side: a `mode=cli` start URL missing
+or malforming `nonce` or `code_challenge` is a `400` naming the parameter,
+not a login that quietly continues unbound. Optional bindings are not
+bindings — a client that simply omits the parameter is indistinguishable
+from one that never had them, so the RFC 8252 §8.9 injection would stay open
+for every client that did not opt in. A CLI predating them upgrades, or
+authenticates with `--api-key`, which needs no browser at all. In the other
+direction a current CLI refuses a callback carrying no `state` — exactly
+what an older backend sends — and ends at the 30-second timeout with a
+message naming that cause rather than blaming the clock.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and

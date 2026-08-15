@@ -117,3 +117,67 @@ describe('GitHubStrategy endpoints', () => {
     expect(e.profile).toBe(DEFAULTS.profile);
   });
 });
+
+/**
+ * `GitHubAuthGuard` mints the OAuth `state` and leaves it on the request as
+ * `__oauthState`; this strategy is the only thing that puts it on the wire.
+ * Nothing else observes the handoff, so a half-applied rename on either side
+ * would ship an authorization request with no CSRF binding at all — every
+ * other test still green, because passport-oauth2 installs a `NullStore`
+ * whose `verify` always succeeds when no `state` option is given.
+ */
+describe('GitHubStrategy state injection', () => {
+  // `super.authenticate` resolves on the prototype above GitHubStrategy's
+  // (the Nest mixin), so a stub defined there is what the override calls.
+  const base = Object.getPrototypeOf(GitHubStrategy.prototype) as Record<
+    string,
+    unknown
+  >;
+  const hadOwn = Object.prototype.hasOwnProperty.call(base, 'authenticate');
+  const original = base.authenticate;
+  let seen: Record<string, unknown> | undefined;
+
+  beforeEach(() => {
+    seen = undefined;
+    base.authenticate = function (
+      _req: unknown,
+      options?: Record<string, unknown>,
+    ) {
+      seen = options;
+    };
+  });
+
+  afterEach(() => {
+    if (hadOwn) base.authenticate = original;
+    else delete base.authenticate;
+  });
+
+  it('forwards the state the guard put on the request', () => {
+    makeStrategy(BASE).authenticate(
+      { __oauthState: 'w.the-browser-half' } as never,
+      { scope: ['user:email'] },
+    );
+
+    expect(seen).toMatchObject({
+      state: 'w.the-browser-half',
+      scope: ['user:email'],
+    });
+  });
+
+  it('forwards a CLI state token unchanged', () => {
+    makeStrategy(BASE).authenticate({ __oauthState: 'cli-token' } as never);
+    expect(seen?.state).toBe('cli-token');
+  });
+
+  it('sends no state when the guard set none', () => {
+    makeStrategy(BASE).authenticate({} as never, { scope: ['user:email'] });
+    expect(seen).toBeDefined();
+    expect('state' in seen!).toBe(false);
+  });
+
+  it('does not mutate the options object it was handed', () => {
+    const options = { scope: ['user:email'] };
+    makeStrategy(BASE).authenticate({ __oauthState: 's' } as never, options);
+    expect(options).toEqual({ scope: ['user:email'] });
+  });
+});

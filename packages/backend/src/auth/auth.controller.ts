@@ -141,9 +141,7 @@ export class AuthController {
       // Echo the CLI's nonce back as `state`. Its localhost callback port
       // is guessable, so this is what lets the CLI tell a code from its own
       // flow apart from one an attacker pushed at that port.
-      const stateEcho = cliState.nonce
-        ? `&state=${encodeURIComponent(cliState.nonce)}`
-        : '';
+      const stateEcho = `&state=${encodeURIComponent(cliState.nonce)}`;
       return res.redirect(
         `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${stateEcho}`,
       );
@@ -165,20 +163,22 @@ export class AuthController {
    * double-submit cookie for the browser — so a callback with none did not
    * come from a login this server began and is refused rather than completed
    * (forced-login CSRF).
+   *
+   * Both flows are cookie-bound, and for the same reason: a `state` alone
+   * says a login was started somewhere, not that it was started by the
+   * browser now completing it. For the CLI that gap is the worse of the two —
+   * an attacker mints a state pointing at a loopback port they own and walks
+   * the victim through consent, ending up with a code for the victim's
+   * account that their own CLI redeems.
    */
   private verifyCallbackState(
     req: Request,
     res: Response,
     stateToken: string | undefined,
-  ): { port: number; nonce?: string; codeChallenge?: string } | undefined {
+  ): { port: number; nonce: string; codeChallenge: string } | undefined {
     if (stateToken?.startsWith(WEB_STATE_PREFIX)) {
       const presented = stateToken.slice(WEB_STATE_PREFIX.length);
-      const expected = req.cookies?.[OAUTH_STATE_COOKIE];
-      // Single use: the cookie goes whether or not it matched.
-      res.clearCookie(OAUTH_STATE_COOKIE, {
-        ...this.baseCookieOptions(),
-        path: '/auth',
-      });
+      const expected = this.takeStateCookie(req, res);
       if (typeof expected !== 'string' || !secretEquals(expected, presented)) {
         throw new UnauthorizedException(
           'Login session expired or invalid. Please sign in again.',
@@ -189,11 +189,18 @@ export class AuthController {
 
     if (stateToken) {
       const state = this.cliAuthStore.consumeState(stateToken);
-      if (state && state.mode === 'cli') {
+      const binding = this.takeStateCookie(req, res);
+      if (
+        state &&
+        state.mode === 'cli' &&
+        typeof binding === 'string' &&
+        secretEquals(state.browserBinding, binding)
+      ) {
         return state;
       }
 
-      // State token was provided but invalid/expired — this is a CLI flow
+      // State token was provided but invalid, expired, or presented by a
+      // browser other than the one that started the login. This is a CLI flow
       // that failed. Return an error instead of falling through to web flow.
       throw new BadRequestException(
         'CLI login state expired or invalid. Please run `wafflebase login` again.',
@@ -203,6 +210,21 @@ export class AuthController {
     throw new UnauthorizedException(
       'Login session expired or invalid. Please sign in again.',
     );
+  }
+
+  /**
+   * Read the login `state` cookie and clear it in the same breath.
+   *
+   * Single use: it goes whether or not it matched, so a failed callback
+   * cannot be retried against the same half.
+   */
+  private takeStateCookie(req: Request, res: Response): unknown {
+    const value = req.cookies?.[OAUTH_STATE_COOKIE];
+    res.clearCookie(OAUTH_STATE_COOKIE, {
+      ...this.baseCookieOptions(),
+      path: '/auth',
+    });
+    return value;
   }
 
   /**

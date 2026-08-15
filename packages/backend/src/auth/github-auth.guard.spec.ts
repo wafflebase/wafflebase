@@ -17,9 +17,14 @@ import {
  */
 function contextFor(query: Record<string, unknown>) {
   const req: Record<string, unknown> = { query };
-  const cookies: Array<{ name: string; value: string }> = [];
+  const cookies: Array<{
+    name: string;
+    value: string;
+    options: Record<string, unknown>;
+  }> = [];
   const res = {
-    cookie: (name: string, value: string) => cookies.push({ name, value }),
+    cookie: (name: string, value: string, options: Record<string, unknown>) =>
+      cookies.push({ name, value, options }),
   };
   return {
     req,
@@ -29,6 +34,11 @@ function contextFor(query: Record<string, unknown>) {
     } as unknown as ExecutionContext,
   };
 }
+
+/** A syntactically valid S256 challenge (RFC 7636 §4.1). */
+const CHALLENGE = createHash('sha256')
+  .update(randomBytes(32).toString('base64url'))
+  .digest('base64url');
 
 describe('GitHubAuthGuard', () => {
   let store: CliAuthStore;
@@ -59,8 +69,19 @@ describe('GitHubAuthGuard', () => {
       : undefined;
   }
 
+  /** A CLI start URL with both required parameters filled in. */
+  function cliQuery(over: Record<string, unknown> = {}) {
+    return {
+      mode: 'cli',
+      port: '9876',
+      nonce: 'n0nce-x/y',
+      code_challenge: CHALLENGE,
+      ...over,
+    };
+  }
+
   it('remembers the CLI nonce so the callback can echo it', () => {
-    const state = stateFor({ mode: 'cli', port: '9876', nonce: 'n0nce-x/y' });
+    const state = stateFor(cliQuery());
     expect(state).toMatchObject({
       mode: 'cli',
       port: 9876,
@@ -68,42 +89,37 @@ describe('GitHubAuthGuard', () => {
     });
   });
 
-  it('keeps a nonce at the 128-character bound and drops a longer one', () => {
+  it('keeps a nonce at the 128-character bound and rejects a longer one', () => {
     const atBound = 'a'.repeat(128);
-    expect(stateFor({ mode: 'cli', port: '9876', nonce: atBound })?.nonce).toBe(
-      atBound,
+    expect(stateFor(cliQuery({ nonce: atBound }))?.nonce).toBe(atBound);
+
+    expect(() => stateFor(cliQuery({ nonce: 'a'.repeat(129) }))).toThrow(
+      BadRequestException,
     );
-
-    const overBound = 'a'.repeat(129);
-    expect(
-      stateFor({ mode: 'cli', port: '9876', nonce: overBound })?.nonce,
-    ).toBeUndefined();
   });
 
-  it('ignores an empty or non-string nonce rather than echoing it', () => {
-    expect(
-      stateFor({ mode: 'cli', port: '9876', nonce: '' })?.nonce,
-    ).toBeUndefined();
+  it('rejects an empty or non-string nonce rather than echoing it', () => {
+    expect(() => stateFor(cliQuery({ nonce: '' }))).toThrow(
+      BadRequestException,
+    );
     // Express gives a repeated `?nonce=` as an array; it is not a nonce.
-    expect(
-      stateFor({ mode: 'cli', port: '9876', nonce: ['a', 'b'] })?.nonce,
-    ).toBeUndefined();
+    expect(() => stateFor(cliQuery({ nonce: ['a', 'b'] }))).toThrow(
+      BadRequestException,
+    );
   });
 
-  it('still issues a state token for a CLI login that sends no nonce', () => {
-    const state = stateFor({ mode: 'cli', port: '9876' });
-    expect(state).toMatchObject({ mode: 'cli', port: 9876 });
-    expect(state?.nonce).toBeUndefined();
+  // Missing is the same failure as malformed. A login that continues without
+  // the nonce is a code at a guessable loopback port with nothing tying it to
+  // the flow that started it (RFC 8252 §8.9), and neither end can see the
+  // downgrade — so it is refused, not started.
+  it('refuses a CLI login that sends no nonce', () => {
+    expect(() => stateFor({ mode: 'cli', port: '9876', code_challenge: CHALLENGE })).toThrow(
+      BadRequestException,
+    );
   });
 
   it('remembers a well-formed PKCE challenge', () => {
-    const challenge = createHash('sha256')
-      .update(randomBytes(32).toString('base64url'))
-      .digest('base64url');
-    expect(
-      stateFor({ mode: 'cli', port: '9876', code_challenge: challenge })
-        ?.codeChallenge,
-    ).toBe(challenge);
+    expect(stateFor(cliQuery())?.codeChallenge).toBe(CHALLENGE);
   });
 
   // A challenge that is sent but unusable must fail the request. Storing
@@ -112,26 +128,47 @@ describe('GitHubAuthGuard', () => {
   // a downgrade neither end can observe.
   it('fails the request for a malformed challenge instead of dropping it', () => {
     // Too short for RFC 7636 §4.1, and outside the base64url alphabet.
+    expect(() => stateFor(cliQuery({ code_challenge: 'short' }))).toThrow(
+      BadRequestException,
+    );
     expect(() =>
-      stateFor({ mode: 'cli', port: '9876', code_challenge: 'short' }),
-    ).toThrow(BadRequestException);
-    expect(() =>
-      stateFor({
-        mode: 'cli',
-        port: '9876',
-        code_challenge: `${'a'.repeat(42)}&x=1`,
-      }),
+      stateFor(cliQuery({ code_challenge: `${'a'.repeat(42)}&x=1` })),
     ).toThrow(BadRequestException);
     // Express gives a repeated `?code_challenge=` as an array.
-    expect(() =>
-      stateFor({ mode: 'cli', port: '9876', code_challenge: ['a', 'b'] }),
-    ).toThrow(BadRequestException);
+    expect(() => stateFor(cliQuery({ code_challenge: ['a', 'b'] }))).toThrow(
+      BadRequestException,
+    );
   });
 
-  it('still issues a state token for a CLI login that sends no challenge', () => {
-    const state = stateFor({ mode: 'cli', port: '9876', nonce: 'n' });
-    expect(state).toMatchObject({ mode: 'cli', port: 9876 });
-    expect(state?.codeChallenge).toBeUndefined();
+  it('refuses a CLI login that sends no challenge', () => {
+    expect(() => stateFor({ mode: 'cli', port: '9876', nonce: 'n' })).toThrow(
+      BadRequestException,
+    );
+  });
+
+  // The nonce and the verifier are both things an attacker who *starts* the
+  // login holds. Only the cookie says the browser now completing consent is
+  // the one that began it, which is what stops a state pointing at an
+  // attacker-owned loopback port from being walked through by the victim.
+  it('binds a CLI login to the browser that started it', () => {
+    const { req, cookies, context } = contextFor(cliQuery());
+    guard.canActivate(context);
+
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0].name).toBe(OAUTH_STATE_COOKIE);
+
+    const state = store.consumeState(req.__oauthState as string);
+    expect(state?.browserBinding).toBe(cookies[0].value);
+    expect(cookies[0].value.length).toBeGreaterThan(0);
+  });
+
+  it('binds each CLI login to its own cookie value', () => {
+    const first = contextFor(cliQuery());
+    guard.canActivate(first.context);
+    const second = contextFor(cliQuery());
+    guard.canActivate(second.context);
+
+    expect(first.cookies[0].value).not.toBe(second.cookies[0].value);
   });
 
   it('stores no CLI state for a non-CLI request or an out-of-range port', () => {
@@ -143,6 +180,7 @@ describe('GitHubAuthGuard', () => {
       mode: 'cli',
       port: '80',
       nonce: 'n',
+      code_challenge: CHALLENGE,
     });
     guard.canActivate(lowCtx);
     expect(store.consumeState(low.__oauthState as string)).toBeUndefined();
@@ -162,16 +200,26 @@ describe('GitHubAuthGuard', () => {
     // The cookie is the other half of the double submit: same value, sent
     // separately from the query parameter.
     expect(state.slice(WEB_STATE_PREFIX.length)).toBe(cookies[0].value);
+    // Attributes are the control, not decoration: without httpOnly a script
+    // reads the half it is not supposed to have, and without `path=/auth`
+    // the callback never receives it.
+    expect(cookies[0].options).toMatchObject({
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/auth',
+      maxAge: 5 * 60 * 1000,
+    });
   });
 
   it('leaves the CLI state alone rather than overwriting it with a web one', () => {
-    const { req, cookies, context } = contextFor({ mode: 'cli', port: '9876' });
+    const { req, cookies, context } = contextFor(cliQuery());
     guard.canActivate(context);
 
     expect((req.__oauthState as string).startsWith(WEB_STATE_PREFIX)).toBe(
       false,
     );
-    expect(cookies).toHaveLength(0);
+    // One cookie: the CLI's own browser binding, not a second web state.
+    expect(cookies).toHaveLength(1);
   });
 
   it('mints a fresh browser state per request', () => {

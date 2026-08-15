@@ -52,23 +52,40 @@ piece of login work starts from `main` on its own branch.
 - [x] A `code_challenge` that is sent but fails the guard's bounds is a
       `400`, not a silently dropped parameter: continuing would downgrade
       a login the client believes is PKCE-bound, undetectably at both ends.
-- [x] Back-compat runs **one way**, and the docs say so. Both parameters
-      are optional server-side, so an older CLI still logs in against a
-      current backend. A current CLI cannot complete its browser login
-      against a backend that does not echo the nonce — it refuses the
-      unbound code and names that cause on timeout — because accepting it
-      is exactly the injection this task closes. `--api-key` covers an
-      older deployment until it is upgraded.
+- [x] Both parameters are **required** server-side (review round 2). They
+      were optional so an older CLI kept working, but on the wire "does
+      not support it" and "chose not to send it" are the same request, so
+      an optional binding is no binding: the injection stayed open for any
+      client that omitted it. A `mode=cli` start URL missing either one is
+      now a `400` naming the parameter. Back-compat runs neither way now —
+      an older CLI upgrades, or uses `--api-key`, which needs no browser.
+- [x] The CLI state is bound to the browser that started it (review round
+      2, critical). The nonce and the verifier are both held by whoever
+      *starts* a login, so neither sees an attacker who mints a CLI state
+      pointing at a loopback port they own and walks the victim through
+      consent — on a shared host that is the victim's code in the
+      attacker's CLI. `GET /auth/github?mode=cli` now sets the same
+      short-lived `wafflebase_oauth_state` cookie the browser flow uses and
+      remembers it as `StateEntry.browserBinding`; the callback compares it
+      constant-time before the user is looked up, and clears it either way.
 - [x] Tests: `github-auth.guard.spec.ts` over ingestion and its bounds;
       `auth.controller.spec.ts` over the `state` echo and the four PKCE
       outcomes; `login-callback.test.ts` over the callback gate (including
       a *same-length* wrong nonce, which a length-only compare would let
       through) and over the real `login` action's wire format.
 - [x] Docs: `cli.md` §3.1 login flow, `rest-api.md` §7 + risk table.
-- [x] The authorization URL carries both bindings, so it is handed to the
-      browser and printed only when the browser cannot be opened; the
-      backend redacts `/auth` query strings out of its access log for the
-      same reason (a 4xx there logs at `warn`).
+- [x] The authorization URL carries two of the bindings, so it never goes
+      to stderr, which is what an agent harness captures into logs. It is
+      announced either way, though — `open()` resolving only means the
+      child was spawned, not that a browser appeared, so gating on it left
+      headless users with no way to continue (review round 2): stderr when
+      stderr is a terminal, otherwise a `0600` `login-url.txt` beside the
+      config file, deleted as soon as the login settles. A spawn `ENOENT`
+      arrives asynchronously and is absorbed rather than crashing the CLI.
+      The backend redacts `/auth` query strings out of its access log for
+      the same reason (a 4xx there logs at `warn`), matching every spelling
+      Express routes — case-insensitive, percent-decoded — not just the
+      lowercase literal.
 - [x] `login` codes a backend failure from its status — 401/403
       `UNAUTHORIZED`, 5xx `SYSTEM`, otherwise `HTTP_ERROR` — instead of
       calling every one an auth failure, and each call site `return`s the
@@ -76,10 +93,10 @@ piece of login work starts from `main` on its own branch.
 
 ## Out of scope
 
-- Converting the `csrf` value `CliAuthStore` mints alongside the state
-  token into an enforced control, or deleting it. The state token is
-  itself the opaque single-use guard; `csrf` has no reader. Noted in the
-  `rest-api.md` risk row rather than changed here.
+- ~~Converting the `csrf` value `CliAuthStore` mints alongside the state
+  token into an enforced control, or deleting it.~~ Done in review round
+  2: the unread `csrf` field is gone, replaced by `browserBinding`, which
+  the callback enforces.
 - Rotating the loopback listener onto a fixed registered port or a
   `Sec-Fetch-Site` check. The two bindings above are the RFC's own
   prescription; origin headers are advisory on a plain-`GET` navigation.
@@ -100,8 +117,13 @@ piece of login work starts from `main` on its own branch.
 - [x] A code minted under PKCE cannot be exchanged without the verifier,
       and a code minted *without* one cannot be exchanged *with* a
       verifier either.
-- [x] A CLI that sends neither parameter still completes `login` end to
-      end against a current backend.
+- [x] A CLI that sends neither parameter is refused with a `400` naming
+      the missing one (replaces the earlier criterion, which asked for
+      behavior that left the binding optional and therefore absent).
+- [x] A CLI callback whose `state` is valid but whose browser presents no
+      matching cookie is refused before any user record is touched.
+- [x] `logSafeUrl` redacts `/AUTH/...` and `/%61uth/...`, not just
+      `/auth/...`, and has tests of its own.
 - [x] A browser login whose callback carries no `state`, or one that does
       not match its cookie, is refused before any user record is touched.
 - [x] `wafflebase login` against a backend that ignores both parameters

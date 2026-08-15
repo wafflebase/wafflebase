@@ -2,8 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Command } from 'commander';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import open from 'open';
 import {
   registerLoginCommand,
@@ -12,8 +12,8 @@ import {
 
 // `open` would launch a real browser in CI. It is also how the tests read the
 // authorization URL: it carries this login's nonce and PKCE challenge, so the
-// command hands it to the browser rather than printing it on stderr, which an
-// agent harness captures into logs.
+// command never prints it on stderr, which an agent harness captures into
+// logs.
 vi.mock('open', () => ({ default: vi.fn(async () => undefined) }));
 
 const openMock = vi.mocked(open);
@@ -100,6 +100,13 @@ async function openedUrl(): Promise<URL> {
 // carry (RFC 7636).
 describe('wafflebase login', () => {
   const sessionPath = join(tmpdir(), `wb-login-test-${process.pid}.json`);
+  const configPath = join(
+    tmpdir(),
+    `wb-login-cfg-${process.pid}`,
+    'config.yaml',
+  );
+  /** Where `announceLoginUrl` leaves the URL when stderr is not a terminal. */
+  const urlPath = join(dirname(configPath), 'login-url.txt');
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -107,11 +114,14 @@ describe('wafflebase login', () => {
     // reads the authorization URL out of its first call.
     openMock.mockClear();
     delete process.env.WAFFLEBASE_SESSION;
+    delete process.env.WAFFLEBASE_CONFIG;
     rmSync(sessionPath, { force: true });
+    rmSync(urlPath, { force: true });
   });
 
   it('sends the nonce it requires back and PKCE-binds the exchange', async () => {
     process.env.WAFFLEBASE_SESSION = sessionPath;
+    process.env.WAFFLEBASE_CONFIG = configPath;
 
     const program = new Command();
     program.name('wafflebase').exitOverride();
@@ -160,8 +170,13 @@ describe('wafflebase login', () => {
 
     // The nonce and the challenge are this login's two bindings; an observer
     // of a printed URL could start their own login against the same pair, so
-    // nothing carrying them is written to stderr when the browser opened.
+    // nothing carrying them reaches stderr, which is what an agent harness
+    // captures into logs. `open()` resolving is no evidence a browser
+    // actually opened (it only means the child was spawned), so the URL is
+    // still made available — in a file only its owner can read.
     expect(notices.some((n) => n.includes('nonce='))).toBe(false);
+    expect(notices.some((n) => n.includes(urlPath))).toBe(true);
+    expect(readFileSync(urlPath, 'utf-8').trim()).toBe(oauthUrl.toString());
 
     const callback = await realFetch(
       `http://127.0.0.1:${port}/callback?code=the-code&state=${encodeURIComponent(nonce!)}`,
@@ -169,6 +184,9 @@ describe('wafflebase login', () => {
     expect(callback.status).toBe(200);
 
     await done;
+
+    // One login's secrets, not a bookmark: the file goes when the flow does.
+    expect(existsSync(urlPath)).toBe(false);
 
     expect(exchanged).toHaveLength(1);
     expect(exchanged[0].code).toBe('the-code');

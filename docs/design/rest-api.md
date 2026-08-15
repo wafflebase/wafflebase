@@ -334,23 +334,28 @@ backend surface is:
 - **`GET /auth/github?mode=cli&port=<port>&nonce=<nonce>&code_challenge=<challenge>`**
   — extends the existing endpoint to carry CLI parameters through OAuth
   `state`. The backend generates an opaque state token (random 32 bytes,
-  TTL 5 minutes, in-memory map) and remembers the CLI's `nonce` and PKCE
-  `code_challenge` beside it. Both are optional (an older CLI sends
-  neither) and both are length-bounded before they are stored — the
-  nonce at 128 characters, the challenge at RFC 7636's 43–128 and the
-  base64url alphabet — since they arrive on an attacker-influenceable
-  query string and one of them is echoed into a redirect URL. A
-  `code_challenge` that is present but fails those bounds is a `400`, not
-  a dropped parameter: continuing would hand a bearer-only code to a
-  client that believes its login is PKCE-bound, a downgrade neither end
-  can see.
+  TTL 5 minutes, in-memory map) and remembers the CLI's `nonce`, its PKCE
+  `code_challenge`, and a third random value beside it — the value of a
+  short-lived `wafflebase_oauth_state` cookie set on the browser being
+  sent to GitHub, which binds the login to that browser (see the risk
+  rows). Both query parameters are **required**: absent, empty, or
+  outside their bounds is a `400` naming the parameter, never a login
+  that continues unbound. The bounds are the nonce at 128 characters and
+  the challenge at RFC 7636's 43–128 plus the base64url alphabet, since
+  both arrive on an attacker-influenceable query string and one is echoed
+  into a redirect URL. Treating them as optional would leave the
+  RFC 8252 §8.9 injection open for any client that just omits them — on
+  the wire "does not support it" and "chose not to send it" are the same
+  request.
   A request with no `mode=cli` is a browser login and gets a `state` too:
-  a random value sent as `w.<value>` with its other half in a short-lived
-  `wafflebase_oauth_state` cookie, so the callback has something to check
+  a random value sent as `w.<value>` with its other half in the same
+  short-lived cookie, so the callback has something to check
   (see the CSRF risk row).
 - **`GET /auth/github/callback`** — validates `state` first: a `w.`-prefixed
-  one against its cookie, anything else against the CLI state map, and a
-  callback carrying none at all is a `401`. When the decoded state has
+  one against its cookie, anything else against the CLI state map *and*
+  the same cookie, and a callback carrying none at all is a `401`. Either
+  way the cookie is single-use and cleared whether or not it matched. When
+  the decoded state has
   `mode === 'cli'`, generates a short-lived authorization code (random,
   TTL 60 seconds, same in-memory map, carrying the state's
   `code_challenge`), redirects to
@@ -391,7 +396,7 @@ exchanged server-to-server.
 | `PUT /content` race with live collaborators (lost work) | The CLI marks the `--replace` path `safety: destructive` and forces confirmation. A future iteration may add an optimistic `lastSeq` check. |
 | Yorkie key prefix for word-processor docs differs from `doc-<id>` | The frontend convention is the source of truth; the backend service is the only adjustment point if it changes. |
 | Open redirect via CLI port parameter | `port` is range-validated; the redirect host is hard-coded to `127.0.0.1`. |
-| OAuth state forgery (CSRF) on the **CLI** flow | The `state` GitHub carries is an opaque random 32-byte token, minted for every `mode=cli` request into a 5-minute in-memory map and consumed single-use on callback; an unknown or expired one is a 400, never a fall-through to the web flow. (`StateEntry.csrf` is a second value minted alongside it that nothing reads yet — the guard above is the state token itself.) |
+| OAuth state forgery (CSRF) on the **CLI** flow | The `state` GitHub carries is an opaque random 32-byte token, minted for every `mode=cli` request into a 5-minute in-memory map and consumed single-use on callback; an unknown or expired one is a 400, never a fall-through to the web flow. It is also bound to one browser: `StateEntry.browserBinding` is the value of the `wafflebase_oauth_state` cookie set when the login started, and a callback that does not present it is a 400 refused **before** the user is looked up. Without that binding an attacker could mint a CLI state pointing at a loopback port they own and walk the victim through consent, ending up with an authorization code for the victim's account — which the nonce and PKCE do not see, since the attacker holds both. |
 | OAuth state forgery (CSRF) on the **browser** flow | `GitHubAuthGuard` mints a `state` for every authorization request, not just `mode=cli`: a browser login gets a random 32-byte value sent to GitHub under a `w.` prefix and stored in a 5-minute httpOnly `wafflebase_oauth_state` cookie (`SameSite=Lax`, `path=/auth`), which the callback compares constant-time and then clears. A double submit rather than a server-side entry, because the callback may land on a different replica than the one that started the login. A callback whose `state` is missing, unprefixed-but-unknown, or does not match its cookie is refused **before** the user is looked up — so an attacker can no longer complete consent for their own account and have a victim's browser issued cookies for it (forced login). |
 | Login secrets in access logs | The `req` serializer replaces the query string of any `/auth` URL with `?<redacted>`. `/auth` query strings carry single-use login material — the CLI's `nonce` and `code_challenge` outbound, GitHub's `code` and `state` inbound — and every 4xx there is logged at `warn`, so an unredacted line would park a replayable login in the access log. Other paths keep their query, which is what distinguishes two calls. |
-| Authorization-code injection at the CLI's loopback port (RFC 8252 §8.9) | The CLI's `nonce` is echoed back as `state` and compared constant-time before any code is redeemed, so a code pushed at the guessable port is refused; PKCE S256 independently makes an intercepted code unredeemable without the verifier, which never leaves the CLI process. A verifier presented against a code minted with *no* challenge is refused too (RFC 7636 §4.6), so the second binding cannot be downgraded away by starting an unchallenged login at the victim's port. |
+| Authorization-code injection at the CLI's loopback port (RFC 8252 §8.9) | The CLI's `nonce` is echoed back as `state` and compared constant-time before any code is redeemed, so a code pushed at the guessable port is refused; PKCE S256 independently makes an intercepted code unredeemable without the verifier, which never leaves the CLI process. Both are required on the start URL, so a client cannot opt out of either by omitting it. A verifier presented against a code minted with *no* challenge is refused too (RFC 7636 §4.6), so the second binding cannot be downgraded away by starting an unchallenged login at the victim's port. |
