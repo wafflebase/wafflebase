@@ -5,7 +5,7 @@ import {
   type BinaryIO,
 } from '../output/binary.js';
 import type { BinaryResponse } from '../client/http-client.js';
-import { exitCodeForStatus } from '../errors.js';
+import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
 
 /**
  * Where the bytes go: the caller's path when given, otherwise the filename the
@@ -58,8 +58,13 @@ export async function runFilesDownload(
       JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
     );
     // The status decides the exit class: a 404 is the caller's doc id, a
-    // 401/5xx is not something they can fix by asking differently.
-    return { exitCode: exitCodeForStatus(res.status) };
+    // 401/5xx is not something they can fix by asking differently. An OK
+    // status that carried no bytes is neither — the server said yes and
+    // sent nothing, which is a server fault, so it exits with the
+    // system-error class rather than blaming the caller's arguments.
+    return {
+      exitCode: res.ok ? EXIT_SYSTEM_ERROR : exitCodeForStatus(res.status),
+    };
   }
 
   const target = resolveDownloadTarget(out, res.fileName, docId);

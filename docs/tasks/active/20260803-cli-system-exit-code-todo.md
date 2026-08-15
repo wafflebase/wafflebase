@@ -64,3 +64,13 @@ Classify at the throw site, map class → exit code at the output site.
 - [x] Nonce-bound login callback (CLI + guard, both fail-closed, specs)
 - [x] Image `src` gate: scheme allowlist, resolved-address check,
       per-redirect-hop revalidation
+- [x] DNS-rebinding pin on every image hop (`pinnedAgent`), exercised
+      end to end through a name that cannot resolve
+- [x] Egress proxies honored (`http_proxy` / `https_proxy` / `all_proxy`
+      / `no_proxy`) instead of being overridden by the pin
+- [x] Login timeout diagnostic made invariant — an injected nonce-less
+      callback can no longer steer the operator toward the downgrade
+      flag
+- [x] `runLogin` driven by tests: nonce reaches the OAuth URL,
+      `--allow-unbound-callback` reaches the listener
+- [x] A 2xx the CLI cannot use (no `id`, no bytes) exits `2`

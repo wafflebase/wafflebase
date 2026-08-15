@@ -128,8 +128,13 @@ wafflebase schema cell.get          # → sheets.cells.get
 - **Exit codes**: `0` success, `1` user error (bad input, 404, type
   mismatch), `2` system error — an unreachable server
   (`NETWORK_ERROR`), rejected credentials (`AUTH_ERROR`, HTTP 401/403),
-  or a server fault (`SERVER_ERROR`, HTTP 5xx). The class is decided
-  where the failure is raised, so `--quiet` reports it too.
+  or a server fault (`SERVER_ERROR`, HTTP 5xx). A 2xx the CLI cannot use
+  — a create that returned no id, a download that returned no bytes — is
+  a server fault too. The class is decided where the failure is raised,
+  so `--quiet` reports it too.
+- **Proxies**: image downloads during `docs export` / `slides export`
+  honor `http_proxy` / `https_proxy` / `all_proxy` and `no_proxy` (either
+  letter case).
 
 ## Skills (for AI agents)
 

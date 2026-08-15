@@ -1,9 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
+import { connect as netConnect } from 'node:net';
 import {
   assertFetchableImageUrl,
   createImageFetcher,
   isPrivateAddress,
+  proxyForUrl,
   resolveImageUrl,
 } from '../src/docs/image-fetcher.js';
 import {
@@ -464,7 +466,84 @@ describe('assertFetchableImageUrl address pinning', () => {
   });
 });
 
+/** Names every convention for "route this through a proxy". */
+const PROXY_ENV = [
+  'http_proxy',
+  'HTTP_PROXY',
+  'https_proxy',
+  'HTTPS_PROXY',
+  'all_proxy',
+  'ALL_PROXY',
+  'no_proxy',
+  'NO_PROXY',
+];
+
+/** Take the developer's own proxy configuration out of the test. */
+function withoutProxyEnv(): void {
+  for (const name of PROXY_ENV) vi.stubEnv(name, '');
+}
+
+describe('proxyForUrl', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('returns null when nothing is configured', () => {
+    expect(proxyForUrl('https://cdn.example.com/p.jpg', {})).toBeNull();
+  });
+
+  it('picks the proxy matching the scheme', () => {
+    const env = {
+      http_proxy: 'http://proxy.internal:8080',
+      https_proxy: 'http://secure.internal:8443',
+    };
+    expect(proxyForUrl('http://cdn.example.com/p.jpg', env)).toBe(
+      'http://proxy.internal:8080',
+    );
+    expect(proxyForUrl('https://cdn.example.com/p.jpg', env)).toBe(
+      'http://secure.internal:8443',
+    );
+  });
+
+  it('accepts the upper-case spelling and falls back to all_proxy', () => {
+    expect(
+      proxyForUrl('https://cdn.example.com/p.jpg', {
+        HTTPS_PROXY: 'http://proxy.internal:8080',
+      }),
+    ).toBe('http://proxy.internal:8080');
+    expect(
+      proxyForUrl('https://cdn.example.com/p.jpg', {
+        all_proxy: 'http://proxy.internal:8080',
+      }),
+    ).toBe('http://proxy.internal:8080');
+  });
+
+  it('honors no_proxy for exact hosts, suffixes, ports and "*"', () => {
+    const proxy = 'http://proxy.internal:8080';
+    const at = (no_proxy: string, url: string) =>
+      proxyForUrl(url, { https_proxy: proxy, http_proxy: proxy, no_proxy });
+
+    expect(at('cdn.example.com', 'https://cdn.example.com/p')).toBeNull();
+    expect(at('.example.com', 'https://cdn.example.com/p')).toBeNull();
+    expect(at('example.com', 'https://cdn.example.com/p')).toBeNull();
+    expect(at('*', 'https://anything.example/p')).toBeNull();
+    expect(at('cdn.example.com:443', 'https://cdn.example.com/p')).toBeNull();
+    expect(at('cdn.example.com:8443', 'https://cdn.example.com/p')).toBe(proxy);
+    expect(at('other.example', 'https://cdn.example.com/p')).toBe(proxy);
+    // A suffix must not match a host that merely ends with the letters.
+    expect(at('example.com', 'https://notexample.com/p')).toBe(proxy);
+  });
+
+  it('leaves data: URLs alone — they open no connection', () => {
+    expect(
+      proxyForUrl('data:image/png;base64,AAA', {
+        all_proxy: 'http://proxy.internal:8080',
+      }),
+    ).toBeNull();
+  });
+});
+
 describe('createImageFetcher over a real listener', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   /** A loopback server that 302s `/r` to `/img`, which serves bytes. */
   async function listener(): Promise<{ server: Server; port: number }> {
     const server = createServer((req, res) => {
@@ -483,6 +562,7 @@ describe('createImageFetcher over a real listener', () => {
   }
 
   it('follows a redirect through the real transport, pinned to the gated address', async () => {
+    withoutProxyEnv();
     const { server, port } = await listener();
     try {
       const fetcher = createImageFetcher({
@@ -502,6 +582,7 @@ describe('createImageFetcher over a real listener', () => {
     // headers, which carries neither the status nor the `Location` the
     // redirect loop needs. The fallback re-reads the hop, so redirects
     // still work (and are still gated) on such a runtime.
+    withoutProxyEnv();
     const { server, port } = await listener();
     try {
       const fetcher = createImageFetcher({
@@ -515,5 +596,122 @@ describe('createImageFetcher over a real listener', () => {
     } finally {
       server.close();
     }
+  });
+
+  it('connects to the address the gate approved, not the one DNS answers with', async () => {
+    // The pin, exercised end to end. `pinned.invalid` cannot resolve —
+    // `.invalid` is reserved precisely so it never does — so the only
+    // way this request can reach the listener is the connector using
+    // the addresses the gate handed back. Drop the `dispatcher` from
+    // the fetch and this fails with ENOTFOUND, which is what makes it a
+    // test of the pinning rather than of the gate.
+    withoutProxyEnv();
+    const { server, port } = await listener();
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: `http://127.0.0.1:${port}`,
+        lookup: async () => ['127.0.0.1'],
+      });
+      const blob = await fetcher(`http://pinned.invalid:${port}/img`);
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
+  /**
+   * A forward proxy that serves both shapes a client may use: an
+   * absolute-form request it answers itself, and a `CONNECT` tunnel it
+   * opens to `targetPort`. Either way the *proxy* decides where the
+   * bytes come from, which is the point being tested.
+   */
+  async function forwardProxy(targetPort: number): Promise<{
+    server: Server;
+    port: number;
+    seen: string[];
+  }> {
+    const seen: string[] = [];
+    const server = createServer((req, res) => {
+      seen.push(`GET ${req.url}`);
+      res.writeHead(200, { 'content-type': 'image/png' });
+      res.end(Buffer.from([1, 2, 3]));
+    });
+    server.on('connect', (req, socket, head) => {
+      seen.push(`CONNECT ${req.url}`);
+      const upstream = netConnect(targetPort, '127.0.0.1', () => {
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (head?.length) upstream.write(head);
+        upstream.pipe(socket);
+        socket.pipe(upstream);
+      });
+      upstream.on('error', () => socket.destroy());
+      socket.on('error', () => upstream.destroy());
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+    return { server, port: address.port, seen };
+  }
+
+  it('routes through the configured proxy instead of dialing the pin', async () => {
+    // The image host resolves (for the gate) to a documentation-range
+    // address nothing listens on, so bytes can only arrive if the
+    // request went to the proxy — which the forced per-request `Agent`
+    // used to prevent, breaking every external image on a machine whose
+    // only route out is a proxy.
+    const origin = await listener();
+    const proxy = await forwardProxy(origin.port);
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', `http://127.0.0.1:${proxy.port}`);
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: 'https://api.wafflebase.io',
+        lookup: async () => ['192.0.2.10'],
+      });
+      const blob = await fetcher('http://cdn.example.com/photo.png');
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
+      expect(proxy.seen.length).toBe(1);
+      expect(proxy.seen[0]).toContain('cdn.example.com');
+    } finally {
+      proxy.server.close();
+      origin.server.close();
+    }
+  }, 20_000);
+
+  it('bypasses the proxy for a host listed in no_proxy', async () => {
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', 'http://127.0.0.1:1');
+    vi.stubEnv('no_proxy', 'pinned.invalid');
+    const { server, port } = await listener();
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: `http://127.0.0.1:${port}`,
+        lookup: async () => ['127.0.0.1'],
+      });
+      const blob = await fetcher(`http://pinned.invalid:${port}/img`);
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('still refuses an internal image host when a proxy is configured', async () => {
+    // The proxy changes who opens the connection, not what may be
+    // requested: the gate runs first either way.
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', 'http://127.0.0.1:1');
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      lookup: async () => ['169.254.169.254'],
+    });
+    await expect(fetcher('http://metadata.example/latest/')).rejects.toThrow(
+      /Refusing to fetch/,
+    );
   });
 });

@@ -103,3 +103,47 @@ it was protecting is not deferred, it is deleted.
   exercising `HttpClient`. `test/http-client.test.ts` now pins the
   refresh-and-retry across that base, the session-file persistence, and
   the `encodeURIComponent` on revoke.
+
+## What the second review round found
+
+- **A failure diagnostic is an attack surface when an attacker can set
+  it.** The timeout message branched on whether a nonce-less callback
+  had arrived, and said "the server predates nonce-bound CLI login —
+  re-run with `--allow-unbound-callback`". But the loopback listener is
+  reachable by exactly the adversary the nonce exists to stop: a hostile
+  page sends one nonce-less `/callback?code=<its own code>`, the CLI
+  blames the server and prescribes the flag that disables the binding,
+  and the victim's re-run accepts the replayed code — login fixation.
+  The refusal itself was correct; the *advice* was the hole. The message
+  is now invariant, and the escape hatch is documented only where an
+  attacker has no say (`--help`, README). Generalisation: never infer a
+  cause from an unauthenticated input and then recommend an action based
+  on it.
+- **An explicit dispatcher silently outranks the operator's.** Pinning
+  each image fetch to its gated addresses meant passing undici an
+  `Agent`, which overrides any ambient proxy configuration — so on a
+  machine whose only route out is a proxy, every external image in a
+  document stopped exporting. Pin and proxy cannot be combined (the pin
+  overrides the connector's resolver, and a proxied connector only ever
+  resolves the *proxy's* name), so the hop now dispatches through a
+  `ProxyAgent` when `http_proxy`/`https_proxy`/`all_proxy` applies. That
+  costs nothing the pin was holding: it defends the CLI's own
+  connect-time resolution, which a proxied request does not perform. The
+  gate is unchanged either way.
+- **"Tested" has to mean the wire, not the neighbourhood.** Both
+  security controls added in the previous round had thorough tests that
+  would still have passed with the control removed. `pinnedAgent` was
+  only exercised through IP-literal hosts, where gate-time and
+  connect-time resolution coincide; it is now driven against a
+  `.invalid` name that cannot resolve, so the request can only land if
+  the pin is doing the work. The CLI half of nonce-bound login was never
+  driven at all — `runLogin` was module-private, so nothing proved the
+  nonce reaches the OAuth URL or that `--allow-unbound-callback` reaches
+  the listener. `runLogin` now takes its options and its four
+  boundaries (session file, listener, browser, HTTP) as arguments, and
+  the flow between them is the code under test.
+- **Confirm the proof, not just the pass.** Every test added this round
+  was run against a deliberately broken build first: nonce dropped from
+  the URL, flag unwired, dispatcher removed, proxy ignored, old timeout
+  message restored. Each failed for the reason it names. That step is
+  what separates the tests above from the ones this round replaced.

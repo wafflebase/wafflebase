@@ -199,12 +199,15 @@ callback" in §8.1). On timeout it prints: "Login timed out. Try again
 with `wafflebase login`."
 
 A callback that carries **no** nonce is what an older backend redirects
-with. It is refused by default, and the timeout message names that cause
-rather than reporting a bare hang. Because published CLIs and
+with — and equally what a hostile local page would send, which is why it
+is refused by default and why it changes nothing the CLI reports: the
+timeout message is the same either way. Because published CLIs and
 self-hosted backends upgrade on their own schedules, `wafflebase login
 --allow-unbound-callback` accepts it anyway — an explicit, warned
-downgrade for that case, never a silent fallback. A *mismatched* nonce
-stays refused under the flag: only an attacker sends one.
+downgrade for that case, never a silent fallback and never something an
+unauthenticated request can talk an operator into (see "Nonce-bound
+login callback" in §8.1). A *mismatched* nonce stays refused under the
+flag: only an attacker sends one.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
@@ -827,11 +830,15 @@ whole contract:
 | `fetch` never reached an HTTP server (DNS, refused, TLS) | `NETWORK_ERROR` | `2` |
 | HTTP 401 / 403 | `AUTH_ERROR` | `2` |
 | HTTP 5xx | `SERVER_ERROR` | `2` |
+| A 2xx the CLI cannot use (no `id` on create, a bodyless download) | `INVALID_RESPONSE` / `HTTP_ERROR` | `2` |
 | HTTP 400 / 404 / 409, bad flags, type mismatch | command-specific or `ERROR` | `1` |
 
 `SystemError` carries both the `code` that lands in the JSON body and the
 `exitCode` that `outputError` applies, so the two can never drift. Every
-`fetch` in the CLI goes through `fetchOrThrow`, and the status decides the
+`fetch` in the CLI goes through `fetchOrThrow` — the one exception is the
+image fetcher's `rawRequest`, which drops to undici's low-level `request`
+to read a hop the fetch layer opaque-filtered and raises the same
+`SystemError('NETWORK_ERROR')` by hand — and the status decides the
 class at every non-OK response: `throw httpError(status)` where the CLI
 writes the message, and `process.exitCode = exitCodeForStatus(status)` on
 the `content`/`export` paths that instead print the backend's own error
@@ -910,6 +917,24 @@ the connect with `169.254.169.254` never gets a connection. It is also
 why an address the gate rejected can be dropped rather than failing the
 whole URL: it is unreachable either way.
 
+**Egress proxies.** A CLI has no API through which an operator can
+install a dispatcher, so the conventional environment variables
+(`http_proxy` / `https_proxy` / `all_proxy`, honoring `no_proxy`, either
+letter case) *are* the proxy configuration surface. When one applies to
+a hop, that hop is dispatched through a `ProxyAgent` and the address pin
+is dropped — the two cannot be combined, because the pin works by
+overriding the connector's resolver and the only name a proxied
+connector resolves is the proxy's own. Nothing is lost by dropping it
+there: the pin exists to stop the CLI's *own* resolver from being
+rebound between the gate and the connect, and under a proxy the CLI
+performs no connect-time resolution at all. The gate itself is
+unchanged — a `src` that resolves to an internal address is refused
+before any request is made, proxied or not. Forcing the pinned `Agent`
+regardless (the behavior this replaced) overrode whatever the operator
+configured and dialed the resolved addresses directly, so on a machine
+whose only route out is a proxy every external image in a document
+failed to export.
+
 ##### Nonce-bound login callback
 
 `wafflebase login` listens on `http://127.0.0.1:<port>/callback`, which
@@ -923,14 +948,28 @@ the pending login, so a hostile page cannot fix the CLI onto its own
 account.
 
 The binding is enforced on the **CLI** side, which is where it works: a
-callback that arrives without the expected nonce is refused and named in
-the timeout message ("the server predates nonce-bound CLI login"), so a
-CLI pointed at an older backend fails with a cause instead of a hang.
-That message also points at `wafflebase login
---allow-unbound-callback`, the opt-out that accepts a nonce-less
-callback so a current CLI can still log into a server that has not
-deployed the echo. The flag warns on stderr and covers only the
-nonce-*absent* case; a mismatched nonce is still `403`.
+callback that arrives without the expected nonce is refused, and the
+login then times out with the same message as any other timeout.
+
+The timeout message is deliberately invariant. An earlier version named
+the likely cause ("the server predates nonce-bound CLI login") and
+pointed at `--allow-unbound-callback` whenever a nonce-less callback had
+arrived — but that listener is reachable by exactly the adversary the
+nonce exists to stop, so the diagnostic was attacker-settable. A hostile
+page could send one nonce-less `/callback?code=<its own code>`, and the
+CLI would then blame the server and prescribe the one flag that turns
+the binding off; taking that advice completes a login fixation, since
+the replayed callback carries the attacker's code and the victim ends up
+holding a session for the attacker's account. A failure diagnostic must
+not be steerable by an unauthenticated request, so the cause is no
+longer inferred from it.
+
+`wafflebase login --allow-unbound-callback` remains the opt-out that
+accepts a nonce-less callback so a current CLI can still log into a
+server that has not deployed the echo, documented in `wafflebase login
+--help` and the CLI README — places an attacker has no say over. The
+flag warns on stderr and covers only the nonce-*absent* case; a
+mismatched nonce is still `403`.
 
 `GitHubAuthGuard` rejects a *malformed* nonce (anything but
 `[A-Za-z0-9_-]{16,128}`, including a repeated query parameter) with a
@@ -1205,6 +1244,8 @@ is the agent interface. This approach has key advantages:
 | Server unreachable (DNS, refused, TLS)              | 2    | NETWORK_ERROR       | "Request to <url> failed: <cause>" (URL + cause redacted)          |
 | Unparseable `--server` / image URL                  | 1    | INVALID_URL         | "Invalid URL \"<url>\". Check --server / WAFFLEBASE_SERVER."       |
 | Image `src` the CLI refuses to dereference          | 1    | IMAGE_URL_BLOCKED   | "Refusing to fetch …"                                              |
+| Create returned 2xx with no `id`                    | 2    | INVALID_RESPONSE    | "Server did not return an id"                                      |
+| Download returned 2xx with no bytes                 | 2    | HTTP_ERROR          | (backend body, else `{ error: { code: "HTTP_ERROR" } }`)           |
 | Yorkie attach failure                               | 2    | YORKIE_ERROR        | "Failed to attach to document <id>"                                |
 | DOCX parse failure                                  | 1    | INVALID_DOCX        | (DocxImporter message)                                             |
 | Font CDN unreachable (DNS, refused, TLS)            | 2    | NETWORK_ERROR       | "Request to <url> failed: <cause>"                                 |

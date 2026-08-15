@@ -8,7 +8,7 @@
     "wafflebase": "./dist/bin.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.18.1"
   },
   "files": [
     "dist"

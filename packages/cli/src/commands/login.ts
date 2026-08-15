@@ -10,7 +10,6 @@ import {
 import type { Session, WorkspaceInfo } from '../config/session.js';
 import { DEFAULT_SERVER } from '../config/config.js';
 import {
-  EXIT_SYSTEM_ERROR,
   EXIT_USER_ERROR,
   SystemError,
   UserError,
@@ -78,7 +77,7 @@ export function registerLoginCommand(program: Command): void {
       // is a system error, bad input from the caller is not. Anything
       // unclassified is a bug and keeps its stack trace, as before.
       try {
-        await runLogin(this);
+        await runLogin(this.optsWithGlobals<LoginOptions>());
       } catch (e) {
         const exitCode = classifyLoginFailure(e);
         if (exitCode === null) throw e;
@@ -164,15 +163,50 @@ export async function fetchLoginSession(
   return { tokens, user, workspaces };
 }
 
-async function runLogin(cmd: Command): Promise<void> {
-  const parentOpts = cmd.optsWithGlobals<{
-    server?: string;
-    allowUnboundCallback?: boolean;
-  }>();
-  const server = (parentOpts.server ?? DEFAULT_SERVER).replace(/\/$/, '');
+/** The flags `runLogin` reads, resolved from the command line. */
+export interface LoginOptions {
+  server?: string;
+  allowUnboundCallback?: boolean;
+}
+
+/**
+ * Everything `runLogin` reaches outside its own process step: the
+ * session file, the local callback listener, the browser, and the three
+ * HTTP calls. Injectable so the flow itself — that a fresh nonce is
+ * generated, handed to the listener *and* carried in the OAuth URL, and
+ * that `--allow-unbound-callback` actually reaches the listener — can be
+ * driven in a test without an OAuth round trip. Every one of those is a
+ * security-relevant wire that would otherwise be verified only by
+ * reading the code.
+ */
+export interface LoginDeps {
+  loadSession: typeof loadSession;
+  saveSession: typeof saveSession;
+  startCallbackServer: typeof startCallbackServer;
+  fetchLoginSession: typeof fetchLoginSession;
+  openBrowser: (url: string) => Promise<void>;
+}
+
+const defaultLoginDeps: LoginDeps = {
+  loadSession,
+  saveSession,
+  startCallbackServer,
+  fetchLoginSession,
+  openBrowser: async (url) => {
+    const open = (await import('open')).default;
+    await open(url);
+  },
+};
+
+export async function runLogin(
+  options: LoginOptions,
+  overrides: Partial<LoginDeps> = {},
+): Promise<void> {
+  const deps = { ...defaultLoginDeps, ...overrides };
+  const server = (options.server ?? DEFAULT_SERVER).replace(/\/$/, '');
 
   // 1. Check existing session
-  const existing = loadSession();
+  const existing = deps.loadSession();
   if (existing) {
     const answer = await ask(
       `Logged in as ${existing.user.username}. Continue? [Y/n] `,
@@ -190,14 +224,15 @@ async function runLogin(cmd: Command): Promise<void> {
   // this CLI onto the attacker's account. The nonce rides through the
   // OAuth round trip and only a callback echoing it is accepted.
   const nonce = randomBytes(32).toString('base64url');
-  if (parentOpts.allowUnboundCallback) {
+  if (options.allowUnboundCallback) {
     console.error(
       'Warning: --allow-unbound-callback accepts a callback that carries no nonce. Any local process that reaches the callback port can complete this login.',
     );
   }
-  const { port, waitForCallback, close } = await startCallbackServer(nonce, {
-    allowUnbound: parentOpts.allowUnboundCallback === true,
-  });
+  const { port, waitForCallback, close } = await deps.startCallbackServer(
+    nonce,
+    { allowUnbound: options.allowUnboundCallback === true },
+  );
 
   // 3. Build OAuth URL and open browser
   const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${encodeURIComponent(nonce)}`;
@@ -205,8 +240,7 @@ async function runLogin(cmd: Command): Promise<void> {
   console.error('If the browser does not open, visit the URL above.');
 
   try {
-    const open = (await import('open')).default;
-    await open(oauthUrl);
+    await deps.openBrowser(oauthUrl);
   } catch {
     // Browser open failed — URL was already printed
   }
@@ -220,7 +254,10 @@ async function runLogin(cmd: Command): Promise<void> {
   }
 
   // 5-7. Exchange the code for tokens, then read the user and workspaces.
-  const { tokens, user, workspaces } = await fetchLoginSession(server, code);
+  const { tokens, user, workspaces } = await deps.fetchLoginSession(
+    server,
+    code,
+  );
 
   // 8. Select workspace
   let activeWorkspace = '';
@@ -255,7 +292,7 @@ async function runLogin(cmd: Command): Promise<void> {
     workspaces,
   };
 
-  saveSession(session);
+  deps.saveSession(session);
   console.log(`Logged in as ${user.username}.`);
 }
 
@@ -295,13 +332,15 @@ export interface CallbackServerOptions {
  * binding can be driven directly in tests — it is the security core of
  * the login flow, not an implementation detail of `runLogin`.
  *
- * A callback carrying a code but no nonce means the server predates
- * nonce-bound CLI login. It is refused (accepting it would defeat the
- * binding) but not settled, so a hostile local page cannot cancel a
- * pending login either; the timeout then names the cause and the
- * `--allow-unbound-callback` opt-out. With that opt-out set, a
- * nonce-less callback is accepted so an old server stays usable; a
- * *mismatched* nonce is refused either way, since only an attacker
+ * A callback carrying a code but no nonce is what an older backend
+ * redirects with — and also what a hostile local page would send. The
+ * two are indistinguishable here, so it is refused (accepting it would
+ * defeat the binding) but not settled, and it changes nothing the CLI
+ * later reports: the timeout message is the same either way, because an
+ * unauthenticated request must not steer the operator toward the
+ * `--allow-unbound-callback` downgrade. With that opt-out explicitly
+ * set, a nonce-less callback is accepted so an old server stays usable;
+ * a *mismatched* nonce is refused either way, since only an attacker
  * sends one.
  */
 export function startCallbackServer(
@@ -316,7 +355,6 @@ export function startCallbackServer(
   const timeoutMs = options.timeoutMs ?? 30_000;
   return new Promise((resolve, reject) => {
     let settled = false;
-    let sawUnboundCallback = false;
     let callbackResolve: (code: string) => void;
     let callbackReject: (err: Error) => void;
 
@@ -353,7 +391,6 @@ export function startCallbackServer(
           'Accepting a callback with no login nonce (--allow-unbound-callback).',
         );
       } else if (nonce === null || !nonceMatches(nonce, expectedNonce)) {
-        if (nonce === null) sawUnboundCallback = true;
         res.writeHead(403);
         res.end('Invalid login nonce');
         console.error(
@@ -410,19 +447,29 @@ export function startCallbackServer(
     const timeout = setTimeout(() => {
       if (!settled) {
         settled = true;
-        // Report the likely cause rather than a bare timeout: a server
-        // that never echoes the nonce cannot complete a CLI login, and
-        // "it just hung" sends people looking in the wrong place.
+        // Deliberately one message for every way this can time out.
+        //
+        // An earlier version reported "the server predates nonce-bound
+        // CLI login — re-run with `--allow-unbound-callback`" whenever a
+        // nonce-less callback had arrived. But the listener is reachable
+        // by any local process and by any page that guesses the port —
+        // the exact adversary the nonce exists to stop — so that signal
+        // was attacker-settable: a hostile page could send one
+        // nonce-less `/callback?code=<its own code>`, and the CLI would
+        // then blame the server and prescribe the one flag that turns
+        // the binding off. Accepting that advice completes a login
+        // fixation: the replayed callback carries the attacker's code,
+        // and the victim's session ends up as the attacker's account.
+        //
+        // The escape hatch for a genuinely older server stays, but it is
+        // discoverable only where an attacker has no say — `wafflebase
+        // login --help` and the README — never as advice triggered by an
+        // unauthenticated request.
         callbackReject(
-          sawUnboundCallback
-            ? new LoginError(
-                EXIT_SYSTEM_ERROR,
-                'Login callback arrived without the expected nonce — the server predates nonce-bound CLI login. Upgrade the server, or re-run `wafflebase login --allow-unbound-callback` to accept it anyway.',
-              )
-            : new LoginError(
-                EXIT_USER_ERROR,
-                'Login timed out. Try again with `wafflebase login`.',
-              ),
+          new LoginError(
+            EXIT_USER_ERROR,
+            'Login timed out. Try again with `wafflebase login`.',
+          ),
         );
       }
       srv.close();

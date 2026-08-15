@@ -135,7 +135,7 @@ describe('runNotesImport (new note)', () => {
     expect(errBody.error.code).toBe('CREATE_FAILED');
   });
 
-  it('exits 1 when create returns no id', async () => {
+  it('exits 2 when create returns no id — the server contradicted itself', async () => {
     const cap = captureIO({ text: MD, isTTY: true });
     const client: ClientCapture = {
       createCalls: [],
@@ -144,7 +144,7 @@ describe('runNotesImport (new note)', () => {
       putNoteContent: async () => ({ ok: true, status: 200, data: { content: MD } }),
     };
     const result = await runNotesImport({ file: 'sample.md' }, client, cap.io);
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(2);
     expect(client.putCalls).toEqual([]);
     const errBody = JSON.parse(cap.stderrLines[0]);
     expect(errBody.error.code).toBe('INVALID_RESPONSE');

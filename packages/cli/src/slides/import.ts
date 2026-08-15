@@ -11,7 +11,7 @@ import {
   type CliPptxImportOptions,
 } from './pptx-import.js';
 import type { ImportReport } from '@wafflebase/slides/node';
-import { exitCodeForStatus } from '../errors.js';
+import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
 
 /**
  * Parsing surface — split out so tests can inject a stub that returns
@@ -247,7 +247,10 @@ export async function runSlidesImport(
         2,
       ),
     );
-    return { exitCode: 1 };
+    // A 2xx that omitted the id is the server contradicting itself —
+    // nothing the caller can retype, so it exits with the system class
+    // like every other server fault.
+    return { exitCode: EXIT_SYSTEM_ERROR };
   }
 
   const put = await client.putSlidesContent(newId, deck);

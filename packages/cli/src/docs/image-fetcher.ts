@@ -1,7 +1,13 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { Readable } from 'node:stream';
-import { Agent, fetch as undiciFetch, request as undiciRequest } from 'undici';
+import {
+  Agent,
+  ProxyAgent,
+  type Dispatcher,
+  fetch as undiciFetch,
+  request as undiciRequest,
+} from 'undici';
 import type { DocxImageFetcher } from '@wafflebase/docs';
 import {
   SystemError,
@@ -363,6 +369,110 @@ function pinnedAgent(addresses: string[]): Agent {
 }
 
 /**
+ * The dispatcher for one hop: a proxy when the environment configures
+ * one for this URL, otherwise the address pin.
+ *
+ * These cannot be combined. `pinnedAgent` works by overriding the
+ * connector's resolver, and under a proxy the only name the connector
+ * resolves is the *proxy's* — pinning that to the image host's addresses
+ * would send the request somewhere else entirely. So a proxied hop
+ * connects to the proxy and the proxy resolves the name.
+ *
+ * Dropping the pin there costs nothing that was ever held: the pin
+ * exists to stop the CLI's own resolver from being rebound between the
+ * gate and the connect, and with a proxy the CLI performs no
+ * connect-time resolution at all. The gate itself is unchanged — a name
+ * that resolves to an internal address is still refused before any
+ * request is made, proxied or not.
+ *
+ * Without this the pinned `Agent` would override whatever the operator
+ * configured and dial the resolved addresses directly, so on a machine
+ * whose only route out is a proxy every external image in a document
+ * would fail to export.
+ */
+function hopDispatcher(
+  target: string,
+  addresses: string[] | null,
+): Dispatcher | null {
+  const proxy = proxyForUrl(target);
+  if (proxy) {
+    try {
+      return new ProxyAgent(proxy);
+    } catch (cause) {
+      throw new SystemError(
+        'INVALID_PROXY',
+        `Cannot use the configured proxy "${redactUrl(proxy)}".`,
+        { cause },
+      );
+    }
+  }
+  return addresses ? pinnedAgent(addresses) : null;
+}
+
+/** Read an env var under either spelling, lower case winning. */
+function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const value = env[name] ?? env[name.toUpperCase()];
+  return value && value.trim() ? value.trim() : undefined;
+}
+
+/** Split `host`, `host:port` or `[v6]:port` from a `no_proxy` entry. */
+function splitHostPort(entry: string): [string, string | null] {
+  const bracketed = /^\[(.+)\](?::(\d+))?$/.exec(entry);
+  if (bracketed) return [bracketed[1], bracketed[2] ?? null];
+  const colon = entry.lastIndexOf(':');
+  const port = entry.slice(colon + 1);
+  if (colon > 0 && /^\d+$/.test(port) && !entry.slice(0, colon).includes(':')) {
+    return [entry.slice(0, colon), port];
+  }
+  return [entry, null];
+}
+
+/** The usual `no_proxy` semantics: `*`, bare hosts, `.suffix`, `host:port`. */
+function bypassesProxy(url: URL, list: string): boolean {
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const port = effectivePort(url);
+  for (const raw of list.split(',')) {
+    const entry = raw.trim().toLowerCase();
+    if (!entry) continue;
+    if (entry === '*') return true;
+    const [name, entryPort] = splitHostPort(entry);
+    if (entryPort !== null && entryPort !== port) continue;
+    const bare = name.replace(/^\./, '');
+    if (bare && (host === bare || host.endsWith(`.${bare}`))) return true;
+  }
+  return false;
+}
+
+/**
+ * The proxy this request must go through, from the conventional
+ * environment variables, or `null` for a direct connection.
+ *
+ * A CLI has no other way to be told about an egress proxy — nobody can
+ * call `setGlobalDispatcher` inside someone else's binary — so reading
+ * the environment *is* the proxy configuration surface, and honoring it
+ * is what keeps `docs export` working on a machine whose only route out
+ * is a proxy.
+ */
+export function proxyForUrl(
+  target: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  let url: URL;
+  try {
+    url = new URL(target);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+
+  const noProxy = envValue(env, 'no_proxy');
+  if (noProxy && bypassesProxy(url, noProxy)) return null;
+
+  const scheme = url.protocol === 'https:' ? 'https_proxy' : 'http_proxy';
+  return envValue(env, scheme) ?? envValue(env, 'all_proxy') ?? null;
+}
+
+/**
  * Whether the runtime filtered this response into an *opaque redirect*.
  *
  * `redirect: 'manual'` is specified to yield a response of type
@@ -385,7 +495,10 @@ function isOpaqueRedirect(res: Response): boolean {
  * hop — without it a redirected image would be unfetchable on any
  * runtime that implements the filter.
  */
-async function rawRequest(target: string, agent: Agent | null): Promise<Response> {
+async function rawRequest(
+  target: string,
+  agent: Dispatcher | null,
+): Promise<Response> {
   let res: Awaited<ReturnType<typeof undiciRequest>>;
   try {
     // `request` follows no redirects of its own (that needs an explicit
@@ -442,7 +555,9 @@ const defaultLookup: HostLookup = async (hostname) =>
  * Redirects are followed by hand so every hop is gated the same way as
  * the first — an allowed host that 302s to `169.254.169.254` is the
  * whole point of the check — and each hop connects only to the addresses
- * its own gate pass approved.
+ * its own gate pass approved, unless the environment configures an
+ * egress proxy, in which case the hop goes through it (see
+ * `hopDispatcher`).
  *
  * A transport failure or a non-OK response is classified like every
  * other CLI request (`fetchOrThrow` / `httpError`) so an unreachable
@@ -464,12 +579,13 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
 
     for (let hop = 0; ; hop++) {
       const addresses = await assertFetchableImageUrl(target, server, lookup);
-      const agent = addresses ? pinnedAgent(addresses) : null;
+      const agent = hopDispatcher(target, addresses);
       try {
         let res = await fetchOrThrow(
           target,
-          // `dispatcher` is undici's, not the DOM's — the pin travels on
-          // the same init object the fetch implementation reads.
+          // `dispatcher` is undici's, not the DOM's — the pin (or the
+          // proxy) travels on the same init object the fetch
+          // implementation reads.
           {
             redirect: 'manual',
             ...(agent ? { dispatcher: agent } : {}),
