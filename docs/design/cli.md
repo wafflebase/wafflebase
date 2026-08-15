@@ -183,7 +183,7 @@ wafflebase login
   │      argv; it is also announced for copy-paste — see below)
   ├─ 4. Backend renders the CLI consent page naming the loopback port;
   │     continuing sets/echoes the `wafflebase_cli_confirm` pair and the
-  │     backend sets a short-lived `wafflebase_oauth_state` cookie on
+  │     backend sets a short-lived `wafflebase_cli_state` cookie on
   │     that browser
   ├─ 5. GitHub OAuth consent screen (existing flow)
   ├─ 6. GitHub redirects to GET /auth/github/callback
@@ -232,9 +232,14 @@ that:
   off the redirect — from a browser history entry, a proxy, a shoulder — is
   not redeemable by whoever holds it.
 - **Browser binding.** `GET /auth/github?mode=cli` sets a short-lived
-  httpOnly `wafflebase_oauth_state` cookie (`SameSite=Lax`, `Path=/`,
-  `__Host-`-prefixed in production) and remembers its value beside the
-  state; the callback must present it.
+  httpOnly `wafflebase_cli_state` cookie (`SameSite=Lax`, `Path=/`,
+  `__Host-`-prefixed on any https deployment — the prefix is the control
+  that stops cookie planting, so it follows the deployment's own
+  `GITHUB_CALLBACK_URL` scheme rather than `NODE_ENV`) and remembers its
+  value beside the state; the callback must present it. The name is
+  deliberately *not* the browser flow's `wafflebase_oauth_state`: one
+  browser can hold both logins at once, and a shared name means the second
+  start silently overwrites the first's binding.
   The other two bindings are both held by whoever *starts* a login, so
   neither sees an attacker who mints a CLI state pointing at a loopback
   port they own and walks the victim through GitHub's consent screen — on
@@ -251,7 +256,12 @@ that:
   it continues. The click is not forgeable from a link, because continuing
   carries a token that page set as an httpOnly `wafflebase_cli_confirm`
   cookie — an attacker who appends `cli_confirm=` to their own URL presents
-  a value the victim's browser has no cookie for.
+  a value the victim's browser has no cookie for. Nor is the click
+  stealable: the response is served `X-Frame-Options: DENY` +
+  `frame-ancestors 'none'`, so the page cannot be framed and overlaid
+  (`SameSite=Lax` alone would only stop a *cross-site* framer, and the
+  frontend is expected to share eTLD+1 with the backend), and `no-store`,
+  because the markup carries a single-use confirm token.
 
 The four are not redundant: the nonce protects the *client* (this CLI only
 redeems a code from its own flow), PKCE protects the *code* (nobody but

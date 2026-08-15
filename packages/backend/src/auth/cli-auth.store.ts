@@ -12,7 +12,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
  */
 interface StateEntry {
   /**
-   * Random value whose twin sits in the `wafflebase_oauth_state` cookie set
+   * Random value whose twin sits in the `wafflebase_cli_state` cookie set
    * on the browser that started this login. The callback must present it, so
    * a `state` minted in the attacker's browser (pointing at a loopback port
    * the attacker owns) cannot be walked through consent by the victim's.

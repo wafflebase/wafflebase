@@ -17,6 +17,7 @@ function createMockResponse() {
     redirect: jest.fn(),
     json: jest.fn(),
     type: jest.fn(),
+    set: jest.fn(),
     send: jest.fn(),
   } as unknown as Response;
 }
@@ -536,10 +537,8 @@ describe('AuthController', () => {
   // at a listener they own. The guard stops it here instead of redirecting to
   // GitHub, and the controller renders the page that asks.
   describe('GET /auth/github — CLI consent page', () => {
-    it('renders the interstitial instead of starting the login', async () => {
-      const res = createMockResponse();
-      (res.type as jest.Mock).mockReturnValue(res);
-      const req = {
+    const consentRequest = () =>
+      ({
         path: '/auth/github',
         __cliConsent: {
           port: 9876,
@@ -547,17 +546,76 @@ describe('AuthController', () => {
           codeChallenge: 'c'.repeat(43),
           confirmToken: 'tok-123',
         },
-      } as unknown as Request;
+      }) as unknown as Request;
 
-      await controller.githubAuth(req, res);
+    /** The `href` of the page's Continue link, unescaped back to a URL. */
+    const continueLink = (html: string): URL => {
+      const href = /href="([^"]+)"/.exec(html)?.[1] ?? '';
+      const unescaped = href
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&');
+      return new URL(unescaped, 'http://backend.test');
+    };
 
-      const html = (res.send as jest.Mock).mock.calls[0][0] as string;
+    const renderConsent = async () => {
+      const res = createMockResponse();
+      (res.type as jest.Mock).mockReturnValue(res);
+      (res.set as jest.Mock).mockReturnValue(res);
+
+      await controller.githubAuth(consentRequest(), res);
+
+      return { res, html: (res.send as jest.Mock).mock.calls[0][0] as string };
+    };
+
+    it('renders the interstitial instead of starting the login', async () => {
+      const { html } = await renderConsent();
+
       // The port is named, because it is the one thing that tells a genuine
       // `wafflebase login` apart from an attacker's link.
       expect(html).toContain('http://127.0.0.1:9876');
       // Continuing carries the token the same response set as a cookie.
       expect(html).toContain('cli_confirm=tok-123');
       expect(html).toContain('/auth/github?mode=cli&amp;port=9876');
+    });
+
+    // Continuing re-enters the very route that stopped here, so the link has
+    // to carry *every* binding the guard requires — drop `nonce` or
+    // `code_challenge` and the guard answers 400, i.e. no CLI login can ever
+    // complete. Asserting only `mode`/`port`/`cli_confirm` would let that
+    // ship green, so the whole query is pinned.
+    it('carries every binding the guard requires on the continue link', async () => {
+      const { html } = await renderConsent();
+
+      const link = continueLink(html);
+      expect(link.pathname).toBe('/auth/github');
+      expect(Object.fromEntries(link.searchParams)).toEqual({
+        mode: 'cli',
+        port: '9876',
+        nonce: 'n0nce-x/y',
+        code_challenge: 'c'.repeat(43),
+        cli_confirm: 'tok-123',
+      });
+    });
+
+    // The page's whole defence is a deliberate human click, which an overlay
+    // in a frame can steal. `SameSite=Lax` on the confirm cookie only covers
+    // the cross-site framer; frontend and backend are expected to share
+    // eTLD+1 here, so a same-site page could frame it. There is no helmet in
+    // this app, so the response says so itself. It also embeds a single-use
+    // confirm token, hence `no-store`.
+    it('refuses to be framed and refuses to be cached', async () => {
+      const { res } = await renderConsent();
+
+      expect(res.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          'X-Frame-Options': 'DENY',
+          'Content-Security-Policy': "frame-ancestors 'none'",
+          'Cache-Control': 'no-store',
+        }),
+      );
     });
 
     it('does nothing for an ordinary start (the guard already redirected)', async () => {

@@ -64,8 +64,9 @@ piece of login work starts from `main` on its own branch.
       *starts* a login, so neither sees an attacker who mints a CLI state
       pointing at a loopback port they own and walks the victim through
       consent — on a shared host that is the victim's code in the
-      attacker's CLI. `GET /auth/github?mode=cli` now sets the same
-      short-lived `wafflebase_oauth_state` cookie the browser flow uses and
+      attacker's CLI. `GET /auth/github?mode=cli` now sets a short-lived
+      `wafflebase_cli_state` cookie (its own name — sharing the browser
+      flow's slot let a second start overwrite the first's binding) and
       remembers it as `StateEntry.browserBinding`; the callback compares it
       constant-time before the user is looked up, and clears it either way.
 - [x] Tests: `github-auth.guard.spec.ts` over ingestion and its bounds;

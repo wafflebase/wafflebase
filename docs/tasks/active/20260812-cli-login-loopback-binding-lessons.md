@@ -102,3 +102,27 @@ Related: #654/#655, RFC 8252 §8.9, RFC 7636
   or expired link, which is logged at `warn`. When adding a parameter to a
   redaction list, grep for the credential's *other* carriers before calling
   it covered.
+- Renaming a cookie renames it in every prose that names it, or the design
+  doc becomes the bug report. Splitting the CLI binding onto
+  `wafflebase_cli_state` updated the code, `backend.md` and `rest-api.md`
+  but left `cli.md` (and `CliAuthStore`'s own field comment) still saying
+  `wafflebase_oauth_state` — so the canonical CLI design doc described the
+  exact collision this change existed to remove. After changing an
+  identifier that appears in prose, grep the old spelling repo-wide and
+  triage each hit as "this flow" or "the other flow" rather than assuming
+  the docs edited alongside the code were all of them.
+- A page whose only defence is a human click has to refuse to be framed.
+  The CLI consent interstitial was served with no `X-Frame-Options` and no
+  `frame-ancestors`, and this backend has no helmet, so nothing supplied
+  them: `SameSite=Lax` on the confirm cookie stops a cross-site framer, but
+  frontend and backend share eTLD+1 here, so a same-site page could overlay
+  the Continue link and harvest the click. When a control is "the user
+  deliberately pressed this", clickjacking is in its threat model, and the
+  response has to carry the headers itself if nothing global does.
+- Asserting the *subset* of a link's query that a test happened to think of
+  lets the rest be deleted silently. The consent-page test pinned `mode`,
+  `port` and `cli_confirm`; dropping `nonce` or `code_challenge` from the
+  Continue href — which the guard then answers `400`, i.e. no CLI login can
+  complete at all — kept the suite green. When a URL re-enters a validating
+  route, assert the whole parsed query with `toEqual`, not `toContain` on
+  the parts.

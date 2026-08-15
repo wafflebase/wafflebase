@@ -125,7 +125,14 @@ imports the full module set listed below.
     write a `?mode=cli&port=` link, so a CLI start does **not** redirect to
     GitHub on its own: it renders a consent page naming the loopback port, and
     continuing echoes a token that page set as the `wafflebase_cli_confirm`
-    cookie (so a crafted link cannot pre-supply it).
+    cookie (so a crafted link cannot pre-supply it). That page is the one
+    response in this app that carries its own security headers — there is no
+    helmet here — because its whole defence is a deliberate click, and a
+    click is what a framing overlay steals: `X-Frame-Options: DENY` and
+    `Content-Security-Policy: frame-ancestors 'none'` (`SameSite=Lax` on the
+    confirm cookie only covers a cross-site framer, not a same-site page on
+    a deployment where frontend and backend share eTLD+1), plus
+    `Cache-Control: no-store` for the single-use token in its markup.
 
 **`GET /auth/github/callback`**
 - Guard: `AuthGuard('github')`

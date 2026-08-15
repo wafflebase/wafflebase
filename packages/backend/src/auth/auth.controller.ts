@@ -119,11 +119,30 @@ export class AuthController {
     const consent = (req as Request & { __cliConsent?: CliConsentRequest })
       .__cliConsent;
     if (consent) {
-      return res
-        .type('html')
-        // Continue against this very route, so a global path prefix (or the
-        // spelling the router matched) is carried over rather than guessed.
-        .send(this.renderCliConsent(consent, req.path || '/auth/github'));
+      return (
+        res
+          .type('html')
+          // This page's entire defence is a deliberate human click, and a
+          // click is exactly what an invisible frame can steal: overlay the
+          // Continue link under something the victim means to press and the
+          // confirmation is forged without them ever reading the port.
+          // `SameSite=Lax` on the confirm cookie only stops a *cross-site*
+          // framer, and frontend and backend are expected to share eTLD+1
+          // here, so a same-site page is not covered by it. There is no
+          // helmet (or any other global header layer) in this app, so the
+          // response carries the refusal itself — `X-Frame-Options` for
+          // older browsers, `frame-ancestors` for the ones that have moved
+          // on. The markup also embeds a single-use confirm token, which no
+          // shared cache should ever hand to a second person.
+          .set({
+            'X-Frame-Options': 'DENY',
+            'Content-Security-Policy': "frame-ancestors 'none'",
+            'Cache-Control': 'no-store',
+          })
+          // Continue against this very route, so a global path prefix (or the
+          // spelling the router matched) is carried over rather than guessed.
+          .send(this.renderCliConsent(consent, req.path || '/auth/github'))
+      );
     }
   }
 
