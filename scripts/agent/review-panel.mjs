@@ -45,6 +45,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify, renderSummaryMd, BLOCKING, normalizeSeverity, KNOWN } from "./severity.mjs";
 import { askStructured, withRetry, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, assertEffort } from "./ask.mjs";
+import { publicInfraReason, redactSecrets } from "./redact.mjs";
 import { renderScopeNote, serializeReviewState } from "./review-state.mjs";
 import { CITATION } from "./citation.mjs";
 import { findingLocation, noveltyOf, baseResolves, DEMOTING_ORIGINS } from "./novelty.mjs";
@@ -1604,6 +1605,72 @@ export function verifierTally(findings, verdicts) {
 // `withRetry` is imported at the top (main() calls it), so it is re-exported
 // from that binding rather than a second time from ask.mjs.
 export { classifyResult } from "./ask.mjs";
+
+/**
+ * Stable PREFIX of the synthetic record written when a lens hits an API/quota
+ * outage. This exact text is a WIRE FORMAT with two parsers:
+ *
+ *   `prior-findings.mjs` — `INFRA_SENTINEL`, matched with `startsWith`
+ *   `rounds.mjs`         — `INFRA_SUMMARY`, an anchored regex
+ *
+ * Both exist to recognise "the reviewer never ran" and drop the record instead of
+ * carrying it into the next round as a code finding. Break the prefix and a stale
+ * infra record is re-checked as a real blocker, and the loop sticks a round later
+ * on whatever pull request next hits a quota error — a failure that surfaces far
+ * from its cause. `infra-summary.test.mjs` pins it against both consumers.
+ */
+export const INFRA_SUMMARY_PREFIX = "Review could not run — Claude API/quota error";
+
+/**
+ * The one place the infra summary string is built.
+ *
+ * Named and exported so the wire format has a single owner and a test can assert
+ * it against both parsers. `reason` must come from `publicInfraReason` — it is the
+ * closed-vocabulary text, never upstream prose. The status is already carried
+ * inside `reason`, so it is not repeated here.
+ */
+export function infraSummary({ reason }) {
+  return `${INFRA_SUMMARY_PREFIX}: ${reason}`;
+}
+
+/**
+ * The summary text a lens writes when it produced no usable verdict.
+ *
+ * EXTRACTED FROM THE CATCH BLOCK so it can be tested. This is the single highest-
+ * risk string in the pipeline — it fans out to a check-run body, a PR comment and
+ * the job summary — and while it lived inline inside `runLens` the only way to
+ * exercise it was to run a whole lens against a live API. It was therefore the one
+ * string with no test, which is how it came to publish a credential.
+ *
+ * Two branches, and the distinction is load-bearing. An INFRA failure means the
+ * reviewer never ran (an API/quota outage), so the record must carry the wire-format
+ * prefix both parsers recognise and must never be re-checked as a code finding. A
+ * genuine no-verdict means the model ran and produced nothing usable, which IS an
+ * ordinary fail-closed blocker.
+ */
+export function lensFailureSummary(err = {}) {
+  if (!err.infra) {
+    // `err.message` is safe by construction — askStructured builds it from the
+    // closed vocabulary — but redacted anyway, because this branch also catches
+    // errors thrown by code that never went through `classifyResult`.
+    return `Reviewer did not produce a valid verdict: ${redactSecrets(String(err.message ?? "unknown"))}`;
+  }
+  // NEVER `err.detail`. Interpolating upstream prose here is precisely what
+  // published a credential to a public pull request: `detail` is whatever the SDK
+  // said, and an invalid-header error quotes the offending value back. The closed
+  // vocabulary removes the class rather than filtering another instance of it.
+  //
+  // `err.reason` is PREFERRED over re-deriving, because `classifyResult` built it
+  // from the RAW text while this function only ever sees the redacted `detail`.
+  // Re-deriving therefore classifies a scrubbed string — it happens to work, since
+  // no limit or malformed-header phrase is credential-shaped, but it depends on
+  // that staying true. It also cannot recover the request id, which the entropy
+  // rule has already masked by this point. Falling back keeps errors thrown by
+  // code that never went through `classifyResult` working.
+  return infraSummary({
+    reason: err.reason || publicInfraReason({ kind: "api-error", status: err.status, detail: err.detail }),
+  });
+}
 export { withRetry };
 
 // --- lens + verifier runs ----------------------------------------------------
@@ -2578,7 +2645,7 @@ async function main() {
         // Retry only genuinely-transient API errors (classifyResult); a
         // quota/session-limit fails through immediately (can't clear in-run).
         try { return await withRetry(() => runLens(lens, { rubric: lens.rubric, diff: core, extraDiff: extra, issue, repo, sessionLog, scopeNote, cacheable })); }
-        catch (e) { return { __error: e.message, kind: e.kind, status: e.status, detail: e.detail }; }
+        catch (e) { return { __error: e.message, kind: e.kind, status: e.status, detail: e.detail, code: e.code, reason: e.reason }; }
       };
       // Warm the shared prefix once, then fan out (see createWarmupGate). Sample
       // COUNT, independence and per-sample error capture are all unchanged — only
@@ -2594,7 +2661,7 @@ async function main() {
         // tag it so the panel pages honestly instead of inventing "changes requested".
         const apiErr = results.find((r) => r && r.kind === "api-error");
         const err = new Error((results[0] && results[0].__error) || "all lens samples failed");
-        if (apiErr) { err.infra = true; err.detail = apiErr.detail; err.status = apiErr.status; }
+        if (apiErr) { err.infra = true; err.detail = apiErr.detail; err.status = apiErr.status; err.code = apiErr.code; err.reason = apiErr.reason; }
         throw err;
       }
       // unionSamples coerces (never drops) + dedupes (collapses identical
@@ -2608,10 +2675,13 @@ async function main() {
       // but say so honestly and tag the entry so the workflow pages with the real
       // reason (and skips the fixer — there's nothing to fix). A genuine no-verdict
       // (model ran but produced nothing) stays the ordinary fail-closed blocker.
-      const infra = err.infra ? (err.detail || `API error${err.status ? ` (${err.status})` : ""}`) : null;
-      const summaryText = infra
-        ? `Review could not run — Claude API/quota error${err.status ? ` (${err.status})` : ""}: ${infra}`
-        : `Reviewer did not produce a valid verdict: ${err.message}`;
+      // Both strings come from `lensFailureSummary`, which is where the "what may
+      // be published" rule lives and where it is tested. `infra` stays a truthy
+      // marker for the branches below (it tags the record and skips the fixer).
+      const infra = err.infra
+        ? publicInfraReason({ kind: "api-error", status: err.status, detail: err.detail })
+        : null;
+      const summaryText = lensFailureSummary(err);
       // Carries NO `confidence`, on purpose. FINDING's `required` constrains the
       // MODEL's output; this record is synthesised by the script because the lens
       // produced nothing usable, so there is no assessment to report. Stamping a
