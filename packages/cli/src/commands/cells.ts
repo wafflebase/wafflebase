@@ -6,6 +6,7 @@ import {
   forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 
 export function registerCellsCommand(parent: Command) {
   const cell = parent
@@ -52,7 +53,7 @@ export function registerCellsCommand(parent: Command) {
         printDryRun(
           getConfig(opts),
           'PUT',
-          `/documents/${docId}/tabs/${tab}/cells/${ref}`,
+          `/documents/${seg(docId)}/tabs/${seg(tab)}/cells/${seg(ref)}`,
           body,
         );
         return;
@@ -85,7 +86,7 @@ export function registerCellsCommand(parent: Command) {
         printDryRun(
           getConfig(opts),
           'DELETE',
-          `/documents/${docId}/tabs/${tab}/cells/${ref}`,
+          `/documents/${seg(docId)}/tabs/${seg(tab)}/cells/${seg(ref)}`,
         );
         return;
       }
@@ -133,7 +134,7 @@ export function registerCellsCommand(parent: Command) {
           printDryRun(
             getConfig(opts),
             'PATCH',
-            `/documents/${docId}/tabs/${tab}/cells`,
+            `/documents/${seg(docId)}/tabs/${seg(tab)}/cells`,
             { cells },
           );
           return;

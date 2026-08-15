@@ -7,6 +7,7 @@ import {
   forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 import { runSlidesImport } from '../slides/import.js';
 import {
   parseSlidesContentFormat,
@@ -96,7 +97,9 @@ export function registerSlidesCommand(program: Command) {
     .action(async function (this: Command, docId: string, title: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}`, { title });
+        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, {
+          title,
+        });
         return;
       }
       try {
@@ -114,7 +117,7 @@ export function registerSlidesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'DELETE', `/documents/${docId}`);
+        printDryRun(getConfig(opts), 'DELETE', `/documents/${seg(docId)}`);
         return;
       }
       try {
@@ -143,7 +146,11 @@ export function registerSlidesCommand(program: Command) {
         const format = parseSlidesContentFormat(opts.format);
 
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'GET', `/documents/${docId}/content`);
+          printDryRun(
+            getConfig(opts),
+            'GET',
+            `/documents/${seg(docId)}/content`,
+          );
           return;
         }
 
@@ -190,7 +197,11 @@ export function registerSlidesCommand(program: Command) {
           throw new Error(`Cannot infer format from "${file}". Use a .pptx extension or --format pptx.`);
         }
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'GET', `/documents/${docId}/content`);
+          printDryRun(
+            getConfig(opts),
+            'GET',
+            `/documents/${seg(docId)}/content`,
+          );
           return;
         }
         const res = await getClient(opts).getSlidesContent(docId);

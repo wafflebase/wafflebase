@@ -8,6 +8,7 @@ import {
   forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 import { parseCsv, parseStartRef, buildCellMap } from '../util/csv-parse.js';
 
 const VALID_FORMATS = ['csv', 'json'] as const;
@@ -81,9 +82,12 @@ export function registerSheetsImportCommand(parent: Command) {
         const cellCount = Object.keys(cells).length;
 
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}/tabs/${localOpts.tab}/cells`, {
-            cells,
-          });
+          printDryRun(
+            getConfig(opts),
+            'PATCH',
+            `/documents/${seg(docId)}/tabs/${seg(localOpts.tab)}/cells`,
+            { cells },
+          );
           return;
         }
 

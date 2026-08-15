@@ -715,6 +715,7 @@ packages/cli/
       http-client.ts     REST API v1 wrapper (built-in fetch)
       content-disposition.ts  Filename parser for binary responses
       dry-run.ts         Dry-run request printer
+      url.ts             seg() — one-segment id encoding, shared by both builders
     config/
       config.ts          Config file + env + flag resolution
       session.ts         Session file read/write + token refresh
@@ -1087,9 +1088,9 @@ subcommand it ran.
 **Ids are one path segment each.** Every id the client interpolates into a
 request URL — the workspace, a document id, a tab id, a cell reference —
 comes from argv, a config file, or a document an agent generated, and
-`fetch` resolves `.` / `..` per the WHATWG URL rules. So `HttpClient`
-percent-encodes each id (`seg()`, `packages/cli/src/client/http-client.ts`),
-which pins it to the segment it was meant to fill: an id of
+`fetch` resolves `.` / `..` per the WHATWG URL rules. So each id is
+percent-encoded (`seg()`, `packages/cli/src/client/url.ts`), which pins it
+to the segment it was meant to fill: an id of
 `../../../../workspaces/w/api-keys/k` is sent as a literal (escaped)
 document id and 404s, instead of walking the request out of the
 `/api/v1/workspaces/<ws>` base and issuing the command's own method, with
@@ -1102,6 +1103,14 @@ id is ever a dot segment, so this is the matrix's `ERROR` row above: a
 plain throw before the request is built (nothing reaches the network), and
 therefore the classifier's default code rather than a code of its own.
 Every other id, however strange, is encoded and sent.
+
+Both rules cover `--dry-run` (§8.2), not just the request path: the preview
+is a second URL builder (`printDryRun`, `packages/cli/src/client/dry-run.ts`),
+and a preview that skipped the encoding would print a walked-out URL as "the
+request that would be sent" — the one output an agent is most likely to copy
+and run. The commands encode with the same `seg()` when they assemble a
+previewed path, the printer encodes the workspace, and it re-checks the
+assembled path for a dot segment, since after encoding there cannot be one.
 
 **Forwarding is bounded, not byte-for-byte.** On the "body *is* the envelope"
 row the `code` is the upstream's own — that is the contract, and it is never

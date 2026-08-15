@@ -3,6 +3,7 @@ import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Document, ImageUploader } from '@wafflebase/docs';
 import { upstreamErrorJson } from '../output/formatter.js';
+import { seg } from '../client/url.js';
 import { importDocx, InvalidDocxError } from './docx-import.js';
 
 /**
@@ -153,7 +154,11 @@ export async function runDocsImport(
     if (dryRun) {
       io.stdout(
         JSON.stringify(
-          { method: 'PUT', path: `/documents/${replace}/content`, body: doc },
+          {
+            method: 'PUT',
+            path: `/documents/${seg(replace)}/content`,
+            body: doc,
+          },
           null,
           2,
         ),

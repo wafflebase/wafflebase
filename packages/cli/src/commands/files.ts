@@ -6,6 +6,7 @@ import {
   forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 import { runFilesUpload } from '../files/upload.js';
 import { runFilesDownload } from '../files/download.js';
 
@@ -60,7 +61,7 @@ export function registerFilesCommand(program: Command) {
       const local = this.opts<{ force: boolean }>();
       try {
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'GET', `/files/${docId}`);
+          printDryRun(getConfig(opts), 'GET', `/files/${seg(docId)}`);
           return;
         }
         const result = await runFilesDownload(
@@ -120,7 +121,9 @@ export function registerFilesCommand(program: Command) {
     .action(async function (this: Command, docId: string, title: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}`, { title });
+        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, {
+          title,
+        });
         return;
       }
       try {
@@ -138,7 +141,7 @@ export function registerFilesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'DELETE', `/documents/${docId}`);
+        printDryRun(getConfig(opts), 'DELETE', `/documents/${seg(docId)}`);
         return;
       }
       try {

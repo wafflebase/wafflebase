@@ -2,6 +2,7 @@ import type { Document } from '@wafflebase/docs';
 import type { SlidesDocument } from '@wafflebase/slides/node';
 import type { CliConfig } from '../config/config.js';
 import { parseContentDispositionFilename } from './content-disposition.js';
+import { seg } from './url.js';
 import {
   loadSession,
   saveSession,
@@ -49,30 +50,6 @@ export interface BinaryResponse {
   fileName?: string;
   /** Parsed error envelope when the request failed. */
   data?: unknown;
-}
-
-/**
- * One path segment of a request URL.
- *
- * Every id the client interpolates — the workspace, a document id, a tab id,
- * a cell reference — arrives from argv, a config file or a document an agent
- * generated, and `fetch` resolves `.` / `..` in a path per the WHATWG URL
- * rules. Unencoded, `docs delete '../../../../workspaces/w/api-keys/k'`
- * walks the request out of the `/api/v1/workspaces/<ws>` base and issues it —
- * with the session's bearer token and the command's own HTTP method — against
- * an endpoint the command never named. Encoding pins every id to the one
- * segment it was meant to fill.
- *
- * Encoding alone is not enough for `.` and `..`: `encodeURIComponent` leaves
- * a dot untouched, and the URL parser resolves those two segments however
- * they are spelled. No id is ever a dot segment, so they are refused rather
- * than sent.
- */
-function seg(value: string): string {
-  if (value === '.' || value === '..') {
-    throw new Error(`Invalid path segment: "${value}"`);
-  }
-  return encodeURIComponent(value);
 }
 
 export class HttpClient {

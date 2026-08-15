@@ -12,6 +12,7 @@ import {
 } from './pptx-import.js';
 import type { ImportReport } from '@wafflebase/slides/node';
 import { upstreamErrorJson } from '../output/formatter.js';
+import { seg } from '../client/url.js';
 
 /**
  * Parsing surface — split out so tests can inject a stub that returns
@@ -180,7 +181,7 @@ export async function runSlidesImport(
         JSON.stringify(
           {
             method: 'PUT',
-            path: `/documents/${replace}/content`,
+            path: `/documents/${seg(replace)}/content`,
             body: deck,
             report: summariseReport(report),
           },

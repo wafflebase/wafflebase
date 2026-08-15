@@ -3,6 +3,7 @@ import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { NoteContent } from '../client/http-client.js';
 import { upstreamErrorJson } from '../output/formatter.js';
+import { seg } from '../client/url.js';
 
 /**
  * Minimal HTTP surface `runNotesImport` needs from the CLI's `HttpClient`.
@@ -145,7 +146,7 @@ export async function runNotesImport(
         JSON.stringify(
           {
             method: 'PUT',
-            path: `/documents/${replace}/content`,
+            path: `/documents/${seg(replace)}/content`,
             body: { content },
           },
           null,

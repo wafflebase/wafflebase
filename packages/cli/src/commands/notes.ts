@@ -7,6 +7,7 @@ import {
   forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 import { runNotesImport } from '../notes/import.js';
 import {
   parseNotesContentFormat,
@@ -91,7 +92,9 @@ export function registerNotesCommand(program: Command) {
     .action(async function (this: Command, docId: string, title: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}`, { title });
+        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, {
+          title,
+        });
         return;
       }
       try {
@@ -109,7 +112,7 @@ export function registerNotesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'DELETE', `/documents/${docId}`);
+        printDryRun(getConfig(opts), 'DELETE', `/documents/${seg(docId)}`);
         return;
       }
       try {
@@ -137,7 +140,11 @@ export function registerNotesCommand(program: Command) {
         const format = parseNotesContentFormat(opts.format);
 
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'GET', `/documents/${docId}/content`);
+          printDryRun(
+            getConfig(opts),
+            'GET',
+            `/documents/${seg(docId)}/content`,
+          );
           return;
         }
 
@@ -188,7 +195,11 @@ export function registerNotesCommand(program: Command) {
           );
         }
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'GET', `/documents/${docId}/content`);
+          printDryRun(
+            getConfig(opts),
+            'GET',
+            `/documents/${seg(docId)}/content`,
+          );
           return;
         }
         const res = await getClient(opts).getNoteContent(docId);
