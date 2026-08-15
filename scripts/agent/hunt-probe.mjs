@@ -27,30 +27,20 @@ import os from "node:os";
 // --- secret redaction -------------------------------------------------------
 
 /**
- * Strip credentials from anything that might be shown, logged or published.
+ * Strip credentials from anything shown, logged or published.
  *
- * This is the highest-severity risk in the pipeline: probe output can contain
- * `Authorization: Bearer …` (a `--verbose` run echoes request headers), and the
- * eventual destination is a report in a PUBLIC repository. Applied at every
- * output boundary — the report renderer AND the on-disk artifact dump — because
- * a redaction that only guards the published path leaks through the debug path.
+ * Apply at EVERY output boundary — the report renderer and the on-disk artifact
+ * dump alike — since guarding only the published path leaks through the debug one.
  *
- * `extra` carries the run's own live values (the API key), which is what catches
- * a token that does not match any generic shape.
+ * Moved to `redact.mjs` after the credential-disclosure incident. The twin this
+ * module owned named only `wfb_`, JWT and Bearer, so it passed `sk-ant-` keys,
+ * GitHub tokens and any opaque value the caller did not list in `extra`. Callers
+ * are unchanged; the widened `extra` default can only mask more.
+ *
+ * Imported as well as re-exported — `renderReproSh` below calls it.
  */
-export function redactSecrets(text, { extra = [] } = {}) {
-  let s = typeof text === "string" ? text : String(text ?? "");
-  for (const v of extra) {
-    if (typeof v === "string" && v.length >= 8) s = s.split(v).join("<REDACTED>");
-  }
-  return s
-    .replace(/\bwfb_[A-Za-z0-9_-]+/g, "<REDACTED_API_KEY>")
-    // JWTs before the generic Bearer rule, so a bearer-carried JWT is labelled
-    // as a JWT rather than swallowed by the broader pattern.
-    .replace(/\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*/g, "<REDACTED_JWT>")
-    .replace(/\b(Bearer|Authorization:\s*Bearer)\s+\S+/gi, "$1 <REDACTED>")
-    .replace(/\b(x-api-key|api[-_]?key|token|secret|password)(["'\s:=]+)([^\s"',}]{8,})/gi, "$1$2<REDACTED>");
-}
+import { redactSecrets } from "./redact.mjs";
+export { redactSecrets };
 
 // --- shell rendering (display only) -----------------------------------------
 

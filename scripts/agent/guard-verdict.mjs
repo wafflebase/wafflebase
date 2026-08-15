@@ -14,6 +14,7 @@
 // the renderer must tolerate a verdict with nothing but a decision and a reason.
 
 import { appendFileSync } from "node:fs";
+import { redactSecrets } from "./redact.mjs";
 
 /** Human labels for the guard's page reasons, keyed by the caller's `reason`. */
 const PAGE_REASONS = {
@@ -88,8 +89,12 @@ export function renderGuardSummary(v = {}) {
     // diff — and a blockquote would let crafted markdown/HTML render as
     // structure on the run page. A text fence displays it inert; any fence
     // run inside the text is defanged so it cannot break out.
+    //
+    // `redactSecrets` for the same reason the fence is here — this text is not
+    // ours. The fence stops it rendering as structure; redaction stops it
+    // carrying a credential.
     if (v.detail) {
-      lines.push("", "```text", String(v.detail).slice(0, 600).replace(/`{3,}/g, "···"), "```");
+      lines.push("", "```text", redactSecrets(String(v.detail)).slice(0, 600).replace(/`{3,}/g, "···"), "```");
     }
     lines.push("", "The page comment on the PR carries the full hand-off text; `set-state.mjs` moves the PR to `agent:blocked`.", "");
     return lines.join("\n");
@@ -105,7 +110,9 @@ export function renderGuardSummary(v = {}) {
     lines.push(`- Stall detector: \`${v.stall.reason}\` (${n(v.stall.stalls) ?? 0} stalling pair(s) over ${n(v.stall.rounds) ?? 0} fix-attempt round(s))`);
   }
   lines.push(`- Standstill: ${n(v.standstillCount) ?? 0} finding(s) at the ${n(v.rebuttalLimit) ?? 2}-uphold rebuttal limit`);
-  lines.push(`- Infra: ${v.infra ? String(v.infra).slice(0, 200) : "none"}`);
+  // The PROCEED path publishes the infra text too — a second surface, and the one
+  // easiest to forget because the page path above looks like the only one.
+  lines.push(`- Infra: ${v.infra ? redactSecrets(String(v.infra)).slice(0, 200) : "none"}`);
   if (v.heldByRerun) {
     lines.push("- `@claude rerun` hand-back: stall/standstill pages held for this one attempt");
   }
