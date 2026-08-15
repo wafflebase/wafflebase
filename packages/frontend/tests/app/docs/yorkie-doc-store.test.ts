@@ -1996,6 +1996,15 @@ describe('YorkieDocStore', () => {
       expect(cells[0].blocks[0].listLevel, 'nested listLevel should survive').toBe(1);
       expect(cells[1].blocks[0].type).toBe('heading');
       expect(cells[1].blocks[0].headingLevel, 'nested headingLevel should survive').toBe(2);
+
+      // A table node's children are its rows: `block.inlines` is always `[]`,
+      // so the "ensure at least one empty inline" branch must not run here.
+      // The reader filters children by type `row`, so a stray inline node
+      // spliced in front of row 0 would be invisible above while shifting
+      // every `[...tablePath, row, cell, …]` path by one.
+      const tableNode = doc.getRoot().content.getRootTreeNode()
+        .children[0] as unknown as { children: Array<{ type: string }> };
+      expect(tableNode.children.map((c) => c.type)).toEqual(['row']);
     });
   });
 

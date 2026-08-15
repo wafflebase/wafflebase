@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shapeToXml, kindToPrst, xfrmXml } from '../../../src/export/pptx/shape.js';
+import { shapeToXml, kindToPrst, xfrmXml, lineXml } from '../../../src/export/pptx/shape.js';
 import type { ShapeElement } from '../../../src/model/element.js';
 
 const frame = { x: 100, y: 200, w: 300, h: 150, rotation: 0 };
@@ -143,5 +143,37 @@ describe('shape', () => {
     expect(xml).not.toContain('prst="freeform"');
     // Must not emit custGeom either
     expect(xml).not.toContain('<a:custGeom>');
+  });
+});
+
+describe('DASH_VAL is a closed lookup', () => {
+  it('maps the two known dash kinds', () => {
+    expect(lineXml({ color: '#000000', width: 1, dash: 'dashed' })).toContain('<a:prstDash val="dash"/>');
+    expect(lineXml({ color: '#000000', width: 1, dash: 'dotted' })).toContain('<a:prstDash val="sysDot"/>');
+  });
+
+  it('emits no prstDash for a solid stroke', () => {
+    expect(lineXml({ color: '#000000', width: 1, dash: 'solid' })).not.toContain('prstDash');
+    expect(lineXml({ color: '#000000', width: 1 })).not.toContain('prstDash');
+  });
+
+  it.each(['constructor', 'toString', '__proto__', 'nope'])(
+    'falls back to val="dash" for the inherited/unknown key %s',
+    (dash) => {
+      const xml = lineXml({ color: '#000000', width: 1, dash } as never);
+      expect(xml).toContain('<a:prstDash val="dash"/>');
+      expect(xml).not.toContain('native code');
+      expect(xml).not.toContain('undefined');
+    },
+  );
+
+  it('never lets a hostile dash close the val attribute', () => {
+    const xml = lineXml({
+      color: '#000000',
+      width: 1,
+      dash: 'dash"/><a:custom val="pwned',
+    } as never);
+    expect(xml).toContain('<a:prstDash val="dash"/>');
+    expect(xml).not.toContain('pwned');
   });
 });

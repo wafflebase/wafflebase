@@ -656,10 +656,12 @@ function assertValidTextBody(body: unknown, path: string): void {
  * Deliberately narrower than the docs arm's `assertValidBlock`: slide text
  * bodies are persisted verbatim as JSON (there is no attribute codec to
  * normalize them on read), so requiring fields the docs writer dereferences —
- * `id`, `inlines`, a present `style` — would 400 a `GET` → edit → `PUT`
- * round-trip of any deck whose stored blocks predate them. What it does check
- * is every value that would otherwise reach the layout engine unusable: a
- * `style` that is not an object, and the alignment/geometry values inside it.
+ * `id`, a present `style` — would 400 a `GET` → edit → `PUT` round-trip of any
+ * deck whose stored blocks predate them. What it does check is every value
+ * that would otherwise reach the layout engine unusable: a `style` that is not
+ * an object, and the alignment/geometry values inside it. The one field the
+ * shared layout engine cannot survive missing — `inlines` — is filled in
+ * rather than demanded; see {@link normalizeSlideInlines}.
  */
 function assertValidTextBodyBlocks(
   body: Record<string, unknown>,
@@ -701,7 +703,7 @@ function assertValidSlideBlocks(blocks: unknown, path: string): void {
         'string',
       );
     }
-    assertValidSlideInlines(block.inlines, `${path}[${i}]`);
+    normalizeSlideInlines(block, `${path}[${i}]`);
     // A docs table block inside a slide text body holds blocks of its own.
     const rows = (block.tableData as { rows?: unknown } | undefined)?.rows;
     if (!Array.isArray(rows)) continue;
@@ -721,32 +723,48 @@ function assertValidSlideBlocks(blocks: unknown, path: string): void {
 }
 
 /**
- * Validate the inline runs of a `Block` stored inside a deck.
+ * Validate — and where the value is merely *absent*, repair — the inline runs
+ * of a `Block` stored inside a deck.
  *
- * The docs layout engine is shared: `packages/docs` `measureInlines` /
- * `layoutBlock` read `inline.text.length` and spread `inline.style`
- * unconditionally, and slides runs every text body through it
- * (`computeLayout`) for canvas rendering, PDF export and PPTX export alike.
+ * The docs layout engine is shared, and it dereferences both fields
+ * unconditionally: `resolveBlockInlines` calls `block.inlines.map`
+ * (`packages/docs/src/view/layout.ts`), `measureSegments` reads
+ * `inline.style.image`, `resolveColorAtPosition` reads `inline.style.color`
+ * (`packages/docs/src/model/color.ts`) and the PDF/PPTX exporters walk
+ * `block.inlines` / `inline.style.fontFamily` (`packages/slides/src/export/pdf.ts`).
  * Slide text bodies are persisted verbatim as JSON by `writeSlidesRoot` — no
- * codec normalizes them on read — so a stored `inlines[i]` whose `text` is
- * missing or non-string throws for *every* viewer of that deck, not just the
- * caller who PUT it. The docs arm guards the identical `Block` shape at
- * `assertValidBlock`; this is the slides-side counterpart.
+ * codec normalizes them on read — so a stored block missing `inlines`, or an
+ * inline missing `style`, is a `TypeError` for *every* viewer of that deck,
+ * not just the caller who PUT it.
  *
- * Tolerances match the rest of the slides walk: `inlines` may legitimately be
- * absent (an empty placeholder body, a deck predating the field), so only a
- * *present* value is held to the contract — an array of objects each carrying
- * string `text`, and an object `style` when it has one at all.
+ * Rejecting an absent `inlines`/`style` outright would 400 a `GET` → edit →
+ * `PUT` round-trip of a deck that already stores one, which is why the rest of
+ * this walk tolerates them. So instead of a 400 we *fill the empty shape in*:
+ * `inlines` defaults to `[]` and an inline's `style` to `{}` — exactly what
+ * the readers would have to assume anyway, and semantically identical to the
+ * value that was missing. Validation runs before `writeSlidesRoot` and the
+ * endpoint echoes this same object back, so what the caller sees is what is
+ * stored, and no deck can be persisted in the crashing shape.
+ *
+ * A value that is *present but wrong* is still a 400: it cannot be repaired
+ * without silently rewriting the caller's content.
  */
-function assertValidSlideInlines(inlines: unknown, path: string): void {
-  if (inlines === undefined || inlines === null) return;
+function normalizeSlideInlines(
+  block: Record<string, unknown>,
+  path: string,
+): void {
+  const inlines = block.inlines;
+  if (inlines === undefined || inlines === null) {
+    block.inlines = [];
+    return;
+  }
   if (!Array.isArray(inlines)) {
     throw new BadRequestException(
       `Invalid block at ${path}: 'inlines' must be an array`,
     );
   }
   for (let i = 0; i < inlines.length; i++) {
-    const inline = inlines[i] as { text?: unknown; style?: unknown } | null;
+    const inline = inlines[i] as Record<string, unknown> | null;
     if (!inline || typeof inline !== 'object') {
       throw new BadRequestException(
         `Invalid block at ${path}.inlines[${i}]: not an object`,
@@ -757,11 +775,11 @@ function assertValidSlideInlines(inlines: unknown, path: string): void {
         `Invalid block at ${path}.inlines[${i}]: 'text' must be a string`,
       );
     }
-    if (
-      inline.style !== undefined &&
-      inline.style !== null &&
-      typeof inline.style !== 'object'
-    ) {
+    if (inline.style === undefined || inline.style === null) {
+      inline.style = {};
+      continue;
+    }
+    if (typeof inline.style !== 'object') {
       throw new BadRequestException(
         `Invalid block at ${path}.inlines[${i}]: 'style' must be an object`,
       );

@@ -174,3 +174,40 @@ describe('DOCX_ALIGNMENTS is a closed lookup', () => {
     },
   );
 });
+
+describe('heading level → <w:pStyle w:val>', () => {
+  const style = {
+    lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0,
+  } as never;
+
+  it('emits HeadingN for each of the six built-in levels', () => {
+    for (const level of [1, 2, 3, 4, 5, 6]) {
+      expect(buildParagraphPropertiesXml(style, level)).toContain(
+        `<w:pStyle w:val="Heading${level}"/>`,
+      );
+    }
+  });
+
+  it('emits no pStyle when there is no heading level', () => {
+    expect(buildParagraphPropertiesXml(style)).not.toContain('<w:pStyle');
+    expect(buildParagraphPropertiesXml(style, undefined)).not.toContain('<w:pStyle');
+  });
+
+  it('drops an out-of-range or non-integer level rather than emitting it', () => {
+    for (const level of [0, -1, 7, 99, 1.5, NaN, Infinity]) {
+      expect(buildParagraphPropertiesXml(style, level)).not.toContain('<w:pStyle');
+    }
+  });
+
+  it('never interpolates a hostile heading level into the attribute', () => {
+    // `headingLevel` reaches this exporter as whatever was persisted (DOCX
+    // import, the content PUT API) — both CRDT readers coerce it with
+    // `Number(...)`, which yields NaN rather than failing.
+    const hostile = '1"/><w:pStyle w:val="Evil' as unknown as number;
+    const xml = buildParagraphPropertiesXml(style, hostile);
+    expect(xml).not.toContain('<w:pStyle');
+    expect(xml).not.toContain('Evil');
+    expect(buildParagraphPropertiesXml(style, 'constructor' as unknown as number))
+      .not.toContain('<w:pStyle');
+  });
+});

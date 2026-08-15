@@ -86,3 +86,43 @@ describe('connectorToXml', () => {
     expect(xml).toContain('name="a&amp;b&lt;c"');
   });
 });
+
+describe('connector attribute lookups are closed', () => {
+  const frame = { x: 0, y: 0, w: 100, h: 50, rotation: 0 };
+  const make = (over: Record<string, unknown>) =>
+    ({ ...el, ...over }) as unknown as ConnectorElement;
+
+  // `routing`, arrowhead `kind` and arrowhead `size` are persisted JSON the
+  // content PUT API lets a caller set to any string. An object lookup would
+  // resolve `constructor` through the prototype chain into the attribute, and
+  // an unknown own key would emit `prst="undefined"`.
+  it.each(['constructor', 'toString', '__proto__', 'valueOf', 'nope'])(
+    'falls back to prst="line" for routing %s',
+    (routing) => {
+      const xml = connectorToXml(make({ routing }), frame);
+      expect(xml).toContain('prst="line"');
+      expect(xml).not.toContain('undefined');
+      expect(xml).not.toContain('native code');
+    },
+  );
+
+  it.each(['constructor', 'toString', '__proto__', 'nope'])(
+    'falls back to a triangle/med arrowhead for kind and size %s',
+    (key) => {
+      const xml = connectorToXml(
+        make({ arrowheads: { end: { kind: key, size: key } } }),
+        frame,
+      );
+      expect(xml).toContain('<a:tailEnd type="triangle" w="med" len="med"/>');
+      expect(xml).not.toContain('undefined');
+      expect(xml).not.toContain('native code');
+    },
+  );
+
+  it('never lets a hostile routing close the prst attribute', () => {
+    const hostile = 'line"/><a:custGeom><a:pathLst/></a:custGeom><a:x y="';
+    const xml = connectorToXml(make({ routing: hostile }), frame);
+    expect(xml).toContain('<a:prstGeom prst="line">');
+    expect(xml).not.toContain('<a:custGeom>');
+  });
+});

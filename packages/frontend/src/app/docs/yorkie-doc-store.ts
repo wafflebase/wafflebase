@@ -1466,8 +1466,11 @@ export class YorkieDocStore implements DocStore {
         if (childCount > 0) {
           tree.editByPath([...blockPath, 0], [...blockPath, childCount]);
         }
-      } else if (block.inlines.length === 0) {
-        // Ensure at least one empty inline
+      } else if (type !== 'table' && block.inlines.length === 0) {
+        // Ensure at least one empty inline. Never for a table: a table node's
+        // children are its rows (`block.inlines` is always `[]`), so inserting
+        // an inline at index 0 would splice a text node in front of row 0 and
+        // shift every `[...tablePath, row, cell, …]` path by one.
         tree.editByPath(
           [...blockPath, 0],
           [...blockPath, 0],
@@ -1488,7 +1491,7 @@ export class YorkieDocStore implements DocStore {
     }
     if (type === 'horizontal-rule' || type === 'page-break') {
       block.inlines = [];
-    } else if (block.inlines.length === 0) {
+    } else if (type !== 'table' && block.inlines.length === 0) {
       block.inlines = [{ text: '', style: {} }];
     }
     if (materializedStyle) block.style = materializedStyle;

@@ -252,8 +252,8 @@ an inline needs a string `text` and a `style` object; a table cell needs a
   same layout engine and the same exporters.
 - Two checks are deliberately *relaxed* on that slides walk, because slide
   text bodies are stored **and read back** verbatim as JSON with no attribute
-  codec to normalize them: the structural block checks (`id`, `inlines`, a
-  present `style`) are not applied, and `style.alignment` need only be a
+  codec to normalize them: the structural block checks (`id`, a present
+  `style`) are not applied, and `style.alignment` need only be a
   string rather than one of the four allowlisted values. Otherwise a
   `GET` → edit → `PUT` round-trip of an older deck would `400` on what the
   reader itself just handed back. An alignment the exporters do not know is
@@ -262,6 +262,21 @@ an inline needs a string `text` and a `style` object; a table cell needs a
   `PlaceholderSpec` has no `id` at all) are not held to the `id` / `type` /
   `frame` contract that a slide's own `elements` are; only their text bodies
   are walked.
+- `inlines` is the exception to that relaxation, because the *shared* docs
+  layout engine cannot survive it missing: `resolveBlockInlines` calls
+  `block.inlines.map`, `measureSegments` reads `inline.style.image`,
+  `resolveColorAtPosition` reads `inline.style.color`, and the slides PDF/PPTX
+  font sweep walks both — so a stored block without `inlines`, or an inline
+  without `style`, is a `TypeError` for **every viewer of that deck**, not just
+  the caller who wrote it. Rejecting an absent value would 400 the very
+  round-trip the relaxation exists to protect, so instead the walk *fills the
+  empty shape in*: a missing `inlines` becomes `[]` and a missing inline
+  `style` becomes `{}` — semantically identical to the value that was missing,
+  and exactly what the readers would otherwise have to assume. The repair
+  happens before the write and the endpoint echoes the repaired body, so what
+  the caller sees is what is stored. A value that is *present but wrong* is
+  still a 400: `inlines` must be an array, each entry an object with a string
+  `text`, and a present `style` must be an object.
 
 `GET` → edit → `PUT` stays lossless for docs bodies: the read side of the
 Tree codec (`@wafflebase/docs` `model/crdt-attrs.ts`) drops exactly the values

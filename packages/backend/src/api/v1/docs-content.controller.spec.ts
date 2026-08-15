@@ -1024,6 +1024,128 @@ describe('ApiV1DocsContentController', () => {
           ),
         ).rejects.toBeInstanceOf(NotFoundException);
       });
+
+      // The inline runs inside a slide text body reach the *shared* docs
+      // layout engine, which dereferences `block.inlines` and `inline.style`
+      // unconditionally (`resolveBlockInlines`, `measureSegments`,
+      // `resolveColorAtPosition`, the PDF/PPTX font sweep). A deck is stored
+      // verbatim, so a malformed run breaks every viewer of that deck, not
+      // just the caller who PUT it.
+      it('rejects a non-array inlines in a slide text body', async () => {
+        await expectReject(
+          withTextElement({
+            blocks: [{ id: 'b1', type: 'paragraph', style: {}, inlines: 'nope' }],
+          }),
+          /elements\[0\]\.data\.blocks\[0\].*'inlines'.*array/,
+        );
+      });
+
+      it('rejects a non-object inline entry in a slide text body', async () => {
+        await expectReject(
+          withTextElement({
+            blocks: [{ id: 'b1', type: 'paragraph', style: {}, inlines: ['hi'] }],
+          }),
+          /elements\[0\]\.data\.blocks\[0\]\.inlines\[0\].*not an object/,
+        );
+      });
+
+      it('rejects a non-string inline text in a slide text body', async () => {
+        await expectReject(
+          withTextElement({
+            blocks: [
+              { id: 'b1', type: 'paragraph', style: {}, inlines: [{ style: {} }] },
+            ],
+          }),
+          /elements\[0\]\.data\.blocks\[0\]\.inlines\[0\].*'text'.*string/,
+        );
+      });
+
+      it('rejects a non-object inline style in a slide text body', async () => {
+        await expectReject(
+          withTextElement({
+            blocks: [
+              {
+                id: 'b1',
+                type: 'paragraph',
+                style: {},
+                inlines: [{ text: 'x', style: 'bold' }],
+              },
+            ],
+          }),
+          /elements\[0\]\.data\.blocks\[0\]\.inlines\[0\].*'style'.*object/,
+        );
+      });
+
+      it('rejects malformed inlines inside slide notes and layout placeholders', async () => {
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: [],
+                notes: [
+                  { id: 'n1', type: 'paragraph', style: {}, inlines: [{ text: 1 }] },
+                ],
+              },
+            ] as unknown as [],
+          }),
+          /slides\[0\]\.notes\[0\]\.inlines\[0\].*'text'/,
+        );
+        await expectReject(
+          withSlides({
+            layouts: [
+              {
+                id: 'l1',
+                masterId: 'm1',
+                name: 'Title',
+                placeholders: [
+                  {
+                    type: 'text',
+                    frame: {},
+                    data: {
+                      blocks: [
+                        { id: 'b1', type: 'paragraph', style: {}, inlines: [null] },
+                      ],
+                    },
+                  },
+                ],
+                staticElements: [],
+              },
+            ] as unknown as [],
+          }),
+          /layouts\[0\]\.placeholders\[0\]\.data\.blocks\[0\]\.inlines\[0\].*not an object/,
+        );
+      });
+
+      it('fills in an absent inlines / inline style instead of storing a crashing shape', async () => {
+        // Rejecting these would 400 a GET → edit → PUT round-trip of a legacy
+        // deck, but storing them verbatim is a TypeError for every viewer. So
+        // the empty shape is filled in and the repaired body is what reaches
+        // the writer (and what the endpoint echoes back).
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        const body = withTextElement({
+          blocks: [
+            { id: 'b1', type: 'paragraph', style: {} },
+            { id: 'b2', type: 'paragraph', style: {}, inlines: [{ text: 'x' }] },
+          ],
+        }) as {
+          slides: Array<{
+            elements: Array<{
+              data: { blocks: Array<{ inlines?: Array<{ style?: unknown }> }> };
+            }>;
+          }>;
+        };
+        await expect(
+          controller.putContent('ws-1', 'd1', body as never),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        const blocks = body.slides[0].elements[0].data.blocks;
+        expect(blocks[0].inlines).toEqual([]);
+        expect(blocks[1].inlines![0].style).toEqual({});
+      });
     });
   });
 });
