@@ -6,6 +6,7 @@ import { registerSheetsCommand } from '../src/commands/sheets.js';
 import { registerSlidesCommand } from '../src/commands/slides.js';
 import { registerNotesCommand } from '../src/commands/notes.js';
 import { registerApiKeysCommand } from '../src/commands/api-keys.js';
+import { registerFilesCommand } from '../src/commands/files.js';
 
 function buildProgram(): Command {
   const p = createProgram();
@@ -13,6 +14,7 @@ function buildProgram(): Command {
   registerSheetsCommand(p);
   registerSlidesCommand(p);
   registerNotesCommand(p);
+  registerFilesCommand(p);
   registerApiKeysCommand(p);
   return p;
 }
@@ -130,6 +132,35 @@ describe('CLI namespace structure', () => {
     const notes = findChild(program, 'notes');
     expect(notes?.name()).toBe('notes');
     expect(notes?.aliases()).toEqual(expect.arrayContaining(['note']));
+  });
+
+  it('exposes the files namespace with the file alias', () => {
+    const program = buildProgram();
+    const files = findChild(program, 'files');
+    expect(files?.name()).toBe('files');
+    expect(files?.aliases()).toEqual(expect.arrayContaining(['file']));
+  });
+
+  it('files contains upload/download/list/get/rename/delete', () => {
+    const program = buildProgram();
+    const files = findChild(program, 'files');
+    expect(files).toBeDefined();
+    for (const sub of [
+      'upload',
+      'download',
+      'list',
+      'get',
+      'rename',
+      'delete',
+    ]) {
+      expect(findChild(files!, sub)?.name()).toBe(sub);
+    }
+  });
+
+  it('files has no content command — a blob has no CRDT content', () => {
+    const program = buildProgram();
+    const files = findChild(program, 'files');
+    expect(findChild(files!, 'content')).toBeUndefined();
   });
 
   it('notes contains list/create/get/rename/delete/content/import/export', () => {

@@ -93,9 +93,9 @@ export function registerSheetsImportCommand(parent: Command) {
         const result = typeof res.data === 'object' && res.data !== null
           ? { imported: cellCount, ...res.data as Record<string, unknown> }
           : { imported: cellCount };
-        output(result, outFmt, opts.quiet);
+        output(result, outFmt);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 }

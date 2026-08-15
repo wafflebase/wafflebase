@@ -524,7 +524,7 @@ Three PRs sized for independent review and verification:
 > suppressed there. Curved-routing bend handle shipped in parallel
 > with a `curveBend` field on `ConnectorElement` that scales the
 > control-point distance symmetrically (default 1, clamped [0.1, 3]).
-> Tracking: `docs/tasks/active/20260612-slides-connector-bend-handles-todo.md`.
+> Tracking: `docs/tasks/archive/2026/06/20260612-slides-connector-bend-handles-todo.md`.
 
 **PR3 — Polish + Coverage** (`feat/slides-connectors-polish`)
 - Per-`ShapeKind` overrides for the remaining shapes (callouts, block

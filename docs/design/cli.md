@@ -1,6 +1,6 @@
 ---
 title: cli
-target-version: 0.3.7
+target-version: 0.6.3
 ---
 
 # Wafflebase CLI
@@ -40,6 +40,9 @@ files.
   import a DOCX as either a new document or a destructive replacement
   of an existing document. Page-based slicing (`--pages 1-3,5`) is a
   first-class concept for content read and PDF export.
+- For Files: upload any file as a blob document and download its bytes
+  back, so a workspace is reachable as a general-purpose store from the
+  terminal — not only through the browser's documents list.
 - Symmetric plural namespaces (`docs`, `sheets`, `api-keys`) with
   singular aliases for ergonomics.
 - Make the CLI first-class for AI agent consumption: structured
@@ -67,6 +70,10 @@ files.
   Docs CLI.
 - Image upload during DOCX import (v1 imports embed inline images via
   the existing `ImageUploader` interface in `DocxImporter`).
+- Streaming or resumable file upload, and replacing a blob in place
+  (`files upload --replace`). Uploads stay buffered under the existing
+  50 MB cap; presigned direct-to-S3 remains the documented next step in
+  [generic-file-upload.md](generic-file-upload.md).
 - Real-time streaming or Yorkie-attached read/write from the CLI.
 
 ## Proposal Details
@@ -311,7 +318,9 @@ wafflebase
   │
   ├── sheets (aliases: sheet, spreadsheet, spreadsheets)
   │     ├── tabs (alias: tab)
-  │     │     └── list <doc-id>              List tabs in a spreadsheet
+  │     │     ├── list <doc-id>              List tabs in a spreadsheet
+  │     │     ├── create <doc-id> [name]     Create a sheet tab (--type sheet)
+  │     │     └── rename <doc-id> <tab-id> <name>   Rename a tab
   │     ├── cells (alias: cell)
   │     │     ├── get <doc-id> [<range>]     Get cells (default: all, or A1, or A1:C10)
   │     │     ├── set <doc-id> <ref> <value> [--tab] [--formula]
@@ -340,22 +349,34 @@ wafflebase
   │           [--title <title>]               (default: file basename)
   │           [--replace <doc-id> --yes]      (destructive; required together)
   │
-  └── notes (alias: note)
-        ├── list                             List notes (type: note)
-        ├── create <title>                   Create a new note
-        ├── get <doc-id>                      Show note metadata
-        ├── rename <doc-id> <title>          Rename a note
-        ├── delete <doc-id>                   Delete a note
-        ├── content <doc-id>
-        │     [--format json|md|text]        (default: json)
-        │     [--out <file>|-]                (default: stdout)
-        │     [--force]
-        ├── export <doc-id> <file>|-         (- writes Markdown to stdout)
-        │     [--format md]                  (default: from extension; - ⇒ md)
-        │     [--force]                       (overwrite existing file)
-        └── import <file>
-              [--title <title>]               (default: file basename)
-              [--replace <doc-id> --yes]      (destructive; required together)
+  ├── notes (alias: note)
+  │     ├── list                             List notes (type: note)
+  │     ├── create <title>                   Create a new note
+  │     ├── get <doc-id>                      Show note metadata
+  │     ├── rename <doc-id> <title>          Rename a note
+  │     ├── delete <doc-id>                   Delete a note
+  │     ├── content <doc-id>
+  │     │     [--format json|md|text]        (default: json)
+  │     │     [--out <file>|-]                (default: stdout)
+  │     │     [--force]
+  │     ├── export <doc-id> <file>|-         (- writes Markdown to stdout)
+  │     │     [--format md]                  (default: from extension; - ⇒ md)
+  │     │     [--force]                       (overwrite existing file)
+  │     └── import <file>
+  │           [--title <title>]               (default: file basename)
+  │           [--replace <doc-id> --yes]      (destructive; required together)
+  │
+  └── files (alias: file)
+        ├── upload <file>                    Upload any file as a document
+        │     [--title <title>]               (default: filename, with ext)
+        │     [--folder <id>]                 (default: workspace root)
+        ├── download <doc-id> [out]          (out: path, - for stdout;
+        │     [--force]                       default: the document filename)
+        ├── list                             List blob docs (file/pdf/image)
+        │     [--type file|pdf|image]
+        ├── get <doc-id>                      Show file document metadata
+        ├── rename <doc-id> <title>          Rename a file document
+        └── delete <doc-id>                   Delete it and its stored bytes
 ```
 
 The Slides `content` command is text-only for `md`/`text`: it walks each
@@ -383,6 +404,43 @@ content string. The backend content endpoint dispatches on the persisted
 type (`doc` → docs tree, `slides` → slides tree, `note` → `Text`); the
 CLI-side `getNoteContent`/`putNoteContent` reuse the same
 `GET`/`PUT /documents/:id/content` route.
+
+The Files commands are the only namespace with no content model at all: a
+`file`/`pdf`/`image` document *is* its stored bytes
+([generic-file-upload.md](generic-file-upload.md)), so there is no `content`
+command and nothing is ever parsed. Three rules define the namespace:
+
+- **`upload` never parses.** `wafflebase files upload budget.xlsx` stores the
+  workbook as bytes; it does not become a spreadsheet. The parseable
+  extensions (`.xlsx`, `.docx`, `.pptx`, `.csv`, `.md`) earn a one-line stderr
+  hint naming the namespace that *would* parse them, and upload anyway — a CLI
+  should do what the command says.
+- **…but it does pick the viewer.** The server derives the document type from
+  the stored blob id: `.pdf` → `pdf`, `png|jpg|jpeg|gif|webp` → `image`,
+  everything else → `file`. Choosing a viewer is not parsing, and a PDF pushed
+  from a terminal should open in the PDF viewer exactly like one dropped on the
+  documents list. Deriving it from the *stored* id (whose extension has been
+  through `safeExtension`) rather than the client's filename means the type can
+  never contradict `assertFileIdAllowed`.
+- **No stdin.** Every other `import` accepts `-`; `files upload` does not.
+  Both the document type and the download extension come from the filename, and
+  stdin has none — accepting it would silently produce an untyped, extension-less
+  blob.
+
+Upload is a single request (`POST /api/v1/workspaces/:wid/files`, multipart):
+the backend stores the blob and creates the document together, deleting the
+blob if the document row fails. The browser's queue splits these two steps
+because it must survive a reload and resume without orphaning a second blob; a
+CLI invocation has no resumable state, so the one-call form is both simpler and
+safer. Size caps are checked client-side before the bytes go over the wire
+(50 MB, or 25 MB for image extensions), mirroring `packages/backend/src/file/file.constants.ts`.
+
+`files download` writes to the filename the server advertises in
+`Content-Disposition` unless a path (or `-`) is given. That header comes from
+the derived-not-echoed rule in `packages/backend/src/document/file-response.util.ts`, which the v1 route
+reuses, so a `file` document always arrives as an opaque attachment; the CLI
+reduces the advertised name to a bare filename before it can reach the
+filesystem.
 
 **Global flags**: `--server`, `--api-key`, `--workspace`, `--profile`,
 `--format json|table|csv|yaml` (default: json), `--quiet`, `--verbose`,
@@ -456,6 +514,20 @@ wafflebase docs export abc-123 out.pdf --pages 1-3     # exact page subset
 wafflebase docs export abc-123 out.docx                # export to DOCX
 wafflebase docs import draft.docx                      # new doc from .docx
 wafflebase docs import revision.docx --replace abc-123 --yes
+
+# Files (any file, stored as bytes)
+wafflebase files upload archive.zip                    # → a `file` document
+wafflebase files upload diagram.png --title "Arch v2"  # → an `image` document
+wafflebase files upload report.pdf                     # → a `pdf` document
+wafflebase files list --type file
+wafflebase files download abc-123                      # → ./archive.zip
+wafflebase files download abc-123 out/archive.zip --force
+wafflebase files download abc-123 - | shasum           # bytes to stdout
+
+# Storing a parseable file as bytes is allowed, and says so:
+wafflebase files upload budget.xlsx
+# Note: uploading as raw bytes. Use `wafflebase sheets import` to import it
+# as an editable document instead.
 
 # Schema introspection (canonical plural names — singular aliases also resolve)
 wafflebase schema sheets.cells.get         # show parameters and response shape
@@ -613,7 +685,8 @@ packages/cli/
   tsconfig.json
   vitest.config.ts
   src/
-    bin.ts               Entry point (#!/usr/bin/env node)
+    bin.ts               Entry point (#!/usr/bin/env node); delegates to cli.ts
+    cli.ts               buildProgram() + runCli() (parseAsync + error envelope)
     commands/
       root.ts            Root program, global flags, config loading
       login.ts           login (browser OAuth)
@@ -623,8 +696,9 @@ packages/cli/
       docs.ts            docs list/create/get/rename/delete + content/export/import
       slides.ts          slides list/create/get/rename/delete + content/export/import
       notes.ts           notes list/create/get/rename/delete + content/export/import
+      files.ts           files upload/download/list/get/rename/delete
       sheets.ts          Dispatcher: sheets {tabs,cells,import,export}
-      tabs.ts            sheets tabs list
+      tabs.ts            sheets tabs list / create / rename
       cells.ts           sheets cells get/set/batch/delete
       sheets-import.ts   sheets import CSV/JSON
       sheets-export.ts   sheets export CSV/JSON
@@ -650,8 +724,12 @@ packages/cli/
     notes/               Markdown-note pipeline
       content.ts         runNotesContent orchestrator (json {content} + raw md/text)
       import.ts          runNotesImport orchestrator (POST + PUT, --replace flow)
+    files/               Blob-document pipeline (no content model)
+      upload.ts          runFilesUpload orchestrator (size caps, MIME, parse hint)
+      download.ts        runFilesDownload orchestrator + download-target resolution
     client/
       http-client.ts     REST API v1 wrapper (built-in fetch)
+      content-disposition.ts  Filename parser for binary responses
       dry-run.ts         Dry-run request printer
     config/
       config.ts          Config file + env + flag resolution
@@ -672,6 +750,7 @@ packages/cli/
     docs-manage.md / docs-read-content.md / docs-export-pdf.md
     docs-export-docx.md / docs-import-docx.md
     slides-manage.md / slides-read-content.md / slides-export-pptx.md / slides-import-pptx.md
+    files-upload-download.md
     recipe-csv-pipeline.md / recipe-data-collect.md
     recipe-docx-to-pdf.md / recipe-doc-to-markdown.md
   scripts/
@@ -717,6 +796,29 @@ success and failure uniformly:
   }
 }
 ```
+
+Argument-parsing failures are part of that contract, not an exception to
+it. Commander exits *during parsing*, before any action handler runs, so
+its own errors would otherwise print bare prose and skip the envelope —
+the one failure an agent driver is most likely to hit. `createProgram()`
+sets `exitOverride()` plus a no-op `outputError` output hook so the parse
+error reaches `runCli`'s catch as a `CommanderError`, which envelopes it
+under the stable code `USAGE`:
+
+```console
+$ wafflebase docs content
+{
+  "error": {
+    "code": "USAGE",
+    "message": "missing required argument 'doc-id'"
+  }
+}
+```
+
+`--help`, `--version`, and bare `wafflebase` travel the same throw path
+(`commander.helpDisplayed` / `commander.version` / `commander.help`) but
+have already written their body, so they pass through with their exit code
+and no envelope.
 
 Exit codes: `0` success, `1` user error (bad input, not found),
 `2` system error (network, or an auth *request* the server rejected).
@@ -866,6 +968,8 @@ Schema entries by command (canonical plural names):
 | `docs.export`            | read-only     | file write is local                                    |
 | `docs.import`            | write         | `safety` becomes `destructive` with `--replace`        |
 | `sheets.tabs.list`       | read-only     |                                                        |
+| `sheets.tabs.create`     | write         |                                                        |
+| `sheets.tabs.rename`     | write         |                                                        |
 | `sheets.cells.get`       | read-only     |                                                        |
 | `sheets.cells.set`       | write         |                                                        |
 | `sheets.cells.batch`     | write         |                                                        |
@@ -888,6 +992,12 @@ Schema entries by command (canonical plural names):
 | `notes.content`          | read-only     | `json` → `{content}`; `md`/`text` raw markdown         |
 | `notes.export`           | read-only     | file write is local; Markdown only                     |
 | `notes.import`           | write         | `safety` becomes `destructive` with `--replace`        |
+| `files.upload`           | write         | stores bytes verbatim; never parses                    |
+| `files.download`         | read-only     | file write is local                                    |
+| `files.list`             | read-only     | filtered to `file`/`pdf`/`image`                       |
+| `files.get`              | read-only     | metadata only                                          |
+| `files.rename`           | write         |                                                        |
+| `files.delete`           | destructive   | deletes the stored blob too                            |
 | `login`                  | write         | OAuth login, writes session file                       |
 | `logout`                 | write         | Deletes session file                                   |
 | `status`                 | read-only     | Shows current auth state                               |
@@ -982,6 +1092,10 @@ is the agent interface. This approach has key advantages:
   suppresses the "Exported to X" notice.
 - Errors: a single JSON line on stderr with shape
   `{"error":{"code":"…","message":"…","command":"docs.content"}}`.
+  `--quiet` does not suppress it — a non-zero exit with no bytes on
+  either stream leaves the caller with nothing to act on. Only progress
+  notices are display output; the envelope is the machine-readable
+  failure signal, and stderr already survives stdout redirection.
 
 ### 10. Error Matrix
 

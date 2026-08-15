@@ -14,7 +14,15 @@ import {
   SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
   classifyResult,
   withRetry,
+  isAccountLimit,
+  isCredentialRejected,
+  nextCredential,
+  poolExhaustedError,
+  failoverStep,
+  __setTokenPool,
+  credentialEnv,
 } from "./ask.mjs";
+import { createTokenPool, poolEnvNames } from "./token-pool.mjs";
 import { REVIEW_TOOLS } from "./review-panel.mjs";
 
 // ask.mjs exists to make the read-only tool grant a CHECKED invariant instead of
@@ -163,6 +171,213 @@ test("buildSessionOptions: pins the read-only session shape", () => {
   );
   // The gate still runs here — this is the one place it is reached.
   assert.throws(() => buildSessionOptions({ schema: {}, allowedTools: ["Bash"] }), /is not permitted/);
+});
+
+// --- pooled credentials -------------------------------------------------------
+
+test("buildSessionOptions: no pooled token means today's plain env inheritance", () => {
+  const o = buildSessionOptions({ schema: {}, allowedTools: ["Read"] });
+  assert.ok(!("env" in o), "an unset credential must not appear at all");
+});
+
+test("buildSessionOptions: a pooled token rides in env, with process.env preserved", () => {
+  const o = buildSessionOptions({ schema: {}, allowedTools: ["Read"], authToken: "tok-2" });
+  assert.equal(o.env.CLAUDE_CODE_OAUTH_TOKEN, "tok-2");
+  // The spread is the load-bearing part: `Options.env` REPLACES the subprocess
+  // environment rather than merging it (sdk.d.ts:1408, pinned 0.3.217), so
+  // dropping it strips PATH/HOME and the CLI never starts. Asserting on PATH
+  // turns that into a failing test rather than a session that cannot spawn.
+  assert.equal(o.env.PATH, process.env.PATH);
+});
+
+test("credentialEnv: the child gets ONE credential, never the rest of the pool", () => {
+  // This process needs the whole pool — it fails over inside the round. The
+  // child does not: it holds one credential and runs with cwd set to the
+  // untrusted branch checkout. A plain `{...process.env}` spread would hand it
+  // all nine, which is the blast radius harness-engineering.md records.
+  const saved = {};
+  for (const name of poolEnvNames()) {
+    saved[name] = process.env[name];
+    process.env[name] = `secret-${name}`;
+  }
+  try {
+    const env = credentialEnv("chosen");
+    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, "chosen");
+    for (const name of poolEnvNames().filter((n) => n !== "CLAUDE_CODE_OAUTH_TOKEN")) {
+      assert.ok(!(name in env), `${name} must not reach the child`);
+    }
+    // Every value the pool did not own still has to survive, or the CLI cannot spawn.
+    assert.equal(env.PATH, process.env.PATH);
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});
+
+test("credentialEnv: the failover path builds the same shape as the first attempt", () => {
+  // The two used to be built inline in separate places; they must not drift,
+  // because a failover that leaked the pool would undo the containment above.
+  const first = buildSessionOptions({ schema: {}, allowedTools: ["Read"], authToken: "a" });
+  assert.deepEqual(Object.keys(first.env).sort(), Object.keys(credentialEnv("a")).sort());
+});
+
+test("isAccountLimit: only a closed usage window, never another non-retryable failure", () => {
+  assert.ok(isAccountLimit({ kind: "api-error", detail: "You've hit your session limit · resets 3:30pm (UTC)" }));
+  assert.ok(isAccountLimit({ kind: "api-error", detail: "usage limit reached" }));
+  // Every billing period, not just the two this rule started with: a `weekly
+  // limit` that reads as anything else is a window the pool cannot route around.
+  assert.ok(isAccountLimit({ kind: "api-error", detail: "You've hit your weekly limit · resets 11pm (UTC)" }));
+  // A refused credential is a failover too, but NOT a limit — the remedy is to
+  // rotate the secret, not to wait for a reset, and `isCredentialRejected` owns it.
+  assert.equal(isAccountLimit({ kind: "api-error", status: 401, detail: "invalid x-api-key" }), false);
+  // Our OWN ceilings, which classifyResult also marks non-retryable.
+  assert.equal(isAccountLimit({ kind: "limit", detail: "error_max_turns after 9 turns" }), false);
+  assert.equal(isAccountLimit({ kind: "no-output", detail: "subtype=error" }), false);
+  for (const bad of [null, undefined, {}, { kind: "api-error" }]) {
+    assert.equal(isAccountLimit(bad), false, JSON.stringify(bad));
+  }
+});
+
+/** A pool of exactly `tokens`, independent of the ambient environment. */
+function fakePool(tokens) {
+  const env = { CLAUDE_CODE_OAUTH_TOKEN: "" };
+  tokens.forEach((t, i) => { env[`CLAUDE_CODE_OAUTH_TOKEN_${i + 1}`] = t; });
+  return createTokenPool({ env, runId: "0", runAttempt: "1" });
+}
+
+test("nextCredential: a closed window moves to the next token", () => {
+  const pool = fakePool(["a", "b"]);
+  const err = { kind: "api-error", detail: "session limit" };
+  assert.equal(nextCredential({ pool, err, authToken: "a" }), "b");
+});
+
+test("nextCredential: a failure no other credential can fix gives up immediately", () => {
+  const pool = fakePool(["a", "b"]);
+  for (const err of [
+    { kind: "limit", detail: "error_max_turns after 9 turns" },
+    { kind: "api-error", status: 529, detail: "overloaded" },
+    { kind: "api-error", status: 400, detail: "malformed schema" },
+    { kind: "no-output", detail: "subtype=error" },
+  ]) {
+    assert.equal(nextCredential({ pool, err, authToken: "a" }), null, err.detail);
+  }
+  // …and none of them consumed a credential.
+  assert.equal(pool.retiredCount(), 0);
+});
+
+test("isCredentialRejected: one refused secret, not a verdict on the pool", () => {
+  assert.ok(isCredentialRejected({ kind: "api-error", code: "AUTH_REJECTED", detail: "<REDACTED>" }));
+  // Status fallback, for callers that never went through classifyResult.
+  assert.ok(isCredentialRejected({ kind: "api-error", status: 401, detail: "invalid x-api-key" }));
+  assert.ok(isCredentialRejected({ kind: "api-error", status: 403, detail: "forbidden" }));
+  // `code` wins over prose, exactly as in isAccountLimit: a redacted detail must
+  // not be able to talk the classifier out of the code it was given.
+  assert.equal(isCredentialRejected({ kind: "api-error", code: "USAGE_LIMIT", detail: "401" }), false);
+  assert.equal(isCredentialRejected({ kind: "api-error", status: 429, detail: "rate limited" }), false);
+  assert.equal(isCredentialRejected({ kind: "limit", status: 401, detail: "error_max_turns" }), false);
+  for (const bad of [null, undefined, {}, { kind: "api-error" }]) {
+    assert.equal(isCredentialRejected(bad), false, JSON.stringify(bad));
+  }
+});
+
+test("nextCredential: a refused credential fails over to a healthy one", () => {
+  // The regression this exists for: one of four pool secrets expired, roughly a
+  // quarter of runs sharded onto it, and every one of those died on its first
+  // call while three valid credentials sat unused in the same process.
+  const pool = fakePool(["dead", "good"]);
+  const err = { kind: "api-error", code: "AUTH_REJECTED", status: 401, detail: "<REDACTED>" };
+  assert.equal(nextCredential({ pool, err, authToken: "dead" }), "good");
+  assert.equal(pool.retiredCount(), 1);
+});
+
+test("poolExhaustedError: one report for a drained pool, whatever drained it", () => {
+  // The two callers must not disagree. Before this was one builder, the entry
+  // guard said "every credential retired" while the failover loop rethrew the
+  // last slot's own error, so the same outcome read as "credentials rejected"
+  // or "usage limit" depending on call ordering — one account's problem
+  // published as the pool's verdict.
+  const err = poolExhaustedError({ label: "reviewer", pool: fakePool(["a", "b"]) });
+  assert.match(err.message, /^reviewer: every credential in the pool \(2\) was retired/);
+  assert.equal(err.kind, "pool-exhausted");
+  assert.equal(err.retryable, false, "withRetry must not back off around a condition that cannot clear in-run");
+  // Nothing upstream may ride out on it: this message IS published verbatim by
+  // review-panel.mjs's non-infra path.
+  assert.ok(!/401|OAuth|limit ·/.test(err.message), err.message);
+});
+
+test("askStructured: a pool drained by a sibling fails before any session opens", async () => {
+  // The entry-guard half of the same condition, and the only half reachable
+  // without opening a session — this suite deliberately never lets
+  // askStructured past its validation gate (see the note above buildSessionOptions).
+  const pool = fakePool(["a"]);
+  pool.advance("session limit", "a");
+  assert.ok(pool.isExhausted());
+  __setTokenPool(pool);
+  try {
+    await assert.rejects(
+      () => askStructured({ prompt: "x", schema: {}, allowedTools: ["Read"] }),
+      /every credential in the pool \(1\) was retired/,
+    );
+  } finally {
+    __setTokenPool(null);
+  }
+});
+
+test("failoverStep: the last retired slot reports the POOL, not that slot", () => {
+  const pool = fakePool(["a", "b"]);
+  const rejected = { kind: "api-error", code: "AUTH_REJECTED", status: 401, detail: "<REDACTED>" };
+
+  // Still a live credential left → retry on it.
+  assert.deepEqual(failoverStep({ pool, err: rejected, authToken: "a", label: "reviewer" }), { next: "b" });
+
+  // That retired the last one → the pool's failure, not the slot's. Before this
+  // split, the loop rethrew `rejected` here and an operator's first line read
+  // "credentials rejected" for a pool that was simply used up.
+  const drained = failoverStep({ pool, err: rejected, authToken: "b", label: "reviewer" });
+  assert.equal(drained.next, undefined);
+  assert.equal(drained.error.kind, "pool-exhausted");
+  assert.match(drained.error.message, /every credential in the pool \(2\) was retired/);
+
+  // A failure no credential can fix still belongs to the caller, untouched —
+  // wrapping it would hide a turn ceiling behind a credential story.
+  const ceiling = { kind: "limit", detail: "error_max_turns after 9 turns" };
+  const fresh = fakePool(["x", "y"]);
+  assert.equal(failoverStep({ pool: fresh, err: ceiling, authToken: "x", label: "reviewer" }).error, ceiling);
+  assert.equal(fresh.retiredCount(), 0);
+});
+
+test("nextCredential: an all-bad pool drains and stops, it does not loop", () => {
+  // The cost the old rule was written to avoid, now bounded and paid on purpose:
+  // walking a wholly-bad pool costs one refusal per slot and ends with the pool
+  // reporting that every credential was retired.
+  const pool = fakePool(["a", "b"]);
+  const err = { kind: "api-error", code: "AUTH_REJECTED", status: 401, detail: "<REDACTED>" };
+  assert.equal(nextCredential({ pool, err, authToken: "a" }), "b");
+  assert.equal(nextCredential({ pool, err, authToken: "b" }), null);
+  assert.equal(pool.retiredCount(), 2);
+  assert.ok(pool.isExhausted());
+});
+
+test("nextCredential: a dry pool gives up rather than looping", () => {
+  const pool = fakePool(["solo"]);
+  const err = { kind: "api-error", detail: "session limit" };
+  assert.equal(nextCredential({ pool, err, authToken: "solo" }), null);
+});
+
+test("nextCredential: concurrent reports of one dead token retire it once", () => {
+  // The panel runs lenses and samples at once, so several sessions hit the same
+  // closed window within milliseconds. Without the authToken check the second
+  // report would retire the healthy token the first one just moved to, and a
+  // burst of concurrency would drain the pool in a single round.
+  const pool = fakePool(["a", "b", "c"]);
+  const err = { kind: "api-error", detail: "session limit" };
+  const first = nextCredential({ pool, err, authToken: "a" });
+  const second = nextCredential({ pool, err, authToken: "a" });
+  assert.equal(first, "b");
+  assert.equal(second, "b", "the late report must not burn a healthy token");
+  assert.equal(pool.retiredCount(), 1);
 });
 
 test("EFFORT_LEVELS pins the SDK's levels as a literal", () => {
@@ -483,4 +698,64 @@ test("no module under scripts/agent statically imports a third-party package", (
     "static third-party import(s) found; use `await import(...)` inside the function instead:\n  " +
       offenders.join("\n  "),
   );
+});
+
+// --- credential safety at the source (docs/tasks/active/20260815-…) -----------
+
+test("classifyResult: `detail` is scrubbed where it is born, not at each renderer", () => {
+  // `detail` reaches six published surfaces. A per-surface redaction list is one
+  // nobody can keep complete — the incident happened because one renderer was
+  // missing from it — so the scrub happens once, here.
+  const token = "sk-ant-oat01-AbCdEf1234567890XyZw QqRrSs9876543210AbCd";
+  const c = classifyResult({
+    subtype: "success",
+    is_error: true,
+    result: `Header 'Authorization' has invalid value: ${token}`,
+  });
+  for (const fragment of token.split(/\s+/)) {
+    assert.ok(!c.detail.includes(fragment), `raw detail survived: ${c.detail}`);
+  }
+  assert.equal(c.code, "AUTH_MALFORMED_CREDENTIAL");
+  assert.ok(!c.reason.includes("Authorization"), "reason quoted upstream prose");
+});
+
+test("classifyResult: scrubbing cannot change a classification", () => {
+  // Retryability is decided from the RAW text, before the scrub. If it were decided
+  // afterwards, a session limit whose prose got masked would come back RETRYABLE and
+  // burn the credential pool retrying a window that cannot reopen inside this run.
+  const limit = classifyResult({
+    subtype: "success",
+    is_error: true,
+    api_error_status: 429,
+    result: "You've hit your session limit · resets 3:30pm (UTC)",
+  });
+  assert.equal(limit.retryable, false, "a session limit must stay non-retryable");
+  assert.equal(limit.code, "USAGE_LIMIT");
+  assert.ok(isAccountLimit(limit), "failover must still recognise a closed window");
+
+  // A plain 429 is still retryable — the distinction the pool depends on.
+  const rate = classifyResult({ subtype: "success", is_error: true, api_error_status: 429, result: "rate limit" });
+  assert.equal(rate.retryable, true);
+  assert.equal(rate.code, "RATE_LIMITED");
+  assert.equal(isAccountLimit(rate), false);
+});
+
+test("classifyResult: a standardized code on every failure branch", () => {
+  assert.equal(classifyResult({ subtype: "error_max_turns", is_error: true, num_turns: 9 }).code, "RUN_LIMIT_TURNS");
+  assert.equal(classifyResult({ subtype: "error_max_budget_usd", is_error: true }).code, "RUN_LIMIT_BUDGET");
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 401 }).code, "AUTH_REJECTED");
+  assert.equal(classifyResult({ subtype: "success", is_error: true, api_error_status: 500 }).code, "UPSTREAM_ERROR");
+  assert.equal(classifyResult({ subtype: "error" }).code, "NO_OUTPUT");
+  // A successful verdict carries no failure vocabulary at all.
+  assert.equal(classifyResult({ subtype: "success", structured_output: { findings: [] } }).code, undefined);
+});
+
+test("isAccountLimit: prefers the code, falls back to prose for pre-vocabulary callers", () => {
+  // `code` is decided before redaction, so it is authoritative.
+  assert.ok(isAccountLimit({ kind: "api-error", code: "USAGE_LIMIT", detail: "<REDACTED>" }));
+  assert.equal(isAccountLimit({ kind: "api-error", code: "AUTH_REJECTED", detail: "session limit" }), false,
+    "a code must win over prose that merely mentions a limit");
+  // Bare `{ kind, detail }` — several call sites and every stored record predating
+  // the vocabulary look like this.
+  assert.ok(isAccountLimit({ kind: "api-error", detail: "You've hit your usage limit" }));
 });

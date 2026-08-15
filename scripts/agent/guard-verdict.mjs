@@ -14,6 +14,7 @@
 // the renderer must tolerate a verdict with nothing but a decision and a reason.
 
 import { appendFileSync } from "node:fs";
+import { redactSecrets } from "./redact.mjs";
 
 /** Human labels for the guard's page reasons, keyed by the caller's `reason`. */
 const PAGE_REASONS = {
@@ -49,7 +50,7 @@ function buildLine(v) {
   const max = n(v.max);
   const parts = [];
   if (used !== null && max !== null) {
-    // `used` rounds have FAILED so far; the round now dispatching is used+1.
+    // `used` dispatches are already on the ledger; this one is used+1.
     parts.push(`dispatching fix round ${used + 1} of ${max}`);
   } else {
     parts.push("dispatching the fix agent");
@@ -81,15 +82,19 @@ export function renderGuardSummary(v = {}) {
       `- Why: ${why}`,
     ];
     if (n(v.failedRounds) !== null && n(v.max) !== null) {
-      lines.push(`- Failed fix rounds so far: ${n(v.failedRounds)} of ${n(v.max)}`);
+      lines.push(`- Fix rounds dispatched so far: ${n(v.failedRounds)} of ${n(v.max)}`);
     }
     // FENCED, not blockquoted: for the stall/standstill pages `detail` embeds
     // lens finding summaries — LLM output derived from the attacker-authorable
     // diff — and a blockquote would let crafted markdown/HTML render as
     // structure on the run page. A text fence displays it inert; any fence
     // run inside the text is defanged so it cannot break out.
+    //
+    // `redactSecrets` for the same reason the fence is here — this text is not
+    // ours. The fence stops it rendering as structure; redaction stops it
+    // carrying a credential.
     if (v.detail) {
-      lines.push("", "```text", String(v.detail).slice(0, 600).replace(/`{3,}/g, "···"), "```");
+      lines.push("", "```text", redactSecrets(String(v.detail)).slice(0, 600).replace(/`{3,}/g, "···"), "```");
     }
     lines.push("", "The page comment on the PR carries the full hand-off text; `set-state.mjs` moves the PR to `agent:blocked`.", "");
     return lines.join("\n");
@@ -98,14 +103,16 @@ export function renderGuardSummary(v = {}) {
   const lines = ["### Review-round guard — PROCEED", ""];
   if (n(v.failedRounds) !== null && n(v.max) !== null) {
     lines.push(
-      `- Failed fix rounds: ${n(v.failedRounds)} of ${n(v.max)} (counted from single-parent commits carrying failing lens checks${v.rerunAt ? `, floored at the last \`@claude rerun\`` : ""})`,
+      `- Fix rounds dispatched: ${n(v.failedRounds)} of ${n(v.max)} (counted from this guard's own \`agent-fix-dispatch\` records, or from single-parent commits carrying failing lens checks on a PR that predates the ledger${v.rerunAt ? `, floored at the last \`@claude rerun\`` : ""})`,
     );
   }
   if (v.stall && v.stall.reason) {
     lines.push(`- Stall detector: \`${v.stall.reason}\` (${n(v.stall.stalls) ?? 0} stalling pair(s) over ${n(v.stall.rounds) ?? 0} fix-attempt round(s))`);
   }
   lines.push(`- Standstill: ${n(v.standstillCount) ?? 0} finding(s) at the ${n(v.rebuttalLimit) ?? 2}-uphold rebuttal limit`);
-  lines.push(`- Infra: ${v.infra ? String(v.infra).slice(0, 200) : "none"}`);
+  // The PROCEED path publishes the infra text too — a second surface, and the one
+  // easiest to forget because the page path above looks like the only one.
+  lines.push(`- Infra: ${v.infra ? redactSecrets(String(v.infra)).slice(0, 200) : "none"}`);
   if (v.heldByRerun) {
     lines.push("- `@claude rerun` hand-back: stall/standstill pages held for this one attempt");
   }

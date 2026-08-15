@@ -56,6 +56,50 @@ test("localizationFromDiff classifies scope from the diff", () => {
   );
 });
 
+test("localizationFromDiff counts files a `+++ b/` line never names", () => {
+  // A deletion is `+++ /dev/null` and a pure rename has no `+++` line at all, so
+  // both are only visible on the `diff --git` header. Before PR 687 a
+  // deletion-only diff answered `unknown` however many modules it spanned.
+  const deleted = (p) => `diff --git a/${p} b/${p}\ndeleted file mode 100644\n--- a/${p}\n+++ /dev/null\n@@ -1 +0,0 @@\n-a`;
+  assert.equal(localizationFromDiff(deleted("pkg/a/x.ts")), "single_hunk");
+  assert.equal(localizationFromDiff([deleted("pkg/a/x.ts"), deleted("pkg/a/y.ts")].join("\n")), "multi_file");
+  assert.equal(localizationFromDiff([deleted("pkg/a/x.ts"), deleted("pkg/b/y.ts")].join("\n")), "cross_module");
+
+  // The dangerous one, and the reason this is not merely an `unknown` bug: the
+  // deleted file's HUNK was counted while the file was not, so one modified file
+  // plus one deletion in another module read `single_file` — plausible and wrong.
+  const mixed = [
+    "diff --git a/pkg/a/x.ts b/pkg/a/x.ts",
+    "--- a/pkg/a/x.ts",
+    "+++ b/pkg/a/x.ts",
+    "@@ -1 +1 @@",
+    "-a",
+    "+b",
+    deleted("pkg/b/y.ts"),
+  ].join("\n");
+  assert.equal(localizationFromDiff(mixed), "cross_module");
+
+  // A rename names its `b/` path on both the header and the `+++` line; `files` is
+  // a Set, so it is one file either way, and a pure rename is no longer `unknown`.
+  const renamed = [
+    "diff --git a/pkg/a/old.ts b/pkg/a/new.ts",
+    "similarity index 90%",
+    "rename from pkg/a/old.ts",
+    "rename to pkg/a/new.ts",
+    "--- a/pkg/a/old.ts",
+    "+++ b/pkg/a/new.ts",
+    "@@ -1 +1 @@",
+    "-a",
+    "+b",
+  ].join("\n");
+  assert.equal(localizationFromDiff(renamed), "single_hunk");
+  assert.equal(localizationFromDiff(renamed.split("\n").slice(0, 4).join("\n")), "single_hunk");
+
+  // Still `unknown` when git C-quoted every path: decoding that is
+  // `changedFilesFromDiff`'s job, and a second path parser here would fork it.
+  assert.equal(localizationFromDiff('diff --git "a/na\\303\\257ve.ts" "b/na\\303\\257ve.ts"\n+++ "b/na\\303\\257ve.ts"'), "unknown");
+});
+
 // A truncated or declined response is HTTP 200 with a partial/empty content
 // array. Parsing it first turns every cause into "Unexpected end of JSON
 // input"; these assert the caller learns WHY instead. Both causes got more

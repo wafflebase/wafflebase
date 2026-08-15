@@ -1,5 +1,6 @@
 import type { Frame } from '../../model/element';
 import type { Guide } from '../../model/presentation';
+import { snapToGrid } from './grid-snap';
 
 const SNAP_THRESHOLD = 8;
 
@@ -46,6 +47,16 @@ const PRIORITY: Record<SnapGuideKind, number> = {
  * Also returns a `guides` array describing which alignment line(s)
  * won the snap so an overlay layer can render visible feedback during
  * the drag. Empty when no axis snapped.
+ *
+ * `grid` (world-space step, from a host that has one — see
+ * `SlidesEditorOptions.getSnapGrid`) is the FALLBACK on each axis: it
+ * applies only where nothing above won inside the threshold, so an
+ * element edge or a guide always beats the lattice. Aligning to another
+ * object is a stronger intent than aligning to the background, and a
+ * grid that outranked edges would make two shapes impossible to butt
+ * together unless their sizes happened to be multiples of the step.
+ * Grid snapping emits no `SnapGuide` — the painted grid is its own
+ * feedback, and a line drawn on every frame of every drag is noise.
  */
 export function snapDelta(
   bbox: { x: number; y: number; w: number; h: number },
@@ -54,6 +65,7 @@ export function snapDelta(
   others: readonly Frame[],
   slide: SlideDimensions,
   guides: readonly Guide[] = [],
+  grid: number | null = null,
 ): { dx: number; dy: number; guides: SnapGuide[] } {
   const dragged = {
     leftPx: bbox.x + dx,
@@ -118,10 +130,31 @@ export function snapDelta(
   if (yGuide) snapGuides.push(yGuide);
 
   return {
-    dx: dx + xResult.adjust,
-    dy: dy + yResult.adjust,
+    dx: dx + gridAdjust(xResult, dragged.leftPx, grid),
+    dy: dy + gridAdjust(yResult, dragged.topPx, grid),
     guides: snapGuides,
   };
+}
+
+/**
+ * The winning adjustment for one axis: whatever `bestSnapAdjust` found,
+ * or — only if it found nothing — the correction that puts `edge` on the
+ * grid.
+ *
+ * The quantized edge is the bbox's LEFT (x) / TOP (y). Every edge of a
+ * group cannot land on the lattice at once unless its size is already a
+ * multiple of the step, so one has to be picked, and the top-left is
+ * both the one the user reads as the object's position and the one
+ * Miro/Figma pin.
+ */
+function gridAdjust(
+  result: { adjust: number; winner: Candidate | null },
+  edge: number,
+  grid: number | null,
+): number {
+  if (result.winner !== null) return result.adjust;
+  if (grid === null || !Number.isFinite(grid) || grid <= 0) return 0;
+  return snapToGrid(edge, grid) - edge;
 }
 
 function toGuide(

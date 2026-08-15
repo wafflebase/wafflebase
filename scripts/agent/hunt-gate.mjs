@@ -225,8 +225,55 @@ export const UI_VERIFIER_SCHEMA = {
     },
     groundedIn: { type: "array", items: { type: "string" } },
     duplicateOf: { type: ["string", "null"] },
+    // THE CLAIM, RESTATED WITHIN THE EVIDENCE.
+    //
+    // The explorer's `title` was the one piece of model prose reaching the report
+    // unexamined. The design already routes the code LOCATION through the verifier,
+    // because the explorer's version could not be trusted; the CLAIM never got the
+    // same treatment, and every real finding so far has been filed-blocking wrong in
+    // the same way — observing a few instances and generalising to "never"/"any":
+    //
+    //   "Bold only removes bold, it can never apply it"      — applies fine normally
+    //   "after a scroll, clicks no longer select any cell"   — clicks work fine
+    //   "never removes italic from a right-to-left selection" — removes when the
+    //                                                           preceding run matches
+    //
+    // Each was a real observation wrapped in a false universal. So the verifier
+    // restates it, and the report uses THAT.
+    scopedTitle: { type: "string" },
+    // Whether the explorer's own title asserted more than its evidence supports.
+    // Deliberately NOT a gate input: overclaiming is a description defect, not a
+    // validity one, and letting it block would discard real findings over wording.
+    // It is counted instead, so a systemic drift toward overclaiming is visible.
+    overclaimed: { type: "boolean" },
+    // WHICH CLAIM THE REFUTATION CONTRADICTS. Empty when confirming.
+    //
+    // The gate demanded grounds for "yes" and accepted "no" unargued: a confirmation
+    // must be unanimous, high-confidence, carry an allowed `confirmationGround` and
+    // cite inside scope, while a refutation only had to exist. Measured cost of that
+    // asymmetry, on issue #783: a verifier refuted a real defect citing
+    // `named-styles.ts:97` ("list items map to `normal`") — a true line about how a
+    // block is STYLED WHILE IT IS a list item, which says nothing about what the block
+    // becomes when the list is toggled off. Two of its four citations were in fact
+    // evidence FOR the defect.
+    //
+    // Nothing mechanical can decide whether a real line supports a conclusion. What
+    // this field buys is that the verifier has to say WHICH claim it is contradicting,
+    // so the mismatch between "the claim" and "the evidence" is on the page instead of
+    // inside one model's reasoning.
+    refutes: { type: "string" },
   },
-  required: ["verdict", "confidence", "reason", "confirmationGround", "groundedIn", "duplicateOf"],
+  required: [
+    "verdict",
+    "confidence",
+    "reason",
+    "confirmationGround",
+    "groundedIn",
+    "duplicateOf",
+    "scopedTitle",
+    "overclaimed",
+    "refutes",
+  ],
 };
 
 /** Derived, never hand-copied — same drift guard as `HUNT_GROUNDS`. */
@@ -564,6 +611,86 @@ export function isFilingVerdict(
 }
 
 /**
+ * How does this refutation fall short of what a CONFIRMATION has to prove?
+ *
+ * Returns a list of shortfalls, empty when the refutation is held to the same
+ * standard — and empty for anything that is not a refutation, so a caller can run it
+ * over every verdict without branching.
+ *
+ * IT DOES NOT CHANGE THE OUTCOME, and that is deliberate. An unsound refutation still
+ * kills the candidate: hunting fails quiet, and a gate that promoted a finding because
+ * it disliked the argument against it would manufacture reports out of its own
+ * dissatisfaction — the exact polarity this pipeline exists to avoid. What the
+ * shortfalls do is make the drop AUDITABLE. On #783 the drop table said only
+ * `verifier 1 refuted the candidate`, and the reasoning that killed a real defect was
+ * reachable solely by reading raw execution JSON afterwards.
+ *
+ * The checks mirror the confirmation path exactly — same `CITATION` shape, same
+ * `codeScope` — because "the same standard" has to mean the same code, not a second
+ * implementation that drifts.
+ */
+export function refutationDefects(verdict, charter, options = {}) {
+  const { citationsOf = (v) => v?.groundedIn } = options;
+  if (!verdict || typeof verdict !== "object") return [];
+  if (verdict.verdict !== "refuted") return [];
+
+  const out = [];
+  // The asymmetry #785 left in place: a refutation at LOW confidence still outvotes a
+  // colleague who confirmed at HIGH. The confirmation path has required `high` all
+  // along, so "held to the same standard" has to mean this too — and an unsure verifier
+  // now has somewhere else to go, since the prompt routes uncertainty to
+  // `confirmed`+low rather than to a refutation.
+  if (verdict.confidence !== "high") {
+    out.push("refuted at low confidence");
+  }
+  if (typeof verdict.refutes !== "string" || verdict.refutes.trim() === "") {
+    out.push("names no contradicted claim");
+  }
+
+  let sourced;
+  try {
+    sourced = citationsOf(verdict);
+  } catch {
+    sourced = null;
+  }
+  const all = Array.isArray(sourced) ? sourced : [];
+  const cites = all.filter((s) => typeof s === "string" && CITATION.test(s));
+  // `charter.minCitations`, not a hardcoded 1 — the confirmation path reads it, so a
+  // charter that demands two citations to confirm must demand two to refute.
+  const minCitations = charter && Number.isInteger(charter.minCitations) ? charter.minCitations : 1;
+  if (cites.length === 0) {
+    out.push("cites nothing that locates code");
+  } else if (cites.length < minCitations) {
+    out.push(`cites ${cites.length} of the ${minCitations} citations this charter requires`);
+  } else if (charter && typeof charter === "object" && !cites.some((c) => citationInScope(c, charter.codeScope))) {
+    // Same rule the confirmation path applies: SOME citation must land in scope. A
+    // refutation resting entirely on files this charter does not govern is the shape
+    // of "I found an unrelated reason to say no".
+    out.push(`all ${cites.length} citation(s) outside codeScope`);
+  }
+  return out;
+}
+
+/** One line describing a refutation, for the drop table. Never used to decide. */
+function describeRefutation(index, verdict, charter, options) {
+  const parts = [`verifier ${index} refuted the candidate`];
+  const reason = typeof verdict?.reason === "string" ? verdict.reason.trim() : "";
+  if (reason !== "") parts.push(`: ${JSON.stringify(truncateReason(reason))}`);
+  const refutes = typeof verdict?.refutes === "string" ? verdict.refutes.trim() : "";
+  if (refutes !== "") parts.push(` — contradicting ${JSON.stringify(truncateReason(refutes))}`);
+  const cites = Array.isArray(verdict?.groundedIn) ? verdict.groundedIn.filter((s) => typeof s === "string") : [];
+  if (cites.length > 0) parts.push(` — grounded in ${cites.join(", ")}`);
+  const defects = refutationDefects(verdict, charter, options);
+  if (defects.length > 0) parts.push(` — NOT HELD TO THE CONFIRMATION STANDARD: ${defects.join("; ")}`);
+  return parts.join("");
+}
+
+/** Keep one verifier's prose from swallowing a drop table row. */
+function truncateReason(s) {
+  return s.length <= 240 ? s : `${s.slice(0, 237)}...`;
+}
+
+/**
  * Why was this candidate not reported? For the run log only — NEVER consulted to
  * decide anything.
  *
@@ -618,7 +745,13 @@ export function dropReason(candidate, verdicts, charter, options = {}) {
   const unusableAt = verdicts.findIndex((v) => !v || typeof v !== "object");
   if (unusableAt !== -1) return `verifier ${unusableAt} produced no verdict (errored)`;
   const refutedAt = verdicts.findIndex((v) => v.verdict !== "confirmed");
-  if (refutedAt !== -1) return `verifier ${refutedAt} refuted the candidate`;
+  if (refutedAt !== -1) {
+    // The refuter's own words and citations travel with the drop. `citationsOf` here
+    // reads ONE verdict's `groundedIn`, which is not the same shape as the caller's
+    // `citationsOf(claimed, verdicts)` used above for the confirmation path — hence
+    // the default rather than threading that one through.
+    return describeRefutation(refutedAt, verdicts[refutedAt], charter, {});
+  }
   const lowAt = verdicts.findIndex((v) => v.confidence !== "high");
   if (lowAt !== -1) return `verifier ${lowAt} was not confident`;
   const ungroundedAt = verdicts.findIndex(

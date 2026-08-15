@@ -217,11 +217,20 @@ describe('status / ctx list command wiring', () => {
     expect(lines[2]).toContain('true');
   });
 
-  it('suppresses `status` output under --quiet', () => {
+  // `--quiet` gates progress notices, not the result body (§9): the body
+  // is what `wafflebase status --quiet > state.json` is redirecting, so
+  // suppressing it wrote an empty file.
+  it('still emits the `status` body under --quiet', () => {
     withSession(makeSession());
     run(['status', '--quiet']);
-    expect(stdout).not.toHaveBeenCalled();
+    expect(JSON.parse(lastStdout()).loggedIn).toBe(true);
     expect(process.exitCode).toBe(0);
+  });
+
+  it('still emits the `ctx list` error envelope under --quiet', () => {
+    run(['ctx', 'list', '--quiet']);
+    expect(JSON.parse(lastStderr()).error.code).toBe('NOT_LOGGED_IN');
+    expect(process.exitCode).toBe(1);
   });
 
   // `schema` is the one other `output()` caller that renders a single

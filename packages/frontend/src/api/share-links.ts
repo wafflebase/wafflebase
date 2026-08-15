@@ -15,7 +15,15 @@ export type ResolvedShareLink = {
   documentId: string;
   role: string;
   title: string;
-  type: "sheet" | "doc" | "slides" | "pdf" | "note" | "board";
+  type:
+    | "sheet"
+    | "doc"
+    | "slides"
+    | "pdf"
+    | "note"
+    | "board"
+    | "image"
+    | "file";
 };
 
 /**

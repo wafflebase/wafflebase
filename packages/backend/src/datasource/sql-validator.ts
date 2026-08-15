@@ -31,7 +31,10 @@ export function validateSelectQuery(sql: string): {
     .trim();
 
   if (!withoutComments) {
-    return { valid: false, error: 'Query cannot be empty after removing comments' };
+    return {
+      valid: false,
+      error: 'Query cannot be empty after removing comments',
+    };
   }
 
   // Check the first meaningful token is SELECT or WITH (for CTEs)
@@ -58,7 +61,9 @@ export function validateSelectQuery(sql: string): {
 
   // Check for multiple statements (semicolons followed by non-whitespace)
   const withoutStrings = withoutComments.replace(/'[^']*'/g, '');
-  const statements = withoutStrings.split(';').filter((s) => s.trim().length > 0);
+  const statements = withoutStrings
+    .split(';')
+    .filter((s) => s.trim().length > 0);
   if (statements.length > 1) {
     return {
       valid: false,
@@ -67,4 +72,13 @@ export function validateSelectQuery(sql: string): {
   }
 
   return { valid: true };
+}
+
+/**
+ * Wraps a validated query in a row-limited subquery. The newline before the
+ * closing paren matters: without it, a query ending in a `--` line comment
+ * swallows `) AS _q LIMIT ...` into the comment and breaks the wrapper.
+ */
+export function wrapWithRowLimit(query: string, limit: number): string {
+  return `SELECT * FROM (${query}\n) AS _q LIMIT ${limit}`;
 }

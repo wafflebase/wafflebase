@@ -1,4 +1,5 @@
 import type { Document, DocumentType } from "@/types/documents";
+import type { TestConnectionResult } from "@/types/datasource";
 import type { MetricSeriesPoint } from "./analytics";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
@@ -238,6 +239,9 @@ export interface WorkspaceAnalytics {
     title: string;
     views: number;
     uniqueVisitors: number;
+    /** Whether the caller may open this document's (manager-gated) detail
+     * dashboard. False rows must not be linked — they would 403. */
+    canManage: boolean;
   }[];
 }
 
@@ -279,6 +283,8 @@ export async function createWorkspaceDocument(
     title: string;
     type?: DocumentType;
     fileId?: string;
+    fileSize?: number;
+    mimeType?: string;
     folderId?: string | null;
   },
 ) {
@@ -313,5 +319,28 @@ export async function createWorkspaceDataSource(
     body: JSON.stringify(data),
   });
   await assertOk(res, "Failed to create datasource");
+  return res.json();
+}
+
+/**
+ * Tests workspace data source settings without saving them.
+ */
+export async function testWorkspaceDataSourceConfig(
+  workspaceId: string,
+  data: {
+    host: string;
+    port: number;
+    database: string;
+    username: string;
+    password: string;
+    sslEnabled: boolean;
+  },
+): Promise<TestConnectionResult> {
+  const res = await fetchWithAuth(`${BASE}/${workspaceId}/datasources/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  await assertOk(res, "Failed to test connection");
   return res.json();
 }

@@ -28,7 +28,7 @@ Each subissue is one PR. Every task lists **what / files / reuse / done**.
 the import entry point that calls `pickAndImportXlsx`, `packages/sheets` for the
 header/coercion helper.
 
-- [ ] **Generalize the document builder (prerequisite refactor).**
+- [x] **Generalize the document builder (prerequisite refactor).**
   Scope: `createSpreadsheetDocumentFromImportedXlsxSheets` in `xlsx-actions.ts`
   is typed for `ImportedXlsxSheet[]` (XLSX-specific, e.g. `cellCount`). Extract a
   generic `createSpreadsheetDocumentFromImportedSheets` taking a flat sheet shape
@@ -82,17 +82,17 @@ header/coercion helper.
 **Primary files:** `packages/sheets` (mapping + `toCell` reuse),
 `packages/backend/src/file-import/` (DuckDB large path).
 
-- [ ] **Array-of-records → grid (client `JSON.parse`).**
+- [x] **Array-of-records → grid (client `JSON.parse`).**
   Scope: keys → columns, objects → rows for small files.
   Done: flat JSON imports as a clean table.
-- [ ] **Nested values → JSON-string cells.**
+- [x] **Nested values → JSON-string cells.**
   Scope: objects/arrays in a cell rendered via `toCell` (`JSON.stringify`).
   Reuse: `packages/sheets/src/store/readonly.ts` `toCell`.
   Done: nested fields show as JSON strings (matches the design's worked example).
 - [ ] **Large/remote: backend DuckDB `read_json_auto`.**
   Scope: same upload→preview→materialize path as FI-2.
   Done: a large JSON file imports via backend.
-- [ ] **Document tabular-vs-nested scope.**
+- [x] **Document tabular-vs-nested scope.**
   Scope: note that Power-Query-style nested **expand** is deferred.
   Done: scope captured in the design doc.
 

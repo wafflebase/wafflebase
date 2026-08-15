@@ -45,3 +45,41 @@ JSON-serializing non-scalars; the new path had to do the same.
 `{ user: { username, email } }` renders as `[object Object]` in a table
 and a JSON blob in CSV. Since the non-JSON formats are now the *human*
 path (JSON being the default), `status` emits a flat record.
+
+## A conflicting PR stops receiving `pull_request` CI, which stalls the loop
+
+Round 4's fix commit (`033e14fc2`) was pushed on 2026-08-10 and then
+nothing happened for five days: no CI run, no panel round, and
+`agent:fixing` latched on the PR. The cause was not the fixer. Between
+round 4's commit (2026-08-06) and that push, `main` merged #694
+(dropped `quiet` from `output()`/`outputError()`) and #729 (added
+`--format yaml`), which made the branch conflict. GitHub could no
+longer compute the PR's merge ref, so the push produced **no**
+`pull_request: synchronize` workflow run at all — `gh api
+.../commits/033e14fc2/check-runs` returns an empty list and the branch's
+last `CI` run is still the one created on 2026-08-06. The `@claude
+rerun` earlier that day worked only because it *re-ran an existing*
+workflow run rather than dispatching a new one.
+
+The lesson for a long-lived agent branch: a merge conflict is not just a
+merge problem, it silently removes the branch from CI, and every stage
+of the pipeline that keys off CI stops with it. Merge `main` into the
+branch on a cadence rather than waiting for the loop to complain.
+
+## `--format` guards must be re-applied to call sites `main` adds
+
+This branch converted every `output()` call site to narrow the raw flag
+through `parseOutputFormat()` *before* the request, because `format()`
+now throws — after a mutation, that throw turns a completed write into
+exit 1 / `INVALID_FORMAT` with the response body discarded. While the
+branch sat, `main` added six new call sites that predate the rule:
+`tabs create`/`tabs rename` (#708) and the whole `files` namespace
+(#703, `list`/`get`/`rename`/`delete`). Merging cleanly left all six
+passing `opts.format` straight to `output()` — no conflict marker, no
+type error, and the PR's own point regressed on exactly the commands
+`main` had just shipped.
+
+Textual conflict resolution is not enough for a change whose thesis is
+"every call site does X". After the merge, re-run the audit that
+justified the change (`grep -rn "output(.*opts\.format" packages/cli/src`
+here) and treat any survivor as a conflict the merge did not report.

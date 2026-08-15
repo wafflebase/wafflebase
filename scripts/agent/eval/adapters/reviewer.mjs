@@ -41,12 +41,34 @@
 // failure.
 //
 // FIDELITY. A replay's `--repo` is whatever the runner materialised: an empty
-// directory when repo context is unavailable, the tree at `review_commit` when it
-// is. Neither is a git checkout yet, so `--base-sha` is available here (and
-// asserted, below) but nothing passes it — that pairing is PR 6's. This comment
-// deliberately does not state a fidelity INVARIANT; the version it replaces
-// asserted "replay is DIFF-ONLY" and was already false when the runner grew a
-// repo-context path.
+// directory when repo context is unavailable, and otherwise a real LINKED GIT
+// WORKTREE checked out at `review_commit`. Because that tree can be blamed
+// against, the runner passes `--base-sha` from the item's `review_base` and the
+// novelty gate runs — which is what makes a replay a replay of the SHIPPED gate.
+// This comment deliberately states no fidelity INVARIANT beyond what the envelope
+// records: two earlier versions of it asserted one ("replay is DIFF-ONLY", then
+// "nothing passes --base-sha") and both were false by the time anyone read them.
+// `base_sha_passed` and `gate.state` are in every envelope; read those.
+//
+// THE PANEL IS KILLED BY PROCESS GROUP, NOT BY `child.kill()`. `runAgent` had no
+// timeout at all, and `child.on("error")` resolved the promise while leaving the
+// child alive. The technique here is NOT re-derived: `reapLaneGroup` in
+// `scripts/verify-self.mjs` (#692) already established it for the same repo and
+// the same incident — spawn `detached` so the child is its own process-group
+// LEADER, then signal the negative pid, and tolerate `ESRCH` as the normal case.
+// Its docblock records the mutation result: "dropping `detached` leaves the
+// orphan running."
+//
+// ONE DELIBERATE DIFFERENCE FROM IT. `reapLaneGroup` reaps a lane that has
+// ALREADY EXITED, so it goes straight to SIGKILL and cannot lose anything. This
+// kills a LIVE panel mid-review, which may hold buffered stdout — including the
+// `novelty gate:` line the whole gate assertion reads — and lens output already
+// written. So it is SIGTERM first, then SIGKILL after a grace, and the escalation
+// is not optional: measured here with a stub whose grandchild installs a SIGTERM
+// handler and ignores it, only the group SIGKILL ends it. The real panel has
+// grandchildren for the same reason the stub does — the Agent SDK's `query()`
+// starts its own subprocess per lens. `spawn`'s own `timeout` option signals the
+// child only, so it is not enough either.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -54,14 +76,37 @@ import path from "node:path";
 import { readWallMs } from "../../metrics.mjs";
 
 /**
+ * How long a killed process group gets to exit on SIGTERM before SIGKILL.
+ *
+ * Not a tuning dial: the escalation is the part that works. Two seconds is enough
+ * for a cooperative process to flush and leave, and short enough that a run
+ * stopped for cost is actually stopped.
+ */
+export const KILL_GRACE_MS = 2000;
+
+/**
+ * The signals a human uses to stop a run, and which must reach the panel too.
+ *
+ * `detached` also detaches the child from the terminal's foreground group, so a
+ * Ctrl-C that reaches the runner no longer reaches the panel — the same hazard
+ * `verify-self.mjs` handles with its `liveLaneGroups` forwarding, and here it
+ * would leave a model spending money after the operator thought they had stopped
+ * it.
+ */
+const INTERRUPTS = Object.freeze(["SIGINT", "SIGTERM"]);
+
+/** POSIX only: Windows has no `kill(-pid)`, and `detached` there means "own console". */
+const IS_POSIX = process.platform !== "win32";
+
+/**
  * Every flag this adapter passes, named once so a test can pin the contract
  * rather than an audit re-deriving it by hand every few months. Verified against
  * `review-panel.mjs`'s usage block: all six are still accepted there.
  *
- * `baseSha` is listed and is NOT passed by the runner today — see the header. It
- * is here so that the assertion in `parseGateState` has something to assert
- * against, which is the whole reason the gate's self-report is checkable now
- * instead of after PR 6 lands.
+ * `baseSha` IS passed by the runner, from the item's frozen `review_base`, and
+ * `--repo` is a worktree it can resolve in. That pairing is what turns the gate's
+ * self-report from a thing the adapter merely records into a thing the runner
+ * fails on: with the flag passed, any answer but `on` is `gate-degraded`.
  */
 export const PANEL_FLAGS = Object.freeze({
   diffFile: "--diff-file",
@@ -224,19 +269,31 @@ export function reviewerAdapter(options) {
      * Spawn the panel for one item. Async so the caller can show progress while
      * it runs (the panel is quiet for minutes otherwise).
      *
-     * `baseSha` is accepted and defaults to NOT PASSING the flag. That default is
-     * the honest one today: the runner materialises the review tree with `git
-     * archive`, which has no `.git`, so a `--base-sha` would resolve to nothing
-     * and the panel would report the gate OFF — which `captureArtifacts` now
-     * treats as a hard error, correctly. Passing it belongs with the real
-     * worktree, in PR 6.
+     * `baseSha` is passed through as `--base-sha` whenever the runner supplies
+     * one, which it does for every item replayed against a worktree. The runner
+     * withholds it only when there is no tree to blame against, where
+     * `off-no-base-sha` is the honest state.
      *
-     * Resolves rather than rejects, unchanged and deliberately: a spawn failure
-     * and a non-zero exit are the same kind of fact about this item, and both
-     * must reach the envelope. What changed is that the resolved value can no
-     * longer be dropped — `captureArtifacts` takes it.
+     * `timeoutMs` bounds ONE item, and it bounds TIME, not dollars — the panel
+     * writes `review-execution.json` at the end, so what an item cost is unknown
+     * until it finishes. Bounding the run's SPEND is `run.mjs`'s cost cap; these
+     * two guards are deliberately different shapes because the facts they act on
+     * arrive at different moments.
+     *
+     * ON TIMEOUT THE PROMISE IS RESOLVED BY US, not by the child's `close`. That
+     * is not a shortcut, it is the fix, and `verify-self.mjs` measured the same
+     * thing one level up: `close` waits for every holder of the child's stdio
+     * pipes to release them, and a grandchild that inherited those fds keeps them
+     * open after the child itself is gone. Waiting for `close` on a hung panel is
+     * therefore how the promise stays pending forever WHILE the process tree is
+     * still alive — both halves of the #682 hang, from one cause.
+     *
+     * Resolves rather than rejects, unchanged and deliberately: a spawn failure,
+     * a non-zero exit and a timeout are the same kind of fact about this item,
+     * and all three must reach the envelope. What changed in #682 is that the
+     * resolved value can no longer be dropped — `captureArtifacts` takes it.
      */
-    runAgent(inputs, { lensesDir, outDir, repoDir, env = process.env, baseSha = null }) {
+    runAgent(inputs, { lensesDir, outDir, repoDir, env = process.env, baseSha = null, timeoutMs = null }) {
       mkdirSync(repoDir, { recursive: true });
       mkdirSync(outDir, { recursive: true });
       const args = [
@@ -250,16 +307,98 @@ export function reviewerAdapter(options) {
       if (inputs.issueFile) args.push(PANEL_FLAGS.issueFile, inputs.issueFile);
       if (typeof baseSha === "string" && baseSha !== "") args.push(PANEL_FLAGS.baseSha, baseSha);
       return new Promise((resolve) => {
-        const child = spawn("node", args, { env });
+        // `detached` is what makes the child a process-group LEADER, so its pid
+        // doubles as the group id. Attached, it inherits the runner's group, its
+        // pid is not a group id at all, and the signal lands on nothing — or on
+        // an unrelated group that happens to hold that number. Same reasoning,
+        // and same mutation result, as `reapLaneGroup`.
+        const child = spawn("node", args, { env, detached: IS_POSIX });
         let stdout = "", stderr = "";
         child.stdout?.on("data", (d) => { stdout += d; });
         child.stderr?.on("data", (d) => { stderr += d; });
         // `args` travels with the result so a test can assert what the panel was
         // ACTUALLY told, and `baseShaPassed` so a consumer does not have to
         // re-derive the question the gate assertion turns on from the argv.
-        const base = { outDir, args, baseShaPassed: args.includes(PANEL_FLAGS.baseSha) };
-        child.on("error", (e) => resolve({ ...base, code: -1, stdout, stderr: stderr + String(e) }));
-        child.on("close", (code) => resolve({ ...base, code, stdout, stderr }));
+        const base = { outDir, args, baseShaPassed: args.includes(PANEL_FLAGS.baseSha), pid: child.pid ?? null };
+
+        // ONCE THE TIMEOUT HAS FIRED, EVERY EXIT PATH REPORTS A TIMEOUT. Not belt
+        // and braces — the fix for a race that only appears under load. A panel
+        // with no SIGTERM handler dies on the first signal, so `close` fires
+        // DURING the kill grace and, without this flag, resolved as an ordinary
+        // exit: a panel we deliberately killed recorded as one that finished by
+        // itself. "We stopped it" laundered into "it crashed", which is exactly
+        // the distinction `panel-timeout` exists to keep. It passed in isolation
+        // and failed in the full lane, because what usually delays `close` past
+        // the grace is the grandchild holding the pipes.
+        const timers = [];
+        let killedByTimeout = false;
+        let settled = false;
+        const settle = (extra) => {
+          if (settled) return;
+          settled = true;
+          // Cleared here rather than at each site, so a child that exits DURING
+          // the grace does not leave the grace timer holding the event loop.
+          for (const t of timers) clearTimeout(t);
+          for (const sig of INTERRUPTS) process.off(sig, onInterrupt);
+          const out = { ...base, stdout, stderr, timedOut: false, ...extra };
+          if (killedByTimeout) {
+            // AND THE GROUP IS KILLED ON THE WAY OUT. Settling here can be the
+            // child's own `close` arriving during the grace, which clears the
+            // pending SIGKILL — so without this line the cooperative child dies,
+            // the promise resolves, and the grandchild that ignored SIGTERM lives
+            // on. That is the orphan, produced by the very path meant to prevent
+            // it.
+            killGroup("SIGKILL");
+            // `code` is a signal artefact here, never the panel's own verdict.
+            Object.assign(out, { timedOut: true, code: null, timeoutMs });
+          }
+          resolve(out);
+        };
+
+        // Negative pid means "the group". Best-effort: `ESRCH` — the group is
+        // already gone — is the normal case and must not become a failure.
+        const killGroup = (signal) => {
+          try {
+            if (IS_POSIX && child.pid) process.kill(-child.pid, signal);
+            else child.kill(signal);
+          } catch { /* already gone */ }
+        };
+
+        const onInterrupt = (sig) => {
+          killGroup("SIGKILL");
+          for (const s of INTERRUPTS) process.off(s, onInterrupt);
+          // Re-raised with the handler removed, so the runner dies the way it
+          // would have without us. `verify-self.mjs` forwards by calling
+          // `process.exit(130/143)` instead, which is right for a CLI entry point
+          // and wrong here: this is a library, and a hard exit would take a test
+          // process with it.
+          process.kill(process.pid, sig);
+        };
+        for (const sig of INTERRUPTS) process.on(sig, onInterrupt);
+
+        if (timeoutMs > 0) {
+          timers.push(setTimeout(() => {
+            killedByTimeout = true;
+            stderr += `\nreviewer adapter: killed after ${timeoutMs}ms without exiting`;
+            killGroup("SIGTERM");
+            // Scheduled unconditionally rather than after checking whether
+            // anything is still alive: the child may be gone while a grandchild
+            // that inherited its stdio is not, and that grandchild is both the
+            // orphan and the reason `close` has not fired.
+            timers.push(setTimeout(() => {
+              killGroup("SIGKILL");
+              settle({ code: null });
+            }, KILL_GRACE_MS));
+          }, timeoutMs));
+        }
+
+        child.on("error", (e) => {
+          // The child may exist even when `spawn` reports an error, and the
+          // version this replaces resolved without killing it.
+          killGroup("SIGKILL");
+          settle({ code: -1, stderr: stderr + String(e) });
+        });
+        child.on("close", (code) => settle({ code }));
       });
     },
 
@@ -376,6 +515,13 @@ export function reviewerAdapter(options) {
         // which is 3–5× high.
         wallMs: readWallMs(at(PANEL_OUTPUT_FILES.execution)),
         exitCode: code,
+        // Hoisted for the same reason as `panelState`: the classifier must be
+        // able to tell "we stopped it" from "it exited non-zero" WITHOUT reading
+        // an exit code that is `null` in both the killed case and some spawn
+        // failures. A timeout that arrived as a generic `panel-exit` would file a
+        // runaway panel under the same reason as a panel that crashed on a big
+        // diff, and only one of those is a reason to change the timeout.
+        timedOut: !!runResult.timedOut,
         gate: parseGateState(stdout),
         baseShaPassed: !!runResult.baseShaPassed,
         diffContent,

@@ -48,6 +48,7 @@ import type { UserPresence as UserPresenceType } from "@/types/users";
 import type { DataSource } from "@/types/datasource";
 import {
   buildTabNameNormalizationPatches,
+  generateTabId,
   getNextDefaultSheetName,
   getUniqueTabName,
   isTabNameTaken,
@@ -74,10 +75,6 @@ const DataSourceSelector = lazy(() =>
     default: module.DataSourceSelector,
   })),
 );
-
-function generateTabId(): string {
-  return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-}
 
 type PeerJumpTarget = {
   activeCell: NonNullable<UserPresenceType["activeCell"]>;
@@ -652,6 +649,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                       commentJumpTarget={commentJumpTarget}
                       addPivotTab={addPivotTab}
                       workspaceId={documentData?.workspaceId}
+                      documentId={documentId}
                       onToggleCommentsPanel={() => setCommentsPanelOpen((v) => !v)}
                     />
                   )}

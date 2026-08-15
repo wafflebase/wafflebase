@@ -1,7 +1,7 @@
 import type { SlidesEditor, SlidesStore, Theme } from '@wafflebase/slides';
-import { findElementPath } from '@wafflebase/slides';
 import { ToolbarSeparator } from '@/components/ui/toolbar';
 import type { ToolbarState } from './state';
+import { canUngroupSelection } from './can-ungroup';
 import { InsertGroup } from './insert-group';
 import { ArrangeMenu } from './arrange-menu';
 import { ShapeControls } from './shape-controls';
@@ -33,17 +33,10 @@ export function ObjectSection({ state, editor, store, theme, onImagePick, upload
   const showShapeControls =
     state.selectionType === 'shape' || state.selectionType === 'connector';
 
-  // Determine whether the current selection is a single group element that
-  // can be ungrouped. We look up the element by id in the current slide.
-  const slideId = editor?.getCurrentSlideId();
-  const slide = store && slideId ? store.read().slides.find((s) => s.id === slideId) : undefined;
-  const canUngroup =
-    !!slide &&
-    state.ids.length === 1 &&
-    (() => {
-      const path = findElementPath(slide.elements, state.ids[0]);
-      return path?.[path.length - 1]?.type === 'group';
-    })();
+  // Whether the current selection is a single group element that can be
+  // ungrouped. Shared with the board toolbar, which mounts the same
+  // `ArrangeMenu` — see `can-ungroup.ts`.
+  const canUngroup = canUngroupSelection(editor, store, state.ids);
 
   return (
     <>

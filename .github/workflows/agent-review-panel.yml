@@ -120,7 +120,10 @@ concurrency:
 permissions: {}
 
 env:
-  # Failed fix rounds before review-round-guard.mjs pages a human.
+  # gh expands `{owner}/{repo}` via git; GH_REPO makes it skip that lookup.
+  GH_REPO: ${{ github.repository }}
+
+  # Fix-agent dispatches before review-round-guard.mjs pages a human.
   #
   # Three, not five, because nothing in this pipeline can page for
   # non-convergence any earlier: detectStalledRounds needs `minRepeats + 1` = 3
@@ -753,9 +756,37 @@ jobs:
           # CLAUDE_CODE_OAUTH_TOKEN (verified against its source; see the header
           # comment in review-panel.mjs), which is exactly the secret the
           # maintainer configured and the same one the pipeline's
-          # claude-code-action steps use. Export ONLY that one — no second
-          # credential in a process whose cwd is the untrusted branch checkout.
+          # claude-code-action steps use. No GitHub token here — this process's
+          # cwd is the untrusted branch checkout.
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          #
+          # THIS RELAXES A STATED INVARIANT. Until the credential pool, the rule
+          # here was "export ONLY that one — no second credential in a process
+          # whose cwd is the untrusted branch checkout" (#508), and the count was
+          # the point: it bounded what a single exfiltration bug in an untrusted
+          # context could take. The pool needs alternatives IN this process,
+          # because ask.mjs fails over inside the round, so the count is now up
+          # to nine and the blast radius scales with it.
+          #
+          # What still bounds it: this session grants Read/Grep/Glob only, with
+          # permissionMode 'dontAsk' and settingSources [] (see ask.mjs), so
+          # reaching the environment needs an SDK bug, not prompt injection. That
+          # is defence in depth, not a replacement for the count — see
+          # docs/design/harness-engineering.md, which tracks reducing this to the
+          # two credentials a round can actually use.
+          #
+          # One token is selected per JOB and held, because prompt caches are per
+          # account and rotating per call would make this panel pay its
+          # shared-prefix warm-up once per token instead of once per round.
+          # Unregistered slots arrive as "" and are dropped.
+          CLAUDE_CODE_OAUTH_TOKEN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_1 }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+          CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
+          CLAUDE_CODE_OAUTH_TOKEN_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_4 }}
+          CLAUDE_CODE_OAUTH_TOKEN_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_5 }}
+          CLAUDE_CODE_OAUTH_TOKEN_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_6 }}
+          CLAUDE_CODE_OAUTH_TOKEN_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_7 }}
+          CLAUDE_CODE_OAUTH_TOKEN_8: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_8 }}
           # Via env, never interpolated into the `run:` string. This step holds
           # the Claude token, and repo convention keeps workflow expressions out
           # of shell commands in jobs that hold secrets.
@@ -813,9 +844,27 @@ jobs:
           --lenses-dir .trusted/scripts/agent/lenses
           --out .agent-review
 
+      # `!cancelled()`, NOT `always()`. A CANCELLED panel is a SUPERSEDED one —
+      # the concurrency group at the top of this file kills the in-flight run the
+      # moment a newer commit lands, and the newer commit's panel is the live
+      # verdict. Under `always()` this step still ran, found no panel.json, and
+      # wrote all six lenses as `failure` / "No summary produced (failing
+      # closed)" in a couple of seconds. Nothing paged (the `fix` job was
+      # cancelled too), so those reds simply sat on the commit — and a commit
+      # carrying failing lens runs is exactly what `fixAttemptCommits` reads as a
+      # spent fix round. On #695 that phantom round consumed one third of the
+      # budget for a review that never happened.
+      #
+      # Dropping the write is safe because `checks.mjs::checkPassed` treats an
+      # ABSENT required check the same as a failed one — `mark-ready` still
+      # refuses to promote. The gate does not move; only the reason code does.
+      # `failure()` is still covered, so a panel that genuinely crashed keeps
+      # failing closed, and `close-stuck-checks` below closes whatever this step
+      # did not.
       - name: Post per-lens check runs
         id: panel
-        if: always() && steps.pr.outputs.number != ''
+        if: >-
+          !cancelled() && steps.pr.outputs.number != ''
         uses: actions/github-script@v7
         env:
           # Suffixed onto the check-run title on narrowed rounds ONLY, so a human
@@ -983,6 +1032,38 @@ jobs:
             --scope-mode "$SCOPE_MODE" \
             --scope-reason "$SCOPE_REASON" \
             --scope-rounds "$SCOPE_ROUNDS"
+
+      # OBSERVABILITY (Phase 4b): post THIS ROUND's findings into the PR
+      # conversation. Until now the autonomous panel recorded verdicts only as
+      # `agent-review-*` check runs, one set per commit, while the triage renderer
+      # that makes them readable was wired solely into agent-review-on-demand.yml
+      # — so a maintainer could read the fix agent's answer in the thread and not
+      # the question it answered. Keyed by SHA (one comment per round, updated
+      # rather than duplicated when CI re-runs on the same commit).
+      #
+      # No permission change: this job already holds `issues: write` for the
+      # advisory label and already POSTs a comment through the loop-status step
+      # below, with the same GITHUB_TOKEN and the same trusted `.trusted` copy.
+      #
+      # `always()` on purpose — a round whose panel crashed is exactly the round
+      # worth saying something about, and the script renders the fail-closed case
+      # explicitly rather than reporting six red lenses as findings.
+      - name: Post this round's findings
+        if: always() && steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BLOB_BASE: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.event.workflow_run.head_sha }}
+        run: |
+          [ -f .trusted/scripts/agent/panel-round-comment.mjs ] || { echo "panel-round-comment.mjs not on main yet; skipping"; exit 0; }
+          node .trusted/scripts/agent/panel-round-comment.mjs post "$PR" \
+            --sha "$HEAD_SHA" \
+            --review-dir .agent-review \
+            --lenses .trusted/scripts/agent/lenses/lenses.json \
+            --blob-base "$BLOB_BASE" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
       # OBSERVABILITY (Phase 1): upsert the sticky `<!-- agent-loop-status -->`
       # dashboard comment — round table, fix-round budget, latest decision. A
@@ -1365,9 +1446,15 @@ jobs:
           ALL_VALID: ${{ needs.review-panel.outputs.all_valid }}
           REQUIRED_CHECKS: ${{ needs.review-panel.outputs.required_checks }}
           INFRA: ${{ needs.review-panel.outputs.infra }}
-        # Unforgeable round bound: count commits where one of OUR panel's lens
-        # checks failed, EXCLUDING merge commits (see rounds.mjs for the why —
-        # PR #521 demonstrated human branch-sync merges inflating this count).
+          # Where the guard STAGES the round record. Posted later, by the step
+          # immediately before the fixer — see that step for why. RUNNER_TEMP
+          # survives the branch checkout that replaces the workspace.
+          DISPATCH_FILE: ${{ runner.temp }}/fix-dispatch.md
+        # Unforgeable round bound: count the fix-agent dispatches this guard has
+        # recorded (see rounds.mjs::fixRoundsUsed), falling back on a PR older
+        # than the ledger to commits where one of OUR panel's lens checks failed,
+        # EXCLUDING merge commits (PR #521 demonstrated human branch-sync merges
+        # inflating that count).
         # INFRA (API/quota outage) pages honestly and skips the fixer + round count.
         run: node ./scripts/agent/review-round-guard.mjs "$PR" "$MAX_REVIEW_ROUNDS" "$ALL_VALID" "$REQUIRED_CHECKS" "$INFRA"
 
@@ -1524,7 +1611,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
-        run: node ./scripts/agent/set-state.mjs "$PR" fixing
+        run: node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" fixing
 
       # Record the REMOTE branch tip before the fixer runs, so the step after it
       # can detect a fix round that pushed NO new commit. We read the remote
@@ -1537,6 +1624,36 @@ jobs:
         env:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      # SPEND THE ROUND HERE — the LAST step before the fixer, not back at the
+      # guard where the record is written.
+      #
+      # The guard runs fourteen steps earlier, and everything between is setup: an
+      # App-token mint, a branch checkout, a `pnpm install`. This workflow is
+      # `cancel-in-progress: true`, so a push during those one-to-three minutes
+      # kills the run — and if the round had already been posted, it is a round
+      # consumed by a fixer that never started. That is the same shape as the
+      # phantom round this change exists to remove, just smaller and
+      # self-inflicted; #695 had pushes 57 seconds apart, so the window is real.
+      #
+      # It cannot be closed completely — some instant separates "recorded" from
+      # "running" — but from here a cancellation costs a round for a fixer that
+      # had genuinely begun, which is a round honestly spent.
+      #
+      # NOT `continue-on-error`. A dispatch whose record never landed is a round
+      # the next guard hands out again, so a failure here must red the job before
+      # the fixer is reached; the `stalled` net then pages. `test -s` catches the
+      # staged file being absent or empty, which would otherwise post nothing and
+      # succeed.
+      - name: Record the fix-round dispatch
+        if: steps.guard.outputs.proceed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+          DISPATCH_FILE: ${{ runner.temp }}/fix-dispatch.md
+        run: |
+          test -s "$DISPATCH_FILE"
+          gh pr comment "$PR" --body-file "$DISPATCH_FILE"
 
       - name: Address panel findings
         if: steps.guard.outputs.proceed == 'true'
@@ -1576,11 +1693,22 @@ jobs:
             - Run `pnpm verify:fast` ONCE at the end to confirm green — not after
               every edit.
 
-            THEN REPORT WHAT YOU DID. Required, and not paperwork: the next round
-            reads this report and hands each claim to an independent adjudicator,
-            so a finding you fixed in a way the re-check cannot see is re-raised
-            unless you say what you changed. Pass one `--fixed` or `--skipped` per
-            checklist item, so the report accounts for the whole work list.
+            REPORT WHAT YOU DID — AFTER COMMITTING, BEFORE PUSHING. Required, and
+            not paperwork: the next round reads this report and hands each claim to
+            an independent adjudicator, so a finding you fixed in a way the
+            re-check cannot see is re-raised unless you say what you changed. Pass
+            one `--fixed` or `--skipped` per checklist item, so the report accounts
+            for the whole work list.
+
+            THE ORDER IS LOAD-BEARING, and reporting after the push loses the
+            report. Your push re-triggers CI, CI re-triggers the review panel, and
+            this workflow is `cancel-in-progress` — so the new panel run CANCELS
+            the run you are still inside, killing this job about half a minute
+            after your push lands. On #757 the fixer pushed on all three rounds and
+            reported on one: the job was cancelled 34s, 34s and 31s after each
+            push, and the single surviving report was posted 27s after its commit —
+            seven seconds inside the window. Commit, report, and only then push.
+            Nothing can cancel work you did before the push that causes it.
 
             ```
             node ${{ runner.temp }}/agent-tools/fix-report.mjs post ${{ needs.review-panel.outputs.pr }} \
@@ -1627,7 +1755,14 @@ jobs:
 
             Append a follow-up commit (do NOT force-push); the commit message must
             end with the trailer "Assisted-by: Claude Code (autonomous)". Do not
-            merge. Pushing re-runs CI and a fresh review panel.
+            merge.
+
+            PUSH LAST. Pushing re-runs CI and a fresh review panel, and that fresh
+            panel run cancels this one — so the push is the end of your turn, not
+            the middle of it. The fix report above and any rebuttal must ALREADY be
+            posted before you push; anything you try to do afterwards is racing a
+            cancellation you triggered yourself, and on #757 that race lost two
+            times out of three.
 
             Run every command — ESPECIALLY the `git push` — in the FOREGROUND and
             WAIT for it to finish. This is a one-shot headless run with NO resume:
@@ -1726,7 +1861,7 @@ jobs:
               '' \
               'The review panel will not run again on this PR, so the `agent-review-*` checks are now frozen at their current state and the ready gate will not promote it. Review and merge it manually.' \
               | gh pr comment "$PR" --body-file -
-            node ./scripts/agent/set-state.mjs "$PR" blocked || true
+            node "$RUNNER_TEMP/agent-tools/set-state.mjs" "$PR" blocked || true
           fi
 
       # OBSERVABILITY (Phase 1): reflect the fix outcome on the sticky
@@ -1827,12 +1962,35 @@ jobs:
       # re-run keeps the sha) may briefly see them closed here, then updates the
       # same check-run ids with its real verdicts — the transient failure is
       # overwritten rather than left behind.
+      #
+      # THE CONCLUSION SAYS WHICH KIND OF NOT-A-VERDICT THIS WAS, and the
+      # distinction is load-bearing rather than cosmetic. `cancelled` means
+      # SUPERSEDED: the concurrency group killed this run because a newer commit
+      # arrived, and that newer commit's panel is the real one. `failure` means
+      # the panel genuinely broke and nobody reviewed this code.
+      #
+      # Both block promotion identically — `checks.mjs::checkPassed` accepts only
+      # `success` — so the gate is unchanged either way. What changes is the round
+      # count: `rounds.mjs::fixAttemptCommits` reads a commit carrying FAILING lens
+      # runs as a spent fix round, so marking a superseded round `failure` charged
+      # the budget for a review that never ran. #695 paged after one real fix
+      # attempt partly on the strength of one of these.
       - name: Close stuck in-progress lens checks
         continue-on-error: true
         uses: actions/github-script@v7
+        env:
+          PANEL_RESULT: ${{ needs.review-panel.result }}
         with:
           script: |
             const sha = context.payload.workflow_run.head_sha;
+            const superseded = process.env.PANEL_RESULT === 'cancelled';
+            const conclusion = superseded ? 'cancelled' : 'failure';
+            const title = superseded ? 'superseded' : 'panel stopped';
+            const summary = superseded
+              ? 'A newer commit superseded this round before the lens produced a verdict. '
+                + 'The panel on the newer commit is the verdict of record; this round was not reviewed '
+                + 'and does not count as a fix attempt.'
+              : 'The review panel stopped before this lens produced a verdict.';
             const { data } = await github.rest.checks.listForRef({
               owner: context.repo.owner, repo: context.repo.repo, ref: sha, per_page: 100,
             });
@@ -1840,10 +1998,10 @@ jobs:
               if (!/^agent-review-/.test(c.name) || c.status === 'completed') continue;
               await github.rest.checks.update({
                 owner: context.repo.owner, repo: context.repo.repo, check_run_id: c.id,
-                status: 'completed', conclusion: 'failure',
+                status: 'completed', conclusion,
                 output: {
-                  title: `${c.name.replace(/^agent-review-/, '')}: panel stopped`,
-                  summary: 'The review panel stopped before this lens produced a verdict.',
+                  title: `${c.name.replace(/^agent-review-/, '')}: ${title}`,
+                  summary,
                 },
               });
             }

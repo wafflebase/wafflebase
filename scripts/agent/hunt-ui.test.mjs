@@ -19,8 +19,14 @@ import {
   verifyUi,
   UI_GATE_OPTIONS,
   runHunt,
+  replayPlanFor,
+  replayDidRun,
+  uiScopedTitle,
+  uiScopedTitles,
+  uiScopedTitleDisagreement,
+  uiOverclaimed,
 } from "./hunt-ui.mjs";
-import { coerceCandidates, isFilingVerdict, dropReason, UI_GROUNDS } from "./hunt-gate.mjs";
+import { coerceCandidates, isFilingVerdict, dropReason, UI_GROUNDS, UI_VERIFIER_SCHEMA } from "./hunt-gate.mjs";
 import { UI_SURFACES } from "./hunt-ui-tool.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -60,11 +66,31 @@ test("each rubric injects its OWN surface's constraints and not the other's", ()
   assert.match(byId["sheet-author"].rubric, /canUndo/, "sheet rubric must name the undo reader");
   assert.match(byId["sheet-author"].rubric, /no-op|DOES NOT WORK/i, "sheet rubric must state undo is a no-op");
   assert.match(byId["doc-writer"].rubric, /per-keystroke/, "doc rubric must state undo is per-keystroke");
+  // The third measured trap, and the one the first CLEAN run produced: undo/redo
+  // clears the selection on this surface, so a formatting click afterwards silently
+  // no-ops. A whole ground-A finding was built on not knowing that.
+  assert.match(byId["doc-writer"].rubric, /CLEAR THE SELECTION/i, "doc rubric must warn that undo/redo clears the selection");
 
-  // And the constraints must NOT bleed across: an explorer told about a toolbar it
-  // cannot reach wastes budget discovering that.
-  assert.doesNotMatch(byId["sheet-author"].rubric, /formatting toolbar is mounted/);
-  assert.match(byId["sheet-author"].rubric, /no formatting toolbar/i);
+  // The sheet surface HAS a toolbar now, and this assertion used to pin the opposite.
+  // It was right when written and became wrong the moment the toolbar was mounted —
+  // which is the failure mode worth naming, because it has now happened twice: a brief
+  // that told the doc explorer colour was out of bounds outlived the reader that made
+  // colour observable, and the capability sat unused until someone noticed. A rubric
+  // stating a surface fact is a claim with an expiry date, and this is its test.
+  assert.match(byId["sheet-author"].rubric, /formatting toolbar IS mounted/i, "sheet rubric must say the toolbar is there");
+  assert.doesNotMatch(byId["sheet-author"].rubric, /no formatting toolbar/i, "and must not still deny it");
+
+  // The two traps the mount CREATES. Both are buttons that render and do nothing, which
+  // is the exact shape that produced this persona's only previous finding — a confident,
+  // reproducible, false one.
+  assert.match(byId["sheet-author"].rubric, /DO NOTHING HERE/i, "sheet rubric must name the unwired panel buttons");
+  assert.match(byId["sheet-author"].rubric, /Undo` and `Redo` are visible/i, "and that visible undo still cannot work");
+
+  // The reader pair, and which side of it a prediction belongs on. Getting this wrong
+  // is how `doc.styleSummary` invited false findings for months.
+  assert.match(byId["sheet-author"].rubric, /sheet\.rangeStyles/, "sheet rubric must name the reader the toolbar writes to");
+  assert.match(byId["sheet-author"].rubric, /DOES NOT LAND ON THE CELL/i, "and warn that styling misses the cell itself");
+  assert.match(byId["sheet-author"].rubric, /ACCUMULATE/, "and that patches accumulate, so a round trip is not `equals` on them");
 });
 
 test("every persona's codeScope and docsScope name paths that EXIST", () => {
@@ -92,6 +118,22 @@ test("each persona's codeScope covers the ENGINE its surface actually runs on", 
   const byId = Object.fromEntries(loadPersonas(CHARTERS_UI).map((p) => [p.id, p]));
   assert.ok(byId["doc-writer"].codeScope.some((g) => g.startsWith("packages/docs/src")));
   assert.ok(byId["sheet-author"].codeScope.some((g) => g.startsWith("packages/sheets/src")));
+});
+
+test("the doc brief and rubric both demand a toggle ROUND TRIP", () => {
+  // The measured coverage gap, pinned so it cannot quietly regress. A live run made
+  // 17 predictions across two full sessions and every one held — because it applied
+  // each toggle exactly once and never re-applied it to the same selection. The one
+  // real defect this hunter has found (#715) lives precisely there, and broader
+  // exploration never reached it.
+  const doc = loadPersonas(CHARTERS_UI).find((p) => p.id === "doc-writer");
+  const brief = doc.briefs.find((b) => b.id === "body-and-styles");
+  assert.match(brief.task, /AGAIN without changing the\s+selection|toggle the same control more than once/i);
+  assert.match(brief.task, /SUB-RANGE INSIDE/i, "the brief must ask for a sub-range, not a whole block");
+  assert.match(brief.task, /right-to-left/i, "selection direction is one of the three ingredients");
+  // And the rubric has to explain WHY, or the brief reads as an arbitrary chore.
+  assert.match(doc.rubric, /ROUND TRIP/);
+  assert.match(doc.rubric, /equals "@read:/, "the rubric must show the ground-A form of the prediction");
 });
 
 test("no rubric offers a visual ground", () => {
@@ -132,6 +174,28 @@ test("validatePersona rejects brief sets that would collide or say nothing", () 
     /share an id/,
   );
   assert.match(validatePersona({ ...PERSONA, briefs: [{ id: "a", task: "   " }] }).join(";"), /missing its task/);
+});
+
+test("validatePersona refuses a turn ceiling that cannot reach the action budget", () => {
+  // Found by the first live run, not by reasoning: `maxActions: 80` against
+  // `explorerMaxTurns: 60` meant the turn ceiling bound first, so both briefs died
+  // at `error_max_turns` after 61 turns having proposed nothing. $2.82 for two
+  // sessions that were configured never to finish.
+  const withBudget = (maxActions, explorerMaxTurns) => ({ ...PERSONA, actionBudget: { maxActions }, explorerMaxTurns });
+  assert.match(validatePersona(withBudget(80, 60)).join(";"), /must exceed/);
+  assert.match(validatePersona(withBudget(50, 50)).join(";"), /must exceed/, "equal is still unreachable");
+  assert.deepEqual(validatePersona(withBudget(50, 70)), []);
+  // Absent values are not a misconfiguration — both have defaults elsewhere.
+  assert.deepEqual(validatePersona({ ...PERSONA }), []);
+});
+
+test("the shipped personas keep turns comfortably above actions", () => {
+  // The CLI charters sit at 1.25-1.4x. Anything at or below 1x cannot succeed, and
+  // barely above it wastes the run on sessions that end mid-exploration.
+  for (const p of loadPersonas(CHARTERS_UI)) {
+    const ratio = p.explorerMaxTurns / p.actionBudget.maxActions;
+    assert.ok(ratio >= 1.2, `${p.id}: turns/actions is ${ratio.toFixed(2)}, too tight to finish`);
+  }
 });
 
 test("validatePersona floors verifiers at 2", () => {
@@ -239,6 +303,87 @@ test("the verifier is told the scope and the path format it is the sole source o
   });
 });
 
+// --- the claim, bounded to the evidence ---------------------------------------
+
+test("uiScopedTitle prefers the verifiers' claim, and falls back rather than dropping", () => {
+  const claimed = { title: "Bold can NEVER apply — one-way toggle" };
+  const scoped = { scopedTitle: "Bold fails to re-apply to a sub-range inside a bold run" };
+  assert.equal(uiScopedTitle(claimed, [scoped, scoped]), scoped.scopedTitle);
+  // First non-empty wins; a verifier that omitted it does not veto one that supplied it.
+  assert.equal(uiScopedTitle(claimed, [{ scopedTitle: "  " }, scoped]), scoped.scopedTitle);
+  // A missing scopedTitle degrades the report, it does not invalidate the finding —
+  // the fail-quiet gate already refused anything no verifier confirmed.
+  assert.equal(uiScopedTitle(claimed, [{}]), claimed.title);
+  assert.equal(uiScopedTitle(claimed, null), claimed.title);
+  assert.equal(uiScopedTitle({}, []), "(untitled)");
+});
+
+test("uiOverclaimed is true if ANY verifier says the claim outran its evidence", () => {
+  assert.equal(uiOverclaimed([{ overclaimed: false }, { overclaimed: true }]), true);
+  assert.equal(uiOverclaimed([{ overclaimed: false }, { overclaimed: false }]), false);
+  // Absent means "not asserted", not "true" — this only ever counts, so a missing
+  // field must not inflate the number.
+  assert.equal(uiOverclaimed([{}, {}]), false);
+  assert.equal(uiOverclaimed(null), false);
+});
+
+test("UI_VERIFIER_SCHEMA requires the verifier to bound the claim", () => {
+  for (const f of ["scopedTitle", "overclaimed"]) {
+    assert.ok(UI_VERIFIER_SCHEMA.required.includes(f), `${f} must be required, or it will simply be omitted`);
+  }
+  assert.equal(UI_VERIFIER_SCHEMA.properties.scopedTitle.type, "string");
+  assert.equal(UI_VERIFIER_SCHEMA.properties.overclaimed.type, "boolean");
+});
+
+test("overclaiming does NOT block the gate — it is a description defect, not a validity one", () => {
+  // Letting wording refute a finding would discard real defects. All three real
+  // defects found so far were overclaimed AND real.
+  const persona = {
+    oracles: ["prediction"], reportableSeverities: ["critical", "major"], verifiers: 2,
+    minCitations: 1, codeScope: ["packages/docs/src/**"],
+  };
+  const record = {
+    replay: { status: "reproduced", deterministic: true },
+    claimed: { oracle: "prediction", severity: "major", title: "t", expected: "e", observed: "o" },
+  };
+  const loose = { ...CONFIRMED, confirmationGround: "expectation-violated", overclaimed: true, scopedTitle: "narrower" };
+  assert.equal(isFilingVerdict(record, [loose, loose], persona, UI_GATE_OPTIONS), true);
+});
+
+test("renderUiReport headlines the VERIFIERS' claim, and shows what the hunter said", () => {
+  // The real over-claim from the last live run, verbatim.
+  const proposed = "Docs: the Italic toolbar toggle only applies — it never removes italic from a right-to-left selection";
+  const narrowed = "Docs: a toggle reads the run PRECEDING a right-to-left selection, so it inverts when that run's style differs";
+  const md = renderUiReport({
+    runId: "r", headSha: "s", personas: ["doc-writer"], dropped: [], stats: { ...STATS, reported: 1 },
+    reported: [{
+      personaId: "doc-writer", briefId: "b", surface: "doc", defectKey: "k",
+      claimed: { severity: "major", title: proposed, oracle: "prediction", expected: "e", observed: "o" },
+      scopedTitle: narrowed, actions: ACTIONS, groundedIn: ["packages/docs/src/view/editor.ts:1007"],
+    }],
+  });
+  const headingAt = md.indexOf(`### [major] ${narrowed}`);
+  assert.ok(headingAt > -1, "the scoped claim must be the heading");
+  // The original survives, below the heading, so a filed issue can be traced back —
+  // but it must not read as interchangeable with the scoped one.
+  assert.ok(md.indexOf(proposed) > headingAt, "the hunter's original must appear AFTER the scoped heading");
+  assert.match(md, /narrowed by the verifiers/);
+});
+
+test("renderUiReport does not add narrowing noise when the claim was already right", () => {
+  const same = "Docs: Bold fails to re-apply after clearing a sub-range";
+  const md = renderUiReport({
+    runId: "r", headSha: "s", personas: ["p"], dropped: [], stats: { ...STATS, reported: 1 },
+    reported: [{
+      personaId: "p", briefId: "b", surface: "doc", defectKey: "k",
+      claimed: { severity: "major", title: same, oracle: "prediction", expected: "e", observed: "o" },
+      scopedTitle: same, actions: ACTIONS, groundedIn: [],
+    }],
+  });
+  assert.match(md, /### \[major\] Docs: Bold fails to re-apply/);
+  assert.doesNotMatch(md, /narrowed by the verifiers/);
+});
+
 test("the UI gate options report on a verifier-supplied citation and nothing else", () => {
   const persona = {
     oracles: ["prediction"],
@@ -295,7 +440,7 @@ const JOURNAL = [
 
 test("uiDefectKey identifies a prediction defect by reader/op/ground, not by prose", () => {
   const key = uiDefectKey({ failingRef: 2 }, JOURNAL, { personaId: "doc-writer" });
-  assert.equal(key, "doc-writer|click|doc.fontSizes|each-greater-than|A");
+  assert.equal(key, "doc-writer|click|Increase font size|doc.fontSizes|each-greater-than|A");
 
   // Two DIFFERENT titles for the same broken thing collapse — which is the point,
   // since two briefs describing one defect will not word it the same way.
@@ -306,7 +451,7 @@ test("uiDefectKey identifies a prediction defect by reader/op/ground, not by pro
 test("uiDefectKey falls back to WHICH oracle fired when there is no prediction", () => {
   assert.equal(
     uiDefectKey({ failingRef: 3 }, JOURNAL, { personaId: "doc-writer" }),
-    "doc-writer|type|oracles:dom-invariant:duplicate-id",
+    "doc-writer|type||oracles:dom-invariant:duplicate-id",
   );
 });
 
@@ -322,6 +467,66 @@ test("uiDefectKey returns '' — unlocatable — rather than a key that means no
   // A half-formed expect is not a prediction identity either.
   const partial = [{ action: { type: "click", expect: { read: "doc.text" } }, oracles: [] }];
   assert.equal(uiDefectKey({ failingRef: 0 }, partial, { personaId: "p" }), "");
+});
+
+test("uiDefectKey separates round-trip findings on DIFFERENT controls", () => {
+  // The exact collision from a live run. Both findings were `click` asserting
+  // `doc.runs equals @read:N` on ground A, so before the target was in the key they
+  // hashed identically and the second was discarded with no record.
+  const roundTrip = (button) => [
+    { action: { type: "goto", surface: "doc" }, oracles: [] },
+    { action: { type: "read", reader: "doc.runs" }, ok: true, value: "[]", oracles: [] },
+    {
+      action: {
+        type: "click",
+        target: { role: "button", name: button },
+        expect: { read: "doc.runs", op: "equals", value: "@read:1", ground: "A", because: "a toggle applied twice is a no-op" },
+      },
+      oracles: [],
+    },
+  ];
+  const italic = uiDefectKey({ failingRef: 2 }, roundTrip("Italic"), { personaId: "doc-writer" });
+  const bold = uiDefectKey({ failingRef: 2 }, roundTrip("Bold"), { personaId: "doc-writer" });
+  assert.notEqual(italic, bold, "two controls, two defects — they must not collapse");
+  assert.match(italic, /Italic/);
+  // The same control still collapses, which is the point of deduping at all.
+  assert.equal(uiDefectKey({ failingRef: 2 }, roundTrip("Bold"), { personaId: "doc-writer" }), bold);
+});
+
+test("uiDefectKey uses a canvas click's READER when there is no accessible name", () => {
+  const j = [{
+    action: {
+      type: "click",
+      target: { reader: "sheet.cellCenter", args: ["B2"] },
+      expect: { read: "sheet.activeCell", op: "equals", value: "@read:0", ground: "A", because: "x" },
+    },
+    oracles: [],
+  }];
+  assert.match(uiDefectKey({ failingRef: 0 }, j, { personaId: "sheet-author" }), /sheet\.cellCenter/);
+});
+
+test("runHunt RECORDS what dedupe collapses instead of dropping it silently", async () => {
+  // The silent truncation this pipeline is careful about everywhere else: the cap
+  // logs what it drops, unlocatable candidates are recorded, the "did NOT run"
+  // section exists so a zero cannot read as clean. Dedupe alone said nothing.
+  const twin = { ...FUNNEL_CANDIDATE, title: "the second finding, same key" };
+  const { deps } = funnelDeps({
+    exploreImpl: async () => ({
+      out: { candidates: [FUNNEL_CANDIDATE, twin], summary: "s" },
+      journal: FUNNEL_JOURNAL,
+      actionCount: 4,
+      refusals: [],
+    }),
+  });
+  const out = await runHunt(deps);
+  assert.equal(out.stats.proposed, 2);
+  assert.equal(out.stats.unique, 1, "they do share a key, so one is collapsed");
+  assert.equal(out.stats.collapsedDuplicate, 1, "and the collapse must be COUNTED");
+  const row = out.dropped.find((d) => /collapsed into/.test(d.why ?? ""));
+  assert.ok(row, "a collapsed candidate must appear in the drop table");
+  assert.equal(row.title, twin.title);
+  assert.match(row.why, /same defect key/);
+  assert.match(row.why, /too coarse/, "the row must say what to suspect if they were different defects");
 });
 
 test("uiDefectKey separates personas, so one cannot suppress another's finding", () => {
@@ -448,6 +653,14 @@ test("renderUiReport marks a SEEDED run before anything that reads as a finding"
   assert.match(md, /SEEDED RUN — NOT A HUNT/);
   assert.match(md, /MANUFACTURED and must not be filed/);
   assert.match(md, /drop-second-char/);
+  // The success criterion, stated where the person reading the report will see it.
+  // A seeded run that gets REFUTED is the control passing: the fault lives in this
+  // repository, so a verifier that reads source will always attribute it to the
+  // harness. Measured — four independent verifier sessions did exactly that, citing
+  // `page.tsx:112-128`. Without this line a reader sees `0 reported` and concludes
+  // the pipeline is broken.
+  assert.match(md, /refutation here is SUCCESS/i);
+  assert.match(md, /blinding the\n> verifier|blinding the verifier/);
   // Before the funnel, and therefore before any finding.
   assert.ok(md.indexOf("SEEDED RUN") < md.indexOf("## Funnel"), "the warning must precede the results");
 
@@ -891,6 +1104,37 @@ test("runHunt: a refuted candidate counts as refutedAfterReplay, the precision s
   assert.equal(out.ledgerAdds[0].verdict, "dropped");
 });
 
+test("runHunt counts a verifier that could not finish, separately from a refutation", async () => {
+  // Truncation and refutation are opposite outcomes that both show as "0 reported".
+  // One means the panel judged and said no; the other means it never judged at all
+  // and the money bought nothing. Conflating them hides a budget problem — this had
+  // no stat until it was reconstructed from raw execution logs, and a budget you can
+  // only see by log archaeology is one nobody watches.
+  const { deps } = funnelDeps({ verifyImpl: async () => { throw new Error("error_max_turns"); } });
+  const out = await runHunt(deps);
+  assert.equal(out.stats.unjudgedVerifier, 1, "a truncated verifier must be counted");
+  assert.equal(out.stats.refutedAfterReplay, 0, "and must NOT read as a refutation");
+  assert.equal(out.ledgerAdds.length, 0, "nor be recorded, since nothing judged it");
+
+  // A real refutation moves the other counter and leaves this one alone.
+  const refuted = await runHunt(funnelDeps({ verifyImpl: async () => ({ ...CONFIRMED, verdict: "refuted" }) }).deps);
+  assert.equal(refuted.stats.unjudgedVerifier, 0);
+  assert.equal(refuted.stats.refutedAfterReplay, 1);
+});
+
+test("the shipped personas give verifiers more room than the CLI hunter", async () => {
+  // UI verification is structurally dearer: the verifier is the sole source of the
+  // citation, so it locates the cause from scratch. Measured 9-36 turns across four
+  // live runs, against the CLI hunter's 14-16. A ceiling at or below the CLI's would
+  // truncate the hard cases, and a truncation wastes the session twice over.
+  for (const p of loadPersonas(CHARTERS_UI)) {
+    assert.ok(
+      p.verifierMaxTurns >= 40,
+      `${p.id}: verifierMaxTurns is ${p.verifierMaxTurns}; live runs needed up to 36 and one truncated there`,
+    );
+  }
+});
+
 test("runHunt: an ERRORED verifier drops but is NOT recorded, so it is retried", async () => {
   // The distinction that cost the CLI hunter two real findings: a crashed verifier
   // produced no opinion, and writing that to the ledger would blind the next run.
@@ -900,6 +1144,79 @@ test("runHunt: an ERRORED verifier drops but is NOT recorded, so it is retried",
   assert.equal(out.stats.refutedAfterReplay, 0, "infrastructure failure is not a refutation");
   assert.match(out.dropped[0].why, /NOT recorded, will be retried/);
   assert.equal(out.ledgerAdds.length, 0, "an unjudged candidate must stay eligible");
+});
+
+test("replayPlanFor replays the journal PREFIX, not the cited subset", () => {
+  // The false-reproduction bug, in one assertion. A model cites the actions that
+  // DEMONSTRATE its finding, not the ones that set up the state — all three
+  // candidates in the first live run cited ranges starting at 9 or 32, none
+  // including the opening `goto`.
+  const cand = { actionRefs: [2, 3], failingRef: 3 };
+  const plan = replayPlanFor(cand, FUNNEL_JOURNAL);
+  assert.equal(plan.actions.length, 4, "the prefix runs from action 0, not from the first citation");
+  assert.equal(plan.actions[0].type, "goto", "without this the browser never navigates and no reader works");
+  assert.equal(plan.failingIndex, 3, "and the failing action keeps its journal position");
+  // Out-of-range or missing refs yield no plan rather than a truncated one.
+  assert.equal(replayPlanFor({ failingRef: 99 }, FUNNEL_JOURNAL), null);
+  assert.equal(replayPlanFor({ failingRef: -1 }, FUNNEL_JOURNAL), null);
+  assert.equal(replayPlanFor({}, FUNNEL_JOURNAL), null);
+});
+
+test("replayDidRun refuses a run in which nothing worked", () => {
+  // Three attempts that all fail IDENTICALLY agree perfectly, so `uiPlanKey` matches
+  // and `replay()` scores them `reproduced` + `deterministic`. That is exactly how a
+  // browser which never navigated produced 3/3 on every candidate.
+  const failed = [
+    { ok: false, error: "hunt bridge is not installed" },
+    { ok: false, error: "hunt bridge is not installed" },
+  ];
+  assert.equal(replayDidRun(failed), false, "all-failed is not a reproduction");
+  assert.equal(replayDidRun([]), false);
+  assert.equal(replayDidRun(null), false);
+  // One success is enough — a click that missed among working actions is DATA, and
+  // refusing those would discard real findings.
+  assert.equal(replayDidRun([{ ok: false, error: "click missed" }, { ok: true, value: "x" }]), true);
+});
+
+test("runHunt drops a candidate whose replay never exercised the app", async () => {
+  // End to end: the guard has to bite in the pipeline, not just in isolation.
+  const allFailed = FUNNEL_JOURNAL.map((e, i) => ({ index: i, action: e.action, ok: false, error: "hunt bridge is not installed", oracles: [] }));
+  let verifierCalls = 0;
+  const { deps } = funnelDeps({
+    runPlanImpl: (_p, { attempts = 1 } = {}) => Array.from({ length: attempts }, () => allFailed),
+    verifyImpl: async () => { verifierCalls += 1; return CONFIRMED; },
+  });
+  const out = await runHunt(deps);
+  assert.equal(out.stats.reproduced, 0, "identical failures must not score as a reproduction");
+  assert.equal(out.stats.reported, 0);
+  assert.equal(verifierCalls, 0, "and no verifier tokens are spent on it");
+  assert.match(out.dropped[0].why, /never exercised the app/);
+});
+
+test("runHunt replays the prefix, so a candidate citing no goto still navigates", async () => {
+  const plans = [];
+  const { deps } = funnelDeps({
+    exploreImpl: async () => ({
+      // Cites only the last two actions — the shape every live candidate had.
+      out: { candidates: [{ ...FUNNEL_CANDIDATE, actionRefs: [2, 3], failingRef: 3 }], summary: "s" },
+      journal: FUNNEL_JOURNAL,
+      actionCount: 4,
+      refusals: [],
+    }),
+    runPlanImpl: (plan, { attempts = 1 } = {}) => {
+      plans.push(plan.actions.map((a) => a.type));
+      return Array.from({ length: attempts }, () => FUNNEL_OBS);
+    },
+  });
+  const out = await runHunt(deps);
+  assert.ok(plans.length > 0, "replay must have run");
+  for (const p of plans) {
+    assert.equal(p[0], "goto", `every replayed plan must start by navigating, got ${JSON.stringify(p)}`);
+    assert.equal(p.length, 4, "the whole prefix, not the citation");
+  }
+  assert.equal(out.stats.reported, 1);
+  // And the repro file a maintainer runs is the plan that actually reproduces.
+  assert.equal(out.reported[0].actions[0].type, "goto");
 });
 
 test("runHunt: a candidate that does not replay never reaches a verifier", async () => {
@@ -987,6 +1304,75 @@ test("runHunt: a failed brief becomes a visible skip, not a silent zero", async 
   assert.match(md, /Personas that did NOT run/);
 });
 
+test("runHunt PERSISTS the journal of a brief that failed", async () => {
+  // The first live run's whole diagnostic loss. Both briefs hit `error_max_turns`,
+  // and because `briefResults` only collected successes, `explore-raw.json` was
+  // written as `[]` — no way to tell an explorer that was predicting well and ran
+  // out of room from one that spent sixty turns achieving nothing.
+  //
+  // A failed brief is the MOST likely thing to need diagnosing, so it is the last
+  // thing whose evidence should be discarded.
+  const partial = [
+    { action: { type: "goto", surface: "doc" }, ok: true, value: "doc", oracles: [] },
+    { action: { type: "read", reader: "doc.text" }, ok: true, value: "seed", oracles: [] },
+  ];
+  const { written, deps } = funnelDeps({
+    exploreImpl: async () => {
+      const err = new Error("hunt-ui query hit a run limit: error_max_turns after 61 turns");
+      err.journal = partial;
+      err.actionCount = 2;
+      err.refusals = [{ kind: "surface-scope", detail: "reader sheet.cellValue belongs to another surface" }];
+      throw err;
+    },
+  });
+  const out = await runHunt(deps);
+
+  const rawFile = [...written.keys()].find((f) => f.endsWith("explore-raw.json"));
+  assert.ok(rawFile, "explore-raw.json must still be written");
+  const raw = JSON.parse(written.get(rawFile));
+  assert.equal(raw.length, 1, "the failed brief must appear, not be omitted");
+  assert.match(raw[0].failed, /error_max_turns/, "and must SAY it did not finish");
+  assert.equal(raw[0].journal.length, 2, "with the actions it did manage");
+  assert.equal(raw[0].refusals.length, 1, "and its refusals, which explain wasted budget");
+
+  // The actions it ran still count in the funnel — they DID happen.
+  assert.equal(out.stats.actionsRun, 2);
+  assert.equal(out.stats.actionRefusals, 1);
+  // But it contributes no candidates, and is still a visible skip.
+  assert.equal(out.stats.proposed, 0);
+  assert.ok(out.skipped.some((s) => s.kind === "session-failed"));
+});
+
+test("exploreUi attaches its partial journal to the error it throws", async () => {
+  // The other half: `runHunt` can only persist what `exploreUi` hands it.
+  const { createUiTool } = await import("./hunt-ui-tool.mjs");
+  const session = { act: async () => ({ ok: true, value: "read-it" }), close: async () => {} };
+  const err = await exploreUi(
+    { id: "p", title: "P", surface: "doc", rubric: "r", actionBudget: { maxActions: 5 } },
+    { id: "b", task: "t" },
+    {
+      repo: "/nope",
+      context: { deferrals: "", issues: "", cfg: {} },
+      sessionLog: [],
+      openSession: async () => session,
+      createServerImpl: async (opts) => ({ __tool: createUiTool(opts) }),
+      askImpl: {
+        withRetry: (fn) => fn(),
+        askStructured: async ({ mcpServers }) => {
+          await mcpServers.wafflebase.__tool({ action: { type: "read", reader: "doc.text" } });
+          throw new Error("error_max_turns");
+        },
+      },
+    },
+  ).then(() => null, (e) => e);
+
+  assert.ok(err, "it must still throw — a failed brief is not a successful one");
+  assert.equal(err.journal.length, 1, "the action it managed must survive the throw");
+  assert.equal(err.journal[0].value, "read-it");
+  assert.equal(err.actionCount, 1);
+  assert.ok(Array.isArray(err.refusals));
+});
+
 test("runHunt: the ledger suppresses a defect already dispositioned", async () => {
   const dk = uiDefectKey({ failingRef: 3 }, FUNNEL_JOURNAL, { personaId: "doc-writer" });
   const { deps } = funnelDeps({ seen: [{ fp: dk, keyVersion: 1, charterId: "doc-writer", verdict: "dropped", sha: "old" }] });
@@ -1025,4 +1411,117 @@ test("hunt-ui.mjs static-imports nothing third-party", () => {
       `static import of ${spec} — third-party imports must be lazy (await import)`,
     );
   }
+});
+
+test("uiScopedTitles: keeps every distinct scoping, so the report cannot hide one", () => {
+  // THE RUN THIS EXISTS FOR. Both verifiers confirmed the same real defect at high
+  // confidence; one appended an exclusion that was FALSE, and `scoped[0]` headlined
+  // that one while discarding the correct version.
+  const correct = "setBlockType omits notifyStyleApplied, so the control stays stale";
+  const withFalseExclusion = `${correct}; the shortcut path is unaffected`;
+  const verdicts = [
+    { verdict: "confirmed", confidence: "high", scopedTitle: withFalseExclusion },
+    { verdict: "confirmed", confidence: "high", scopedTitle: correct },
+  ];
+
+  assert.deepEqual(uiScopedTitles(verdicts), [withFalseExclusion, correct]);
+  assert.equal(uiScopedTitleDisagreement(verdicts), true);
+  // The headline is unchanged — this surfaces the alternative, it does not guess.
+  assert.equal(uiScopedTitle({ title: "hunter" }, verdicts), withFalseExclusion);
+
+  // Agreement is not disagreement, and identical prose is one title, not two.
+  const agreed = [{ scopedTitle: correct }, { scopedTitle: `  ${correct}  ` }];
+  assert.deepEqual(uiScopedTitles(agreed), [correct]);
+  assert.equal(uiScopedTitleDisagreement(agreed), false);
+
+  // Absent/blank/malformed verdicts contribute nothing rather than throwing — a
+  // verifier that errored must not manufacture a disagreement.
+  for (const junk of [null, undefined, [], [null], [{}], [{ scopedTitle: "   " }], "nope", 7]) {
+    assert.deepEqual(uiScopedTitles(junk), []);
+    assert.equal(uiScopedTitleDisagreement(junk), false);
+  }
+});
+
+test("the report shows both scopings, and says the heading is not a consensus", () => {
+  const md = renderUiReport({
+    runId: "r", headSha: "abc", personas: ["doc-writer"], stats: {}, skipped: [],
+    reported: [
+      {
+        personaId: "doc-writer", briefId: "b", surface: "doc",
+        claimed: { title: "hunter's version", severity: "major", oracle: "prediction", expected: "e", observed: "o" },
+        scopedTitle: "narrow A; the shortcut path is unaffected",
+        scopedTitles: ["narrow A; the shortcut path is unaffected", "narrow B"],
+        replay: { status: "reproduced", deterministic: true },
+      },
+    ],
+    dropped: [],
+  });
+  assert.match(md, /scoped this differently/i, "a disagreement must be visible in the report");
+  assert.match(md, /narrow B/, "the discarded scoping must appear");
+  assert.match(md, /not a consensus/i, "and the heading must not read as agreed");
+
+  // One scoping is the normal case and must NOT be dressed up as a disagreement.
+  const agreed = renderUiReport({
+    runId: "r", headSha: "abc", personas: ["doc-writer"], stats: {}, skipped: [],
+    reported: [
+      {
+        personaId: "doc-writer", briefId: "b", surface: "doc",
+        claimed: { title: "hunter's version", severity: "major", oracle: "prediction", expected: "e", observed: "o" },
+        scopedTitle: "narrow A", scopedTitles: ["narrow A"],
+        replay: { status: "reproduced", deterministic: true },
+      },
+    ],
+    dropped: [],
+  });
+  assert.doesNotMatch(agreed, /scoped this differently/i);
+});
+
+test("a capability the rubric advertises is one some brief actually asks for", () => {
+  // MEASURED, and it cost a live run to learn. `sheet-author`'s rubric was updated to
+  // describe a newly mounted formatting toolbar, twelve controls by name, with a worked
+  // round-trip example — and its two brief TASKS were left untouched. The explorer did
+  // exactly what it was asked (build a table, use formulas, navigate), never clicked a
+  // control, and never called either style reader. 100 actions, 37 predictions, all
+  // held, nothing proposed. The capability was mounted, documented, and unreachable.
+  //
+  // The rubric describes the SURFACE; the task is what the explorer is told to DO. A
+  // capability named only in the rubric is a capability nothing exercises, which reads
+  // downstream as "no defects in that area" — the same silent gap the reader-list drift
+  // test exists to close, one layer up.
+  for (const p of loadPersonas(CHARTERS_UI)) {
+    if (!/formatting toolbar IS mounted/i.test(p.rubric)) continue;
+    const tasks = p.briefs.map((b) => b.task).join("\n");
+    assert.match(
+      tasks,
+      /\bbold\b|\bitalic\b|\btoolbar\b|\bformat\b/i,
+      `${p.id}'s rubric advertises a toolbar, but no brief task directs the explorer at it — ` +
+        "the controls will sit unused and the run will read as a clean surface",
+    );
+  }
+});
+
+test("a seeded run records NO coverage, even when it proposed nothing", async () => {
+  // Coverage follows the ledger's rule for the same reason: a seeded run drives the
+  // surface against a FABRICATED fault, and letting it claim a control was explored
+  // would suppress that control for the next real run.
+  //
+  // The narrow version of this check would gate on the ledger being non-empty, which is
+  // how the bug got in: a seeded run that proposed nothing still CLICKED things, so it
+  // skipped the reset and returned coverage anyway. `cmdRun` refuses to write coverage
+  // for a seeded run regardless, but `runHunt` is exported and the invariant is its own.
+  const { deps } = funnelDeps({
+    exploreImpl: async () => ({
+      out: { candidates: [], summary: "nothing proposed" },
+      journal: [{ action: { type: "click", target: { name: "Bold" } }, ok: true }],
+      actionCount: 1,
+      refusals: [],
+    }),
+  });
+
+  const clean = await runHunt({ ...deps, fault: null });
+  assert.ok(Object.keys(clean.coverageAdds).length > 0, "a clean run that clicked something DOES record coverage");
+
+  const seeded = await runHunt({ ...deps, fault: "drop-second-char" });
+  assert.equal(seeded.stats.proposed, 0, "this run proposes nothing, so the ledger stays empty");
+  assert.deepEqual(seeded.coverageAdds, {}, "and coverage must still be discarded");
 });

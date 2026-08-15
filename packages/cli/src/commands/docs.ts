@@ -84,9 +84,9 @@ export function registerDocsCommand(program: Command) {
             (d) => (d.type ?? 'sheet') === filterType,
           );
         }
-        output(data, fmt, opts.quiet);
+        output(data, fmt);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -106,9 +106,9 @@ export function registerDocsCommand(program: Command) {
         }
         const res = await getClient(opts).createDocument(title, type);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, fmt, opts.quiet);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -121,9 +121,9 @@ export function registerDocsCommand(program: Command) {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, fmt, opts.quiet);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -140,9 +140,9 @@ export function registerDocsCommand(program: Command) {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, fmt, opts.quiet);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -159,9 +159,9 @@ export function registerDocsCommand(program: Command) {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, fmt, opts.quiet);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -218,7 +218,7 @@ export function registerDocsCommand(program: Command) {
           quiet: opts.quiet,
         });
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -324,7 +324,7 @@ export function registerDocsCommand(program: Command) {
 
         writeBinary(bytes, file, { force: local.force, quiet: opts.quiet });
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -367,7 +367,7 @@ export function registerDocsImportCommand(doc: Command) {
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 }

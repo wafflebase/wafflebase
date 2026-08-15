@@ -253,3 +253,48 @@ test("commitCheckRuns: a non-array check_runs contributes nothing, not itself", 
     [{ id: 2 }],
   );
 });
+
+// --- permissionResolver -----------------------------------------------------
+
+test("permissionResolver: accepts write-ish levels from either field", async () => {
+  const { permissionResolver } = await import("./gh-checks.mjs");
+  // The legacy `permission` field collapses maintain→write on some responses and
+  // the granular `role_name` is absent on others; the workflows accept either.
+  for (const d of [{ permission: "admin" }, { permission: "maintain" }, { permission: "write" }, { role_name: "maintain" }]) {
+    assert.equal(permissionResolver({ api: () => d })("u"), true, JSON.stringify(d));
+  }
+  for (const d of [{ permission: "read" }, { permission: "none" }, { role_name: "triage" }, {}]) {
+    assert.equal(permissionResolver({ api: () => d })("u"), false, JSON.stringify(d));
+  }
+});
+
+test("permissionResolver: an API failure is null, not false", async () => {
+  const { permissionResolver } = await import("./gh-checks.mjs");
+  // A 404 really is "not a collaborator", but a 403/5xx is "we could not ask" and
+  // the CLI's exit status cannot tell them apart — so the caller decides.
+  const r = permissionResolver({ api: () => { throw new Error("gh: 502"); }, log: () => {} });
+  assert.equal(r("u"), null);
+  assert.equal(r(""), null, "an empty login is unknown, never a lookup");
+  assert.equal(r(undefined), null);
+});
+
+test("permissionResolver: memoizes per login, failures included", async () => {
+  const { permissionResolver } = await import("./gh-checks.mjs");
+  let calls = 0;
+  const r = permissionResolver({ api: () => { calls++; return { permission: "write" }; } });
+  r("a"); r("a"); r("b"); r("a");
+  assert.equal(calls, 2, "one call per distinct login");
+  // A login that failed must not be re-asked for every comment on the PR.
+  let boom = 0;
+  const r2 = permissionResolver({ api: () => { boom++; throw new Error("404"); }, log: () => {} });
+  r2("x"); r2("x"); r2("x");
+  assert.equal(boom, 1);
+});
+
+test("permissionResolver: the login is URL-encoded into the path", async () => {
+  const { permissionResolver } = await import("./gh-checks.mjs");
+  let seen = "";
+  permissionResolver({ api: (a) => { seen = a[1]; return {}; } })("odd name/../x");
+  assert.equal(seen.includes("/../"), false, "a login must not escape the path");
+  assert.match(seen, /collaborators\/odd%20name%2F\.\.%2Fx\/permission$/);
+});

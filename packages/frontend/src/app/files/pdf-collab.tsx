@@ -103,7 +103,10 @@ export function PdfCollabStateProvider({
   const store = useMemo(() => (doc ? new PdfCommentStore(doc) : null), [doc]);
   useEffect(() => () => store?.dispose(), [store]);
 
-  const { threads, addThread, addReply, setResolved } = usePdfComments(store);
+  const { threads, addThread, addReply, setResolved } = usePdfComments(
+    store,
+    documentId,
+  );
   const [panelOpen, setPanelOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);

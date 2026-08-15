@@ -58,6 +58,14 @@ export function describeApproximation(kind: string, count: number): string {
   switch (kind) {
     case "shape-kind":
       return `${count} shape(s) with an unrecognized Miro shape type imported as rectangles`;
+    case "parent-position":
+      // Miro positions a framed item against its frame, so an unresolvable
+      // frame leaves no absolute coordinate to recover and the item lands at
+      // its frame-local offset instead. The frame going missing is only the
+      // common cause — a malformed parent reference, a parent cycle, and
+      // anything descended from either land here too, with the frame itself
+      // present. So the wording names the unresolved frame, not a missing one.
+      return `${count} item(s) may be misplaced — their Miro frame could not be resolved`;
     default:
       return `${count} ${kind} approximated`;
   }

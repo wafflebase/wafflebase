@@ -196,7 +196,66 @@ Hook scripts live in `scripts/hooks/`.
 | `pnpm verify:frontend:interaction` | Browser interaction regression (cell input, formula, scroll) |
 | `pnpm verify:browser:docker` | Browser visual+interaction via Docker (CI-consistent) |
 | `pnpm verify:entropy` | Dead-code (knip) + doc-staleness entropy gate |
-| `pnpm verify:self` | Runner: `verify:fast` + builds + chunk budgets + entropy; generates `.harness-reports/` JSON |
+| `pnpm verify:doc-index` | Index-coverage gate — every package, design doc and top-level script is reachable from its README |
+| `pnpm verify:self` | Runner: 28 lanes — per-package typecheck/test, builds, chunk budgets, entropy; generates `.harness-reports/` JSON |
+
+`verify:entropy` and `verify:doc-index` are complements over the same prose and
+must not be folded together. Entropy walks *links → disk*: for each reference in
+`docs/design/**/*.md` it checks the target still exists, which catches a file
+that moved or was deleted. Doc-index walks *disk → index*: it catches a file
+that was added and never indexed, which nothing points at and which therefore
+leaves no broken reference to find. That second direction is why
+`packages/README.md` was missing four of eleven packages while every link in it
+still resolved.
+
+Entropy reads every design doc, at any depth. It used to read only the top
+level, which meant 24 of 110 — the convention it enforces was contradicted 886
+times in the subdirectories it never opened. It resolves a reference the way a
+reader does: against the repository root, the citing document's own directory,
+the design directory, and finally the tail of a tracked path, so the
+package-relative and elided forms the docs actually use resolve instead of being
+reported as missing.
+
+What it cannot do is tell drift from a doc naming a file on purpose to record
+that the file does *not* exist — "a mixed selection renders no per-type section,
+so there is no `mixed-controls.tsx`" is accurate prose, not a stale link. Those
+carry an `entropy.docStaleness.advisory` entry in `harness.config.json`, each
+with a reason, printed on every run and never counted toward failure. Prefer the
+`doc` + `ref` shape over `pattern`: it downgrades one named reference and leaves
+the rest of that doc blocking, so a doc carrying a planned-file name today still
+fails on real drift tomorrow.
+
+Entropy still reads no README outside the design tree, so doc-index drops any
+link resolving to a nonexistent path before counting it as coverage, which is
+the only dead-link check the package and script indexes get.
+
+Coverage is top-level by design. A directory counts as covered once its index
+names it — `scripts/agent/` alone holds over a hundred files, and a gate
+demanding a row per file produces an index nobody maintains. The same rule lets
+one umbrella row cover a subtree: `docs/design/README.md` links `docs/tables/`
+once, and an ancestor-directory link covers the per-feature docs beneath it, so
+no exception list has to be kept in the gate.
+
+**Lanes are a graph, not a list.** Each lane declares what it is *about*
+(`pkgs` / `tags` / `anyPkg`) and what it needs *built* (`needs`), and selection
+takes the transitive closure over `needs` — `frontend:test` resolves
+`@wafflebase/core` through that package's `exports` to a gitignored `dist/`, so
+selecting it without `core:build` would run a broken suite rather than a smaller
+one. `needs` edges must point backwards in the array; `laneOrderViolations`
+refuses to start otherwise, because the selection closure cannot catch a forward
+edge and the resulting failure surfaces inside an unrelated package.
+
+The edges were established per package rather than assumed: no engine package has
+tsconfig `paths` (so sheets/docs/slides/board/cli resolve through `dist/`); the
+frontend aliases the five engines to `src/` in `packages/frontend/vite.config.ts` and does *not*
+alias core (so its lanes need only `core:build`); the backend's jest
+`moduleNameMapper` maps every workspace import, core included, to `src/` (so
+`backend:test` needs no build, while `backend:build` does); and `notes` and
+`design-editor` declare no workspace dependency at all.
+
+`pnpm verify:fast` is unchanged and remains the `pre-commit` gate. `verify:self`
+no longer shells out to it — the duplicated `pnpm core build` in that chain is
+why.
 
 **Branch-integrity gate.** `verify:self` records `HEAD` before the lanes and
 re-reads it after each one. A lane that moves `HEAD`, or leaves it unreadable,
@@ -235,14 +294,452 @@ reached a public PR as a diff appearing to delete every file in the repo.
 
 ### CI Contract
 
-- `verify-self` job runs first (no external services).
+- `changes` job runs first and decides what the change can affect (see
+  [Path-aware CI](#path-aware-ci)). Every gate reads its outputs.
+- `verify-self` job depends on `changes` (no external services).
 - `verify-browser` job depends on `verify-self` and runs browser visual +
   interaction tests inside a Docker container for font-rendering consistency.
 - `verify-integration` job depends on `verify-self` and provisions PostgreSQL.
 - Harness reports (`.harness-reports/`) are uploaded as CI artifacts (14-day
   retention).
-- On PRs, CI automatically posts a verification summary comment with per-lane
-  results for both `verify:self` and `verify:integration`.
+- **`.github/workflows/ci.yml` itself is read-only** (`permissions: contents: read`). Every write to
+  a pull request happens in `.github/workflows/ci-report.yml`; see
+  [Reporting onto a fork PR](#reporting-onto-a-fork-pr).
+- On PRs, `.github/workflows/ci-report.yml` posts one verification comment
+  covering `verify-self`, `verify-browser`, `verify-integration` and the per-lane
+  detail, and applies `ci-config-changed` when the mapping was touched.
+- CI triggers on `push` to `main`, `pull_request` targeting `main`, and
+  `merge_group` (see below).
+
+### Reporting onto a fork PR
+
+`.github/workflows/ci.yml` used to post its own verification comment, and **it never worked for how
+this project actually receives contributions.** A fork's `pull_request` run gets a
+read-only `GITHUB_TOKEN` and no secrets, so `createComment` failed silently; the
+step's `continue-on-error` is why nobody noticed. Every merged PR from #789 to
+#798 came from a fork and not one received the comment.
+
+It cannot be fixed by adding a token to `.github/workflows/ci.yml`, for two independent reasons:
+
+1. **Secrets are withheld from a fork's `pull_request` run**, so
+   `secrets.AGENT_APP_ID` would be empty on exactly the PRs that need it. The
+   `CODECOV_TOKEN` note in `verify-self` records the same constraint.
+2. Even if it were populated, `verify-self` runs `pnpm verify:self` — arbitrary
+   build and test code from the PR's tree. A write-capable token in that
+   environment is a token the PR author can exfiltrate.
+
+So the writes moved to a `workflow_run`-triggered reporter, which runs in the base
+repository with access to secrets and runs *its own* copy from the default branch
+rather than the PR's. This is the same reasoning `.github/workflows/agent-summarize.yml` and
+`.github/workflows/agent-review-on-demand.yml` apply from `issue_comment`, and it reuses their App:
+`actions/create-github-app-token` with `AGENT_APP_ID` / `AGENT_APP_PRIVATE_KEY`,
+scoped to `issues: write` (which covers both PR comments and PR labels).
+
+**The invariant that makes the token safe:** the reporter performs no checkout of
+pull-request code, runs no `pnpm`, and executes nothing from the triggering run.
+It reads two artifacts as *data* and calls the API. Adding a checkout of
+`head_sha` or a build step there would hand the token to the fork.
+
+Consequences worth knowing:
+
+- The resolution and the PR number travel in a `ci-context` artifact, because
+  `github.event.workflow_run.pull_requests` is **empty for a fork PR** — it is
+  populated only for same-repo branches, the one case that never needed this.
+- Artifact contents are attacker-controlled (lane names come from the PR's own
+  `scripts/verify-self.mjs`, reasons embed its diff paths). They are only interpolated
+  into markdown, never executed, but are still collapsed for `|`, backticks,
+  angle brackets and newlines so a crafted name cannot forge table rows or
+  smuggle HTML, and length-capped so it cannot flood the comment.
+- Heavy-job outcomes are read from the run's job list rather than a second
+  artifact, so *skipped* is distinguishable from *never wrote a file*. That is
+  also what collapses the old two-phase "⏳ pending…" comment into one.
+- Without the App configured the reporter degrades to the ambient token, which
+  still works for same-repo PRs. The `changes` job's **run summary** needs no
+  token at all, so it remains the copy that always survives.
+- **The PR number is bound to the run before anything is written.**
+  `ci-context/pr-number` is produced by a job that ran the pull request's own code,
+  so on a fork it is attacker-chosen — and unvalidated it aims the App token at any
+  issue in the repository. The reporter now requires the named pull request's head
+  to be this run's commit (`run.head_sha`, which is the PR head, not the merge
+  commit). A re-run of a superseded commit therefore reports nothing; that is the
+  safe direction, since a stale report is worse than a missing one and the newer
+  run posts its own.
+- **`ci-config-changed` tracks the current state in both directions, and is
+  computed from data the pull request cannot write.** It shipped add-only, which
+  made it monotonic: whatever set it once — a since-reverted gating file, or the
+  `base.sha...HEAD` bug above — kept it set for life, and a reviewer could not tell
+  a stale label from a live one. Making it removable is what forced the second
+  half. `areas.ciConfig` was the obvious input and is the wrong one, twice over:
+  it comes from the fork-written artifact, so a pull request could delete its own
+  warning; and `false` is **ambiguous at the producer**, because `classify()` emits
+  it for every fail-safe resolution too (no diff base, a failed `git diff`, an
+  empty diff), so it can mean "no gating file changed" or "we never found out".
+  Only the first may clear a label. So the reporter recomputes: the file list from
+  `pulls.listFiles`, the globs from `ci.ciConfig` on the **default branch**. Both
+  are beyond the pull request's reach, which makes the label right by construction
+  rather than by trusting its subject. It holds the label — never clears it — when
+  the globs are unreadable or the file list came back truncated at the API's 3000-file
+  cap, on the same principle.
+
+  Two consequences. The workflow carries its own copy of `globToRegExp`, because it
+  deliberately checks out no code; `scripts/test/ci-workflow.test.mjs` extracts that
+  copy from the YAML and asserts it agrees with `scripts/changed-areas.mjs` over a
+  glob × path corpus, so the duplication cannot drift into disagreeing with the run
+  it describes. And dropping monotonicity costs ordering: `concurrency` is keyed on
+  the triggering run, so two runs for one pull request do not serialise and an older
+  one finishing last can write a stale answer. Accepted — the next run corrects it,
+  the comment body already had that property, and nothing mechanical reads the label.
+
+### Path-aware CI
+
+An agent-only PR used to build a Playwright image and provision Postgres and
+Yorkie to run tests that cannot reach `scripts/agent/`. Two layers fix that.
+
+**Why it is a job and not a trigger.** A workflow filtered out by `on: paths:`
+produces **no check run at all**. `main`'s required contexts then never report,
+and a merge-queue entry waits on them until its status-check timeout dequeues it.
+A job that runs reports under a name the queue recognises.
+
+**And why the gate is on the steps, not on the job.** The obvious version — give
+the heavy jobs a job-level `if:` and let GitHub record them as `skipped`, which
+does satisfy a required check — is wrong, and #803 shipped it before a real
+merge-queue entry proved it. **A job with a `strategy.matrix` that is skipped by
+its own `if:` never expands the matrix**, so it files its check run under the bare
+job name. Measured on the `merge_group` SHA for #799:
+
+```
+verify-self (22.x)      success     ← ran, so the matrix expanded
+verify-browser          skipped     ← BARE NAME
+verify-integration      skipped     ← BARE NAME
+```
+
+`main` requires `verify-browser (22.x)` and `verify-integration (22.x)`. Neither
+name existed on that SHA, so the entry sat on *"Expected — Waiting for status to
+be reported"* and would have been dequeued at the status-check timeout — the exact
+failure the job-level filter was chosen to avoid, reached by a different route:
+not a missing check *run*, a missing check *name*. MAINTAINING.md's warning that
+"required check names must keep matching" is about renaming a job; skipping a
+matrix job renames it too.
+
+So `verify-browser` and `verify-integration` always run and always expand, and
+every step inside them carries the gate. When there is nothing to test they no-op
+and report success in seconds — the semantics the skip was reaching for, under a
+name that exists. `scripts/test/ci-workflow.test.mjs` fails if either job regains
+a job-level `if:` referencing the filter decision, or if a step loses its gate.
+
+A matrix job *may* still carry an `if:` that can only be false when the run is
+already doomed: `needs.verify-self.result == 'success'` is fine, because a failed
+`verify-self (22.x)` reports the failure and the entry is dequeued rather than
+stranded.
+
+**The mapping is an allow-list.** `harness.config.json`'s `ci.inert` lists the
+only paths permitted to shrink a run; a changed path matching nothing forces the
+full suite. A new package, a new top-level directory, or a file nobody classified
+is therefore covered by default, with no catch-all rule to remember. Never invert
+this into a list of paths that *do* trigger things.
+
+**Two workspace packages are inert, and listing one takes a second edit.**
+`packages/documentation` (the VitePress site) and `packages/design-editor` (the
+dev-only Vite plugin) are leaves: no manifest in the workspace depends on either,
+and `packages/frontend/vite.config.ts` does not register the plugin, so neither
+can reach the engines, the frontend, or the heavy jobs.
+
+The second edit is the trap. An inert match **short-circuits** the `packages/`
+classification in `classify`, so an inert package never enters `changedPkgs`,
+never enters the reverse closure, and never appears in `packages` — which means a
+lane selecting on `pkgs` alone becomes **unreachable**, and so does `anyPkg`.
+Left there, the entry would make the package skippable *and* untested, which is
+strictly worse than not listing it: the lane still exists, still looks like
+coverage, and never runs. So each inert package's entry carries a tag its lanes
+also claim, and `scripts/test/verify-self-lanes.test.mjs` asserts that every tag
+in `ci.inert` is claimed by some lane.
+
+**How many lanes have to claim the tag is a per-package question**, and the
+answer differs for these two:
+
+| Package | In `knip.json`? | Tag claimed by |
+| --- | --- | --- |
+| `documentation` | no | `documentation:build` |
+| `design-editor` | **yes** (added by #819) | `design-editor:check` **and** `verify:entropy` |
+
+`design-editor` needs the second claimant because knip analyses it, so its
+dead-code pass is a gate a change there can genuinely fail — and `anyPkg`, which
+is how `verify:entropy` normally gets selected, cannot see an inert package. With
+only `design-editor:check` claiming the tag, dead code added under
+`packages/design-editor/` would pass its PR and first fail on `main`'s push run.
+That cost the four engine builds in entropy's `needs`; a design-editor change
+selects 6 of 28 lanes and still skips both heavy jobs. The general rule when
+listing a package inert: **enumerate every gate that can currently fail on it,
+and check each one's route in is a tag rather than `pkgs` or `anyPkg`.**
+
+**Five unrelated failures all mean "run everything"** — no diff base, an
+unreadable event payload, a failed `git diff`, an empty diff, a corrupt
+hand-off — and each is a test in `scripts/test/changed-areas.test.mjs` rather
+than a claim. `ci.ciConfig` adds a sixth: a PR that edits the mapping is measured
+by the full suite, so it cannot use the filter to grade its own homework.
+`.github/CODEOWNERS` is the review half of that guard.
+
+**The scope of "cannot grade its own homework", stated exactly.** It is a guard
+against *mistakes*, not against a hostile author. The `changes` job runs
+`scripts/changed-areas.mjs` **from the pull request's own tree**, so a PR that
+rewrites the resolver to report `full: false, heavy: false` gets the reduced run it
+asked for, and `verify-browser` / `verify-integration` report `skipped`, which
+branch protection counts as passing. `ciConfig` cannot catch that, because the code
+deciding `ciConfig` is the code under review. What remains is human: the diff shows
+the tampering, `.github/CODEOWNERS` puts a maintainer on it, and merge still needs
+an approving review.
+
+Closing it mechanically means resolving from the base branch rather than the head —
+the pattern `ci-report.yml` already uses for the label (it reads `ci.ciConfig` from
+the default branch precisely because the PR's copy is untrusted). That is a change
+to `ci.yml`'s `changes` job, not to the resolver, and is deliberately **not** part
+of the diff-base work; it is tracked as Phase 5 in
+`docs/tasks/active/20260812-path-aware-ci-todo.md`. Until then, treat a reduced run
+as evidence about an honest branch only.
+
+**Both ends of the diff come from the event payload, and that is load-bearing.**
+`resolveRefs` returns `{ base, head }`; on a `pull_request` those are
+`base.sha` and `head.sha`, never the checked-out `HEAD`. `actions/checkout`
+leaves `HEAD` at the **merge commit** for that event, and diffing a merge commit
+against `base.sha` does not describe the pull request — `merge-base(base.sha,
+merge_commit)` is `base.sha` itself whenever the merge already contains it, so
+the three-dot form collapses to two-dot and sweeps in whatever the merge brought
+along. Measured on #805, whose real change is five inert files:
+
+```
+base.sha ... merge_commit   ->  75 files, 18 of them ciConfig   (full run)
+base.sha ... head.sha       ->   5 files,  0 ciConfig           (correct)
+base.sha ..  head.sha       ->  15 files,  1 ciConfig           (full run)
+```
+
+#805 therefore ran the whole suite. That is the safe direction and it is useless:
+**any branch behind its base inherits its base's recent history as "changed"**,
+and in an active repository that is most branches — so the filter was quietly
+doing nothing for them while looking like it worked. The dot count matters too,
+in the opposite direction: two-dot compares the trees, so commits the base has
+and the head lacks read as changes belonging to the pull request. Three-dot
+against the payload's `head.sha` is the only form that is right on both counts,
+and both are pinned by tests.
+
+**`base.sha` is not the base branch's tip, and is resolved last for that reason.**
+GitHub stamps it when the pull request is created or synchronized and then leaves
+it alone, while `refs/pull/N/merge` is rebuilt against the base's *current* tip. So
+the two ends drift apart on their own, without anyone touching the branch, and the
+gap grows with every merge to `main`. #817 is the clean demonstration, because it
+ran twice without changing:
+
+```
+02:08  head 8de60d6fd   full=false heavy=false ciConfig=false   agent, docsProse
+04:48  head 637226ef1   full=true  heavy=true  ciConfig=true    "a CI gating file changed"
+```
+
+Four commits reached `main` in between. Nothing in #817's own five files changed;
+`base.sha...merge_commit` grew to 39 files, three of them `ciConfig`
+(`package.json`, `scripts/verify-self.mjs`, `scripts/verify-doc-index.mjs`) — all
+of them #821's, none of them #817's. The visible cost was a false
+`ci-config-changed` label on a pull request that never touched CI config, which is
+exactly the kind of alarm that trains reviewers to ignore the alarm.
+
+Three-dot absorbs a stale base only while the branch is **behind** it: the fork
+point is still the fork point. It stops absorbing anything the moment the branch
+goes **ahead** — a rebase, a force-push, or the **Update branch** button — because
+`head` then contains those commits, `merge-base(stale_base, head)` collapses to
+`stale_base`, and the base branch's history is charged to the pull request again.
+Measured on a rebase over two unrelated `main` commits:
+
+```
+stale base.sha ... rebased head  ->  feature.txt, harness.config.json, other.txt
+real base tip  ... rebased head  ->  feature.txt
+```
+
+That is the pre-merge state of nearly every pull request, so `resolveRefs` takes
+the base from the first of three sources to resolve:
+
+| Order | Source | Why it can be trusted / why it is not first |
+| --- | --- | --- |
+| 1 | `refs/pull/N/merge`'s **first parent** | The base tip GitHub merged against, as fresh as the run. Absent when the merge ref fast-forwarded — which is exactly what a rebased branch allows, hence source 2 |
+| 2 | `origin/<base.ref>` | Independent of the merge ref's shape |
+| 3 | `payload.base.sha` | **Last.** The only one that can be stale; reaching it over-reports, which merely costs a full run |
+
+Source 1 is only trusted when the merge commit's *second* parent is the payload's
+`head.sha` — that signature is what makes the first parent the base tip rather than
+some unrelated merge the branch happens to end on.
+
+**The resolution has three consumers, trusted differently on purpose.**
+
+| Field | Drives | Rule |
+| --- | --- | --- |
+| `full` | whether filtering happens at all | `true` disables selection entirely: every `verify:self` lane runs. Set by a `push` to `main`, a `ciConfig` change, and every fail-safe route |
+| `packages` | which lanes run **when `full` is false** | reverse-dependency closure of the changed workspace packages |
+| `heavy` | `verify-browser`, `verify-integration`, the coverage steps | **any** workspace package changed |
+
+`full` and `packages` are separate because they answer different questions —
+"is selection on?" and "select what?" — and conflating them is how a fail-safe
+turns into a no-op: a resolution with `full: false` and no usable `packages`
+selects *nothing*, which is why `resolve()` validates the shape of a handed-off
+resolution rather than trusting that it parsed.
+
+The closure is derived from each `packages/*/package.json`, so it cannot go stale
+when someone adds a dependency — the dependency *is* the mapping. The two heavy
+jobs get the blunter rule because `verify-integration` builds core + docs +
+slides + sheets and its e2e set includes `docs-cli-roundtrip`,
+`notes-cli-roundtrip` and `slides-pptx-import`: an engine-package change with no
+backend file in it can break that job. Narrowing them to the closure is deferred
+until the mechanism has been observed working.
+
+**A reduced run must not hide that it was reduced.** The `changes` job writes its
+decision and reasons to the run summary — the copy that needs no token and
+therefore always survives — and `.github/workflows/ci-report.yml` leads the PR
+comment with the same reasons and names the `full-ci` label that overrides them.
+Filtered lanes render as `⊘` and skipped-after-failure as `⏭️`, because collapsing
+the two would let a real failure read as a deliberate omission.
+
+**`filtered` is a distinct lane status, not a reuse of `skip`.**
+`scripts/agent/summarize-ci.mjs` renders `skip` as "an earlier lane failed, so
+this never got its turn". An unrecognised status is merely absent from that
+tool's counts; a reused one would have made it state something untrue about
+every filtered lane. Teaching it to render `filtered` is an outstanding
+follow-up.
+
+`overall` is `some(fail)`, not `every(pass)`: the two were equivalent only while
+`skip` could not appear without a `fail` ahead of it, which is exactly what
+`filtered` breaks.
+
+**`full-ci`** on any PR forces every gated job — one click, no rebase, and not
+fork-specific. It cannot work on `merge_group`, whose payload carries no PR
+labels.
+
+### Deploy gate
+
+`.github/workflows/publish-ghpage.yml` (wafflebase.io) and `.github/workflows/docker-publish.yml` (`:latest`) used to
+trigger on `push: main` as separate workflows with no `needs:`. They **raced**
+ci.yml rather than waiting for it, so nothing anywhere enforced "full CI before
+deploy" and a red `main` published anyway. Both now trigger on
+`workflow_run: [CI] completed` restricted to `main`.
+
+What makes the gate meaningful rather than ceremonial:
+
+- **`push` to `main` is never path-filtered.** `scripts/changed-areas.mjs` short-circuits
+  that event to `full: true`. A filtered main run would make the gate theatre.
+- **Both check out `github.event.workflow_run.head_sha`, not the branch.** A
+  `workflow_run` starts after its trigger finished, so `main` may already have
+  advanced to a commit whose CI has not reported.
+- **Four `if:` clauses, none redundant** — `conclusion == 'success'`,
+  `event == 'push'` (CI also runs on `pull_request` and `merge_group`, and a
+  queue commit need never reach `main`), `head_branch == 'main'`, and
+  `head_repository == github.repository`. The last two matter more than they
+  look: `workflow_run.branches` filters on the *triggering run's head branch*,
+  and a fork's default branch is usually also called `main`, so a fork PR opened
+  from its own `main` would otherwise satisfy the trigger filter.
+- **Chain depth is unchanged.** GitHub allows three levels of `workflow_run`
+  chaining and `.github/workflows/ci.yml` → `.github/workflows/agent-review-panel.yml` → `.github/workflows/capture-collect.yml`
+  already uses all three with no headroom. These are **siblings** at level 2, not
+  new links. Nothing may be inserted between CI and them.
+- **`concurrency` with `cancel-in-progress` answers "deploy every few PRs?"**
+  without a policy: a burst of merges queues several deploys, all but the newest
+  are cancelled, and one deploy publishes the newest CI-verified tree. Safe
+  because both deploys are additive and self-reconciling. `docker-publish`'s
+  group is keyed so a `release` publish can never be cancelled by a later merge.
+- **`packages/documentation` is now built by a lane.** Nothing built it before;
+  `.github/workflows/publish-ghpage.yml` builds it via `pnpm build:all`, so a broken docs site
+  failed the *deployment*. That is survivable only while the deploy is
+  unconditional.
+- **`paths-ignore` had to be reimplemented in a step.** `workflow_run` supports no
+  path filter, and dropping `.github/workflows/publish-ghpage.yml`'s `packages/backend/**` ignore
+  would shorten the window in which a client holding a cached `index.html` can
+  still fetch its assets (only `KEEP_COUNT=3` deployments are retained).
+
+The cost, stated plainly: a production deploy now lands roughly a full-CI run
+after merge instead of immediately. That replaces a race in which a red `main`
+published.
+
+### Merge queue
+
+`main`'s three required checks — `verify-self (22.x)`, `verify-browser (22.x)`,
+`verify-integration (22.x)` — are green against the PR's own branch, not against
+what `main` will actually contain once the PR lands. On a repository merging
+several PRs a day that gap costs a rebase per PR: rebase onto `main`, wait ~18
+minutes for CI, discover `main` moved again, repeat. Nothing is wrong with the
+change; the queue behind it moved.
+
+GitHub's merge queue closes that gap. A contributor clicks **Merge when ready**
+instead of rebasing; GitHub builds a throwaway
+`gh-readonly-queue/main/pr-<n>-<sha>` branch holding that PR merged onto `main`'s
+current tip plus every PR ahead of it in the queue, requests the required checks
+against that *speculative merge*, and merges when they pass. Checks now run
+against the tree that will exist post-merge, which is the property a
+pre-merge-only gate cannot give.
+
+What the queue does **not** do is reduce the number of CI runs. Each queue entry
+gets its own speculative build, so runs stay roughly linear in queued PRs — and
+the queue *adds* runs on top of the ones a PR's own pushes already trigger. Two
+settings are easy to misread here:
+
+- **Build concurrency** is "the maximum number of `merge_group` webhooks to
+  dispatch … throttling the total amount of concurrent CI builds". It caps how
+  many speculative builds run at once. A throughput and cost-spike dial, not a
+  total-work dial.
+- **Merge limits** (minimum / maximum) batch the *merges*, not the builds.
+  GitHub's docs are explicit: "Merge limits do not combine `merge_group` builds.
+  Merge limits only affect merges to the base branch once one or more
+  `merge_group` has satisfied build checks." Raising the maximum lets several
+  already-validated entries land together; it does not make them share a run.
+
+So the queue is not a CI-cost optimisation, and anything claiming it batches
+several PRs into one run is wrong. What it buys is the two things a
+pre-merge-only gate cannot: checks against the post-merge tree, and a human no
+longer sitting in a rebase-and-wait loop.
+
+**CI's side of the contract:**
+
+- `.github/workflows/ci.yml` triggers on `merge_group: types: [checks_requested]`. This is load
+  bearing — the queue waits on the required contexts by name, so if they never
+  start the entry sits until the status-check timeout expires and is dequeued.
+  The trigger must therefore be merged *before* "Require merge queue" is
+  enabled, and is inert until then (no queue, no event).
+- Required contexts are matrix job names and do not vary by event, so enabling
+  the queue needs no change to the required-check list.
+- The two PR-comment steps are already guarded on
+  `github.event_name == 'pull_request'`. A merge-group run has no PR to comment
+  on (`context.issue.number` is unset), so they skip rather than fail.
+- Codecov upload is skipped on `merge_group`: the queue SHA need not ever reach
+  `main` (a failing entry is dequeued, and the entries behind it are rebuilt
+  without it), so coverage filed against it is unreachable from any branch. The
+  `push` run on `main` covers the merged tree.
+- The `workflow_run` consumers (`agent-review-panel`, `agent-iterate-ci`) stay
+  inert in queue context without modification. Both gate on
+  `head_branch.startsWith('agent/')` plus a `pulls.list` lookup by head branch;
+  `gh-readonly-queue/main/...` matches neither, so `managed` resolves `false` and
+  the expensive jobs skip. Review and the auto-fix loop belong to the PR, not to
+  the speculative merge.
+- Runner cost rises by roughly one CI run per queue entry, on top of the runs a
+  PR's own pushes already trigger — with no grouping discount, per the settings
+  above. At ~18 minutes wall clock (`verify-self` ≤9.3 min, then
+  `verify-browser` ≤9.3 and `verify-integration` ≤4.4 in parallel) a 60-minute
+  status-check timeout leaves ~3x headroom. Build concurrency is the only lever
+  on the cost *spike*; the total is what it is.
+
+**Residual risk.** A `merge_group` run executes the PR's code in the *base*
+repository, so it is not sandboxed the way a fork's `pull_request` run is (that
+one gets a read-only token and no secrets). Concretely, in this workflow that
+means the PR's code runs alongside a `GITHUB_TOKEN` carrying the workflow-level
+`pull-requests: write` and `issues: write`, and alongside any secret the workflow
+references — here only `CODECOV_TOKEN`, whose sole step is skipped in queue
+context, so it is not put into the environment of a queue run at all. It does not
+mean arbitrary access to every repository secret: a run can only reach secrets
+the workflow itself references.
+
+Only users with write access can queue a PR, so this is the trust boundary that
+already governs merging — but it moves code execution one step earlier, to
+queueing rather than merge. Review before queueing, exactly as before merging.
+Tightening the workflow-level `permissions` to per-job least privilege would
+shrink the `GITHUB_TOKEN` half of this and is worth doing, but it is a change to
+the `pull_request` path too, so it belongs in its own change rather than riding
+along with the trigger.
+
+Enabling the queue is a repository-admin setting, not a workflow change; the
+runbook and recommended parameters live in
+[MAINTAINING.md](../../MAINTAINING.md#merge-queue).
 
 ## Dependency Layering
 
@@ -269,6 +766,52 @@ database → auth/user/document → controllers/modules
 - `database`: cannot import auth, user, document, datasource, share-link
 - `auth`: cannot import document, datasource, share-link
 - `user`: cannot import auth, document, datasource, share-link
+
+## Engine Package Builds
+
+The five engine packages (`docs`, `sheets`, `slides`, `notes`, `board`) plus
+`core` build in two steps, and the order is load-bearing:
+
+```sh
+vite --config vite.build.ts build   # JS bundle; emptyOutDir wipes dist/ first
+tsc -p tsconfig.build.json          # declarations only, into the same dist/
+```
+
+Vite owns the JS, `tsc` owns the declarations. Declarations emitted *before*
+the vite step would be wiped by its `emptyOutDir`.
+
+`include`/`exclude` live in the build tsconfig (e.g.
+`packages/docs/tsconfig.build.json`), never in the package's main
+`packages/docs/tsconfig.json` — `pnpm <pkg> typecheck` reads the main one, so
+excluding `test` there would silently drop test typecheck coverage from
+`verify:fast`.
+
+These packages previously used `vite-plugin-dts` with `rollupTypes: true`,
+which runs `@microsoft/api-extractor` to bundle each entry into a single
+declaration file. That is a *publishing* affordance, and no engine package is
+published — every one is `private: true`, and the sole npm artifact
+(`@wafflebase/cli`) ships no declarations at all (`tsup` is configured
+`dts: false`) because it bundles the engines' **JS** inline. The rollup cost
+three things: it was the slowest step of each engine build; it hard-crashed
+(`InternalError: The referenced path was not found`) whenever a second build
+of the same package deleted its intermediate declaration files mid-analysis;
+and a crashed rollup left the entry declaration as a stub re-exporting an
+already-deleted directory.
+
+### The `verify:dts` lane
+
+Every consumer tsconfig sets `skipLibCheck: true`, so a `dist/` with holes in
+its declaration graph typechecks green and silently degrades to `any`.
+`scripts/verify-dts-entries.mjs` walks each package's declared `types` and
+`exports.*.types` entries, follows every relative specifier transitively, and
+fails on the first that does not resolve.
+
+It runs in two places: as a `verify:self` lane after the engine build lanes,
+and in `.github/workflows/npm-publish.yml`, which runs no typecheck of its own
+and would otherwise publish against a broken `dist/` unnoticed. Named packages
+are
+required (missing `dist/` fails); with no arguments, unbuilt packages are
+skipped, since each caller builds only the subset it needs.
 
 ## Completed Phases (1-20, 22, 23)
 
@@ -303,12 +846,60 @@ Phase 23 delivered:
 - `Dockerfile.playwright` using Playwright official image (Chromium + fonts
   included). Version tag matches `packages/frontend/package.json`.
 - `scripts/run-browser-tests-docker.sh` wrapper with modes: `visual`,
-  `visual:update`, `interaction`, `all`. Validates Playwright version match,
-  runs with host UID/GID to preserve file ownership.
+  `visual:update`, `visual:record`, `interaction`, `all`. Validates Playwright
+  version match. It does *not* pass `--user`, so on a Linux host the modes
+  that write to the mounted tree (`visual:update`, `visual:record`) produce
+  root-owned files — the Playwright image runs as root, and the named
+  `node_modules` volumes the wrapper relies on are root-owned too, which is
+  why a host UID/GID mapping cannot simply be added here. Docker Desktop maps
+  ownership back to the invoking user, so macOS does not see it. CI's own
+  `docker run` in `.github/workflows/ci.yml` does pass `--user`, and writes
+  nothing.
 - `scripts/verify-browser-lanes.mjs` skips Chromium existence check when
   `WAFFLEBASE_DOCKER_BROWSER=true` (Docker image bundles Chromium).
 - `packages/frontend/scripts/verify-visual-browser.mjs` warns when updating
   baselines outside Docker.
+- The image bundles system fonts; the app's *web* fonts are served from
+  committed fixtures, and each capture settles them after the section-ready
+  wait.
+
+  `packages/frontend/scripts/google-font-cache.mjs` intercepts
+  `fonts.googleapis.com` / `fonts.gstatic.com` at the Playwright context and
+  answers from `packages/frontend/tests/visual/fonts/` (~170 KB, 5 files).
+  The lane used to make that request for real, on every one of ~25 capture
+  passes, and a single failed `woff2` failed the job: **11 of the 64
+  `verify-browser` runs sampled on 2026-08-12/13 died that way**, on a
+  rotating cast of families and profiles, none of them a regression in the
+  branch under test. Waiting harder was never going to fix it — a face whose
+  fetch failed sits in `status: "error"` and Chromium negatively caches the
+  `woff2`, which is why the stylesheet-refetch recovery below fails
+  identically on both attempts in every one of those logs.
+
+  A URL the fixtures do not hold is aborted and reported by URL, so a stale
+  cache is a loud deterministic failure (and blocks `visual:update`), never a
+  silent fallback-glyph capture. Refresh with `visual:record` — the one mode
+  that talks to Google — after changing `index.html`'s `css2` query or adding
+  a scenario that paints a new family, and commit the result. Record in
+  Docker: the `css2` response varies by User-Agent.
+
+  Serving the fonts from disk removed the flake, not the need for the wait —
+  a face is still asynchronous and still registered only once a mount injects
+  its link. The gate is an explicit floor — the families/weights `index.html`
+  requests (Inter, Fraunces, JetBrains Mono), the families the baselines were
+  recorded with — asserted positively: registered in `document.fonts` at all,
+  at least one face `loaded`, and `fonts.check()` true at every declared
+  weight. Asserting registration is what makes an unanswered stylesheet fail:
+  it registers no @font-face rules, and both `fonts.check()` and a
+  registry-derived wait would otherwise pass vacuously. Every *other*
+  registered family (KaTeX's same-origin maths faces, the eager catalog
+  families) gets only a shorter, non-gating wait for quiet — no face left in
+  `status: "loading"` — which warns rather than fails, so a family no
+  screenshot paints cannot fail the lane. Recovery re-inserts the Google
+  Fonts `<link>` elements (URL untouched) so Chromium refetches them — now
+  from the cache, which is why it can actually recover. A pass
+  whose floor never settles is recorded and fails the run *after* capture —
+  screenshots and diffs still land — and blocks `visual:update` from
+  recording fallback glyphs as a baseline.
 - CI `verify-browser` job builds Docker image and runs browser lanes in
   container. Uploads `*.actual.png` artifacts on failure.
 
@@ -388,6 +979,64 @@ set derives from the cumulative changed-file list and never shrinks mid-PR, and
 a lens that never fails adds nothing to a count of failing-lens commits), and
 the cap defaults to a constant pinned by test to the panel workflow's
 `MAX_REVIEW_ROUNDS` literal.
+
+The table is also a **map**, not just a summary. Each round's head cell links to
+that commit's checks — GitHub's Checks tab only ever shows the *head* commit's
+runs, so the table used to name a round it gave no way to open — and a `Fixer`
+column reports what the fix agent did about each round: `3 fixed · 0 skipped ·
+0 disputed`, or `—` for a round it was never dispatched for, or `🔧 dispatched`
+for one it was sent into and never reported on. Those last two are deliberately
+distinct; collapsing them would hide a fixer that ran and said nothing. Every
+input comes from records already parsed out of the PR's comments (the dispatch
+ledger, fix reports, rebuttals), so the column costs no extra API calls. The
+`0 disputed` half is the point rather than a detail: no rebuttal has ever been
+filed on an agent PR, and until this cell existed that was indistinguishable
+from a dispute channel that silently failed. Reports and dispatches bind to a
+round by SHA; a rebuttal names a finding rather than a commit, so it is
+attributed to the newest dispatch at or before it was written. `commitBase` is
+derived from the Actions env inside `main()` rather than passed as a flag, for
+the caller-independence reason above — six call sites across four workflows, and
+a link that appeared for some of them would flap.
+
+**Per-round findings comment (`<!-- agent-panel-round:<sha> -->`).** The
+dashboard above summarizes conclusions; this posts the findings themselves.
+Until it shipped, the autonomous panel recorded verdicts ONLY as `agent-review-*`
+check runs — one set per commit — while the triage renderer that makes them
+readable (`scripts/agent/review-comment.mjs`) was wired solely into
+`.github/workflows/agent-review-on-demand.yml`, which posts no checks. The two arms were
+complementary and neither was complete: `@claude review` gave a comment and no
+gate, the autonomous panel a gate and no comment. Measured across 19 `agent/*`
+PRs, panel comments were **0** on every autonomous one, so a maintainer could
+read the fix agent's account of what it changed and never the findings it was
+answering.
+
+`scripts/agent/panel-round-comment.mjs` composes the existing pieces —
+`collectLenses` + `renderReviewComment` for the body, `buildRounds` for the round
+number, so the number here and the number in the dashboard's table come from one
+function and cannot disagree. It is keyed by **SHA, not upserted globally**: one
+comment per round, updated when CI re-runs on the same commit, so the rounds read
+in order against the fix reports that answer them. A single sticky comment was
+considered and rejected for that reason.
+
+Three bodies, because silence is ambiguous: `renderReviewComment` returns `""`
+for a round with no findings, so a clean round says so explicitly rather than
+rendering empty (which reads as "the panel never ran"); a round that blocked
+without producing readable findings gets its own wording, since "no findings"
+there would be wrong in the dangerous direction; and a missing panel.json is
+detected directly rather than inferred, because with it absent every lens reads
+`failure` with no findings — byte-identical to a real all-red round — and
+rendering six fail-closed reds as findings would report a review that never ran.
+
+**Neutralization here is load-bearing, not hygiene.** The comment is authored by
+`github-actions[bot]`, one of the two identities `isPagedLatchComment` trusts to
+LATCH the pipeline, and its body is lens prose: model output over an
+attacker-authorable diff that quotes this repo's markers routinely. #681 is the
+recorded near-miss — an on-demand review comment that merely *named*
+`<!-- agent-metrics-summary -->` was deleted seconds later by the metrics sweep.
+The same text carrying `<!-- agent-review-paged -->` under this identity would
+freeze the panel and the fixer. Everything interpolated goes through
+`neutralizeHiddenMarkers`, and a test plants a live latch inside a finding
+summary and asserts exactly one live HTML-comment opener survives: our own.
 
 Two run-page companions shipped with it: `scripts/agent/review-round-guard.mjs`
 now renders its decision — including the previously **silent PROCEED** — as a
@@ -537,7 +1186,19 @@ Components:
     the same lens panel (below) but ADVISORY — aggregates the findings into ONE PR
     comment, records NO check runs and drives no promote/fix, so it never touches
     the merge gate. Works on any PR incl. forks (read-only). PR author OR
-    maintainer, throttled per head SHA. The comment ends with a collapsed
+    maintainer, throttled per head SHA. The comment is rendered by
+    `scripts/agent/review-comment.mjs` in a **triage layout**: a one-line
+    verdict + counts headline, then EVERY blocking (critical/major) finding
+    expanded and first (each a linkable `file:line` to the reviewed commit,
+    lens-tagged), with minor/nit findings collapsed per lens (count in the
+    `<summary>`), and the long reviewer prose + relocated/pre-existing findings
+    collapsed below. A lens with zero findings is omitted; collapsed sections
+    past a char budget are dropped with a stated count (blocking findings never
+    are). It is PRESENTATION ONLY — it reads the same `.agent-review/<lens>/verdict.json` findings and
+    changes nothing about detection, severity, or the gate; the autonomous
+    panel's per-lens check bodies still go through `severity.mjs::renderSummaryMd`
+    untouched, and the on-demand path falls back to that per-lens concatenation
+    if the triage render is unavailable. The comment then ends with a collapsed
     **"Prompt for AI Agents"** fold (`scripts/agent/ai-prompt.mjs`) — the blocking
     (critical/major, non-demoted) findings rendered as a fenced, copy-pasteable fix
     instruction, so a maintainer can hand the whole review to their own coding agent
@@ -1106,6 +1767,40 @@ Components:
   counts, and with no verdict timestamps anywhere the floor is abandoned entirely.
   Over-counting pages a round early, which a retry undoes; under-counting means
   the cap never trips and the loop is unbounded.
+- **The count is now a LEDGER, because the inference above is a race.** "Committed
+  after the panel first spoke" is the right discriminator only when the implement
+  job's self-review push and the first lens verdict happen in the expected order,
+  and they do not reliably: on #737 the self-review push beat the first verdict by
+  **20 seconds** and was correctly excluded; on #695 it lost by 2m50s, so two
+  implement pushes were charged as fix attempts. A third round there came from a
+  panel the concurrency guard CANCELLED, whose `always()` verdict step still wrote
+  six fail-closed reds onto a commit nobody reviewed. Three counted rounds, one
+  actual fixer invocation, and a page that said "the fixer has tried 3 time(s)".
+
+  So the guard stopped inferring and started recording: it writes a hidden
+  `<!-- agent-fix-dispatch -->` comment immediately before dispatching, and
+  `rounds.mjs::fixRoundsUsed` counts those. `countFailedReviewRounds` remains the
+  fallback for PRs that predate the ledger, and the first record carries a `prior`
+  baseline so such a PR hands over exactly rather than earning its spent rounds
+  back; a `@claude rerun` that cuts the ledger drops the baseline with it.
+
+  **Who may write a record is deliberately narrower than who may write the paged
+  latch**, and the asymmetry is the same one `rerunPointFrom` turns on. Records
+  become authoritative the moment one exists, so a single planted record would
+  switch a PR off the fallback and could hand back budget — the opposite fail
+  direction from the latch, where over-accepting merely stops the loop. Records
+  are therefore believed only from `github-actions[bot]`, the guard's
+  `GITHUB_TOKEN` identity, with **no association path and not `yorkie-agent[bot]`**
+  — that is the App identity the fix agent itself posts under, and the party
+  bounded by `MAX_REVIEW_ROUNDS` must not get to choose the rule it is counted by.
+  The write is not best-effort either: a dispatch whose record never landed is a
+  round the next guard hands out again.
+
+  `close-stuck-checks` closes a cancelled panel's lenses as `cancelled` rather
+  than `failure`, and the verdict step is `!cancelled()`, so a superseded round
+  stops reading as a spent one. The promote gate is unaffected —
+  `checks.mjs::checkPassed` accepts only `success` and treats an absent check as a
+  failure — and no `agent-review-*` check is required by branch protection.
 - **`@claude rerun` now restores the fix budget too.** #650 added the command: it
   deletes the paged comments, drops `agent:blocked` and re-runs CI. What it could
   not do is give the loop its attempts back — its own summary said the PR was
@@ -1218,6 +1913,37 @@ moves to the approving human reviewer.
   environment (optional per-run human approval), the enablement switch, fork-
   origin rejection, and treating the Claude auth secret as least-privilege and
   rotatable. Adopters must accept this risk consciously.
+- **The Claude auth secret is now a pool, and the count matters.** Throughput was
+  capped by one account's usage window: when it closed, every lane failed at
+  once. `scripts/agent/token-pool.mjs` reads `CLAUDE_CODE_OAUTH_TOKEN` plus
+  `CLAUDE_CODE_OAUTH_TOKEN_1..8` from the `agent` environment, selects one per
+  **job** from `GITHUB_RUN_ID` + `GITHUB_RUN_ATTEMPT` (so a re-run of a job that
+  died on exhaustion does not immediately re-pick the closed account) plus
+  `CLAUDE_POOL_SHARD` where jobs of one run would otherwise collide — every leg
+  of `eval-replay`'s matrix shares a run id — and replaces it only when that
+  account's window closes. Per job rather than per
+  call because prompt caches are scoped to the account that wrote them, and
+  `createWarmupGate()` exists to pay for the panel's shared diff prefix once; per-call
+  rotation would pay that warm-up once per token instead.
+
+  **This relaxes a stated invariant, and the relaxation is the residual risk.**
+  The rule in the SDK steps was "export ONLY that one — no second credential in a
+  process whose cwd is the untrusted branch checkout"; the pool needs its
+  alternatives *in* that process, because failover happens inside the round, so
+  the count there is now up to nine. What still bounds it: those sessions grant
+  `Read`/`Grep`/`Glob` with `permissionMode: 'dontAsk'` and `settingSources: []`,
+  so reaching the environment takes an SDK bug rather than prompt injection —
+  defence in depth, not a substitute for the count. **Open:** hand the
+  untrusted-cwd step only the two credentials a round can use (the selected one
+  and its failover), choosing them in a trusted step. Until then, treat every
+  pooled token as sharing one blast radius: rotate them together.
+- **The `claude-code-action` lane is not pooled yet.** `agent-implement`,
+  `agent-fix`, `agent-iterate-ci`, `agent-review-reply` and `agent-summarize`
+  pass the token as an action *input*, so selection has to happen before the step
+  and failover has to be a second step. That wrapper needs two behaviours
+  confirmed on a real runner first — `continue-on-error` on a composite step, and
+  passing a credential through a step output — and both fail silently if the
+  assumption is wrong. It lands with that verification, not before.
 - **The agent-state label is forgeable and advisory.** The author agent holds
   `issues:write`, so it can set any `agent:<state>` (e.g. a fake `agent:ready`).
   This is acceptable because **nothing gates on the label** — it is a human-facing
@@ -1633,10 +2359,29 @@ Inert by default: `--rebuttals` absent means an empty list, which short-circuits
 before any session opens, so a panel invoked without it is the panel that existed
 before this.
 
-Not yet built: an adjudication record in the metrics comment (the outcome is
-visible only in the check body today), and any measurement of how often a
-rebuttal is *right* — which is a `misses.jsonl` question, since an overturn that
-should not have happened is a false negative like any other.
+The adjudication outcome is no longer check-body-only:
+`scripts/agent/severity.mjs`'s
+`adjudicationNote` is exported and rendered by `scripts/agent/review-comment.mjs`
+too, so a dispute's decision — and the adjudicator's reason — appears in the
+on-demand comment and in the per-round panel comment, the two places a
+maintainer actually reads findings. A carried-forward `{ upheld: N }` with no
+verdict still renders nothing: that shape is history, not this round's decision.
+
+**Silence about disputes is now itself reported.** No rebuttal has ever been
+filed on an agent PR, and until this was addressed that fact was
+indistinguishable from a channel that had quietly broken. Three surfaces close
+it: the fix report always renders `Disputed (N)` — `_Nothing._` at zero, the
+same treatment `Skipped (0)` already had; the loop-status table's `Fixer` column
+carries a per-round `N disputed`; and `scripts/agent/rebuttal.mjs`'s post-failure path, which
+exits 0 by design because a dispute that cannot be posted leaves the finding
+standing, now emits a best-effort warning naming that consequence instead of
+vanishing. The count in the report is rendered and never serialized — the hidden
+record is the fixer's claim about its own work, while the count is derived from
+other comments at post time, and a second stale copy is worth nothing.
+
+Not yet built: an adjudication record in the metrics comment, and any measurement
+of how often a rebuttal is *right* — which is a `misses.jsonl` question, since an
+overturn that should not have happened is a false negative like any other.
 
 #### The loop shipped inert, and stayed inert until the lens was stamped
 
@@ -1694,6 +2439,56 @@ removes overturned findings from that same array by object IDENTITY, so stamping
 the gating step would leave every overturned finding un-removable from the summary. A source-level test asserts the
 round loop actually routes `merged` through it, since that loop lives in `main()`
 and no unit test can reach it.
+
+#### The bound was still inert: the count died in the round that computed it
+
+Stamping the lens made disputes *match*; it did not make the counter *persist*.
+An upheld finding is RE-CREATED (`{...f, adjudication}`) by `adjudicateRebuttals`
+and `applySkipClaims` in `scripts/agent/review-panel.mjs`, and those copies lived
+only in `gating` — what the check's conclusion is computed from — while
+`writeVerdict` persisted `merged`'s pre-adjudication originals into verdict.json.
+verdict.json is where the panel workflow reads `adjudication.upheld` into the
+check run's `output.text`, and `output.text` is the unforgeable channel both the
+next round's carry-forward and the round guard's `exhaustedFindings` count from.
+So the increment died in the same round that computed it: every round re-derived
+`upheldCount(prior) + 1` from a prior count of 0, the counter could never reach
+`MAX_REBUTTAL_ROUNDS`, the standstill page could never fire, and a finding could
+be re-disputed forever — bounded only by the round cap, which pages with a far
+less specific message than the one this bound exists to send.
+
+`substituteAdjudicated` closes it: the adjudicated copies replace their originals
+in what `writeVerdict` persists, paired back by object identity
+(`applySkipClaims` is a positional map; `adjudicateRebuttals` returns its
+re-creations as `replaced` pairs). Mapping copies back to originals also fixed a
+latent half of the same bug — a finding that was skip-claimed and *then*
+overturned appeared in `dropped` as the skip copy, which the old identity filter
+over `merged` could never remove.
+
+Persisting the count exposed two more places the same integer silently died on
+the way into round N+1, both in the merge:
+
+- **`mergeCluster` dropped `adjudication` from folded wordings**, while the
+  workflow comment above the `output.text` builder already claimed the opposite
+  ("carried on folded wordings too … see upheldCount"). A rebutted finding means
+  the code did not change, so the next fresh pass almost always re-finds it — and
+  the fresh representative wins the cluster slot, so the carried count had to
+  survive in `mergedFrom`, where `upheldCount` takes the cluster max. It now does,
+  integer only, exactly as the workflow trims it.
+- **`dedupeFindings` handed a byte-identical collision to the fresh copy** and
+  discarded the carried one's count with it. The winner now absorbs the loser's
+  higher `upheld` (`absorbUpheld`), so the counter is carried by the collision,
+  never decided by it — a dedup that can zero the rebuttal counter is a bound the
+  merge order gets to move.
+
+This is a BEHAVIOUR change, not a refactor: the standstill page in
+`scripts/agent/review-round-guard.mjs` becomes reachable for the first time. A
+finding disputed and upheld in two rounds now pages a human instead of buying a
+third adjudication session, which is the destination Phase 28 specified for a
+question the loop cannot settle. An end-to-end two-round test in
+`scripts/agent/review-panel.test.mjs` drives the real wiring — merge, gate,
+adjudicate, substitute, carry forward — and asserts `upheldCount` reaches 2
+through both merge paths, alongside a source-level test that the round loop
+routes `writeVerdict`'s input through `substituteAdjudicated` at all.
 
 ### Phase 29: Lint the agent control plane
 
@@ -1984,6 +2779,39 @@ record, sitting in the same thread. And `MAX_REVIEW_ROUNDS` still counts only
 autonomous rounds; an on-demand fix is deliberately outside that budget, which is
 the point of the verb but does mean a maintainer can spend past it by hand.
 
+### The fixer's push cancels the job it is still reporting from
+
+The autonomous fixer posts its own report, and for a while it posted it *after*
+pushing. That ordering loses the report, because the push is what ends the job:
+it re-triggers CI, CI re-triggers the review panel, and
+`.github/workflows/agent-review-panel.yml` is `cancel-in-progress` — so the fresh
+panel run cancels the run the fixer is still inside, about half a minute later.
+
+#757 measured it. The fixer pushed on all three rounds and reported on one:
+
+| round | commit | fix job cancelled | report |
+|---|---|---|---|
+| 1 | 07:54:45 | 07:55:19 (+34s) | lost |
+| 2 | 08:47:14 | 08:47:48 (+34s) | posted 08:47:41, 7s of margin |
+| 3 | 09:32:58 | 09:33:29 (+31s) | lost |
+
+Nothing was broken and nothing had to be retried — the fixer was simply racing a
+cancellation it caused itself, and won once. This is the same shape as the
+dispatch-record window (above): work done in the seconds after a push is not
+reliably delivered, so the fix is ordering rather than machinery. **Commit,
+report, then push.** Nothing can cancel work that happened before the push that
+causes the cancellation, and `scripts/agent/fix-report.mjs`'s `--head` is the SHA the fixer
+acted *on*, so the report is already complete before the new commit exists.
+
+`scripts/agent/fix-report.test.mjs` pins the ordering in the prompt — both the report and any
+rebuttal must precede the push instruction, and the prompt must SAY so rather
+than merely be arranged that way, because the agent reads prose and "THEN REPORT"
+sitting above a push section reads as "report last".
+
+`.github/workflows/agent-fix.yml` (the on-demand `@claude fix`) is not exposed:
+it declares no workflow-level concurrency, so the panel run its push triggers
+cancels nothing, and its prompt already ordered the report first.
+
 ### The metrics sweep deleted other people's comments
 
 `metrics.mjs summarize` posts the effort summary fresh each round and deletes the
@@ -2012,6 +2840,64 @@ this alone fixes it. AUTHOR: every writer here posts through a token, so ours ar
 always a Bot, and `user.type` is set by GitHub rather than chosen by the commenter.
 It fails toward KEEPING: a stale summary costs a duplicate, while deleting the
 wrong comment destroys work with no record that it happened.
+### `author_association` is not a permission
+
+`@claude rerun` moves the fix-round floor forward, and the guard decided whose
+rerun counted with `author_association`. On #648 a maintainer with **Maintain**
+ran it four times and GitHub reported every one of those comments as
+`CONTRIBUTOR` — association describes the commenter's relationship to the PR
+thread, not their access, and it reads `CONTRIBUTOR` for anyone with commits on
+the repo whose org membership is not public. So the floor was never set, the guard
+counted the PR's entire history, and it paged with *"tried 3 time(s) (limit 3)"*
+against a rerun that had reset nothing. The absent `since the last rerun` clause in
+that page is the tell.
+
+The verb itself worked. `.github/workflows/agent-rerun.yml` gates on `getCollaboratorPermissionLevel`
+— authoritative — so the label came off and CI re-ran, while the budget silently
+did not move. **Two checks for one question, disagreeing**: the command's
+permission to run, and the command's effect, resolved by different authorities.
+That is the same shape as the `agent:blocked` label bug — the action reports
+success and the consequence is dropped.
+
+`scripts/agent/rounds.mjs` had named this gap, but in the opposite direction: it worried about
+being too *permissive* (an org MEMBER without write passing). The failure that
+happened was too strict. Both directions are real, and both are fixed below —
+the strict one is what paged #648, the permissive one would have handed the
+bounded party extra rounds on a rerun the workflow refused.
+
+`permissionResolver` in `scripts/agent/gh-checks.mjs` closes it — an injected
+`(login) => true | false | null` built from the same API the workflows use, so
+`scripts/agent/rounds.mjs` stays pure and testable.
+
+**The resolver is the only authority.** When one is supplied, `isRerunCommand`
+does not consult `author_association` at all. Association is *not* a fast-path
+accept, and it must not be: `MEMBER` is membership of the owning **org**, which
+says nothing about permission on this repo, and `COLLABORATOR` is satisfied by a
+read- or triage-only invite. Accepting either would move the floor for a
+commenter `.github/workflows/agent-rerun.yml` then refuses to run — the same two-authorities-
+disagreeing bug in the opposite direction, granting budget for a rerun that never
+happened. That is the gap `scripts/agent/rounds.mjs` had named and left open; it is closed now,
+in both directions. Lookups memoize per login, failures included, so a PR with
+many comments from few people costs at most one call each — and only for comments
+that already parsed as `rerun` from a non-Bot.
+
+The resolver-less form survives as the pure, association-only legacy behaviour.
+Its only caller is `scripts/agent/loop-status.mjs`, which is a **projection, never a gate**: at
+worst it displays a round count the guard will not honour. Every *gating* caller
+injects a resolver.
+
+Fail direction: an unresolvable login does **not** set the floor. Not resetting
+leaves the PR paged for a human, which is where one the loop cannot finish
+belongs; resetting on a failed lookup would hand more attempts to the very party
+the budget bounds. The bot exclusion is still checked first and no resolver can
+override it — that is what stops the bounded party resetting its own bound.
+
+Still on association, deliberately: `isPagedLatchComment`'s human arm. It fails
+toward *reviewing*, so a maintainer's hand-written latch being ignored costs a
+review round rather than stopping one, and its literal copy in
+`.github/workflows/agent-review-panel.yml` (that job does no checkout, so it cannot import) would
+have to make an API call too. Recorded as a known, benign instance of the same
+signal.
 
 ### Phase 31: UI Issue Hunting
 
@@ -2182,12 +3068,35 @@ not have, and this build has produced that exact defect more than once — inclu
 docblock in two files claiming the protocol treated the runner's oversized/unserializable
 markers as unevaluable when nothing implemented it.
 
+**A SEEDED RUN PASSES BY BEING REFUTED, NOT BY BEING REPORTED.** This phase was designed
+around the opposite claim — "run the persona against `?fault=` and assert the pipeline
+reports it end to end" — and the first live run showed that is unachievable, and should
+be. Verifiers establish CAUSE by reading source, and this fault lives in the harness
+route inside this repository. Four independent verifier sessions found it, cited
+`page.tsx:112-128`, described the mechanism exactly ("a per-install counter,
+`preventDefault()` on every second printable key"), confirmed the docs input path inserts
+text verbatim with no drop logic, and refuted at high confidence. That is the panel doing
+its job perfectly.
+
+The only way to make a seeded fault reportable is to blind the verifier to the
+repository, which buys a green control at the cost of the stage that stops
+plausible-but-wrong findings. So the criterion is: the explorer FINDS it, replay
+REPRODUCES it, and the panel refutes it *for the demonstrable reason that it is ours*.
+That is a STRONGER signal than a report would be — it proves the panel can locate a
+cause, which is exactly the capability the design's residual-risk section says everything
+now rests on.
+
 Status: PR 1 (#642) shipped the executor, harness and oracles; PR 2 (#665) the prediction
-protocol; PR 3 (#678) the serve mode, the session client and the MCP tool; PR 4a the
-orchestrator, personas and the seeded control. Still to come: the first live run, repro
-minimization, the backend tier, and slides/board. Nothing is filed automatically; the
-output is a local report, and the CLI hunter's filing gate (20 accepted at >=90%)
-restarts for this surface because it generates candidates by a different mechanism.
+protocol; PR 3 (#678) the serve mode, the session client and the MCP tool; PR 4a (#684)
+the orchestrator, personas and the seeded control; #691 the four defects the first live
+runs exposed — a replay that scored 3/3 on plans where nothing ran, a turn ceiling below
+the action budget, a failed brief discarding its journal, and `-C` failing to scope git
+under a hook. Three seeded runs cost $13.42 in total and proved every stage: explorer,
+grounding, replay, verifier, gate, ledger guard, report. Still to come: the clean run
+that measures precision, repro minimization, the backend tier, and slides/board. Nothing
+is filed automatically; the output is a local report, and the CLI hunter's filing gate
+(20 accepted at >=90%) restarts for this surface because it generates candidates by a
+different mechanism.
 
 ## Harness Policy
 

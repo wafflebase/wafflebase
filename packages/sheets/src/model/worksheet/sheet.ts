@@ -16,7 +16,7 @@ import {
   isCrossSheetRef,
   parseCrossSheetRef,
 } from '../core/coordinates';
-import { extractReferences, normalizeFormulaOnCommit } from '../../formula/formula';
+import { extractReferences } from '../../formula/formula';
 import {
   Axis,
   BorderPreset,
@@ -60,7 +60,7 @@ import {
 } from './grids';
 import { DimensionIndex } from './dimensions';
 import { formatValue } from './format';
-import { inferInput, applyInferredFormat, type InferredInput } from './input';
+import { cellFromInput } from './input';
 import {
   cloneConditionalFormatRule,
   moveConditionalFormatRules,
@@ -967,21 +967,6 @@ export class Sheet {
   }
 
   /**
-   * `toStoredValue` converts inferred non-formula input to normalized storage value.
-   */
-  private toStoredValue(inferred: Exclude<InferredInput, { type: 'formula' }>): string {
-    switch (inferred.type) {
-      case 'number':
-        return inferred.value.toString();
-      case 'date':
-      case 'text':
-        return inferred.value;
-      case 'boolean':
-        return inferred.value ? 'TRUE' : 'FALSE';
-    }
-  }
-
-  /**
    * `applyInputInferenceToGrid` normalizes pasted external cell input values.
    */
   private applyInputInferenceToGrid(grid: Grid): Grid {
@@ -992,13 +977,7 @@ export class Sheet {
         continue;
       }
 
-      const inferred = inferInput(cell.v ?? '');
-      const style = applyInferredFormat(cell.s, inferred);
-      const base =
-        inferred.type === 'formula'
-          ? { f: normalizeFormulaOnCommit(`=${inferred.value}`) }
-          : { v: this.toStoredValue(inferred) };
-      normalized.set(sref, compactCell(base, style));
+      normalized.set(sref, cellFromInput(cell.v ?? '', cell.s));
     }
     return normalized;
   }
@@ -1042,13 +1021,7 @@ export class Sheet {
         this.clearSpillBlockers(toSref(target));
       }
 
-      const inferred = inferInput(value);
-      const style = applyInferredFormat(existing?.s, inferred);
-      const base =
-        inferred.type === 'formula'
-          ? { f: normalizeFormulaOnCommit(`=${inferred.value}`) }
-          : { v: this.toStoredValue(inferred) };
-      const cell = compactCell(base, style);
+      const cell = cellFromInput(value, existing?.s);
 
       // If the cell is effectively empty (no value, no formula, no style), delete it.
       if (isEmptyCell(cell)) {

@@ -1,0 +1,54 @@
+{
+  /*
+   * Deliberately free of wafflebase-specific path mappings.
+   *
+   * The prototype carried `"@/*": ["../frontend/src/*"]` plus eight mappings
+   * into `../frontend/node_modules/*`, because the editor imported the
+   * wafflebase frontend directly. This package is the GENERIC half: it is
+   * installed into a consumer's project, where those directories do not exist.
+   * The consumer's own Vite `resolve.alias` supplies their aliases, and the
+   * wafflebase-specific mappings belong to `packages/design-sandbox`.
+   *
+   * See docs/design/design-editor/design-editor-local-plugin.md §6.
+   */
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+
+    /*
+     * `allowJs` WITHOUT `checkJs`, on purpose.
+     *
+     * The server half is `.mjs` — Node runs it directly inside the consumer's
+     * dev server, so it is deliberately unbundled and uncompiled. Without
+     * `allowJs`, `tsc` skipped those files ENTIRELY and the `// @ts-check` at
+     * the top of `jsx-nodes.mjs` was decorative: it told every reader the file
+     * was typechecked while nothing checked it. A pragma that does not run is
+     * worse than no pragma.
+     *
+     * `checkJs` would instead check every `.js`/`.mjs` under `include`,
+     * dragging the `.mjs` test files in too — where `.find()` returning
+     * `T | undefined` and the `resolveNode` result union turn into ~46 narrowing
+     * errors that make the tests harder to read without making them safer.
+     * Leaving `checkJs` off means the per-file pragma decides, which is exactly
+     * what it is for: opt a file in by writing `// @ts-check` in it.
+     */
+    "allowJs": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src", "test"]
+}

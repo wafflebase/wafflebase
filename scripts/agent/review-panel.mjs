@@ -45,9 +45,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify, renderSummaryMd, BLOCKING, normalizeSeverity, KNOWN } from "./severity.mjs";
 import { askStructured, withRetry, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, assertEffort } from "./ask.mjs";
+import { publicInfraReason, redactSecrets } from "./redact.mjs";
 import { renderScopeNote, serializeReviewState } from "./review-state.mjs";
 import { CITATION } from "./citation.mjs";
 import { findingLocation, noveltyOf, baseResolves, DEMOTING_ORIGINS } from "./novelty.mjs";
+// The finding identity key, which used to be a private `const` here. Its own
+// docblock warned that "a second copy of this expression could drift looser than
+// the merge it is supposed to agree with", and there was already a second copy —
+// inline, inside `compareSampleAgreement`. Moving it out is what lets both the
+// merge and the agreement metric be built ON one expression, and what lets a
+// reader outside this file key findings the same way without a fourth copy.
+import { findingKey } from "./finding-key.mjs";
 // The similarity metric is NOT re-derived here. `rounds.mjs` already owns it for
 // the non-convergence detector, and it was calibrated against real panel output
 // (PR #564's design-fit lens emitting four wordings of one defect, measured
@@ -550,6 +558,11 @@ export function coerceFindings(raw) {
  * routed to `backlog` would otherwise hand the slot to the backlog copy and turn
  * the check green. Gating wins first; severity decides only among equals. Same
  * fail-toward-blocking direction the severity rule already has.
+ *
+ * ADJUDICATION is never decided by the collision, only carried: whichever copy
+ * wins the slot absorbs the loser's higher `upheld` count (see absorbUpheld).
+ * Paging is the safe direction, and a dedup that can zero the rebuttal counter
+ * is a bound the merge order gets to move.
  */
 export function dedupeFindings(findings) {
   /** Does `a` beat the finding already in the slot? Lane first, then severity. */
@@ -562,21 +575,34 @@ export function dedupeFindings(findings) {
     if (!byKey.has(key)) {
       byKey.set(key, f);
       order.push(key);
-    } else if (beats(f, byKey.get(key))) {
-      byKey.set(key, f);
+    } else {
+      const cur = byKey.get(key);
+      const [winner, loser] = beats(f, cur) ? [f, cur] : [cur, f];
+      byKey.set(key, absorbUpheld(winner, loser));
     }
   }
   return order.map((k) => byKey.get(k));
 }
 
 /**
- * `dedupeFindings`' collision key: file plus case- and whitespace-insensitive
- * summary. Extracted so `sameFinding` can be built ON it rather than beside it —
- * a second copy of this expression could drift looser than the merge it is
- * supposed to agree with, and that drift is what would let a verification be
- * skipped for a finding the merge then keeps separately.
+ * Keep the rebuttal bound's counter when dedup drops a duplicate wording.
+ *
+ * A carried-forward finding whose dispute was upheld last round collides here
+ * with the fresh pass's byte-identical re-find — same file, same summary — and
+ * the fresh copy usually wins the slot (equal lane, equal severity). The fresh
+ * copy has no `adjudication`, so without this the count the standstill page is
+ * counted from silently reset to 0 on exactly the finding it exists to bound.
+ * Only the MAX rides over (which may live in the loser's `mergedFrom` — see
+ * upheldCount), and only when it is strictly higher, so the common no-dispute
+ * collision keeps returning the original object untouched.
  */
-const findingKey = (f) => `${f.file ?? ""}::${String(f.summary ?? "").toLowerCase().trim()}`;
+const absorbUpheld = (winner, loser) => {
+  const w = upheldCount(winner);
+  const l = upheldCount(loser);
+  if (l <= w) return winner;
+  const prior = loser && typeof loser.adjudication === "object" && loser.adjudication !== null ? loser.adjudication : {};
+  return { ...winner, adjudication: { ...prior, upheld: l } };
+};
 
 /** 0=critical … 3=nit. Lower is more severe. */
 const severityRank = (f) => KNOWN.indexOf(normalizeSeverity(f && f.severity));
@@ -678,10 +704,20 @@ function mergeCluster(members) {
   // representative's own prior `mergedFrom` is kept, so no wording is lost across
   // the two passes. (For the common single-pass case `others` carry no nested
   // `mergedFrom` and `rep` has none, so this is exactly the old one-level list.)
+  // `adjudication` rides along, integer only, because the rebuttal bound is
+  // counted THROUGH this fold: a carried-forward finding whose dispute was
+  // upheld last round usually restates as a fresh representative here, and
+  // `upheldCount` takes the max across `mergedFrom` precisely so that history
+  // stays attached to the defect. Dropping it re-armed the counter at 0 every
+  // round the fresh pass re-found the finding — which is nearly every round,
+  // since a rebutted finding means the code did not change.
   const fold = (m) => ({
     severity: normalizeSeverity(m && m.severity),
     summary: (m && m.summary) ?? "(no summary)",
     ...(m && m.evidence ? { evidence: m.evidence } : {}),
+    ...(Number.isInteger(m?.adjudication?.upheld) && m.adjudication.upheld > 0
+      ? { adjudication: { upheld: m.adjudication.upheld } }
+      : {}),
   });
   out.mergedFrom = [
     ...others.flatMap((m) => [fold(m), ...(Array.isArray(m && m.mergedFrom) ? m.mergedFrom : [])]),
@@ -816,12 +852,12 @@ export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex) {
  * fresh pass almost always re-finds it.
  *
  * WHERE it runs is what callers depend on, not whether it copies. The round loop
- * stamps `merged` AS IT IS BUILT and then removes overturned findings from that
- * same array by object identity (`overturnedOut.has(f)`) — so every downstream
- * reference is to a stamped object and the identities line up. Stamping later, at
- * the gating step, would hand adjudication copies of findings `merged` no longer
- * holds, and every overturned one would stay in the summary: dropped from the
- * check run and still rendered as blocking for a human.
+ * stamps `merged` AS IT IS BUILT and then substitutes adjudicated copies into
+ * that same array by object identity (`substituteAdjudicated`) — so every
+ * downstream reference is to a stamped object and the identities line up.
+ * Stamping later, at the gating step, would hand adjudication copies of findings
+ * `merged` no longer holds: every overturned one would stay in the summary and
+ * every upheld one would persist without its count.
  *
  * OVERWRITES, and must. `lens` last is the same rule prior-findings.mjs states at
  * its own stamp: "a finding cannot spoof its own origin by carrying a `lens` key,
@@ -1262,8 +1298,12 @@ export function parsePriorFindings(text) {
 export function compareSampleAgreement(sampleFindingsList) {
   const list = Array.isArray(sampleFindingsList) ? sampleFindingsList : [];
   if (list.length < 2) return "single";
-  const keyOf = (f) => `${f.file ?? ""}::${String(f.summary ?? "").toLowerCase().trim()}`;
-  const keySets = list.map((findings) => new Set(coerceFindings(findings).map(keyOf)));
+  // `findingKey` itself, not a copy of it. This line WAS a byte-identical inline
+  // copy of the expression, i.e. exactly the drift its own docblock warns about:
+  // the agreement score and the merge have to answer "is this the same finding?"
+  // the same way, or `review-lens-stats.json` reports agreement over a population
+  // `dedupeFindings` never collapsed.
+  const keySets = list.map((findings) => new Set(coerceFindings(findings).map(findingKey)));
   const setsEqual = (a, b) => a.size === b.size && [...a].every((k) => b.has(k));
   const disjointPair = (a, b) => [...a].every((k) => !b.has(k));
   if (keySets.every((s) => setsEqual(s, keySets[0]))) return "identical";
@@ -1565,6 +1605,72 @@ export function verifierTally(findings, verdicts) {
 // `withRetry` is imported at the top (main() calls it), so it is re-exported
 // from that binding rather than a second time from ask.mjs.
 export { classifyResult } from "./ask.mjs";
+
+/**
+ * Stable PREFIX of the synthetic record written when a lens hits an API/quota
+ * outage. This exact text is a WIRE FORMAT with two parsers:
+ *
+ *   `prior-findings.mjs` — `INFRA_SENTINEL`, matched with `startsWith`
+ *   `rounds.mjs`         — `INFRA_SUMMARY`, an anchored regex
+ *
+ * Both exist to recognise "the reviewer never ran" and drop the record instead of
+ * carrying it into the next round as a code finding. Break the prefix and a stale
+ * infra record is re-checked as a real blocker, and the loop sticks a round later
+ * on whatever pull request next hits a quota error — a failure that surfaces far
+ * from its cause. `infra-summary.test.mjs` pins it against both consumers.
+ */
+export const INFRA_SUMMARY_PREFIX = "Review could not run — Claude API/quota error";
+
+/**
+ * The one place the infra summary string is built.
+ *
+ * Named and exported so the wire format has a single owner and a test can assert
+ * it against both parsers. `reason` must come from `publicInfraReason` — it is the
+ * closed-vocabulary text, never upstream prose. The status is already carried
+ * inside `reason`, so it is not repeated here.
+ */
+export function infraSummary({ reason }) {
+  return `${INFRA_SUMMARY_PREFIX}: ${reason}`;
+}
+
+/**
+ * The summary text a lens writes when it produced no usable verdict.
+ *
+ * EXTRACTED FROM THE CATCH BLOCK so it can be tested. This is the single highest-
+ * risk string in the pipeline — it fans out to a check-run body, a PR comment and
+ * the job summary — and while it lived inline inside `runLens` the only way to
+ * exercise it was to run a whole lens against a live API. It was therefore the one
+ * string with no test, which is how it came to publish a credential.
+ *
+ * Two branches, and the distinction is load-bearing. An INFRA failure means the
+ * reviewer never ran (an API/quota outage), so the record must carry the wire-format
+ * prefix both parsers recognise and must never be re-checked as a code finding. A
+ * genuine no-verdict means the model ran and produced nothing usable, which IS an
+ * ordinary fail-closed blocker.
+ */
+export function lensFailureSummary(err = {}) {
+  if (!err.infra) {
+    // `err.message` is safe by construction — askStructured builds it from the
+    // closed vocabulary — but redacted anyway, because this branch also catches
+    // errors thrown by code that never went through `classifyResult`.
+    return `Reviewer did not produce a valid verdict: ${redactSecrets(String(err.message ?? "unknown"))}`;
+  }
+  // NEVER `err.detail`. Interpolating upstream prose here is precisely what
+  // published a credential to a public pull request: `detail` is whatever the SDK
+  // said, and an invalid-header error quotes the offending value back. The closed
+  // vocabulary removes the class rather than filtering another instance of it.
+  //
+  // `err.reason` is PREFERRED over re-deriving, because `classifyResult` built it
+  // from the RAW text while this function only ever sees the redacted `detail`.
+  // Re-deriving therefore classifies a scrubbed string — it happens to work, since
+  // no limit or malformed-header phrase is credential-shaped, but it depends on
+  // that staying true. It also cannot recover the request id, which the entropy
+  // rule has already masked by this point. Falling back keeps errors thrown by
+  // code that never went through `classifyResult` working.
+  return infraSummary({
+    reason: err.reason || publicInfraReason({ kind: "api-error", status: err.status, detail: err.detail }),
+  });
+}
 export { withRetry };
 
 // --- lens + verifier runs ----------------------------------------------------
@@ -2050,7 +2156,9 @@ async function adjudicateFinding(finding, rebuttal, { repo, model, sessionLog, l
  * string is set by this function, not by the claim.
  *
  * The finding's identity changes (a new object with `adjudication`), exactly as in
- * `adjudicateRebuttals`, so callers must use the returned array.
+ * `adjudicateRebuttals`, so callers must use the returned array. The map is
+ * POSITIONAL — `out[i]` is `gating[i]` or its copy — which is what lets
+ * `substituteAdjudicated` pair each copy back to its original by index.
  */
 export function applySkipClaims(gating, claims) {
   const list = Array.isArray(claims) ? claims : [];
@@ -2078,7 +2186,11 @@ export function applySkipClaims(gating, claims) {
  * Returns the findings that still gate, plus a tally. An overturned finding is
  * annotated and REMOVED; an upheld one carries its count forward on
  * `adjudication.upheld`, which is the field the check run persists and the round
- * guard reads to page.
+ * guard reads to page. Each upheld copy is also returned as an
+ * `[original, copy]` pair in `replaced`, because the caller persists a DIFFERENT
+ * array than the one adjudicated here (`merged`, via writeVerdict) and has to
+ * substitute the copies into it — see substituteAdjudicated for what went wrong
+ * when it did not.
  *
  * Every failure path keeps the finding: no rebuttal, no match, an ambiguous match,
  * a thrown session, an ungrounded verdict. That is the same direction as
@@ -2097,7 +2209,7 @@ export async function adjudicateRebuttals(
 ) {
   const tally = { matched: 0, overturned: 0, upheld: 0, errored: 0 };
   if (!Array.isArray(rebuttals) || rebuttals.length === 0 || !Array.isArray(gating)) {
-    return { findings: Array.isArray(gating) ? gating : [], dropped: [], tally };
+    return { findings: Array.isArray(gating) ? gating : [], dropped: [], tally, replaced: [] };
   }
   // Partition by lens HERE rather than relying on every finding carrying the right
   // one. `findingSimilarity` already refuses a lens mismatch, so this changes no
@@ -2107,13 +2219,15 @@ export async function adjudicateRebuttals(
   const mine = typeof lensId === "string" && lensId !== ""
     ? rebuttals.filter((r) => (typeof r?.lens === "string" ? r.lens : "") === lensId)
     : rebuttals;
-  if (mine.length === 0) return { findings: gating, dropped: [], tally };
+  if (mine.length === 0) return { findings: gating, dropped: [], tally, replaced: [] };
   const out = [];
   // The ORIGINAL objects that were overturned. Returned rather than derived by the
   // caller: an upheld finding is re-created with an `adjudication` field, so its
   // identity changes too, and an identity diff would read every upheld finding as
   // dropped — removing from the summary exactly the findings that survived.
   const dropped = [];
+  // `[original, copy]` for every upheld re-creation, in encounter order.
+  const replaced = [];
   for (const f of gating) {
     const r = matchRebuttal(f, mine);
     if (!r) {
@@ -2133,16 +2247,75 @@ export async function adjudicateRebuttals(
       continue;
     }
     tally.upheld++;
-    out.push({
+    const copy = {
       ...f,
       adjudication: {
         upheld: upheldCount(f) + 1,
         verdict: v ? String(v.verdict ?? "") : "errored",
         reason: typeof v?.reason === "string" ? v.reason.slice(0, 500) : "",
       },
-    });
+    };
+    replaced.push([f, copy]);
+    out.push(copy);
   }
-  return { findings: out, dropped, tally };
+  return { findings: out, dropped, tally, replaced };
+}
+
+/**
+ * Substitute the adjudicated copies into the array writeVerdict persists.
+ *
+ * The standstill bound was structurally inert without this. `applySkipClaims`
+ * and `adjudicateRebuttals` RE-CREATE an upheld finding (`{...f, adjudication}`),
+ * and those copies used to live only in `gating` — what the check's CONCLUSION
+ * is computed from — while writeVerdict persisted `merged`'s pre-adjudication
+ * originals into verdict.json. verdict.json is the file the workflow builds the
+ * check run's `output.text` from, output.text is the unforgeable channel the
+ * next round's carry-forward and the round guard's `exhaustedFindings` read —
+ * so `adjudication.upheld` never survived the round that computed it. Every
+ * round re-derived `upheldCount(prior) + 1` from a prior count of 0, the
+ * counter could never reach MAX_REBUTTAL_ROUNDS, the standstill page could
+ * never fire, and a finding could be re-disputed forever, bounded only by the
+ * round cap.
+ *
+ * Substitution, not reconstruction: `merged`'s order and its non-gating members
+ * (the demoted `backlog` lane that never reached adjudication) pass through
+ * untouched, by identity. `gatingRaw[i]` pairs with `afterSkips[i]` because
+ * applySkipClaims is a positional map over its input; adjudicateRebuttals
+ * reports its own re-creations in `replaced`. Chaining the two maps also fixes
+ * a latent identity bug in the old inline filter: a finding that was
+ * skip-claimed AND overturned appeared in `dropped` as the skip COPY, which the
+ * identity filter over `merged` could never remove — overturned for the check
+ * run, still rendered as blocking for the human. Overturned findings are mapped
+ * back to their `merged` originals before removal.
+ */
+export function substituteAdjudicated(merged, gatingRaw, afterSkips, adjudged) {
+  const toFinal = new Map(); // original in `merged` -> the copy to persist
+  const toOriginal = new Map(); // any re-created copy -> its original in `merged`
+  const raw = Array.isArray(gatingRaw) ? gatingRaw : [];
+  const skipped = Array.isArray(afterSkips) ? afterSkips : [];
+  raw.forEach((orig, i) => {
+    const copy = skipped[i];
+    if (copy !== undefined && copy !== orig) {
+      toFinal.set(orig, copy);
+      toOriginal.set(copy, orig);
+    }
+  });
+  for (const pair of Array.isArray(adjudged?.replaced) ? adjudged.replaced : []) {
+    if (!Array.isArray(pair)) continue;
+    const [input, copy] = pair;
+    const orig = toOriginal.get(input) ?? input;
+    toFinal.set(orig, copy);
+    toOriginal.set(copy, orig);
+  }
+  const overturned = new Set(
+    (Array.isArray(adjudged?.dropped) ? adjudged.dropped : []).map((f) => toOriginal.get(f) ?? f),
+  );
+  const out = [];
+  for (const f of Array.isArray(merged) ? merged : []) {
+    if (overturned.has(f)) continue;
+    out.push(toFinal.get(f) ?? f);
+  }
+  return out;
 }
 
 /**
@@ -2472,7 +2645,7 @@ async function main() {
         // Retry only genuinely-transient API errors (classifyResult); a
         // quota/session-limit fails through immediately (can't clear in-run).
         try { return await withRetry(() => runLens(lens, { rubric: lens.rubric, diff: core, extraDiff: extra, issue, repo, sessionLog, scopeNote, cacheable })); }
-        catch (e) { return { __error: e.message, kind: e.kind, status: e.status, detail: e.detail }; }
+        catch (e) { return { __error: e.message, kind: e.kind, status: e.status, detail: e.detail, code: e.code, reason: e.reason }; }
       };
       // Warm the shared prefix once, then fan out (see createWarmupGate). Sample
       // COUNT, independence and per-sample error capture are all unchanged — only
@@ -2488,7 +2661,7 @@ async function main() {
         // tag it so the panel pages honestly instead of inventing "changes requested".
         const apiErr = results.find((r) => r && r.kind === "api-error");
         const err = new Error((results[0] && results[0].__error) || "all lens samples failed");
-        if (apiErr) { err.infra = true; err.detail = apiErr.detail; err.status = apiErr.status; }
+        if (apiErr) { err.infra = true; err.detail = apiErr.detail; err.status = apiErr.status; err.code = apiErr.code; err.reason = apiErr.reason; }
         throw err;
       }
       // unionSamples coerces (never drops) + dedupes (collapses identical
@@ -2502,10 +2675,13 @@ async function main() {
       // but say so honestly and tag the entry so the workflow pages with the real
       // reason (and skips the fixer — there's nothing to fix). A genuine no-verdict
       // (model ran but produced nothing) stays the ordinary fail-closed blocker.
-      const infra = err.infra ? (err.detail || `API error${err.status ? ` (${err.status})` : ""}`) : null;
-      const summaryText = infra
-        ? `Review could not run — Claude API/quota error${err.status ? ` (${err.status})` : ""}: ${infra}`
-        : `Reviewer did not produce a valid verdict: ${err.message}`;
+      // Both strings come from `lensFailureSummary`, which is where the "what may
+      // be published" rule lives and where it is tested. `infra` stays a truthy
+      // marker for the branches below (it tags the record and skips the fixer).
+      const infra = err.infra
+        ? publicInfraReason({ kind: "api-error", status: err.status, detail: err.detail })
+        : null;
+      const summaryText = lensFailureSummary(err);
       // Carries NO `confidence`, on purpose. FINDING's `required` constrains the
       // MODEL's output; this record is synthesised by the script because the lens
       // produced nothing usable, so there is no assessment to report. Stamping a
@@ -2661,12 +2837,12 @@ async function main() {
     //
     // Only the second column worked, and it is the one the loop was not built for.
     //
-    // STAMPED HERE, not on `gatingRaw`, and that is load-bearing: `mergedAfter`
-    // below removes overturned findings from `merged` by object IDENTITY
-    // (`overturnedOut.has(f)`), and `gatingFindings` filters without copying. A
-    // copy made at the gating step would leave every dropped finding
-    // un-removable from the summary — the finding would be overturned for the
-    // check run and still rendered as blocking for the human.
+    // STAMPED HERE, not on `gatingRaw`, and that is load-bearing:
+    // `substituteAdjudicated` below matches `merged` against `gatingRaw` by
+    // object IDENTITY, and `gatingFindings` filters without copying. A copy
+    // made at the gating step would break every pairing — overturned findings
+    // would stay in the summary and upheld copies would never replace their
+    // originals in verdict.json.
     //
     // Existing values are preserved rather than overwritten: `priorForLens` was
     // already filtered to `p.lens === lens.id`, so this only fills blanks.
@@ -2700,8 +2876,10 @@ async function main() {
     // An overturned finding must leave the human-readable summary too, or the
     // check body would still list a finding the gate no longer holds — the exact
     // "reads as a full review" confusion the unverified note exists to prevent.
-    const overturnedOut = new Set(adjudged.dropped);
-    const mergedAfter = overturnedOut.size ? merged.filter((f) => !overturnedOut.has(f)) : merged;
+    // And an UPHELD finding must be persisted as its adjudicated copy, or the
+    // `upheld` counter dies here every round and the standstill page never
+    // fires — see substituteAdjudicated for the full failure.
+    const mergedAfter = substituteAdjudicated(merged, gatingRaw, afterSkips, adjudged);
 
     // Record WHAT THIS LENS DID, as data, before any of it is flattened for
     // humans. Placed here on purpose: verification is complete (so every verdict
@@ -3056,7 +3234,16 @@ export function writeStageDetail(lensOut, detail, env = process.env) {
     writeFileSync(path.join(lensOut, "stage-detail.json"), JSON.stringify(detail) + "\n");
     return true;
   } catch (err) {
-    console.log(`stage-detail capture failed (continuing): ${err.message}`);
+    // `console.warn`, not `console.log`, and the reason is the same one that moved
+    // `eval/run.mjs`'s heartbeat off stdout: `review-panel.test.mjs` calls this
+    // function IN-PROCESS, so under `node --test` stdout is not a terminal but the
+    // runner's result channel, carrying v8 frames the parent parses. Plain text
+    // landing behind a frame in one read chunk is taken as that frame's successor
+    // and its bytes read as a length, which either stalls the stream or throws
+    // `Unable to deserialize cloned data` and loses this file's remaining results.
+    // Measured: this line put 421 bytes on that channel per run. A degradation
+    // notice belongs on stderr regardless, which the runner reads as lines.
+    console.warn(`stage-detail capture failed (continuing): ${err.message}`);
     return false;
   }
 }
@@ -3070,7 +3257,10 @@ function writeVerdict(lensOut, lens, findings, summary, { valid, conclusion, adv
   // `findings` so every other caller is unchanged.
   const finalConclusion = conclusion ?? classify(gating ?? findings).conclusion;
   // verdict.json keeps EVERY finding, demoted ones included, with the `lane` and
-  // `novelty` that explain each decision — it is the record, not the gate.
+  // `novelty` that explain each decision — it is the record, not the gate. On an
+  // upheld dispute it also carries `adjudication`, and must: this file is where
+  // the workflow reads `adjudication.upheld` into the check run's output.text,
+  // the channel the standstill bound is counted from.
   writeFileSync(path.join(lensOut, "verdict.json"), JSON.stringify({ findings, summary, valid, conclusion: finalConclusion, ...(unverified ? { unverified } : {}) }, null, 2) + "\n");
   // advisory lenses always report success → render the body as advisory so it
   // doesn't contradict the green check with a "changes requested" header. The

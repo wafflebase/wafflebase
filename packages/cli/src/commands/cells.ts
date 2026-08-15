@@ -28,9 +28,9 @@ export function registerCellsCommand(parent: Command) {
             ? await getClient(opts).getCell(docId, tab, range)
             : await getClient(opts).getCells(docId, tab);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, fmt, opts.quiet);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -69,9 +69,9 @@ export function registerCellsCommand(parent: Command) {
           formula ? value : undefined,
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, fmt, opts.quiet);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -96,9 +96,9 @@ export function registerCellsCommand(parent: Command) {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteCell(docId, tab, ref);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, fmt, opts.quiet);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 
@@ -140,7 +140,6 @@ export function registerCellsCommand(parent: Command) {
               e instanceof Error ? e.message : String(e)
             }`,
           ),
-          opts.quiet,
         );
         return;
       }
@@ -163,9 +162,9 @@ export function registerCellsCommand(parent: Command) {
           cells as Record<string, { value?: string; formula?: string } | null>,
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, fmt, opts.quiet);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 }

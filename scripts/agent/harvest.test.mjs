@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { renderSummaryMd } from "./severity.mjs";
+import { renderSummaryMd, BLOCKING, normalizeSeverity } from "./severity.mjs";
 import {
   SCHEMA,
   LABELS,
@@ -19,7 +19,12 @@ import {
   interestingFiles,
   fileClassesOf,
   classifyCodeRabbitComment,
+  classifyCodeRabbitHeader,
+  parseCodeRabbitReview,
+  codeRabbitReviewSections,
   codeRabbitDetail,
+  codeRabbitTitle,
+  unrecognisedDetailsLabels,
   attributeToPanel,
   parsePanelComment,
   panelFindingsFromComments,
@@ -350,16 +355,176 @@ const CR_MAJOR_STABILITY =
   "_🩺 Stability & Availability_ | _🟠 Major_ | _⚡ Quick win_\n\n**Missing `if: always()`.**\n\nThe step is skipped on failure.";
 const CR_REPLY = "`@dlgpdmsly2`, thanks for the thorough fix and verification. The revised distinction is correct.";
 
+// The other three vintages, each VERBATIM from this repository's API. They are
+// pinned with their PR and comment id so anyone can re-fetch and diff them; a
+// hand-written header only proves the regex matches its author's idea of the
+// format, which is how the three-field-only version shipped in the first place.
+//
+// `repos/wafflebase/wafflebase/pulls/comments` → comment 3733719133 (PR #692,
+// 2026-08-07). NOTE THE DATE: the two-field header is not a retired vintage, it
+// is current output with the effort field omitted.
+const CR_TWO_FIELD_LIVE =
+  "_🩺 Stability & Availability_ | _🟠 Major_\n\n**Reap the process group on `exit`, not only on `close`.**\n\nA leaked descendant can retain `proc.stdout` or `proc.stderr` after the shell exits.";
+// comment 2837785711 (PR #15, 2026-02-22) — two fields, UPSTREAM vocabulary.
+const CR_TWO_FIELD_UPSTREAM =
+  "_⚠️ Potential issue_ | _🟠 Major_\n\n**No timeout on `fetch` calls — requests can hang indefinitely.**\n\n`sendSignedRequest` delegates to `fetch` (Line 262) without an `AbortSignal` timeout.";
+// comment 2041141880 (PR #11, 2025-04-13) — ONE italic field, and it is a
+// CATEGORY.
+const CR_SINGLE_ITALIC =
+  "_🛠️ Refactor suggestion_\n\n**Add error handling to the useMe hook.**\n\nCurrently, errors from `fetchMe()` are handled within that function via toast messages.";
+// comment 1702452902 (PR #6, 2024-08-03) — no header at all, straight to the
+// bolded title.
+const CR_BOLD_TITLE =
+  "**Consider optimizing the `hasContents` method.**\n\nThe current implementation iterates through each reference in the range and checks the store.";
+// comment 3457646724 (PR #407, 2026-06-23T06:56:21Z) — the FIRST comment in the
+// CHILL vocabulary, three fields.
+const CR_THREE_FIELD_CHILL =
+  "_🔒 Security & Privacy_ | _🟠 Major_ | _⚡ Quick win_\n\n**Validate `srgb` input before embedding it into XML.**\n\n`colorChildXml` currently interpolates raw `c.value` into `val=\"...\"`.";
+
 test("classifyCodeRabbitComment: reads the header this repo actually emits", () => {
   assert.deepEqual(classifyCodeRabbitComment(CR_MAJOR_CORRECTNESS), {
     category: "functional correctness",
+    vocabulary: "chill",
     severity: "major",
+    severityRaw: "major",
+    effort: "heavy lift",
+    vintage: "three-field",
     lens: "correctness",
     summary: "Guard public mutation APIs at the read-only boundary.",
     detail:
       "**Guard public mutation APIs at the read-only boundary.** This flag only protects event handlers.",
   });
   assert.equal(classifyCodeRabbitComment(CR_MAJOR_SECURITY).lens, "security");
+});
+
+test("classifyCodeRabbitComment: reads all FOUR header vintages, from real bodies", () => {
+  // The regex this replaces required three italic fields, so eras 1 and 2 —
+  // 550 of the 1485 inline findings in this repo, measured 2026-08-07 — returned
+  // null and read as "CodeRabbit said nothing here".
+  const live = classifyCodeRabbitComment(CR_TWO_FIELD_LIVE);
+  assert.equal(live.vintage, "two-field");
+  assert.equal(live.category, "stability & availability");
+  assert.equal(live.vocabulary, "chill");
+  assert.equal(live.severity, "major");
+  assert.equal(live.effort, ""); // the field the two-field vintage omits
+
+  const upstream = classifyCodeRabbitComment(CR_TWO_FIELD_UPSTREAM);
+  assert.equal(upstream.vintage, "two-field");
+  assert.equal(upstream.category, "potential issue");
+  assert.equal(upstream.vocabulary, "upstream");
+  assert.equal(upstream.severity, "major");
+
+  const single = classifyCodeRabbitComment(CR_SINGLE_ITALIC);
+  assert.equal(single.vintage, "single-italic");
+  assert.equal(single.category, "refactor suggestion");
+  assert.equal(single.severity, ""); // this vintage states no severity at all
+
+  const bold = classifyCodeRabbitComment(CR_BOLD_TITLE);
+  assert.equal(bold.vintage, "bold-title");
+  assert.equal(bold.category, "");
+  assert.equal(bold.severity, "");
+  assert.equal(bold.summary, "Consider optimizing the `hasContents` method.");
+
+  assert.equal(classifyCodeRabbitComment(CR_THREE_FIELD_CHILL).vintage, "three-field");
+});
+
+test("classifyCodeRabbitComment: WHICH vocabulary the category came from is kept", () => {
+  // The switch was sharp — last upstream-vocabulary comment 2026-06-22T00:20:46Z,
+  // first CHILL one 2026-06-23T06:56:21Z — so era is a real confound in any count
+  // taken across it. A parser that normalised both into one shape would make "did
+  // the format change?" unanswerable from the output.
+  assert.equal(classifyCodeRabbitComment(CR_THREE_FIELD_CHILL).vocabulary, "chill");
+  assert.equal(classifyCodeRabbitComment(CR_TWO_FIELD_UPSTREAM).vocabulary, "upstream");
+});
+
+test("classifyCodeRabbitComment: a lone italic field is a category OR an effort", () => {
+  // 212 of the 226 single-field headers in this repo's review bodies are EFFORTS
+  // (`_⚡ Quick win_`), not categories. Reading position 1 as "the category" would
+  // file "quick win" as a CodeRabbit category on every one of them.
+  const effort = classifyCodeRabbitComment("_⚡ Quick win_\n\n**Coverage gap.**\n\nprose");
+  assert.equal(effort.effort, "quick win");
+  assert.equal(effort.category, "");
+  assert.equal(classifyCodeRabbitComment(CR_SINGLE_ITALIC).category, "refactor suggestion");
+  assert.equal(classifyCodeRabbitComment(CR_SINGLE_ITALIC).effort, "");
+});
+
+test("classifyCodeRabbitComment: the `_` delimiter also occurs INSIDE a field", () => {
+  // GitHub emoji shortcodes contain underscores. A `_([^_]+)_` field regex stops
+  // at the first inner underscore and drops the finding — this is real, from
+  // review 2526885510 on PR #10 (2025-01-01).
+  const f = classifyCodeRabbitComment("_:hammer_and_wrench: Refactor suggestion_\n\n**Update the action version**\n\nprose");
+  assert.equal(f.category, "refactor suggestion");
+  assert.equal(f.vintage, "single-italic");
+});
+
+test("classifyCodeRabbitComment: non-findings are null, NOT default-severity findings", () => {
+  // This is why severity is read only AFTER a header matched. normalizeSeverity
+  // maps anything unknown to `major` (fail-safe for a gate), so running a threaded
+  // reply through it would file every "thanks for the fix" as a blocking candidate
+  // and bury the real ones.
+  assert.equal(classifyCodeRabbitComment(CR_REPLY), null);
+  assert.equal(classifyCodeRabbitComment("<!-- walkthrough --> ## Summary by CodeRabbit"), null);
+  for (const bad of [null, undefined, "", 7, {}]) assert.equal(classifyCodeRabbitComment(bad), null);
+  // An italic line recognised in NO vocabulary is a caption, not a header.
+  assert.equal(classifyCodeRabbitComment("_see the diagram below_\n\nprose"), null);
+});
+
+test("classifyCodeRabbitComment: non-blocking severities are RETURNED, not dropped", () => {
+  // They used to be dropped HERE, which made "what CodeRabbit wrote" and "what
+  // this corpus files" the same function. The blocking-only rule is the corpus's
+  // policy and now lives at the caller — see the harvestPr test below, which is
+  // what actually holds that behaviour in place.
+  const minor = classifyCodeRabbitComment(CR_MINOR_MAINTAIN);
+  assert.equal(minor.severity, "minor");
+  assert.equal(classifyCodeRabbitComment("_🎯 Functional Correctness_ | _⚪ Nit_ | _⚡ Quick win_\n\n**x**").severity, "nit");
+});
+
+test("classifyCodeRabbitComment: `trivial` becomes `nit`, and never reaches normalizeSeverity", () => {
+  // CodeRabbit's below-minor tier. `severity.mjs`'s KNOWN has no `trivial` and maps
+  // anything unknown to `major` as a fail-safe for OUR gate, so routing it through
+  // normalizeSeverity files 307 lowest-tier nits as BLOCKING majors. Translated at
+  // the arm boundary instead: KNOWN is the shared source of truth for what blocks a
+  // PR in our panel, and our lenses never emit `trivial`.
+  const f = classifyCodeRabbitComment("_📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_\n\n**Reuse the shared type.**\n\nprose");
+  assert.equal(f.severity, "nit");
+  assert.equal(f.severityRaw, "trivial");
+  assert.ok(!BLOCKING.has(f.severity), "a trivial nit must never be blocking");
+  assert.equal(normalizeSeverity("trivial"), "major"); // the trap this avoids, still live
+});
+
+test("classifyCodeRabbitComment: an UNRECOGNISED severity is empty, not guessed", () => {
+  // The decision here is the default, not the mapping. `major` files nits as
+  // blockers; `nit` silently demotes a real blocker the day CodeRabbit adds a
+  // word. Both are silent. Empty is not: BLOCKING.has("") is false, so the finding
+  // is withheld rather than guessed into the corpus, and severityRaw names the gap.
+  const f = classifyCodeRabbitComment("_🎯 Functional Correctness_ | _🟣 Catastrophic_ | _⚡ Quick win_\n\n**x**\n\nprose");
+  assert.equal(f.severity, "");
+  assert.equal(f.severityRaw, "");
+  assert.equal(f.category, "functional correctness");
+  assert.ok(!BLOCKING.has(f.severity));
+});
+
+test("classifyCodeRabbitHeader: fields are assigned by VOCABULARY, not by position", () => {
+  // Position is not stable across vintages — the same slot holds a category in
+  // one and an effort in another — so one function reads all three arities by
+  // asking which vocabulary each field belongs to.
+  assert.deepEqual(classifyCodeRabbitHeader("_🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_"), {
+    vintage: "three-field",
+    category: "functional correctness",
+    vocabulary: "chill",
+    severity: "major",
+    severityRaw: "major",
+    effort: "quick win",
+    unrecognised: [],
+  });
+  assert.equal(classifyCodeRabbitHeader("_🟠 Major_").severity, "major");
+  assert.equal(classifyCodeRabbitHeader("_🟠 Major_").category, "");
+  // A word in no vocabulary is CARRIED, not dropped and not guessed at.
+  assert.deepEqual(classifyCodeRabbitHeader("_🎯 Functional Correctness_ | _🟣 Catastrophic_").unrecognised, ["catastrophic"]);
+  // Not a header at all.
+  assert.equal(classifyCodeRabbitHeader("**A bolded title.**"), null);
+  assert.equal(classifyCodeRabbitHeader("_a_ | _b_ | _c_ | _d_"), null);
+  assert.equal(classifyCodeRabbitHeader(""), null);
 });
 
 test("classifyCodeRabbitComment: only unambiguous categories get a lens", () => {
@@ -371,21 +536,739 @@ test("classifyCodeRabbitComment: only unambiguous categories get a lens", () => 
   assert.equal(stability.lens, "");
 });
 
-test("classifyCodeRabbitComment: non-findings are null, NOT default-severity findings", () => {
-  // This is why severity is read only AFTER a header matched. normalizeSeverity
-  // maps anything unknown to `major` (fail-safe for a gate), so running a threaded
-  // reply through it would file every "thanks for the fix" as a blocking candidate
-  // and bury the real ones.
-  assert.equal(classifyCodeRabbitComment(CR_REPLY), null);
-  assert.equal(classifyCodeRabbitComment("<!-- walkthrough --> ## Summary by CodeRabbit"), null);
-  for (const bad of [null, undefined, "", 7, {}]) assert.equal(classifyCodeRabbitComment(bad), null);
+// --- codeRabbitTitle: a title is prose, never code ---------------------------
+//
+// comment 3651715274 (PR #549, 2026-07-26), trimmed in the middle — the web-query
+// text and two more script blocks are cut, and the cut is marked. Nothing is
+// reordered and no line is rewritten, because the ORDER is the whole fixture: the
+// `🧩 Analysis chain` block comes FIRST, and the title comes after it.
+const CR_ANALYSIS_CHAIN_FIRST = [
+  "_🔒 Security & Privacy_ | _🟡 Minor_ | _⚡ Quick win_",
+  "",
+  "<details>",
+  "<summary>🧩 Analysis chain</summary>",
+  "",
+  "🏁 Script executed:",
+  "",
+  "```shell",
+  "#!/bin/bash",
+  "echo \"== dependency mentions ==\"",
+  "rg -n '\"markdown-it\"' -S . --glob '!**/node_modules/**' --glob '!**/dist/**'",
+  "```",
+  "",
+  "Repository: wafflebase/wafflebase",
+  "",
+  "Length of output: 3380",
+  "",
+  "</details>",
+  "",
+  "**Pin the markdown-it dependency or switch to the public `getRules()` API.**",
+  "",
+  "`packages/notes/package.json` declares `markdown-it: \"^14.1.0\"` while the notes package currently resolves `14.3.0`.",
+  "",
+  "<details>",
+  "<summary>🤖 Prompt for AI Agents</summary>",
+  "",
+  "```",
+  "Verify each finding against current code. Fix only still-valid issues.",
+  "```",
+  "",
+  "</details>",
+  "",
+  "<!-- cr-comment:v1:89e5b52cfcb0fcabce0e12a0 -->",
+].join("\n");
+
+test("classifyCodeRabbitComment: a `**` inside a shell command is not a title", () => {
+  // THE REGRESSION THIS EXISTS FOR. `--glob '!**/node_modules/**'` contains a
+  // bolded-looking span, and it is the FIRST one in the body — 2129 bytes before
+  // the real title in the comment this fixture came from. Unguarded, the finding's
+  // summary was the string `/node_modules/`, which then scored 0.46-0.75 against
+  // six panel findings on location alone and reached a human adjudication queue.
+  const f = classifyCodeRabbitComment(CR_ANALYSIS_CHAIN_FIRST);
+  assert.equal(f.summary, "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  assert.notEqual(f.summary, "/node_modules/");
 });
 
-test("classifyCodeRabbitComment: non-blocking severities are dropped", () => {
-  // The corpus measures the GATE. A minor maintainability note our panel also did
-  // not raise is not a gate failure.
-  assert.equal(classifyCodeRabbitComment(CR_MINOR_MAINTAIN), null);
-  assert.equal(classifyCodeRabbitComment("_🎯 Functional Correctness_ | _⚪ Nit_ | _⚡ Quick win_\n\n**x**"), null);
+test("classifyCodeRabbitComment: a title AFTER a `<details>` block is still a title", () => {
+  // The other half of the same rule, and the reason the search is code-blind rather
+  // than truncated at the first structured block. 200 of this repo's 1588 inline
+  // findings (12.6%) open with a `🧩 Analysis chain` block and state their title
+  // after it; stopping at the first block would return "" for every one of them.
+  // Measured 2026-08-12 over all 2061 CodeRabbit inline comments.
+  assert.ok(CR_ANALYSIS_CHAIN_FIRST.indexOf("<details>") < CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the"));
+  assert.equal(codeRabbitTitle(CR_ANALYSIS_CHAIN_FIRST), "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  // And the title sits BETWEEN the two fenced blocks, which is the ordinary shape:
+  // an analysis chain above it, an AI-agents block below. Each fenced span must be
+  // removed on its own — one greedy match from the first fence to the last would
+  // swallow the title along with them.
+  const fences = [...CR_ANALYSIS_CHAIN_FIRST.matchAll(/```/g)].map((m) => m.index);
+  assert.equal(fences.length, 4, "the fixture must keep BOTH fenced blocks for that to be a real risk");
+  assert.ok(fences[1] < CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the"));
+  assert.ok(CR_ANALYSIS_CHAIN_FIRST.indexOf("**Pin the") < fences[2]);
+});
+
+// comment 2884648659 (PR #21, 2026-03), trimmed at the end only. Its `💡 Result:`
+// narrative is UNFENCED prose inside the analysis chain, and it opens with three
+// bolded spans before the finding's real title appears below the block.
+const CR_UNFENCED_BOLD_IN_CHAIN = [
+  "_⚠️ Potential issue_ | _🟠 Major_",
+  "",
+  "<details>",
+  "<summary>🧩 Analysis chain</summary>",
+  "",
+  "🌐 Web query:",
+  "",
+  "`React 19 Strict Mode useState functional updater multiple invocations`",
+  "",
+  "💡 Result:",
+  "",
+  "In **React 19** (as in React 18), if you have **`<React.StrictMode>` enabled in development**, React may **invoke your `useState` functional updater more than once** (often twice).",
+  "",
+  "</details>",
+  "",
+  "**Avoid side effects inside the `setDefinition` updater callback.**",
+  "",
+  "The updater runs twice under Strict Mode.",
+].join("\n");
+
+test("codeRabbitTitle: UNFENCED bold inside an analysis chain is not a title either", () => {
+  // Raised in review on #801, and it was right. Skipping fenced code alone is not
+  // enough — the `💡 Result:` narrative is LLM prose, not code, and uses bold freely.
+  // On this body the fence-only rule returned `React 19`. Measured over all 2061
+  // inline comments it returned 16 titles that disagree with the prose, of which
+  // `Don't use`, `React 19`, `strings` and `` `DefaultLocale()` `` are web-answer
+  // fragments. The fix is that the title now reads the SAME machinery-stripped region
+  // `codeRabbitDetail` does, so the two cannot disagree about what is prose.
+  assert.equal(
+    codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN),
+    "Avoid side effects inside the `setDefinition` updater callback.",
+  );
+  assert.notEqual(codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN), "React 19");
+  // The title and the detail must agree on what counts as prose. That is the
+  // invariant; the two readers disagreeing is the whole defect this file keeps fixing.
+  const detail = codeRabbitDetail(CR_UNFENCED_BOLD_IN_CHAIN);
+  assert.ok(detail.includes(codeRabbitTitle(CR_UNFENCED_BOLD_IN_CHAIN)), "the title is not inside the detail");
+  assert.doesNotMatch(detail, /React 19|StrictMode/, "the web answer reached the compared text");
+});
+
+test("codeRabbitTitle: a title is never SPLICED across a removed span", () => {
+  // Raised in review on #801. Every removed span becomes a newline, so a `/s`-flagged
+  // bold match joins an unclosed `**` above a fence to a stray `**` below it and
+  // returns a string that appears in no line of the comment. That is worse than
+  // returning markup, because it reads like prose. The single-line match makes it
+  // unrepresentable rather than unlikely.
+  const spliced = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "Use **bold to start but never close it",
+    "",
+    "```sh",
+    "code",
+    "```",
+    "",
+    "and then** later text",
+    "",
+    "**The real title.**",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(spliced), "The real title.");
+  assert.notEqual(codeRabbitTitle(spliced), "bold to start but never close it and then");
+  // The same join happens where a `<details>` block was dissolved, not just a fence.
+  const acrossBlock = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "Use **bold that never closes",
+    "",
+    "<details>",
+    "<summary>🤖 Prompt for AI Agents</summary>",
+    "",
+    "x",
+    "",
+    "</details>",
+    "",
+    "and then** more",
+    "",
+    "**The actual title.**",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(acrossBlock), "The actual title.");
+});
+
+test("codeRabbitTitle: a tilde run cannot close a backtick fence", () => {
+  // A nit in the same review, and correct: `` \1[`~]* `` accepted ```` ```~~~ ```` as
+  // a closer. CommonMark requires the closer to use the opener's character, and a rule
+  // that says otherwise is a rule that will be believed.
+  // The discriminating shape is a closer that STARTS with the opener's delimiter and
+  // then carries the other one. `~~~` alone never closed a backtick fence, in either
+  // spelling, so a fixture using that cannot tell the two apart — the first version of
+  // this test did, and the mutation survived it.
+  const mixed = ["_h_ | _🟠 Major_", "", "```sh", "x **not a title** y", "```~~~", "", "**The real title.**"].join("\n");
+  // Per CommonMark that is not a closing fence, so the block runs to the end and
+  // EVERYTHING after it is code. `""` is the honest answer; accepting the mixed run
+  // would return "The real title." by luck, and rejecting it without consuming to the
+  // end would return `not a title` — markup, which is the outcome this file exists to
+  // prevent. All three differ, which is what makes this worth asserting.
+  assert.equal(codeRabbitTitle(mixed), "");
+  assert.notEqual(codeRabbitTitle(mixed), "not a title");
+  // Each delimiter closes its own kind, and a title ABOVE an unclosed fence survives.
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n```sh\nx **not a title** y\n```\n\n**Backticks.**"), "Backticks.");
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n~~~sh\nx **not a title** y\n~~~\n\n**Tildes.**"), "Tildes.");
+  assert.equal(codeRabbitTitle("_h_ | _🟠 Major_\n\n**Above it.**\n\n```sh\nunclosed **x**"), "Above it.");
+});
+
+test("codeRabbitTitle: CRLF bodies behave exactly as LF ones", () => {
+  // Also raised in review, on the reasoning that a multiline `$` matches only before
+  // `\n`. In JavaScript it matches before any LineTerminator, and CR is one, so the
+  // closing-fence branch works unchanged — asserted here rather than argued, and
+  // pinned so a future rewrite of the fence pattern cannot quietly break it.
+  const lf = CR_UNFENCED_BOLD_IN_CHAIN;
+  assert.equal(codeRabbitTitle(lf.replace(/\n/g, "\r\n")), codeRabbitTitle(lf));
+  const fenced = "_h_ | _🟠 Major_\n\n````markdown\n```sh\nrg --glob '!**/node_modules/**'\n```\n````\n\n**Real title.**";
+  assert.equal(codeRabbitTitle(fenced.replace(/\n/g, "\r\n")), "Real title.");
+  assert.equal(codeRabbitDetail(fenced.replace(/\n/g, "\r\n")), codeRabbitDetail(fenced));
+});
+
+test("codeRabbitTitle: a fence is closed by ITS OWN length, not by a shorter inner one", () => {
+  // Raised in review on #801. A four-backtick fence may legally contain a
+  // three-backtick one — that is the reason to open with four, to quote markdown
+  // inside markdown — and 35 of this repo's 2061 CodeRabbit inline comments do it.
+  // Closing on a fixed ``` would end the span at the INNER run and hand the rest of
+  // the block back to the title search as prose, which is the defect this whole
+  // function exists to prevent.
+  const body = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "````markdown",
+    "```sh",
+    "rg --glob '!**/node_modules/**'",
+    "```",
+    "````",
+    "",
+    "**Add a language tag to the fenced block.**",
+    "",
+    "prose",
+  ].join("\n");
+  assert.equal(codeRabbitTitle(body), "Add a language tag to the fenced block.");
+  assert.notEqual(codeRabbitTitle(body), "/node_modules/");
+});
+
+test("codeRabbitTitle: tilde fences count as code too, at any delimiter length", () => {
+  // Pure widening — CommonMark allows `~~~` and CodeRabbit has emitted none here yet
+  // (0 of 2061 inline comments, 0 of 614 review bodies). Kept because the failure
+  // mode if it ever does is markup becoming a finding's summary, and because the two
+  // delimiters cannot be mixed: a `~~~` run must not close a ``` fence.
+  const tilde = "_🎯 Functional Correctness_ | _🟠 Major_\n\n~~~sh\nrg --glob '!**/dist/**'\n~~~\n\n**Quote the glob.**\n\nprose";
+  assert.equal(codeRabbitTitle(tilde), "Quote the glob.");
+  const longTilde = "_🎯 Functional Correctness_ | _🟠 Major_\n\n~~~~\n~~~\n**not a title**\n~~~\n~~~~\n\n**The real title.**\n\nprose";
+  assert.equal(codeRabbitTitle(longTilde), "The real title.");
+  // A fence opened with backticks is NOT closed by tildes, so it never closes — and an
+  // unclosed fence runs to the end, which means the bold below it is inside code. `""`
+  // rather than `Still parses.`, and this assertion was written the other way round in
+  // the first review round: it pinned the old "an unclosed fence strips nothing"
+  // behaviour and went red when that changed, which is what it was for.
+  const mixed = "_🎯 Functional Correctness_ | _🟠 Major_\n\n```sh\n~~~\n\n**Still parses.**";
+  assert.equal(codeRabbitTitle(mixed), "");
+});
+
+test("codeRabbitTitle: a backticked identifier INSIDE a title survives", () => {
+  // This is the test that bounds the fix. The fence rule is anchored to line start,
+  // which leaves inline code spans unstripped — and the tempting next step is to
+  // strip those too. It must not happen: a real title routinely quotes a symbol, and
+  // removing inline spans before the bold search deletes the identifier out of the
+  // middle of the title. The title below is verbatim from comment 3651715274.
+  const f = classifyCodeRabbitComment(
+    "_🔒 Security & Privacy_ | _🟡 Minor_\n\n**Pin the markdown-it dependency or switch to the public `getRules()` API.**\n\nprose",
+  );
+  assert.equal(f.summary, "Pin the markdown-it dependency or switch to the public `getRules()` API.");
+  assert.match(f.summary, /`getRules\(\)`/, "the backticked identifier was stripped out of the title");
+});
+
+test("codeRabbitTitle: an UNCLOSED fence swallows what follows, not what precedes", () => {
+  // Per CommonMark an unclosed fence means everything after it is code, and that is what
+  // the rule now does. The consequence that matters: a title ABOVE such a fence is
+  // outside the span and survives, while a `**` below it is code and is not a title.
+  const f = classifyCodeRabbitComment("_🎯 Functional Correctness_ | _🟠 Major_\n\n**A real title.**\n\n```sh\nunclosed **not this**");
+  assert.equal(f.summary, "A real title.");
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\n```sh\nunclosed **not this**"), "");
+  // And an inline code span is not a fence: it must not be treated as a block.
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\nsee `x` then **The title.**"), "The title.");
+});
+
+test("codeRabbitTitle: an HTML comment cannot supply a title, and absent stays absent", () => {
+  // `<!-- … -->` is markup for the same reason a fence is. And a body with no
+  // bolded span anywhere yields "" rather than a manufactured first sentence:
+  // `findingKey` is `file::summary`, so a fabricated title is not a neutral
+  // placeholder — it is a key nothing can distinguish from a real one.
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\n<!-- **not a title** -->\n\nprose"), "");
+  assert.equal(codeRabbitTitle("_🎯 Functional Correctness_ | _🟠 Major_\n\nprose with no bold at all"), "");
+  assert.equal(codeRabbitTitle(""), "");
+  for (const bad of [null, undefined, 7, {}]) assert.equal(codeRabbitTitle(bad), "");
+});
+
+// --- parseCodeRabbitReview ---------------------------------------------------
+//
+// Every fixture below is a VERBATIM slice of a real `pulls/{n}/reviews` response,
+// pinned with its PR and review id. Truncated at the end only — never edited.
+
+// review 4628429920 (PR #435, 2026-07-03). The modern shape: a tier section
+// wrapping one file sub-section per file, each declaring its own count.
+const RV_NITPICK = [
+  "<details>",
+  "<summary>🧹 Nitpick comments (2)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>packages/slides/src/import/pptx/text.ts (1)</summary><blockquote>",
+  "",
+  "`97-114`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_",
+  "",
+  "**Reuse the shared `TextInset` type instead of an inline duplicate.**",
+  "",
+  "The return type here structurally duplicates `TextInset` from `../../model/element`.",
+  "",
+  "</blockquote></details>",
+  "<details>",
+  "<summary>packages/slides/src/view/canvas/text-renderer.ts (1)</summary><blockquote>",
+  "",
+  "`185-222`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_",
+  "",
+  "**Add a direct regression test for the `body.inset` fallback**",
+  "",
+  "A small case here would lock that precedence in.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 2216686007 (PR #6, 2024-08-03). The COMBINED title, which names three
+// tiers at once, and the `Line range hint` locator.
+const RV_COMBINED_2024 = [
+  "<details>",
+  "<summary>Outside diff range, codebase verification and nitpick comments (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>src/worksheet/coordinates.ts (1)</summary><blockquote>",
+  "",
+  "`120-155`: **LGTM! Consider adding inline comments for clarity.**",
+  "",
+  "The `toBorderRanges` function correctly calculates and returns the border ranges.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 4698770133 (PR #477, 2026-07-14). The BARE locator — no backticks.
+const RV_FAILED_TO_POST = [
+  "<details>",
+  "<summary>🛑 Comments failed to post (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>docs/design/design-system-unification.md (1)</summary><blockquote>",
+  "",
+  "62-75: _📐 Maintainability & Code Quality_ | _🟡 Minor_ | _⚡ Quick win_",
+  "",
+  "**Update the remaining CSS import example.**",
+  "",
+  "Change it to `@wafflebase/core/tokens.css`.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 2216686007 (PR #6). `Line range hint` prefixes the locator, and the
+// header is a bolded title on the NEXT line.
+const RV_LINE_RANGE_HINT = [
+  "<details>",
+  "<summary>Additional comments not posted (2)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>test/sheet/sheet.test.ts (2)</summary><blockquote>",
+  "",
+  "Line range hint `4-15`: ",
+  "**LGTM! The test case is well-structured and covers the basic functionality.**",
+  "",
+  "The test case for setting and getting data in the `Sheet` class correctly validates.",
+  "",
+  "---",
+  "",
+  "Line range hint `17-22`: ",
+  "**LGTM! The test case is well-structured and covers the expected behavior.**",
+  "",
+  "The test case for updating the selection correctly validates the expected behavior.",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+test("parseCodeRabbitReview: reads the tier the inline endpoint cannot see", () => {
+  // `pulls/{n}/comments` does not return these. They are nested in the REVIEW
+  // body, an endpoint this module never called: 1626 findings across 638 PRs,
+  // against 436 the inline path returned. Measured 2026-08-07.
+  const { findings, declared, shortfall } = parseCodeRabbitReview(RV_NITPICK);
+  assert.equal(declared, 2);
+  assert.equal(findings.length, 2);
+  assert.equal(shortfall, 0);
+  assert.equal(findings[0].tier, "nitpick");
+  assert.equal(findings[0].file, "packages/slides/src/import/pptx/text.ts");
+  assert.equal(findings[0].locator, "97-114");
+  assert.equal(findings[0].severity, "nit"); // `Trivial`, translated
+  assert.equal(findings[0].summary, "Reuse the shared `TextInset` type instead of an inline duplicate.");
+  // The SECOND file's finding, which a non-counting blockquote scan loses: the
+  // tier section would end at the first inner `</blockquote>`.
+  assert.equal(findings[1].file, "packages/slides/src/view/canvas/text-renderer.ts");
+});
+
+test("parseCodeRabbitReview: the count travels with its DENOMINATOR", () => {
+  // Every defect this parser has had was a smaller-than-truth count that looked
+  // like a working one. `declared` is CodeRabbit's own section total, so "no
+  // nitpicks" and "could not read the nitpicks" stop being the same number.
+  const { declared, findings, shortfall } = parseCodeRabbitReview(
+    RV_NITPICK.replace("🧹 Nitpick comments (2)", "🧹 Nitpick comments (5)"),
+  );
+  assert.equal(declared, 5);
+  assert.equal(findings.length, 2);
+  assert.equal(shortfall, 3);
+});
+
+test("parseCodeRabbitReview: all three section-title vintages, and all three locators", () => {
+  // The 2024 title names three tiers at once, so a keyword match on "Nitpick
+  // comments" misses it — and an unmatched section contributes neither findings
+  // NOR its declared count, so the shortfall check reports a clean 0 of 0.
+  const combined = parseCodeRabbitReview(RV_COMBINED_2024);
+  assert.equal(combined.declared, 1);
+  assert.equal(combined.findings.length, 1);
+  assert.equal(combined.findings[0].tier, "combined");
+  assert.equal(combined.findings[0].vintage, "bold-title");
+
+  // Bare locator, no backticks.
+  const failed = parseCodeRabbitReview(RV_FAILED_TO_POST);
+  assert.equal(failed.findings.length, 1);
+  assert.equal(failed.findings[0].tier, "failed-to-post");
+  assert.equal(failed.findings[0].locator, "62-75");
+  assert.equal(failed.findings[0].severity, "minor");
+
+  // `Line range hint` prefix, with the title on the following line.
+  const hinted = parseCodeRabbitReview(RV_LINE_RANGE_HINT);
+  assert.equal(hinted.declared, 2);
+  assert.equal(hinted.findings.length, 2);
+  assert.equal(hinted.findings[0].locator, "4-15");
+  assert.equal(hinted.findings[0].file, "test/sheet/sheet.test.ts");
+});
+
+test("parseCodeRabbitReview: the TIER is kept on every finding, never pooled", () => {
+  // They are different claims. A ♻️ Duplicate is the same defect said twice and
+  // double-counts any volume metric; ⚠️ Outside diff range is about code the PR
+  // did not touch, which is a different comparison entirely. A scorer can pool
+  // later; it cannot unpool.
+  const dup = parseCodeRabbitReview(RV_NITPICK.replace("🧹 Nitpick comments (2)", "♻️ Duplicate comments (2)"));
+  assert.deepEqual([...new Set(dup.findings.map((f) => f.tier))], ["duplicate"]);
+  const odr = parseCodeRabbitReview(RV_NITPICK.replace("🧹 Nitpick comments (2)", "⚠️ Outside diff range comments (2)"));
+  assert.deepEqual([...new Set(odr.findings.map((f) => f.tier))], ["outside-diff-range"]);
+});
+
+test("parseCodeRabbitReview: a tier it does not know is REPORTED, not skipped", () => {
+  // CodeRabbit has introduced four tier names on this repo already. An unknown one
+  // is indistinguishable, from the outside, from a review that found nothing —
+  // which is the one conclusion this module must never reach by accident.
+  const { findings, declared, unrecognised } = parseCodeRabbitReview(
+    RV_NITPICK.replace("🧹 Nitpick comments (2)", "🆕 Speculative comments (2)"),
+  );
+  assert.equal(findings.length, 0);
+  assert.equal(declared, 0);
+  assert.deepEqual(unrecognised, [{ title: "🆕 Speculative comments", declared: 2 }]);
+  // File sub-sections and the housekeeping sections are NOT reported as unknown.
+  assert.deepEqual(parseCodeRabbitReview(RV_NITPICK).unrecognised, []);
+  assert.deepEqual(
+    parseCodeRabbitReview("<details><summary>📒 Files selected for processing (4)</summary></details>").unrecognised,
+    [],
+  );
+});
+
+// review 4881457209 (PR #716, 2026-08-07T09:05:21Z) — VERBATIM, including the
+// `> ` on every line. CodeRabbit puts the outside-diff-range tier inside a GitHub
+// alert block, which quotes the whole section: 96 of this repo's 558 CodeRabbit
+// review bodies look like this, back to 2026-04.
+const RV_ALERT_QUOTED = [
+  "**Actionable comments posted: 3**",
+  "",
+  "> [!CAUTION]",
+  "> Some comments are outside the diff and can’t be posted inline due to platform limitations.",
+  "> ",
+  "> <details>",
+  "> <summary>⚠️ Outside diff range comments (1)</summary><blockquote>",
+  "> ",
+  "> <details>",
+  "> <summary>scripts/agent/eval/run.mjs (1)</summary><blockquote>",
+  "> ",
+  "> `421-426`: _🔒 Security & Privacy_ | _🟠 Major_ | _⚡ Quick win_",
+  "> ",
+  "> **Validate `commit` before using it as a path segment.**",
+  "> ",
+  "> `dest` is `path.join(cacheRoot, commit)`, and `commit` comes from `input.meta?.review_commit`.",
+  "> ",
+  "> <details>",
+  "> <summary>🤖 Prompt for AI Agents</summary>",
+  "> ",
+  "> ```",
+  "> Verify each finding against current code. Fix only still-valid issues, skip the",
+  "> rest with a brief reason, keep changes minimal, and validate.",
+  "> ```",
+  "> ",
+  "> </details>",
+  "> ",
+  "> <!-- cr-comment:v1:a75b5b8a102fa57e5705e12a -->",
+  "> ",
+  "> </blockquote></details>",
+  "> ",
+  "> </blockquote></details>",
+].join("\n");
+
+test("parseCodeRabbitReview: a tier quoted inside a GitHub alert block", () => {
+  // Every line carries `> `, so anything anchored on `^` without tolerating it
+  // fails. The counts came out right here from the start; `detail` did not, which
+  // is why this asserts the FIELD and not just the tally.
+  const { findings, declared, shortfall } = parseCodeRabbitReview(RV_ALERT_QUOTED);
+  assert.equal(declared, 1);
+  assert.equal(shortfall, 0);
+  const f = findings[0];
+  assert.equal(f.tier, "outside-diff-range");
+  assert.equal(f.file, "scripts/agent/eval/run.mjs"); // from the enclosing <summary>, not the finding's line
+  assert.equal(f.locator, "421-426"); // the ONLY location a body finding has
+  assert.equal(f.category, "security & privacy");
+  assert.equal(f.severity, "major");
+  assert.equal(f.lens, "security"); // the existing category→lens map, unchanged
+  assert.equal(f.summary, "Validate `commit` before using it as a path segment.");
+});
+
+// CONSTRUCTED, and labelled as such because every other RV_ fixture here is real.
+// It is the review-body shape of the inline defect: a finding whose prose states no
+// bolded title, followed by the `🤖 Prompt for AI Agents` block every finding ends
+// with. A span runs to the NEXT locator, so that block is inside it — and the
+// command it quotes contains `**`.
+const RV_NO_TITLE_FENCED_GLOB = [
+  "<details>",
+  "<summary>🧹 Nitpick comments (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>packages/notes/src/view/list-empty-bullet-plugin.ts (1)</summary><blockquote>",
+  "",
+  "`202-214`: _📐 Maintainability & Code Quality_ | _🔵 Trivial_ | _⚡ Quick win_",
+  "",
+  "The private ruler registry is read by name here.",
+  "",
+  "<details>",
+  "<summary>🤖 Prompt for AI Agents</summary>",
+  "",
+  "```",
+  "rg -n 'markdown-it' -S . --glob '!**/node_modules/**'",
+  "```",
+  "",
+  "</details>",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+// review 2044318318 (PR #10, 2025-04-14). The 2025 shape, and the one that makes
+// WHICH TEXT the title is read from a real decision: the title sits ON the locator
+// line, so a reader that strips the locator strips the title with it.
+const RV_TITLE_ON_LOCATOR_LINE = [
+  "<details>",
+  "<summary>🧹 Nitpick comments (1)</summary><blockquote>",
+  "",
+  "<details>",
+  "<summary>.github/workflows/publish-ghpage.yml (1)</summary><blockquote>",
+  "",
+  "`17-19`: **Add error handling for directory change**",
+  "",
+  "The shell script should handle potential errors when changing directory.",
+  "",
+  "```diff",
+  "-          cd frontend",
+  "+          cd frontend || exit 1",
+  "```",
+  "",
+  "</blockquote></details>",
+  "",
+  "</blockquote></details>",
+].join("\n");
+
+test("parseCodeRabbitReview: a title on the LOCATOR LINE survives", () => {
+  // `CR_LOCATOR`'s third group is `(.*)$` — the whole rest of the line — so the
+  // de-locatored copy that `detail` is read from has no title left in it. Reading
+  // the title from that copy instead of the raw span empties 756 of this repo's
+  // 1693 review-body findings. Caught by measurement, pinned here.
+  const { findings } = parseCodeRabbitReview(RV_TITLE_ON_LOCATOR_LINE);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].summary, "Add error handling for directory change");
+  assert.equal(findings[0].locator, "17-19");
+  // The `diff` fence must not reach the title even though it holds no `**` here —
+  // assert the shape the title came from, not just the string.
+  assert.doesNotMatch(findings[0].summary, /cd frontend/);
+});
+
+test("parseCodeRabbitReview: a fenced command never supplies a review-body title", () => {
+  // The same rule as the inline path, applied through the SAME function. Half the
+  // corpus's CodeRabbit findings arrive here (14 of 30), and this path had its own
+  // copy of the unbounded regex — so it could regress on its own.
+  const { findings, declared, shortfall } = parseCodeRabbitReview(RV_NO_TITLE_FENCED_GLOB);
+  assert.equal(declared, 1);
+  assert.equal(shortfall, 0, "the finding must still be COUNTED; only its title is in question");
+  assert.equal(findings[0].summary, "", "markup was promoted to a title");
+  assert.notEqual(findings[0].summary, "/node_modules/");
+  // The finding is still fully formed everywhere else — this changes one field.
+  assert.equal(findings[0].locator, "202-214");
+  assert.equal(findings[0].file, "packages/notes/src/view/list-empty-bullet-plugin.ts");
+  assert.equal(findings[0].severity, "nit");
+  assert.match(findings[0].detail, /private ruler registry/);
+});
+
+test("codeRabbitDetail: strips blockquote markers itself, without a de-quoting caller", () => {
+  // `parseCodeRabbitReview` already de-quotes the section body, so this strip is
+  // belt to that braces — and it is tested DIRECTLY rather than through the review
+  // path, because through that path it is unreachable and an untested guard is
+  // decoration. It is kept because this function is exported: a caller must not
+  // have to know to normalise first.
+  const quoted = [
+    "> _🔒 Security & Privacy_ | _🟠 Major_ | _⚡ Quick win_",
+    "> ",
+    "> **A quoted finding.**",
+    "> ",
+    "> The prose that should survive.",
+    "> ",
+    "> <details>",
+    "> <summary>🤖 Prompt for AI Agents</summary>",
+    "> Verify each finding against current code.",
+    "> </details>",
+  ].join("\n");
+  assert.equal(codeRabbitDetail(quoted), "**A quoted finding.** The prose that should survive.");
+  // A quote RUN, not just one level. Not observed in this repo (0 of 558 review
+  // bodies and 0 of 1891 inline comments carry a nested `> > `), but markdown nests
+  // quotes and an alert block inside a quote would produce it, so the pattern
+  // matches runs — asserted here so that `+` is not decoration.
+  assert.equal(codeRabbitDetail("> > **Nested.**\n> > \n> > Prose."), "**Nested.** Prose.");
+  // An EMPTY quoted line is sometimes `>` with no trailing space — 50 lines across
+  // 22 of this repo's review bodies. The marker has nothing after it, so the strip
+  // accepts end-of-line as well as a space; without that the bare `>` survives into
+  // the compared text as a stray token.
+  assert.equal(codeRabbitDetail("> **A title.**\n>\n> The prose."), "**A title.** The prose.");
+});
+
+test("codeRabbitDetail: a `>` that is an OPERATOR is not a blockquote marker", () => {
+  // The strip requires a space, a tab or the end of the line after the marker.
+  // Without that it eats real characters, and it did on 6 lines of this repo's own
+  // review history — `> >= 0 and findPageLine(…)` lost its `>` and became
+  // `= 0 and …`, and prose wrapping onto `>=18.12.0` or `>).value,` lost its first
+  // character. Each row below is one of those shapes.
+  const cases = [
+    // [input, expected detail, what it is]
+    ["> >= 0 and findPageLine(x) returns", ">= 0 and findPageLine(x) returns", "quoted line whose CONTENT starts with >="],
+    [">=18.12.0 is used for canvas@^3.", ">=18.12.0 is used for canvas@^3.", "unquoted prose wrapping onto >="],
+    [">) and assert the xml is escaped", ">) and assert the xml is escaped", "unquoted prose wrapping onto >)"],
+    ["> >>= 3 shifts in place", ">>= 3 shifts in place", "quoted content starting with >>="],
+    [">>= 3 shifts in place", ">>= 3 shifts in place", "unquoted >>="],
+    ["> >> 3 is a shift", ">> 3 is a shift", "quoted content starting with >>"],
+  ];
+  for (const [input, expected, what] of cases) {
+    assert.equal(codeRabbitDetail(input), expected, what);
+  }
+});
+
+test("parseCodeRabbitReview: quoted code keeps its indentation and its operators", () => {
+  // The greedy `[ \t]*` between markers swallowed the indentation of quoted code on
+  // 572 lines of this repo's review bodies. Indentation is content: a suggestion
+  // block reads as one flat column without it.
+  const body = [
+    "> <details>",
+    "> <summary>🧹 Nitpick comments (1)</summary><blockquote>",
+    "> ",
+    "> <details>",
+    "> <summary>packages/docs/src/model.ts (1)</summary><blockquote>",
+    "> ",
+    "> `10-12`: _🎯 Functional Correctness_ | _🟠 Major_ | _⚡ Quick win_",
+    "> ",
+    "> **Guard the shift.**",
+    "> ",
+    "> The count must be `>= 0` before `acc >>= n` runs.",
+    "> ",
+    "> </blockquote></details>",
+    "> ",
+    "> </blockquote></details>",
+  ].join("\n");
+  const { findings, declared } = parseCodeRabbitReview(body);
+  assert.equal(declared, 1);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].file, "packages/docs/src/model.ts");
+  // Both operators survive into the text the matcher compares.
+  assert.ok(findings[0].detail.includes("`>= 0`"), "a >= operator was eaten");
+  assert.ok(findings[0].detail.includes("`acc >>= n`"), "a >>= operator was eaten");
+  // And the section body keeps the indentation of the code it quotes.
+  const [section] = codeRabbitReviewSections(
+    ["> <details>", "> <summary>🧹 Nitpick comments (1)</summary><blockquote>", "> ", ">      const a = 1;", "> </blockquote></details>"].join("\n"),
+  ).sections;
+  assert.ok(section.body.includes("     const a = 1;"), "quoted code lost its indentation");
+});
+
+test("codeRabbitDetail: the AI-agents boilerplate never reaches the comparison", () => {
+  // The failure this guards is named at length in codeRabbitDetail's docblock:
+  // "Verify each finding against current code…" contributes `code`, `fix`,
+  // `issues`, `changes`, `validate` to EVERY comparison, inflating containment on
+  // the vocabulary every finding already shares — eating real misses where the
+  // panel had the most findings. A `> `-quoted body defeated the prose boundary,
+  // so 146 of 1626 review-body findings (9.0%) carried it.
+  const { detail } = parseCodeRabbitReview(RV_ALERT_QUOTED).findings[0];
+  assert.ok(!detail.includes("Verify each finding against current code"), "boilerplate leaked into detail");
+  assert.ok(!detail.includes("Prompt for AI Agents"), "structured block leaked into detail");
+  assert.ok(!detail.includes("cr-comment:v1"), "the fingerprint marker leaked into detail");
+  assert.ok(!detail.includes(">"), "blockquote markers survived into detail");
+  // …and the prose that SHOULD be there still is.
+  assert.ok(detail.includes("Validate `commit` before using it as a path segment."));
+  assert.ok(detail.includes("path.join(cacheRoot, commit)"));
+});
+
+test("parseCodeRabbitReview: quoted section AND header on the next line", () => {
+  // THE ONE CONSTRUCTED FIXTURE HERE, and it is labelled because the others are
+  // not. Both halves are real and independently attested — 96 review bodies quote
+  // a tier section inside an alert block, and the header sits on the line BELOW
+  // the locator in #11 and #477 — but no body in this repo currently does both at
+  // once, so this combination is a union rather than an observation. It is kept
+  // because CodeRabbit mixes its own markup freely and the union costs one
+  // character class; if it is ever cut, cut this test with it rather than leaving
+  // an assertion nothing backs.
+  const body = [
+    "> <details>",
+    "> <summary>🧹 Nitpick comments (1)</summary><blockquote>",
+    "> ",
+    "> <details>",
+    "> <summary>scripts/agent/harvest.mjs (1)</summary><blockquote>",
+    "> ",
+    "> `12-14`: ",
+    "> <details>",
+    "> <summary>❓ Verification inconclusive</summary>",
+    "> ",
+    "> **A title below its own locator.**",
+    "> ",
+    "> prose here",
+    "> ",
+    "> </blockquote></details>",
+    "> ",
+    "> </blockquote></details>",
+  ].join("\n");
+  const { findings, declared } = parseCodeRabbitReview(body);
+  assert.equal(declared, 1);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].locator, "12-14");
+  assert.equal(findings[0].file, "scripts/agent/harvest.mjs");
+  assert.equal(findings[0].summary, "A title below its own locator.");
+});
+
+test("parseCodeRabbitReview: never throws, and degrades to fewer findings", () => {
+  for (const bad of [null, undefined, "", 7, {}, "<details><summary>🧹 Nitpick comments (2)</summary>"]) {
+    const out = parseCodeRabbitReview(bad);
+    assert.ok(Array.isArray(out.findings));
+  }
 });
 
 // --- toMissRecord ------------------------------------------------------------
@@ -583,6 +1466,43 @@ test("harvestPr: proposes both signatures, and only from reviewable code", () =>
   assert.equal(cr.evidence.commentId, "3650043440");
 });
 
+test("harvestPr: keeps ONLY blocking CodeRabbit findings — the filter the parser gave up", () => {
+  // This test is the one that holds the corpus policy in place now. It used to
+  // live inside `classifyCodeRabbitComment` ("non-blocking severities are
+  // dropped"), which meant widening the parser to read the vintages it was blind
+  // to would have flooded this corpus with nits. The parser returns everything
+  // CodeRabbit wrote; the caller decides what the corpus files.
+  const api = fakeApi({
+    [`repos/{owner}/{repo}/pulls/548/comments?per_page=100`]: [
+      { id: 10, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, body: CR_MINOR_MAINTAIN },
+      { id: 11, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, body: "_🎯 Functional Correctness_ | _🔵 Trivial_ | _⚡ Quick win_\n\n**A trivial nit.**\n\nprose" },
+      // A severity in no vocabulary we know: withheld, NOT defaulted to major.
+      { id: 12, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, body: "_🎯 Functional Correctness_ | _🟣 Catastrophic_ | _⚡ Quick win_\n\n**Unknown severity.**\n\nprose" },
+    ],
+  });
+  const { records } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  assert.deepEqual(records.filter((r) => r.source === "coderabbit"), []);
+  // …and every severity the parser DID hand it was readable, so this is a filter
+  // rather than a parse failure.
+  assert.equal(classifyCodeRabbitComment(CR_MINOR_MAINTAIN).severity, "minor");
+});
+
+test("harvestPr: a two-field header now reaches the corpus — the widening, end to end", () => {
+  // The header on #692, posted 2026-08-07. `classifyCodeRabbitComment` returned
+  // null for it before this change, so a Major finding from CodeRabbit on a PR the
+  // panel had reviewed was filed as nothing at all.
+  const api = fakeApi({
+    [`repos/{owner}/{repo}/pulls/548/comments?per_page=100`]: [
+      { id: 3733719133, user: { login: "coderabbitai[bot]" }, path: "packages/docs/src/view/text-editor.ts", original_commit_id: SHA_BASE, html_url: "https://x/d", body: CR_TWO_FIELD_LIVE },
+    ],
+  });
+  const { records } = harvestPr(548, { api, log: () => {}, names: NAMES });
+  const cr = records.filter((r) => r.source === "coderabbit");
+  assert.equal(cr.length, 1);
+  assert.equal(cr[0].severity, "major");
+  assert.equal(cr[0].evidence.commentId, "3733719133");
+});
+
 test("harvestPr: EVERY harvested candidate is unverified", () => {
   // The one field that decides whether a record counts. The harvester must not be
   // able to set it, even by accident — an auto-harvested, auto-trusted corpus is a
@@ -621,6 +1541,158 @@ test("codeRabbitDetail: title + prose, stopping at the first structured block", 
   // it would contribute `code`, `fix`, `issues`, `validate` to every pair.
   assert.doesNotMatch(detail, /Verify each finding/);
   assert.doesNotMatch(detail, /Functional Correctness/); // the header line is dropped
+});
+
+test("codeRabbitDetail: prose BELOW an analysis-chain block is the detail, not empty", () => {
+  // THE DEFECT THIS EXISTS FOR. `<details>` is a container, not a terminator. On the
+  // `🧩 Analysis chain` vintage the block comes FIRST and the finding's title and prose
+  // come after it, so cutting at the first `<details>` kept only the header line — and
+  // the header-drop then removed that, leaving `""`. Two individually-correct steps
+  // composing to nothing, on 200 of this repo's 1588 inline findings (12.6%), all the
+  // way back to #11 (2025-04). The boundary landed on `<details>` in 200 of 200 cases,
+  // at a median offset of 54 bytes: the length of a header line.
+  const detail = codeRabbitDetail(CR_ANALYSIS_CHAIN_FIRST);
+  assert.notEqual(detail, "", "the prose below the analysis chain was dropped");
+  assert.match(detail, /Pin the markdown-it dependency/);
+  assert.match(detail, /lockfile-relative upgrade|currently resolves/);
+  // The machinery it sits between must still be absent, which is the whole reason
+  // `codeRabbitDetail` has a boundary at all.
+  assert.doesNotMatch(detail, /Verify each finding/, "AI-agents boilerplate leaked in");
+  assert.doesNotMatch(detail, /rg -n|node_modules/, "the analysis chain's shell transcript leaked in");
+  assert.doesNotMatch(detail, /Security & Privacy/, "the header line survived");
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "structural tags survived");
+});
+
+test("codeRabbitDetail: a non-machinery block is UNWRAPPED, not deleted", () => {
+  // The 2025 `💡 Verification agent` vintage puts the finding's own title and prose
+  // INSIDE the block. Deleting every `<details>` empties 11 of this repo's 1693
+  // review-body findings for that reason, so anything not on the machinery denylist
+  // keeps its content and loses only its tags.
+  const body = [
+    "_💡 Verification agent_",
+    "",
+    "<details>",
+    "<summary>✅ Verification successful</summary>",
+    "",
+    "**Verify theme context compatibility.**",
+    "",
+    "The destructured `theme` property assumes a particular shape.",
+    "",
+    "</details>",
+  ].join("\n");
+  const detail = codeRabbitDetail(body);
+  assert.match(detail, /Verify theme context compatibility/);
+  assert.match(detail, /destructured `theme` property/);
+  assert.doesNotMatch(detail, /Verification successful/, "the block's label is not prose");
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/);
+});
+
+test("codeRabbitDetail: NESTED blocks dissolve innermost-first, leaving no stray tag", () => {
+  // A lazy `<details>[\s\S]*?</details>` stops at the first CLOSING tag, which on
+  // CodeRabbit's nested review bodies cuts mid-structure and leaves an orphan behind.
+  //
+  // The title and prose sit BELOW the nested block deliberately. With them above it,
+  // one pass is indistinguishable from the loop: the undissolved outer `<details>`
+  // becomes the boundary and the detail comes out right for the wrong reason. Below it,
+  // a single pass leaves that outer tag standing, `CR_PROSE_END` cuts at it, and the
+  // detail is `""` — which is exactly the defect this whole change is about, so the
+  // fixture has to be able to express it.
+  const body = [
+    "_🎯 Functional Correctness_ | _🟠 Major_",
+    "",
+    "<details>",
+    "<summary>Proposed fix</summary>",
+    "",
+    "<details>",
+    "<summary>🤖 Prompt for AI Agents</summary>",
+    "",
+    "inner machinery",
+    "",
+    "</details>",
+    "",
+    "</details>",
+    "",
+    "**The title.**",
+    "",
+    "prose below the nested block",
+  ].join("\n");
+  const detail = codeRabbitDetail(body);
+  assert.match(detail, /The title\./);
+  assert.match(detail, /prose below the nested block/);
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "a nested tag survived the dissolve");
+  assert.doesNotMatch(detail, /inner machinery/, "the nested machinery block was unwrapped instead of dropped");
+});
+
+test("codeRabbitDetail: the dissolve TERMINATES on deep nesting and on unpaired tags", () => {
+  // The loop runs until a pass changes nothing, so its termination rests on every pass
+  // strictly reducing the tag count. Worth a test rather than an argument: a malformed
+  // mutation of this loop hung the suite hard enough that `--test-timeout` could not
+  // fire, because a tight loop never yields the event loop.
+  const deep = `${"<details><summary>Proposed fix</summary>".repeat(60)}core${"</details>".repeat(60)}`;
+  const detail = codeRabbitDetail(`_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n${deep}`);
+  assert.match(detail, /Title\./);
+  assert.doesNotMatch(detail, /<\/?details>|<summary>/, "60 levels did not fully dissolve");
+  // Unpaired in both directions, and neither spins.
+  assert.equal(typeof codeRabbitDetail("<details>".repeat(40)), "string");
+  assert.equal(typeof codeRabbitDetail("</details>".repeat(40)), "string");
+  assert.equal(typeof codeRabbitDetail("<details><details></details>"), "string");
+});
+
+test("codeRabbitDetail: an orphaned CLOSING tag ends the prose", () => {
+  // A review-body span is sliced between two locators out of nested
+  // `<details><blockquote>`, so it routinely ends on closers belonging to an element
+  // that opened before it. Without treating those as boundaries, 735 of 1693
+  // review-body findings carried a `</details>` into the compared text.
+  const detail = codeRabbitDetail("_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n</blockquote></details>");
+  assert.equal(detail, "**Title.** prose");
+});
+
+test("codeRabbitDetail: an UNBALANCED opening block still terminates the prose", () => {
+  // The fail-safe direction. A block that cannot be paired means the body is not the
+  // shape this function understands, so it stops early and yields LESS text rather than
+  // swallowing a structured block whole.
+  const detail = codeRabbitDetail("_🎯 Functional Correctness_ | _🟠 Major_\n\n**Title.**\n\nprose\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\nVerify each finding against current code.");
+  assert.equal(detail, "**Title.** prose");
+  assert.doesNotMatch(detail, /Verify each finding/);
+});
+
+test("unrecognisedDetailsLabels: counts CONTENT labels and ignores machinery and structure", () => {
+  // `CR_MACHINERY_SUMMARY` is a denylist over a vocabulary CodeRabbit changes without
+  // notice — four header vintages and two category vocabularies have already turned
+  // over — so it fails OPEN: a new machinery block is unwrapped into `detail` rather
+  // than dropped. This makes that countable instead of invisible, which is the lesson
+  // this area keeps re-learning.
+  const bodies = [
+    "<details><summary>🤖 Prompt for AI Agents</summary>x</details>",
+    // The SECOND phrasing of that same block, which a review body uses. The narrower
+    // `Prompt for AI Agents` pattern missed it, and this function is what found that —
+    // it was the first thing it reported. Hence the `🤖 Prompt for` prefix.
+    "<details><summary>🤖 Prompt for all review comments with AI agents</summary>x</details>",
+    // The review-body walkthrough's own machinery, one of each per review.
+    "<details><summary>⚙️ Run configuration</summary>x</details>",
+    "<details><summary>📥 Commits</summary>x</details>",
+    "<details><summary>ℹ️ Review info</summary>x</details>",
+    "<details><summary>🪄 Autofix (Beta)</summary>x</details>",
+    "<details><summary>📝 Committable suggestion</summary>x</details>",
+    "<details><summary>🪛 markdownlint-cli2 (0.23.2)</summary>x</details>",
+    "<details><summary>Proposed fix</summary>x</details>",
+    "<details><summary>Proposed fix</summary>x</details>",
+    "<details><summary>🦄 Brand New Block Type</summary>x</details>",
+    // Review-body STRUCTURE: a tier section and a file sub-section, both declaring a
+    // count. Neither is a finding's block and counting them buries the signal.
+    "<details><summary>🧹 Nitpick comments (2)</summary><blockquote>",
+    "<details><summary>packages/notes/src/view/list-empty-bullet-plugin.ts (1)</summary><blockquote>",
+  ];
+  const got = unrecognisedDetailsLabels(bodies);
+  assert.deepEqual(got, [
+    { label: "Proposed fix", n: 2 },
+    { label: "🦄 Brand New Block Type", n: 1 },
+  ]);
+  // A single body is accepted as well as a list, so a caller need not wrap it.
+  assert.deepEqual(unrecognisedDetailsLabels("<details><summary>Suggested fix</summary>x</details>"), [
+    { label: "Suggested fix", n: 1 },
+  ]);
+  assert.deepEqual(unrecognisedDetailsLabels([]), []);
 });
 
 /** A panel check-run whose findings are `findings`. */

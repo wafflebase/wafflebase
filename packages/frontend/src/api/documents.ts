@@ -10,6 +10,8 @@ export async function createDocument(payload: {
   title: string;
   type?: DocumentType;
   fileId?: string;
+  fileSize?: number;
+  mimeType?: string;
 }): Promise<Document> {
   const response = await fetchWithAuth(
     `${import.meta.env.VITE_BACKEND_API_URL}/documents`,
@@ -93,6 +95,55 @@ export async function moveDocument(
   await assertOk(response, "Failed to move document");
 
   return response.json();
+}
+
+/**
+ * Duplicates a document into the same workspace and folder as
+ * `<title> (copy)`. The whole copy — Yorkie content or stored blob — happens
+ * server-side (see docs/design/document-copy.md), so this is a single request
+ * regardless of document type or size. Allowed for anyone who can read the
+ * source: unlike move/delete it does not require `canManage`.
+ */
+export async function copyDocument(id: string): Promise<Document> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}/copy`,
+    {
+      method: "POST",
+    }
+  );
+
+  await assertOk(response, "Failed to copy document");
+
+  return response.json();
+}
+
+/**
+ * Copies many documents. There is no atomic bulk endpoint — each copy is an
+ * independent server-side operation — so these run **sequentially**, and a
+ * failure part-way leaves the copies made before it in place. The rejection
+ * carries those ids so the caller can still surface (and refetch) them rather
+ * than reporting a flat failure for work that partly succeeded.
+ */
+export class BulkCopyError extends Error {
+  constructor(
+    readonly copied: Document[],
+    readonly cause: unknown
+  ) {
+    super(cause instanceof Error ? cause.message : "Failed to copy documents");
+    this.name = "BulkCopyError";
+  }
+}
+
+export async function copyDocuments(ids: string[]): Promise<Document[]> {
+  const copied: Document[] = [];
+  for (const id of ids) {
+    try {
+      copied.push(await copyDocument(id));
+    } catch (err) {
+      throw new BulkCopyError(copied, err);
+    }
+  }
+  return copied;
 }
 
 /**

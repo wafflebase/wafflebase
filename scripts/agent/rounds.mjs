@@ -50,7 +50,17 @@ export const PAGED_LATCH = "<!-- agent-review-paged -->";
  */
 export const PAGE_AUTHOR_LOGINS = Object.freeze(["github-actions[bot]", "yorkie-agent[bot]"]);
 
-/** Associations that mean "has write access to this repo". */
+/**
+ * Associations that mean "a human attached to this project", NOT "has write
+ * access" — `MEMBER` is org membership and `COLLABORATOR` is satisfied by a
+ * read-only invite, so neither proves repo permission. Only
+ * `permissionResolver` answers that.
+ *
+ * Good enough for `isPagedLatchComment`, whose fail direction is the safe one:
+ * over-accepting there LATCHES the PR — it stops the loop and hands it to a
+ * human. `isRerunCommand` is the opposite (accepting GRANTS budget) and so does
+ * not use this as an accept path when a resolver is available.
+ */
 const TRUSTED_ASSOCIATIONS = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
 
 /**
@@ -100,28 +110,71 @@ export function isPagedLatchComment(comment) {
  * rerun the router did not (or miss one it did) and move the floor for a hand-back
  * that never happened.
  *
- * `author_association` is weaker than the `getCollaboratorPermissionLevel` gate the
- * command itself enforces — an org MEMBER without repo write passes here. Named as
- * a known gap rather than hidden: the consequence is extra fix attempts on a PR a
- * member asked about, which is a different order of problem from the agent
- * un-bounding itself, and closing it needs an API call this pure function cannot
- * make. The workflow still refuses to DO anything for such a user.
+ * `author_association` ALONE was the trust test here, and it was wrong in the
+ * direction this comment did not anticipate. It was named as a known gap for
+ * being too permissive (an org MEMBER without repo write passing); the failure
+ * that actually happened was the opposite. On #648 a maintainer with Maintain
+ * ran `@claude rerun` four times and GitHub reported every one of those comments
+ * as `CONTRIBUTOR` — association describes the commenter's relationship to the
+ * PR thread, not their permission, and it reads CONTRIBUTOR for anyone with
+ * commits on the repo whose org membership is not public. So the floor was never
+ * set, the guard counted the PR's whole history, and it paged with "tried 3
+ * time(s) (limit 3)" against a rerun that had reset nothing.
+ *
+ * The verb worked; only its consequence was dropped. `agent-rerun.yml` gates on
+ * `getCollaboratorPermissionLevel` — authoritative — so the label came off and CI
+ * re-ran, while the budget silently did not move. Two checks for one question,
+ * disagreeing.
+ *
+ * `trusts` closes it: an injected `(login) => true | false | null` that the guard
+ * builds from the same API the workflows use. When it is supplied it is the ONLY
+ * authority — association is not consulted at all.
+ *
+ * Association is NOT kept as a fast-path accept, and an earlier revision of this
+ * comment was wrong to claim OWNER/MEMBER/COLLABORATOR "already mean write
+ * access". They do not. `MEMBER` is membership of the owning ORG, which on this
+ * repo says nothing about repo permission, and `COLLABORATOR` is satisfied by a
+ * read- or triage-only invite. Both would have moved the floor for a commenter
+ * `agent-rerun.yml` then REFUSED to run — the same "two checks for one question,
+ * disagreeing" shape this function exists to remove, just pointing the other
+ * way: budget granted for a rerun that never happened. Saving one memoized API
+ * call per rerun commenter is not worth reintroducing it.
+ *
+ * FAIL DIRECTION: an unresolvable login does NOT set the floor. Not resetting
+ * leaves the PR paged for a human, which is where a PR the loop cannot finish
+ * belongs; resetting on an unknown would hand more attempts to the bounded party
+ * on the strength of a failed lookup. That now covers a trusted-looking
+ * association whose permission lookup failed, which previously rode the
+ * fast path.
+ *
+ * With no `trusts` at all the function is exactly what it was before — pure, and
+ * association-only. The only caller without a resolver is `loop-status.mjs`,
+ * which is a PROJECTION, NEVER A GATE (see its header): the worst it can do is
+ * display a round count the guard will not honour. Every gating caller injects
+ * one.
  */
-export function rerunPointFrom(comments) {
+export function rerunPointFrom(comments, opts) {
   const stamps = (Array.isArray(comments) ? comments : [])
-    .filter(isRerunCommand)
+    .filter((c) => isRerunCommand(c, opts))
     .map((c) => Date.parse(String(c.created_at ?? "")))
     .filter((n) => Number.isFinite(n));
   return stamps.length ? new Date(Math.max(...stamps)).toISOString() : null;
 }
 
 /** Is this a maintainer's `@claude rerun`? Bots are refused — see rerunPointFrom. */
-export function isRerunCommand(comment) {
+export function isRerunCommand(comment, { trusts } = {}) {
   const c = comment && typeof comment === "object" ? comment : {};
   const user = c.user && typeof c.user === "object" ? c.user : {};
+  // Structural, and checked first: no App can present as a non-Bot, so this is
+  // what stops the bounded party resetting its own bound.
   if (user.type === "Bot") return false;
-  if (!TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""))) return false;
-  return parseCommand(String(c.body ?? ""), { surface: "pr" }).command === "rerun";
+  if (parseCommand(String(c.body ?? ""), { surface: "pr" }).command !== "rerun") return false;
+  // The resolver, when there is one, is the ONLY authority — it is the same
+  // question `agent-rerun.yml` asks, asked the same way, so the two cannot
+  // disagree. Association is consulted only in the pure, resolver-less form,
+  // which no gating caller uses.
+  if (typeof trusts === "function") return trusts(String(user.login ?? "")) === true;
+  return TRUSTED_ASSOCIATIONS.has(String(c.author_association ?? ""));
 }
 
 /** A commit has exactly one parent — i.e. it is not a merge commit.
@@ -203,6 +256,171 @@ export function countFailedReviewRounds(commits, requiredCheckNames, opts = {}) 
   return fixAttemptCommits(commits, requiredCheckNames, opts).length;
 }
 
+// --- the dispatch ledger -----------------------------------------------------
+//
+// `fixAttemptCommits` infers "the fixer ran" from the SHAPE of a commit, and the
+// inference is a race it loses. Its discriminator is "committed after the panel
+// first spoke", but the implement workflow pushes, self-reviews, and pushes
+// AGAIN — so whether those self-review pushes count depends on whether the first
+// panel verdict happened to land before or after them. On #737 the self-review
+// push beat the first verdict by 20 seconds and was correctly excluded. On #695
+// it lost by 2m50s: two implement pushes were counted as fix attempts, a third
+// round came from a panel that was CANCELLED and never reviewed anything, and
+// the loop paged with "the fixer has tried 3 time(s)" after the fixer had run
+// exactly ONCE. One fix report, three counted rounds, and the report was never
+// the thing that was missing.
+//
+// Nothing in commit data distinguishes those pushes, so stop inferring. The
+// guard is the only thing that dispatches the fixer; have it SAY SO, and count
+// the record. Exact instead of approximate, and no longer sensitive to timing.
+//
+// WHO MAY WRITE ONE is the whole security property, and it is deliberately
+// NARROWER than the paged latch's rule. The latch may be written by either bot
+// (and by a maintainer by hand) because over-accepting there only STOPS the
+// loop. Here the direction reverses: because records become authoritative the
+// moment one exists, a single forged record would switch this PR off the
+// commit-count fallback and could hand the bounded party a budget it has not
+// earned. So:
+//
+//   - `github-actions[bot]` ONLY — the guard's `secrets.GITHUB_TOKEN` identity.
+//     GitHub reserves the `[bot]` suffix for Apps, so no account can register it.
+//   - NOT `yorkie-agent[bot]`, even though it is a trusted latch author: that is
+//     the FIXER's own identity (the App token it holds to push and comment), and
+//     the party bounded by `MAX_REVIEW_ROUNDS` must not be able to choose the
+//     rule it is counted by. This is the same class of hole `rerunPointFrom`
+//     closed when it stopped trusting a marker the App could write.
+//   - NO association fallback. A maintainer halting the loop by hand is a real
+//     need the latch serves; a maintainer hand-writing a dispatch record is not.
+
+/** Hidden-comment marker for one dispatch of the fix agent. */
+export const FIX_DISPATCH_MARKER = "<!-- agent-fix-dispatch ";
+
+/** Bumped only if the record shape changes; an unknown version parses as absent. */
+export const FIX_DISPATCH_VERSION = 1;
+
+/**
+ * The ONLY identity whose dispatch records are believed. See the block above for
+ * why this is one login and not `PAGE_AUTHOR_LOGINS`.
+ */
+export const FIX_DISPATCH_AUTHOR_LOGIN = "github-actions[bot]";
+
+/** Serialize one dispatch record. `prior` is the migration baseline — see `fixRoundsUsed`. */
+export function serializeFixDispatch({ from = "", prior = 0 } = {}) {
+  const payload = {
+    v: FIX_DISPATCH_VERSION,
+    from: String(from ?? "").slice(0, 64),
+    prior: Number.isInteger(prior) && prior > 0 ? prior : 0,
+  };
+  // ESCAPE THE TERMINATOR, as `rebuttal.mjs` and `fix-report.mjs` do. Today every
+  // field is a number or a hex SHA, so this can never fire — but `parseFix
+  // DispatchComment`'s match is non-greedy, so a `-->` reaching a field would
+  // truncate the JSON, drop the record, and LOWER the count. That is the one
+  // direction this bound must not fail in, and it is a one-line insurance against
+  // whatever string field gets added next. `\u002d` is the JSON escape for `-`,
+  // so the raw comment never contains `-->` while `JSON.parse` restores the
+  // exact characters.
+  return `${FIX_DISPATCH_MARKER}${JSON.stringify(payload).replace(/-->/g, "-\\u002d>")} -->`;
+}
+
+/**
+ * Visible line + hidden record, the pattern `fix-report.mjs` and `rebuttal.mjs`
+ * settled on. #690's lesson was written about exactly this shape: a marker-only
+ * body shows a maintainer scrolling the PR "an empty-looking bot comment" while
+ * something that matters plays out invisibly. A dispatch is the one event in the
+ * loop that had no surface at all — the panel's verdict is on the commit's
+ * checks and the fixer's account is its own comment, but nothing said "round 2
+ * starts here", which is the connective tissue between them.
+ *
+ * One line, deliberately. The loop-status dashboard already carries the budget;
+ * this exists to sit in the TIMELINE at the point the round began.
+ */
+export function renderFixDispatchComment({ from = "", prior = 0, round = null, max = null } = {}) {
+  const record = serializeFixDispatch({ from, prior });
+  const at = from ? ` on \`${String(from).slice(0, 9)}\`` : "";
+  const of = Number.isInteger(round) && Number.isInteger(max) ? ` ${round} of ${max}` : "";
+  return (
+    `🔧 **Fix round${of}** — dispatching the fix agent${at}. ` +
+    "The panel findings it is acting on are the `agent-review-*` check runs on that commit.\n\n" +
+    record
+  );
+}
+
+/**
+ * Read one comment as a dispatch record, or `null`.
+ *
+ * `null` for ANY doubt — wrong author, no marker, non-JSON, wrong version. The
+ * author gate is checked FIRST and is structural: `user.type === "Bot"` plus the
+ * single reserved login. Unlike the latch predicates this takes no association
+ * path, so there is no shape an ordinary account can present that passes.
+ */
+export function parseFixDispatchComment(comment) {
+  const c = comment && typeof comment === "object" ? comment : {};
+  const user = c.user && typeof c.user === "object" ? c.user : {};
+  if (user.type !== "Bot" || user.login !== FIX_DISPATCH_AUTHOR_LOGIN) return null;
+  const body = String(c.body ?? "");
+  const m = new RegExp(`${FIX_DISPATCH_MARKER}([\\s\\S]*?) -->`).exec(body);
+  if (!m) return null;
+  let d;
+  try {
+    d = JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
+  if (!d || typeof d !== "object" || d.v !== FIX_DISPATCH_VERSION) return null;
+  const at = Date.parse(String(c.created_at ?? ""));
+  return {
+    from: typeof d.from === "string" ? d.from : "",
+    prior: Number.isInteger(d.prior) && d.prior > 0 ? d.prior : 0,
+    at: Number.isFinite(at) ? at : null,
+  };
+}
+
+/** Every believable dispatch record on the PR, oldest first. */
+export function collectFixDispatches(comments) {
+  return (Array.isArray(comments) ? comments : [])
+    .map(parseFixDispatchComment)
+    .filter(Boolean)
+    .sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+}
+
+/**
+ * How much of the fix budget has this PR spent?
+ *
+ * Dispatch records are authoritative WHEN ANY EXIST; otherwise this is exactly
+ * `countFailedReviewRounds`, so a PR opened before the ledger shipped keeps the
+ * behaviour it started with rather than silently resetting to zero.
+ *
+ * THE BASELINE (`prior`) is what makes the hand-over exact instead of merely
+ * generous. A PR mid-flight when this ships has already spent rounds that left
+ * no record, so the first record carries the fallback count as it stood at that
+ * moment and every later dispatch adds one. Without it such a PR would jump from
+ * "3 spent" to "1 spent" and quietly earn two extra rounds.
+ *
+ * A `@claude rerun` that cuts the first record away drops the baseline WITH it —
+ * a hand-back grants a fresh budget, and carrying a pre-rerun estimate past the
+ * floor would spend it before the maintainer's first round.
+ *
+ * FAILS TOWARD PAGING, like every other reader here: a record that cannot be
+ * parsed is dropped, which can only lower the count if it was ours — and an
+ * unwritable record fails the guard step rather than being swallowed, so a
+ * dispatch never happens unbudgeted.
+ */
+export function fixRoundsUsed(comments, commits, requiredCheckNames, { since = null } = {}) {
+  const all = collectFixDispatches(comments);
+  if (all.length === 0) return countFailedReviewRounds(commits, requiredCheckNames, { since });
+  const s = Date.parse(String(since ?? ""));
+  const sinceMs = Number.isFinite(s) ? s : null;
+  // FAILS TOWARD INCLUDING, exactly as `fixAttemptCommits` does with an
+  // undatable commit: a record whose timestamp cannot be read has not been shown
+  // to predate the floor, and dropping it would GRANT a round rather than cost
+  // one. `created_at` is always present on a real API comment, so this is a
+  // fail-safe rather than a live path.
+  const kept = sinceMs === null ? all : all.filter((d) => d.at === null || d.at > sinceMs);
+  // The baseline belongs to the FIRST record; a rerun that cut it away took the
+  // pre-rerun history with it.
+  const baseline = kept.length === all.length ? all[0].prior : 0;
+  return kept.length + baseline;
+}
 
 // --- convergence detection ---------------------------------------------------
 //

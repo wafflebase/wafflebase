@@ -42,6 +42,12 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { gitSha, repoSlug, makeChangedSince, strArg as sharedStrArg } from "./hunt-cli.mjs";
+import {
+  COVERAGE_KEY_VERSION,
+  coverageFromJournal,
+  mergeCoverage,
+  renderCoverageBrief,
+} from "./hunt-ui-coverage.mjs";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -50,6 +56,7 @@ import {
   UI_GROUNDS,
   isFilingVerdict,
   dropReason,
+  refutationDefects,
   coerceCandidates,
   dedupeCandidates,
 } from "./hunt-gate.mjs";
@@ -138,6 +145,23 @@ export function validatePersona(p) {
     problems.push("missing reportableSeverities[]");
   }
   if (Number(p.verifiers) < 2) problems.push("verifiers must be >= 2");
+  // The turn ceiling must EXCEED the action budget, or the action budget is
+  // unreachable and the session dies mid-exploration instead of reporting.
+  //
+  // Measured, not theorised: the first live run set `maxActions: 80` against
+  // `explorerMaxTurns: 60`, and both briefs died at `error_max_turns` after 61 turns
+  // having proposed nothing — $2.82 for two sessions that could never have finished.
+  // Every action costs at least one turn and the model needs turns to read and reason
+  // between them, so the CLI charters all sit at 1.25-1.4x. Anything at or below 1x
+  // is a configuration that cannot succeed.
+  const maxActions = p.actionBudget?.maxActions;
+  const maxTurns = p.explorerMaxTurns;
+  if (Number.isFinite(maxActions) && Number.isFinite(maxTurns) && maxTurns <= maxActions) {
+    problems.push(
+      `explorerMaxTurns (${maxTurns}) must exceed actionBudget.maxActions (${maxActions}) — ` +
+        "every action costs a turn, so the action budget is otherwise unreachable",
+    );
+  }
   // A persona whose declared surface has no readers could never predict anything.
   // Unreachable while `UI_SURFACES` is derived from the reader table, which is
   // exactly why it is worth asserting: it pins that derivation.
@@ -203,6 +227,121 @@ export function pickPredictionVerdict(prediction) {
   };
 }
 
+/**
+ * The action plan a candidate is REPLAYED from: the journal prefix up to and
+ * including the failing action, not the subset the model cited.
+ *
+ * ⚠️ THIS IS THE FIX FOR A FALSE-REPRODUCTION BUG THE FIRST LIVE RUN EXPOSED ⚠️
+ *
+ * `resolveActionRefs` maps the cited refs to actions, and a model cites the actions
+ * that DEMONSTRATE its finding — not the ones that set up the state. All three
+ * candidates in the first seeded run cited ranges like `[32..40]`, none of which
+ * included the opening `goto`. Replaying just those meant a browser that had never
+ * navigated: every read failed with "hunt bridge is not installed".
+ *
+ * And it scored `reproduced`, 3 of 3, deterministic — because all three attempts
+ * failed IDENTICALLY, so their plan keys matched. The determinism gate gave a perfect
+ * score to a replay in which nothing ran. Every candidate this pipeline produced
+ * would have "reproduced".
+ *
+ * The prefix is also what the design always said Stage 3 does: replay the entire
+ * sequence, not the failing action alone, because a mismatch that depends on earlier
+ * setup cannot be told apart from an artifact by replaying one step. Trusted code
+ * builds it from the journal, so this is reconstruction rather than model authorship
+ * — the citation is still what proves the interaction happened.
+ *
+ * PR 5's shrinker is the answer to the length this costs, and it can only shrink a
+ * plan that reproduces in the first place.
+ */
+export function replayPlanFor(candidate, journal) {
+  const entries = Array.isArray(journal) ? journal : [];
+  const failing = candidate?.failingRef;
+  if (!Number.isInteger(failing) || failing < 0 || failing >= entries.length) return null;
+  const actions = entries.slice(0, failing + 1).map((e) => ({ ...e.action }));
+  return { actions, failingIndex: failing };
+}
+
+/**
+ * Did this replay actually exercise the app?
+ *
+ * Fail-closed companion to the prefix fix above, and deliberately independent of it:
+ * `replay()` already refuses an EMPTY attempt, but an attempt in which every action
+ * ERRORED is just as empty in substance and was not covered. Three such attempts
+ * agree with each other perfectly, which is exactly how the bug above scored 3/3.
+ *
+ * One successful observation is enough — a plan may legitimately contain a click that
+ * missed or a read that failed, and refusing those would discard real findings. What
+ * cannot be a reproduction is a run where NOTHING worked.
+ */
+export function replayDidRun(observations) {
+  const list = Array.isArray(observations) ? observations : [];
+  return list.length > 0 && list.some((o) => o?.ok === true);
+}
+
+/**
+ * The claim as the VERIFIERS bounded it, not as the explorer wrote it.
+ *
+ * The explorer's `title` reaches a maintainer verbatim and has been wrong about its
+ * own scope on every real defect found so far. `groundedIn` already established the
+ * precedent: the thing the explorer cannot be trusted to get right is supplied by the
+ * party that read the source. This does the same for the claim.
+ *
+ * Falls back to the explorer's title rather than dropping the finding — a missing
+ * `scopedTitle` is a degraded report, not an invalid one, and the fail-quiet gate
+ * already refuses anything a verifier did not confirm.
+ */
+export function uiScopedTitle(claimed, verdicts) {
+  const scoped = uiScopedTitles(verdicts);
+  return scoped[0] ?? claimed?.title ?? "(untitled)";
+}
+
+/**
+ * EVERY distinct scoped title, in verifier order.
+ *
+ * `uiScopedTitle` returns the first and the report headlines it. That headline is the
+ * one line a maintainer reads before deciding whether to open a defect, and taking it
+ * from `scoped[0]` silently discarded what the other verifier wrote — including, on
+ * the run that motivated this, the version without a false claim in it.
+ *
+ * Both verifiers confirmed the same real defect at high confidence, and scoped it
+ * differently:
+ *
+ *   A  `setBlockType` omits `notifyStyleApplied()`, so the Text style control keeps
+ *      showing the previous style until a caret move or another style action
+ *   B  ...the same, plus "the ⌘⌥N shortcut path is unaffected"
+ *
+ * B is what got headlined, and B's exclusion is FALSE — the shortcut path goes through
+ * `text-editor.ts` and does not notify either, so both entry points are equally stale.
+ * Filed as written it would have sent a maintainer looking for a difference between
+ * two paths that behave identically. A was correct, present, and thrown away.
+ *
+ * Nothing mechanical can tell which of two plausible sentences is true. What is
+ * mechanical is refusing to pick one and hide the other, which is the same lesson as
+ * the collapsed duplicate (#748) and the split panel (#785): a silent choice between
+ * two things a human would want to compare is how this pipeline loses information.
+ */
+export function uiScopedTitles(verdicts) {
+  const seen = new Set();
+  const out = [];
+  for (const v of Array.isArray(verdicts) ? verdicts : []) {
+    const t = typeof v?.scopedTitle === "string" ? v.scopedTitle.trim() : "";
+    if (t === "" || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
+/** Did the verifiers scope the same finding differently? Then a human must choose. */
+export function uiScopedTitleDisagreement(verdicts) {
+  return uiScopedTitles(verdicts).length > 1;
+}
+
+/** Did any verifier judge the explorer's own title broader than its evidence? */
+export function uiOverclaimed(verdicts) {
+  return (Array.isArray(verdicts) ? verdicts : []).some((v) => v?.overclaimed === true);
+}
+
 /** The gate options that turn the shared gate into the UI hunter's gate. */
 export const UI_GATE_OPTIONS = Object.freeze({ grounds: UI_GROUNDS, citationsOf: uiCitationsOf });
 
@@ -220,13 +359,43 @@ export const UI_GATE_OPTIONS = Object.freeze({ grounds: UI_GROUNDS, citationsOf:
  * `codeLocations` produces for the CLI, which the caller records as a drop rather
  * than letting `dedupeCandidates` swallow it silently.
  */
+/**
+ * What an action operated on, as a stable string — the named control, the named
+ * reader, or "" when the action names nothing (typing, a key press).
+ *
+ * Trusted code reading the journal, never model prose: `target.name` is the
+ * accessible name the click resolved through, and `target.reader` is a registry
+ * entry. Both are as fixed as the reader names already in the key.
+ */
+function target(action) {
+  const t = action?.target;
+  if (t && typeof t === "object") {
+    if (typeof t.name === "string" && t.name !== "") return t.name;
+    if (typeof t.reader === "string" && t.reader !== "") return t.reader;
+  }
+  return "";
+}
+
 export function uiDefectKey(candidate, journal, { personaId } = {}) {
   const entry = Array.isArray(journal) ? journal[candidate?.failingRef] : undefined;
   const action = entry?.action;
   if (!action || typeof action !== "object") return "";
   const expect = action.expect;
+  // WHAT THE ACTION OPERATED ON. Without this every round-trip finding collides:
+  // they are all a `click` asserting `doc.runs equals @read:N` on ground A, so the
+  // reader/op/ground triple cannot tell "Italic leaves residue" from "Bold mishandles
+  // a mixed selection". A live run proposed exactly those two and lost the second.
+  //
+  // The round-trip brief now drives the explorer toward that shape deliberately, so
+  // the collision went from occasional to near-certain the moment that brief landed.
+  //
+  // Erring toward OVER-splitting is deliberate. One root cause surfacing through two
+  // controls reports twice — annoying, and the verifier's `duplicateOf` plus the
+  // ledger both catch it on the second pass. Two defects collapsing into one loses a
+  // real finding with no record, which is the failure this pipeline exists to avoid.
+  const on = target(action);
   if (expect && typeof expect === "object" && expect.read && expect.op && expect.ground) {
-    return `${personaId}|${action.type}|${expect.read}|${expect.op}|${expect.ground}`;
+    return `${personaId}|${action.type}|${on}|${expect.read}|${expect.op}|${expect.ground}`;
   }
   // No prediction: this is an oracle finding, so key on WHICH invariant broke.
   // Sorted and de-duplicated for the same reason `uiObservedKey` does it — which
@@ -235,7 +404,7 @@ export function uiDefectKey(candidate, journal, { personaId } = {}) {
     .sort()
     .join(",");
   if (!rules) return "";
-  return `${personaId}|${action.type}|oracles:${rules}`;
+  return `${personaId}|${action.type}|${on}|oracles:${rules}`;
 }
 
 // --- exploration -------------------------------------------------------------
@@ -272,9 +441,12 @@ export async function exploreUi(
   const budgetCfg = persona.actionBudget ?? {};
   const maxActions = budgetCfg.maxActions ?? 80;
 
+  const coverageBrief = renderCoverageBrief(context.coverage, { sha: context.sha ?? null });
+
   const prompt = [
     persona.rubric,
     "",
+    ...(coverageBrief ? [coverageBrief, ""] : []),
     "## Your task this session (DATA — the thing to actually do):",
     "",
     brief.task,
@@ -330,6 +502,13 @@ export async function exploreUi(
         budget,
         journal,
         cfg: context.cfg,
+        // A live trace, because until now a run printed nothing between the corpus line
+        // and the final funnel. The journal is only persisted when a brief FINISHES, so
+        // a run that hangs leaves no record of how far it got — and the only answer to
+        // "is it working or stuck" was that the process was alive.
+        label: `${persona.id}/${brief.id}`,
+        maxActions,
+        onProgress: (line) => console.error(line),
       });
       return askStructured({
         systemPrompt:
@@ -349,6 +528,22 @@ export async function exploreUi(
       });
     });
     return { out, journal: live.journal, actionCount: live.budget.used, refusals: live.budget.refusals };
+  } catch (err) {
+    // CARRY THE JOURNAL OUT ON THE ERROR PATH TOO.
+    //
+    // Without this the partial journal dies with the exception, and the caller
+    // persists nothing — which defeats the one file that exists to explain a zero
+    // run. Measured on the first live run: both briefs hit `error_max_turns`,
+    // `explore-raw.json` was written as `[]`, and $2.82 bought no way to tell
+    // whether the explorer had been predicting well and run out of room or had
+    // spent sixty turns achieving nothing. The most likely failure mode was the
+    // one where diagnosis was impossible.
+    if (live) {
+      err.journal = live.journal;
+      err.actionCount = live.budget.used;
+      err.refusals = live.budget.refusals;
+    }
+    throw err;
   } finally {
     await live?.session.close();
   }
@@ -398,7 +593,82 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
     "  2. It is not already covered by an existing issue (set `duplicateOf` if it is).",
     "  3. It is worth a maintainer's attention at the claimed severity.",
     "",
+    "## And then bound the CLAIM to the evidence — `scopedTitle`",
+    "",
+    "The hunter's title is the one thing it writes that reaches a maintainer verbatim,",
+    "and every real defect found so far has been described more broadly than its own",
+    "evidence supports. Each of these was a TRUE observation wrapped in a FALSE",
+    "universal, and each would have sent someone chasing a bug that does not exist:",
+    "",
+    '  "Bold only removes bold — it can never apply it"        Bold applies fine to',
+    "                                                          ordinary text.",
+    '  "after a scroll, clicks no longer select any cell"      Clicks work; the cells',
+    "                                                          had scrolled offscreen.",
+    '  "never removes italic from a right-to-left selection"   It removes correctly',
+    "                                                          when the preceding run",
+    "                                                          shares the style.",
+    "",
+    "So write `scopedTitle`: one line, stating the defect no more broadly than what",
+    "was actually demonstrated plus what you established in the source. Name the",
+    "PRECONDITION that makes it fire if there is one. Prefer the mechanism over the",
+    "symptom when you have found it — a title naming the wrong cause is as costly as",
+    "one naming the wrong scope.",
+    "",
+    "AN EXCLUSION IS A CLAIM, AND IT NEEDS THE SAME EVIDENCE. \"...but the keyboard",
+    "shortcut is unaffected\", \"...only in tables\", \"...rendering is fine\" — each of",
+    "those asserts something about code you may not have read. Measured: a verifier",
+    "correctly narrowed a real defect and appended \"the ⌘⌥N shortcut path is",
+    "unaffected\". It was false — that path calls the store directly and does not notify",
+    "either, so both entry points were equally broken. Its colleague wrote the same",
+    "finding WITHOUT the exclusion and was right. Narrowing introduced an error that",
+    "the original, broader title did not contain.",
+    "",
+    "So: state an exclusion only when you went and looked, and cite it in `groundedIn`",
+    "like anything else. If you did not check the other path, say nothing about it —",
+    "a title that is silent on a question is narrower than one that answers it wrongly.",
+    "",
+    "Set `overclaimed: true` when the hunter's title asserts more than its evidence.",
+    "That does NOT refute the finding — a real defect described loosely is still real,",
+    "and your `scopedTitle` is what gets reported. It is recorded so a drift toward",
+    "overclaiming is visible.",
+    "",
+    "Words like *never*, *always*, *any*, *all* and *cannot* are where this goes wrong.",
+    "If the transcript shows three instances, the claim covers those three and whatever",
+    "the code proves generalises — not the whole control.",
+    "",
     "Establish the facts yourself with Read/Grep/Glob.",
+    "",
+    "## Refuting costs the same work as confirming — `refutes`",
+    "",
+    "A refutation ends the candidate on its own: your colleague may have confirmed at",
+    "high confidence and the run will still report nothing. So it is held to the bar a",
+    "confirmation clears. When `verdict` is `refuted`, `refutes` must name the SPECIFIC",
+    "claim your evidence contradicts, and `groundedIn` must cite the code that",
+    "contradicts it — in scope, the same as a confirmation.",
+    "",
+    "The failure this exists to stop, measured on a real defect that was lost:",
+    "",
+    "  claim      un-listing a heading downgrades it to a plain paragraph",
+    "  cited      `list items map to \\`normal\\`` — a rule about how a block is STYLED",
+    "             WHILE IT IS a list item",
+    "  concluded  therefore the downgrade is intended",
+    "",
+    "Every citation was real. Two of them were evidence FOR the defect. The refutation",
+    "was still wrong, because the cited rule answers a different question than the claim",
+    "asks — current-state styling, not what the block returns to afterwards.",
+    "",
+    "So before refuting, read your own citation back against the exact claim: does this",
+    "line say the observed behaviour is CORRECT, or does it merely describe some",
+    "neighbouring behaviour? \"The code does what the code does\" is not a refutation —",
+    "the question is whether it does what it SHOULD. Intended-by-design is a real",
+    "refutation only when something states the intent for THIS behaviour: a spec, a",
+    "test asserting it, a comment about this case. A helper that computes the current",
+    "state is not a statement that the state is desired.",
+    "",
+    "If you cannot name what your evidence contradicts, you have not refuted it — you",
+    "have failed to confirm it. Say that instead: `confirmed` with `confidence: \"low\"`.",
+    "The gate reports only on HIGH-confidence unanimity, so that outcome files nothing",
+    "either, and it does not spend your colleague's confirmation to say so.",
     "",
     "## `groundedIn` — you are the ONLY source of it",
     "",
@@ -420,7 +690,13 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
     "",
     "Confirming causes a report. A false report costs maintainer attention; a missed",
     "defect costs nothing, because the next run looks again. So:",
-    '  - Unsure for ANY reason -> {verdict:"refuted", confirmationGround:"none"}.',
+    // This used to read `Unsure for ANY reason -> refuted`, which contradicted the
+    // refutation section above and was the instruction MANUFACTURING the ungrounded
+    // refutations that section exists to stop. Both outcomes below file nothing — the
+    // gate reports only on high-confidence unanimity — so uncertainty loses nothing by
+    // taking the honest one, and a refutation stays a claim somebody has to argue.
+    '  - Unsure for ANY reason -> {verdict:"confirmed", confidence:"low"}. Files nothing.',
+    '  - Refute only when you can name what your evidence contradicts, in `refutes`.',
     "  - Confirm only at high confidence, naming a `confirmationGround`.",
     "",
     `Claimed [${claimed.severity}] ${claimed.title}`,
@@ -463,6 +739,29 @@ export async function verifyUi(candidate, persona, { repo, context, sessionLog, 
       sessionLog,
       allowedTools: HUNT_TOOLS,
       label: "hunt-ui-verify",
+      // UI VERIFICATION IS STRUCTURALLY MORE EXPENSIVE THAN THE CLI HUNTER'S, and
+      // the ceiling has to reflect that. Measured across four live runs rather than
+      // guessed — turn usage, at a ceiling of 35:
+      //
+      //   seeded fault, cause in one file      9, 11, 14, 16
+      //   undo/selection across editor+store  21, 28
+      //   canvas scroll/click coordinates     29, 36 ← truncated
+      //
+      // Cost tracks HOW HARD THE CAUSE IS TO LOCATE, not prompt size: turns are tool
+      // round-trips, and this verifier is the sole source of the citation, so it must
+      // find the cause from scratch in packages it has never read. The CLI hunter's
+      // verifier can lean on the explorer's citations and settles at 14-16.
+      //
+      // Raising the ceiling is close to free, which is the non-obvious part. Seven of
+      // eight sessions finished naturally well under 35 — models spend what the task
+      // needs, not what they are offered — so a higher ceiling does not inflate the
+      // common case, it only rescues the tail. A truncation, by contrast, is pure
+      // waste twice: the session is paid for and yields nothing, and the candidate is
+      // deliberately not ledgered so the next run pays to assess it again.
+      //
+      // `stats.unjudgedVerifier` is the signal to watch. If it stays above zero at 50,
+      // raise again — but check first whether one persona is asking for causes that
+      // are genuinely unlocatable from its `codeScope`.
       maxTurns: Number.isFinite(persona.verifierMaxTurns) ? persona.verifierMaxTurns : 20,
     }),
   );
@@ -554,9 +853,16 @@ export function renderUiReport({ runId, headSha, personas, reported, dropped, st
     ...(fault
       ? [
           `> ⚠️ **SEEDED RUN — NOT A HUNT.** This run injected the known defect \`${fault}\` into`,
-          "> the harness, so any finding below is MANUFACTURED and must not be filed. It exists",
-          "> to prove the pipeline can carry a defect end to end. The novelty ledger was",
-          "> deliberately not written.",
+          "> the harness, so any finding below is MANUFACTURED and must not be filed. The",
+          "> novelty ledger was deliberately not written.",
+          ">",
+          "> **A refutation here is SUCCESS, not failure.** The verifiers read source to",
+          "> establish cause, and this fault lives in the harness route — in this repository.",
+          "> A competent verifier will therefore identify it as our own instrumentation and",
+          "> refuse it, every time. The control passes when the explorer FINDS it, replay",
+          "> REPRODUCES it, and the panel refutes it *for that demonstrable reason*. It does",
+          "> NOT pass by being reported; making it reportable would mean blinding the",
+          "> verifier to the repository, which is a worse instrument, not a better control.",
           "",
         ]
       : []),
@@ -600,9 +906,32 @@ export function renderUiReport({ runId, headSha, personas, reported, dropped, st
     lines.push(`## Reported (${reported.length})`, "");
     for (const c of reported) {
       const k = c.claimed;
+      // The VERIFIERS' scoped claim is the heading, not the explorer's. The explorer
+      // has been wrong about its own scope on every real defect found so far, and
+      // this is the one line a maintainer reads first.
+      const heading = c.scopedTitle ?? k.title;
       lines.push(
-        `### [${k.severity}] ${k.title}`,
+        `### [${k.severity}] ${heading}`,
         "",
+        // Shown only when they differ, so the report carries what the hunter actually
+        // said without implying the two are interchangeable. A reader chasing a
+        // filed issue back to its run needs to see the original.
+        ...(c.scopedTitle && c.scopedTitle !== k.title
+          ? [`> The hunter proposed this as **"${k.title}"** — narrowed by the verifiers to the heading above.`, ""]
+          : []),
+        // The OTHER verifier's scoping, when it wrote a different one. The heading is
+        // one verifier's prose and nothing verifies it; the alternative is the only
+        // cheap check available, and it is the check that catches an exclusion one
+        // verifier asserted and the other did not. DO NOT collapse this to "they
+        // agreed" — that is the assumption that put a false claim in a headline.
+        ...(Array.isArray(c.scopedTitles) && c.scopedTitles.length > 1
+          ? [
+              "> **The verifiers scoped this differently. Reconcile before filing —**",
+              "> the heading above is one of them, not a consensus:",
+              ...c.scopedTitles.map((t, i) => `> ${i + 1}. ${t}`),
+              "",
+            ]
+          : []),
         `- **persona:** ${c.personaId} / ${c.briefId} (surface \`${c.surface}\`)`,
         `- **oracle:** ${k.oracle}`,
         `- **expected:** ${k.expected}`,
@@ -802,6 +1131,10 @@ async function cmdRun(args) {
   // other's suppression: the key spaces are different and a collision would
   // silently hide a real defect.
   const ledgerFile = path.resolve(strArg(args, "ledger") ?? path.join(outDir, "seen.json"));
+  // PER PERSONA, in one file keyed by persona id. The controls barely overlap between
+  // surfaces, so a shared memory would tell the sheet explorer it had already tried
+  // `Bold` because the doc explorer had.
+  const coverageFile = path.resolve(strArg(args, "coverage") ?? path.join(outDir, "coverage.json"));
   const fault = strArg(args, "fault") ?? null;
 
   const all = loadPersonas(chartersDir);
@@ -813,6 +1146,29 @@ async function cmdRun(args) {
   if (personas.length === 0) fail("no personas selected");
   for (const s of args.surface) {
     if (!UI_SURFACES.includes(s)) fail(`--surface ${JSON.stringify(s)} is not one of: ${UI_SURFACES.join(", ")}`);
+  }
+
+  // Prior coverage, per persona. A file that will not parse is a memory, not a gate:
+  // it degrades to "nothing tried yet" rather than refusing the run the way an
+  // unreadable LEDGER does, because a wrong ledger hides real defects and a wrong
+  // coverage memory only costs a repeat.
+  let priorCoverage = {};
+  if (existsSync(coverageFile)) {
+    try {
+      const parsed = JSON.parse(readFileSync(coverageFile, "utf8"));
+      if (parsed && typeof parsed === "object") {
+        // NORMALISE, do not trust. `mergeCoverage` already drops entries that are not
+        // usable and refuses a record whose key version has moved, so running each
+        // persona's record through it turns "a file someone edited by hand" into either
+        // valid coverage or empty coverage — never a malformed object reaching the
+        // renderer, which sits on the path that assembles the explorer's prompt.
+        for (const [id, record] of Object.entries(parsed)) {
+          priorCoverage[id] = mergeCoverage(null, record);
+        }
+      }
+    } catch {
+      console.error(`hunt-ui: WARNING — ${coverageFile} is unreadable; this run explores as if nothing had been tried`);
+    }
   }
 
   const { seen, parseErrors, staleKeys } = parseSeenLedger(
@@ -837,11 +1193,12 @@ async function cmdRun(args) {
     runId,
     headSha,
     seen,
+    priorCoverage,
     context,
     sessionLog,
     fault,
   });
-  const { reported, dropped, skipped, stats, ledgerAdds } = out;
+  const { reported, dropped, skipped, stats, ledgerAdds, coverageAdds } = out;
 
   mkdirSync(outDir, { recursive: true });
   const report = renderUiReport({
@@ -876,12 +1233,39 @@ async function cmdRun(args) {
     console.error(`hunt-ui: seeded run — ${ledgerFile} left untouched`);
   } else {
     writeFileSync(ledgerFile, serializeSeenLedger([...seen, ...ledgerAdds]));
+    // Coverage follows the ledger's rule for the same reason: a seeded run drives the
+    // surface with a fabricated fault, and letting it claim a control was explored
+    // would suppress that control for the next REAL run.
+    if (Object.keys(coverageAdds).length > 0) {
+      writeFileSync(coverageFile, `${JSON.stringify({ ...priorCoverage, ...coverageAdds }, null, 2)}\n`);
+      console.error(`hunt-ui: coverage v${COVERAGE_KEY_VERSION} written to ${coverageFile}`);
+    }
   }
   process.stdout.write(
     `hunt-ui: ${stats.proposed} proposed → ${stats.unique} unique → ${stats.novel} novel → ` +
       `${stats.reproduced} reproduced → ${stats.reported} reported\n` +
       `         ${stats.refutedAfterReplay} reproduced but refuted by the panel, ` +
-      `${stats.cappedUnverified} reproduced but never verified (cap)\n` +
+      `${stats.cappedUnverified} reproduced but never verified (cap), ` +
+      `${stats.unjudgedVerifier} left unjudged (a verifier could not finish)\n` +
+      (stats.collapsedDuplicate > 0
+        ? `         ${stats.collapsedDuplicate} candidate(s) collapsed as duplicates — check the drop table\n`
+        : "") +
+      (stats.overclaimed > 0
+        ? `         ${stats.overclaimed} reported finding(s) the verifiers had to narrow\n`
+        : "") +
+      // Loud on stderr, not just in the table: a split panel is the one drop where a
+      // verifier said "real defect, high confidence" and the run still reported
+      // nothing. It is the line most worth a human's attention on an otherwise empty
+      // run, and an empty run is exactly when nobody opens the report.
+      (stats.splitPanel > 0
+        ? `         ${stats.splitPanel} candidate(s) SPLIT the panel — some verifier confirmed; read the drop table\n`
+        : "") +
+      (stats.ungroundedRefutation > 0
+        ? `         ${stats.ungroundedRefutation} refutation(s) fell short of the confirmation standard\n`
+        : "") +
+      (stats.scopedTitleDisagreement > 0
+        ? `         ${stats.scopedTitleDisagreement} reported finding(s) the verifiers scoped DIFFERENTLY — reconcile before filing\n`
+        : "") +
       `hunt-ui: report written to ${path.join(outDir, "report.md")}\n`,
   );
 }
@@ -907,6 +1291,9 @@ export async function runHunt({
   runId,
   headSha,
   seen = [],
+  // What each persona has already tried, keyed by persona id. A parameter rather than
+  // a read, so `runHunt` stays testable without a coverage file on disk.
+  priorCoverage = {},
   context,
   sessionLog = [],
   fault = null,
@@ -929,10 +1316,38 @@ export async function runHunt({
     novel: 0,
     reproduced: 0,
     refutedAfterReplay: 0,
+    // Half the panel found a defect and the run reported nothing. Distinct from a
+    // unanimous refusal, which is the panel agreeing.
+    splitPanel: 0,
+    // Refutations that would not have cleared the bar their own confirmation had to.
+    ungroundedRefutation: 0,
+    // Reported findings whose verifiers wrote DIFFERENT scoped titles. The headline is
+    // one of them; a human has to reconcile before filing.
+    scopedTitleDisagreement: 0,
+    // A candidate no verifier could finish judging. Distinct from every other drop
+    // because it is pure WASTE, twice over: the truncated session is paid for and
+    // produces nothing, and the candidate is deliberately not ledgered so the next
+    // run pays to assess it again.
+    //
+    // It had no stat until this was reconstructed from raw execution logs, which is
+    // the whole reason it needs one — a budget you can only measure by log
+    // archaeology is a budget nobody measures. Rising means the turn ceiling is too
+    // low for the causes this surface asks verifiers to locate.
+    unjudgedVerifier: 0,
+    // Candidates thrown away because another shared their defect key. Was silent
+    // until a live run lost a real second finding to it; anything this pipeline
+    // discards has to be countable.
+    collapsedDuplicate: 0,
+    // Reported findings whose own title asserted more than the evidence. Not a gate
+    // input -- a real defect described loosely is still real -- but tracked, because
+    // every real defect found so far has been overclaimed and that is the thing
+    // standing between this pipeline and a filable issue.
+    overclaimed: 0,
     cappedUnverified: 0,
     reported: 0,
   };
   const ledgerAdds = [];
+  const coverageAdds = {};
 
   if (fault) {
     console.error(`hunt-ui: FAULT INJECTION ACTIVE (?fault=${fault}) — this run is a positive control, not a hunt`);
@@ -950,11 +1365,45 @@ export async function runHunt({
     const briefResults = [];
     for (const brief of persona.briefs) {
       try {
-        briefResults.push({ brief, ...(await exploreImpl(persona, brief, { repo, context, sessionLog, fault })) });
+        briefResults.push({
+          brief,
+          ...(await exploreImpl(persona, brief, {
+            repo,
+            // This persona's OWN memory. Per-persona because the surfaces barely share
+            // controls — telling the sheet explorer it had already tried `Bold` because
+            // the doc explorer had would steer it away from an untested control.
+            context: { ...context, coverage: priorCoverage[persona.id] ?? null, sha: headSha },
+            sessionLog,
+            fault,
+          })),
+        });
       } catch (err) {
         console.error(`hunt-ui: ${persona.id}/${brief.id} failed: ${err.message}`);
         skipped.push({ persona: `${persona.id}/${brief.id}`, kind: "session-failed", why: err.message });
+        // Keep what it DID do. A failed brief still explored, and those actions are
+        // the only evidence of why the run produced nothing — so they are persisted
+        // alongside the successful briefs' journals, with `out: null` so the
+        // candidate loop below contributes nothing from it.
+        briefResults.push({
+          brief,
+          out: null,
+          failed: err.message,
+          journal: err.journal ?? [],
+          actionCount: err.actionCount ?? 0,
+          refusals: err.refusals ?? [],
+        });
       }
+    }
+
+    // COVERAGE, from every journal including the failed briefs'. A brief that died at
+    // the turn ceiling still clicked things, and pretending otherwise would send the
+    // next run back over the same controls.
+    for (const r of briefResults) {
+      const journal = r.out?.journal ?? r.journal ?? [];
+      coverageAdds[persona.id] = mergeCoverage(
+        coverageAdds[persona.id] ?? priorCoverage[persona.id] ?? null,
+        coverageFromJournal(journal, { sha: headSha }),
+      );
     }
 
     // Persist the RAW proposals before any filtering, journal included. For a run
@@ -966,6 +1415,10 @@ export async function runHunt({
         JSON.stringify(
           briefResults.map((r) => ({
             brief: r.brief.id,
+            // Present only on a brief that did NOT finish. First thing to read when
+            // a run reports nothing: it separates "explored and found nothing" from
+            // "never got to answer", which are the same zero in the funnel.
+            ...(r.failed ? { failed: r.failed } : {}),
             summary: r.out?.summary,
             candidates: r.out?.candidates,
             journal: r.journal,
@@ -1012,6 +1465,32 @@ export async function runHunt({
         dropped.push({ title: c.title, why: "no identifiable defect — neither a prediction nor an oracle at the failing action" });
       }
     }
+    // RECORD WHAT DEDUPE COLLAPSES, before it collapses it.
+    //
+    // `dedupeCandidates` keeps the first candidate per key and silently skips the
+    // rest — no stat, no drop-table row, nothing. That is the one silent truncation
+    // left in this pipeline, and everything else here is careful about exactly this:
+    // the verification cap logs what it drops, unlocatable candidates are recorded,
+    // the "did NOT run" section exists so a zero cannot read as a clean bill.
+    //
+    // It is not hypothetical. A live run proposed two genuinely different findings —
+    // a style toggle leaving `italic:false` residue, and a Bold toggle mishandling a
+    // mixed selection — and they shared a key, so the second was discarded with no
+    // record at all. It was only found by re-deriving the keys by hand afterwards.
+    const firstByKey = new Map();
+    for (const c of proposals) {
+      const k = keyOf(c);
+      if (k === "") continue; // already recorded above
+      if (firstByKey.has(k)) {
+        dropped.push({
+          title: c.title,
+          why: `collapsed into "${firstByKey.get(k)}" — same defect key \`${k}\`. If these are different defects, the key is too coarse to tell them apart`,
+        });
+        stats.collapsedDuplicate++;
+      } else {
+        firstByKey.set(k, c.title);
+      }
+    }
     const unique = dedupeCandidates(proposals, keyOf);
     stats.unique += unique.length;
 
@@ -1032,13 +1511,30 @@ export async function runHunt({
       // NOT the live session the explorer used. Exploration is a session; replay is
       // a clean room, and sharing one mechanism is how state-dependent phantom
       // repros get through.
+      // The plan is the journal PREFIX, not the cited subset — see `replayPlanFor`
+      // for the false-reproduction bug that made this necessary.
+      const plan = replayPlanFor(cand, cand.__journal);
+      if (!plan) {
+        dropped.push({ title: cand.title, why: `failingRef ${JSON.stringify(cand.failingRef)} does not resolve into the journal` });
+        continue;
+      }
       let firstObservations;
       let rep;
       try {
-        firstObservations = runPlanImpl({ actions: cand.actions }, { repoRoot: repo, attempts: 1, fault })[0];
-        rep = replayUiCandidate(cand.actions, firstObservations, { repo, attempts: 3, fault, runPlan: runPlanImpl });
+        firstObservations = runPlanImpl({ actions: plan.actions }, { repoRoot: repo, attempts: 1, fault })[0];
+        rep = replayUiCandidate(plan.actions, firstObservations, { repo, attempts: 3, fault, runPlan: runPlanImpl });
       } catch (err) {
         dropped.push({ title: cand.title, why: `replay could not run: ${err.message}` });
+        continue;
+      }
+
+      // Fail closed: a run in which every action errored is not a reproduction, no
+      // matter how consistently the attempts agree with each other.
+      if (!replayDidRun(firstObservations)) {
+        dropped.push({
+          title: cand.title,
+          why: "replay never exercised the app — every action failed, so there is nothing to reproduce",
+        });
         continue;
       }
 
@@ -1056,8 +1552,8 @@ export async function runHunt({
           expected: cand.expected,
           observed: cand.observed,
         },
-        actions: cand.actions,
-        failingIndex: cand.failingIndex,
+        actions: plan.actions,
+        failingIndex: plan.failingIndex,
         // The verdict comes from the JOURNAL, not from the observation.
         //
         // The runner deliberately does not compare — it reports `actual` and stops,
@@ -1066,15 +1562,15 @@ export async function runHunt({
         // "unknown" on every finding this pipeline could ever report. The journal
         // entry is where `assessExpectation` wrote it, during exploration, which is
         // also the verdict the candidate is actually claiming.
-        prediction: cand.actions[cand.failingIndex]?.expect
+        prediction: plan.actions[plan.failingIndex]?.expect
           ? {
-              ...cand.actions[cand.failingIndex].expect,
+              ...plan.actions[plan.failingIndex].expect,
               ...pickPredictionVerdict(cand.__journal?.[cand.failingRef]?.prediction),
             }
           : null,
         oracles: oraclesFired(firstObservations),
         replay: rep,
-        replayEvidence: summarizeUiObservations(firstObservations, cand.actions),
+        replayEvidence: summarizeUiObservations(firstObservations, plan.actions),
         secrets: [context.cfg.apiKey].filter(Boolean),
       };
 
@@ -1121,9 +1617,14 @@ export async function runHunt({
         // than in the renderer so the report can never name a file that does not
         // exist.
         const planPath = path.join(personaDir, `repro-${reported.length + 1}.json`);
-        writeArtifact(planPath, JSON.stringify({ actions: cand.actions }, null, 2) + "\n");
+        writeArtifact(planPath, JSON.stringify({ actions: plan.actions }, null, 2) + "\n");
         record.planPath = path.relative(repo, planPath);
         record.groundedIn = uiCitationsOf(record.claimed, verdicts);
+        record.scopedTitle = uiScopedTitle(record.claimed, verdicts);
+        record.scopedTitles = uiScopedTitles(verdicts);
+        record.overclaimed = uiOverclaimed(verdicts);
+        if (record.overclaimed) stats.overclaimed++;
+        if (uiScopedTitleDisagreement(verdicts)) stats.scopedTitleDisagreement++;
         reported.push(record);
         stats.reported++;
         ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, charterId: persona.id, verdict: "reported", runId, sha: headSha });
@@ -1134,8 +1635,21 @@ export async function runHunt({
         // excluded: a verifier that errored produced no opinion, and counting
         // infrastructure failure as a refutation would make the signal read worse
         // the flakier the API got.
+        if (unjudged) stats.unjudgedVerifier++;
         if (!unjudged) {
           stats.refutedAfterReplay++;
+          // A SPLIT PANEL IS NOT THE SAME EVENT AS A UNANIMOUS NO, and until now the
+          // funnel spelled them identically. Measured on #783: one verifier confirmed
+          // at HIGH confidence and one refuted, the candidate was a real defect, and
+          // the only trace was a single drop-table line naming neither the dissent nor
+          // its reasoning. A stat is what makes "half the panel found a defect" a
+          // number somebody can watch rise.
+          const confirmations = verdicts.filter((v) => v?.verdict === "confirmed").length;
+          if (confirmations > 0 && confirmations < verdicts.length) stats.splitPanel++;
+          // Counted separately from the split, because the two say different things: a
+          // split is disagreement, this is a refutation that would not have passed the
+          // bar its own confirmation had to clear. Neither is a gate input.
+          if (verdicts.some((v) => refutationDefects(v, persona, {}).length > 0)) stats.ungroundedRefutation++;
           ledgerAdds.push({ fp: dk, keyVersion: LEDGER_KEY_VERSION, charterId: persona.id, verdict: "dropped", dropReason: why, runId, sha: headSha });
         }
       }
@@ -1162,8 +1676,17 @@ export async function runHunt({
     );
     ledgerAdds.length = 0;
   }
+  // SEPARATE from the ledger branch above, which only fires when the seeded run produced
+  // ledger entries. A seeded run that proposed nothing still CLICKED things, and letting
+  // that claim coverage would suppress those controls for the next real run — on the
+  // strength of a session driven against a fabricated fault. `cmdRun` also refuses to
+  // write coverage for a seeded run, but `runHunt` is exported and the invariant is its
+  // own to keep.
+  if (fault) {
+    for (const k of Object.keys(coverageAdds)) delete coverageAdds[k];
+  }
 
-  return { reported, dropped, skipped, stats, ledgerAdds, seeded: fault ?? null };
+  return { reported, dropped, skipped, stats, ledgerAdds, coverageAdds, seeded: fault ?? null };
 }
 
 /**

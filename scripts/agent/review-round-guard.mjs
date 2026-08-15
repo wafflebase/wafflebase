@@ -14,12 +14,17 @@
 // Writes `paged` and `proceed` ("true"/"false") to $GITHUB_OUTPUT.
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { redactSecrets } from "./redact.mjs";
 import {
-  countFailedReviewRounds,
+  collectFixDispatches,
   fixAttemptCommits,
+  fixRoundsUsed,
   groupReviewRounds,
   detectStalledRounds,
+  renderFixDispatchComment,
   DEFAULT_SIMILARITY,
   PAGED_LATCH,
   isPagedLatchComment,
@@ -33,6 +38,7 @@ import {
   runUrlFromEnv,
   whereToLookLine,
 } from "./guard-verdict.mjs";
+import { permissionResolver } from "./gh-checks.mjs";
 
 const [, , prArg, maxArg, allValidArg, requiredChecksArg, infraArg] = process.argv;
 const pr = Number(prArg);
@@ -41,7 +47,11 @@ const allValid = allValidArg === "true";
 const requiredCheckNames = (requiredChecksArg ?? "").split(",").filter(Boolean);
 // Non-empty when EVERY blocking lens failed on an API/quota error (the panel
 // never ran) — a distinct, non-code failure worth its own honest hand-off.
-const infra = (infraArg ?? "").trim();
+// Redacted at the boundary even though it arrives safe by construction: this
+// value comes in as a COMMAND-LINE ARGUMENT from a workflow, so it is only as
+// trustworthy as every future edit to that workflow, and `page()` puts it
+// straight into a public PR comment. One call is cheaper than the invariant.
+const infra = redactSecrets((infraArg ?? "").trim());
 
 // Convergence tuning, read from the env rather than added as a 6th and 7th
 // positional: this script already takes five, and keeping it env-driven means
@@ -49,6 +59,13 @@ const infra = (infraArg ?? "").trim();
 // .github/workflows/**).
 const stallRepeats = Number(process.env.STALL_REPEATS) || 2;
 const stallSimilarity = Number(process.env.STALL_SIMILARITY) || DEFAULT_SIMILARITY;
+
+// Where the round record is STAGED for the workflow's posting step. Under Actions
+// `RUNNER_TEMP` survives the branch checkout that replaces the workspace, which is
+// exactly why the file lives there and not in the tree. The workflow passes the
+// same path explicitly; the default only keeps a hand-run of this script working.
+const dispatchFile =
+  process.env.DISPATCH_FILE || join(process.env.RUNNER_TEMP || tmpdir(), "fix-dispatch.md");
 
 if (!Number.isInteger(pr) || pr <= 0 || !Number.isFinite(max)) {
   console.error(
@@ -141,7 +158,16 @@ if (comments.some(isPagedLatchComment)) {
 // round/attempt caps", which on a PR that reached the cap means one panel round
 // and an immediate re-page. That is exactly what #648 did when it was un-stuck by
 // hand. The marker rerun leaves behind moves the round floor forward.
-const rerunAt = rerunPointFrom(comments);
+//
+// The floor is resolved against the SAME authority the command itself is gated on
+// (`getCollaboratorPermissionLevel`), not `author_association`. On #648 those two
+// disagreed: the verb ran — the label came off, CI re-ran — while GitHub reported
+// the maintainer's comments as `CONTRIBUTOR`, so the budget silently did not move
+// and the next round paged with "tried 3 time(s) (limit 3)" against a rerun that
+// had reset nothing. The resolver memoizes per login, so a PR with many comments
+// from few people costs at most one call each, and only for logins whose
+// association did not already settle it.
+const rerunAt = rerunPointFrom(comments, { trusts: permissionResolver({ api: ghJson }) });
 if (rerunAt) console.error(`rerun: counting fix rounds from ${rerunAt}`);
 
 // API/quota outage (every blocking lens failed on an API error) → the reviewer
@@ -238,7 +264,11 @@ const stallRounds = groupReviewRounds(
 // rebuttals re-paged on the very first post-rerun round. That is the exact "one
 // panel round and an immediate re-page" this change exists to end, arriving through
 // a different door.
-const failedRounds = countFailedReviewRounds(commits, requiredCheckNames, { since: rerunAt });
+// Reads the DISPATCH LEDGER (this script's own records) when the PR has one, and
+// falls back to the commit-shape inference when it does not — see
+// `rounds.mjs::fixRoundsUsed`. The number now means "times the fixer was actually
+// sent in", which is what `MAX_REVIEW_ROUNDS` was always meant to bound.
+const failedRounds = fixRoundsUsed(comments, commits, requiredCheckNames, { since: rerunAt });
 pagedRoundContext.failedRounds = failedRounds;
 // A hand-back buys the loop at least one attempt before the softer bounds may fire
 // again. The round cap needs no such rule — its count already starts at the rerun.
@@ -285,12 +315,53 @@ if (stall.stalled && !heldByRerun) {
 
 if (failedRounds >= max) {
   page(
-    `The fixer has tried ${failedRounds} time(s) (limit ${max}) without converging` +
+    `The fix agent has been dispatched ${failedRounds} time(s) (limit ${max}) without converging` +
       `${rerunAt ? " since the last rerun" : ""}. A human should take over on PR #${pr}.`,
     "round-cap",
   );
   process.exit(0);
 }
+
+// STAGE the round record here; the workflow POSTS it immediately before the
+// fixer. The split is the whole point, and the first version got it wrong.
+//
+// Posting from this step spends the round at the top of the `fix` job — and the
+// fixer is fourteen steps later, behind an App-token mint, a branch checkout and
+// a `pnpm install`. The panel workflow is `cancel-in-progress: true`, so any push
+// during those one-to-three minutes kills the run with the record already
+// written: a round consumed by a fixer that never started. That is the same shape
+// as the phantom round this whole change exists to remove (#695's cancelled panel
+// left six reds on a commit nobody reviewed), just smaller and self-inflicted, and
+// #695 itself had pushes 57 seconds apart. Deferring the post to the step before
+// `Address panel findings` shrinks the window from minutes to seconds.
+//
+// The window cannot be closed entirely — some instant separates "recorded" from
+// "running". What it CAN be is on the right side of the remaining risk: after the
+// post, a cancellation costs a round for a fixer that had genuinely begun, which
+// is a round honestly spent.
+//
+// Still NOT best-effort, on both halves. A dispatch whose record never landed is
+// a round spent off the books that the next guard hands out again — the one
+// direction this bound must not fail in. `writeFileSync` throwing reds this step;
+// the posting step is a plain `run:` with no `continue-on-error`, so a failure
+// there reds the job before the fixer is reached. Either way the `stalled` net
+// hands it to a human.
+//
+// `prior` seeds the ledger from the inference it replaces, and only ever on the
+// FIRST record: a PR mid-flight when this shipped has already spent rounds that
+// left no record, and starting its ledger at zero would quietly hand it those
+// rounds back. `failedRounds` is the fallback count at this moment precisely
+// because no record exists yet.
+const headSha = commits.length ? String(commits[commits.length - 1].sha ?? "") : "";
+const prior = collectFixDispatches(comments).length === 0 ? failedRounds : 0;
+const dispatchBody = renderFixDispatchComment({
+  from: headSha,
+  prior,
+  round: failedRounds + 1,
+  max: Number.isFinite(max) ? max : null,
+});
+writeFileSync(dispatchFile, dispatchBody);
+console.error(`dispatch: staged round ${failedRounds + 1} of ${max} (from ${headSha.slice(0, 9)}) at ${dispatchFile}`);
 
 // OBSERVABILITY: the PROCEED branch was the one silent decision in this loop —
 // only pages ever reached a human surface, so a continuing loop and a dead one

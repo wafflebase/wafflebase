@@ -4,8 +4,25 @@ import {
   output,
   outputError,
   parseOutputFormat,
+  type OutputFormat,
 } from '../output/formatter.js';
-import { getCommandSchema, getAllCommandSchemas } from '../schema/registry.js';
+import {
+  getCommandSchema,
+  getAllCommandSchemas,
+  type CommandSchema,
+} from '../schema/registry.js';
+
+type SchemaListEntry = Pick<
+  CommandSchema,
+  'name' | 'description' | 'safety'
+>;
+
+export function toSchemaListPayload(
+  commands: readonly SchemaListEntry[],
+  format: OutputFormat,
+): { commands: readonly SchemaListEntry[] } | readonly SchemaListEntry[] {
+  return format === 'json' ? { commands } : commands;
+}
 
 export function registerSchemaCommand(program: Command) {
   program
@@ -33,17 +50,17 @@ export function registerSchemaCommand(program: Command) {
             process.exitCode = 1;
             return;
           }
-          output(schema, fmt, opts.quiet);
+          output(schema, fmt);
         } else {
           const commands = getAllCommandSchemas().map((c) => ({
             name: c.name,
             description: c.description,
             safety: c.safety,
           }));
-          output({ commands }, fmt, opts.quiet);
+          output(toSchemaListPayload(commands, fmt), fmt);
         }
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 }

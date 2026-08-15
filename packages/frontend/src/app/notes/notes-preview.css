@@ -287,3 +287,52 @@
 .dark .note-preview .note-summary::before {
   color: #8b949e;
 }
+
+/* ── Mermaid diagrams (issue #625) ───────────────────────────────────────
+ * A ```mermaid fence renders as a centred SVG diagram. Until the lazily
+ * imported engine resolves — or if the diagram does not parse — the block
+ * shows the diagram source instead, so it is never blank. */
+.note-preview .note-mermaid {
+  margin: 0.85rem 0;
+  overflow-x: auto;
+}
+
+/* Centred with auto margins, not `text-align`: preflight makes `svg` a block
+ * element, which `text-align` on the container cannot centre. */
+.note-preview .note-mermaid svg {
+  display: block;
+  margin-inline: auto;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Source fallback: same surface as a fenced code block. The colour must be
+ * set explicitly — `prose` styles a bare `<pre>` for a dark code block
+ * (`--tw-prose-pre-code` is near-white), and unlike `pre.note-code` there is
+ * no inner `.hljs` element here to override it, so inheriting it would leave
+ * the source invisible on this light background. */
+.note-preview .note-mermaid .note-mermaid-source {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 85%;
+  line-height: 1.45;
+  color: #24292e;
+  background-color: #f6f8fa;
+}
+
+.note-preview .note-mermaid-message {
+  margin: 0 0 0.35rem;
+  font-size: 85%;
+  color: #cf222e;
+}
+
+.dark .note-preview .note-mermaid .note-mermaid-source {
+  color: #c9d1d9;
+  background-color: #161b22;
+}
+
+.dark .note-preview .note-mermaid-message {
+  color: #ff7b72;
+}

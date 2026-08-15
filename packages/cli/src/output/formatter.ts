@@ -1,10 +1,16 @@
 import { formatJson } from './json.js';
 import { formatTable } from './table.js';
 import { formatCsv } from './csv.js';
+import { formatYaml } from './yaml.js';
 
-export type OutputFormat = 'json' | 'table' | 'csv';
+export type OutputFormat = 'json' | 'table' | 'csv' | 'yaml';
 
-export const OUTPUT_FORMATS: readonly OutputFormat[] = ['json', 'table', 'csv'];
+export const OUTPUT_FORMATS: readonly OutputFormat[] = [
+  'json',
+  'table',
+  'csv',
+  'yaml',
+];
 
 /**
  * Thrown for an unsupported `--format` value. Carries a structured
@@ -51,6 +57,8 @@ export function format(data: unknown, fmt: OutputFormat): string {
       return formatTable(data);
     case 'csv':
       return formatCsv(data);
+    case 'yaml':
+      return formatYaml(data);
     default:
       // `fmt` is typed, but it originates from an unvalidated CLI flag;
       // without this branch an unsupported value fell through the
@@ -59,8 +67,15 @@ export function format(data: unknown, fmt: OutputFormat): string {
   }
 }
 
-export function output(data: unknown, fmt: OutputFormat, quiet: boolean) {
-  if (quiet) return;
+/**
+ * Emit a command's result body on stdout.
+ *
+ * `--quiet` deliberately does not reach this function. It gates progress
+ * notices only (docs/design/cli.md §9); the body is the data callers
+ * redirect, so suppressing it made `... --quiet > out.json` write an
+ * empty file.
+ */
+export function output(data: unknown, fmt: OutputFormat) {
   console.log(format(data, fmt));
 }
 
@@ -78,11 +93,15 @@ function errorCode(error: unknown): string {
   return 'ERROR';
 }
 
-export function outputError(error: unknown, quiet: boolean) {
-  if (quiet) {
-    process.exitCode = 1;
-    return;
-  }
+/**
+ * Emit the error envelope on stderr and mark the process as failed.
+ *
+ * Like `output`, this is not gated by `--quiet`: a non-zero exit with no
+ * bytes on either stream tells the caller nothing about what failed or
+ * whether it is retryable. Errors go to stderr precisely so they survive
+ * output redirection and quiet modes.
+ */
+export function outputError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(
     JSON.stringify({ error: { code: errorCode(error), message } }, null, 2),

@@ -79,10 +79,9 @@ export function registerCtxCommand(program: Command): void {
         output(
           buildWorkspaceList(session.workspaces, session.activeWorkspace),
           fmt,
-          opts.quiet,
         );
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 

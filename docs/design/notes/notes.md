@@ -53,7 +53,8 @@ metadata rows — designed in a later phase (P3).
 - **WYSIWYG editing** — notes are markdown *source* editors, deliberately not
   the `packages/docs` canvas rich-text engine.
 - **Phase-1 feature parity extras** — image upload, PDF/HTML/MD export,
-  revision history, and vim mode are deferred to P2 (see Later Phases).
+  revision history, and vim mode are deferred to P2 (see Later Phases; image
+  upload and vim mode have since shipped there).
 - **The actual CodePair data migration** — designed and executed in P3; only
   its shape is sketched here. (Whether CodePair runs in production with real
   user data, and whether it shares a Yorkie server/project with Wafflebase, are
@@ -102,8 +103,9 @@ editor port and the future migration simple.
 #### Engine package: `packages/notes` (`@wafflebase/notes`)
 
 Follows the `packages/docs` engine-package convention (private ESM/CJS lib,
-Vite + `vite-plugin-dts`, browser + `./node` export conditions, `src/index.ts`
-barrel). CodePair's `packages/codemirror` is ported here and reorganized to
+Vite for the JS bundle + `tsc` against the package build tsconfig for the
+declarations,
+browser + `./node` export conditions, `src/index.ts` barrel). CodePair's `packages/codemirror` is ported here and reorganized to
 match Wafflebase's engine shape:
 
 - `src/store/` — `NoteStore` interface (mirrors `DocStore` / `Store`) plus a
@@ -235,10 +237,88 @@ the prefix.
 
 ### P2 — Feature parity
 
-Port, in priority order, from CodePair: image upload (presigned S3/MinIO URLs +
-paste/drop → `![](url)` insertion), export (PDF/HTML/Markdown via
-`markdown-it`), revision history panel, and vim mode. Each is additive and
-route-local.
+Port, in priority order, from CodePair: image upload (shipped, below), vim mode
+(shipped — the `NoteKeymap` compartment in `view/editor.ts`), export
+(PDF/HTML/Markdown via `markdown-it`), and a revision history panel. Each is
+additive and route-local.
+
+#### Image upload — shipped
+
+Paste, drop, and a toolbar picker upload an image and insert `![alt](url)` at
+the insertion point. No backend work was needed: notes reuse the workspace
+image endpoint (`POST /api/v1/workspaces/:wid/images`) that sheets, slides, and
+board already share, through the frontend's existing
+`uploadImageFile(file, workspaceId)`. The preview needed nothing either —
+`markdown-it`'s image rule already renders the result.
+
+The design departs from CodePair's imageUploader plugin in several places, each
+because the naive version misbehaves in a collaborative markdown editor:
+
+- **The in-flight placeholder is view-local, not text.** A note's body is one
+  Yorkie `Text` CRDT, so placeholder text would replicate to every peer, enter
+  the undo history, and survive as garbage if the upload fails or the tab
+  closes mid-flight. `view/image-upload.ts` instead holds a `StateField` of
+  widget decorations. `set.map(tr.changes)` is what makes it correct: every
+  transaction — the user's own typing *and* a peer's remote edit — moves the
+  pending insertion point, so an image that finishes uploading seconds later
+  still lands where it was dropped. CodePair reads the selection *after* the
+  await, so typing during an upload drops the image mid-word. The one change
+  mapping cannot survive is a whole-document replacement — how `noteSync`
+  applies a `replace` remote change, i.e. a Yorkie snapshot resync — because
+  every anchor lives inside the deleted range and would collapse to position
+  0. Those anchors are dropped instead, and the insert falls back to the
+  caret rather than dumping the image at the top of the note.
+- **A batch inserts in file order, not completion order.** Every request in a
+  paste or drop starts at once, but the inserts are committed in sequence:
+  the placeholders share one anchor, so letting each insert as it resolves
+  would reorder the batch by network speed — paste three screenshots, get
+  them back shuffled.
+- **A drop inserts at the drop coordinates** (`view.posAtCoords`), not at the
+  caret. Dropping a file on a paragraph and watching the image appear
+  elsewhere is the most confusing part of the naive implementation.
+- **Failure is reported.** The engine's `uploadImage` callback resolves with
+  `null` to mean "the host already told the user"; the frontend wrapper in
+  `notes-detail.tsx` catches everything `uploadImageFile` throws (unsupported
+  type, oversize, network) and raises a toast. CodePair's rejected upload
+  becomes `undefined` and is swallowed by an `if (!url) return`.
+
+**An oversized image is downscaled, not refused.** Over the limit, the shared
+helper re-encodes the image through `image-downscale.ts` and uploads the
+smaller version: the longest side is capped at 4096 px, then progressively
+smaller scale steps are tried until the encode lands under the limit. A PNG
+source becomes WebP (alpha survives, and it is already in the backend's MIME
+allowlist); a JPEG stays JPEG rather than passing through a second lossy codec;
+an animated image is never re-encoded at all, because both `createImageBitmap`
+and `toBlob` deal in a single frame and a flattened animation is a silent,
+unrecoverable loss. The MIME type cannot answer that question — `image/webp` is
+as often a sticker as a photo — so the container is sniffed: the `VP8X` ANIM
+flag for WebP, an `acTL` chunk before the first `IDAT` for APNG, and GIF is
+assumed animated without reading. The PNG chain is walked by its chunk length
+prefixes rather than scanned for the four bytes `acTL`, so neither a payload
+that happens to spell `acTL` nor a fat colour profile sitting in front of it
+changes the answer. Anything the sniff cannot settle — an unreadable file, a
+chunk chain longer than the read window — counts as animated, since refusing to
+shrink something is recoverable and quietly flattening it is not. Downscaling never throws — a
+failed decode or encode yields the original file and `uploadImageFile` produces
+the error, so exactly one place decides "too large". The size error names the
+limit *and* the sizes ("Image is still 12.5 MB after downscaling (was 40 MB),
+over the 10 MB limit"), because the bare limit left the user guessing whether
+they missed it by 200 KB or by 40 MB. This lives in
+`packages/frontend/src/app/spreadsheet/image-upload.ts`, so sheets, slides, and
+board get it too; the docs editor uploads through its own `docxImageUploader`
+path and still fails at the backend instead.
+
+The completed upload dispatches a single `input` transaction, which `noteSync`
+collapses into one undo unit — Ctrl+Z removes an inserted image in one step.
+When the payload carries no image the handlers decline the event rather than
+`preventDefault`, so ordinary text paste and drop are untouched.
+
+The engine never imports the frontend: `initialize()` takes an optional
+`uploadImage` in its options bag, and a read-only mount never receives one, so
+the extension is simply absent rather than guarded per event. **Known
+limitation:** the same rule disables image upload behind an editable share
+link, because an anonymous share-link editor has no workspace membership and
+the image endpoint requires an authenticated caller.
 
 **CLI (shipped).** A `notes` namespace (alias `note`) in `@wafflebase/cli`
 brings notes to parity with the `docs`/`slides` namespaces:
@@ -322,6 +402,87 @@ nested markdown (including nested disclosures) works while no arbitrary HTML
 is ever produced. `<details open>` renders expanded by default; a stray
 `</details>` with no matching open falls through and is escaped as literal
 text. Styling lives in `packages/frontend/src/app/notes/notes-preview.css`.
+
+#### Mermaid diagrams — shipped (issue #625)
+
+A ` ```mermaid ` fence renders as a diagram rather than a code block, matching
+GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
+`preview.ts` branches on the info string; everything else lives in
+`packages/notes/src/view/mermaid.ts`:
+
+- **Placeholder first, SVG later.** The fence emits a synchronous
+  `<div class="note-mermaid" data-mermaid-pending>` carrying the *escaped*
+  diagram source in a `<pre>`. `NotePreview.render()` then kicks
+  `renderMermaidBlocks()`, which swaps in the SVG. A diagram that has not
+  rendered yet, does not parse, or whose engine failed to load therefore
+  degrades to readable source instead of a blank block; a parse failure also
+  prepends the mermaid error message.
+- **Lazily imported.** `mermaid` (~3 MB, and it splits itself per diagram
+  type) is reached only through `import('mermaid')` inside that module, so it
+  costs the notes route nothing until a note actually contains a mermaid
+  fence — `notes-view-*.js` grew 2.25 kB. The measured chunk-count effect is
+  recorded in `harness.config.json`'s `maxChunkCountReason`.
+- **Cached per (source, theme).** Split mode re-renders on every keystroke;
+  outcomes (SVG *and* errors — a diagram is unparseable for most of the time
+  it is being typed) are memoized in a bounded **least-recently-used** map
+  (reads move the entry back to the end, so a stable diagram is not evicted by
+  the one-shot sources typing an adjacent diagram produces), and cache hits are
+  applied inside the synchronous `render()` call so an unchanged diagram never
+  flashes back to source. Mermaid bakes the palette into its SVG, so the
+  light/dark theme is part of the key and `NoteEditorAPI.setTheme` repaints the
+  preview.
+- **One pass at a time.** Mermaid's config (including the palette) and layout
+  engine are process-global singletons, so passes are queued on a single chain:
+  at most one `mermaid.render()` is ever in flight, and a diagram can no longer
+  be laid out under one theme while being cached under the other's key. Each
+  `render()` also bumps a per-root pass counter, so a pass whose DOM a newer
+  `render()` replaced abandons its remaining diagrams instead of racing for
+  them (`root.contains(el)` remains as a second guard for a placeholder
+  detached without a re-render). Together those make the undebounced
+  per-keystroke `render()` safe.
+- **Security: three layers, not one.** The rendered SVG is the preview's only
+  insertion of note-derived markup, and note content is untrusted
+  (a collaborator or editor-role share-link visitor authors it, someone else
+  renders it), so the `html: false` "no raw note HTML" rule is not delegated to
+  the engine alone: (1) `securityLevel: 'strict'` with `startOnLoad: false`
+  sanitizes labels and ignores `click` directives, and an extended `secure` key
+  list pins the theming keys; (2) `stripConfigDirectives()` removes both config
+  carriers — `%%{...}%%` directives and leading front matter — from the fence
+  body, so a note cannot push `themeCSS`/`themeVariables` into the
+  document-scoped `<style>` mermaid emits inside the SVG. It reuses mermaid's
+  own `directiveRegex`/`frontMatterRegex` (the closing `}%%` is *optional* for
+  the engine) and drops front matter unconditionally, because `secure` pins
+  only top-level keys — a carrier the strip under-recognizes still delivers a
+  nested override — and the copies are version-pinned
+  (`MERMAID_CARRIER_PATTERNS_VERSION`, asserted against the installed
+  `mermaid` in `preview.test.ts`) so an upgrade under the caret range cannot
+  move the engine's patterns out from under them unnoticed; (3) `sanitizeSvg()`
+  runs the engine's output through **DOMPurify** (allowlist, SVG + SVG-filter +
+  HTML profiles, fetch-capable tags forbidden) and returns a
+  `DocumentFragment` that is inserted as nodes — never re-serialized and
+  re-parsed, so the tree that was inspected is the tree that reaches the
+  document. Its `ALLOWED_URI_REGEXP` is DOMPurify's **default** with the scheme
+  list narrowed to `http(s)`/`mailto:` (`#` falls out of the default's own
+  non-letter branch): the default's trailing "not a URI at all" branches must
+  stay, because DOMPurify applies that regexp to every allowed attribute value
+  that is not `data-*`/`aria-*`/URI-safe — dropping them strips `d`,
+  `transform`, `viewBox`, `width`, `fill` and renders every diagram empty.
+  CSS is the one thing DOMPurify does not inspect, so a `<style>` element or
+  `style` attribute whose text (raw *or* CSS-escape-decoded) contains
+  `@import`, an off-page `url()` or another fetch function is dropped whole,
+  as is any `<style>` with an element child — the browser builds a sheet from
+  *child text content*, so an element child splits a construct past a
+  `textContent` check. DOMPurify is loaded next to the engine
+  (`import('dompurify')`), which costs no bytes a diagram was not already
+  paying for — mermaid depends on it. `securityLevel: 'sandbox'` (mermaid's own
+  advice for untrusted input) is deliberately not used — it iframes every
+  diagram, which breaks sizing, text selection and the light/dark surface.
+  That trade is knowingly taken, and layer 3 is **not** an equivalent
+  substitute: outside sandbox mode the engine appends its own `d<id>` host div
+  to `document.body` and lays the diagram out there before serializing, so its
+  output is briefly in the live document ahead of our pass. Mermaid's own
+  strict-mode sanitizing plus layer 2's carrier strip guard that window; layer
+  3 governs what persists.
 
 #### Empty nested bullet vs setext heading — shipped (issue #517)
 

@@ -3,6 +3,7 @@ import { validate } from 'class-validator';
 import {
   CreateDataSourceDto,
   ExecuteQueryDto,
+  TestConnectionDto,
   UpdateDataSourceDto,
 } from './datasource.dto';
 
@@ -80,6 +81,58 @@ describe('UpdateDataSourceDto', () => {
     expect(
       await errorsFor(UpdateDataSourceDto, { name: 'x'.repeat(500) }),
     ).not.toHaveLength(0);
+  });
+});
+
+describe('TestConnectionDto', () => {
+  const valid = {
+    host: 'db.example.com',
+    port: 5432,
+    database: 'wafflebase',
+    username: 'readonly',
+    password: 'sekret',
+    sslEnabled: true,
+  };
+
+  it('accepts a connection payload without a name', async () => {
+    expect(await errorsFor(TestConnectionDto, valid)).toHaveLength(0);
+  });
+
+  it('passes ValidationPipe through with decorators present (regression for forbidUnknownValues path)', async () => {
+    const errs = await errorsFor(TestConnectionDto, valid);
+    expect(
+      errs.some((e) => e.constraints && 'unknownValue' in e.constraints),
+    ).toBe(false);
+  });
+
+  it('rejects a name, which the create payload owns', async () => {
+    expect(
+      await errorsFor(TestConnectionDto, { ...valid, name: 'prod-readonly' }),
+    ).not.toHaveLength(0);
+  });
+
+  it('rejects a port outside the 1..65535 range', async () => {
+    expect(
+      await errorsFor(TestConnectionDto, { ...valid, port: 70000 }),
+    ).not.toHaveLength(0);
+    expect(
+      await errorsFor(TestConnectionDto, { ...valid, port: 0 }),
+    ).not.toHaveLength(0);
+  });
+
+  it('accepts an omitted port and an empty password', async () => {
+    const { port, ...withoutPort } = valid;
+    void port;
+    expect(await errorsFor(TestConnectionDto, withoutPort)).toHaveLength(0);
+    expect(
+      await errorsFor(TestConnectionDto, { ...valid, password: '' }),
+    ).toHaveLength(0);
+  });
+
+  it('rejects a missing host', async () => {
+    const { host, ...withoutHost } = valid;
+    void host;
+    expect(await errorsFor(TestConnectionDto, withoutHost)).not.toHaveLength(0);
   });
 });
 

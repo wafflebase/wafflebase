@@ -19,8 +19,8 @@
 // pipeline downstream assumes the action list is the complete causal history. If you
 // need to change something, that is an action, not a reader.
 
-import type { Block, EditorAPI, InlineStyle } from "@wafflebase/docs";
-import { parseRef, toSref, type MemStore, type Spreadsheet } from "@wafflebase/sheets";
+import type { Block, EditorAPI, InlineStyle, StoredColor } from "@wafflebase/docs";
+import { formatValue, parseRef, toSref, type MemStore, type Spreadsheet } from "@wafflebase/sheets";
 
 export const HUNT_BRIDGE_KEY = "__WB_HUNT__";
 
@@ -48,6 +48,24 @@ export type RunSnapshot = {
   underline?: boolean;
   strikethrough?: boolean;
   href?: string;
+  /**
+   * Emitted RAW, never resolved to a hex string.
+   *
+   * `StoredColor` is a union — a bare hex string, `{kind:'srgb'}`, or a
+   * `{kind:'role'}` theme reference — and the docs model's own `storedColorsEqual`
+   * treats a string and an equivalent `{kind:'srgb'}` as DIFFERENT. Running these
+   * through `defaultColorResolver` would collapse that distinction, and collapsing
+   * is what hides the defect class this reader exists to expose: #749 is a toggle
+   * leaving `italic: false` behind, invisible unless "unset" and "explicitly set"
+   * stay distinguishable. `stable()` in `hunt-ui-expect.mjs` refuses to fold
+   * `undefined` into `null` for the same reason; a resolving reader would undo it.
+   *
+   * `doc.styleSummary` already reports colour, but selection-scoped and collapsed to
+   * `'mixed'` — no per-run structure, so residue in one run of three reads the same
+   * as a clean apply. That is the gap these two fields close.
+   */
+  color?: StoredColor;
+  backgroundColor?: StoredColor;
 };
 
 type BridgeState = {
@@ -127,6 +145,8 @@ function runsOf(editor: EditorAPI): RunSnapshot[] {
         underline: style.underline,
         strikethrough: style.strikethrough,
         href: style.href,
+        color: style.color,
+        backgroundColor: style.backgroundColor,
       });
     }
   });
@@ -205,6 +225,20 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
     "doc.canUndo": () => requireDoc(state).editor.getStore().canUndo(),
 
     // --- sheets -----------------------------------------------------------
+    /**
+     * The value a cell STORES — `cell.v`, before any number format is applied.
+     *
+     * NOT the string on screen, despite what this reader was called for its first year.
+     * Number formats live in the style (`nf`/`dp`/`cu`) and are applied at PAINT time by
+     * `formatValue`, so `Increase decimal places` and `Format as percent` correctly leave
+     * `cell.v` byte-identical. Measured: a live run clicked those controls, watched
+     * `sheet.activeCellStyle` go `null -> {dp:1,nf:"number"} -> {nf:"number",dp:3}` while
+     * this reader stayed `"100"`, and proposed "number formats never reach the displayed
+     * value" on four grounded predictions. The app was right and the reader's own
+     * description had promised the wrong thing.
+     *
+     * `sheet.activeCellDisplay` is the one that answers "what does it say on screen".
+     */
     "sheet.cellValue": async (args) => {
       const sref = asString(args, 0, "sheet.cellValue");
       const cell = await requireSheet(state).store.get(parseRef(sref));
@@ -230,6 +264,64 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
 
     /** See `doc.canUndo`. Reports `false` here, because `MemStore` has no history. */
     "sheet.canUndo": () => requireSheet(state).store.canUndo(),
+
+    /**
+     * Every RANGE STYLE PATCH the sheet holds — where toolbar styling actually lands.
+     *
+     * The obvious reader here was a per-cell one, and it was wrong. `Sheet.setRangeStyle`
+     * appends a patch and then calls `applyStylePatchToExistingCells`, which skips any
+     * cell that does not ALREADY carry its own style:
+     *
+     *     const existing = await this.store.get(anchor);
+     *     if (!existing?.s) continue;
+     *
+     * So selecting a populated, unstyled cell and clicking Bold leaves `cell.s` null and
+     * puts the style in this list instead. Measured while building the oracle check for
+     * this: `sheet.activeCellStyle` reported `{b:true}` and a per-cell reader reported
+     * `null`, for a cell holding "Label" — the style was applied and simply was not there
+     * to read. A reader whose common case is a silent null is a trap, not a sensor.
+     *
+     * Patches are `{range, style}` and ACCUMULATE: toggling Bold on and off appends two,
+     * `{b:true}` then `{b:false}`, rather than removing the first. That is the shape a
+     * round trip should be predicted against here, and whether the growth is a defect is
+     * exactly the kind of question this reader exists to make askable.
+     */
+    /**
+     * What the active cell READS AS ON SCREEN — `cell.v` with its number format applied.
+     *
+     * Composed rather than borrowed: `Sheet.toDisplayString` does exactly this but lives
+     * on the `Sheet`, and `Spreadsheet` exposes no accessor for it. Every piece needed is
+     * already public — `getActiveCell`, `getActiveStyle`, and `formatValue` from the
+     * package — so this needs no product change to serve a harness.
+     *
+     * ACTIVE CELL ONLY, for the same reason `sheet.activeCellStyle` is: the effective
+     * style of an arbitrary ref is not reachable from here, and a per-ref version would
+     * need a new public method on the engine.
+     *
+     * Without this, an entire toolbar section — `Format as percent`, `Format as
+     * currency`, `Increase`/`Decrease decimal places`, `More formats` — was reachable and
+     * unobservable, which is worse than unreachable: the explorer clicks the controls,
+     * sees the STORED value correctly not move, and proposes a defect that is not there.
+     */
+    "sheet.activeCellDisplay": async () => {
+      const { spreadsheet, store } = requireSheet(state);
+      const active = spreadsheet.getActiveCell();
+      if (!active) return null;
+      const cell = await store.get(active);
+      // Empty cells answer `""`, mirroring `Sheet.toDisplayString`'s own guard rather
+      // than inventing a second convention: the product shows nothing for an empty
+      // cell, and a reader that said `null` here would make "empty" and "no active
+      // cell" the same reading. Without this, `formatValue(undefined, ...)` returns
+      // `undefined`, which `isUnusableValue` treats as unevaluable for ever — caught
+      // by the registry check on the seed's empty B2.
+      if (!cell || !cell.v) return "";
+      const style = await spreadsheet.getActiveStyle();
+      return formatValue(cell.v, style?.nf, style?.dp, { currency: style?.cu });
+    },
+
+    "sheet.rangeStyles": () => requireSheet(state).store.getRangeStyles(),
+
+    "sheet.activeCellStyle": async () => (await requireSheet(state).spreadsheet.getActiveStyle()) ?? null,
 
     /**
      * Viewport coordinates of a cell's centre.
@@ -265,6 +357,30 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
       // the unmeasurable host that actually caused it.
       if (!Number.isFinite(x) || !Number.isFinite(y)) {
         refuse(`sheet.cellCenter(${sref}) resolved to a non-finite point (${x}, ${y}) — is the grid laid out?`);
+      }
+      // REFUSE A POINT THAT IS NOT ON THE GRID.
+      //
+      // A scrolled-away cell resolves to a perfectly finite coordinate outside the
+      // canvas — negative `y` for anything above the viewport. Clicking there lands
+      // on nothing, selects nothing, and reports no error, so the caller sees a click
+      // that "did not work" and has no way to tell that from a broken app.
+      //
+      // Measured: the first live sheet run scrolled, clicked C20/C25/C5 — all of them
+      // now above the viewport at y between -365 and -710 — and proposed "after the
+      // grid is scrolled, mouse clicks no longer select any cell", major severity,
+      // ground A, reproducing deterministically because the coordinates are stable.
+      // Clicks after a scroll are fine; the cells were simply not there any more.
+      // Only a verifier timeout stopped it being reported.
+      //
+      // So this refuses instead, and says what to do about it. A readable refusal
+      // costs one action; a false report costs a maintainer's trust.
+      if (x < origin.left || x > origin.right || y < origin.top || y > origin.bottom) {
+        refuse(
+          `sheet.cellCenter(${sref}) is off-screen at (${x}, ${y}) — the grid is scrolled ` +
+            `so that cell is outside the visible canvas (${Math.round(origin.left)},${Math.round(origin.top)})-` +
+            `(${Math.round(origin.right)},${Math.round(origin.bottom)}). Clicking there would land on nothing ` +
+            "and select nothing, which is NOT a defect. Scroll it back into view, or use a cell that is visible.",
+        );
       }
       return { x, y };
     },

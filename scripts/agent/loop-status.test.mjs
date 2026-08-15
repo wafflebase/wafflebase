@@ -15,6 +15,7 @@ import {
   neutralizeHiddenMarkers,
   buildRounds,
   lensCell,
+  fixerCell,
   summarizeEffort,
   renderLoopStatus,
 } from "./loop-status.mjs";
@@ -139,7 +140,7 @@ test("body starts with the marker and shows rounds newest-first", () => {
     now: "2026-08-06T12:00Z",
   });
   assert.ok(body.startsWith(LOOP_STATUS_MARKER));
-  assert.match(body, /\*\*Fix rounds used:\*\* 1 of 3/);
+  assert.match(body, /\*\*Fix rounds dispatched:\*\* 1 of 3/);
   const rowB = body.indexOf("`bbbbbbbbb`");
   const rowA = body.indexOf("`aaaaaaaaa`");
   assert.ok(rowB !== -1 && rowA !== -1 && rowB < rowA, "newest round renders first");
@@ -152,14 +153,14 @@ test("an unknown round cap renders the count alone — never 'of 0', never dropp
   // DEFAULT_MAX_REVIEW_ROUNDS, so callers all render the same "N of M").
   // Number(null) === 0 once made this render "2 of 0".
   const body = renderLoopStatus({ rounds: [], failedRounds: 2, maxRounds: null, now: "t" });
-  const line = body.split("\n").find((l) => l.includes("Fix rounds used"));
-  assert.equal(line, "**Fix rounds used:** 2");
+  const line = body.split("\n").find((l) => l.includes("Fix rounds dispatched"));
+  assert.equal(line, "**Fix rounds dispatched:** 2");
   assert.ok(!body.includes("of 0"));
 });
 
 test("an unmeasured round count drops the budget line entirely", () => {
   const body = renderLoopStatus({ rounds: [], failedRounds: null, maxRounds: 3, now: "t" });
-  assert.ok(!body.includes("Fix rounds used"));
+  assert.ok(!body.includes("Fix rounds dispatched"));
 });
 
 test("a trusted paged latch beats the event headline", () => {
@@ -335,4 +336,195 @@ test("DEFAULT_MAX_REVIEW_ROUNDS matches the panel workflow's env literal", () =>
     workflowText("agent-review-panel.yml").includes(`MAX_REVIEW_ROUNDS: "${DEFAULT_MAX_REVIEW_ROUNDS}"`),
     "loop-status's default cap must equal the panel workflow's MAX_REVIEW_ROUNDS",
   );
+});
+
+test("the dashboard counts rounds with the SAME reader the guard gates on", () => {
+  // These two numbers are shown side by side — the table says "N of M" and the
+  // guard pages at M — so a drift between them is not a cosmetic bug, it is the
+  // dashboard reporting a decision that was never made. Both must call
+  // fixRoundsUsed; neither may fall back to the commit-shape inference directly,
+  // which is what made the budget line disagree with reality on #695.
+  const status = readFileSync(new URL("./loop-status.mjs", import.meta.url), "utf8");
+  const guard = readFileSync(new URL("./review-round-guard.mjs", import.meta.url), "utf8");
+  for (const [name, src] of [["loop-status.mjs", status], ["review-round-guard.mjs", guard]]) {
+    assert.match(src, /fixRoundsUsed\(comments,\s*commits,/, `${name} must count via fixRoundsUsed`);
+    assert.doesNotMatch(
+      src,
+      /=\s*countFailedReviewRounds\(/,
+      `${name} must not read the commit-shape count directly`,
+    );
+  }
+});
+
+test("the guard STAGES the dispatch record rather than posting it", () => {
+  // The guard must not spend the round itself. It runs fourteen steps before the
+  // fixer, behind a token mint, a checkout and a `pnpm install`, and this workflow
+  // is cancel-in-progress — so posting here charges a round to a fixer that a push
+  // during setup would stop from ever starting.
+  const guard = readFileSync(new URL("./review-round-guard.mjs", import.meta.url), "utf8");
+  const write = guard.indexOf("writeFileSync(dispatchFile, dispatchBody);");
+  const proceed = guard.indexOf('setOutput("proceed", "true")');
+  assert.ok(guard.includes("renderFixDispatchComment({"), "the guard must build a dispatch record");
+  assert.ok(write > 0, "the guard must stage it to a file");
+  assert.ok(proceed > write, "staged before proceed is set");
+  assert.doesNotMatch(
+    guard,
+    /gh\(\["pr", "comment", String\(pr\), "--body", dispatchBody/,
+    "the guard must NOT post the record itself — that is the cancellation window",
+  );
+  // And it must be a TOP-LEVEL statement. Every fail-safe write in this file is
+  // wrapped or suffixed to swallow errors; wrapping this one would let a dispatch
+  // happen whose record never landed, which the next guard reads as budget still
+  // unspent. Column 0 is the cheap, robust proxy — any try/catch or `if` block
+  // indents it.
+  const line = guard.slice(guard.lastIndexOf("\n", write) + 1, guard.indexOf("\n", write));
+  assert.match(line, /^writeFileSync\(/, "the staging write must be top-level, not best-effort");
+});
+
+test("REGRESSION: a fixer cancelled during setup must not consume a round", () => {
+  // The round is spent by the step IMMEDIATELY BEFORE the fixer, so everything
+  // slow — token mint, checkout, install — happens while the round is still
+  // unspent and a cancellation there costs nothing. If any step is ever inserted
+  // between the two, the window this test exists to keep closed reopens.
+  const wf = readFileSync(
+    new URL("../../.github/workflows/agent-review-panel.yml", import.meta.url),
+    "utf8",
+  );
+  const names = [...wf.matchAll(/^ {6}- name: (.+)$/gm)].map((m) => m[1]);
+  const post = names.indexOf("Record the fix-round dispatch");
+  const fixer = names.indexOf("Address panel findings");
+  assert.ok(post > 0 && fixer > 0, "both steps must exist by name");
+  assert.equal(fixer - post, 1, "nothing may run between recording the round and the fixer");
+
+  // The staged path must be the one the guard writes. Two steps declare it and
+  // they must AGREE — asserting the literal once passes happily while the other
+  // occurrence drifts, which is how the post ends up with nothing to send.
+  // Verified by mutation: changing only the guard's copy must fail this.
+  const paths = [...wf.matchAll(/DISPATCH_FILE: (.+)$/gm)].map((m) => m[1].trim());
+  assert.equal(paths.length, 2, "exactly two steps declare the staged path (guard + post)");
+  assert.equal(paths[0], paths[1], `the guard stages ${paths[0]} but the post reads ${paths[1]}`);
+  assert.match(paths[0], /^\$\{\{ runner\.temp \}\}\//, "must live under RUNNER_TEMP, which survives the checkout");
+  const step = wf.slice(wf.indexOf("- name: Record the fix-round dispatch"), wf.indexOf("- name: Address panel findings"));
+  assert.match(step, /test -s "\$DISPATCH_FILE"/, "an empty staged file must fail, not post nothing");
+  assert.match(step, /gh pr comment "\$PR" --body-file "\$DISPATCH_FILE"/);
+  assert.doesNotMatch(step, /continue-on-error/, "an unrecorded dispatch must red the job");
+});
+
+// --- the round table becomes a map -------------------------------------------
+
+const roundOf = (sha, lenses) => ({ sha, lenses, checks: "success" });
+const okLens = (lens = "correctness") => ({ lens, status: "completed", conclusion: "success" });
+const rowFor = (body, sha) => body.split("\n").find((l) => l.includes(sha.slice(0, 9))) ?? "";
+
+test("the head cell LINKS to that round's checks, and degrades without the env", () => {
+  // GitHub's Checks tab only ever shows the HEAD commit's runs, so before this
+  // the table named a round it gave no way to open.
+  const base = "https://github.com/wafflebase/wafflebase/pull/742/commits";
+  const linked = renderLoopStatus({ rounds: [roundOf("4d46871ac0", [okLens()])], commitBase: base });
+  assert.match(linked, /\[`4d46871ac`\]\(https:\/\/github\.com\/wafflebase\/wafflebase\/pull\/742\/commits\/4d46871ac0\)/);
+  // No env (local, --dry-run) → today's plain code span, never a broken link.
+  const plain = renderLoopStatus({ rounds: [roundOf("4d46871ac0", [okLens()])] });
+  assert.match(plain, /\| `4d46871ac` \|/);
+  assert.doesNotMatch(plain, /\]\(\//);
+});
+
+test("the table carries a Fixer column, and every row fills it", () => {
+  const body = renderLoopStatus({
+    rounds: [roundOf("aaaaaaaaa1", [okLens()]), roundOf("bbbbbbbbb2", [okLens()])],
+    fixer: { aaaaaaaaa1: "3 fixed · 0 skipped · 0 disputed" },
+  });
+  const header = body.split("\n").find((l) => l.startsWith("| Round |")) ?? "";
+  assert.match(header, /\| Fixer \|/);
+  // Header, separator and every data row must agree on the column count, or
+  // GitHub renders the table as plain text.
+  const cols = (l) => l.split("|").length;
+  const sep = body.split("\n").find((l) => l.startsWith("|---")) ?? "";
+  assert.equal(cols(sep), cols(header));
+  assert.equal(cols(rowFor(body, "aaaaaaaaa1")), cols(header));
+  assert.match(rowFor(body, "aaaaaaaaa1"), /3 fixed · 0 skipped · 0 disputed/);
+  // A round with no entry still fills the cell rather than shifting the row.
+  assert.match(rowFor(body, "bbbbbbbbb2"), /\| — \|/);
+});
+
+test("fixerCell: a round the fixer was never sent in for reads as a dash", () => {
+  // Distinct from "dispatched and said nothing" — collapsing them would hide a
+  // fixer that ran and reported nothing.
+  assert.equal(fixerCell("aaa", { dispatches: [], reports: [], rebuttals: [] }), "—");
+  assert.equal(fixerCell("aaa", { dispatches: [{ from: "bbb", at: 1 }] }), "—");
+  assert.equal(fixerCell("aaa"), "—");
+});
+
+test("fixerCell: dispatched but silent is its own state", () => {
+  assert.equal(fixerCell("aaa", { dispatches: [{ from: "aaa", at: 1000 }] }), "🔧 dispatched");
+});
+
+test("fixerCell: a report renders fixed / skipped / disputed", () => {
+  const cell = fixerCell("aaa", {
+    dispatches: [{ from: "aaa", at: 1000 }],
+    reports: [{ head: "aaa", fixed: [1, 2, 3], skipped: [4] }],
+  });
+  assert.equal(cell, "3 fixed · 1 skipped · 0 disputed");
+});
+
+test("fixerCell: 0 disputed is a STATEMENT, which is the whole point", () => {
+  // Zero rebuttals have ever been filed on an agent PR, and until this cell
+  // existed that was indistinguishable from a channel that silently failed.
+  const cell = fixerCell("aaa", {
+    dispatches: [{ from: "aaa", at: 1000 }],
+    reports: [{ head: "aaa", fixed: [], skipped: [] }],
+  });
+  assert.match(cell, /0 disputed/);
+});
+
+test("fixerCell: a rebuttal lands in the round the fixer was working", () => {
+  // Rebuttal records name a FINDING, not a commit, so they are attributed by
+  // time: to the newest dispatch at or before they were written.
+  const dispatches = [
+    { from: "aaa", at: Date.parse("2026-08-10T10:00:00Z") },
+    { from: "bbb", at: Date.parse("2026-08-10T11:00:00Z") },
+  ];
+  const rebuttals = [
+    { createdAt: "2026-08-10T10:30:00Z" },
+    { createdAt: "2026-08-10T11:30:00Z" },
+    { createdAt: "2026-08-10T11:40:00Z" },
+  ];
+  const reports = [
+    { head: "aaa", fixed: [1], skipped: [] },
+    { head: "bbb", fixed: [], skipped: [2] },
+  ];
+  assert.equal(fixerCell("aaa", { dispatches, reports, rebuttals }), "1 fixed · 0 skipped · 1 disputed");
+  assert.equal(fixerCell("bbb", { dispatches, reports, rebuttals }), "0 fixed · 1 skipped · 2 disputed");
+  // One written BEFORE any dispatch belongs to no round rather than the first.
+  const early = [{ createdAt: "2026-08-10T09:00:00Z" }];
+  assert.match(fixerCell("aaa", { dispatches, reports, rebuttals: early }), /0 disputed/);
+});
+
+test("fixerCell: junk never throws and never invents a count", () => {
+  for (const bad of [null, undefined, "x", 7]) {
+    assert.equal(fixerCell("aaa", { dispatches: bad, reports: bad, rebuttals: bad }), "—");
+  }
+  const cell = fixerCell("aaa", { dispatches: [{ from: "aaa", at: 1 }], reports: [{ head: "aaa" }] });
+  assert.equal(cell, "0 fixed · 0 skipped · 0 disputed");
+});
+
+test("lensCell: a superseded round says so instead of '0 ✅ / 6 neutral'", () => {
+  // close-stuck-checks closes a cancelled panel's lenses `cancelled`; those fell
+  // through every branch into the trailing one and rendered unreadably.
+  const cancelled = (lens) => ({ lens, status: "completed", conclusion: "cancelled" });
+  assert.equal(lensCell([cancelled("a"), cancelled("b")]), "⚪ superseded");
+  assert.equal(lensCell([cancelled("a"), okLens("b")]), "⚪ superseded (1 ✅)");
+  // A real failure still wins — a superseded round must never mask a red one.
+  assert.match(lensCell([cancelled("a"), { lens: "b", status: "completed", conclusion: "failure" }]), /^❌ b/);
+  // And a still-running lens is pending, not superseded.
+  assert.match(lensCell([cancelled("a"), { lens: "b", status: "in_progress" }]), /⏳/);
+});
+
+test("main() derives commitBase from the Actions env, not a CLI flag", () => {
+  // renderLoopStatus has six call sites across four workflows and the module
+  // requires caller-independent values; a flag some arms passed would make the
+  // links flap between updates. Verified by mutation.
+  const src = readFileSync(new URL("./loop-status.mjs", import.meta.url), "utf8");
+  assert.match(src, /GITHUB_REPOSITORY/);
+  assert.match(src, /commitBase = repo/);
+  assert.doesNotMatch(src, /flags\["commit-base"\]/, "must not be a per-arm flag");
 });

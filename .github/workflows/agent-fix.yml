@@ -30,6 +30,10 @@ on:
 
 permissions: {}
 
+env:
+  # gh expands `{owner}/{repo}` via git; GH_REPO makes it skip that lookup.
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   route:
     if: >-

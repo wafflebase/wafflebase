@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { Document, DocumentType } from "@/types/documents";
 import {
   compareDates,
+  formatExactDate,
+  formatFullDateTime,
+  formatListDate,
   formatRelativeTime,
   getDocumentPath,
   lastModified,
@@ -116,6 +119,71 @@ describe("formatRelativeTime", () => {
 
   it("formats a valid date as a relative time", () => {
     expect(formatRelativeTime("2024-01-01T00:00:00.000Z")).toMatch(/ago$/);
+  });
+});
+
+describe("formatExactDate", () => {
+  const now = new Date("2026-08-12T00:00:00.000Z");
+
+  it("omits the year for a date in the current calendar year", () => {
+    const formatted = formatExactDate("2026-07-25T12:00:00.000Z", now);
+    expect(formatted).not.toMatch(/2026/);
+    expect(formatted).toMatch(/25/);
+  });
+
+  it("includes the year for a date outside the current calendar year", () => {
+    expect(formatExactDate("2025-12-01T12:00:00.000Z", now)).toMatch(/2025/);
+  });
+
+  it("keeps the year for a December date compared against January", () => {
+    // Calendar year, not "within the last 12 months": one day earlier but a
+    // different year still shows the year. Built in local time so the
+    // assertion holds in any timezone.
+    const lastDayOf2025 = new Date(2025, 11, 31, 12, 0).toISOString();
+    const firstDayOf2026 = new Date(2026, 0, 1, 12, 0);
+    expect(formatExactDate(lastDayOf2025, firstDayOf2026)).toMatch(/2025/);
+  });
+
+  it("returns an em dash for missing or unparseable values", () => {
+    expect(formatExactDate(undefined)).toBe("—");
+    expect(formatExactDate("")).toBe("—");
+    expect(() => formatExactDate("not-a-date")).not.toThrow();
+    expect(formatExactDate("not-a-date")).toBe("—");
+  });
+});
+
+describe("formatFullDateTime", () => {
+  it("includes the year and a time for the tooltip", () => {
+    const formatted = formatFullDateTime("2026-07-25T15:30:00.000Z");
+    expect(formatted).toMatch(/2026/);
+    expect(formatted).toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  it("returns an em dash for missing or unparseable values", () => {
+    expect(formatFullDateTime(undefined)).toBe("—");
+    expect(() => formatFullDateTime("not-a-date")).not.toThrow();
+    expect(formatFullDateTime("not-a-date")).toBe("—");
+  });
+});
+
+describe("formatListDate", () => {
+  const now = new Date("2026-08-12T00:00:00.000Z");
+
+  it("renders a relative time for the relative format", () => {
+    expect(formatListDate("2024-01-01T00:00:00.000Z", "relative")).toMatch(
+      /ago$/,
+    );
+  });
+
+  it("renders an exact date for the exact format", () => {
+    expect(formatListDate("2025-12-01T12:00:00.000Z", "exact", now)).toMatch(
+      /2025/,
+    );
+  });
+
+  it("falls back to an em dash in both formats", () => {
+    expect(formatListDate(undefined, "relative")).toBe("—");
+    expect(formatListDate(undefined, "exact")).toBe("—");
   });
 });
 

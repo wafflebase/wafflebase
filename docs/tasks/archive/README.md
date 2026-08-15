@@ -6,22 +6,73 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 423
+Total archived tasks: 469
 
-## 2026/07 (93 tasks)
+## 2026/08 (41 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| agent loop observability phase4 (2026-08-10) | [20260810-agent-loop-observability-phase4-todo.md](./2026/08/20260810-agent-loop-observability-phase4-todo.md) | - |
+| engine dts tsc emit (2026-08-10) | [20260810-engine-dts-tsc-emit-todo.md](./2026/08/20260810-engine-dts-tsc-emit-todo.md) | [20260810-engine-dts-tsc-emit-lessons.md](./2026/08/20260810-engine-dts-tsc-emit-lessons.md) |
+| eval run test reap (2026-08-10) | [20260810-eval-run-test-reap-todo.md](./2026/08/20260810-eval-run-test-reap-todo.md) | - |
+| analytics details permission (2026-08-09) | [20260809-analytics-details-permission-todo.md](./2026/08/20260809-analytics-details-permission-todo.md) | [20260809-analytics-details-permission-lessons.md](./2026/08/20260809-analytics-details-permission-lessons.md) |
+| board snap to grid (2026-08-09) | [20260809-board-snap-to-grid-todo.md](./2026/08/20260809-board-snap-to-grid-todo.md) | [20260809-board-snap-to-grid-lessons.md](./2026/08/20260809-board-snap-to-grid-lessons.md) |
+| csv client import (2026-08-09) | [20260809-csv-client-import-todo.md](./2026/08/20260809-csv-client-import-todo.md) | [20260809-csv-client-import-lessons.md](./2026/08/20260809-csv-client-import-lessons.md) |
+| workspace settings owner gating (2026-08-09) | [20260809-workspace-settings-owner-gating-todo.md](./2026/08/20260809-workspace-settings-owner-gating-todo.md) | [20260809-workspace-settings-owner-gating-lessons.md](./2026/08/20260809-workspace-settings-owner-gating-lessons.md) |
+| board grid (2026-08-08) | [20260808-board-grid-todo.md](./2026/08/20260808-board-grid-todo.md) | [20260808-board-grid-lessons.md](./2026/08/20260808-board-grid-lessons.md) |
+| board miro parent relative position (2026-08-07) | [20260807-board-miro-parent-relative-position-todo.md](./2026/08/20260807-board-miro-parent-relative-position-todo.md) | - |
+| coderabbit adapter (2026-08-07) | [20260807-coderabbit-adapter-todo.md](./2026/08/20260807-coderabbit-adapter-todo.md) | - |
+| coderabbit parser widening (2026-08-07) | [20260807-coderabbit-parser-widening-todo.md](./2026/08/20260807-coderabbit-parser-widening-todo.md) | - |
+| eval finding record (2026-08-07) | [20260807-eval-finding-record-todo.md](./2026/08/20260807-eval-finding-record-todo.md) | - |
+| eval replay fidelity guards (2026-08-07) | [20260807-eval-replay-fidelity-guards-todo.md](./2026/08/20260807-eval-replay-fidelity-guards-todo.md) | - |
+| file upload followups (2026-08-07) | [20260807-file-upload-followups-todo.md](./2026/08/20260807-file-upload-followups-todo.md) | [20260807-file-upload-followups-lessons.md](./2026/08/20260807-file-upload-followups-lessons.md) |
+| gh pages asset pruning (2026-08-07) | [20260807-gh-pages-asset-pruning-todo.md](./2026/08/20260807-gh-pages-asset-pruning-todo.md) | [20260807-gh-pages-asset-pruning-lessons.md](./2026/08/20260807-gh-pages-asset-pruning-lessons.md) |
+| release v0.6.3 (2026-08-07) | [20260807-release-v0.6.3-todo.md](./2026/08/20260807-release-v0.6.3-todo.md) | - |
+| rest cli tab create rename (2026-08-07) | [20260807-rest-cli-tab-create-rename-todo.md](./2026/08/20260807-rest-cli-tab-create-rename-todo.md) | - |
+| storage key prefix (2026-08-07) | [20260807-storage-key-prefix-todo.md](./2026/08/20260807-storage-key-prefix-todo.md) | - |
+| agent loop observability (2026-08-06) | [20260806-agent-loop-observability-todo.md](./2026/08/20260806-agent-loop-observability-todo.md) | - |
+| board sp4 editing parity (2026-08-06) | [20260806-board-sp4-editing-parity-todo.md](./2026/08/20260806-board-sp4-editing-parity-todo.md) | [20260806-board-sp4-editing-parity-lessons.md](./2026/08/20260806-board-sp4-editing-parity-lessons.md) |
+| ci timeouts (2026-08-06) | [20260806-ci-timeouts-todo.md](./2026/08/20260806-ci-timeouts-todo.md) | - |
+| cli file upload (2026-08-06) | [20260806-cli-file-upload-todo.md](./2026/08/20260806-cli-file-upload-todo.md) | [20260806-cli-file-upload-lessons.md](./2026/08/20260806-cli-file-upload-lessons.md) |
+| cli quiet preserves body (2026-08-06) | [20260806-cli-quiet-preserves-body-todo.md](./2026/08/20260806-cli-quiet-preserves-body-todo.md) | [20260806-cli-quiet-preserves-body-lessons.md](./2026/08/20260806-cli-quiet-preserves-body-lessons.md) |
+| dependabot alerts (2026-08-06) | [20260806-dependabot-alerts-todo.md](./2026/08/20260806-dependabot-alerts-todo.md) | [20260806-dependabot-alerts-lessons.md](./2026/08/20260806-dependabot-alerts-lessons.md) |
+| eval replay runner (2026-08-06) | [20260806-eval-replay-runner-todo.md](./2026/08/20260806-eval-replay-runner-todo.md) | - |
+| generic file upload (2026-08-06) | [20260806-generic-file-upload-todo.md](./2026/08/20260806-generic-file-upload-todo.md) | [20260806-generic-file-upload-lessons.md](./2026/08/20260806-generic-file-upload-lessons.md) |
+| capture collector (2026-08-05) | [20260805-capture-collector-todo.md](./2026/08/20260805-capture-collector-todo.md) | - |
+| eval config identity (2026-08-05) | [20260805-eval-config-identity-todo.md](./2026/08/20260805-eval-config-identity-todo.md) | - |
+| eval corpus skeleton (2026-08-05) | [20260805-eval-corpus-skeleton-todo.md](./2026/08/20260805-eval-corpus-skeleton-todo.md) | - |
+| harvest panel rounds (2026-08-04) | [20260804-harvest-panel-rounds-todo.md](./2026/08/20260804-harvest-panel-rounds-todo.md) | - |
+| lint agent scripts (2026-08-04) | [20260804-lint-agent-scripts-todo.md](./2026/08/20260804-lint-agent-scripts-todo.md) | - |
+| panel concurrency (2026-08-04) | [20260804-panel-concurrency-todo.md](./2026/08/20260804-panel-concurrency-todo.md) | - |
+| real fix rounds (2026-08-04) | [20260804-real-fix-rounds-todo.md](./2026/08/20260804-real-fix-rounds-todo.md) | - |
+| cli dry run confirm gate (2026-08-03) | [20260803-cli-dry-run-confirm-gate-todo.md](./2026/08/20260803-cli-dry-run-confirm-gate-todo.md) | [20260803-cli-dry-run-confirm-gate-lessons.md](./2026/08/20260803-cli-dry-run-confirm-gate-lessons.md) |
+| finding level matching (2026-08-03) | [20260803-finding-level-matching-todo.md](./2026/08/20260803-finding-level-matching-todo.md) | - |
+| notes mermaid preview (2026-08-03) | [20260803-notes-mermaid-preview-todo.md](./2026/08/20260803-notes-mermaid-preview-todo.md) | [20260803-notes-mermaid-preview-lessons.md](./2026/08/20260803-notes-mermaid-preview-lessons.md) |
+| panel stage detail capture (2026-08-03) | [20260803-panel-stage-detail-capture-todo.md](./2026/08/20260803-panel-stage-detail-capture-todo.md) | - |
+| structured rebuttal (2026-08-03) | [20260803-structured-rebuttal-todo.md](./2026/08/20260803-structured-rebuttal-todo.md) | [20260803-structured-rebuttal-lessons.md](./2026/08/20260803-structured-rebuttal-lessons.md) |
+| design doc audit (2026-08-02) | [20260802-design-doc-audit-todo.md](./2026/08/20260802-design-doc-audit-todo.md) | [20260802-design-doc-audit-lessons.md](./2026/08/20260802-design-doc-audit-lessons.md) |
+| board miro import (2026-08-01) | [20260801-board-miro-import-todo.md](./2026/08/20260801-board-miro-import-todo.md) | [20260801-board-miro-import-lessons.md](./2026/08/20260801-board-miro-import-lessons.md) |
+| datasource test without save (2026-08-01) | [20260801-datasource-test-without-save-todo.md](./2026/08/20260801-datasource-test-without-save-todo.md) | - |
+
+## 2026/07 (98 tasks)
+
+| Task | Todo | Lessons |
+|---|---|---|
+| board whiteboard elements (2026-07-31) | [20260731-board-whiteboard-elements-todo.md](./2026/07/20260731-board-whiteboard-elements-todo.md) | [20260731-board-whiteboard-elements-lessons.md](./2026/07/20260731-board-whiteboard-elements-lessons.md) |
 | cache core split (2026-07-31) | [20260731-cache-core-split-todo.md](./2026/07/20260731-cache-core-split-todo.md) | [20260731-cache-core-split-lessons.md](./2026/07/20260731-cache-core-split-lessons.md) |
+| font size relative step (2026-07-31) | [20260731-font-size-relative-step-todo.md](./2026/07/20260731-font-size-relative-step-todo.md) | - |
 | panel feedback corpus (2026-07-31) | [20260731-panel-feedback-corpus-todo.md](./2026/07/20260731-panel-feedback-corpus-todo.md) | [20260731-panel-feedback-corpus-lessons.md](./2026/07/20260731-panel-feedback-corpus-lessons.md) |
 | reduce lens samples (2026-07-31) | [20260731-reduce-lens-samples-todo.md](./2026/07/20260731-reduce-lens-samples-todo.md) | [20260731-reduce-lens-samples-lessons.md](./2026/07/20260731-reduce-lens-samples-lessons.md) |
+| release v0.6.2 (2026-07-31) | [20260731-release-v0.6.2-todo.md](./2026/07/20260731-release-v0.6.2-todo.md) | [20260731-release-v0.6.2-lessons.md](./2026/07/20260731-release-v0.6.2-lessons.md) |
 | docs nested table paste input routing (2026-07-30) | [20260730-docs-nested-table-paste-input-routing-todo.md](./2026/07/20260730-docs-nested-table-paste-input-routing-todo.md) | - |
+| notes native undo (2026-07-30) | [20260730-notes-native-undo-todo.md](./2026/07/20260730-notes-native-undo-todo.md) | [20260730-notes-native-undo-lessons.md](./2026/07/20260730-notes-native-undo-lessons.md) |
 | restatement clustering (2026-07-30) | [20260730-restatement-clustering-todo.md](./2026/07/20260730-restatement-clustering-todo.md) | - |
 | token attribution (2026-07-30) | [20260730-token-attribution-todo.md](./2026/07/20260730-token-attribution-todo.md) | [20260730-token-attribution-lessons.md](./2026/07/20260730-token-attribution-lessons.md) |
 | verify after clustering (2026-07-30) | [20260730-verify-after-clustering-todo.md](./2026/07/20260730-verify-after-clustering-todo.md) | [20260730-verify-after-clustering-lessons.md](./2026/07/20260730-verify-after-clustering-lessons.md) |
 | absence claims (2026-07-29) | [20260729-absence-claims-todo.md](./2026/07/20260729-absence-claims-todo.md) | - |
 | incremental review (2026-07-29) | [20260729-incremental-review-todo.md](./2026/07/20260729-incremental-review-todo.md) | [20260729-incremental-review-lessons.md](./2026/07/20260729-incremental-review-lessons.md) |
 | incremental review wiring (2026-07-29) | [20260729-incremental-review-wiring-todo.md](./2026/07/20260729-incremental-review-wiring-todo.md) | [20260729-incremental-review-wiring-lessons.md](./2026/07/20260729-incremental-review-wiring-lessons.md) |
+| json client import (2026-07-29) | [20260729-json-client-import-todo.md](./2026/07/20260729-json-client-import-todo.md) | [20260729-json-client-import-lessons.md](./2026/07/20260729-json-client-import-lessons.md) |
 | review novelty gate (2026-07-29) | [20260729-review-novelty-gate-todo.md](./2026/07/20260729-review-novelty-gate-todo.md) | - |
 | blast radius lens (2026-07-28) | [20260728-blast-radius-lens-todo.md](./2026/07/20260728-blast-radius-lens-todo.md) | [20260728-blast-radius-lens-lessons.md](./2026/07/20260728-blast-radius-lens-lessons.md) |
 | coverage first rubrics (2026-07-28) | [20260728-coverage-first-rubrics-todo.md](./2026/07/20260728-coverage-first-rubrics-todo.md) | [20260728-coverage-first-rubrics-lessons.md](./2026/07/20260728-coverage-first-rubrics-lessons.md) |

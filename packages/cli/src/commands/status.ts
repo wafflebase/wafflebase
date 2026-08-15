@@ -64,9 +64,9 @@ export function registerStatusCommand(program: Command): void {
         const fmt = parseOutputFormat(opts.format);
         // Being logged out is a successful answer to "what is my auth
         // state?", so this stays exit 0 — agents branch on `loggedIn`.
-        output(buildStatus(loadSession()), fmt, opts.quiet);
+        output(buildStatus(loadSession()), fmt);
       } catch (e) {
-        outputError(e, opts.quiet);
+        outputError(e);
       }
     });
 }

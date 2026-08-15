@@ -12,6 +12,11 @@ or `unevaluable` — never the measured value. That is deliberate: if you could 
 the number you would be able to invent a claim that fits it, and a prediction you
 made after looking is not evidence of anything.
 
+**START BY READING `dom.controls`.** It lists every control you can click right now,
+as the exact `{role, name}` pairs a click target takes — so you never have to guess a
+name, and a wrong guess is a wasted action. On this surface that matters more than on
+the other one: the toolbar's names are less guessable, and six runs here found nothing.
+
 **A `violated` verdict is the only thing that starts an investigation.** Not a
 feeling that something looked odd — you cannot see the grid, and you have no
 screenshot. You have named readers and comparisons, and that is the whole instrument.
@@ -53,15 +58,67 @@ rejected — correctly, since nothing in that window could have changed it.
   finding — the first one appeared within minutes of the protocol first running.
   **Ask `sheet.canUndo` before going anywhere near undo, and when it says false,
   believe it and move on.**
-- **There is no formatting toolbar on this surface.** It is gated to the document
-  surface. Your work is grid interaction: typing, formulas, selection, navigation,
-  scrolling.
-- **`sheet.cellValue` and `sheet.cellFormula` are different questions.** The
-  displayed value of a formula cell is its RESULT; the formula text is what was
-  entered. Predicting one and reading the other is a mistake, not a defect.
+- **The formatting toolbar IS mounted here**, and it is the real one the app ships:
+  `Bold`, `Italic`, `Strikethrough`, `Cell borders`, `Format as currency`,
+  `Format as percent`, `Increase decimal places`, `Decrease decimal places`,
+  `Horizontal align`, `Vertical align`, `Functions`, `More formats`. It acts on the
+  SELECTED RANGE, not on a text cursor — select cells first, then click.
+- **TOOLBAR STYLING DOES NOT LAND ON THE CELL.** `setRangeStyle` appends a
+  `{range, style}` PATCH, and then only writes onto cells that ALREADY carry their own
+  style — so styling an ordinary cell leaves the cell itself untouched. Measured: with
+  B1 selected and holding "Label", clicking `Bold` produced an effective style of
+  `{b:true}` while the cell's own style stayed empty. Read `sheet.rangeStyles` to see
+  what a toolbar click did; a per-cell reader would report nothing and look like a
+  broken toolbar.
+- **`sheet.rangeStyles` is what the toolbar WROTE; `sheet.activeCellStyle` is what the
+  app COMPUTES** for the active cell by merging sheet → column → row → cell. They are
+  answering different questions, so a difference between them is expected and is not a
+  defect.
+- **PATCHES DO NOT ACCUMULATE — a clean round trip leaves NOTHING behind.** Toggling
+  `Bold` on appends a patch; toggling it off merges into that same patch and then
+  DELETES it, because `pruneRedundantDefaultStyleKeys` recognises `b:false` as
+  redundant with the default. So `sheet.rangeStyles` is `[]` before and `[]` after, and
+  predicting that it CHANGED across a round trip is a violated prediction with no
+  defect behind it. Measured: this brief said the opposite, and the first live run that
+  used the toolbar spent its only violation on that false claim.
+  This is also where the sheet surface DIFFERS from docs, where the same round trip
+  leaves an explicit `false` behind (#749, #793). Do not carry that expectation across.
+  Predict the round trip on `sheet.activeCellStyle`, which returns to its baseline.
+- **FOUR TOOLBAR BUTTONS DO NOTHING HERE, BY CONSTRUCTION.** `Insert chart`,
+  `Insert image`, `Data validation` and `Conditional formatting` open panels this
+  harness does not mount, so their handlers are absent and the click is swallowed.
+  They are not broken; they are unwired in this harness only. Predict nothing about
+  them, and do not report them.
+- **`Undo` and `Redo` are visible in that toolbar and CANNOT WORK HERE** — same
+  `MemStore` no-op as `sheet.canUndo`, one paragraph up. A visible button does not
+  change that. This is the single most likely false finding on this surface now that
+  the toolbar is mounted.
+- **`sheet.cellValue` and `sheet.cellFormula` are different questions.** The stored
+  value of a formula cell is its RESULT; the formula text is what was entered.
+  Predicting one and reading the other is a mistake, not a defect.
+- **NUMBER FORMATS DO NOT CHANGE `sheet.cellValue`, AND THAT IS NOT A DEFECT.**
+  `nf`/`dp`/`cu` live in the style and are applied at PAINT time, so `Format as
+  percent` and `Increase decimal places` correctly leave the stored value untouched.
+  Measured: a live run clicked those controls, watched `sheet.activeCellStyle` record
+  `{nf:"number",dp:3}`, saw `sheet.cellValue` stay "100", and proposed "number formats
+  never reach the displayed value" on four grounded predictions. The app was right.
+  **`sheet.activeCellDisplay` is the reader that answers "what does it say on screen"** —
+  predict number formatting against THAT, and expect `sheet.cellValue` to hold still.
 - **Click a cell through `sheet.cellCenter`**, naming it as a click target's
   `reader`. There is no coordinate targeting and no CSS selector; a canvas click
   resolves through that named reader or not at all.
+- **SCROLLING MOVES CELLS OUT OF REACH, and that is not a defect.** After you scroll,
+  a cell that has left the viewport is genuinely not clickable — there is nothing at
+  those coordinates. `sheet.cellCenter` now refuses such a cell and tells you so;
+  believe the refusal and scroll it back or pick a visible cell. Measured: the first
+  live run on this surface scrolled, clicked three cells that had moved above the
+  viewport, and proposed "after the grid is scrolled, mouse clicks no longer select
+  any cell" at major severity. It was false — clicks after a scroll work fine — and
+  it reproduced perfectly, because off-screen coordinates are stable.
+- **A scroll does nothing until the grid has focus.** Wheel events before your first
+  click go nowhere, so "I scrolled and nothing moved" usually means you have not
+  clicked into the grid yet, not that scrolling is broken. Read `sheet.cellCenter`
+  for a known cell before and after to confirm the view actually moved.
 - There is no backend. Nothing you do can touch real data.
 
 ## What a good finding looks like
@@ -72,6 +129,58 @@ with its own earlier state or its own reported selection. None needed an externa
 spec. On this surface the richest version is *the edit landed somewhere other than
 where the app said the selection was*: read `sheet.activeCell`, type, then predict
 that THAT cell holds what you typed.
+
+### The shape that has actually found defects: the ROUND TRIP
+
+On the document surface every real defect this project has filed came from one
+pattern — do a thing, undo it BY ITS OWN CONTROL, and predict the state returns to a
+reading you already took. It is ground A by construction, and it caught defects that
+broad exploration walked straight past.
+
+Undo is not available to you, so the sheet version runs through the CALCULATOR:
+
+```
+read sheet.cellValue("C1")            -> journal entry 7      (C1 is =A1+A2)
+click A1 via sheet.cellCenter, type 99, Enter
+read sheet.cellValue("C1")                                    (should have changed)
+click A1 again, type 10, Enter        (A1's seeded value)
+                    expect sheet.cellValue("C1") equals "@read:7"   ground A
+```
+
+A dependency restored to its old value must produce the old result. Vary it: a cell
+the formula does NOT reference (changing B1 must leave C1 alone), a value entered as
+text versus a number, and rewriting a cell with the value it already holds.
+
+`sheet.cellFormula("C1")` is a second round trip of its own — editing A1 must never
+change C1's formula TEXT, only its value.
+
+**Not a round trip: scroll position.** Scrolling down and back is not guaranteed to
+land on the same offset, so predicting that `sheet.cellCenter` returns its earlier
+point is a false finding waiting to happen. Scroll to reach cells, not to assert on.
+
+### And now the toolbar round trip
+
+The toolbar is new to this surface, and on the document surface EVERY defect this
+project has filed came from exactly this: read the stored style, click a control,
+click it again, and predict the style equals the first reading.
+
+```
+click B1 via sheet.cellCenter     (B1 holds "Label" — style a cell WITH CONTENT)
+read sheet.activeCellStyle        -> journal entry 9
+click Bold                        (no prediction needed)
+click Bold        expect sheet.activeCellStyle equals "@read:9"   ground A
+```
+
+Do it on `Bold`, `Italic` and `Strikethrough`, and on a MULTI-CELL selection as well
+as a single cell — the doc-surface defects hid specifically in sub-ranges and in
+selections that spanned differently-styled runs, so the analogous shapes here are a
+range that is partly styled already, and a range spanning a row or column style.
+
+Watch for the difference between "the key is gone" and "the key is `false`". On the
+document surface that distinction WAS the defect twice over (#749, #793). Measured on
+THIS surface it comes out clean — the patch is pruned rather than left holding
+`b:false` — so a round trip here should return `sheet.activeCellStyle` to exactly its
+baseline. That makes any DIFFERENCE the interesting result, not the sameness.
 
 ## NOT your lane — defer, do not report
 

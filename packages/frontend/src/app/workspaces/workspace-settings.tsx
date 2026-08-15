@@ -79,12 +79,6 @@ export default function WorkspaceSettings() {
     }
   }, [workspace]);
 
-  const { data: invites = [] } = useQuery<WorkspaceInvite[]>({
-    queryKey: ["workspaces", workspaceId, "invites"],
-    queryFn: () => fetchInvites(workspaceId!),
-    enabled: !!workspaceId,
-  });
-
   const { data: me } = useQuery({
     queryKey: ["me"],
     queryFn: fetchMe,
@@ -93,6 +87,12 @@ export default function WorkspaceSettings() {
   const isOwner =
     me &&
     workspace?.members.some((m) => m.user.id === me.id && m.role === "owner");
+
+  const { data: invites = [] } = useQuery<WorkspaceInvite[]>({
+    queryKey: ["workspaces", workspaceId, "invites"],
+    queryFn: () => fetchInvites(workspaceId!),
+    enabled: !!workspaceId && !!isOwner,
+  });
 
   const updateMutation = useMutation({
     mutationFn: (data: { name?: string; slug?: string }) =>
@@ -322,19 +322,20 @@ export default function WorkspaceSettings() {
                     <Badge variant="secondary">{member.role}</Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    {member.role !== "owner" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        aria-label="Remove member"
-                        onClick={() =>
-                          removeMemberMutation.mutate(member.user.id)
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
+                    {member.role !== "owner" &&
+                      (isOwner || member.user.id === me?.id) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          aria-label="Remove member"
+                          onClick={() =>
+                            removeMemberMutation.mutate(member.user.id)
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -343,78 +344,82 @@ export default function WorkspaceSettings() {
         </div>
       </section>
 
-      <Separator />
+      {/* Invites — owner-only: listing invites is owner-gated too. */}
+      {isOwner && (
+        <>
+          <Separator />
 
-      {/* Invites */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Invites</h2>
-            <p className="text-sm text-muted-foreground">
-              Manage pending invitations to this workspace.
-            </p>
-          </div>
-          <Button
-            size="sm"
-            onClick={() => createInviteMutation.mutate()}
-            disabled={createInviteMutation.isPending}
-            className="flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Create Invite
-          </Button>
-        </div>
-        {invites.length > 0 ? (
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Expires</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {invites.map((invite) => (
-                  <TableRow key={invite.id}>
-                    <TableCell>
-                      <Badge variant="secondary">{invite.role}</Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {invite.expiresAt
-                        ? new Date(invite.expiresAt).toLocaleDateString()
-                        : "Never"}
-                    </TableCell>
-                    <TableCell className="text-right space-x-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label="Copy invite link"
-                        onClick={() => copyInviteLink(invite.token)}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        aria-label="Revoke invite"
-                        onClick={() =>
-                          revokeInviteMutation.mutate(invite.id)
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No active invites.</p>
-        )}
-      </section>
+          <section className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Invites</h2>
+                <p className="text-sm text-muted-foreground">
+                  Manage pending invitations to this workspace.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => createInviteMutation.mutate()}
+                disabled={createInviteMutation.isPending}
+                className="flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Create Invite
+              </Button>
+            </div>
+            {invites.length > 0 ? (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Expires</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invites.map((invite) => (
+                      <TableRow key={invite.id}>
+                        <TableCell>
+                          <Badge variant="secondary">{invite.role}</Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {invite.expiresAt
+                            ? new Date(invite.expiresAt).toLocaleDateString()
+                            : "Never"}
+                        </TableCell>
+                        <TableCell className="text-right space-x-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label="Copy invite link"
+                            onClick={() => copyInviteLink(invite.token)}
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            aria-label="Revoke invite"
+                            onClick={() =>
+                              revokeInviteMutation.mutate(invite.id)
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No active invites.</p>
+            )}
+          </section>
+        </>
+      )}
 
       {/* API Keys */}
       {isOwner && (
