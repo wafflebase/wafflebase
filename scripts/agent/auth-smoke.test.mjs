@@ -28,6 +28,10 @@ test("capacity and quota refusals never read as a credential problem", () => {
     "HTTP 429",
     "overloaded_error: the service is overloaded",
     "You have exceeded your usage limit",
+    // The period this list missed. Left unclassified it fell through to
+    // "unknown" and exited 1, sending an operator to hunt a credential problem
+    // they did not have — the exact misdiagnosis this file's header warns about.
+    "You've hit your weekly limit · resets 11pm (UTC)",
     "quota exceeded for this organization",
     "insufficient capacity, try again later",
   ]) {

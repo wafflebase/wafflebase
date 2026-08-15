@@ -29,7 +29,7 @@
 // rule above exists to keep the pure helpers testable without the SDK on disk,
 // and token-pool.mjs has no dependencies at all.
 import { createTokenPool, poolEnvNames } from "./token-pool.mjs";
-import { classifyInfraError, redactSecrets, renderInfraError } from "./redact.mjs";
+import { SESSION_LIMIT_RE, classifyInfraError, redactSecrets, renderInfraError } from "./redact.mjs";
 
 /**
  * The COMPLETE set of tools any agent spawned through this wrapper may ever be
@@ -235,7 +235,9 @@ export function assertBoundaryMatchesSdk(sdk) {
  * reported correctly. Whereas mis-classifying a transient error as permanent
  * pages a human for nothing, which is the expensive mistake.
  */
-const SESSION_LIMIT_RE = /\b(?:session|usage)\s+limit\b/i;
+// Imported, not re-declared. This file and redact.mjs each held their own copy
+// with a comment promising they matched; see SESSION_LIMIT_RE's docblock in
+// redact.mjs for the outage that promise did not survive.
 
 /**
  * Is another attempt at this HTTP status plausibly worth making?
@@ -552,10 +554,11 @@ export function credentialEnv(authToken) {
 /**
  * Is this a CLOSED USAGE WINDOW on the account, rather than any other failure?
  *
- * The one error where switching credentials is the fix. Deliberately narrow:
- * `classifyResult` also marks a 401 and our own turn ceilings non-retryable, and
- * failing over on those would burn the entire pool on a problem no other token
- * can solve — a bad secret would look exactly like "we are out of quota".
+ * One of the two errors where switching credentials is the fix; see
+ * `isCredentialRejected` for the other, and `nextCredential` for why the split
+ * matters. Still deliberately narrow: our own turn ceilings are also
+ * non-retryable, and failing over on those would burn the pool on a problem no
+ * other token can solve.
  */
 export function isAccountLimit(err) {
   if (!err || err.kind !== "api-error") return false;
@@ -566,6 +569,39 @@ export function isAccountLimit(err) {
   // do — and for any failure that never passed through `classifyResult`.
   if (err.code) return err.code === "USAGE_LIMIT";
   return SESSION_LIMIT_RE.test(String(err.detail ?? ""));
+}
+
+/**
+ * Was THIS credential refused, rather than the request being wrong?
+ *
+ * A 401/403 is a fact about one secret, and in a pool of independent accounts
+ * the other members are unaffected — so it is a failover, not a stop.
+ *
+ * This reverses an earlier rule, and the reasoning it reverses was sound for the
+ * shape it was written against. When there was one credential, a 401 could only
+ * mean "the secret is wrong", failing over could only re-find the same wrong
+ * secret, and burning the pool to learn that was pure waste. A pool of separate
+ * accounts breaks that premise: one slot expiring leaves the rest valid, and
+ * refusing to move made a per-slot fault behave like a total outage. Measured —
+ * one of four pool secrets expired, `selectStartIndex` handed roughly a quarter
+ * of runs to it, and each of those runs died on the first call with three good
+ * credentials in the same process.
+ *
+ * The old rule's fear is real but cheap: if EVERY credential is genuinely bad,
+ * this walks the whole pool before giving up. That costs one rejected round trip
+ * per slot — seconds, since a refusal returns immediately — and the pool then
+ * reports that every credential was rejected, which is a better diagnosis than
+ * the first slot's error stated as though it were the pool's.
+ *
+ * Keyed on `code` first for the same reason as `isAccountLimit`: it is decided
+ * from the raw text before redaction. The status fallback covers callers that
+ * construct a bare `{ kind, status }` without going through `classifyResult`.
+ */
+export function isCredentialRejected(err) {
+  if (!err || err.kind !== "api-error") return false;
+  if (err.code) return err.code === "AUTH_REJECTED";
+  const status = Number(err.status);
+  return status === 401 || status === 403;
 }
 
 /**
@@ -600,7 +636,7 @@ export function __setTokenPool(pool = null) {
  * concurrency would drain the pool in a single round.
  */
 export function nextCredential({ pool, err, authToken }) {
-  if (!isAccountLimit(err)) return null;
+  if (!isAccountLimit(err) && !isCredentialRejected(err)) return null;
   const next = pool.advance(err.detail, authToken);
   return !next || next === authToken ? null : next;
 }
@@ -641,14 +677,20 @@ export async function askStructured({
   const pool = tokenPool();
   // A drained pool must FAIL, not fall through to ambient resolution. `current()`
   // is null for both "no pool configured" (fall through — correct) and "every
-  // window closed", and in these workflows the ambient credential is slot zero:
-  // one the pool has already retired. Falling through would spend a live call to
-  // fail the same way, or report "not logged in" for a pool that is merely out
-  // of quota. Non-retryable so the caller's `withRetry` does not back off around
-  // a condition that cannot clear in-run.
+  // credential retired", and in these workflows the ambient credential is slot
+  // zero: one the pool has already retired. Falling through would spend a live
+  // call to fail the same way, or report "not logged in" for a pool that is
+  // merely out of quota. Non-retryable so the caller's `withRetry` does not back
+  // off around a condition that cannot clear in-run.
+  //
+  // The wording stays on WHAT HAPPENED (retired) rather than WHY. A slot is now
+  // retired for a closed window OR a refused credential, and the two remedies are
+  // opposite — wait for a reset, versus rotate a secret. Naming one of them here
+  // would send an operator the wrong way half the time; the per-slot reason is in
+  // the run log above, and `Agent SDK Auth Smoke Test` answers it definitively.
   if (pool.isExhausted()) {
     const err = new Error(
-      `${label}: every credential in the pool (${pool.size}) has hit its usage limit — nothing left to fail over to`,
+      `${label}: every credential in the pool (${pool.size}) was retired — nothing left to fail over to`,
     );
     err.kind = "pool-exhausted";
     err.retryable = false;
@@ -667,11 +709,11 @@ export async function askStructured({
     try {
       return await runSession({ options, prompt, sessionLog, logMeta, label });
     } catch (err) {
-      // Null covers both "not a closed window" and "pool dry", and rethrowing is
-      // right for both. Every other failure belongs to the caller: `withRetry`
-      // still owns the transient ones, and a non-retryable error another
-      // credential cannot fix (a bad token, our own turn ceiling) must not burn
-      // the pool looking for one that can.
+      // Null covers both "no other credential could help" and "pool dry", and
+      // rethrowing is right for both. Every other failure belongs to the caller:
+      // `withRetry` still owns the transient ones, and a non-retryable error no
+      // credential can fix (our own turn ceiling, a malformed request) must not
+      // burn the pool looking for one that can.
       const next = nextCredential({ pool, err, authToken });
       if (next === null) throw err;
       authToken = next;

@@ -32,7 +32,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readPoolSlots, TOKEN_ENV } from "./token-pool.mjs";
-import { redactSecrets } from "./redact.mjs";
+import { SESSION_LIMIT_RE, redactSecrets } from "./redact.mjs";
 
 export const EXIT = Object.freeze({ ok: 0, auth: 1, quota: 2, tooling: 3 });
 
@@ -43,11 +43,15 @@ export const EXIT = Object.freeze({ ok: 0, auth: 1, quota: 2, tooling: 3 });
 // credential, and an auth error read as quota sends them to wait for a reset
 // that will never help.
 const QUOTA = [
-  /session limit/i,
+  // The same rule the pipeline fails over on, imported rather than restated —
+  // it covers `session`/`usage` plus the other billing periods. A period this
+  // list knows but `SESSION_LIMIT_RE` does not (or the reverse) is a smoke test
+  // that disagrees with the pipeline it exists to pre-flight, which is the one
+  // thing a pre-arm check must never do.
+  SESSION_LIMIT_RE,
   /rate[ _-]?limit/i,
   /\b429\b/,
   /overloaded/i,
-  /usage limit/i,
   /quota/i,
   /capacity/i,
   /too many requests/i,
