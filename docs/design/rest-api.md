@@ -95,7 +95,12 @@ Request arrives
       └─ JwtAuthGuard (existing cookie-or-Bearer flow)
 ```
 
-The v1 API endpoints use `CombinedAuthGuard`. Existing endpoints
+The v1 API endpoints use `CombinedAuthGuard`. Neither it nor
+`WorkspaceScopeGuard` reads `scopes` — the guards prove the key is valid and
+bound to the workspace, nothing more — so **every destructive handler checks
+the `write` scope itself** (`document.delete`, `files.upload`, and the content
+`PUT`, which replaces a document's whole content). A key minted with
+`scopes: ['read']` gets a `403` from those routes. Existing endpoints
 continue to use `JwtAuthGuard` only. `JwtStrategy` accepts JWTs from
 both the `wafflebase_session` cookie and the
 `Authorization: Bearer` header so the CLI can call JWT-guarded
@@ -278,15 +283,37 @@ an inline needs a string `text` and a `style` object; a table cell needs a
   still a 400: `inlines` must be an array, each entry an object with a string
   `text`, and a present `style` must be an object.
 - The same repair covers every other field a stored deck's readers dereference
-  unconditionally: a text body's `blocks` (`body.blocks.map` in the slides text
-  renderer), a block's `style` (`ALGN.get(block.style.alignment)` in the PPTX
-  exporter), a text element's whole `data` — which *is* its `TextBody`, read as
-  `el.data.blocks` by `isElementEmpty` — and a table cell's `body`
-  (`cell.body.blocks` in the table renderer). Each becomes its empty shape
-  (`[]`, `{}`, `{ blocks: [] }`). Nothing on read repairs them: `migrateElement`
-  touches shapes only. Where the empty shape cannot be written back — an array
-  is `typeof 'object'`, so a repair on one is an expando that JSON
-  serialization drops — the value is rejected instead, so no deck is ever
+  unconditionally. Nothing on read repairs them — `migrateElement` touches
+  shapes only — so each absent value becomes its empty shape before the write:
+  - a text body's `blocks` → `[]` (`body.blocks.map` in the slides text
+    renderer);
+  - a block's `style` → `{}` (`ALGN.get(block.style.alignment)` in the PPTX
+    exporter);
+  - an element's whole `data` → the empty shape its **own type** demands, for
+    every type rather than just text, because `element.data.effects?.shadow` in
+    the element renderer runs for all of them: `{ blocks: [] }` for a text
+    element (whose `data` *is* its `TextBody`, read as `el.data.blocks` by
+    `isElementEmpty`), `{ rows: [], columnWidths: [] }` for a table
+    (`data.columnWidths.length` in `drawTable`, `data.rows` in the height
+    scaler and the PDF exporter), `{ children: [] }` for a group
+    (`data.children` in `flattenElements`), `{}` otherwise;
+  - inside a table: an absent `columnWidths` / `rows` / `row.cells` → `[]`, a
+    `null` row → an empty row, a `null` cell → an empty cell, and a cell's
+    absent `style` → `{}` and `body` → `{ blocks: [] }`. The cell repair covers
+    `style` as well as `body` because `paintCellFills` reads `cell.style.fill`
+    and `paddingOf` reads `cell.style.padding` *before* the body is painted,
+    and a `null` cell is repaired rather than skipped because the PDF
+    exporter's `for (const cell of row.cells) bodies.push(cell.body)` does not
+    tolerate one even though the canvas renderer does.
+
+  Where the empty shape cannot be written back — an array is `typeof 'object'`,
+  so a repair on one is an expando that JSON serialization drops — the value is
+  rejected with a `400` instead. That rejection is applied at **every** entry
+  point that would otherwise repair in place: an element's `data`, a text body
+  (a shape's `data.text`, a table cell's `body`), and a docs table cell nested
+  in a slide text body. A present-but-wrong structural value (`rows`,
+  `columnWidths`, `children`, `cells` that is not an array; a row or cell that
+  is a primitive) is likewise a `400` rather than a silent skip, so no deck is
   persisted in a shape that would be a `TypeError` for its viewers.
 
 `GET` → edit → `PUT` stays lossless for docs bodies: the read side of the

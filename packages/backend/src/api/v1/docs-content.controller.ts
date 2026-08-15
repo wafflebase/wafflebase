@@ -3,11 +3,14 @@ import {
   Body,
   ConflictException,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Put,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { AuthenticatedRequest } from '../../auth/auth.types';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { DocumentService } from '../../document/document.service';
@@ -128,7 +131,16 @@ export class ApiV1DocsContentController {
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
     @Body() body: unknown,
+    @Req() req: AuthenticatedRequest,
   ): Promise<ContentDocument> {
+    // `CombinedAuthGuard` only proves the key is valid and
+    // `WorkspaceScopeGuard` only that it is bound to this workspace — neither
+    // reads `scopes`. This route is a *destructive replace* of a document's
+    // whole content, so a read-scoped key must not reach it. Mirrors the
+    // checks on `documents.remove` and `files.upload`.
+    if (req.user.isApiKey && !req.user.scopes?.includes('write')) {
+      throw new ForbiddenException('This API key does not have write access');
+    }
     // Hand-rolled shape guard. `@Body()` is compile-time typed only, so a
     // malformed payload would otherwise reach the writer and surface as
     // HTTP 500 deep inside Yorkie. We validate just the fields the writer
@@ -609,74 +621,179 @@ function assertValidNestedElement(element: unknown, path: string): void {
  * without this walk the slides arm of this endpoint is a hole through which
  * a `NaN` margin reaches the deck.
  *
- * A text element's `data` *is* its `TextBody`, so an absent one is the same
- * TypeError-for-every-viewer as an absent `blocks`, and it gets the same
- * repair — returning early here would store exactly the shape the walk below
- * exists to prevent (`isElementEmpty` reads `el.data.blocks` unconditionally
- * in `packages/slides/src/model/element.ts`, and `migrateElement` repairs
- * nothing but shapes). An array is rejected rather than repaired:
- * `typeof [] === 'object'`, so the repair would land as an array expando that
- * JSON serialization drops, leaving the crashing shape stored anyway.
+ * `Element.data` is required by the model for *every* type and the renderer
+ * dereferences it unconditionally (`element.data.effects?.shadow` in
+ * `packages/slides/src/view/canvas/element-renderer.ts` runs for shape / image
+ * / text / table alike), so an absent one is a TypeError for every viewer of
+ * the stored deck — `migrateElement` repairs nothing but shapes. It therefore
+ * gets the same repair the text bodies below get: the empty shape its own type
+ * demands (`{ blocks: [] }` for a text element, whose `data` *is* its
+ * `TextBody` and is read as `el.data.blocks` by `isElementEmpty`;
+ * `{ rows: [], columnWidths: [] }` for a table, whose `data.columnWidths.length`
+ * and `data.rows` are read by `drawTable` and the PDF exporter;
+ * `{ children: [] }` for a group, whose `data.children` is walked by
+ * `flattenElements`; `{}` otherwise).
+ *
+ * An array is rejected rather than repaired: `typeof [] === 'object'`, so a
+ * repair would land as an array expando that JSON serialization drops, leaving
+ * the crashing shape stored anyway.
  */
 function assertValidElementData(
   e: Record<string, unknown>,
   path: string,
 ): void {
-  if (e.type === 'text') {
-    const body = e.data;
-    if (body === undefined || body === null) {
-      e.data = { blocks: [] };
-      return;
-    }
-    if (typeof body !== 'object' || Array.isArray(body)) {
-      throw new BadRequestException(
-        `Invalid element at ${path}: 'data' must be an object`,
-      );
-    }
-    assertValidTextBodyBlocks(body as Record<string, unknown>, `${path}.data`);
+  const raw = e.data;
+  if (Array.isArray(raw)) {
+    throw new BadRequestException(
+      `Invalid element at ${path}: 'data' must be an object`,
+    );
+  }
+  if (raw === undefined || raw === null) {
+    e.data = emptyElementData(e.type);
     return;
   }
-  const data = e.data as Record<string, unknown> | undefined;
-  if (!data || typeof data !== 'object') return;
+  if (typeof raw !== 'object') {
+    throw new BadRequestException(
+      `Invalid element at ${path}: 'data' must be an object`,
+    );
+  }
+  const data = raw as Record<string, unknown>;
+  if (e.type === 'text') {
+    assertValidTextBodyBlocks(data, `${path}.data`);
+    return;
+  }
   if (e.type === 'shape') {
     // A shape's inline text body is lazily created, so it is often absent.
     if (data.text !== undefined && data.text !== null) {
       assertValidTextBody(data.text, `${path}.data.text`);
     }
   } else if (e.type === 'table') {
-    const rows = Array.isArray(data.rows) ? data.rows : [];
-    for (let r = 0; r < rows.length; r++) {
-      const cells = (rows[r] as { cells?: unknown })?.cells;
-      if (!Array.isArray(cells)) continue;
-      for (let c = 0; c < cells.length; c++) {
-        const cell = cells[c] as Record<string, unknown> | null;
-        if (!cell || typeof cell !== 'object' || Array.isArray(cell)) continue;
-        if (cell.body === undefined || cell.body === null) {
-          // `TableCell.body` is required by the model and the table renderer
-          // reads `cell.body.blocks` unconditionally
-          // (`packages/slides/src/view/canvas/table-renderer.ts`), so an
-          // absent body crashes every viewer of the stored deck. Fill in the
-          // same empty shape the store itself writes (`MemSlidesStore` clears
-          // a cell to `{ blocks: [] }`).
-          cell.body = { blocks: [] };
-          continue;
-        }
-        assertValidTextBody(
-          cell.body,
-          `${path}.data.rows[${r}].cells[${c}].body`,
-        );
-      }
-    }
+    assertValidTableData(data, path);
   } else if (e.type === 'group') {
-    const children = Array.isArray(data.children) ? data.children : [];
+    const children = data.children;
+    if (children === undefined || children === null) {
+      data.children = [];
+      return;
+    }
+    if (!Array.isArray(children)) {
+      throw new BadRequestException(
+        `Invalid element at ${path}.data: 'children' must be an array`,
+      );
+    }
     for (let i = 0; i < children.length; i++) {
       assertValidNestedElement(children[i], `${path}.data.children[${i}]`);
     }
   }
 }
 
+/** The empty `data` an element of `type` must carry for its readers. */
+function emptyElementData(type: unknown): Record<string, unknown> {
+  if (type === 'text') return { blocks: [] };
+  if (type === 'table') return { rows: [], columnWidths: [] };
+  if (type === 'group') return { children: [] };
+  return {};
+}
+
+/**
+ * Validate — and where merely absent, repair — a table element's `data`.
+ *
+ * Every field touched here is read unconditionally by a *reader* of the
+ * stored deck, earlier in the same pass than the cell body:
+ * `drawTable` reads `data.columnWidths.length` and `data.rows.length`
+ * before anything else, `paintCellFills` reads `cell.style.fill` and
+ * `paddingOf` reads `cell.style.padding`
+ * (`packages/slides/src/view/canvas/table-renderer.ts`), the PDF exporter
+ * walks `row.cells` and reads `cell.body` on every entry
+ * (`packages/slides/src/export/pdf.ts`), and `scaleElementHeight` iterates
+ * `data.rows` (`packages/slides/src/model/slide-size.ts`). Repairing only the
+ * body would leave the same stored crash the repair exists to prevent.
+ *
+ * A `null` cell is repaired rather than skipped for the same reason: the
+ * canvas renderer tolerates one (`if (!cell || isCovered(cell)) continue`) but
+ * the PDF exporter's `for (const cell of row.cells) bodies.push(cell.body)`
+ * does not.
+ */
+function assertValidTableData(data: Record<string, unknown>, path: string): void {
+  const widths = data.columnWidths;
+  if (widths === undefined || widths === null) {
+    data.columnWidths = [];
+  } else if (!Array.isArray(widths)) {
+    throw new BadRequestException(
+      `Invalid element at ${path}.data: 'columnWidths' must be an array`,
+    );
+  }
+  const rows = data.rows;
+  if (rows === undefined || rows === null) {
+    data.rows = [];
+    return;
+  }
+  if (!Array.isArray(rows)) {
+    throw new BadRequestException(
+      `Invalid element at ${path}.data: 'rows' must be an array`,
+    );
+  }
+  for (let r = 0; r < rows.length; r++) {
+    const rowPath = `${path}.data.rows[${r}]`;
+    const row = rows[r] as Record<string, unknown> | null | undefined;
+    if (row === undefined || row === null) {
+      rows[r] = { height: 0, cells: [] };
+      continue;
+    }
+    if (typeof row !== 'object' || Array.isArray(row)) {
+      throw new BadRequestException(
+        `Invalid element at ${rowPath}: not an object`,
+      );
+    }
+    const cells = row.cells;
+    if (cells === undefined || cells === null) {
+      row.cells = [];
+      continue;
+    }
+    if (!Array.isArray(cells)) {
+      throw new BadRequestException(
+        `Invalid element at ${rowPath}: 'cells' must be an array`,
+      );
+    }
+    for (let c = 0; c < cells.length; c++) {
+      const cellPath = `${rowPath}.cells[${c}]`;
+      const cell = cells[c] as Record<string, unknown> | null | undefined;
+      if (cell === undefined || cell === null) {
+        cells[c] = { body: { blocks: [] }, style: {} };
+        continue;
+      }
+      if (typeof cell !== 'object' || Array.isArray(cell)) {
+        throw new BadRequestException(
+          `Invalid element at ${cellPath}: not an object`,
+        );
+      }
+      if (cell.style === undefined || cell.style === null) {
+        // Every paint pass reads `cell.style` before the body — fill in the
+        // empty shape rather than 400 a round-trip, exactly like `block.style`.
+        cell.style = {};
+      } else if (typeof cell.style !== 'object' || Array.isArray(cell.style)) {
+        throw new BadRequestException(
+          `Invalid element at ${cellPath}: 'style' must be an object`,
+        );
+      }
+      if (cell.body === undefined || cell.body === null) {
+        // `TableCell.body` is required by the model and the table renderer
+        // reads `cell.body.blocks` unconditionally, so an absent body crashes
+        // every viewer of the stored deck. Fill in the same empty shape the
+        // store itself writes (`MemSlidesStore` clears a cell to
+        // `{ blocks: [] }`).
+        cell.body = { blocks: [] };
+        continue;
+      }
+      assertValidTextBody(cell.body, `${cellPath}.body`);
+    }
+  }
+}
+
 function assertValidTextBody(body: unknown, path: string): void {
-  if (!body || typeof body !== 'object') {
+  // An array is rejected rather than walked: `typeof [] === 'object'`, so the
+  // `blocks` repair below would land as an array expando that JSON
+  // serialization drops, storing the crashing shape anyway.
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new BadRequestException(
       `Invalid element at ${path}: text body must be an object`,
     );
@@ -765,12 +882,19 @@ function assertValidSlideBlocks(blocks: unknown, path: string): void {
       const cells = (rows[r] as { cells?: unknown })?.cells;
       if (!Array.isArray(cells)) continue;
       for (let c = 0; c < cells.length; c++) {
+        const cellPath = `${path}[${i}].tableData.rows[${r}].cells[${c}]`;
         const cell = cells[c] as Record<string, unknown> | null;
-        if (!cell || typeof cell !== 'object') continue;
-        assertValidTextBodyBlocks(
-          cell,
-          `${path}[${i}].tableData.rows[${r}].cells[${c}]`,
-        );
+        if (cell === undefined || cell === null) continue;
+        // Rejected rather than skipped for the same reason a text body is:
+        // `typeof [] === 'object'`, so the `blocks` repair inside would land
+        // as an array expando that JSON serialization drops, leaving the
+        // crashing shape stored.
+        if (typeof cell !== 'object' || Array.isArray(cell)) {
+          throw new BadRequestException(
+            `Invalid block at ${cellPath}: not an object`,
+          );
+        }
+        assertValidTextBodyBlocks(cell, cellPath);
       }
     }
   }

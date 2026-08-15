@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+import type { AuthenticatedRequest } from '../../auth/auth.types';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ApiV1DocsContentController } from './docs-content.controller';
 import { DocumentService } from '../../document/document.service';
@@ -61,6 +63,20 @@ describe('ApiV1DocsContentController', () => {
   let controller: ApiV1DocsContentController;
   let documentService: { getDocumentOrThrow: jest.Mock };
   let yorkieService: { withDocument: jest.Mock };
+
+  // A JWT (human) caller: `isApiKey` is unset, so the `write`-scope gate on
+  // `putContent` does not apply. API-key callers are covered by their own
+  // tests below.
+  const JWT_REQ = {
+    user: { id: '1', workspaceId: 'ws-1' },
+  } as unknown as AuthenticatedRequest;
+
+  const putContent = (
+    workspaceId: string,
+    documentId: string,
+    body: unknown,
+    req: AuthenticatedRequest = JWT_REQ,
+  ) => controller.putContent(workspaceId, documentId, body, req);
 
   beforeEach(async () => {
     documentService = { getDocumentOrThrow: jest.fn() };
@@ -212,7 +228,7 @@ describe('ApiV1DocsContentController', () => {
         return Promise.resolve(cb(fakeDoc));
       });
 
-      const result = await controller.putContent('ws-1', 'd1', doc);
+      const result = await putContent('ws-1', 'd1', doc);
 
       // Echoed body matches input verbatim.
       expect(result).toEqual(doc);
@@ -247,7 +263,7 @@ describe('ApiV1DocsContentController', () => {
         return Promise.resolve(cb(fakeDoc));
       });
 
-      const result = await controller.putContent('ws-1', 'd1', deck);
+      const result = await putContent('ws-1', 'd1', deck);
 
       expect(result).toEqual(deck);
       // writeSlidesRoot assigns top-level slides fields onto the root.
@@ -296,7 +312,7 @@ describe('ApiV1DocsContentController', () => {
         return Promise.resolve(cb(fakeDoc));
       });
 
-      const result = await controller.putContent('ws-1', 'd1', {
+      const result = await putContent('ws-1', 'd1', {
         content: 'new markdown',
       } as never);
 
@@ -314,7 +330,7 @@ describe('ApiV1DocsContentController', () => {
       // value is an unrecognised shape and hits the generic 400 before any
       // metadata/Yorkie work.
       await expect(
-        controller.putContent('ws-1', 'd1', { content: 123 } as never),
+        putContent('ws-1', 'd1', { content: 123 } as never),
       ).rejects.toMatchObject({
         constructor: BadRequestException,
         message: expect.stringMatching(/'blocks'.*'slides'.*'content'/),
@@ -331,7 +347,7 @@ describe('ApiV1DocsContentController', () => {
       });
 
       await expect(
-        controller.putContent('ws-1', 'd1', { content: '# hi' } as never),
+        putContent('ws-1', 'd1', { content: '# hi' } as never),
       ).rejects.toMatchObject({
         constructor: BadRequestException,
         message: expect.stringMatching(/shape 'note'.*type 'slides'/),
@@ -348,7 +364,7 @@ describe('ApiV1DocsContentController', () => {
       });
 
       await expect(
-        controller.putContent('ws-1', 'd1', makeDocFixture()),
+        putContent('ws-1', 'd1', makeDocFixture()),
       ).rejects.toMatchObject({
         constructor: BadRequestException,
         message: expect.stringMatching(/shape 'doc'.*type 'slides'/),
@@ -368,7 +384,7 @@ describe('ApiV1DocsContentController', () => {
       });
 
       await expect(
-        controller.putContent('ws-1', 'd1', makeDocFixture()),
+        putContent('ws-1', 'd1', makeDocFixture()),
       ).rejects.toMatchObject({
         constructor: ConflictException,
         response: {
@@ -386,7 +402,7 @@ describe('ApiV1DocsContentController', () => {
       // (and before any Yorkie work) so callers see a clear 400 instead of
       // a 500 thrown from inside the writer.
       await expect(
-        controller.putContent('ws-1', 'd1', {} as never),
+        putContent('ws-1', 'd1', {} as never),
       ).rejects.toMatchObject({
         constructor: BadRequestException,
         message: expect.stringMatching(/'blocks'.*'slides'/),
@@ -398,7 +414,7 @@ describe('ApiV1DocsContentController', () => {
     describe('docs block shape validation', () => {
       function expectReject(body: unknown, messageRe: RegExp) {
         return expect(
-          controller.putContent('ws-1', 'd1', body as never),
+          putContent('ws-1', 'd1', body as never),
         ).rejects.toMatchObject({
           constructor: BadRequestException,
           message: expect.stringMatching(messageRe),
@@ -489,7 +505,7 @@ describe('ApiV1DocsContentController', () => {
           new NotFoundException('sentinel'),
         );
         await expect(
-          controller.putContent('ws-1', 'd1', {
+          putContent('ws-1', 'd1', {
             blocks: [{ id: 'b1', type: 'paragraph', style: {}, inlines: [] }],
           } as never),
         ).rejects.toBeInstanceOf(NotFoundException);
@@ -616,7 +632,7 @@ describe('ApiV1DocsContentController', () => {
     describe('slides body shape validation', () => {
       function expectReject(body: unknown, messageRe: RegExp) {
         return expect(
-          controller.putContent('ws-1', 'd1', body as never),
+          putContent('ws-1', 'd1', body as never),
         ).rejects.toMatchObject({
           constructor: BadRequestException,
           message: expect.stringMatching(messageRe),
@@ -874,7 +890,7 @@ describe('ApiV1DocsContentController', () => {
           new NotFoundException('sentinel'),
         );
         await expect(
-          controller.putContent(
+          putContent(
             'ws-1',
             'd1',
             withGroupChild({
@@ -973,7 +989,7 @@ describe('ApiV1DocsContentController', () => {
           new NotFoundException('sentinel'),
         );
         await expect(
-          controller.putContent(
+          putContent(
             'ws-1',
             'd1',
             withTextElement({
@@ -995,7 +1011,7 @@ describe('ApiV1DocsContentController', () => {
           new NotFoundException('sentinel'),
         );
         await expect(
-          controller.putContent(
+          putContent(
             'ws-1',
             'd1',
             withTextElement({
@@ -1015,7 +1031,7 @@ describe('ApiV1DocsContentController', () => {
           new NotFoundException('sentinel'),
         );
         await expect(
-          controller.putContent(
+          putContent(
             'ws-1',
             'd1',
             withTextElement({
@@ -1140,7 +1156,7 @@ describe('ApiV1DocsContentController', () => {
           }>;
         };
         await expect(
-          controller.putContent('ws-1', 'd1', body as never),
+          putContent('ws-1', 'd1', body as never),
         ).rejects.toBeInstanceOf(NotFoundException);
         const blocks = body.slides[0].elements[0].data.blocks;
         expect(blocks[0].inlines).toEqual([]);
@@ -1162,7 +1178,7 @@ describe('ApiV1DocsContentController', () => {
           slides: Array<{ elements: Array<{ data: { blocks?: unknown } }> }>;
         };
         await expect(
-          controller.putContent('ws-1', 'd1', body as never),
+          putContent('ws-1', 'd1', body as never),
         ).rejects.toBeInstanceOf(NotFoundException);
         expect(body.slides[0].elements[0].data.blocks).toEqual([]);
       });
@@ -1183,7 +1199,7 @@ describe('ApiV1DocsContentController', () => {
           }>;
         };
         await expect(
-          controller.putContent('ws-1', 'd1', body as never),
+          putContent('ws-1', 'd1', body as never),
         ).rejects.toBeInstanceOf(NotFoundException);
         expect(body.slides[0].elements[0].data.blocks[0].style).toEqual({});
       });
@@ -1217,7 +1233,7 @@ describe('ApiV1DocsContentController', () => {
           }>;
         };
         await expect(
-          controller.putContent('ws-1', 'd1', body as never),
+          putContent('ws-1', 'd1', body as never),
         ).rejects.toBeInstanceOf(NotFoundException);
         const [shape, table] = body.slides[0].elements as unknown as [
           { data: { text: { blocks?: unknown } } },
@@ -1273,7 +1289,7 @@ describe('ApiV1DocsContentController', () => {
           }>;
         };
         await expect(
-          controller.putContent('ws-1', 'd1', body as never),
+          putContent('ws-1', 'd1', body as never),
         ).rejects.toBeInstanceOf(NotFoundException);
         const [text, group] = body.slides[0].elements as unknown as [
           { data: { blocks?: unknown } },
@@ -1329,11 +1345,230 @@ describe('ApiV1DocsContentController', () => {
           }>;
         };
         await expect(
-          controller.putContent('ws-1', 'd1', body as never),
+          putContent('ws-1', 'd1', body as never),
         ).rejects.toBeInstanceOf(NotFoundException);
         expect(
           body.slides[0].elements[0].data.rows[0].cells[0].body,
         ).toEqual({ blocks: [] });
+      });
+
+      it("fills in every element type's absent data, not just text", async () => {
+        // The renderer dereferences `element.data` for *every* type
+        // (`element.data.effects?.shadow` in element-renderer.ts), and the
+        // type-specific readers go further: `drawTable` reads
+        // `data.columnWidths.length`, `flattenElements` walks
+        // `data.children`. Repairing text only left those stored crashes.
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        const body = withSlides({
+          slides: [
+            {
+              id: 's1',
+              layoutId: 'l',
+              background: {},
+              elements: [
+                { id: 'e1', type: 'table', frame: {} },
+                { id: 'e2', type: 'group', frame: {} },
+                { id: 'e3', type: 'image', frame: {} },
+              ],
+              notes: [],
+            },
+          ] as unknown as [],
+        }) as { slides: Array<{ elements: Array<{ data?: unknown }> }> };
+        await expect(
+          putContent('ws-1', 'd1', body as never),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        const [table, group, image] = body.slides[0].elements;
+        expect(table.data).toEqual({ rows: [], columnWidths: [] });
+        expect(group.data).toEqual({ children: [] });
+        expect(image.data).toEqual({});
+      });
+
+      it('repairs a table cell style, a null cell and an absent columnWidths', async () => {
+        // Each is read *before* the cell body the previous test repairs:
+        // `paintCellFills` reads `cell.style.fill`, `paddingOf` reads
+        // `cell.style.padding`, `drawTable` reads `data.columnWidths.length`,
+        // and the PDF exporter's `for (const cell of row.cells)
+        // bodies.push(cell.body)` throws on a null cell the canvas renderer
+        // happens to tolerate.
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        const body = withSlides({
+          slides: [
+            {
+              id: 's1',
+              layoutId: 'l',
+              background: {},
+              elements: [
+                {
+                  id: 'e1',
+                  type: 'table',
+                  frame: {},
+                  data: { rows: [{ height: 10, cells: [{ body: {} }, null] }] },
+                },
+              ],
+              notes: [],
+            },
+          ] as unknown as [],
+        }) as {
+          slides: Array<{
+            elements: Array<{
+              data: {
+                columnWidths?: unknown;
+                rows: Array<{ cells: Array<{ style?: unknown; body?: unknown }> }>;
+              };
+            }>;
+          }>;
+        };
+        await expect(
+          putContent('ws-1', 'd1', body as never),
+        ).rejects.toBeInstanceOf(NotFoundException);
+        const data = body.slides[0].elements[0].data;
+        expect(data.columnWidths).toEqual([]);
+        expect(data.rows[0].cells[0].style).toEqual({});
+        expect(data.rows[0].cells[1]).toEqual({ body: { blocks: [] }, style: {} });
+      });
+
+      it('rejects a table cell that is not an object', async () => {
+        // Previously skipped with `continue`, which stored the crashing
+        // shape: an array cell is truthy, so `isCovered(cell)` is false and
+        // `paddingOf(cell)` throws on `cell.style.padding`.
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: [
+                  {
+                    id: 'e1',
+                    type: 'table',
+                    frame: {},
+                    data: { rows: [{ cells: [[]] }] },
+                  },
+                ],
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /elements\[0\]\.data\.rows\[0\]\.cells\[0\].*not an object/,
+        );
+      });
+
+      it("rejects a non-array rows on a table element's data", async () => {
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: [
+                  { id: 'e1', type: 'table', frame: {}, data: { rows: 'lots' } },
+                ],
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /elements\[0\]\.data.*'rows'.*array/,
+        );
+      });
+
+      it("rejects a non-array children on a group element's data", async () => {
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: [
+                  { id: 'e1', type: 'group', frame: {}, data: { children: {} } },
+                ],
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /elements\[0\]\.data.*'children'.*array/,
+        );
+      });
+
+      it('rejects an array as a shape text body and as a table cell body', async () => {
+        // Same reasoning as the text element's `data`: the `blocks` repair on
+        // an array is an expando JSON drops, so the crashing shape would be
+        // stored anyway.
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: [
+                  { id: 'e1', type: 'shape', frame: {}, data: { text: [] } },
+                ],
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /elements\[0\]\.data\.text.*text body must be an object/,
+        );
+        await expectReject(
+          withSlides({
+            slides: [
+              {
+                id: 's1',
+                layoutId: 'l',
+                background: {},
+                elements: [
+                  {
+                    id: 'e1',
+                    type: 'table',
+                    frame: {},
+                    data: { rows: [{ cells: [{ body: [] }] }] },
+                  },
+                ],
+                notes: [],
+              },
+            ] as unknown as [],
+          }),
+          /cells\[0\]\.body.*text body must be an object/,
+        );
+      });
+    });
+
+    describe('API key write scope', () => {
+      const apiKeyReq = (scopes: string[]) =>
+        ({
+          user: { id: '1', workspaceId: 'ws-1', isApiKey: true, scopes },
+        }) as unknown as AuthenticatedRequest;
+
+      it('rejects a read-scoped API key', async () => {
+        // `CombinedAuthGuard` / `WorkspaceScopeGuard` never read `scopes`, so
+        // without this gate a read-only key could destructively replace the
+        // content of every doc, deck and note in the workspace.
+        await expect(
+          putContent('ws-1', 'd1', makeDocFixture(), apiKeyReq(['read'])),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        expect(documentService.getDocumentOrThrow).not.toHaveBeenCalled();
+        expect(yorkieService.withDocument).not.toHaveBeenCalled();
+      });
+
+      it('lets a write-scoped API key through', async () => {
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        await expect(
+          putContent(
+            'ws-1',
+            'd1',
+            makeDocFixture(),
+            apiKeyReq(['read', 'write']),
+          ),
+        ).rejects.toBeInstanceOf(NotFoundException);
       });
     });
   });

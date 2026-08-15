@@ -117,6 +117,17 @@ Root cause — two layers:
       - [x] slides: `export/pptx/color.test.ts` — a `role` outside the closed
             set (`constructor`, `__proto__`, …) emits black, not a
             prototype-chain value or `val="undefined"`
+      - [x] backend: `docs-content.controller.spec.ts` — an absent `data` is
+            repaired per element *type* (`{rows,columnWidths}` / `{children}` /
+            `{}`, not text only), a table cell's `style` and a `null` cell are
+            repaired too, and a non-object cell / non-array `rows` / `children`
+            is rejected rather than skipped
+      - [x] backend: `docs-content.controller.spec.ts` — `PUT /content` is
+            `write`-scope gated, so a read-scoped API key gets a 403 before
+            any Yorkie work
+      - [x] slides: `model/migrate.test.ts` — a `layoutId` of `constructor` /
+            `__proto__` / `toString` migrates to itself, not to a value off
+            `Object.prototype`
 
 ## Scope grown during review
 
@@ -161,20 +172,15 @@ Chain, in the order it was forced:
    cell's whole subtree. Fixing it exposed the sibling `setBlockType`
    splice. See the lessons file.
 
-**Split decision:** deliberately not split. Items 2–6 are each a blocking
-finding's remedy on a chain rooted in #728, and every one of them touches
-either the same color path or the validator that feeds it; landing them
-separately would mean shipping a branch that the review panel already
-rejected, and re-basing five dependent PRs through the same panel. The cost
-is a large diff for a small title, which this section exists to explain.
+**Current state:** not split. Items 2–6 are each a blocking finding's remedy
+on a chain rooted in #728, and every one of them touches either the same color
+path or the validator that feeds it. Splitting them now means re-basing five
+dependent branches through the panel that blocked them. The cost of not
+splitting is a large diff for a small title, which this section records so a
+reader diffing the branch against the issue can see how it grew.
 
-Scope is a **maintainer call, not a lens verdict** — restructuring the branch
-is the one remedy that cannot be applied by an agent acting on a review
-finding, because every candidate split reopens a hop the panel already
-blocked. The decision on record is the maintainer's: land the chain as one
-PR. A reviewer who disagrees should say so on the PR and the branch will be
-split — this paragraph records what was decided, it does not claim the
-question is unarguable, and it is not evidence about the finding's merits.
+Splitting the branch is the open question on this PR and it needs a human
+decision — see the PR description.
 
 ## Acceptance criteria (from the issue)
 

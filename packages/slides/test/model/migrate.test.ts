@@ -34,6 +34,42 @@ describe('migrateDocument', () => {
     expect(out.slides[0].layoutId).toBe('title-slide');
   });
 
+  it('does not resolve a layoutId off Object.prototype', () => {
+    // `layoutId` comes from stored JSON (and from `PUT /content`, which
+    // accepts any non-empty string), so an object-literal lookup would hand
+    // back `Object` / `Object.prototype` / `toString` as the migrated id.
+    const legacy = {
+      meta: { title: 'Old' },
+      slides: ['constructor', '__proto__', 'toString'].map((layoutId, i) => ({
+        id: `s${i}`,
+        layoutId,
+        background: {},
+        elements: [],
+        notes: [],
+      })),
+      layouts: [],
+    } as any;
+    const out = migrateDocument(legacy);
+    expect(out.slides.map((s) => s.layoutId)).toEqual([
+      'constructor',
+      '__proto__',
+      'toString',
+    ]);
+  });
+
+  it('falls back to "blank" for a missing or non-string layoutId', () => {
+    const legacy = {
+      meta: { title: 'Old' },
+      slides: [
+        { id: 's1', background: {}, elements: [], notes: [] },
+        { id: 's2', layoutId: 42, background: {}, elements: [], notes: [] },
+      ],
+      layouts: [],
+    } as any;
+    const out = migrateDocument(legacy);
+    expect(out.slides.map((s) => s.layoutId)).toEqual(['blank', 'blank']);
+  });
+
   it('wraps a legacy string background fill into srgb ThemeColor', () => {
     const legacy = {
       meta: { title: 'Old' },
