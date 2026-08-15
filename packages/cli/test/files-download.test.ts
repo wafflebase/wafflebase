@@ -162,4 +162,21 @@ describe('runFilesDownload', () => {
     expect(writes).toHaveLength(0);
     expect(err.join('')).toContain('NOT_FOUND');
   });
+
+  it('does not report a bodyless success as an upstream error status', async () => {
+    // Routing this through `upstreamErrorJson` would print the status the
+    // response actually carried — `HTTP 200` on a *failure* — which tells an
+    // agent reading stderr the opposite of what happened.
+    const { io, writes, err } = makeIO();
+    const client = {
+      downloadFileDocument: vi
+        .fn()
+        .mockResolvedValue({ ok: true, status: 200, fileName: 'a.zip' }),
+    };
+    const res = await runFilesDownload({ docId: 'doc-1' }, client, io);
+    expect(res.exitCode).toBe(1);
+    expect(writes).toHaveLength(0);
+    expect(err.join('')).toContain('no file content');
+    expect(err.join('')).not.toMatch(/"message":\s*"HTTP 200"/);
+  });
 });

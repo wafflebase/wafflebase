@@ -791,3 +791,158 @@ describe('createImageFetcher (bounded, address-pinned requests)', () => {
     ]);
   });
 });
+
+describe('createImageFetcher (multi-address fallback)', () => {
+  /** A connect-level failure, shaped the way `fetch` reports one. */
+  const refused = () =>
+    Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('connect ECONNREFUSED'), {
+        code: 'ECONNREFUSED',
+      }),
+    });
+
+  it('falls back to the next approved address when the first is unreachable', async () => {
+    // Pinning must not cost what plain `fetch` gives for free: given a name,
+    // it tries every address the resolver returned, so a host whose first
+    // record is dead still loads. Dialling only `addresses[0]` would make
+    // that host fail outright — working before this guard, broken after.
+    const seen: string[] = [];
+    const stubFetch: typeof globalThis.fetch = async (input) => {
+      seen.push(String(input));
+      if (seen.length === 1) throw refused();
+      return new Response(new Uint8Array([9]), { status: 200 });
+    };
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: async () => ['93.184.216.34', '203.0.113.7'],
+    });
+
+    const blob = await fetcher('http://cdn.example.com/a.png');
+    expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([9]);
+    expect(seen).toEqual([
+      'http://93.184.216.34/a.png',
+      'http://203.0.113.7/a.png',
+    ]);
+  });
+
+  it('reports the last failure when every approved address is unreachable', async () => {
+    const stubFetch: typeof globalThis.fetch = async () => {
+      throw refused();
+    };
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: async () => ['93.184.216.34', '203.0.113.7'],
+    });
+
+    await expect(fetcher('http://cdn.example.com/a.png')).rejects.toThrow(
+      /fetch failed/,
+    );
+  });
+
+  it('never dials any address when one of them is non-public', async () => {
+    // The fallback must not become a way to reach an address the guard would
+    // have refused. It cannot: a single non-public address refuses the whole
+    // name, so no address of it is ever dialled — not even the public one.
+    const stubFetch = vi.fn<typeof globalThis.fetch>(
+      async () => new Response(new Uint8Array([1]), { status: 200 }),
+    );
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: async () => ['93.184.216.34', '169.254.169.254'],
+    });
+
+    await expect(fetcher('http://cdn.example.com/a.png')).rejects.toThrow(
+      /non-public address/,
+    );
+    expect(stubFetch).not.toHaveBeenCalled();
+  });
+
+  it('does not retry other addresses after a timeout', async () => {
+    // A refused address fails instantly, so the next one is worth trying. A
+    // hop that burned its whole timeout has spent this image's budget, and
+    // retrying each remaining address would multiply an export's worst-case
+    // wall-clock by the record count.
+    const seen: string[] = [];
+    const stubFetch: typeof globalThis.fetch = async (input) => {
+      seen.push(String(input));
+      throw new DOMException('The operation timed out.', 'TimeoutError');
+    };
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: async () => ['93.184.216.34', '203.0.113.7'],
+    });
+
+    await expect(fetcher('http://cdn.example.com/a.png')).rejects.toThrow(
+      /timed out/,
+    );
+    expect(seen).toEqual(['http://93.184.216.34/a.png']);
+  });
+
+  it('dials at most four addresses however many the resolver returns', async () => {
+    const seen: string[] = [];
+    const stubFetch: typeof globalThis.fetch = async (input) => {
+      seen.push(String(input));
+      throw refused();
+    };
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: async () => [
+        '93.184.216.1',
+        '93.184.216.2',
+        '93.184.216.3',
+        '93.184.216.4',
+        '93.184.216.5',
+        '93.184.216.6',
+      ],
+    });
+
+    await expect(fetcher('http://cdn.example.com/a.png')).rejects.toThrow();
+    expect(seen).toHaveLength(4);
+  });
+
+  it('carries the original name in Host on every fallback attempt', async () => {
+    const hosts: (string | undefined)[] = [];
+    const stubFetch: typeof globalThis.fetch = async (_input, init) => {
+      hosts.push(new Headers(init?.headers).get('host') ?? undefined);
+      if (hosts.length === 1) throw refused();
+      return new Response(new Uint8Array([1]), { status: 200 });
+    };
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: async () => ['93.184.216.34', '203.0.113.7'],
+    });
+
+    await fetcher('http://cdn.example.com/a.png');
+    expect(hosts).toEqual(['cdn.example.com', 'cdn.example.com']);
+  });
+
+  it('still dials https once, by name', async () => {
+    // https is never pinned, so multiple addresses change nothing about it.
+    const seen: string[] = [];
+    const stubFetch: typeof globalThis.fetch = async (input) => {
+      seen.push(String(input));
+      return new Response(new Uint8Array([1]), { status: 200 });
+    };
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: async () => ['93.184.216.34', '203.0.113.7'],
+    });
+
+    await fetcher('https://cdn.example.com/a.png');
+    expect(seen).toEqual(['https://cdn.example.com/a.png']);
+  });
+});

@@ -1170,12 +1170,26 @@ outside the process:
   check whose answer is thrown away is a check-then-connect race: `fetch`
   resolves the name a second time, so a resolver the attacker controls can
   answer publicly for the check and `169.254.169.254` for the connection. An
-  `http:` hop is therefore dialled at the approved address with the original
-  name in the `Host` header (`pinnedUrl`), so the address checked is the
-  address connected to and virtual hosts keep resolving. `https:` is dialled
-  by name — an IP literal has no SNI and no matching certificate — and leans
-  on TLS instead: a rebound internal host would have to present a valid
-  certificate for the attacker's name.
+  `http:` hop is therefore dialled at the approved addresses (`pinnedUrls`),
+  so the address checked is the address connected to. *Every* approved address
+  is carried, not just the first, and a hop walks them in order (up to four):
+  given a name, `fetch` tries each address the resolver returned, so a host
+  whose first record is unreachable still loads, and pinning must not quietly
+  take that away. It widens nothing — a single non-public address refuses the
+  whole name, so the fallback only ever moves between approved addresses. Only
+  a connect-level failure moves to the next; a timeout is not retried, or one
+  slow host would multiply the export's worst case by its record count.
+  `https:` is dialled by name — an IP literal has no SNI and no matching
+  certificate — and leans on TLS instead: a rebound internal host would have
+  to present a valid certificate for the attacker's name.
+  **Known limitation:** the pinned request sends the document's host in a
+  `host` header so name-based virtual hosts keep resolving, but `host` is a
+  forbidden header name and Node's `fetch` (undici) drops it — a pinned
+  request arrives as `Host: <ip>`, so a plain-`http:` public host that serves
+  by name gets the wrong site. Preserving it needs a dispatcher-level
+  `connect` hook that pins the socket while leaving the URL as the name.
+  Until then the rebinding race is closed at the cost of vhost routing, on
+  that path only.
   Every hop is also bounded — a 30 s timeout and a 25 MB body cap (the
   backend's own image upload limit), checked against the declared
   `Content-Length` first and then against the stream, since the header is a
@@ -1187,6 +1201,14 @@ outside the process:
   relationship that was never written). One image the user cannot fix must not
   cost them the export they asked for — which is also what keeps a document
   full of URLs from an origin this install cannot reach exportable.
+  Two caveats worth stating plainly. The `catch` spans the decode and embed
+  calls as well as the fetch, so undecodable bytes are dropped as quietly as a
+  refused host. And `collectAndEmbedImages` lives in `@wafflebase/docs`, so the
+  *browser* PDF/DOCX exporters inherit the same swallow, where there is no
+  SSRF guard to make a refusal ordinary and a failing image previously failed
+  loudly. `collectAndEmbedImages` takes an `onImageError` reporter for exactly
+  this, but only the `console.warn` default is wired; surfacing dropped images
+  in the browser export UI is follow-up work.
 
 The rule is not CLI-only. The frontend talks to the same API with the user's
 session, and interpolates route-param ids the same way, so it carries the same

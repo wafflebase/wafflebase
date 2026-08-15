@@ -312,11 +312,14 @@ const defaultLookup: HostLookup = async (hostname) => {
  * The addresses it validated are *returned*, not thrown away, because a check
  * whose answer is discarded is a check-then-connect race: `fetch` resolves the
  * name a second time, so a resolver the attacker controls can answer publicly
- * here and with `169.254.169.254` a millisecond later. `pinnedUrl` (below)
- * closes that for `http:` by dialling the address this function approved and
- * carrying the original name in the `Host` header, so the address checked is
- * the address connected to. `https:` is dialled by name — an IP literal has no
- * SNI and no matching certificate — and is left to TLS: a rebound internal
+ * here and with `169.254.169.254` a millisecond later. `pinnedUrls` (below)
+ * closes that for `http:` by dialling the addresses this function approved, so
+ * the address checked is the address connected to. *Every* approved address is
+ * returned rather than only the first, so pinning keeps the multi-address
+ * fallback a plain `fetch` would have done; a single non-public address
+ * refuses the whole name above, so every address handed back is one this
+ * function already approved. `https:` is dialled by name — an IP literal has
+ * no SNI and no matching certificate — and is left to TLS: a rebound internal
  * host would have to present a valid certificate for the attacker's name.
  *
  * A name that cannot be resolved is refused rather than fetched: `fetch` would
@@ -363,22 +366,55 @@ export async function assertResolvedHostIsPublic(
 }
 
 /**
- * Rewrite an `http:` URL to dial one of the addresses the guard just approved,
- * so DNS cannot answer differently between the check and the connection. The
- * caller sends the original `Host` header alongside, which is what keeps
- * name-based virtual hosts and the server's own routing working.
+ * How many of the approved addresses one hop will try before giving up. A name
+ * can advertise more A/AAAA records than are worth dialling, and each attempt
+ * costs a connection; four is around what a happy-eyeballs client would
+ * realistically work through.
+ */
+const MAX_DIAL_ADDRESSES = 4;
+
+/**
+ * Rewrite an `http:` URL into one dial target per address the guard just
+ * approved, so DNS cannot answer differently between the check and the
+ * connection.
+ *
+ * A *list*, not a single address, because `fetch` given a name tries every
+ * address the resolver returned before it reports a failure — a host whose
+ * first record is unreachable still loads. Pinning to `addresses[0]` alone
+ * would throw that away and make such a host fail outright where plain `fetch`
+ * succeeds, so the caller walks the list the same way.
+ *
+ * That widens nothing: `assertResolvedHostIsPublic` refuses the *whole* name
+ * when any one of its addresses is non-public, so every entry here has already
+ * passed the check. Falling back can only move between approved addresses; it
+ * is never a route to one the guard refused.
  *
  * Returns the URL unchanged when there is nothing to pin: `https:` (dialled by
  * name so the certificate can be validated), `data:`, an IP literal, or a host
  * the operator exempted — all of which hand back no addresses.
  */
-function pinnedUrl(target: string, addresses: string[]): string {
-  if (addresses.length === 0) return target;
-  const url = new URL(target);
-  if (url.protocol !== 'http:') return target;
-  const address = addresses[0];
-  url.hostname = address.includes(':') ? `[${address}]` : address;
-  return url.toString();
+function pinnedUrls(target: string, addresses: string[]): string[] {
+  if (addresses.length === 0) return [target];
+  if (new URL(target).protocol !== 'http:') return [target];
+  return addresses.slice(0, MAX_DIAL_ADDRESSES).map((address) => {
+    const url = new URL(target);
+    url.hostname = address.includes(':') ? `[${address}]` : address;
+    return url.toString();
+  });
+}
+
+/**
+ * Whether a rejected fetch ran out of time rather than failing to connect.
+ *
+ * The distinction decides whether the next address is worth trying: a refused
+ * or unreachable address fails immediately and the one after it may well
+ * answer, but a hop that burned its whole timeout has spent this image's
+ * budget, and retrying each remaining address would multiply an export's
+ * worst-case wall-clock by the record count.
+ */
+function isTimeout(error: unknown): boolean {
+  const name = (error as { name?: unknown } | null)?.name;
+  return name === 'TimeoutError' || name === 'AbortError';
 }
 
 /**
@@ -394,8 +430,10 @@ function pinnedUrl(target: string, addresses: string[]): string {
  * `resolveImageUrl` and are then gated — by `assertFetchableImageUrl` on the
  * URL and `assertResolvedHostIsPublic` on what its host resolves to — before
  * the first request and again on every redirect target, with the approved
- * address pinned into the `http:` connection so DNS cannot change its answer
- * in between.
+ * addresses pinned into the `http:` connection so DNS cannot change its answer
+ * in between. A hop walks those addresses in order, so a name whose first
+ * record is unreachable still loads, exactly as it would through plain
+ * `fetch`.
  *
  * Every hop is also bounded: `timeoutMs` per request and `maxBytes` on the
  * body, because which host is dialled and how much it sends are both decided
@@ -409,8 +447,8 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
   const timeoutMs = opts.timeoutMs ?? DEFAULT_IMAGE_TIMEOUT_MS;
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_IMAGE_BYTES;
 
-  /** Check a hop and return the URL to actually dial (address-pinned). */
-  const guard = async (target: string): Promise<string> => {
+  /** Check a hop and return the URLs to actually dial (address-pinned). */
+  const guard = async (target: string): Promise<string[]> => {
     assertFetchableImageUrl(target, opts.serverBase, allowedHosts);
     const addresses = await assertResolvedHostIsPublic(
       target,
@@ -418,12 +456,51 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
       allowedHosts,
       lookup,
     );
-    return pinnedUrl(target, addresses);
+    return pinnedUrls(target, addresses);
+  };
+
+  /**
+   * Send one hop, walking the approved addresses until one answers.
+   *
+   * Only a connect-level failure moves on — that is the case `fetch`'s own
+   * multi-address fallback exists for. A timeout is rethrown as-is (see
+   * `isTimeout`), and so is anything a response itself causes: once a server
+   * has answered, this hop is decided, whatever the status.
+   */
+  const dialOnce = async (
+    dials: string[],
+    current: string,
+  ): Promise<Response> => {
+    // `host` is only sent when the dial URL was pinned to an address, so the
+    // request names the host the document named rather than the bare address.
+    // Node's `fetch` (undici) drops it — `host` is a forbidden header name —
+    // so on that runtime a pinned request still arrives as `Host: <ip>` and a
+    // name-based virtual host serves the wrong site. It is sent anyway because
+    // it costs nothing and is correct wherever it *is* honoured; preserving it
+    // on undici needs a dispatcher-level `connect` hook, which would pin the
+    // socket while leaving the URL (and so the Host) as the name. Until then
+    // this trades vhost routing on plain-`http:` public hosts for closing the
+    // rebinding race, and only on that path: `https:` is never pinned.
+    const host = new URL(current).host;
+    let lastError: unknown;
+    for (const dial of dials) {
+      try {
+        return await fetchImpl(dial, {
+          redirect: 'manual',
+          signal: AbortSignal.timeout(timeoutMs),
+          ...(dial === current ? {} : { headers: { host } }),
+        });
+      } catch (error) {
+        if (isTimeout(error)) throw error;
+        lastError = error;
+      }
+    }
+    throw lastError;
   };
 
   return async (url: string): Promise<Blob> => {
     const resolved = resolveImageUrl(url, opts.serverBase);
-    let dial = await guard(resolved);
+    let dials = await guard(resolved);
 
     // `redirect: 'manual'` moves the hop into this loop so the guard runs on
     // every target. Left to `fetch`, an allowed public host could answer
@@ -431,16 +508,7 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
     // instance-metadata endpoint with no check in between.
     let current = resolved;
     for (let hop = 0; ; hop++) {
-      // `host` is only sent when the dial URL was pinned to an address — the
-      // request then carries the name the document actually named, so virtual
-      // hosts keep resolving to the right site.
-      const res = await fetchImpl(dial, {
-        redirect: 'manual',
-        signal: AbortSignal.timeout(timeoutMs),
-        ...(dial === current
-          ? {}
-          : { headers: { host: new URL(current).host } }),
-      });
+      const res = await dialOnce(dials, current);
 
       // A browser answers a `manual` redirect with an *opaque-redirect*
       // response: status 0, no headers, no body. Node's `fetch` (undici)
@@ -479,7 +547,7 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
       // Relative `Location`s resolve against the *named* URL, never the
       // address-pinned one, so a redirect can't smuggle the pin into the name.
       const next = new URL(location, current).toString();
-      dial = await guard(next);
+      dials = await guard(next);
       current = next;
     }
   };

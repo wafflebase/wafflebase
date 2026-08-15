@@ -69,8 +69,27 @@ export async function runFilesDownload(
   const { docId, out, force = false, quiet = false } = args;
 
   const res = await client.downloadFileDocument(docId);
-  if (!res.ok || !res.bytes) {
+  if (!res.ok) {
     io.stderr(upstreamErrorJson(res));
+    return { exitCode: 1 };
+  }
+  // A response that succeeded but carried no body is still a failure, but not
+  // an upstream *error* — routing it through `upstreamErrorJson` would report
+  // the success status it came back with (`HTTP 200`), which tells an agent
+  // the opposite of what happened. Say what is actually wrong instead.
+  if (!res.bytes) {
+    io.stderr(
+      JSON.stringify(
+        {
+          error: {
+            code: 'HTTP_ERROR',
+            message: `HTTP ${res.status} carried no file content for document ${docId}`,
+          },
+        },
+        null,
+        2,
+      ),
+    );
     return { exitCode: 1 };
   }
 

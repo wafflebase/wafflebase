@@ -116,3 +116,47 @@
   `seg()` throw becomes a rejected query and redirects before that layout
   mounts, and the other call site is handed a server-resolved id. Trace
   the path to the render, not just the shape of the call.
+- Pinning a checked address must keep what plain `fetch` did. Given a
+  name, `fetch` tries every address the resolver returned, so a host
+  whose first record is unreachable still loads. `pinnedUrl` collapsed
+  the approved set to `addresses[0]`, which quietly turned that
+  multi-address fallback off: a host that worked before the guard failed
+  outright after it. Pinning to close a check-then-connect race is right,
+  but the pin has to carry the *whole* approved set, and the guard is
+  what makes that safe — `assertResolvedHostIsPublic` refuses the entire
+  name when any one address is non-public, so every address the fallback
+  can reach is one already approved. The invariant is worth its own test,
+  and that test passes both before and after the fix, which is exactly
+  what a guard-preservation test should do.
+- A retry loop needs a rule for which failures are worth retrying. A
+  refused address fails instantly and the next may answer; a hop that
+  burned its whole timeout has already spent the image's budget, and
+  retrying each remaining address would multiply an export's worst-case
+  wall-clock by the record count. Distinguishing the two (`isTimeout`)
+  is what keeps the fix from trading a broken host for a slow export.
+- Verify a header is actually sent before documenting it as a
+  guarantee. The pinned request set `headers: { host }` and the comment
+  claimed it "keeps name-based virtual hosts working" — but `host` is a
+  forbidden header name, and a 12-line local server proved Node 22's
+  fetch drops it silently (the server saw `Host: 127.0.0.1:<port>`, not
+  the name). Preserving it on undici needs a dispatcher-level `connect`
+  hook. The comment now records the real trade-off — vhost routing on
+  plain-`http:` public hosts, given up to close the rebinding race, and
+  only on that path — instead of asserting something the runtime does
+  not do.
+- A success status is not a success. `files download` routed
+  `ok && !bytes` through `upstreamErrorJson`, which prints the status the
+  response carried — `HTTP 200` on a failure. Unreachable through the
+  shipped client, but `runFilesDownload` takes an injected client, and an
+  error message that contradicts itself costs an agent more than the
+  branch costs to write.
+- Swallowing a per-item failure is a product decision, so scope it to
+  the failure that motivated it. The SSRF guard makes a *refused fetch*
+  an ordinary outcome, which is a good reason not to fail a whole export
+  over one image — but the `try` was drawn around the decode and embed
+  calls too, so undecodable bytes and a missing Canvas now vanish just as
+  quietly, and the browser exporters (which have no SSRF guard and used
+  to fail loudly) inherited it. `collectAndEmbedImages` takes an
+  `onImageError` seam; nothing but `console.warn` uses it yet, so a
+  browser export still drops content with no user-visible signal. Left
+  as a known limitation with the seam in place, not widened further.
