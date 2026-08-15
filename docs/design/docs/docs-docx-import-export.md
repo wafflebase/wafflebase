@@ -437,6 +437,7 @@ converter that can fail closed:
 |------|-----------|------------------|
 | `<w:color w:val>`, `<w:shd w:fill>` (run + cell) | `toRgbHexColor` (`model/color.ts`, DOCX-facing alias `toDocxHexColor`) | attribute dropped; the run/cell inherits the document default |
 | `<w:jc w:val>` | `DOCX_ALIGNMENTS` lookup | falls back to the `left` default (no element emitted) |
+| `<w:pStyle w:val="HeadingN">` | `toHeadingStyleId` (integer 1–6) | element dropped; the paragraph exports unstyled |
 | `<w:rFonts w:ascii/@w:eastAsia>` | `escapeXmlAttr` | escaped, never dropped (any family name is legal) |
 
 `toRgbHexColor` accepts `#RGB`, `#RRGGBB`, `#RRGGBBAA` and `rgb()`/`rgba()`,

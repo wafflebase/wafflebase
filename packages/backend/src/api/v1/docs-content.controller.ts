@@ -701,6 +701,7 @@ function assertValidSlideBlocks(blocks: unknown, path: string): void {
         'string',
       );
     }
+    assertValidSlideInlines(block.inlines, `${path}[${i}]`);
     // A docs table block inside a slide text body holds blocks of its own.
     const rows = (block.tableData as { rows?: unknown } | undefined)?.rows;
     if (!Array.isArray(rows)) continue;
@@ -715,6 +716,55 @@ function assertValidSlideBlocks(blocks: unknown, path: string): void {
           `${path}[${i}].tableData.rows[${r}].cells[${c}]`,
         );
       }
+    }
+  }
+}
+
+/**
+ * Validate the inline runs of a `Block` stored inside a deck.
+ *
+ * The docs layout engine is shared: `packages/docs` `measureInlines` /
+ * `layoutBlock` read `inline.text.length` and spread `inline.style`
+ * unconditionally, and slides runs every text body through it
+ * (`computeLayout`) for canvas rendering, PDF export and PPTX export alike.
+ * Slide text bodies are persisted verbatim as JSON by `writeSlidesRoot` — no
+ * codec normalizes them on read — so a stored `inlines[i]` whose `text` is
+ * missing or non-string throws for *every* viewer of that deck, not just the
+ * caller who PUT it. The docs arm guards the identical `Block` shape at
+ * `assertValidBlock`; this is the slides-side counterpart.
+ *
+ * Tolerances match the rest of the slides walk: `inlines` may legitimately be
+ * absent (an empty placeholder body, a deck predating the field), so only a
+ * *present* value is held to the contract — an array of objects each carrying
+ * string `text`, and an object `style` when it has one at all.
+ */
+function assertValidSlideInlines(inlines: unknown, path: string): void {
+  if (inlines === undefined || inlines === null) return;
+  if (!Array.isArray(inlines)) {
+    throw new BadRequestException(
+      `Invalid block at ${path}: 'inlines' must be an array`,
+    );
+  }
+  for (let i = 0; i < inlines.length; i++) {
+    const inline = inlines[i] as { text?: unknown; style?: unknown } | null;
+    if (!inline || typeof inline !== 'object') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: not an object`,
+      );
+    }
+    if (typeof inline.text !== 'string') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: 'text' must be a string`,
+      );
+    }
+    if (
+      inline.style !== undefined &&
+      inline.style !== null &&
+      typeof inline.style !== 'object'
+    ) {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: 'style' must be an object`,
+      );
     }
   }
 }

@@ -119,10 +119,20 @@ export function xfrmXml(frame: Frame): string {
   );
 }
 
-const DASH_VAL: Record<string, string> = {
-  dashed: 'dash',
-  dotted: 'sysDot',
-};
+/**
+ * `Stroke.dash` → OOXML `<a:prstDash val>` (`ST_PresetLineDashVal`).
+ *
+ * A `Map`, not an object literal, for the same reason as {@link PRST_BY_KIND}:
+ * `stroke.dash` is persisted JSON that the content PUT API lets a caller set to
+ * any string, and an object lookup consults the prototype chain — a dash of
+ * `constructor` would resolve to an inherited `Object.prototype` member,
+ * survive the `?? 'dash'` fallback and be stringified into the attribute.
+ * `Map.get` only ever returns an own entry.
+ */
+const DASH_VAL = new Map<string, string>([
+  ['dashed', 'dash'],
+  ['dotted', 'sysDot'],
+]);
 
 /**
  * Serialize a {@link Stroke} to an `<a:ln>` element, or `''` if absent.
@@ -140,7 +150,7 @@ export function lineXml(
   const fill = solidFillXml(colorFromStringOrTheme(stroke.color));
   const dash =
     stroke.dash && stroke.dash !== 'solid'
-      ? `<a:prstDash val="${DASH_VAL[stroke.dash] ?? 'dash'}"/>`
+      ? `<a:prstDash val="${DASH_VAL.get(stroke.dash) ?? 'dash'}"/>`
       : '';
   const head = arrowXml('headEnd', arrowheads?.start);
   const tail = arrowXml('tailEnd', arrowheads?.end);

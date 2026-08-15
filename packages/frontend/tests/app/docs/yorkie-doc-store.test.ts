@@ -1966,6 +1966,37 @@ describe('YorkieDocStore', () => {
       expect(result.type).toBe('heading');
       expect(result.headingLevel).toBe(3);
     });
+
+    // Removing the stale type attributes over a path range would span the
+    // block's whole subtree, so retyping a table block would also strip
+    // `listKind`/`listLevel`/`headingLevel` from every block nested in its
+    // cells. The removal must hit the table node alone — read back through a
+    // fresh store to bypass the cache.
+    it('should not strip list/heading attrs from blocks nested in its cells', () => {
+      const tableBlock = createTableBlock(1, 2);
+      const listCellBlock = tableBlock.tableData!.rows[0].cells[0].blocks[0];
+      listCellBlock.type = 'list-item';
+      listCellBlock.listKind = 'ordered';
+      listCellBlock.listLevel = 1;
+      listCellBlock.inlines = [{ text: 'Item', style: {} }];
+      const headingCellBlock = tableBlock.tableData!.rows[0].cells[1].blocks[0];
+      headingCellBlock.type = 'heading';
+      headingCellBlock.headingLevel = 2;
+      headingCellBlock.inlines = [{ text: 'Title', style: {} }];
+      store.setDocument({ blocks: [tableBlock] });
+
+      // Retyping the table block clears headingLevel/listKind/listLevel — the
+      // attributes the nested cell blocks legitimately carry.
+      store.setBlockType(tableBlock.id, 'table');
+
+      const fresh = new YorkieDocStore(doc).getDocument();
+      const cells = fresh.blocks[0].tableData!.rows[0].cells;
+      expect(cells[0].blocks[0].type).toBe('list-item');
+      expect(cells[0].blocks[0].listKind, 'nested listKind should survive').toBe('ordered');
+      expect(cells[0].blocks[0].listLevel, 'nested listLevel should survive').toBe(1);
+      expect(cells[1].blocks[0].type).toBe('heading');
+      expect(cells[1].blocks[0].headingLevel, 'nested headingLevel should survive').toBe(2);
+    });
   });
 
   describe('applyBlockStyle', () => {

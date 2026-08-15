@@ -123,6 +123,27 @@ const DOCX_ALIGNMENTS = new Map<string, string>([
 ]);
 
 /**
+ * `Block.headingLevel` → the `HeadingN` style id `<w:pStyle w:val>` carries.
+ *
+ * `headingLevel` is typed as `HeadingLevel` (1–6) but reaches this exporter as
+ * whatever was persisted into the CRDT (DOCX/PPTX import, the content PUT API,
+ * an older schema), exactly like `alignment` and the colors below — and both
+ * CRDT readers coerce it with `Number(...)`, which yields `NaN` rather than
+ * failing, so nothing upstream guarantees a value in range. Interpolating it
+ * raw would let a hostile string close the attribute and inject its own
+ * WordprocessingML into the exported `.docx`. Resolve it to one of the six
+ * built-in `HeadingN` style ids Word knows (matching `HeadingLevel`), or to
+ * `undefined` so the caller drops the element and the paragraph exports
+ * unstyled rather than broken.
+ */
+function toHeadingStyleId(headingLevel: number | undefined): string | undefined {
+  if (headingLevel === undefined) return undefined;
+  const n = Number(headingLevel);
+  if (!Number.isInteger(n) || n < 1 || n > 6) return undefined;
+  return `Heading${n}`;
+}
+
+/**
  * Build <w:pPr>...</w:pPr> XML from BlockStyle.
  */
 export function buildParagraphPropertiesXml(
@@ -131,8 +152,9 @@ export function buildParagraphPropertiesXml(
 ): string {
   const parts: string[] = [];
 
-  if (headingLevel) {
-    parts.push(`<w:pStyle w:val="Heading${headingLevel}"/>`);
+  const headingStyleId = toHeadingStyleId(headingLevel);
+  if (headingStyleId) {
+    parts.push(`<w:pStyle w:val="${headingStyleId}"/>`);
   }
 
   // `BlockStyle.alignment` is typed, but the value reaching an exporter is
