@@ -71,6 +71,18 @@ interface Overlay {
 }
 let overlay: Overlay | null = null;
 
+/**
+ * Teardown for the animation frames `installPicker` schedules.
+ *
+ * `AbortController` covers listeners and `observers` covers the observers, but the
+ * repaint rAF and the transition tracker are closures inside `installPicker` and
+ * were reachable from neither — so a scroll or a running transition left a frame
+ * queued that fired after `disposePicker`. Measured: overlays reappeared in a
+ * disposed document by both routes, while disposing with nothing pending stayed
+ * clean.
+ */
+let cancelFrames: (() => void) | null = null;
+
 let picking = true;
 let selectedId: string | null = null;
 let hoverId: string | null = null;
@@ -202,21 +214,29 @@ function elementsFor(id: string): HTMLElement[] {
   ];
 }
 
-/** Build the host-facing reference for one stamped element. */
+/**
+ * Build the host-facing reference for one stamped element.
+ *
+ * PARSED BY `parseStampId`, not by a copy of it. This re-implemented that parsing
+ * and left out its validation, so a malformed `data-wb-node` — a stale attribute a
+ * consumer component forwards, a hand-edited DOM — produced `path: [NaN]` and an id
+ * matching no element: `instances: 0`, an overlay that silently never drew, and
+ * `NaN` travelling to the host as an anchor hint (`postMessage` preserves it).
+ * `selectableIds()` published the phantom too.
+ */
 function refFor(el: HTMLElement): StampRef | null {
   const raw = el.dataset.wbNode;
   const file = el.dataset.wbFile;
   const fp = el.dataset.wbFp;
   if (!raw || !file || !fp) return null;
-  const colon = raw.lastIndexOf(':');
-  if (colon <= 0) return null;
-  const tail = raw.slice(colon + 1);
-  const path = tail === '' ? [] : tail.split('.').map(Number);
-  const id = stampId(file, raw.slice(0, colon), path);
+  // `${file}#${raw}` IS the combined form `stampId` emits, so the inverse applies.
+  const parsed = parseStampId(`${file}#${raw}`);
+  if (!parsed) return null;
+  const id = stampId(file, parsed.component, parsed.path);
   return {
     id,
-    component: raw.slice(0, colon),
-    path,
+    component: parsed.component,
+    path: parsed.path,
     fp,
     file,
     tag: el.tagName.toLowerCase(),
@@ -264,14 +284,44 @@ function stampChainAt(target: EventTarget | null): HTMLElement[] {
  * the outline stays exactly where it was while the thing it outlines slides away.
  */
 let subjectObserver: ResizeObserver | null = null;
+let observedSubjects: HTMLElement[] = [];
 
+/**
+ * RE-OBSERVING IS NOT FREE, AND IT IS A LOOP. `observe()` starts a fresh
+ * observation whose `lastReportedSize` is (0,0), so a rendered element of any
+ * non-zero size is immediately "active" and the callback fires on the next frame
+ * with no size change at all. The callback is `repaint`, `repaint` runs `paint()`,
+ * and `paint()` ended by re-observing — so anything being selected pinned the frame
+ * into a permanent per-frame cycle, each turn reading `getBoundingClientRect()` for
+ * every rendered instance. That is exactly the runaway the `isOurs` filter guards
+ * the MutationObserver against; the ResizeObserver path never got the same
+ * treatment. Skipping an unchanged set breaks the cycle at its source.
+ *
+ * jsdom implements no ResizeObserver, so no test here can observe the loop itself —
+ * what the suite pins is that an unchanged set does not re-observe.
+ */
 function observeSubjects(els: HTMLElement[]) {
   if (!subjectObserver) return;
+  if (els.length === observedSubjects.length && els.every((el, i) => el === observedSubjects[i])) {
+    return;
+  }
   subjectObserver.disconnect();
   for (const el of els) subjectObserver.observe(el);
+  observedSubjects = els;
 }
 
 function paint() {
+  // NOTHING PAINTS AFTER TEARDOWN. `paint()` is the single point every repaint route
+  // funnels through — the scroll/resize rAF, the transition tracker, both observers —
+  // and `ensureOverlay()` is its first statement, so a stray call BUILDS AND APPENDS
+  // a fresh overlay into a document that was disposed. The next `installPicker` then
+  // painted into a root the following teardown had detached, and drew nothing.
+  //
+  // This one check is what the suite proves covers BOTH routes; reverting it fails
+  // the transition-tracker case while `cancelFrames` still covers the scroll one. One
+  // lifecycle test at the funnel beats a guard per route, which is the same reason
+  // the duck-typed `isOurs` guard came out.
+  if (!started) return;
   const o = ensureOverlay();
 
   // Picking OFF means the frame is being USED, not inspected. Keeping the box up
@@ -505,6 +555,22 @@ export function installPicker({ send }: PickerOptions): void {
     window.requestAnimationFrame(step);
   };
 
+  // NOT COVERED BY THE SUITE. Reverting this call changes no test: the `!started`
+  // check in `paint()` already makes every post-dispose frame inert, by both routes.
+  // What it adds is not observable through this module's surface — the tracker stops
+  // re-scheduling itself for the rest of its window instead of burning frames that
+  // paint nothing, and a frame queued before dispose cannot survive into a
+  // re-install, where `started` is true again and the stale closure would paint
+  // against fresh state. Kept because releasing scheduled work is the same
+  // obligation as releasing listeners and observers, which `disposePicker` already
+  // meets; recorded as unproven rather than implied.
+  cancelFrames = () => {
+    if (queued) window.cancelAnimationFrame(queued);
+    queued = 0;
+    trackUntil = 0;
+    tracking = false;
+  };
+
   for (const type of ['transitionrun', 'transitionstart', 'animationstart'] as const) {
     window.addEventListener(type, () => trackFor(400), { capture: true, signal });
   }
@@ -609,11 +675,16 @@ export function installPicker({ send }: PickerOptions): void {
 export function disposePicker(): void {
   abort?.abort();
   abort = null;
+  // Before `started = false`, so a frame that fires between the two still finds
+  // `paint()` willing — and after it, nothing can be scheduled at all.
+  cancelFrames?.();
+  cancelFrames = null;
   for (const o of observers) o.disconnect();
   observers = [];
   overlay?.root.remove();
   overlay = null;
   subjectObserver = null;
+  observedSubjects = [];
   resetCycle();
   selectedId = null;
   hoverId = null;
@@ -655,8 +726,28 @@ export function applyTokenVars(vars: Record<string, string>, darkSelector = '.da
   // dark blocks in the project's own stylesheet. Both selectors are emitted because
   // the frame can be in either theme and the host sends the values for the theme it
   // is showing.
-  const body = entries.map(([k, v]) => `  ${k}: ${v};`).join('\n');
-  style.textContent = `:root {\n${body}\n}\n${darkSelector} {\n${body}\n}\n`;
+  //
+  // EMPTY RULES FIRST, THEN `setProperty` — not one interpolated string. A token
+  // value is free text from the editor's own value field, so a single `}` mid-typing
+  // (or pasted) terminated the rule: the parser then read the rest as garbage and
+  // dropped every later declaration AND the whole dark block, leaving the preview
+  // showing on-disk colours for tokens the user had definitely staged. Measured
+  // against a real CSS parser: 1 of 4 declarations survived. Going through the CSSOM
+  // parses per declaration, so a bad value costs only itself and the two blocks
+  // always exist.
+  //
+  // A `null` sheet means the element is not in a document — nothing to fill, and no
+  // reason to throw over it. Note jsdom does NOT validate custom-property values, so
+  // the suite pins the structural property (both blocks survive, the other tokens
+  // apply) rather than the per-declaration rejection a browser adds on top.
+  style.textContent = `:root {}\n${darkSelector} {}\n`;
+  const sheet = style.sheet;
+  if (!sheet) return;
+  for (const rule of sheet.cssRules) {
+    const decl = (rule as CSSStyleRule).style;
+    if (!decl) continue;
+    for (const [k, v] of entries) decl.setProperty(k, v);
+  }
 }
 
 /** Ids of every stamp that actually reached the DOM (the `clickSelectable` fix). */
@@ -674,12 +765,21 @@ export function selectableIds(): string[] {
  *
  * Skips the overlay: its classes are the editor's, not the scene's, and feeding
  * them back would have the host register candidates for its own furniture.
+ *
+ * READ THE ATTRIBUTE, NOT `className`. `[class]` matches SVG too, and on an SVG
+ * element `className` is an `SVGAnimatedString` — `.toString()` on it yields
+ * `'[object SVGAnimatedString]'`, which split to the two junk candidates `[object`
+ * and `SVGAnimatedString]` while every real class was lost. That is every
+ * lucide-react icon in the scene, and a runtime-composed class on one then had no
+ * rule generated and rendered unstyled, which is the exact failure this function
+ * exists to prevent. `Element`, not `HTMLElement`, for the same reason: an SVG is
+ * not an `HTMLElement`.
  */
 export function renderedClasses(): string[] {
   const seen = new Set<string>();
-  for (const el of document.querySelectorAll<HTMLElement>('[class]')) {
+  for (const el of document.querySelectorAll<Element>('[class]')) {
     if (el.closest('[data-wb-overlay]')) continue;
-    for (const c of el.className.toString().split(/\s+/)) if (c) seen.add(c);
+    for (const c of (el.getAttribute('class') ?? '').split(/\s+/)) if (c) seen.add(c);
   }
   return [...seen];
 }

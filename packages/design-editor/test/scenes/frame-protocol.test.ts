@@ -89,6 +89,26 @@ describe('stampId', () => {
       expect(parseStampId(bad), bad).toBeNull();
     }
   });
+
+  it('rejects a segment that is not digits, where `Number` was permissive', () => {
+    // `Number('')` is 0, so an empty segment parsed as index 0 and the id resolved to
+    // a real but DIFFERENT node — selected, scrolled to and measured, which is the
+    // wrong anchor the list above exists to rule out. Ids arrive from the host over
+    // `postMessage`, so this is reachable without a stamper bug.
+    for (const bad of [
+      'a.tsx#Page:0.', // trailing separator
+      'a.tsx#Page:.0', // leading separator
+      'a.tsx#Page:0..1', // doubled separator
+      'a.tsx#Page:1e2', // an integer to `Number`, not a path index
+      'a.tsx#Page: 1', // whitespace `Number` would trim
+      'a.tsx#Page:+1',
+    ]) {
+      expect(parseStampId(bad), bad).toBeNull();
+    }
+    // The shape `stampId` actually emits still round-trips.
+    expect(parseStampId('a.tsx#Page:0.12.3')?.path).toEqual([0, 12, 3]);
+    expect(parseStampId('a.tsx#Page:')?.path).toEqual([]);
+  });
 });
 
 describe('message guards', () => {

@@ -51,10 +51,15 @@ describe('resolveAliases', () => {
     ).toEqual([{ find: 'ok', replacement: 'lib' }]);
   });
 
-  it('drops an alias pointing at the root itself', () => {
-    // `path.relative(root, root)` is `''`, which would compose as a bare join and
-    // resolve every aliased specifier to the project root rather than to a file.
-    expect(resolveAliases([{ find: '~', replacement: ROOT }], ROOT)).toEqual([]);
+  it('keeps an alias pointing at the root itself, as the empty replacement', () => {
+    // `~` → `resolve(__dirname)` is an ordinary config when the Vite root IS the
+    // source dir. Dropping it left `health.aliases` empty for that project, so every
+    // `~/components/x` row resolved to null and the outline read as "no editable
+    // nodes" — the precise failure the alias seam exists to remove. The empty
+    // replacement composes correctly; `import-paths` pins `joinPosix('', …)`.
+    expect(resolveAliases([{ find: '~', replacement: ROOT }], ROOT)).toEqual([
+      { find: '~', replacement: '' },
+    ]);
   });
 
   it('drops an empty find rather than matching every specifier', () => {

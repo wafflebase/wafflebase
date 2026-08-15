@@ -84,6 +84,46 @@ describe('installFetchGuard', () => {
     expect(BASE).not.toContain('design-sdk');
   });
 
+  it('lets Vite’s HMR ping through, which is not a module request', async () => {
+    // `waitForSuccessfulPing` fetches this whenever the HMR socket drops — every dev
+    // server restart. It matches none of the prefixes, so it hit the miss path and
+    // fired `onMiss`, whose contract is a hard `wb:error kind:'fetch'` naming the URL.
+    // Vite swallows the throw and HMR recovers, which is what kept it quiet: the
+    // designer just gets told their scene made an unmocked request.
+    for (const url of ['/__vite_ping', '/__open-in-editor?file=x']) {
+      await window.fetch(url);
+    }
+    expect(passthrough).toHaveBeenCalledTimes(2);
+    expect(misses).toEqual([]);
+  });
+
+  it('does not answer a mutation with the collection’s GET fixture', async () => {
+    // Keyed on path alone, `POST /api/documents` resolved to the LIST fixture with a
+    // 200, so the product's success branch ran against a body of entirely the wrong
+    // shape and the designer watched a create "succeed".
+    setFixtures({ '/api/documents': [{ id: 'a' }] });
+    await expect(window.fetch('/api/documents', { method: 'POST' })).rejects.toThrow(
+      /unmocked request: POST \/api\/documents/,
+    );
+    // The read on the same path is unaffected.
+    await expect((await window.fetch('/api/documents')).json()).resolves.toEqual([{ id: 'a' }]);
+  });
+
+  it('answers a mutation from a method-keyed fixture', async () => {
+    setFixtures({ '/api/documents': [{ id: 'a' }], 'POST /api/documents': { id: 'new' } });
+    await expect((await window.fetch('/api/documents', { method: 'post' })).json()).resolves.toEqual(
+      { id: 'new' },
+    );
+  });
+
+  it('keeps a null fixture body distinguishable from no fixture', async () => {
+    // The lookup uses `in`, not `??`: `null` is a legitimate response body, and
+    // reading it as absent would throw on a fixture the scene deliberately set.
+    setFixtures({ '/api/nothing': null });
+    await expect((await window.fetch('/api/nothing')).json()).resolves.toBeNull();
+    expect(misses).toEqual([]);
+  });
+
   it('throws loudly on a miss, naming the URL and the method', async () => {
     // A quiet passthrough fails as a 401, and an auth wrapper answers a 401 by
     // assigning `window.location.href` — which navigates the FRAME off the scene

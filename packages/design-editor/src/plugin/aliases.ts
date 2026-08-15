@@ -49,6 +49,14 @@ export interface ViteAliasEntry {
  *     `node_modules` via `/@fs/…`, and a drill-in there would invite editing a
  *     dependency — which the write boundary refuses anyway, so offering it is
  *     worse than omitting it.
+ *
+ * An alias pointing AT the root is kept, as the empty replacement. `~` →
+ * `resolve(__dirname)` is an ordinary config for a project whose Vite root is its
+ * source dir, and dropping it put that project back where the prototype left every
+ * foreign one: `health.aliases` empty, every `~/components/x` row resolving to
+ * null, and an outline that reads as "no editable nodes" rather than as a bug. The
+ * empty replacement composes correctly — `joinPosix('', 'components/x')` is
+ * `'components/x'`, which `import-paths` pins.
  */
 export function resolveAliases(alias: readonly ViteAliasEntry[], root: string): AliasEntry[] {
   const out: AliasEntry[] = [];
@@ -58,7 +66,7 @@ export function resolveAliases(alias: readonly ViteAliasEntry[], root: string): 
       ? entry.replacement
       : path.resolve(root, entry.replacement);
     const rel = path.relative(root, abs);
-    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) continue;
+    if (rel.startsWith('..') || path.isAbsolute(rel)) continue;
     out.push({ find: entry.find, replacement: rel.split(path.sep).join('/') });
   }
   return out;

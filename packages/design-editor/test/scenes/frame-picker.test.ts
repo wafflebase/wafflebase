@@ -86,6 +86,19 @@ describe('selectableIds', () => {
     document.body.append(partial);
     expect(selectableIds()).toEqual([]);
   });
+
+  it('skips an element whose stamp is malformed, rather than publishing a NaN id', () => {
+    // `refFor` used to re-parse the attribute itself and skip `parseStampId`'s
+    // validation, so this produced `path: [NaN]` and the id `app/a.tsx#Page:NaN`:
+    // matching no element, so the overlay silently never drew, and `NaN` reaching the
+    // host as an anchor hint — `postMessage` preserves it.
+    const bad = document.createElement('div');
+    bad.dataset.wbNode = 'Page:x';
+    bad.dataset.wbFile = 'app/a.tsx';
+    bad.dataset.wbFp = 'deadbeef';
+    document.body.append(bad);
+    expect(selectableIds()).toEqual([]);
+  });
 });
 
 describe('renderedClasses', () => {
@@ -109,25 +122,58 @@ describe('renderedClasses', () => {
     document.body.append(overlay, scene);
     expect(renderedClasses()).toEqual(['scene-class']);
   });
+
+  it('reads an SVG’s classes, which `className` reports as an object', () => {
+    // `[class]` matches SVG, and there `className` is an `SVGAnimatedString`:
+    // `.toString()` gave `'[object SVGAnimatedString]'`, so every lucide icon
+    // contributed the two junk candidates `[object` and `SVGAnimatedString]` and
+    // none of its real ones. A runtime-composed class on an icon then had no rule
+    // generated and rendered unstyled.
+    //
+    // `createElementNS`, not `createElement('svg')` — the latter builds an
+    // `HTMLUnknownElement` whose `className` is a plain string, which is why the
+    // original suite could not see this.
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'lucide h-4 w-4');
+    document.body.append(svg);
+    expect(renderedClasses().sort()).toEqual(['h-4', 'lucide', 'w-4']);
+  });
 });
 
 describe('applyTokenVars', () => {
   const styleEl = () => document.getElementById('wb-token-preview') as HTMLStyleElement | null;
+  /** The rules as the CSS parser sees them — where the declarations now live. */
+  const rules = () => [...(styleEl()!.sheet!.cssRules as unknown as Iterable<CSSStyleRule>)];
+  const valueOf = (i: number, prop: string) => rules()[i].style.getPropertyValue(prop).trim();
 
   it('writes one replaceable block for both themes', () => {
     applyTokenVars({ '--primary': '#0f0' });
-    const css = styleEl()!.textContent!;
-    expect(css).toContain(':root {\n  --primary: #0f0;\n}');
-    expect(css).toContain('.dark {\n  --primary: #0f0;\n}');
+    // Asserted through the CSSOM rather than on `textContent`: the element's text is
+    // now two EMPTY rules and the declarations are set on them, which is what stops
+    // a `}` in a value from terminating the block.
+    expect(rules().map((r) => r.selectorText)).toEqual([':root', '.dark']);
+    expect([valueOf(0, '--primary'), valueOf(1, '--primary')]).toEqual(['#0f0', '#0f0']);
   });
 
   it('replaces rather than accumulates', () => {
     applyTokenVars({ '--primary': '#0f0' });
     applyTokenVars({ '--ring': '#00f' });
-    const css = styleEl()!.textContent!;
-    expect(css).toContain('--ring: #00f');
-    expect(css).not.toContain('--primary');
+    expect(valueOf(0, '--ring')).toBe('#00f');
+    expect(valueOf(0, '--primary')).toBe('');
     expect(document.querySelectorAll('#wb-token-preview')).toHaveLength(1);
+  });
+
+  it('keeps every other declaration when one value is malformed', () => {
+    // The value field is free text, so a `}` mid-typing is ordinary. Interpolating
+    // it terminated the rule: measured against a real parser, 1 of 4 declarations
+    // survived and the whole dark block went with it.
+    //
+    // jsdom does not validate a custom-property value, so `--bad` itself is still
+    // present here where a browser would reject it. What this pins is the part that
+    // was actually broken: the block structure and the OTHER tokens.
+    applyTokenVars({ '--bad': 'oklch(0.5 0 0)}', '--ring': '#00f' });
+    expect(rules().map((r) => r.selectorText)).toEqual([':root', '.dark']);
+    expect([valueOf(0, '--ring'), valueOf(1, '--ring')]).toEqual(['#00f', '#00f']);
   });
 
   it('removes the block entirely when the edit is discarded', () => {
@@ -309,6 +355,46 @@ describe('installPicker', () => {
     expect(out).toEqual([]);
   });
 
+  /**
+   * A queued animation frame outliving `disposePicker`.
+   *
+   * `AbortController` reaches the listeners and `observers` reaches the observers,
+   * but the repaint rAF and the transition tracker are closures — so a scroll or a
+   * running transition left a frame that fired after teardown, and `paint()` opens
+   * with `ensureOverlay()`, which BUILDS and appends a new overlay into the disposed
+   * document. The next `installPicker` then painted into a root that the following
+   * `beforeEach` had detached, and drew nothing.
+   *
+   * What both cases pin is the `!started` check in `paint()`: reverting it fails the
+   * transition-tracker case, and `cancelFrames` covers the scroll one on its own.
+   * Reverting `cancelFrames` fails NEITHER — its effect is not observable from here,
+   * and the source says so where it is defined rather than implying this covers it.
+   */
+  for (const [label, wake] of [
+    ['a scroll-queued repaint', () => window.dispatchEvent(new window.Event('scroll'))],
+    ['the transition tracker', () => window.dispatchEvent(new window.Event('transitionrun'))],
+  ] as const) {
+    it(`paints nothing after dispose when ${label} is pending`, async () => {
+      picker();
+      document.body.append(stamped('div', 'app/a.tsx', 'Page', [0], 'fp-a'));
+      document.body.firstElementChild!.dispatchEvent(
+        new window.MouseEvent('click', { bubbles: true }),
+      );
+      expect(document.querySelector('[data-wb-overlay="root"]')).not.toBeNull();
+
+      wake();
+      disposePicker();
+      installed = false;
+      expect(document.querySelector('[data-wb-overlay="root"]')).toBeNull();
+
+      for (let i = 0; i < 3; i++) {
+        await new Promise((r) => setTimeout(r, 0));
+        await new Promise((r) => requestAnimationFrame(() => r(null)));
+      }
+      expect(document.querySelectorAll('[data-wb-overlay]')).toHaveLength(0);
+    });
+  }
+
   it('answers a measure request by nonce, null when the node is gone', () => {
     const out = picker();
     document.body.append(stamped('div', 'app/a.tsx', 'Page', [0], 'fp-a'));
@@ -332,5 +418,77 @@ describe('installPicker', () => {
       nonce: 8,
       rect: null,
     });
+  });
+});
+
+/**
+ * The subject ResizeObserver, which jsdom does not implement.
+ *
+ * `observe()` starts an observation whose `lastReportedSize` is (0,0), so a rendered
+ * element of any non-zero size is immediately active and the callback fires on the
+ * next frame with no size change. That callback is the repaint, the repaint runs
+ * `paint()`, and `paint()` ended by re-observing — a per-frame cycle that never
+ * settled, each turn reading `getBoundingClientRect()` for every rendered instance.
+ *
+ * No test here can observe the loop: the real behaviour lives in the browser's
+ * observer, and a stub that reproduced it would only be testing the stub. What is
+ * pinned instead is the property that breaks the cycle — an unchanged subject set
+ * does not re-observe — plus the thing that must keep working, that a CHANGED set
+ * does.
+ */
+describe('subject observation', () => {
+  class CountingRO {
+    static observed = 0;
+    static disconnected = 0;
+    constructor(_cb: unknown) {}
+    observe() {
+      CountingRO.observed++;
+    }
+    unobserve() {}
+    disconnect() {
+      CountingRO.disconnected++;
+    }
+  }
+
+  beforeEach(() => {
+    disposePicker();
+    installed = false;
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = CountingRO;
+    CountingRO.observed = 0;
+    CountingRO.disconnected = 0;
+  });
+
+  afterAll(() => {
+    disposePicker();
+    delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+  });
+
+  const click = (el: Element) => el.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const repaint = async () => {
+    window.dispatchEvent(new window.Event('scroll'));
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+  };
+
+  it('does not re-observe when the subject set is unchanged', async () => {
+    picker();
+    document.body.append(stamped('div', 'app/a.tsx', 'Page', [0], 'fp-a'));
+    click(document.body.firstElementChild!);
+    const afterFirstPaint = CountingRO.observed;
+    expect(afterFirstPaint).toBeGreaterThan(0);
+
+    await repaint();
+    await repaint();
+    expect(CountingRO.observed).toBe(afterFirstPaint);
+  });
+
+  it('re-observes when the selection moves to another node', async () => {
+    picker();
+    const a = stamped('div', 'app/a.tsx', 'Page', [0], 'fp-a');
+    const b = stamped('div', 'app/a.tsx', 'Page', [1], 'fp-b');
+    document.body.append(a, b);
+    click(a);
+    const afterA = CountingRO.observed;
+    click(b);
+    expect(CountingRO.observed).toBeGreaterThan(afterA);
   });
 });

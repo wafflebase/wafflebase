@@ -42,10 +42,32 @@ const IMPORT_RE = /^[ \t]*import\s+(?!type\b)([^;]*?\bfrom\s*)?['"]([^'"]+)['"]/
  */
 const EXPORT_RE =
   /^[ \t]*export\s+(?!type\b)(?:\*(?:\s+as\s+\w+)?|\{[^}]*\})\s*from\s*['"]([^'"]+)['"]/gm;
+/**
+ * `import('x')` and `require('x')` — a runtime dependency in an expression, so
+ * neither pattern above can see it.
+ *
+ * This is the hole line-anchoring `IMPORT_RE` opened: `import\s+` cannot match
+ * `import(`, so `await import('node:path')` in a browser module was invisible and
+ * the guard passed. `src/scenes/` is the tree most likely to want a lazy import and
+ * the one that must never touch Node, which is what makes the gap worth closing
+ * rather than noting.
+ *
+ * Not line-anchored, because a dynamic import is legitimately mid-expression. The
+ * literal `(` is what keeps prose out: a doc comment saying "import" does not match,
+ * though one showing `import('x')` as an example would — over-reporting, which is
+ * this file's stated safe direction.
+ */
+const DYNAMIC_RE = /\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]/g;
 
-/** Specifiers a module depends on at RUNTIME — `import type` / `export type` are erased. */
-function valueImports(file: string): string[] {
-  const text = fs.readFileSync(file, 'utf8');
+/**
+ * Specifiers a source text depends on at RUNTIME — `import type` / `export type` are
+ * erased.
+ *
+ * Split from the file read so the patterns can be asserted against a string. The
+ * alternative was planting a violation in a real module, and the module that would
+ * have to hold it is the thing under test.
+ */
+export function valueImportsOf(text: string): string[] {
   const out: string[] = [];
   for (const m of text.matchAll(IMPORT_RE)) {
     const clause = m[1] ?? '';
@@ -57,8 +79,11 @@ function valueImports(file: string): string[] {
   // here. That is the safe direction: this guard may name a module that costs the
   // bundle nothing, but it must never miss one that does.
   for (const m of text.matchAll(EXPORT_RE)) out.push(m[1]);
+  for (const m of text.matchAll(DYNAMIC_RE)) out.push(m[1]);
   return out;
 }
+
+const valueImports = (file: string): string[] => valueImportsOf(fs.readFileSync(file, 'utf8'));
 
 /** Every module the client pulls in for its value, transitively. */
 function closure(): string[] {
@@ -109,5 +134,21 @@ describe('the client bundle boundary', () => {
     // were still scoped to `client/`, this list would not mention it at all.
     expect(closure()).toContain('base.ts');
     for (const dir of BROWSER_DIRS) expect(fs.existsSync(dir)).toBe(true);
+  });
+
+  it('sees a lazy import, which the line-anchored pattern cannot', () => {
+    // The hole line-anchoring `IMPORT_RE` opened. `import\s+` cannot match `import(`,
+    // so a browser module could `await import('node:path')` and the guard passed —
+    // in the one tree that must never reach Node, and the one most likely to want a
+    // lazy import.
+    //
+    // Asserted on the scanner rather than by planting a violation, because the file
+    // that would have to hold it is the thing under test.
+    const scan = valueImportsOf;
+    expect(scan("const { sep } = await import('node:path');")).toEqual(['node:path']);
+    expect(scan('const fs = require("node:fs");')).toEqual(['node:fs']);
+    expect(scan("void import('./frame-protocol.ts');")).toEqual(['./frame-protocol.ts']);
+    // Prose is still not a dependency: the literal `(` is what separates them.
+    expect(scan(' * a comment that says import and mentions node:path')).toEqual([]);
   });
 });

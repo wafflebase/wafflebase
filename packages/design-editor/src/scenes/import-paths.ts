@@ -14,6 +14,15 @@
  * alternative was a `/resolve` endpoint: a round-trip per outline row, to answer a
  * question the alias table already answers.
  *
+ * NOT COVERED: a directory import. `@/components` resolves to
+ * `app/components.tsx`, not to the `app/components/index.tsx` a barrel import
+ * actually names, and nothing here can tell the two apart without stat'ing. This
+ * is the 404 the paragraph above accepts, so it degrades to an empty outline for
+ * that row rather than to a wrong write — but it IS a gap, and closing it needs
+ * either an index candidate the metadata route tries second or a `/resolve`
+ * round-trip. A BARE alias root (`@` alone) is different and is handled: it names
+ * a directory for certain, so it returns null instead of a plausible file.
+ *
  * BARE SPECIFIERS RETURN NULL ON PURPOSE. `react`, `lucide-react` and the like
  * live in `node_modules`, which this tool must not write to. Offering a drill-in
  * there would be an invitation to edit a dependency, and the mutation bridge would
@@ -30,13 +39,24 @@ import type { AliasEntry } from '../plugin/aliases.ts';
 
 export type { AliasEntry };
 
-/** POSIX `path.join`, for the two forms a first-party import can take. */
-export function joinPosix(dir: string, rel: string): string {
+/**
+ * POSIX `path.join`, for the two forms a first-party import can take.
+ *
+ * NULL WHEN THE WALK ESCAPES THE ROOT. `out.pop()` on an empty array is a no-op,
+ * so `../../../shared/y` from `app/pages` silently collapsed to `shared/y` — a
+ * root-relative path naming a file the import does not, and one a monorepo
+ * sibling import can easily make exist. That is the one failure this module
+ * claims it cannot produce: a drill-in landing on the wrong file makes every
+ * staged edit anchor against, and write to, the wrong source.
+ */
+export function joinPosix(dir: string, rel: string): string | null {
   const out: string[] = dir ? dir.split('/') : [];
   for (const part of rel.split('/')) {
     if (part === '.' || part === '') continue;
-    if (part === '..') out.pop();
-    else out.push(part);
+    if (part === '..') {
+      if (!out.length) return null;
+      out.pop();
+    } else out.push(part);
   }
   return out.join('/');
 }
@@ -45,7 +65,8 @@ export function joinPosix(dir: string, rel: string): string {
  * An explicit extension is honoured — `@/types/users.ts` is a real specifier and
  * appending `.tsx` to it would resolve to nothing.
  */
-const withExt = (p: string): string => (/\.[cm]?[jt]sx?$/.test(p) ? p : `${p}.tsx`);
+const HAS_EXT = /\.[cm]?[jt]sx?$/;
+const withExt = (p: string): string => (HAS_EXT.test(p) ? p : `${p}.tsx`);
 
 /**
  * Does `module` use this alias?
@@ -79,13 +100,26 @@ export function resolveImport(
 ): string | null {
   if (module.startsWith('./') || module.startsWith('../')) {
     const dir = fromFile.split('/').slice(0, -1).join('/');
-    return withExt(joinPosix(dir, module));
+    return fileAt(joinPosix(dir, module));
   }
   const sorted = [...aliases].sort((a, b) => b.find.length - a.find.length);
   for (const { find, replacement } of sorted) {
     const rest = aliasMatch(module, find);
     if (rest === null) continue;
-    return withExt(rest ? joinPosix(replacement, rest) : replacement);
+    // A BARE ALIAS SPECIFIER NAMES THE REPLACEMENT ITSELF, which is a file only
+    // when the alias points at one. `@` → `app` is a directory, and appending
+    // `.tsx` reported it as `app.tsx`: a file that does not exist, so the outline
+    // came back empty. An alias aimed straight at a file still resolves.
+    if (rest === '') return HAS_EXT.test(replacement) ? replacement : null;
+    return fileAt(joinPosix(replacement, rest));
   }
   return null;
 }
+
+/**
+ * A joined path as the file it names, or null.
+ *
+ * Empty is null as well as underflow: `joinPosix('a', '../')` is `''`, and `''`
+ * names the root directory rather than any file.
+ */
+const fileAt = (joined: string | null): string | null => (joined ? withExt(joined) : null);

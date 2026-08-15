@@ -211,9 +211,15 @@ export function parseStampId(
   if (colon <= 0) return null;
   const component = rest.slice(0, colon);
   const tail = rest.slice(colon + 1);
-  const path = tail === '' ? [] : tail.split('.').map(Number);
-  if (path.some((n) => !Number.isInteger(n) || n < 0)) return null;
-  return { file, component, path };
+  // DIGITS ONLY, checked before `Number`. `Number('')` is 0, so `Page:0.` parsed
+  // as `[0, 0]` and `Page:.0` likewise — a malformed id resolving to a real but
+  // DIFFERENT node, which is the wrong anchor this function exists to refuse. The
+  // integer check it replaces could not catch that, and let `Page:1e2` through as
+  // `[100]` besides. Ids are emitted as `path.join('.')` over non-negative
+  // integers, so `\d+` is exactly the shape, and this subsumes the old check.
+  const segments = tail === '' ? [] : tail.split('.');
+  if (segments.some((s) => !/^\d+$/.test(s))) return null;
+  return { file, component, path: segments.map(Number) };
 }
 
 /**

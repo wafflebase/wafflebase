@@ -32,6 +32,23 @@
 
 import { BASE } from '../base.ts';
 
+/**
+ * Vite's own dev endpoints, which are not module requests and so match none of the
+ * prefixes below.
+ *
+ * `/__vite_ping` is what the client polls from `waitForSuccessfulPing` when the HMR
+ * socket drops — every dev-server restart and every config save. It fell to the
+ * miss path, and `onMiss`'s contract is a hard `wb:error` with `kind: 'fetch'` and
+ * the URL in it, so restarting the server told the designer their scene had made an
+ * unmocked request. Vite swallows the throw and HMR still recovers, which is what
+ * kept it quiet. `/__open-in-editor` is the error overlay's click target.
+ *
+ * Matched exactly, not by a `/__` prefix: that would also pass a consumer route
+ * like `/__admin` straight out of the frame, which is the thing this guard exists
+ * to prevent.
+ */
+const VITE_DEV_PATHS = new Set(['/__vite_ping', '/__open-in-editor']);
+
 /** A fixture answer: JSON body, or a full `Response` for the odd status test. */
 export type FixtureValue = unknown | Response;
 
@@ -40,6 +57,9 @@ export type FixtureValue = unknown | Response;
  * `search` when the fixture key contains a `?`), so fixtures do not have to know the
  * API origin — which the consumer points at a deliberately unreachable sentinel
  * rather than at their real backend.
+ *
+ * A key may be prefixed with a method — `'POST /api/documents'` — and must be for
+ * anything other than GET or HEAD. A bare path answers reads only.
  */
 export type FixtureTable = Record<string, FixtureValue>;
 
@@ -95,13 +115,26 @@ export function installFetchGuard(opts: FetchGuardOptions): void {
     if (
       path.startsWith('/@') ||
       path.startsWith(`${BASE}/`) ||
-      path.startsWith('/node_modules/')
+      path.startsWith('/node_modules/') ||
+      VITE_DEV_PATHS.has(path)
     ) {
       return real(input as RequestInfo, init);
     }
 
-    const hit = full in activeFixtures ? activeFixtures[full] : activeFixtures[path];
-    if (hit !== undefined) {
+    // METHOD IS PART OF THE KEY. Keyed on path alone, a `POST /api/documents`
+    // resolved to the LIST fixture with a 200, so the product's success branch ran
+    // against a response of entirely the wrong shape and the designer watched a
+    // mutation "succeed". A bare-path key now answers GET and HEAD only; any other
+    // method must be keyed explicitly (`'POST /api/documents'`) or it is a miss,
+    // which throws by name.
+    //
+    // `in` rather than `??` throughout: `null` is a legitimate response body and
+    // must not read as "no fixture".
+    const keys = [`${method} ${full}`, `${method} ${path}`];
+    if (method === 'GET' || method === 'HEAD') keys.push(full, path);
+    const key = keys.find((k) => k in activeFixtures);
+    if (key !== undefined) {
+      const hit = activeFixtures[key];
       if (hit instanceof Response) return hit.clone();
       return new Response(JSON.stringify(hit), {
         status: 200,

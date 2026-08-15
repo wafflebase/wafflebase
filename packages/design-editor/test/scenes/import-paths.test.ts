@@ -10,11 +10,21 @@ describe('joinPosix', () => {
     expect(joinPosix('app/pages', '../components/badge')).toBe('app/components/badge');
     expect(joinPosix('app/pages', './sibling')).toBe('app/pages/sibling');
     expect(joinPosix('', 'a/b')).toBe('a/b');
-    expect(joinPosix('a', '../..')).toBe('');
+    // The empty replacement a root alias resolves to, which is why it is kept.
+    expect(joinPosix('', 'components/badge')).toBe('components/badge');
   });
 
   it('collapses empty segments rather than emitting `//`', () => {
     expect(joinPosix('a', 'b//c')).toBe('a/b/c');
+  });
+
+  it('returns null when the walk escapes the root', () => {
+    // `out.pop()` on an empty array is a no-op, so this used to return a path INSIDE
+    // the root that the specifier never named — `shared/y` for a `..` chain three
+    // deep, which a monorepo sibling import makes exist. A drill-in landing there
+    // anchors every later staged edit at the wrong file.
+    expect(joinPosix('a', '../..')).toBeNull();
+    expect(joinPosix('app/pages', '../../../shared/y')).toBeNull();
   });
 });
 
@@ -65,9 +75,28 @@ describe('resolveImport', () => {
     // alone pointed the drill-in at `app/scope/pkg.tsx`, a file inside the project
     // that does not exist — which produces an empty outline, not an error.
     expect(resolveImport('a/b.tsx', '@scope/pkg', ALIASES)).toBeNull();
-    // The alias still matches its own exact form and its own path segments.
-    expect(resolveImport('a/b.tsx', '@', ALIASES)).toBe('app.tsx');
+    // The alias still matches its own path segments.
     expect(resolveImport('a/b.tsx', '@/x', ALIASES)).toBe('app/x.tsx');
+  });
+
+  it('returns null for a bare alias root, which names a directory', () => {
+    // `@` alone resolves to the replacement itself. That used to be reported as
+    // `app.tsx` — the alias DIRECTORY dressed as a file, so the metadata route 404s
+    // and the row shows an empty outline. Certain enough to refuse, unlike
+    // `@/components` (see the module header's NOT COVERED note).
+    expect(resolveImport('a/b.tsx', '@', ALIASES)).toBeNull();
+  });
+
+  it('resolves a bare alias that points straight at a file', () => {
+    // The reason the check is on the extension rather than a flat refusal: an alias
+    // aimed at one module is a real config, and it names a file unambiguously.
+    expect(
+      resolveImport('a/b.tsx', '@cfg', [{ find: '@cfg', replacement: 'app/config.ts' }]),
+    ).toBe('app/config.ts');
+  });
+
+  it('returns null when an aliased specifier escapes the root', () => {
+    expect(resolveImport('a/b.tsx', '@/../../x', ALIASES)).toBeNull();
   });
 
   it('prefers the longest matching alias when one NESTS inside another', () => {
