@@ -168,6 +168,7 @@ export function isPrivateAddress(ip: string): boolean {
   const first = words[0] >> 8;
   if (first === 0xfc || first === 0xfd) return true; // fc00::/7
   if ((words[0] & 0xffc0) === 0xfe80) return true; // fe80::/10
+  if ((words[0] & 0xffc0) === 0xfec0) return true; // fec0::/10, site-local
 
   // Transition ranges carry an IPv4 address in later words and are
   // routed to it for real, so the v4 rules have to reach through them
@@ -196,6 +197,41 @@ export function isPrivateAddress(ip: string): boolean {
     );
   }
   return false;
+}
+
+/** Loopback in every spelling: `127.0.0.0/8`, `::1`, and their v6 forms. */
+function isLoopbackAddress(ip: string): boolean {
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
+  if (v4) return Number(v4[1]) === 127;
+
+  const words = parseIPv6(ip.replace(/%.*$/, ''));
+  if (!words || !words.slice(0, 5).every((w) => w === 0)) return false;
+  if (words[5] === 0 && words[6] === 0 && words[7] === 1) return true;
+  // `::ffff:127.0.0.1` / `::127.0.0.1` are the same machine as `127.0.0.1`.
+  if (words[5] === 0xffff || words[5] === 0) return words[6] >> 8 === 127;
+  return false;
+}
+
+/** A URL host in comparable form: lower case, unbracketed, no root dot. */
+function normalizeHost(hostname: string): string {
+  return hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '');
+}
+
+/**
+ * A host that names *this machine's* loopback, whatever the spelling —
+ * the address literals and the names RFC 6761 reserves for them.
+ * Deliberately about the **name**, not about what it resolves to: an
+ * attacker-chosen name whose record happens to point at `127.0.0.1` is
+ * not loopback for this purpose, it is a name aimed at loopback.
+ */
+function isLoopbackHost(hostname: string): boolean {
+  const literal = ipLiteral(hostname);
+  if (literal) return isLoopbackAddress(literal);
+  const h = normalizeHost(hostname);
+  return h === 'localhost' || h.endsWith('.localhost');
 }
 
 /** The port a URL connects to, with the scheme's default filled in. */
@@ -244,11 +280,14 @@ async function resolveHost(
  * values absolute
  * (`resolveImageUrl` in `packages/frontend/src/app/spreadsheet/image-upload.ts`),
  * so a dev or self-hosted document stores whatever the browser called
- * the server (`http://localhost:3000/...`) while the CLI may be pointed
- * at another spelling of it (`--server http://127.0.0.1:3000`).
- * Comparing origin strings would refuse those documents' own images;
- * comparing resolved identities does not, and grants nothing beyond the
- * server the CLI already sends its credentials to.
+ * the server (`http://10.0.0.5:3000/...`) while the CLI may be pointed
+ * at another spelling of it (`--server https://api.internal:3000`).
+ * Comparing origin strings would refuse those documents' own images.
+ *
+ * Reached only for an image URL whose host is an **address literal** —
+ * a name is matched by name (see `assertFetchableImageUrl`), because a
+ * name the document author controls can be pointed at any address,
+ * including this one.
  */
 async function serverAddresses(
   server: URL,
@@ -288,7 +327,12 @@ export async function assertFetchableImageUrl(
   try {
     url = new URL(target);
   } catch {
-    throw blocked(`Refusing to fetch malformed image URL "${target}".`);
+    // Redacted like every sibling message: unparseable is not harmless,
+    // `http://u:pw@[/` carries a credential the same way a valid URL does
+    // (`redactUrl` strips userinfo textually for exactly this case).
+    throw blocked(
+      `Refusing to fetch malformed image URL "${redactUrl(target)}".`,
+    );
   }
 
   if (url.protocol === 'data:') return null;
@@ -304,8 +348,36 @@ export async function assertFetchableImageUrl(
   // port is a different listener, so only a port match is worth
   // resolving a name for; anything else that is plainly internal is
   // refused without asking a resolver about it.
-  const mayBeServer =
+  const portMatches =
     server !== null && effectivePort(url) === effectivePort(server);
+
+  // Being the server is a question about the *host*, and a name is only
+  // the server's when it is the server's name. Matching on the resolved
+  // address alone would exempt any name the document author points at
+  // that address, handing them arbitrary paths on the API host under a
+  // `Host` header of their choosing. Three ways to be the server:
+  //
+  //  - the same name (the ordinary case, and the self-hosted one);
+  //  - loopback under either spelling, because `localhost` and
+  //    `127.0.0.1` and `::1` are one listener and a document stores
+  //    whichever the browser used — this is a name-level equivalence,
+  //    so a foreign name resolving to loopback is not covered;
+  //  - an address literal, which is then compared against the server's
+  //    resolved addresses below. Safe where a name is not: a literal
+  //    designates one machine and no resolver can steer it.
+  const sameName =
+    server !== null &&
+    portMatches &&
+    normalizeHost(url.hostname) === normalizeHost(server.hostname);
+  const loopbackPair =
+    server !== null &&
+    portMatches &&
+    isLoopbackHost(url.hostname) &&
+    isLoopbackHost(server.hostname);
+  const mayBeServer =
+    portMatches &&
+    (sameName || loopbackPair || ipLiteral(url.hostname) !== null);
+
   const internalHost = () =>
     blocked(
       `Refusing to fetch image URL on an internal host (${redactUrl(target)}).`,
@@ -321,7 +393,10 @@ export async function assertFetchableImageUrl(
 
   const allowed = addresses.filter(
     (a) =>
-      exempt.has(a.toLowerCase()) || (!internalName && !isPrivateAddress(a)),
+      sameName ||
+      (loopbackPair && isLoopbackAddress(a)) ||
+      exempt.has(a.toLowerCase()) ||
+      (!internalName && !isPrivateAddress(a)),
   );
   if (allowed.length === 0) {
     if (internalName) throw internalHost();
@@ -378,12 +453,23 @@ function pinnedAgent(addresses: string[]): Agent {
  * would send the request somewhere else entirely. So a proxied hop
  * connects to the proxy and the proxy resolves the name.
  *
- * Dropping the pin there costs nothing that was ever held: the pin
- * exists to stop the CLI's own resolver from being rebound between the
- * gate and the connect, and with a proxy the CLI performs no
- * connect-time resolution at all. The gate itself is unchanged — a name
- * that resolves to an internal address is still refused before any
- * request is made, proxied or not.
+ * The pin is not merely unnecessary under a proxy, it is unusable: it
+ * works by overriding the CLI's own resolver, and the CLI resolves
+ * nothing here. The gate itself is unchanged — a name that resolves to
+ * an internal address is still refused before any request is made,
+ * proxied or not.
+ *
+ * What is NOT covered, stated plainly rather than waved away: the proxy
+ * resolves the name itself, and that answer is not the one the gate
+ * approved. A nameserver with a ~0s TTL can answer the gate publicly
+ * and the proxy privately, and the proxy will then fetch an address the
+ * gate would have refused — reaching the *proxy's* network, not this
+ * machine's. Closing it needs the connect target to travel with the
+ * request, which the proxy protocols do not offer (`CONNECT` carries a
+ * name, and the proxy is free to resolve it). A CLI that refused to
+ * proxy names would instead fail every external image on the machines
+ * that only egress through one, so the residual risk is accepted and
+ * recorded here and in `docs/design/cli.md` rather than traded for that.
  *
  * Without this the pinned `Agent` would override whatever the operator
  * configured and dial the resolved addresses directly, so on a machine

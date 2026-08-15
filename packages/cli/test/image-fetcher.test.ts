@@ -186,6 +186,7 @@ describe('isPrivateAddress', () => {
     '::',
     'fd00::1',
     'fe80::1',
+    'fec0::1', // deprecated site-local, still routed on old networks
     '::ffff:127.0.0.1',
     '::ffff:7f00:1',
     '255.255.255.255',
@@ -335,6 +336,54 @@ describe('createImageFetcher SSRF gate', () => {
     expect(calls).toEqual(['http://127.0.0.1:3000/images/abc']);
   });
 
+  it('allows the server across loopback families', async () => {
+    // `localhost` answers with `::1` alone on an IPv6-preferring host,
+    // while the document stores the `127.0.0.1` spelling the browser
+    // used. Both name this machine's loopback at the server's port, so
+    // refusing one of them would refuse a document its own images.
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://localhost:3000',
+      lookup: async (h) => (h === 'localhost' ? ['::1'] : []),
+    });
+    await fetcher('http://127.0.0.1:3000/images/abc');
+    expect(calls).toEqual(['http://127.0.0.1:3000/images/abc']);
+  });
+
+  it('refuses a foreign name aimed at the server address and port', async () => {
+    // The exemption is for the server, not for its address: a name the
+    // document author controls, pointed at the server's address on the
+    // server's port, would otherwise read any path there under an
+    // attacker-chosen `Host` — including a co-located virtual host.
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://localhost:3000',
+      lookup: async () => ['127.0.0.1'],
+    });
+    await expect(fetcher('http://evil.example:3000/admin')).rejects.toThrow(
+      /resolves to an internal address/,
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses another internal name on the server port', async () => {
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://api.internal:3000',
+      lookup: async () => ['10.0.0.5'],
+    });
+    await expect(fetcher('http://other.internal:3000/x')).rejects.toThrow(
+      /on an internal host/,
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('allows the configured server named by its own internal hostname', async () => {
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://api.internal:3000',
+      lookup: async () => ['10.0.0.5'],
+    });
+    await fetcher('http://api.internal:3000/images/abc');
+    expect(calls).toEqual(['http://api.internal:3000/images/abc']);
+  });
+
   it('does not extend the server exemption to another port on that host', async () => {
     const { fetcher, calls } = fetcherWith({
       serverBase: 'http://localhost:3000',
@@ -434,15 +483,26 @@ describe('assertFetchableImageUrl address pinning', () => {
     ).resolves.toBeNull();
   });
 
-  it('drops the internal addresses a server-port host also answers with', async () => {
-    // The exemption is per address: a host that answers with the
-    // server's address *and* an internal one must not get the
-    // private-address check skipped for the internal one.
-    const allowed = await assertFetchableImageUrl(
-      'http://mixed.example:3000/x',
-      SERVER,
-      async (h) =>
+  it('refuses a foreign name that answers with the server address', async () => {
+    // Sharing an address with the server does not make a name the
+    // server. Waving it through would hand the document author a reader
+    // for any path on the API host, under a `Host` header of their
+    // choosing.
+    await expect(
+      assertFetchableImageUrl('http://mixed.example:3000/x', SERVER, async (h) =>
         h === 'mixed.example' ? ['127.0.0.1', '10.0.0.5'] : ['127.0.0.1'],
+      ),
+    ).rejects.toThrow(/resolves to an internal address/);
+  });
+
+  it('pins an address-literal server spelling to that one address', async () => {
+    // The literal is compared against the server's resolved addresses —
+    // the one identity comparison the exemption still makes, and safe
+    // because a literal names one machine and no resolver can steer it.
+    const allowed = await assertFetchableImageUrl(
+      'http://127.0.0.1:3000/x',
+      new URL('http://api.internal:3000'),
+      async () => ['127.0.0.1'],
     );
     expect(allowed).toEqual(['127.0.0.1']);
   });
@@ -609,7 +669,7 @@ describe('createImageFetcher over a real listener', () => {
     const { server, port } = await listener();
     try {
       const fetcher = createImageFetcher({
-        serverBase: `http://127.0.0.1:${port}`,
+        serverBase: `http://pinned.invalid:${port}`,
         lookup: async () => ['127.0.0.1'],
       });
       const blob = await fetcher(`http://pinned.invalid:${port}/img`);
@@ -689,7 +749,7 @@ describe('createImageFetcher over a real listener', () => {
     const { server, port } = await listener();
     try {
       const fetcher = createImageFetcher({
-        serverBase: `http://127.0.0.1:${port}`,
+        serverBase: `http://pinned.invalid:${port}`,
         lookup: async () => ['127.0.0.1'],
       });
       const blob = await fetcher(`http://pinned.invalid:${port}/img`);
