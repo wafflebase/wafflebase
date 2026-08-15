@@ -289,7 +289,12 @@ harness captures into logs and issue reports — and it is never handed to
 which any local user can read (`ps`, `/proc/<pid>/cmdline`) on exactly the
 shared host these bindings are for. The browser gets
 `http://127.0.0.1:<port>/launch/<32-byte token>` instead, which redirects
-once and then 404s. `open()` resolving is not
+once and is then spent. A second visit to that token answers `410` with a
+page saying the link was already used and to re-run `wafflebase login` — the
+link goes to an arbitrary system opener, so a prefetch or a link scanner can
+win the race, and a bare 404 left the person nothing to act on but the
+five-minute timeout. It never re-offers the authorization URL, and a token
+that is not this login's stays a bare `404`. `open()` resolving is not
 evidence a browser appeared — it only means the child process was spawned —
 so the URL is announced either way, through whichever channel is safe:
 stderr when it is a terminal (the only reader is the person logging in), and

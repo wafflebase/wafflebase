@@ -66,7 +66,8 @@ export function registerLoginCommand(program: Command): void {
       // challenge — the two bindings the rest of this flow rests on — to
       // exactly the attacker those bindings exist to stop. The loopback URL
       // gives away nothing: its token is single-use, and spending it is
-      // visible, since the genuine browser then lands on a 404.
+      // visible, since the genuine browser then lands on the "already used"
+      // page instead of GitHub, which names the remedy.
       await openBrowser(armLaunch(oauthUrl));
       const urlFile = announceLoginUrl(oauthUrl);
 
@@ -304,6 +305,42 @@ function nonceMatches(expected: string, received: string | null): boolean {
 const LAUNCH_PREFIX = '/launch/';
 
 /**
+ * What a browser sees when the one-time launch link was already spent.
+ *
+ * It carries no login material — that is the whole point of spending the
+ * token — only the one thing the person can act on, so a lost race costs a
+ * re-run rather than a bare 404 and a five-minute wait.
+ */
+const SPENT_LAUNCH_PAGE = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Wafflebase CLI</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; justify-content: center; align-items: center; min-height: 100vh;
+    margin: 0; background: #fafafa; color: #1a1a1a; }
+  .card { max-width: 30rem; text-align: center; padding: 2.5rem; background: #fff;
+    border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04); }
+  h2 { margin: 0 0 0.75rem; font-size: 1.25rem; }
+  p { margin: 0 0 1rem; color: #444; font-size: 0.95rem; line-height: 1.5; }
+  code { background: #f2f2f2; padding: 0.1rem 0.3rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h2>This sign-in link was already used</h2>
+    <p>The link that starts a command-line sign-in works exactly once, and
+    something opened it before this window did.</p>
+    <p>Return to your terminal, press <code>Ctrl-C</code>, and run
+    <code>wafflebase login</code> again.</p>
+  </div>
+</body>
+</html>`;
+
+/**
  * How long the loopback listener waits for GitHub's redirect.
  *
  * This has to cover everything the person does in the browser, and that is no
@@ -336,6 +373,13 @@ export function startCallbackServer(expectedNonce: string): Promise<{
    * site). The token is 32 random bytes, so nothing else on the machine can
    * guess the redirect; it is spent on first use, so a local reader who wins
    * the race takes the URL away from the real browser rather than sharing it.
+   *
+   * A second visit to the spent link is answered with `410` and a page
+   * naming the remedy, not a bare `404`: the link is handed to an arbitrary
+   * system opener, so losing the race to a prefetch or a link scanner is not
+   * far-fetched, and the person left holding the response needs something to
+   * do other than wait out the five-minute timeout. It still never re-offers
+   * the authorization URL.
    */
   armLaunch: (authorizationUrl: string) => string;
 }> {
@@ -360,26 +404,44 @@ export function startCallbackServer(expectedNonce: string): Promise<{
 
       if (url.pathname.startsWith(LAUNCH_PREFIX)) {
         const presented = url.pathname.slice(LAUNCH_PREFIX.length);
-        if (
-          !launchToken ||
-          !launchTarget ||
-          !nonceMatches(launchToken, presented)
-        ) {
-          res.writeHead(404);
-          res.end('Not found');
+        const isOurToken = !!launchToken && nonceMatches(launchToken, presented);
+
+        if (isOurToken && launchTarget) {
+          const target = launchTarget;
+          // Single use: a second visit gets nothing, so a local reader who
+          // lifted the loopback URL out of argv cannot also let the real
+          // browser through and stay unnoticed.
+          launchTarget = undefined;
+          res.writeHead(302, {
+            Location: target,
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer',
+          });
+          res.end();
           return;
         }
-        const target = launchTarget;
-        // Single use: a second visit gets nothing, so a local reader who
-        // lifted the loopback URL out of argv cannot also let the real
-        // browser through and stay unnoticed.
-        launchTarget = undefined;
-        res.writeHead(302, {
-          Location: target,
-          'Cache-Control': 'no-store',
-          'Referrer-Policy': 'no-referrer',
-        });
-        res.end();
+
+        // Our token, already spent. Something dereferenced the one-time link
+        // before the browser reached it — a link scanner, a prefetch, an
+        // opener probe, a second window — and the person is now looking at
+        // this response with a login that cannot proceed. A bare 404 left
+        // them nothing to act on and a five-minute wait to sit through; say
+        // what happened and what to do instead. The authorization URL is
+        // deliberately *not* re-offered: handing it out on a second visit is
+        // exactly what single use exists to prevent.
+        if (isOurToken) {
+          res.writeHead(410, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer',
+          });
+          res.end(SPENT_LAUNCH_PAGE);
+          return;
+        }
+
+        // Not our token at all: say nothing that confirms a login is running.
+        res.writeHead(404);
+        res.end('Not found');
         return;
       }
 

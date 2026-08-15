@@ -26,11 +26,20 @@ const openMock = vi.mocked(open);
 function redirectTarget(url: string): Promise<{
   status: number;
   location?: string;
+  body: string;
 }> {
   return new Promise((resolve, reject) => {
     httpGet(url, (res) => {
-      res.resume();
-      resolve({ status: res.statusCode ?? 0, location: res.headers.location });
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk: string) => (body += chunk));
+      res.on('end', () =>
+        resolve({
+          status: res.statusCode ?? 0,
+          location: res.headers.location,
+          body,
+        }),
+      );
     }).on('error', reject);
   });
 }
@@ -95,9 +104,22 @@ describe('login callback server', () => {
 
       // Spent: a local reader who lifted the loopback URL out of argv takes
       // the login away from the real browser rather than sharing it silently.
-      expect((await redirectTarget(launch)).status).toBe(404);
+      // It answers with a recovery page rather than a bare 404: the link goes
+      // to an arbitrary system opener, so a prefetch or a link scanner can
+      // win the race, and the person left holding the response would
+      // otherwise have nothing to act on but a five-minute wait.
+      const second = await redirectTarget(launch);
+      expect(second.status).toBe(410);
+      expect(second.location).toBeUndefined();
+      expect(second.body).toContain('wafflebase login');
+      // And it still does not hand the authorization URL back out — that is
+      // what spending the token is for.
+      expect(second.body).not.toContain('secret');
+      expect(second.body).not.toContain(authorizationUrl);
 
-      // And the token is not guessable from the port alone.
+      // And the token is not guessable from the port alone. An unknown token
+      // stays a bare 404 — the 410 confirms a login is running here, so it is
+      // only ever shown to whoever already held the link.
       expect(
         (await redirectTarget(`http://127.0.0.1:${port}/launch/guessed`)).status,
       ).toBe(404);
