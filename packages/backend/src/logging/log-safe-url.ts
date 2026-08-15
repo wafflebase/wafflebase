@@ -60,12 +60,24 @@ const REDACTED = '<redacted>';
  * Routes that carry a credential as a path *segment* rather than a query
  * parameter, and which segment it is (0-based).
  *
- * `SENSITIVE_PARAMS` only ever reaches the query string, so it missed the one
- * route that puts the same credential in the path: `GET /share-links/:token/
- * resolve` is how an anonymous visitor turns a share token into a document,
- * and that token *is* the whole of their access — the very thing the
- * `?token=` entry was added for. Every 4xx is logged at `warn`, so a revoked
- * or mistyped-then-corrected link parks a live credential in the access log.
+ * `SENSITIVE_PARAMS` only ever reaches the query string, so it misses the
+ * routes that put the same kind of credential in the path. There are exactly
+ * two, and both hand out access to whoever holds the segment:
+ *
+ * - `GET /share-links/:token/resolve` is how an anonymous visitor turns a
+ *   share token into a document, and that token *is* the whole of their
+ *   access — the very thing the `?token=` entry was added for. Every 4xx is
+ *   logged at `warn`, so a revoked or mistyped-then-corrected link parks a
+ *   live credential in the access log.
+ * - `POST /invites/:token/accept` turns an invite token into workspace
+ *   membership. It is worse than the share link, not better: being a
+ *   mutation it is logged at `info` on *success* (see `customLogLevel` in
+ *   `app.module.ts`), so an ordinary accept — not just a failure — would
+ *   write a still-live invite into the log for anyone who reads it.
+ *
+ * Only these two shapes: `DELETE /workspaces/:id/invites/:inviteId` and
+ * `DELETE /share-links/:id` carry a row id rather than a credential, and
+ * blanking those would blind the log to which invite or link was revoked.
  *
  * Matching is on the decoded, lowercased, empty-segment-free path for the
  * same reason `isAuthPath` normalizes: Express's router is case-insensitive,
@@ -76,7 +88,10 @@ const SECRET_PATH_SEGMENTS: ReadonlyArray<{
   /** Literal segments; `'*'` matches (and marks) the credential. */
   shape: readonly string[];
   index: number;
-}> = [{ shape: ['share-links', '*', 'resolve'], index: 1 }];
+}> = [
+  { shape: ['share-links', '*', 'resolve'], index: 1 },
+  { shape: ['invites', '*', 'accept'], index: 1 },
+];
 
 /** The path with any credential segment replaced; unchanged if there is none. */
 function redactPathSecrets(path: string): string {
@@ -142,8 +157,9 @@ function redactParams(query: string): string {
  * it. The whole query goes there, since the path is what that log is read
  * for. Elsewhere the query is kept — it is the only thing that distinguishes
  * two calls — minus the value of any parameter that grants access on its own,
- * and minus any credential that rides in the path itself
- * (`SECRET_PATH_SEGMENTS`), which a query-only rule cannot see.
+ * and minus any credential that rides in the path itself (a share token, a
+ * workspace invite token — `SECRET_PATH_SEGMENTS`), which a query-only rule
+ * cannot see.
  *
  * Exported for its own tests: it is a security control with boundary cases
  * (`/authz` is not `/auth`, `/AUTH` is) that nothing else would catch.

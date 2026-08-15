@@ -431,9 +431,13 @@ configured in `packages/backend/src/app.module.ts`:
   else the *values* of granting parameters — `token` (the share-link
   credential on `GET /documents/:id/file`), `code`, `api_key`, … — become
   `<redacted>` while the names stay. A credential that rides in the **path**
-  rather than the query is redacted by segment shape: `GET
-  /share-links/:token/resolve` carries the same share token as `?token=` does,
-  and logs as `/share-links/<redacted>/resolve`. Both predicates match every
+  rather than the query is redacted by segment shape, and there are two:
+  `GET /share-links/:token/resolve` carries the same share token as `?token=`
+  does, and `POST /invites/:token/accept` carries the token that grants
+  workspace membership; they log as `/share-links/<redacted>/resolve` and
+  `/invites/<redacted>/accept`. The invite is the stricter case — being a
+  mutation it is logged at `info` on *success*, so an ordinary accept would
+  otherwise park a live invite in the log. Both predicates match every
   spelling the router accepts (case-insensitive, percent-decoded, collapsed
   slashes), because every 4xx is logged at `warn`.
 - Production emits raw JSON (one line per event); non-production pipes

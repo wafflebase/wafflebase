@@ -91,6 +91,38 @@ describe('logSafeUrl', () => {
     );
   });
 
+  // The share link is not the only credential in a path segment.
+  // `POST /invites/:token/accept` is how someone turns an invite into
+  // workspace membership, and that segment *is* the grant. Worse than the
+  // share-link case: it is a mutation, so `customLogLevel` logs it at `info`
+  // on success, not only when it 4xxs — a still-valid invite would sit in the
+  // access log of every normal accept.
+  it('redacts a workspace invite token that rides in the path', () => {
+    expect(logSafeUrl('/invites/s3cret-invite/accept')).toBe(
+      '/invites/<redacted>/accept',
+    );
+    expect(logSafeUrl('/invites/s3cret-invite/accept?from=email')).toBe(
+      '/invites/<redacted>/accept?from=email',
+    );
+    // Every spelling the router accepts, as with the share link.
+    expect(logSafeUrl('/Invites/s3cret-invite/ACCEPT')).toBe(
+      '/Invites/<redacted>/ACCEPT',
+    );
+    expect(logSafeUrl('//invites//s3cret-invite//accept')).toBe(
+      '/invites/<redacted>/accept',
+    );
+  });
+
+  // Only that shape. `DELETE /workspaces/:id/invites/:inviteId` carries a row
+  // id, not a credential, and over-matching would blind the log to which
+  // invite was revoked.
+  it('leaves other invite routes readable', () => {
+    expect(logSafeUrl('/workspaces/w1/invites')).toBe('/workspaces/w1/invites');
+    expect(logSafeUrl('/workspaces/w1/invites/invite-id')).toBe(
+      '/workspaces/w1/invites/invite-id',
+    );
+  });
+
   // Only that shape. `DELETE /share-links/:id` carries a row id, not a
   // credential, and over-matching would blind the log to which link was
   // revoked.
