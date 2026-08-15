@@ -416,16 +416,45 @@ describe('GitHubAuthGuard', () => {
   // A cookie a sibling subdomain can write is not a binding — and the
   // signature is no backstop, since one unauthenticated `GET /auth/github`
   // hands out a matching (cookie, state) pair. `__Host-` is the whole of the
-  // defence, so it must not be optional on a real deployment.
+  // defence, so it must not be optional on a real deployment: with no
+  // callback URL configured to read a scheme from, `NODE_ENV=production` is
+  // taken to mean https.
   it('prefixes the state cookie with `__Host-` in production', () => {
     const previous = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     try {
+      const unconfigured = {
+        get: (key: string) => (key === 'JWT_SECRET' ? SECRET : undefined),
+      } as unknown as ConfigService;
       const { cookies, context } = contextFor({});
-      guard.canActivate(context);
+      new GitHubAuthGuard(store, unconfigured).canActivate(context);
 
       expect(cookies[0].name).toBe(`__Host-${OAUTH_STATE_COOKIE}`);
       expect(cookies[0].options).toMatchObject({ secure: true, path: '/' });
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+
+  // The shipped image sets `NODE_ENV=production` and the self-hosting docs
+  // hand out an `http://` callback URL, so a `NODE_ENV` short-circuit put
+  // `Secure`/`__Host-` cookies on a plain-http origin — where the browser
+  // discards them, the callback never finds its state and every login dead
+  // ends at `/login?error=login_state`. The configured scheme wins.
+  it('keeps the bare name on a plain-http production deployment', () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const httpProd = new GitHubAuthGuard(store, insecureConfig());
+      const { cookies, context } = contextFor({});
+      httpProd.canActivate(context);
+
+      expect(cookies[0].name).toBe(OAUTH_STATE_COOKIE);
+      expect(cookies[0].options).toMatchObject({ secure: false });
+      // And the callback looks for the very name that was set.
+      expect(loginCookieName(insecureConfig(), OAUTH_STATE_COOKIE)).toBe(
+        cookies[0].name,
+      );
     } finally {
       process.env.NODE_ENV = previous;
     }

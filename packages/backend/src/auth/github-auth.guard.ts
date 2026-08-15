@@ -57,21 +57,35 @@ const MAX_CHALLENGE_LENGTH = 128;
 /**
  * Whether login cookies are set `Secure` (and so can carry `__Host-`).
  *
- * `NODE_ENV === 'production'` used to be the whole test, which quietly dropped
- * the prefix — the only thing that stops a sibling subdomain from planting the
- * browser's half of the double submit — on any HTTPS deployment that does not
- * happen to set that variable (a staging box, a self-hosted install, a
- * container image whose entrypoint forgot it). So the deployment's own
- * `GITHUB_CALLBACK_URL` is asked as well: it is the URL GitHub redirects the
- * login to, so its scheme *is* this server's public scheme. Reading a
- * configured value rather than the live request keeps the answer identical on
- * the request that sets the cookie and the callback that reads it, which a
- * per-request `req.secure` behind a proxy would not.
+ * The deployment's own `GITHUB_CALLBACK_URL` decides. It is the URL GitHub
+ * redirects the login to, so its scheme *is* this server's public scheme, and
+ * reading a configured value rather than the live request keeps the answer
+ * identical on the request that sets the cookie and the callback that reads
+ * it — which a per-request `req.secure` behind a proxy would not.
+ *
+ * `NODE_ENV === 'production'` is only the fallback for a deployment that
+ * configures no callback URL at all, and deliberately not an override.
+ * Checking it first broke the rule in *both* directions. It dropped the
+ * prefix — the only thing that stops a sibling subdomain from planting the
+ * browser's half of the double submit — on every https deployment that does
+ * not happen to set the variable. And, because the shipped image sets
+ * `NODE_ENV=production` (`Dockerfile`) while the self-hosting docs hand out an
+ * `http://` callback URL, it set `Secure`/`__Host-` cookies on a plain-http
+ * origin, where the browser discards them on arrival. That is not a hardened
+ * login but a dead one: the callback never finds its state cookie and
+ * redirects to `/login?error=login_state`, and the CLI consent page re-renders
+ * forever because the click it waits for can never present its half.
+ * `secureCookies` is what says whether a plain-http origin is a development
+ * box or a misconfigured production one, so it has to answer for the origin
+ * actually being served.
  */
-function secureCookies(configService: ConfigService): boolean {
-  if (process.env.NODE_ENV === 'production') return true;
-  const callbackUrl = configService.get<string>('GITHUB_CALLBACK_URL') ?? '';
-  return callbackUrl.trimStart().toLowerCase().startsWith('https://');
+export function secureCookies(configService: ConfigService): boolean {
+  const callbackUrl = (configService.get<string>('GITHUB_CALLBACK_URL') ?? '')
+    .trimStart()
+    .toLowerCase();
+  if (callbackUrl.startsWith('https://')) return true;
+  if (callbackUrl.startsWith('http://')) return false;
+  return process.env.NODE_ENV === 'production';
 }
 
 /**

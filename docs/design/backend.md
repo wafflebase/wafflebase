@@ -362,6 +362,15 @@ Created by `AuthService.createTokens()`:
 
 #### Cookie Configuration
 
+"Production" below means an **https** origin. Every cookie's `Secure` flag —
+session, refresh and the three login cookies alike — comes from one predicate
+(`secureCookies`), which reads the scheme of the configured
+`GITHUB_CALLBACK_URL` and only falls back to `NODE_ENV=production` when no
+callback URL is configured at all. `NODE_ENV` is not an override: the shipped
+image sets it while a self-hosted install may be served over plain http, and a
+`Secure` cookie sent from an http origin is discarded by the browser — which
+is a login that dead-ends, not a login that is safer.
+
 | Cookie | Production | Development |
 |--------|------------|-------------|
 | `wafflebase_session` | httpOnly, secure, sameSite=`lax`, maxAge=1h by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=1h by default |
@@ -383,10 +392,13 @@ binding proves the server issued the `state`, but one unauthenticated
 signing is no obstacle to an attacker who can plant cookies. Because the
 prefix carries the whole load it is not keyed to `NODE_ENV`: it applies
 whenever `GITHUB_CALLBACK_URL` is `https://` — i.e. on every https
-deployment, whether or not that variable happens to be set. A plain-http
-origin (localhost development) still gets the unprefixed name, and with it no
-defence against cookie planting on that origin — which is why the CLI login,
-whose consent gate is exactly such a cookie, refuses to start on a plain-http
+deployment, whether or not that variable happens to be set — and it is
+*withheld* whenever that URL is `http://`, even under `NODE_ENV=production`,
+because the browser would drop the cookie and the login would fail with no
+visible reason. A plain-http origin (localhost development, or a self-hosted
+install behind no TLS) gets the unprefixed name, and with it no defence
+against cookie planting on that origin — which is why the CLI login, whose
+consent gate is exactly such a cookie, refuses to start on a plain-http
 origin unless it is loopback.
 
 SameSite=`lax` blocks third-party cross-site requests from carrying the
@@ -650,7 +662,7 @@ erDiagram
 | `GITHUB_CLIENT_SECRET` | Yes | — | GitHub OAuth app client secret |
 | `GITHUB_CALLBACK_URL` | No | `http://localhost:3000/auth/github/callback` | OAuth callback URL |
 | `PORT` | No | `3000` | Server listen port |
-| `NODE_ENV` | No | — | Affects cookie `secure` flag, log transport, and rate-limiter skip. `production` enables `secure` cookies and JSON Pino logs; `test` disables the limiter and autoLogging. |
+| `NODE_ENV` | No | — | Affects log transport and rate-limiter skip, and is the *fallback* for the cookie `secure` flag when `GITHUB_CALLBACK_URL` is unset (an explicit `http://` or `https://` callback wins). `production` enables JSON Pino logs; `test` disables the limiter and autoLogging. |
 | `LOG_LEVEL` | No | `info` | Pino log level (`trace`/`debug`/`info`/`warn`/`error`/`fatal`/`silent`). |
 | `BACKEND_TRUST_PROXY` | No | `0` | Number of upstream proxy hops to trust for `req.ip`. Set to `1` behind a single edge proxy (nginx, Cloudflare). Leave at `0` for direct exposure to prevent `X-Forwarded-For` spoofing. |
 | `BACKEND_JSON_BODY_LIMIT` | No | `25mb` | Max JSON request body. Passed verbatim to `body-parser`. |

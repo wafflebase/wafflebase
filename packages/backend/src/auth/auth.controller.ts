@@ -30,6 +30,7 @@ import {
   CLI_STATE_COOKIE,
   loginCookieOptions,
   OAUTH_STATE_COOKIE,
+  secureCookies,
   secretEquals,
   stateSignature,
   WEB_STATE_PREFIX,
@@ -485,9 +486,18 @@ export class AuthController {
 
   private baseCookieOptions(): CookieOptions {
     // SameSite=Lax for CSRF defense; assumes frontend + backend share eTLD+1.
+    //
+    // `Secure` follows the same rule as the login cookies (`secureCookies`),
+    // not `NODE_ENV` on its own. A `Secure` cookie set from a plain-http
+    // origin is not a stricter session, it is no session at all — the browser
+    // drops it — and the shipped image sets `NODE_ENV=production` while a
+    // self-hosted install may well be served over http. Fixing the login
+    // cookies alone would only have moved the dead end one redirect later:
+    // the callback would validate and then hand out a session the browser
+    // throws away.
     return {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: secureCookies(this.configService),
       sameSite: 'lax',
     };
   }

@@ -665,6 +665,39 @@ describe('AuthController', () => {
       }
     });
 
+    // The shipped image sets `NODE_ENV=production`; a self-hosted install may
+    // still be served over plain http. A `Secure` session cookie there is not
+    // a stricter session but no session at all — the browser drops it — so a
+    // login that finally passed its state check would still land logged out.
+    // The configured callback scheme decides, exactly as it does for the
+    // login cookies.
+    it('sets secure=false on a plain-http production deployment', async () => {
+      process.env.NODE_ENV = 'production';
+      const httpConfig = {
+        get: jest.fn((key: string) =>
+          key === 'GITHUB_CALLBACK_URL'
+            ? 'http://app.example.test/auth/github/callback'
+            : key === 'FRONTEND_URL'
+              ? 'http://app.example.test'
+              : undefined,
+        ),
+      } as unknown as ConfigService;
+      const httpController = new AuthController(
+        authService,
+        userService,
+        httpConfig,
+        cliAuthStore,
+      );
+      const res = createMockResponse();
+
+      await httpController.logout(res);
+
+      for (const call of (res.clearCookie as jest.Mock).mock.calls) {
+        const [, options] = call;
+        expect(options).toMatchObject({ httpOnly: true, secure: false });
+      }
+    });
+
     it('never sets SameSite=None on auth cookies', async () => {
       for (const env of ['production', 'staging', 'development', 'test']) {
         process.env.NODE_ENV = env;
