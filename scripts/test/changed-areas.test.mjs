@@ -30,6 +30,26 @@ const REPO_ROOT = path.resolve(
   "../..",
 );
 
+// Nothing below may inherit a git context from whoever ran the suite.
+//
+// `cwd` does NOT decide which repository git touches: `GIT_DIR`,
+// `GIT_WORK_TREE` and `GIT_INDEX_FILE` outrank it, and git *exports* them to
+// every hook it runs. `verify:self` runs from `pre-push`, so there the
+// throwaway repositories below were not throwaway at all — `git init`
+// re-initialised the repository being pushed and `git commit -qm "first"`
+// landed on its HEAD, leaving a "seed / first / second" chain on top of the
+// developer's own commit and failing the very lane that created it. The push
+// then aborted, so each attempt destroyed the branch tip it was verifying.
+//
+// Clearing them here rather than per call covers both halves: the fixtures'
+// own `git` subprocesses, and the `changed-areas.mjs` functions under test,
+// which spawn git in-process and would otherwise ignore the fixture path they
+// were handed. The result is the environment the suite already assumes and
+// passes in — one with no ambient repository at all.
+for (const name of Object.keys(process.env)) {
+  if (name.startsWith("GIT_")) delete process.env[name];
+}
+
 const GRAPH = {
   core: [],
   notes: [],
@@ -387,6 +407,7 @@ test("resolve fail-safes", async (t) => {
       // as a deletion-shaped change belonging to this pull request.
       const twoDot = execFileSync("git", ["diff", "--name-only", `${base}..${head}`], {
         cwd: tmp,
+       
         encoding: "utf8",
       })
         .split("\n")
@@ -575,6 +596,7 @@ test("resolve fail-safes", async (t) => {
     const sha = (rev) =>
       execFileSync("git", ["rev-parse", rev], {
         cwd: dir,
+       
         encoding: "utf8",
       }).trim();
 
