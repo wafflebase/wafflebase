@@ -2,7 +2,7 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { MemDocStore } from '../../src/store/memory.js';
 import { initialize, type EditorAPI } from '../../src/view/editor.js';
-import { getBlockText, normalizeBlockStyle } from '../../src/model/types.js';
+import { createTableBlock, getBlockText, normalizeBlockStyle } from '../../src/model/types.js';
 import type { Block } from '../../src/model/types.js';
 
 const EMPTY_BLOCK_STYLE = normalizeBlockStyle({});
@@ -270,6 +270,37 @@ describe('read-only docs editor (issue #482)', () => {
     });
     editor.applyStyle({ bold: true });
     expect(editor.getRangeStyleSummary().bold).toBe(true);
+    editor.dispose();
+  });
+
+  /**
+   * The cell-rectangle route is the one `applyStyle` path that reaches
+   * `Doc.applyInlineStyleToCells`, so this pins that the newest write
+   * primitive is unreachable through the guarded API too. (`getDoc()` still
+   * hands out the raw model by design — read-only here is a client-side
+   * convenience, and the store/server stays the authoritative write
+   * boundary; see the `MUTATING_METHODS` comment in `view/editor.ts`.)
+   */
+  test('programmatic applyStyle() over a cell rectangle does not mutate in read-only', () => {
+    const table = createTableBlock(1, 2);
+    table.tableData!.rows[0].cells[0].blocks[0].inlines = [
+      { text: 'cell', style: {} },
+    ];
+    const { editor } = setupEditor([para('b1', 'hello world'), table], true);
+    const cells = table.tableData!.rows[0].cells;
+    editor._setSelectionForTest({
+      anchor: { blockId: cells[0].blocks[0].id, offset: 0 },
+      focus: { blockId: cells[1].blocks[0].id, offset: 0 },
+      tableCellRange: {
+        blockId: table.id,
+        start: { rowIndex: 0, colIndex: 0 },
+        end: { rowIndex: 0, colIndex: 1 },
+      },
+    });
+    editor.applyStyle({ bold: true });
+    const stored = editor.getDoc().document.blocks[1]
+      .tableData!.rows[0].cells[0].blocks[0];
+    expect(stored.inlines[0].style.bold).toBeUndefined();
     editor.dispose();
   });
 

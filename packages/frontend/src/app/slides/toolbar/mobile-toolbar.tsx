@@ -65,6 +65,7 @@ import {
   useResolvedFontFamily,
   ensureFontLink,
   clampFontSize,
+  isStyleOn,
 } from "@/components/text-formatting";
 import { applySlideFontFamily } from "./apply-font-family";
 import type { ToolbarState } from "./state";
@@ -220,16 +221,25 @@ function TextEditMobileBar({
   // Read pressed state synchronously; SlidesToolbar's onTextEditingChange +
   // store.onChange listeners trigger a re-render after every applyStyle, so
   // the toggles flip after the click — same staleness model as desktop.
-  const sel = textEditor.getSelectionStyle();
+  // Read the *range* summary, not the caret style: a backward
+  // (right-to-left) selection parks the caret at the range's start, where
+  // `getSelectionStyle()` reports the run *preceding* the selection and the
+  // toggle inverts the wrong value (issue #715). Same decision as the
+  // shared `TextFormatGroup` rendered in the sheet below, so the two agree.
+  const summary = textEditor.getRangeStyleSummary();
   const onBold = useCallback(() => {
-    textEditor.applyStyle({ bold: !textEditor.getSelectionStyle().bold });
+    textEditor.applyStyle({
+      bold: !isStyleOn(textEditor.getRangeStyleSummary().bold),
+    });
   }, [textEditor]);
   const onItalic = useCallback(() => {
-    textEditor.applyStyle({ italic: !textEditor.getSelectionStyle().italic });
+    textEditor.applyStyle({
+      italic: !isStyleOn(textEditor.getRangeStyleSummary().italic),
+    });
   }, [textEditor]);
   const onUnderline = useCallback(() => {
     textEditor.applyStyle({
-      underline: !textEditor.getSelectionStyle().underline,
+      underline: !isStyleOn(textEditor.getRangeStyleSummary().underline),
     });
   }, [textEditor]);
 
@@ -237,12 +247,17 @@ function TextEditMobileBar({
     <Toolbar className="flex h-10 items-center gap-1 border-b px-2">
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
-      <Toggle size="sm" pressed={!!sel.bold} onPressedChange={onBold} aria-label="Bold">
+      <Toggle
+        size="sm"
+        pressed={isStyleOn(summary.bold)}
+        onPressedChange={onBold}
+        aria-label="Bold"
+      >
         <IconBold size={16} />
       </Toggle>
       <Toggle
         size="sm"
-        pressed={!!sel.italic}
+        pressed={isStyleOn(summary.italic)}
         onPressedChange={onItalic}
         aria-label="Italic"
       >
@@ -250,7 +265,7 @@ function TextEditMobileBar({
       </Toggle>
       <Toggle
         size="sm"
-        pressed={!!sel.underline}
+        pressed={isStyleOn(summary.underline)}
         onPressedChange={onUnderline}
         aria-label="Underline"
       >

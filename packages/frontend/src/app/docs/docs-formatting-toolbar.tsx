@@ -63,6 +63,7 @@ import {
   InsertLinkButton,
   ensureFontLink,
   clampFontSize,
+  isStyleOn,
 } from "@/components/text-formatting";
 import { STYLE_OPTIONS } from "@/components/text-formatting/text-style-options";
 import { fetchMyDocStyles, saveMyDocStyles } from "@/api/doc-styles";
@@ -384,20 +385,24 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
   // Does not use the shared formatting groups because the header/footer
   // surface is intentionally narrower (no lists, no link, no styles dropdown).
   if (isHeaderFooter) {
+    // Toggle off the range summary, not the caret style: with a backward
+    // selection the caret sits at the range's start and `getSelectionStyle()`
+    // reports the run *before* it, inverting the wrong value (issue #715).
     const toggleBold = () => {
       if (!editor) return;
-      const current = editor.getSelectionStyle();
-      editor.applyStyle({ bold: !current.bold });
+      editor.applyStyle({ bold: !isStyleOn(editor.getRangeStyleSummary().bold) });
     };
     const toggleItalic = () => {
       if (!editor) return;
-      const current = editor.getSelectionStyle();
-      editor.applyStyle({ italic: !current.italic });
+      editor.applyStyle({
+        italic: !isStyleOn(editor.getRangeStyleSummary().italic),
+      });
     };
     const toggleUnderline = () => {
       if (!editor) return;
-      const current = editor.getSelectionStyle();
-      editor.applyStyle({ underline: !current.underline });
+      editor.applyStyle({
+        underline: !isStyleOn(editor.getRangeStyleSummary().underline),
+      });
     };
     const handleTextColor = (color: string) => {
       editor?.applyStyle({ color });
@@ -415,6 +420,11 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
     };
 
     const slimSelectionStyle = editor?.getSelectionStyle();
+    // The pressed state comes from the same range summary the click decides
+    // from, so the button can never render "on" while clicking it turns the
+    // style on — the caret/range disagreement issue #715 is about. Matches
+    // `TextFormatGroup`, which the slim toolbar deliberately does not share.
+    const slimSummary = editor?.getRangeStyleSummary();
     const slimAlignment = editor?.getBlockStyle()?.alignment ?? "left";
     const SlimAlignIcon =
       slimAlignment === "center"
@@ -441,7 +451,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
         {/* ── Font Styles ── */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Toggle size="sm" onPressedChange={toggleBold} className="h-7 w-7 cursor-pointer" aria-label="Bold">
+            <Toggle size="sm" pressed={isStyleOn(slimSummary?.bold)} onPressedChange={toggleBold} className="h-7 w-7 cursor-pointer" aria-label="Bold">
               <IconBold size={16} />
             </Toggle>
           </TooltipTrigger>
@@ -450,7 +460,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Toggle size="sm" onPressedChange={toggleItalic} className="h-7 w-7 cursor-pointer" aria-label="Italic">
+            <Toggle size="sm" pressed={isStyleOn(slimSummary?.italic)} onPressedChange={toggleItalic} className="h-7 w-7 cursor-pointer" aria-label="Italic">
               <IconItalic size={16} />
             </Toggle>
           </TooltipTrigger>
@@ -459,7 +469,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
 
         <Tooltip>
           <TooltipTrigger asChild>
-            <Toggle size="sm" onPressedChange={toggleUnderline} className="h-7 w-7 cursor-pointer" aria-label="Underline">
+            <Toggle size="sm" pressed={isStyleOn(slimSummary?.underline)} onPressedChange={toggleUnderline} className="h-7 w-7 cursor-pointer" aria-label="Underline">
               <IconUnderline size={16} />
             </Toggle>
           </TooltipTrigger>

@@ -816,3 +816,195 @@ describe('initializeTextBox — verticalAnchor', () => {
     api.detach();
   });
 });
+
+/**
+ * The text-box formatting reads report the *effective* style — the block's
+ * named-style inline defaults (`resolveStyleInline`) layered under each run's
+ * explicit style — so the toolbar answers with what the renderer paints.
+ *
+ * This matters for every editor built on `initializeTextBox`: the docs text
+ * box and the slides shape / text-box / table-cell editors. `heading-6`'s
+ * built-in definition supplies `italic: true` (plus `fontSize: 11` and
+ * `color: '#666666'`), so a heading-6 run carrying no explicit `italic` is
+ * painted italic. Reading raw run style answered "not italic", the Italic
+ * toggle then applied italic — a permanent visual no-op — while the keyboard
+ * path, which layers the same defaults, removed it: the issue #715 shape,
+ * one caret apart.
+ */
+describe('initializeTextBox — named-style defaults in the style reads', () => {
+  let _origGetContext: HTMLCanvasElement['getContext'];
+  let _origRAF: typeof window.requestAnimationFrame;
+
+  beforeEach(() => {
+    const ctx = new Proxy({}, {
+      get(_t, prop) {
+        if (prop === 'measureText') {
+          return (text: string) => ({
+            width: typeof text === 'string' ? text.length * 6 : 0,
+            actualBoundingBoxAscent: 8,
+            actualBoundingBoxDescent: 2,
+          });
+        }
+        if (prop === 'canvas') return null;
+        if (prop === 'font') return '12px sans-serif';
+        return () => {};
+      },
+      set: () => true,
+    }) as unknown as CanvasRenderingContext2D;
+    _origGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function patched(id: string): unknown {
+      return id === '2d' ? ctx : null;
+    } as HTMLCanvasElement['getContext'];
+    _origRAF = window.requestAnimationFrame;
+    window.requestAnimationFrame = (cb: FrameRequestCallback): number => {
+      queueMicrotask(() => cb(performance.now()));
+      return 0;
+    };
+  });
+
+  afterEach(() => {
+    HTMLCanvasElement.prototype.getContext = _origGetContext;
+    window.requestAnimationFrame = _origRAF;
+    document.body.innerHTML = '';
+  });
+
+  /** One heading-6 block whose single run carries `style`. */
+  function mountHeading6(style: Record<string, unknown> = {}) {
+    const block = {
+      id: 'h6',
+      type: 'heading',
+      headingLevel: 6,
+      inlines: [{ text: 'abc', style }],
+      style: {},
+    } as unknown as Block;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const api = initializeTextBox({
+      container,
+      canvas,
+      blocks: [block],
+      contentWidth: 400,
+      contentHeight: 200,
+    });
+    return { api, container };
+  }
+
+  /** Cmd/Ctrl+A on the hidden textarea — the only way in to a real range. */
+  async function selectAll(container: HTMLElement, api: { focus(): void }) {
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    api.focus();
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'a', metaKey: true, ctrlKey: true, bubbles: true, cancelable: true,
+      }),
+    );
+    await new Promise<void>((r) => queueMicrotask(r));
+  }
+
+  it('reports a range as italic when only the named style supplies it', async () => {
+    const { api, container } = mountHeading6();
+    await selectAll(container, api);
+    expect(api.getRangeStyleSummary().italic).toBe(true);
+    expect(api.getRangeStyleSummary().fontSize).toBe(11);
+    expect(api.getRangeStyleSummary().color).toBe('#666666');
+    api.detach();
+  });
+
+  it('lets an explicit run style win over the named-style default', async () => {
+    const { api, container } = mountHeading6({ italic: false, fontSize: 20 });
+    await selectAll(container, api);
+    expect(api.getRangeStyleSummary().italic).toBe(false);
+    expect(api.getRangeStyleSummary().fontSize).toBe(20);
+    api.detach();
+  });
+
+  it('reports the same value at a collapsed caret as over the range', () => {
+    // The caret branch used to return raw `inline.style`, so it disagreed
+    // with the range branch — and with the keyboard — for this very block.
+    const { api } = mountHeading6();
+    expect(api.getRangeStyleSummary().italic).toBe(true);
+    expect(api.getSelectionStyle().italic).toBe(true);
+    api.detach();
+  });
+
+  /**
+   * The collapsed-caret half of the same rule, which the range test above
+   * cannot reach (it selects all first). The branch reads the size it steps
+   * from the *effective* style but stages a *raw* base, and heading-3 tells
+   * the two apart: it supplies `fontSize: 14` (so a raw read would step the
+   * 11pt fallback to 12) and `color: '#434343'` (which must not be baked into
+   * the run the next keystroke writes, or the run stops tracking the style
+   * when it is redefined).
+   */
+  it('steps a collapsed caret from the named-style size and stages a raw base', async () => {
+    const clamp = (n: number) => Math.max(1, Math.min(400, Math.round(n)));
+    const block = {
+      id: 'h3',
+      type: 'heading',
+      headingLevel: 3,
+      inlines: [{ text: 'abc', style: {} }],
+      style: {},
+    } as unknown as Block;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const committed: Block[][] = [];
+    const api = initializeTextBox({
+      container, canvas, blocks: [block], contentWidth: 400, contentHeight: 200,
+      onCommit: (blocks) => committed.push(blocks),
+    });
+
+    // No selectAll — the caret stays collapsed at the start of the run.
+    api.stepSelectionFontSize(1, clamp);
+    expect(api.getRangeStyleSummary().fontSize).toBe(15);
+
+    // Type, so the staged pending style is written into a real run.
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    api.focus();
+    textarea.value = 'X';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    api.detach();
+
+    const blocks = committed.at(-1);
+    expect(blocks).toBeDefined();
+    const typed = blocks![0].inlines.find((inline) => inline.text.includes('X'));
+    expect(typed).toBeDefined();
+    // The stepped value is written explicitly...
+    expect(typed!.style.fontSize).toBe(15);
+    // ...but nothing heading-3 merely supplies is.
+    expect(typed!.style.color).toBeUndefined();
+    expect(typed!.style.italic).toBeUndefined();
+  });
+
+  it('steps the font size from the named-style default, not the 11pt fallback', async () => {
+    const clamp = (n: number) => Math.max(1, Math.min(400, Math.round(n)));
+    // heading-1 supplies fontSize 20; the run carries none.
+    const block = {
+      id: 'h1',
+      type: 'heading',
+      headingLevel: 1,
+      inlines: [{ text: 'abc', style: {} }],
+      style: {},
+    } as unknown as Block;
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    const api = initializeTextBox({
+      container, canvas, blocks: [block], contentWidth: 400, contentHeight: 200,
+    });
+    await selectAll(container, api);
+    api.stepSelectionFontSize(1, clamp);
+    expect(api.getRangeStyleSummary().fontSize).toBe(21);
+    api.detach();
+  });
+});
