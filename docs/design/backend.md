@@ -417,8 +417,10 @@ nothing else depends on the key that is published. Derivation separates the
 uses; it does not add entropy, so a guessable `JWT_SECRET` can still be
 tested through it (as it can against any HS256 token the server has issued).
 `OAUTH_STATE_SECRET` removes even that relation for a deployment that wants
-it. Because the
-prefix carries the whole load it is not keyed to `NODE_ENV`: it applies
+it.
+
+Because the `__Host-` prefix carries the whole load it is not keyed to
+`NODE_ENV`: it applies
 whenever `GITHUB_CALLBACK_URL` is `https://` — i.e. on every https
 deployment, whether or not that variable happens to be set — and it is
 *withheld* whenever that URL is `http://`, even under `NODE_ENV=production`,
