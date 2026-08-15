@@ -172,6 +172,80 @@ describe('startCallbackServer', () => {
     }
   });
 
+  it('accepts a nonce-less callback when --allow-unbound-callback is set', async () => {
+    const srv = await startCallbackServer(NONCE, { allowUnbound: true });
+    try {
+      expect(await callback(srv.port, '?code=old-server-code')).toBe(200);
+      await expect(srv.waitForCallback()).resolves.toBe('old-server-code');
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('still refuses a mismatched nonce under --allow-unbound-callback', async () => {
+    const srv = await startCallbackServer(NONCE, { allowUnbound: true });
+    try {
+      expect(
+        await callback(srv.port, `?code=evil-code&nonce=${'x'.repeat(43)}`),
+      ).toBe(403);
+      expect(await callback(srv.port, '?code=old-server-code')).toBe(200);
+      await expect(srv.waitForCallback()).resolves.toBe('old-server-code');
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('reports an ordinary timeout as a user error', async () => {
+    const srv = await startCallbackServer(NONCE, { timeoutMs: 30 });
+    try {
+      const err = await srv
+        .waitForCallback()
+        .then(() => null)
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(LoginError);
+      expect((err as Error).message).toMatch(/timed out/);
+      expect(exitCodeFor(err)).toBe(EXIT_USER_ERROR);
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('reports a nonce-less callback as a system error naming the cause', async () => {
+    const srv = await startCallbackServer(NONCE, { timeoutMs: 300 });
+    try {
+      const pending = srv
+        .waitForCallback()
+        .then(() => null)
+        .catch((e: unknown) => e);
+      expect(await callback(srv.port, '?code=old-server-code')).toBe(403);
+      const err = await pending;
+      expect(err).toBeInstanceOf(LoginError);
+      expect((err as Error).message).toMatch(/predates nonce-bound CLI login/);
+      expect((err as Error).message).toMatch(/--allow-unbound-callback/);
+      expect(exitCodeFor(err)).toBe(EXIT_SYSTEM_ERROR);
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('keeps a mismatched nonce an ordinary timeout, not an old server', async () => {
+    const srv = await startCallbackServer(NONCE, { timeoutMs: 300 });
+    try {
+      const pending = srv
+        .waitForCallback()
+        .then(() => null)
+        .catch((e: unknown) => e);
+      expect(
+        await callback(srv.port, `?code=evil-code&nonce=${'x'.repeat(43)}`),
+      ).toBe(403);
+      const err = await pending;
+      expect((err as Error).message).toMatch(/timed out/);
+      expect(exitCodeFor(err)).toBe(EXIT_USER_ERROR);
+    } finally {
+      srv.close();
+    }
+  });
+
   it('still rejects a callback with no code, and 404s other paths', async () => {
     const srv = await startCallbackServer(NONCE);
     try {

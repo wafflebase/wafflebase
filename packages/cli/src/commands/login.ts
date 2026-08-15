@@ -62,6 +62,16 @@ export function registerLoginCommand(program: Command): void {
   program
     .command('login')
     .description('Log in via GitHub OAuth in the browser')
+    // Escape hatch for a server older than nonce-bound login. Published
+    // CLIs and self-hosted backends upgrade independently, so a new CLI
+    // must not be unable to log into an old server at all — but the
+    // downgrade is the operator's explicit choice, never a silent
+    // fallback, because the nonce is what stops a local web page from
+    // fixing this CLI onto an attacker's account.
+    .option(
+      '--allow-unbound-callback',
+      'accept a login callback that carries no nonce (server predates nonce-bound CLI login)',
+    )
     .action(async function (this: Command) {
       // `login` prints prose rather than the JSON error body, but it
       // honors the same exit contract: a server that was never reached
@@ -155,7 +165,10 @@ export async function fetchLoginSession(
 }
 
 async function runLogin(cmd: Command): Promise<void> {
-  const parentOpts = cmd.optsWithGlobals<{ server?: string }>();
+  const parentOpts = cmd.optsWithGlobals<{
+    server?: string;
+    allowUnboundCallback?: boolean;
+  }>();
   const server = (parentOpts.server ?? DEFAULT_SERVER).replace(/\/$/, '');
 
   // 1. Check existing session
@@ -177,7 +190,14 @@ async function runLogin(cmd: Command): Promise<void> {
   // this CLI onto the attacker's account. The nonce rides through the
   // OAuth round trip and only a callback echoing it is accepted.
   const nonce = randomBytes(32).toString('base64url');
-  const { port, waitForCallback, close } = await startCallbackServer(nonce);
+  if (parentOpts.allowUnboundCallback) {
+    console.error(
+      'Warning: --allow-unbound-callback accepts a callback that carries no nonce. Any local process that reaches the callback port can complete this login.',
+    );
+  }
+  const { port, waitForCallback, close } = await startCallbackServer(nonce, {
+    allowUnbound: parentOpts.allowUnboundCallback === true,
+  });
 
   // 3. Build OAuth URL and open browser
   const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${encodeURIComponent(nonce)}`;
@@ -257,6 +277,18 @@ export function nonceMatches(received: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
+export interface CallbackServerOptions {
+  /**
+   * Accept a callback that carries **no** nonce at all — the shape an
+   * older backend redirects with. Off by default; `wafflebase login
+   * --allow-unbound-callback` turns it on for someone who knowingly
+   * points a current CLI at a server that predates the echo.
+   */
+  allowUnbound?: boolean;
+  /** How long to wait for the callback. A seam for tests. */
+  timeoutMs?: number;
+}
+
 /**
  * Listen on `127.0.0.1:<random port>` for the OAuth redirect, accepting
  * only a `/callback` that echoes `expectedNonce`. Exported so the
@@ -266,13 +298,22 @@ export function nonceMatches(received: string, expected: string): boolean {
  * A callback carrying a code but no nonce means the server predates
  * nonce-bound CLI login. It is refused (accepting it would defeat the
  * binding) but not settled, so a hostile local page cannot cancel a
- * pending login either; the timeout then says what went wrong.
+ * pending login either; the timeout then names the cause and the
+ * `--allow-unbound-callback` opt-out. With that opt-out set, a
+ * nonce-less callback is accepted so an old server stays usable; a
+ * *mismatched* nonce is refused either way, since only an attacker
+ * sends one.
  */
-export function startCallbackServer(expectedNonce: string): Promise<{
+export function startCallbackServer(
+  expectedNonce: string,
+  options: CallbackServerOptions = {},
+): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
 }> {
+  const allowUnbound = options.allowUnbound === true;
+  const timeoutMs = options.timeoutMs ?? 30_000;
   return new Promise((resolve, reject) => {
     let settled = false;
     let sawUnboundCallback = false;
@@ -303,9 +344,16 @@ export function startCallbackServer(expectedNonce: string): Promise<{
       // Reject — without settling — anything that does not carry the
       // nonce we handed out: an unrelated local request or a hostile
       // page must be able neither to complete nor to cancel this login.
+      // A callback with no nonce *parameter at all* is the shape an
+      // older backend redirects with, so it is the one case
+      // `--allow-unbound-callback` can wave through.
       const nonce = url.searchParams.get('nonce');
-      if (!nonce || !nonceMatches(nonce, expectedNonce)) {
-        sawUnboundCallback = true;
+      if (nonce === null && allowUnbound) {
+        console.error(
+          'Accepting a callback with no login nonce (--allow-unbound-callback).',
+        );
+      } else if (nonce === null || !nonceMatches(nonce, expectedNonce)) {
+        if (nonce === null) sawUnboundCallback = true;
         res.writeHead(403);
         res.end('Invalid login nonce');
         console.error(
@@ -369,7 +417,7 @@ export function startCallbackServer(expectedNonce: string): Promise<{
           sawUnboundCallback
             ? new LoginError(
                 EXIT_SYSTEM_ERROR,
-                'Login callback arrived without the expected nonce — the server predates nonce-bound CLI login. Upgrade the server, then run `wafflebase login` again.',
+                'Login callback arrived without the expected nonce — the server predates nonce-bound CLI login. Upgrade the server, or re-run `wafflebase login --allow-unbound-callback` to accept it anyway.',
               )
             : new LoginError(
                 EXIT_USER_ERROR,
@@ -378,7 +426,7 @@ export function startCallbackServer(expectedNonce: string): Promise<{
         );
       }
       srv.close();
-    }, 30_000);
+    }, timeoutMs);
 
     // Try to listen on a random port (up to 3 attempts)
     let attempts = 0;

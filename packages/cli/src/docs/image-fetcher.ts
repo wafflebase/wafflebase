@@ -1,4 +1,7 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+import { Readable } from 'node:stream';
+import { Agent, fetch as undiciFetch, request as undiciRequest } from 'undici';
 import type { DocxImageFetcher } from '@wafflebase/docs';
 import {
   SystemError,
@@ -21,8 +24,9 @@ export interface ImageFetcherOptions {
   serverBase: string;
   /**
    * Optional `fetch` override — kept as a seam for tests. Defaults to
-   * the global `fetch`. The signature matches the WHATWG fetch so a
-   * stub can be a plain async function without pulling DOM types in.
+   * undici's `fetch` (see `defaultFetch`). The signature matches the
+   * WHATWG fetch so a stub can be a plain async function without pulling
+   * DOM types in.
    */
   fetch?: typeof globalThis.fetch;
   /** Optional hostname resolver — a seam for tests. Defaults to DNS. */
@@ -229,50 +233,51 @@ async function resolveHost(
 }
 
 /**
- * Whether `url` names the same listener as the configured API server —
- * the same address *and* the same port, however either is spelled. The
- * frontend persists image `src` values absolute
+ * Every address the configured API server currently answers with, as the
+ * exemption set for the gate below. The frontend persists image `src`
+ * values absolute
  * (`resolveImageUrl` in `packages/frontend/src/app/spreadsheet/image-upload.ts`),
  * so a dev or self-hosted document stores whatever the browser called
  * the server (`http://localhost:3000/...`) while the CLI may be pointed
  * at another spelling of it (`--server http://127.0.0.1:3000`).
  * Comparing origin strings would refuse those documents' own images;
- * comparing resolved identities does not, and still grants nothing
- * beyond the server the CLI already sends its credentials to.
+ * comparing resolved identities does not, and grants nothing beyond the
+ * server the CLI already sends its credentials to.
  */
-async function sharesAddressWithServer(
-  addresses: string[],
+async function serverAddresses(
   server: URL,
   lookup: HostLookup,
-): Promise<boolean> {
-  let serverAddresses: string[];
+): Promise<Set<string>> {
   try {
-    serverAddresses = await resolveHost(server, lookup, server.toString());
+    const addresses = await resolveHost(server, lookup, server.toString());
+    return new Set(addresses.map((a) => a.toLowerCase()));
   } catch {
     // The server's own host is unresolvable — nothing to match against.
-    return false;
+    return new Set();
   }
-  const seen = new Set(serverAddresses.map((a) => a.toLowerCase()));
-  return addresses.some((a) => seen.has(a.toLowerCase()));
 }
 
 /**
- * Gate one image URL before it is requested. Without this the exporters
- * turn any document into an SSRF probe: a `src` of
- * `http://169.254.169.254/...` or `file:///etc/passwd` would be fetched
- * with the CLI's network position and the bytes embedded in the
- * PDF/DOCX/PPTX the victim then reads.
+ * Gate one image URL before it is requested, returning the addresses the
+ * request is then **pinned** to (`null` for `data:`, which opens no
+ * connection). Without this the exporters turn any document into an SSRF
+ * probe: a `src` of `http://169.254.169.254/...` or `file:///etc/passwd`
+ * would be fetched with the CLI's network position and the bytes
+ * embedded in the PDF/DOCX/PPTX the victim then reads.
  *
- * Names are resolved before the verdict, so a hostname whose DNS record
- * points at loopback is refused too. The residual gap is rebinding
- * between this lookup and the connect; closing that needs a pinned
- * connection, which undici does not expose.
+ * The verdict is per **address**, not per URL: a host that answers with
+ * the server's address *and* an unrelated one must not have the
+ * private-address check skipped for the unrelated one. Every address
+ * that is not the server's own is judged on its merits, and only the
+ * addresses that pass are handed back — `pinnedAgent` then connects to
+ * those and nothing else, so an address rejected here is unreachable
+ * even if the name later resolves to it (DNS rebinding).
  */
 export async function assertFetchableImageUrl(
   target: string,
   server: URL | null,
   lookup: HostLookup,
-): Promise<void> {
+): Promise<string[] | null> {
   let url: URL;
   try {
     url = new URL(target);
@@ -280,15 +285,12 @@ export async function assertFetchableImageUrl(
     throw blocked(`Refusing to fetch malformed image URL "${target}".`);
   }
 
-  if (url.protocol === 'data:') return;
+  if (url.protocol === 'data:') return null;
   if (!FETCHABLE_SCHEMES.has(url.protocol)) {
     throw blocked(
       `Refusing to fetch image URL with scheme "${url.protocol}" (${redactUrl(target)}).`,
     );
   }
-
-  // Cheap exact match first, so the common case costs no lookup.
-  if (server && url.origin === server.origin) return;
 
   // The configured server is the one internal listener still allowed —
   // `--server http://localhost:3000` is the normal dev setup, and a
@@ -306,21 +308,122 @@ export async function assertFetchableImageUrl(
   if (internalName && !mayBeServer) throw internalHost();
 
   const addresses = await resolveHost(url, lookup, target);
+  const exempt =
+    server && mayBeServer
+      ? await serverAddresses(server, lookup)
+      : new Set<string>();
 
-  if (server && mayBeServer) {
-    if (await sharesAddressWithServer(addresses, server, lookup)) return;
-  }
-
-  if (internalName) throw internalHost();
-
-  if (addresses.some(isPrivateAddress)) {
+  const allowed = addresses.filter(
+    (a) =>
+      exempt.has(a.toLowerCase()) || (!internalName && !isPrivateAddress(a)),
+  );
+  if (allowed.length === 0) {
+    if (internalName) throw internalHost();
     throw blocked(
       ipLiteral(url.hostname)
         ? `Refusing to fetch image URL on an internal address (${redactUrl(target)}).`
         : `Refusing to fetch image URL that resolves to an internal address (${redactUrl(target)}).`,
     );
   }
+  return allowed;
 }
+
+/**
+ * A dispatcher that connects to `addresses` and to nothing else.
+ *
+ * The gate resolves the hostname itself, but `fetch` resolves it again at
+ * connect time — two independent lookups, and an attacker-run nameserver
+ * with a ~0s TTL can answer the first with a public address and the
+ * second with `169.254.169.254`. Overriding the connector's `lookup` with
+ * the already-approved answers closes that window: the connection can
+ * only land on an address the gate cleared.
+ */
+function pinnedAgent(addresses: string[]): Agent {
+  const entries = addresses.map((address) => ({
+    address,
+    family: isIP(address) === 6 ? 6 : 4,
+  }));
+  // undici asks with `{ all: true }` and wants the array form; the
+  // single-answer shape is kept for any caller that does not.
+  const lookup = (
+    _hostname: string,
+    options: { all?: boolean } | undefined,
+    callback: (
+      err: Error | null,
+      address: string | Array<{ address: string; family: number }>,
+      family?: number,
+    ) => void,
+  ): void => {
+    if (options?.all) callback(null, entries);
+    else callback(null, entries[0].address, entries[0].family);
+  };
+  return new Agent({
+    connect: { lookup } as unknown as Agent.Options['connect'],
+  });
+}
+
+/**
+ * Whether the runtime filtered this response into an *opaque redirect*.
+ *
+ * `redirect: 'manual'` is specified to yield a response of type
+ * `opaqueredirect` — status `0`, empty header list — which carries
+ * neither the status nor the `Location` the redirect loop below needs.
+ * undici (this CLI's transport, a direct dependency rather than whatever
+ * the host runtime happens to ship) hands back the real response
+ * instead, which is what makes hop-by-hop gating possible; the filtered
+ * shape is nonetheless what the spec mandates, so detect it rather than
+ * mistake it for a successful, empty image.
+ */
+function isOpaqueRedirect(res: Response): boolean {
+  return res.type === 'opaqueredirect' || res.status === 0;
+}
+
+/**
+ * Re-issue one hop through undici's low-level `request`, which performs
+ * no response filtering and follows no redirects, and adapt the result
+ * to a `Response`. Used only when the fetch layer opaque-filtered the
+ * hop — without it a redirected image would be unfetchable on any
+ * runtime that implements the filter.
+ */
+async function rawRequest(target: string, agent: Agent | null): Promise<Response> {
+  let res: Awaited<ReturnType<typeof undiciRequest>>;
+  try {
+    // `request` follows no redirects of its own (that needs an explicit
+    // `maxRedirections`), so the loop above keeps gating every hop.
+    res = await undiciRequest(target, {
+      method: 'GET',
+      ...(agent ? { dispatcher: agent } : {}),
+    });
+  } catch (cause) {
+    throw new SystemError(
+      'NETWORK_ERROR',
+      `Request to ${redactUrl(target)} failed: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+      { cause },
+    );
+  }
+
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(res.headers)) {
+    if (typeof value === 'string') headers.set(name, value);
+    else if (Array.isArray(value)) headers.set(name, value.join(', '));
+  }
+  return new Response(Readable.toWeb(res.body) as ReadableStream<Uint8Array>, {
+    status: res.statusCode,
+    headers,
+  });
+}
+
+/**
+ * undici's own `fetch`, not the runtime's. The gate below pins each
+ * request to the addresses it approved by passing an undici `Agent` as
+ * the dispatcher, and only the matching implementation is guaranteed to
+ * honor it — handing a userland dispatcher to a differently-versioned
+ * built-in `fetch` fails the request outright on some runtimes and would
+ * silently skip the pinning on others.
+ */
+const defaultFetch = undiciFetch as unknown as typeof globalThis.fetch;
 
 const defaultLookup: HostLookup = async (hostname) =>
   (await dnsLookup(hostname, { all: true })).map((a) => a.address);
@@ -338,14 +441,15 @@ const defaultLookup: HostLookup = async (hostname) =>
  *
  * Redirects are followed by hand so every hop is gated the same way as
  * the first — an allowed host that 302s to `169.254.169.254` is the
- * whole point of the check.
+ * whole point of the check — and each hop connects only to the addresses
+ * its own gate pass approved.
  *
  * A transport failure or a non-OK response is classified like every
  * other CLI request (`fetchOrThrow` / `httpError`) so an unreachable
  * image host exits `2` rather than looking like bad user input.
  */
 export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher {
-  const fetchImpl = opts.fetch ?? globalThis.fetch;
+  const fetchImpl = opts.fetch ?? defaultFetch;
   const lookup = opts.lookup ?? defaultLookup;
   let server: URL | null = null;
   try {
@@ -359,34 +463,50 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
     let target = resolved;
 
     for (let hop = 0; ; hop++) {
-      await assertFetchableImageUrl(target, server, lookup);
-      const res = await fetchOrThrow(
-        target,
-        { redirect: 'manual' },
-        fetchImpl,
-      );
+      const addresses = await assertFetchableImageUrl(target, server, lookup);
+      const agent = addresses ? pinnedAgent(addresses) : null;
+      try {
+        let res = await fetchOrThrow(
+          target,
+          // `dispatcher` is undici's, not the DOM's — the pin travels on
+          // the same init object the fetch implementation reads.
+          {
+            redirect: 'manual',
+            ...(agent ? { dispatcher: agent } : {}),
+          } as RequestInit,
+          fetchImpl,
+        );
+        if (isOpaqueRedirect(res)) res = await rawRequest(target, agent);
 
-      const location = res.headers.get('location');
-      if (REDIRECT_STATUSES.has(res.status) && location) {
-        if (hop >= MAX_REDIRECTS) {
-          throw blocked(
-            `Image fetch failed: too many redirects for ${redactUrl(resolved)}`,
+        const location = res.headers.get('location');
+        if (REDIRECT_STATUSES.has(res.status) && location) {
+          if (hop >= MAX_REDIRECTS) {
+            throw blocked(
+              `Image fetch failed: too many redirects for ${redactUrl(resolved)}`,
+            );
+          }
+          // Release the hop's connection before opening the next one;
+          // an undrained body keeps the undici socket alive until GC.
+          await res.body?.cancel().catch(() => {});
+          target = new URL(location, target).toString();
+          continue;
+        }
+
+        if (!res.ok) {
+          await res.body?.cancel().catch(() => {});
+          throw httpError(
+            res.status,
+            `Image fetch failed: ${res.status}${
+              res.statusText ? ` ${res.statusText}` : ''
+            } for ${redactUrl(target)}`,
           );
         }
-        // Release the hop's connection before opening the next one;
-        // an undrained body keeps the undici socket alive until GC.
-        await res.body?.cancel().catch(() => {});
-        target = new URL(location, target).toString();
-        continue;
+        // Buffered before the agent goes away — `destroy()` would abort a
+        // body that is still streaming.
+        return await res.blob();
+      } finally {
+        void agent?.destroy().catch(() => {});
       }
-
-      if (!res.ok) {
-        throw httpError(
-          res.status,
-          `Image fetch failed: ${res.status} ${res.statusText} for ${redactUrl(target)}`,
-        );
-      }
-      return res.blob();
     }
   };
 }

@@ -171,14 +171,17 @@ developers; API keys are the path for CI and headless environments.
 wafflebase login
   │
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
-  ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>
-  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>
+  ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>,
+  │     bound to a fresh 32-byte nonce it generates
+  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>&nonce=<nonce>
   │     (also prints URL for copy-paste in headless environments)
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
   ├─ 6. Backend detects mode=cli in OAuth state →
-  │     redirects to http://127.0.0.1:<port>/callback?code=<short-lived-code>
-  ├─ 7. CLI local server receives code, calls POST /auth/cli/exchange
+  │     redirects to
+  │     http://127.0.0.1:<port>/callback?code=<short-lived-code>&nonce=<nonce>
+  ├─ 7. CLI local server accepts only a callback echoing that nonce,
+  │     then calls POST /auth/cli/exchange
   │     with { code } → receives { accessToken, refreshToken }
   ├─ 8. CLI local server serves success HTML, shuts down
   ├─ 9. CLI calls GET /auth/me (Bearer token) for user info
@@ -188,9 +191,20 @@ wafflebase login
 ```
 
 The local server binds to `127.0.0.1` only, accepts only `GET
-/callback`, and shuts down after a single request with a 30-second
-timeout. On timeout it prints: "Login timed out. Try again with
-`wafflebase login`."
+/callback`, and shuts down once a callback carrying the expected nonce
+arrives, with a 30-second timeout. Anything else — an unrelated local
+request, or a page that guessed the port — gets `403` and neither
+completes nor cancels the pending login (see "Nonce-bound login
+callback" in §8.1). On timeout it prints: "Login timed out. Try again
+with `wafflebase login`."
+
+A callback that carries **no** nonce is what an older backend redirects
+with. It is refused by default, and the timeout message names that cause
+rather than reporting a bare hang. Because published CLIs and
+self-hosted backends upgrade on their own schedules, `wafflebase login
+--allow-unbound-callback` accepts it anyway — an explicit, warned
+downgrade for that case, never a silent fallback. A *mismatched* nonce
+stays refused under the flag: only an attacker sends one.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
@@ -883,9 +897,18 @@ document is wrong, not the environment). A name that cannot be resolved
 fails **closed**, as `NETWORK_ERROR` (exit `2`): the gate and the fetch
 resolve independently, so allowing an unresolvable name would let a host
 whose nameserver stalls the gate's lookup and answers the connect-time
-one with `127.0.0.1` straight through. Residual gap: rebinding between
-the lookup and the connect, which needs a pinned connection undici does
-not expose.
+one with `127.0.0.1` straight through.
+
+The verdict is per **address**, not per URL: the configured server's own
+addresses are exempt, every other address the host answers with is
+judged on its merits, and the request is then **pinned** to the
+addresses that passed. Pinning is what makes the gate hold across the
+two independent lookups — the CLI depends on `undici` directly and hands
+each request an `Agent` whose `connect.lookup` returns the approved
+answers, so a rebinding nameserver that answers the gate publicly and
+the connect with `169.254.169.254` never gets a connection. It is also
+why an address the gate rejected can be dropped rather than failing the
+whole URL: it is unreachable either way.
 
 ##### Nonce-bound login callback
 
@@ -903,6 +926,11 @@ The binding is enforced on the **CLI** side, which is where it works: a
 callback that arrives without the expected nonce is refused and named in
 the timeout message ("the server predates nonce-bound CLI login"), so a
 CLI pointed at an older backend fails with a cause instead of a hang.
+That message also points at `wafflebase login
+--allow-unbound-callback`, the opt-out that accepts a nonce-less
+callback so a current CLI can still log into a server that has not
+deployed the echo. The flag warns on stderr and covers only the
+nonce-*absent* case; a mismatched nonce is still `403`.
 
 `GitHubAuthGuard` rejects a *malformed* nonce (anything but
 `[A-Za-z0-9_-]{16,128}`, including a repeated query parameter) with a
@@ -1179,7 +1207,10 @@ is the agent interface. This approach has key advantages:
 | Image `src` the CLI refuses to dereference          | 1    | IMAGE_URL_BLOCKED   | "Refusing to fetch …"                                              |
 | Yorkie attach failure                               | 2    | YORKIE_ERROR        | "Failed to attach to document <id>"                                |
 | DOCX parse failure                                  | 1    | INVALID_DOCX        | (DocxImporter message)                                             |
-| Fontkit font load failure                           | 2    | FONT_LOAD_ERROR     | (after fallback exhausted)                                         |
+| Font CDN unreachable (DNS, refused, TLS)            | 2    | NETWORK_ERROR       | "Request to <url> failed: <cause>"                                 |
+| Font download 401/403                               | 2    | AUTH_ERROR          | "Font download failed: <status> …"                                 |
+| Font download 5xx                                   | 2    | SERVER_ERROR        | "Font download failed: <status> …"                                 |
+| Font download 4xx (e.g. a 404 font URL)             | 1    | —                   | "Font download failed: <status> …"                                 |
 
 ### 11. Design Principles
 

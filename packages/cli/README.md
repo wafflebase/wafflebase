@@ -24,6 +24,11 @@ Two paths, in priority order:
    `WAFFLEBASE_API_KEY`, or set `api-key:` in `~/.wafflebase/config.yaml`.
 2. **OAuth session** — `wafflebase login` opens a browser, completes
    GitHub OAuth, and writes a JWT session to `~/.wafflebase/session.json`.
+   The login callback is bound to a nonce, so a server that predates that
+   binding never completes one; against such a server (a self-hosted
+   backend that has not upgraded yet) pass
+   `wafflebase login --allow-unbound-callback` to accept its nonce-less
+   callback anyway.
 
 Always pair API keys with a workspace ID:
 

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { createServer, type Server } from 'node:http';
 import {
+  assertFetchableImageUrl,
   createImageFetcher,
   isPrivateAddress,
   resolveImageUrl,
@@ -408,5 +410,110 @@ describe('createImageFetcher SSRF gate', () => {
       /too many redirects/,
     );
     expect(calls.length).toBe(6);
+  });
+});
+
+describe('assertFetchableImageUrl address pinning', () => {
+  const SERVER = new URL('http://127.0.0.1:3000');
+
+  it('pins a public host to the addresses it approved', async () => {
+    await expect(
+      assertFetchableImageUrl('https://cdn.example.com/p.jpg', SERVER, () =>
+        Promise.resolve(['93.184.216.34', '8.8.8.8']),
+      ),
+    ).resolves.toEqual(['93.184.216.34', '8.8.8.8']);
+  });
+
+  it('opens no connection for a data: URL', async () => {
+    await expect(
+      assertFetchableImageUrl('data:image/png;base64,AAA', SERVER, () =>
+        Promise.resolve([]),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it('drops the internal addresses a server-port host also answers with', async () => {
+    // The exemption is per address: a host that answers with the
+    // server's address *and* an internal one must not get the
+    // private-address check skipped for the internal one.
+    const allowed = await assertFetchableImageUrl(
+      'http://mixed.example:3000/x',
+      SERVER,
+      async (h) =>
+        h === 'mixed.example' ? ['127.0.0.1', '10.0.0.5'] : ['127.0.0.1'],
+    );
+    expect(allowed).toEqual(['127.0.0.1']);
+  });
+
+  it('refuses a server-port host that shares no address with the server', async () => {
+    await expect(
+      assertFetchableImageUrl('http://mixed.example:3000/x', SERVER, async (h) =>
+        h === 'mixed.example' ? ['10.0.0.5', '169.254.169.254'] : ['127.0.0.1'],
+      ),
+    ).rejects.toThrow(/resolves to an internal address/);
+  });
+
+  it('drops the private half of a public host’s answer', async () => {
+    // Nothing is granted by allowing the public address: the request is
+    // pinned to what comes back, so the private one is unreachable.
+    await expect(
+      assertFetchableImageUrl('https://split.example/p.jpg', SERVER, () =>
+        Promise.resolve(['93.184.216.34', '169.254.169.254']),
+      ),
+    ).resolves.toEqual(['93.184.216.34']);
+  });
+});
+
+describe('createImageFetcher over a real listener', () => {
+  /** A loopback server that 302s `/r` to `/img`, which serves bytes. */
+  async function listener(): Promise<{ server: Server; port: number }> {
+    const server = createServer((req, res) => {
+      if (req.url === '/r') {
+        res.writeHead(302, { location: '/img' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'image/png' });
+      res.end(Buffer.from([1, 2, 3]));
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+    return { server, port: address.port };
+  }
+
+  it('follows a redirect through the real transport, pinned to the gated address', async () => {
+    const { server, port } = await listener();
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: `http://127.0.0.1:${port}`,
+      });
+      const blob = await fetcher('/r');
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('reads the hop through undici when the fetch layer opaque-filters it', async () => {
+    // A spec-conformant `redirect: 'manual'` yields status 0 with no
+    // headers, which carries neither the status nor the `Location` the
+    // redirect loop needs. The fallback re-reads the hop, so redirects
+    // still work (and are still gated) on such a runtime.
+    const { server, port } = await listener();
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: `http://127.0.0.1:${port}`,
+        fetch: async () => Response.error(),
+      });
+      const blob = await fetcher('/r');
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
+    } finally {
+      server.close();
+    }
   });
 });
