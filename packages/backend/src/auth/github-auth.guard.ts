@@ -336,7 +336,11 @@ export function bindingSecret(configService: ConfigService): string {
   if (dedicated) return dedicated;
 
   const base =
-    configService.get<string>('JWT_SECRET') ?? EPHEMERAL_BINDING_SECRET;
+    // `||`, not `??`: `hkdfSync` accepts zero-length key material and answers
+    // a fixed key that anyone can recompute from this file, so an empty
+    // `JWT_SECRET` would derive a *publicly known* signing key rather than
+    // take the random fallback meant for exactly that deployment.
+    configService.get<string>('JWT_SECRET') || EPHEMERAL_BINDING_SECRET;
   if (derivedBindingKey?.from !== base) {
     derivedBindingKey = {
       from: base,

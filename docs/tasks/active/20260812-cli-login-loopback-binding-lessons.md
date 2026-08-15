@@ -138,3 +138,30 @@ Related: #654/#655, RFC 8252 §8.9, RFC 7636
   complete at all — kept the suite green. When a URL re-enters a validating
   route, assert the whole parsed query with `toEqual`, not `toContain` on
   the parts.
+- A lookup keyed by a query parameter must not walk a prototype chain. The
+  login banner did `ERROR_MESSAGES[error] ?? FALLBACK`, so `?error=toString`
+  returned an inherited function — React renders one as nothing, leaving an
+  empty box where the reason belongs — and `?error=__proto__` returned an
+  object, which React refuses to render at all, taking the login page down.
+  A `Map` has no prototype-chain lookup; use one whenever the key comes from
+  outside. The review filed this as a cosmetic fallback issue and the first
+  test written for the banner covered `login_state` plus one unknown code,
+  which passes either way. The crash only surfaced because a later test
+  enumerated the inherited members instead of sampling one.
+- `??` guards against `undefined`, not against "set but meaningless".
+  `bindingSecret` fell back to a random per-process key when `JWT_SECRET` was
+  unset but derived from `''` when it was set empty — and `hkdfSync` accepts
+  zero-length key material without complaint, so that path produced a fixed
+  key anyone can recompute from the source, under which forged `state`
+  signatures verify. Strictly worse than the fallback it was skipping. For a
+  credential read out of configuration, `||` is the correct operator: empty
+  is unset.
+- Two agents on one branch is a merge, not a race to be won. A concurrent
+  session pushed its own answer to the same `Secure`-flag finding
+  (`COOKIE_SECURE` plus a warning) while this one had an automatic
+  `req.secure` upgrade committed locally. Both were defensible; shipping
+  both would have been two mechanisms for one finding, and the local one
+  would silently have overridden the other's explicit `COOKIE_SECURE=false`.
+  The published commit wins by default — reset onto it and keep only what it
+  does not already cover, rather than force-pushing or layering a second
+  answer on top.

@@ -649,6 +649,23 @@ describe('GitHubAuthGuard', () => {
 
       expect(bindingSecret(dedicated)).toBe('independent-state-secret');
     });
+
+    // An empty `JWT_SECRET` is a variable that is set but says nothing, and
+    // `hkdfSync` takes zero-length key material without complaint. Deriving
+    // from it yields a fixed key anyone can recompute from this file, under
+    // which forged `state` signatures verify — strictly worse than the random
+    // per-process fallback it was skipping. "Unset" has to mean "no usable
+    // value".
+    it('falls back for an empty `JWT_SECRET` rather than deriving from it', () => {
+      const blank = {
+        get: (key: string) => (key === 'JWT_SECRET' ? '' : undefined),
+      } as unknown as ConfigService;
+      const unset = {
+        get: () => undefined,
+      } as unknown as ConfigService;
+
+      expect(bindingSecret(blank)).toBe(bindingSecret(unset));
+    });
   });
 
   // A cookie a sibling subdomain can write is not a binding — and the
