@@ -956,6 +956,17 @@ configured and dialed the resolved addresses directly, so on a machine
 whose only route out is a proxy every external image in a document
 failed to export.
 
+Accepted is not the same as unannounced. The first proxied image hop in
+a run writes one line to stderr saying the pin is gone and why, naming
+the hop that triggered it; every later hop in the same export is silent,
+because a document with fifty images states the fact once. It is a
+notice rather than a refusal or an `--allow-proxied-images` opt-in
+because both of those fail the export outright on exactly the
+proxy-only machines the `ProxyAgent` path exists to keep working. The
+person who set `https_proxy` is the only one who can judge whether that
+proxy's resolver is trustworthy, and this is what puts the question in
+front of them.
+
 ##### Nonce-bound login callback
 
 `wafflebase login` listens on `http://127.0.0.1:<port>/callback`, which

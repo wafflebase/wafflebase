@@ -196,3 +196,38 @@ it was protecting is not deferred, it is deleted.
   instead of denying it. Same for the printed OAuth URL, which carries
   the login nonce and is therefore a credential while the login is
   pending.
+- **An accepted risk that nobody is told about is indistinguishable
+  from one nobody found.** The previous round recorded the dropped
+  address pin honestly in the design doc and in the source comment, and
+  the security lens still called it "silently dropped" — correctly, from
+  where an operator stands. Documentation reaches the reviewer; the
+  person running `docs export` behind `https_proxy` reads neither file.
+  The gap closed with one stderr line on the first proxied hop of a run
+  (once per fetcher, not per image), naming the hop and the mitigation
+  (`no_proxy`). The trade itself is unchanged: `CONNECT` carries a name,
+  so there is nothing to pin, and refusing to proxy names fails every
+  external image on exactly the machines that only egress through one.
+  Generalisation: when a residual risk survives review, ask who is
+  supposed to act on it. If the answer is the operator, the write-up is
+  not the delivery mechanism.
+- **A warning sink is a constructor option, not a module global.**
+  Making the notice fire once needed state. Hanging it off the module
+  would have needed an exported `reset()` for tests and would have
+  silenced the second export in a long-lived host. A `warn?:` option on
+  `ImageFetcherOptions` plus a closure flag inside `createImageFetcher`
+  gives both the once-per-run behaviour and a seam the test reads
+  directly, with no global to reset and no stderr to capture.
+- **Two overlapping branches fixing the same hole is a merge conflict,
+  not defence in depth.** The security lens asked for a browser binding
+  on the `?mode=cli` OAuth entry. PR #786 already ships that binding —
+  a `wafflebase_cli_state` cookie, a framing-proof consent interstitial,
+  PKCE, `__Host-` prefixes, a plain-http non-loopback refusal — in the
+  same three files this branch touches. Writing a second, weaker version
+  here would have bought nothing and guaranteed a conflict in
+  `github-auth.guard.ts` and `auth.controller.ts`. The residual on this
+  branch is bounded to an attacker who already runs code on the victim's
+  machine, because the CLI redirect target is a hardcoded
+  `http://127.0.0.1:<port>/callback` with a 60-second single-use code.
+  Generalisation: before implementing a review finding, check whether a
+  sibling branch already owns that file; the right fix can be to let it
+  land.

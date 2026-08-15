@@ -774,4 +774,72 @@ describe('createImageFetcher over a real listener', () => {
       /Refusing to fetch/,
     );
   });
+
+  /**
+   * The proxy path trades the DNS-rebinding pin away — `CONNECT` carries
+   * a name, so there is nothing to pin, and refusing to proxy names
+   * would fail every external image on a proxy-only machine. That trade
+   * is accepted, but it must not be invisible: the operator who
+   * configured the proxy is the only one who can judge its resolver, and
+   * they cannot judge a weakening nobody reports.
+   */
+  it('warns once that the address pin is dropped for a proxied fetch', async () => {
+    const origin = await listener();
+    const proxy = await forwardProxy(origin.port);
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', `http://127.0.0.1:${proxy.port}`);
+    const warnings: string[] = [];
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: 'https://api.wafflebase.io',
+        lookup: async () => ['192.0.2.10'],
+        warn: (message) => warnings.push(message),
+      });
+      await fetcher('http://cdn.example.com/one.png');
+      await fetcher('http://cdn.example.com/two.png');
+
+      // Said at all...
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toMatch(/proxy/i);
+      expect(warnings[0]).toMatch(/pinned/i);
+      expect(warnings[0]).toContain('cdn.example.com');
+      // ...and said once, however many images the document holds.
+      expect(proxy.seen.length).toBe(2);
+    } finally {
+      proxy.server.close();
+      origin.server.close();
+    }
+  }, 20_000);
+
+  it('stays quiet when no proxy applies and the pin holds', async () => {
+    withoutProxyEnv();
+    const { server, port } = await listener();
+    const warnings: string[] = [];
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: `http://pinned.invalid:${port}`,
+        lookup: async () => ['127.0.0.1'],
+        warn: (message) => warnings.push(message),
+      });
+      await fetcher(`http://pinned.invalid:${port}/img`);
+      expect(warnings).toEqual([]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('says nothing about a data: URL, which resolves no name', async () => {
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', 'http://127.0.0.1:1');
+    const warnings: string[] = [];
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      warn: (message) => warnings.push(message),
+    });
+    const blob = await fetcher('data:image/png;base64,AQID');
+    expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+      1, 2, 3,
+    ]);
+    expect(warnings).toEqual([]);
+  });
 });

@@ -37,6 +37,12 @@ export interface ImageFetcherOptions {
   fetch?: typeof globalThis.fetch;
   /** Optional hostname resolver — a seam for tests. Defaults to DNS. */
   lookup?: HostLookup;
+  /**
+   * Where operator-facing warnings go. Defaults to stderr, which keeps
+   * them off stdout so a piped `--json` payload stays parseable. A seam
+   * for tests, which need to read what was said rather than see it.
+   */
+  warn?: (message: string) => void;
 }
 
 /**
@@ -471,6 +477,15 @@ function pinnedAgent(addresses: string[]): Agent {
  * that only egress through one, so the residual risk is accepted and
  * recorded here and in `docs/design/cli.md` rather than traded for that.
  *
+ * Accepted, but not *silent*: `onPinDropped` says so on stderr the first
+ * time it happens in a run. An accepted risk nobody is told about is
+ * indistinguishable from one nobody found, and the operator who set
+ * `https_proxy` is the only person who can judge whether that proxy's
+ * resolver is trustworthy — a judgement they cannot make about a
+ * weakening they cannot see. It is a notice rather than a refusal or an
+ * opt-in flag because both of those fail the export outright on exactly
+ * the proxy-only machines the `ProxyAgent` path exists to keep working.
+ *
  * Without this the pinned `Agent` would override whatever the operator
  * configured and dial the resolved addresses directly, so on a machine
  * whose only route out is a proxy every external image in a document
@@ -479,9 +494,13 @@ function pinnedAgent(addresses: string[]): Agent {
 function hopDispatcher(
   target: string,
   addresses: string[] | null,
+  onPinDropped: (target: string) => void,
 ): Dispatcher | null {
   const proxy = proxyForUrl(target);
   if (proxy) {
+    // Only a hop that *had* a pin has one to lose; `data:` opens no
+    // connection and resolves no name, so there is nothing to report.
+    if (addresses) onPinDropped(target);
     try {
       return new ProxyAgent(proxy);
     } catch (cause) {
@@ -627,6 +646,10 @@ const defaultFetch = undiciFetch as unknown as typeof globalThis.fetch;
 const defaultLookup: HostLookup = async (hostname) =>
   (await dnsLookup(hostname, { all: true })).map((a) => a.address);
 
+const defaultWarn = (message: string): void => {
+  process.stderr.write(`[wafflebase] ${message}\n`);
+};
+
 /**
  * Build an `ImageFetcher` for the CLI export pipelines. The fetcher
  * downloads each unique image inline `src` once, returning a Blob the
@@ -642,8 +665,8 @@ const defaultLookup: HostLookup = async (hostname) =>
  * the first — an allowed host that 302s to `169.254.169.254` is the
  * whole point of the check — and each hop connects only to the addresses
  * its own gate pass approved, unless the environment configures an
- * egress proxy, in which case the hop goes through it (see
- * `hopDispatcher`).
+ * egress proxy, in which case the hop goes through it and the run warns
+ * once that the pin is gone (see `hopDispatcher`).
  *
  * A transport failure or a non-OK response is classified like every
  * other CLI request (`fetchOrThrow` / `httpError`) so an unreachable
@@ -652,6 +675,26 @@ const defaultLookup: HostLookup = async (hostname) =>
 export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher {
   const fetchImpl = opts.fetch ?? defaultFetch;
   const lookup = opts.lookup ?? defaultLookup;
+  const warn = opts.warn ?? defaultWarn;
+  // Once per fetcher, not once per hop: a document with fifty proxied
+  // images states one fact fifty times, and a warning that scrolls the
+  // real output away is a warning nobody reads. Per fetcher rather than
+  // per process so the notice reappears for the next export in a
+  // long-lived host, and so tests need no global to reset.
+  let pinDropReported = false;
+  const reportPinDropped = (hop: string) => {
+    if (pinDropReported) return;
+    pinDropReported = true;
+    warn(
+      `Fetching images through the configured egress proxy, so the DNS ` +
+        `answers checked by the image gate cannot be pinned for the ` +
+        `connection (starting with ${redactUrl(hop)}). The proxy resolves ` +
+        `each host itself, and a rebinding nameserver could hand it an ` +
+        `address the gate refused — reaching hosts the proxy can see. Set ` +
+        `no_proxy for hosts that need no proxy, or unset http_proxy / ` +
+        `https_proxy / all_proxy, to keep the pin.`,
+    );
+  };
   let server: URL | null = null;
   try {
     server = new URL(opts.serverBase);
@@ -665,7 +708,7 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
 
     for (let hop = 0; ; hop++) {
       const addresses = await assertFetchableImageUrl(target, server, lookup);
-      const agent = hopDispatcher(target, addresses);
+      const agent = hopDispatcher(target, addresses, reportPinDropped);
       try {
         let res = await fetchOrThrow(
           target,
