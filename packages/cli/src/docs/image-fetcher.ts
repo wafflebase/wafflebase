@@ -1,3 +1,4 @@
+import { lookup as dnsLookup } from 'node:dns/promises';
 import type { DocxImageFetcher } from '@wafflebase/docs';
 
 export interface ImageFetcherOptions {
@@ -20,7 +21,16 @@ export interface ImageFetcherOptions {
    * stub can be a plain async function without pulling DOM types in.
    */
   fetch?: typeof globalThis.fetch;
+  /**
+   * Optional hostname resolver — kept as a seam for tests. Defaults to the
+   * OS resolver (`dns.lookup`), which is also what `fetch` connects through,
+   * so the addresses checked here are the ones actually dialled.
+   */
+  lookup?: HostLookup;
 }
+
+/** Resolve a hostname to every address the OS would connect to. */
+export type HostLookup = (hostname: string) => Promise<string[]>;
 
 /**
  * Environment variable naming extra image origins an export may fetch from
@@ -76,10 +86,7 @@ function isPrivateHost(hostname: string): boolean {
   // parser keeps it on a domain host — `http://localhost./x` has hostname
   // `localhost.`. Drop it before any name comparison, or the exact-match
   // loopback set below is one keystroke away from being bypassed.
-  const host = hostname
-    .toLowerCase()
-    .replace(/^\[|\]$/g, '')
-    .replace(/\.+$/, '');
+  const host = bareHostname(hostname);
   if (LOOPBACK_HOSTS.has(host) || host.endsWith('.localhost')) return true;
 
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(
@@ -117,6 +124,19 @@ function unwrapIpv4Mapped(host: string): string {
   return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join(
     '.',
   );
+}
+
+/** Whether the host is already an address, so no resolver can change it. */
+function isIpLiteral(host: string): boolean {
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':');
+}
+
+/** Strip the brackets and the root label a host may carry. */
+function bareHostname(hostname: string): string {
+  return hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.+$/, '');
 }
 
 function sameOriginAsServer(url: URL, serverBase: string): boolean {
@@ -157,9 +177,9 @@ function isAllowedHost(url: URL, allowedHosts: string[]): boolean {
  * follows redirects itself and would otherwise let a public host hand the
  * export a `Location:` pointing at the metadata endpoint.
  *
- * This is still a scheme/address guard, not a full SSRF defense: a public
- * hostname that *resolves* to a private address gets fetched, because catching
- * that needs DNS resolution plus connection pinning below `fetch`.
+ * This half only reads the URL. A *name* is only as safe as what it resolves
+ * to, so `assertResolvedHostIsPublic` — which the fetcher runs next — asks the
+ * resolver as well.
  */
 export function assertFetchableImageUrl(
   resolved: string,
@@ -191,6 +211,71 @@ export function assertFetchableImageUrl(
   }
 }
 
+/** The OS resolver — the same source `fetch` connects through. */
+const defaultLookup: HostLookup = async (hostname) => {
+  const records = await dnsLookup(hostname, { all: true, verbatim: true });
+  return records.map((r) => r.address);
+};
+
+/**
+ * The other half of the guard: refuse a name that *resolves* to a non-public
+ * address.
+ *
+ * Checking the URL alone stops `http://169.254.169.254/...` and nothing else —
+ * `http://169.254.169.254.nip.io/...` is a public name at wildcard DNS that
+ * answers with the embedded literal, and `metadata.google.internal` or a bare
+ * single-label intranet name are ordinary names too. All of them read as
+ * public to a string check, so the export would GET them from the operator's
+ * machine. Asking the resolver closes that, and it is the same resolver
+ * (`getaddrinfo`) `fetch` will dial through.
+ *
+ * This is not DNS-rebinding-proof — a name whose record changes between this
+ * lookup and the connection still wins the race, and closing that needs
+ * connection pinning below `fetch`. It does mean an attack has to control a
+ * resolver and win a race rather than type one extra label.
+ *
+ * A name that cannot be resolved is refused rather than fetched: `fetch` would
+ * fail to connect anyway, so failing closed costs nothing and never leaves the
+ * check silently skipped. Hosts the operator already exempted — the configured
+ * server, `WAFFLEBASE_IMAGE_HOSTS` — are not resolved at all, which is what
+ * keeps a local `--server` and a split-origin install working.
+ */
+export async function assertResolvedHostIsPublic(
+  resolved: string,
+  serverBase: string,
+  allowedHosts: string[] = [],
+  lookup: HostLookup = defaultLookup,
+): Promise<void> {
+  const url = new URL(resolved);
+  if (url.protocol === 'data:') return;
+  if (sameOriginAsServer(url, serverBase)) return;
+  if (isAllowedHost(url, allowedHosts)) return;
+
+  const host = bareHostname(url.hostname);
+  // Literals were already decided by `assertFetchableImageUrl`; a resolver
+  // would only hand the same address back.
+  if (isIpLiteral(host)) return;
+
+  let addresses: string[];
+  try {
+    addresses = await lookup(host);
+  } catch {
+    throw new Error(
+      `Refusing to fetch image from ${url.host}: its address could not be ` +
+        `resolved, so there is no way to check that it is public.`,
+    );
+  }
+
+  const priv = addresses.find((address) => isPrivateHost(address));
+  if (priv) {
+    throw new Error(
+      `Refusing to fetch image from a non-public address: ${url.host} ` +
+        `resolves to ${priv}. If this deployment really serves images from ` +
+        `there, list it in ${IMAGE_HOSTS_ENV}.`,
+    );
+  }
+}
+
 /**
  * Build an `ImageFetcher` for the CLI export pipelines. The fetcher
  * downloads each unique image inline `src` once, returning a Blob the
@@ -201,16 +286,29 @@ export function assertFetchableImageUrl(
  * possible anyway. Relative URLs resolve against `serverBase`; absolute
  * URLs (e.g., the canonical `https://api.wafflebase.io/images/...`
  * surfaced by `imageFetcher required` errors) pass through
- * `resolveImageUrl` and are then gated by `assertFetchableImageUrl`.
+ * `resolveImageUrl` and are then gated — by `assertFetchableImageUrl` on the
+ * URL and `assertResolvedHostIsPublic` on what its host resolves to — before
+ * the first request and again on every redirect target.
  */
 export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher {
   const fetchImpl = opts.fetch ?? globalThis.fetch;
+  const lookup = opts.lookup ?? defaultLookup;
   const allowedHosts =
     opts.allowedHosts ?? parseAllowedHosts(process.env[IMAGE_HOSTS_ENV]);
 
+  const guard = async (target: string) => {
+    assertFetchableImageUrl(target, opts.serverBase, allowedHosts);
+    await assertResolvedHostIsPublic(
+      target,
+      opts.serverBase,
+      allowedHosts,
+      lookup,
+    );
+  };
+
   return async (url: string): Promise<Blob> => {
     const resolved = resolveImageUrl(url, opts.serverBase);
-    assertFetchableImageUrl(resolved, opts.serverBase, allowedHosts);
+    await guard(resolved);
 
     // `redirect: 'manual'` moves the hop into this loop so the guard runs on
     // every target. Left to `fetch`, an allowed public host could answer
@@ -219,6 +317,19 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
     let current = resolved;
     for (let hop = 0; ; hop++) {
       const res = await fetchImpl(current, { redirect: 'manual' });
+
+      // A browser answers a `manual` redirect with an *opaque-redirect*
+      // response: status 0, no headers, no body. Node's `fetch` (undici)
+      // hands back the real 3xx, which is what makes this loop work — but if
+      // the CLI is ever run somewhere that filters, say so instead of
+      // reporting the target as `Image fetch failed: 0`.
+      if (res.status === 0) {
+        throw new Error(
+          `Image fetch got an opaque redirect for ${current}: this runtime's ` +
+            `fetch hides redirect targets, so they cannot be re-checked.`,
+        );
+      }
+
       const location = REDIRECT_STATUSES.has(res.status)
         ? res.headers.get('location')
         : null;
@@ -232,13 +343,17 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
         return res.blob();
       }
 
+      // Nothing reads a redirect's body, and an unread one holds its socket
+      // open until the agent times out.
+      await res.body?.cancel().catch(() => {});
+
       if (hop >= MAX_IMAGE_REDIRECTS) {
         throw new Error(
           `Too many redirects (>${MAX_IMAGE_REDIRECTS}) while fetching image ${resolved}`,
         );
       }
       const next = new URL(location, current).toString();
-      assertFetchableImageUrl(next, opts.serverBase, allowedHosts);
+      await guard(next);
       current = next;
     }
   };

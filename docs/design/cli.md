@@ -1140,9 +1140,22 @@ outside the process:
   is not the API server — an internal MinIO, a reverse proxy on a second port
   — so `WAFFLEBASE_IMAGE_HOSTS` (comma-separated `host` or `host:port`) names
   those, and the refusal message points at it. The operator opts in; the
-  document never can. It is still an address guard, not a full SSRF defense:
-  a public hostname that *resolves* to a private address still gets fetched,
-  which would need DNS resolution plus connection pinning below `fetch`.
+  document never can.
+  Reading the URL is only half of it, because a *name* is only as safe as what
+  it resolves to: `169.254.169.254.nip.io` is an ordinary public name at
+  wildcard DNS that answers with the literal it embeds, and
+  `metadata.google.internal` or a bare intranet name are ordinary names too.
+  So every non-exempt host is also resolved through the OS resolver — the same
+  `getaddrinfo` `fetch` dials through — and refused if *any* returned address
+  is non-public (`assertResolvedHostIsPublic`). A name that will not resolve is
+  refused rather than fetched: `fetch` could not have connected either, so
+  failing closed costs nothing and never leaves the check silently skipped.
+  Exempt hosts are not resolved at all, so a local `--server` and a listed
+  internal host still work with no DNS involved.
+  What remains open is DNS rebinding — a record that changes between the
+  lookup and the connection — which needs connection pinning below `fetch`;
+  an attack now has to control a resolver and win a race rather than type one
+  extra label.
 
 The rule is not CLI-only. The frontend talks to the same API with the user's
 session, and interpolates route-param ids the same way, so it carries the same
@@ -1169,7 +1182,7 @@ path (`safeEnvelope`, `packages/cli/src/output/formatter.ts`):
 | `error.code`                | truncated at 80 characters — a code is an identifier, not prose     |
 | `error.message`             | trimmed, truncated at 500 characters with a trailing `…`            |
 | `error.message` that is HTML | replaced by `HTTP <status>` — a document is not a message           |
-| sibling fields (`command`, request ids) | kept while the serialized body stays under 4 KB; past that only `{code, message}` survives |
+| sibling fields (`command`, request ids) | kept while the serialized body stays under 4,000 bytes; past that only `{code, message}` survives |
 
 An `error.message` is a display string, not a payload to parse.
 

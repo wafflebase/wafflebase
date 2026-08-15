@@ -45,6 +45,7 @@ import {
   executeDataSourceQuery,
 } from "./datasources";
 import { fileUrl } from "./files";
+import { moveDocument } from "./documents";
 import { getDocumentAnalytics } from "./analytics";
 import { openMiroImportStream } from "./miro";
 
@@ -133,6 +134,10 @@ describe("route-param ids are pinned to one path segment", () => {
     ["datasources: delete", () => deleteDataSource(TRAVERSAL)],
     ["datasources: test", () => testDataSourceConnection(TRAVERSAL)],
     ["datasources: query", () => executeDataSourceQuery(TRAVERSAL, "select 1")],
+    [
+      "documents: move",
+      () => moveDocument(TRAVERSAL, { workspaceId: "ws" }),
+    ],
     ["analytics: document", () => getDocumentAnalytics(TRAVERSAL)],
     [
       "miro: import",

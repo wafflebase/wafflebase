@@ -76,3 +76,43 @@
   (never the document) name the exception — and to say so in the refusal
   message, so the person who hits it can act on it without reading the
   source.
+- A guard that reads the URL is not a guard on the destination. The
+  address check refused `http://169.254.169.254/…` and nothing else,
+  while `http://169.254.169.254.nip.io/…` — a public name at wildcard
+  DNS that answers with the literal it embeds — walked straight through,
+  as would `metadata.google.internal` or any single-label intranet name.
+  The code comment admitted the gap, but the README and the design doc
+  advertised the guard as the thing that stops an export aiming at the
+  metadata endpoint, and a guard that *reads* as covering a named attack
+  is worse than none: nobody audits what the docs say is handled. A name
+  is only as safe as what it resolves to, so ask the resolver
+  (`assertResolvedHostIsPublic`), and ask the one `fetch` will dial
+  through. What stays open (DNS rebinding) belongs in the doc as what
+  stays open, not as a comment nobody reads.
+- Fail closed on the check, not on the network. An unresolvable host
+  cannot be connected to anyway, so refusing it costs no working case and
+  removes the branch where the guard is silently skipped. Hosts the
+  operator already exempted are never resolved at all — a decision the
+  operator made is not the resolver's to revisit, and a local `--server`
+  has to keep working with no DNS in the picture.
+- A stub that ignores an argument cannot test that the argument is
+  passed. Every redirect test handed back a synthetic 302 no matter what
+  init it was given, so deleting `redirect: 'manual'` — the single option
+  the whole per-hop guard rests on — left the suite green while real
+  `fetch` auto-followed to the metadata endpoint with no check in
+  between. When behaviour depends on *how* a collaborator is called,
+  assert the call, not just the outcome the stub would produce either
+  way.
+- `redirect: 'manual'` means two different things by environment: the
+  Fetch Standard's opaque-redirect filtering (status 0, no headers) is a
+  browser rule, while Node's undici hands back the real 3xx — verified
+  on the supported runtime rather than assumed from the spec. Both facts
+  belong in the code: the loop relies on the undici behaviour, and names
+  the browser one instead of reporting it as `Image fetch failed: 0`.
+- A throw added to a shared primitive is only a crash where nothing
+  catches it. `seg()`'s dot-segment refusal was flagged as unmounting the
+  React tree through `fileUrl()` during render — but the one route that
+  passes a URL-bar id first runs it through `fetchDocument()`, whose own
+  `seg()` throw becomes a rejected query and redirects before that layout
+  mounts, and the other call site is handed a server-resolved id. Trace
+  the path to the render, not just the shape of the call.

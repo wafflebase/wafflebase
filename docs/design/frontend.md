@@ -435,6 +435,37 @@ caching and mutations.
 | `copyDocument(id)` | POST | `/documents/:id/copy` |
 | `copyDocuments(ids)` | POST | `/documents/:id/copy` (one per id, sequential) |
 
+#### Request URLs: one id, one segment
+
+Every id interpolated into a request path — document, workspace, folder, share
+link, datasource, file, analytics — goes through `seg()`
+(`packages/frontend/src/api/url.ts`), and this is a rule for the whole API
+layer, not a habit of one module:
+
+```ts
+const res = await fetchWithAuth(`${BACKEND_BASE}/documents/${seg(id)}/file`);
+```
+
+Ids reach these modules from `useParams`, so they arrive from the URL bar and
+from pasted links as readily as from a previous API response — "the server gave
+us this id" is not an access-control boundary. Unencoded, an id carrying `/` or
+`..` walks the request onto an endpoint the caller never named, and
+`fetchWithAuth` sends it with the user's session attached: a link like
+`/workspaces/..%2F..%2Fauth%2Flogout/settings` is enough.
+
+`seg()` is `encodeURIComponent` plus one refusal: a bare `.` or `..` throws
+rather than being sent, because `encodeURIComponent('..') === '..'` and the URL
+parser resolves dot segments however they are spelled. No id is ever a dot
+segment, so the throw is a bug report, not a user-facing state — it surfaces as
+a rejected promise from the `async` API function and lands in the caller's
+query error state.
+
+A partially applied guard is worse than none, because it reads as covered: add
+`seg()` with the interpolation, in every module, at the time you add it. The
+CLI enforces the same rule against the same API with its own copy
+(`packages/cli/src/client/url.ts`); see `docs/design/cli.md` §10 for the
+end-to-end argument.
+
 **Document list** uses TanStack Table with sorting, filtering, and pagination.
 Row click navigates to the type-specific detail route via `getDocumentPath()`.
 

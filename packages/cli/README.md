@@ -36,8 +36,11 @@ export WAFFLEBASE_WORKSPACE=ws-…
 image `src` is content someone else may have written, so the fetcher speaks
 only `http`/`https`/`data` and refuses a non-public address (loopback,
 private, `169.254.169.254`, CGNAT) unless it is the configured `--server`.
-If your deployment really serves images from an internal host — an internal
-MinIO, a reverse proxy on a second port — name it:
+A hostname is resolved before it is fetched and refused the same way if it
+answers with a non-public address, so `169.254.169.254.nip.io` and friends
+get no further than the literal would. If your deployment really serves
+images from an internal host — an internal MinIO, a reverse proxy on a
+second port — name it:
 
 ```bash
 export WAFFLEBASE_IMAGE_HOSTS=10.0.0.5:9000,minio.internal
@@ -147,7 +150,7 @@ wafflebase schema cell.get          # → sheets.cells.get
   (with a trailing `…`), a `message` that is an HTML document is replaced
   by `"HTTP <status>"`, and any extra fields the backend attached
   (`command`, a request id) are dropped once the whole body exceeds
-  4 KB, leaving `{code, message}`. Treat `message` as a display string,
+  4,000 bytes, leaving `{code, message}`. Treat `message` as a display string,
   not a parseable payload.
 - **Exit codes**: `0` success, `1` failure. Every failure exits `1` —
   including a network or auth failure — so branch on the envelope's

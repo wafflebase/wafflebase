@@ -1,10 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   assertFetchableImageUrl,
+  assertResolvedHostIsPublic,
   createImageFetcher,
+  IMAGE_HOSTS_ENV,
   parseAllowedHosts,
   resolveImageUrl,
+  type HostLookup,
 } from '../src/docs/image-fetcher.js';
+
+/**
+ * Every `createImageFetcher` test injects a resolver: the real one would ask
+ * the OS about `cdn.example.com`, and a suite that reaches the network is a
+ * suite that fails on a plane. `publicLookup` answers with a public address,
+ * which is what these tests mean by "an ordinary host".
+ */
+const publicLookup: HostLookup = async () => ['93.184.216.34'];
 
 describe('parseAllowedHosts', () => {
   it('splits, trims, lowercases and drops empties', () => {
@@ -196,6 +207,7 @@ describe('createImageFetcher', () => {
     const fetcher = createImageFetcher({
       serverBase: 'https://api.wafflebase.io',
       fetch: stubFetch,
+      lookup: publicLookup,
     });
 
     const blob = await fetcher('/images/abc');
@@ -215,6 +227,7 @@ describe('createImageFetcher', () => {
     const fetcher = createImageFetcher({
       serverBase: 'https://api.wafflebase.io',
       fetch: stubFetch,
+      lookup: publicLookup,
     });
 
     await fetcher('https://cdn.example.com/photo.jpg');
@@ -228,6 +241,7 @@ describe('createImageFetcher', () => {
     const fetcher = createImageFetcher({
       serverBase: 'https://api.wafflebase.io',
       fetch: stubFetch as unknown as typeof globalThis.fetch,
+      lookup: publicLookup,
     });
 
     await expect(
@@ -248,6 +262,7 @@ describe('createImageFetcher', () => {
     const fetcher = createImageFetcher({
       serverBase: 'http://localhost:3000',
       fetch: stubFetch,
+      lookup: publicLookup,
     });
 
     await fetcher('/images/abc');
@@ -273,6 +288,7 @@ describe('createImageFetcher', () => {
     const fetcher = createImageFetcher({
       serverBase: 'https://api.wafflebase.io',
       fetch: stubFetch,
+      lookup: publicLookup,
     });
 
     await expect(fetcher('https://attacker.example/x.png')).rejects.toThrow(
@@ -298,6 +314,7 @@ describe('createImageFetcher', () => {
     const fetcher = createImageFetcher({
       serverBase: 'https://api.wafflebase.io',
       fetch: stubFetch,
+      lookup: publicLookup,
     });
 
     const blob = await fetcher('https://cdn.example.com/photo.jpg');
@@ -319,6 +336,7 @@ describe('createImageFetcher', () => {
     const fetcher = createImageFetcher({
       serverBase: 'https://api.wafflebase.io',
       fetch: stubFetch,
+      lookup: publicLookup,
     });
 
     await expect(fetcher('https://cdn.example.com/a.png')).rejects.toThrow(
@@ -333,10 +351,231 @@ describe('createImageFetcher', () => {
     const fetcher = createImageFetcher({
       serverBase: 'https://api.wafflebase.io',
       fetch: stubFetch,
+      lookup: publicLookup,
     });
 
     await expect(fetcher('/images/missing')).rejects.toThrow(
       /Image fetch failed: 404 Not Found for https:\/\/api\.wafflebase\.io\/images\/missing/,
     );
+  });
+
+  it('asks fetch not to follow redirects, on every hop', async () => {
+    // The whole per-hop guard rests on this one option: with `fetch` following
+    // redirects itself, the loop below never sees the target and the re-check
+    // never happens. Assert the option, not just the behaviour of a stub that
+    // would answer the same either way.
+    const modes: (string | undefined)[] = [];
+    const stubFetch: typeof globalThis.fetch = async (_input, init) => {
+      modes.push(init?.redirect);
+      if (modes.length === 1) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://cdn.example.com/moved.png' },
+        });
+      }
+      return new Response(new Uint8Array([9]), { status: 200 });
+    };
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: publicLookup,
+    });
+
+    await fetcher('https://cdn.example.com/a.png');
+    expect(modes).toEqual(['manual', 'manual']);
+  });
+
+  it('releases the body of a redirect it does not follow through', async () => {
+    // Nothing reads a 3xx body; left undrained it pins its socket open until
+    // the agent times out, which on a doc full of redirecting images stalls
+    // the export.
+    const seen: Response[] = [];
+    const stubFetch: typeof globalThis.fetch = async () => {
+      const res =
+        seen.length === 0
+          ? new Response('redirect body', {
+              status: 302,
+              headers: { location: 'https://cdn.example.com/moved.png' },
+            })
+          : new Response(new Uint8Array([1]), { status: 200 });
+      seen.push(res);
+      return res;
+    };
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: publicLookup,
+    });
+
+    await fetcher('https://cdn.example.com/a.png');
+    expect(seen[0].bodyUsed).toBe(true);
+  });
+
+  it('names an opaque redirect instead of reporting it as "failed: 0"', async () => {
+    // A browser's `manual` mode answers with a status-0 opaque-redirect
+    // response. Node's undici hands back the real 3xx — but if this ever runs
+    // where it does not, the operator should read why, not `failed: 0`.
+    // `Response` refuses to be constructed with status 0, so this stands in
+    // with the other filtered response that carries it.
+    const stubFetch: typeof globalThis.fetch = async () => Response.error();
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: publicLookup,
+    });
+
+    await expect(fetcher('https://cdn.example.com/a.png')).rejects.toThrow(
+      /opaque redirect/,
+    );
+  });
+
+  it('refuses a public name that resolves to the metadata endpoint', async () => {
+    // `169.254.169.254.nip.io` is an ordinary public name at wildcard DNS
+    // that answers with the literal it embeds. A string check on the URL sees
+    // nothing wrong with it, which is the whole trick.
+    const stubFetch = vi.fn();
+    const lookup: HostLookup = async (host) =>
+      host === '169.254.169.254.nip.io' ? ['169.254.169.254'] : ['8.8.8.8'];
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch as unknown as typeof globalThis.fetch,
+      lookup,
+    });
+
+    await expect(
+      fetcher(
+        'http://169.254.169.254.nip.io/latest/meta-data/iam/security-credentials/',
+      ),
+    ).rejects.toThrow(/resolves to 169\.254\.169\.254/);
+    expect(stubFetch).not.toHaveBeenCalled();
+  });
+
+  it('re-resolves the target of a redirect, not just its spelling', async () => {
+    const calls: string[] = [];
+    const stubFetch: typeof globalThis.fetch = async (input) => {
+      calls.push(String(input));
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'http://metadata.internal.example/creds' },
+      });
+    };
+    const lookup: HostLookup = async (host) =>
+      host === 'metadata.internal.example' ? ['10.0.0.7'] : ['8.8.8.8'];
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup,
+    });
+
+    await expect(fetcher('https://cdn.example.com/a.png')).rejects.toThrow(
+      /resolves to 10\.0\.0\.7/,
+    );
+    expect(calls).toEqual(['https://cdn.example.com/a.png']);
+  });
+
+  it('refuses a name that cannot be resolved rather than fetching it', async () => {
+    const stubFetch = vi.fn();
+    const lookup: HostLookup = async () => {
+      throw new Error('ENOTFOUND');
+    };
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch as unknown as typeof globalThis.fetch,
+      lookup,
+    });
+
+    await expect(fetcher('https://nowhere.example/a.png')).rejects.toThrow(
+      /could not be resolved/,
+    );
+    expect(stubFetch).not.toHaveBeenCalled();
+  });
+
+  it('never resolves a host the operator already exempted', async () => {
+    // The configured server and WAFFLEBASE_IMAGE_HOSTS are decisions the
+    // operator made; a resolver has no say in them, and a local `--server`
+    // must keep working with no DNS at all.
+    const lookup = vi.fn(async () => ['93.184.216.34']);
+    const stubFetch: typeof globalThis.fetch = async () =>
+      new Response(new Uint8Array([1]), { status: 200 });
+
+    const fetcher = createImageFetcher({
+      serverBase: 'http://localhost:3000',
+      allowedHosts: ['minio.internal'],
+      fetch: stubFetch,
+      lookup,
+    });
+
+    await fetcher('/images/abc');
+    await fetcher('http://minio.internal:9000/blob.png');
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it('reads the operator allow-list from the environment by default', async () => {
+    // `allowedHosts` is the injectable form; the environment variable is the
+    // one an operator actually sets, and nothing else exercises that wiring.
+    const calls: string[] = [];
+    const stubFetch: typeof globalThis.fetch = async (input) => {
+      calls.push(String(input));
+      return new Response(new Uint8Array([1]), { status: 200 });
+    };
+    const previous = process.env[IMAGE_HOSTS_ENV];
+    process.env[IMAGE_HOSTS_ENV] = '10.0.0.5:9000';
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: 'https://api.wafflebase.io',
+        fetch: stubFetch,
+        lookup: publicLookup,
+      });
+
+      await fetcher('http://10.0.0.5:9000/blob.png');
+      expect(calls).toEqual(['http://10.0.0.5:9000/blob.png']);
+
+      // A private host the operator did not list is still refused.
+      await expect(fetcher('http://10.0.0.6:9000/blob.png')).rejects.toThrow(
+        /non-public address/,
+      );
+    } finally {
+      if (previous === undefined) delete process.env[IMAGE_HOSTS_ENV];
+      else process.env[IMAGE_HOSTS_ENV] = previous;
+    }
+  });
+});
+
+describe('assertResolvedHostIsPublic', () => {
+  const server = 'https://api.wafflebase.io';
+
+  it('allows a name that resolves to public addresses only', async () => {
+    await expect(
+      assertResolvedHostIsPublic(
+        'https://cdn.example.com/a.png',
+        server,
+        [],
+        async () => ['93.184.216.34', '2606:2800:220:1:248:1893:25c8:1946'],
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('refuses when any resolved address is non-public', async () => {
+    // A name can answer with several records; one private answer is enough to
+    // aim the request inside the network, so all of them have to be public.
+    await expect(
+      assertResolvedHostIsPublic('https://mixed.example/a.png', server, [], async () => [
+        '93.184.216.34',
+        '127.0.0.1',
+      ]),
+    ).rejects.toThrow(/resolves to 127\.0\.0\.1/);
+  });
+
+  it('does not resolve IP literals, which were already decided', async () => {
+    const lookup = vi.fn(async () => ['93.184.216.34']);
+    await assertResolvedHostIsPublic('http://8.8.8.8/a.png', server, [], lookup);
+    await assertResolvedHostIsPublic('data:image/png;base64,AAA', server, [], lookup);
+    expect(lookup).not.toHaveBeenCalled();
   });
 });
