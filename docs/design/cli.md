@@ -112,7 +112,9 @@ All CLI state lives under `~/.wafflebase/`:
 ```text
 ~/.wafflebase/
 ├── config.yaml        # Profile settings (server, API key, workspace)
-└── session.json       # OAuth session (JWT tokens + active workspace)
+├── session.json       # OAuth session (JWT tokens + active workspace)
+└── login-url.txt      # Transient: the login URL when stderr is not a TTY,
+                       # written 0600 and deleted when the login settles
 ```
 
 **Migration:** if `~/.wafflebase/config.yaml` does not exist but
@@ -173,28 +175,34 @@ wafflebase login
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
   ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>,
   │     and mints a nonce + a PKCE verifier/challenge pair
-  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>
-  │       &nonce=<nonce>&code_challenge=<S256(verifier)>
-  │     (backend sets a short-lived `wafflebase_oauth_state` cookie on
-  │      that browser; the URL is announced for copy-paste — see below)
-  ├─ 4. GitHub OAuth consent screen (existing flow)
-  ├─ 5. GitHub redirects to GET /auth/github/callback
-  ├─ 6. Backend detects mode=cli in OAuth state →
+  ├─ 3. Opens browser at http://127.0.0.1:<port>/launch/<token>, a
+  │     single-use loopback redirect to
+  │       GET /auth/github?mode=cli&port=<port>
+  │         &nonce=<nonce>&code_challenge=<S256(verifier)>
+  │     (the authorization URL itself never goes into a child process's
+  │      argv; it is also announced for copy-paste — see below)
+  ├─ 4. Backend renders the CLI consent page naming the loopback port;
+  │     continuing sets/echoes the `wafflebase_cli_confirm` pair and the
+  │     backend sets a short-lived `wafflebase_oauth_state` cookie on
+  │     that browser
+  ├─ 5. GitHub OAuth consent screen (existing flow)
+  ├─ 6. GitHub redirects to GET /auth/github/callback
+  ├─ 7. Backend detects mode=cli in OAuth state →
   │     redirects to http://127.0.0.1:<port>/callback?code=<short-lived-code>
   │       &state=<nonce echoed back>
-  ├─ 7. CLI checks `state` against its nonce, then calls
+  ├─ 8. CLI checks `state` against its nonce, then calls
   │     POST /auth/cli/exchange with { code, codeVerifier }
   │     → receives { accessToken, refreshToken }
-  ├─ 8. CLI local server serves success HTML, shuts down
-  ├─ 9. CLI calls GET /auth/me (Bearer token) for user info
-  ├─ 10. CLI calls GET /workspaces (Bearer token) for workspace list
-  ├─ 11. Multiple workspaces → interactive selection; single → auto-select
-  └─ 12. Writes ~/.wafflebase/session.json
+  ├─ 9. CLI local server serves success HTML, shuts down
+  ├─ 10. CLI calls GET /auth/me (Bearer token) for user info
+  ├─ 11. CLI calls GET /workspaces (Bearer token) for workspace list
+  ├─ 12. Multiple workspaces → interactive selection; single → auto-select
+  └─ 13. Writes ~/.wafflebase/session.json
 ```
 
-The local server binds to `127.0.0.1` only, accepts only `GET
-/callback`, and shuts down after a single accepted request with a
-30-second timeout. On timeout it prints: "Login timed out. Try again with
+The local server binds to `127.0.0.1` only, accepts only `GET /callback`
+and the single-use `GET /launch/<token>` redirect that starts the login, and
+shuts down after a single accepted callback with a 30-second timeout. On timeout it prints: "Login timed out. Try again with
 `wafflebase login`."
 
 **Loopback binding (RFC 8252 §8.9).** Binding to loopback is not by itself
@@ -202,7 +210,7 @@ protection: the port is guessable and any page in the user's browser can
 navigate to it. Without a binding check the CLI would exchange whatever
 `code` arrived first — including one an attacker minted against their own
 account, which silently logs the terminal in as the attacker and sends
-every subsequent write to their workspace. Two independent bindings close
+every subsequent write to their workspace. Four independent bindings close
 that:
 
 - **Nonce echo.** The CLI mints a 32-byte nonce, sends it as `nonce=`, and
@@ -216,8 +224,9 @@ that:
   off the redirect — from a browser history entry, a proxy, a shoulder — is
   not redeemable by whoever holds it.
 - **Browser binding.** `GET /auth/github?mode=cli` sets a short-lived
-  httpOnly `wafflebase_oauth_state` cookie (`SameSite=Lax`, `path=/auth`)
-  and remembers its value beside the state; the callback must present it.
+  httpOnly `wafflebase_oauth_state` cookie (`SameSite=Lax`, `Path=/`,
+  `__Host-`-prefixed in production) and remembers its value beside the
+  state; the callback must present it.
   The other two bindings are both held by whoever *starts* a login, so
   neither sees an attacker who mints a CLI state pointing at a loopback
   port they own and walks the victim through GitHub's consent screen — on
@@ -225,17 +234,35 @@ that:
   code for the victim's account, verifier and all. The cookie is what says
   the browser completing consent is the browser that began the login.
 
-The three are not redundant: the nonce protects the *client* (this CLI only
+- **Human confirmation.** `?mode=cli&port=` is an unauthenticated
+  parameter anyone can put in a link, and the three bindings above are all
+  held by whoever *wrote* the start URL — including the cookie, which the
+  victim's own browser dutifully collects when they click it. So a CLI
+  start never redirects to GitHub on its own: the backend renders a page
+  naming the loopback port that will receive the code, and only a click on
+  it continues. The click is not forgeable from a link, because continuing
+  carries a token that page set as an httpOnly `wafflebase_cli_confirm`
+  cookie — an attacker who appends `cli_confirm=` to their own URL presents
+  a value the victim's browser has no cookie for.
+
+The four are not redundant: the nonce protects the *client* (this CLI only
 redeems a code from its own flow), PKCE protects the *code* (nobody but
-this CLI can redeem it, wherever it leaked), and the cookie protects the
-*user* (nobody else's login can be walked through this browser). A code
-that is presented with a verifier but was minted with no challenge is
-refused as well (RFC 7636 §4.6).
+this CLI can redeem it, wherever it leaked), the cookie protects the
+*session* (nobody else's login can be walked through this browser), and the
+confirmation protects the *person* (no link they did not expect turns into
+a code at somebody else's listener). A code that is presented with a
+verifier but was minted with no challenge is refused as well
+(RFC 7636 §4.6).
 
 The authorization URL carries the first two, so an observer of it can start
 their own login under the same nonce and challenge and push the resulting
 code at the port. It therefore never goes to stderr, which is what an agent
-harness captures into logs and issue reports. `open()` resolving is not
+harness captures into logs and issue reports — and it is never handed to
+`open()` either, since opening a URL puts it in a child process's argv,
+which any local user can read (`ps`, `/proc/<pid>/cmdline`) on exactly the
+shared host these bindings are for. The browser gets
+`http://127.0.0.1:<port>/launch/<32-byte token>` instead, which redirects
+once and then 404s. `open()` resolving is not
 evidence a browser appeared — it only means the child process was spawned —
 so the URL is announced either way, through whichever channel is safe:
 stderr when it is a terminal (the only reader is the person logging in), and
@@ -244,7 +271,7 @@ deleted as soon as the login settles.  Server-side, the access log redacts
 `/auth` query strings for the same reason (4xx there is logged at `warn`).
 
 **Compatibility runs one way, and no longer runs at all for old clients.**
-All three bindings are required server-side: a `mode=cli` start URL missing
+All three wire bindings are required server-side: a `mode=cli` start URL missing
 or malforming `nonce` or `code_challenge` is a `400` naming the parameter,
 not a login that quietly continues unbound. Optional bindings are not
 bindings — a client that simply omits the parameter is indistinguishable

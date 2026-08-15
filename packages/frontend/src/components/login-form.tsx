@@ -1,6 +1,21 @@
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { WbButton } from "@/app/home/primitives/wb-button";
+
+/**
+ * What `?error=` on the login page means.
+ *
+ * The OAuth callback validates the `state` it started the login with, and a
+ * browser whose check fails is sent back here rather than shown a JSON 401 it
+ * cannot act on. The usual cause is time — the state cookie lives five
+ * minutes — so the message says what to do rather than blaming the visitor.
+ */
+const ERROR_MESSAGES: Record<string, string> = {
+  login_state:
+    "That sign-in link expired or did not come from this browser. Please try again.",
+};
+
+const FALLBACK_ERROR = "Sign-in did not complete. Please try again.";
 
 /**
  * Renders the LoginForm component.
@@ -9,6 +24,9 @@ export function LoginForm({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<"form">) {
+  const [searchParams] = useSearchParams();
+  const error = searchParams.get("error");
+
   return (
     <form className={cn("flex flex-col gap-7", className)} {...props}>
       <div className="flex flex-col items-center gap-2 text-center">
@@ -22,6 +40,14 @@ export function LoginForm({
           Sign in with your GitHub account to get started.
         </p>
       </div>
+      {error && (
+        <div
+          role="alert"
+          className="rounded-lg border border-[color:var(--wb-rule)] bg-[color:var(--wb-bg)] px-4 py-3 text-[13.5px] leading-[1.5] text-[color:var(--wb-ink)]"
+        >
+          {ERROR_MESSAGES[error] ?? FALLBACK_ERROR}
+        </div>
+      )}
       <WbButton asChild variant="primary" size="lg" className="w-full">
         <Link
           to={`${import.meta.env.VITE_BACKEND_API_URL}/auth/github`}

@@ -1,22 +1,38 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Command } from 'commander';
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import { get as httpGet } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import open from 'open';
 import {
+  openBrowser,
   registerLoginCommand,
   startCallbackServer,
 } from '../src/commands/login.js';
 
 // `open` would launch a real browser in CI. It is also how the tests read the
-// authorization URL: it carries this login's nonce and PKCE challenge, so the
-// command never prints it on stderr, which an agent harness captures into
-// logs.
+// loopback launch URL the command hands it — the authorization URL sits
+// behind that redirect, because argv is readable by any local user and the
+// URL carries this login's nonce and PKCE challenge.
 vi.mock('open', () => ({ default: vi.fn(async () => undefined) }));
 
 const openMock = vi.mocked(open);
+
+/** The `Location` of a one-hop redirect, read without following it. */
+function redirectTarget(url: string): Promise<{
+  status: number;
+  location?: string;
+}> {
+  return new Promise((resolve, reject) => {
+    httpGet(url, (res) => {
+      res.resume();
+      resolve({ status: res.statusCode ?? 0, location: res.headers.location });
+    }).on('error', reject);
+  });
+}
 
 // The login callback listens on loopback, but the port is guessable and any
 // page in the user's browser can navigate to it. The nonce echoed back as
@@ -58,6 +74,65 @@ describe('login callback server', () => {
       close();
     }
   });
+
+  // Opening a URL spawns a child process with that URL in its argv, which any
+  // local user can read. The authorization URL carries this login's nonce and
+  // PKCE challenge, so the browser is handed a loopback redirect instead and
+  // the URL itself never leaves this process's memory.
+  it('parks the authorization URL behind a single-use loopback redirect', async () => {
+    const { port, close, armLaunch } = await startCallbackServer('the-nonce');
+    try {
+      const authorizationUrl = 'https://example.test/auth/github?nonce=secret';
+      const launch = armLaunch(authorizationUrl);
+
+      expect(new URL(launch).hostname).toBe('127.0.0.1');
+      expect(launch).not.toContain('secret');
+
+      const first = await redirectTarget(launch);
+      expect(first.status).toBe(302);
+      expect(first.location).toBe(authorizationUrl);
+
+      // Spent: a local reader who lifted the loopback URL out of argv takes
+      // the login away from the real browser rather than sharing it silently.
+      expect((await redirectTarget(launch)).status).toBe(404);
+
+      // And the token is not guessable from the port alone.
+      expect(
+        (await redirectTarget(`http://127.0.0.1:${port}/launch/guessed`)).status,
+      ).toBe(404);
+    } finally {
+      close();
+    }
+  });
+});
+
+// `open()` resolves when the child is *spawned*, so a missing opener binary
+// (headless CI, a container without xdg-open) surfaces later as an `error`
+// event on that child — which, with no listener, takes the whole CLI down
+// mid-login. The listener is the only reason this helper exists.
+describe('openBrowser', () => {
+  afterEach(() => {
+    openMock.mockClear();
+  });
+
+  it('absorbs the child process error that arrives after the spawn', async () => {
+    const child = new EventEmitter();
+    openMock.mockResolvedValueOnce(child as never);
+
+    await openBrowser('http://127.0.0.1:1234/launch/tok');
+
+    // An EventEmitter with no `error` listener rethrows what it is given, so
+    // this fails loudly if the registration is ever dropped.
+    expect(() => child.emit('error', new Error('spawn xdg-open ENOENT'))).not.toThrow();
+  });
+
+  it('resolves when there is no opener at all', async () => {
+    openMock.mockRejectedValueOnce(new Error('no opener'));
+
+    await expect(
+      openBrowser('http://127.0.0.1:1234/launch/tok'),
+    ).resolves.toBeUndefined();
+  });
 });
 
 /** A JWT whose payload `decodeJwtExpiry` can read. */
@@ -84,12 +159,22 @@ async function waitFor<T>(read: () => T | undefined): Promise<T> {
   throw new Error('timed out waiting for the OAuth URL');
 }
 
-/** The authorization URL the command handed to the browser. */
+/**
+ * The authorization URL the command started, read the way the browser gets
+ * it: through the loopback redirect. What `open()` receives is only that
+ * redirect — argv is readable by any local user, and the authorization URL
+ * carries this login's nonce and PKCE challenge.
+ */
 async function openedUrl(): Promise<URL> {
-  const target = await waitFor(
+  const launch = await waitFor(
     () => openMock.mock.calls[0]?.[0] as string | undefined,
   );
-  return new URL(target);
+  expect(new URL(launch).hostname).toBe('127.0.0.1');
+  expect(launch).not.toContain('nonce=');
+
+  const redirect = await redirectTarget(launch);
+  expect(redirect.status).toBe(302);
+  return new URL(redirect.location!);
 }
 
 // The gate above is worthless if the CLI never asks the server to echo

@@ -101,18 +101,47 @@ imports the full module set listed below.
 #### Authentication (`/auth`)
 
 **`GET /auth/github`**
-- Guard: `AuthGuard('github')`
-- Initiates GitHub OAuth flow. Redirects to GitHub's authorization page.
+- Guard: `GitHubAuthGuard` (extends `AuthGuard('github')`)
+- Initiates GitHub OAuth flow. Every authorization request carries a `state`,
+  so the callback always has something to validate:
+  - **Browser login** — the guard mints a random value, sets it in a
+    short-lived (5 min) httpOnly cookie (`wafflebase_oauth_state`,
+    `__Host-`-prefixed in production, `SameSite=Lax`, `Path=/`) and sends
+    `w.<HMAC(JWT_SECRET, value)>` to GitHub as `state`. The query half is the
+    *signature* of the cookie, not a copy: planting a cookie is then not
+    enough to forge the pair.
+  - **CLI login** (`?mode=cli&port=&nonce=&code_challenge=`) — `nonce`
+    (≤128 chars) and `code_challenge` (RFC 7636 S256, 43–128 base64url chars)
+    are both **required**; missing or malformed is a `400`, never a login
+    started without the binding. The guard stores them with the port and its
+    own browser-binding cookie in `CliAuthStore` and sends the opaque state
+    token to GitHub. Anyone can write a `?mode=cli&port=` link, so a CLI start
+    does **not** redirect to GitHub on its own: it renders a consent page
+    naming the loopback port, and continuing echoes a token that page set as
+    the `wafflebase_cli_confirm` cookie (so a crafted link cannot pre-supply
+    it).
 
 **`GET /auth/github/callback`**
 - Guard: `AuthGuard('github')`
 - GitHub redirects here after user consents. The `GitHubStrategy` validates the
   profile and returns user data. The controller then:
-  1. Calls `UserService.findOrCreateUser()` to upsert the user in the database.
-  2. Calls `AuthService.createTokens()` to sign access/refresh JWTs.
-  3. Sets httpOnly cookies named `wafflebase_session` and
+  1. Validates `state` **before touching any user record**. A `w.`-prefixed
+     state must equal the HMAC of the state cookie; a CLI state must resolve
+     in `CliAuthStore` *and* match the browser-binding cookie. The cookie is
+     cleared whether or not it matched (single use). A callback with no
+     `state` did not come from a login this server started.
+  2. Calls `UserService.findOrCreateUser()` to upsert the user in the database.
+  3. Calls `AuthService.createTokens()` to sign access/refresh JWTs.
+  4. Sets httpOnly cookies named `wafflebase_session` and
      `wafflebase_refresh`.
-  4. Redirects to `FRONTEND_URL`.
+  5. Redirects to `FRONTEND_URL`.
+- CLI flow instead mints a one-time code (carrying the login's PKCE
+  challenge) and redirects to `http://127.0.0.1:<port>/callback?code=&state=`,
+  where `state` echoes the CLI's nonce. A failed CLI validation is a `400`.
+- A failed **browser** validation redirects to `FRONTEND_URL/login?error=login_state`
+  rather than rendering a JSON `401` the visitor cannot act on — the usual
+  cause is a consent screen left open past the five-minute cookie. No session
+  is issued either way.
 
 **`GET /auth/me`**
 - Guard: `JwtAuthGuard`
@@ -143,8 +172,13 @@ imports the full module set listed below.
 
 **`POST /auth/cli/exchange`**
 - Guard: none (public — one-time CLI auth code)
-- Body: `{ code }`. Exchanges a one-time code minted during the CLI OAuth flow
-  for `{ accessToken, refreshToken }`. Rate-limited to 10 req/60s/IP.
+- Body: `{ code, codeVerifier? }`. Exchanges a one-time code minted during the
+  CLI OAuth flow for `{ accessToken, refreshToken }`. Rate-limited to
+  10 req/60s/IP. A code minted from a PKCE login only redeems against the
+  verifier whose S256 hash is the stored challenge; a failed attempt burns the
+  code. Presenting a verifier against a code minted *without* a challenge is
+  refused (RFC 7636 §4.6), so an unchallenged login cannot be passed off to a
+  PKCE-capable CLI.
 
 #### Documents (`/documents`)
 
@@ -311,6 +345,14 @@ Created by `AuthService.createTokens()`:
 |--------|------------|-------------|
 | `wafflebase_session` | httpOnly, secure, sameSite=`lax`, maxAge=1h by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=1h by default |
 | `wafflebase_refresh` | httpOnly, secure, sameSite=`lax`, maxAge=7d by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=7d by default |
+| `wafflebase_oauth_state` | `__Host-`-prefixed, httpOnly, secure, sameSite=`lax`, path=`/`, maxAge=5m | unprefixed (the prefix requires `Secure`), httpOnly, secure=`false`, sameSite=`lax`, path=`/`, maxAge=5m |
+| `wafflebase_cli_confirm` | same attributes; set by the CLI consent page, spent on the click | same attributes |
+
+The two login cookies are single-use and live only as long as a consent
+screen. `__Host-` is what stops a sibling subdomain from writing the browser's
+half of the OAuth double submit; the HMAC binding (`state` is the *signature*
+of the cookie value, not a copy) is what holds where the prefix cannot be used
+— it requires `Secure`, so outside production the unprefixed name is set.
 
 SameSite=`lax` blocks third-party cross-site requests from carrying the
 session — the common CSRF vector — while still letting the OAuth
@@ -347,6 +389,15 @@ configured in `packages/backend/src/app.module.ts`:
   would otherwise dominate the log stream.
 - `req.headers.authorization`, `req.headers.cookie`, and outgoing
   `set-cookie` are redacted.
+- Query strings are filtered by `logSafeUrl`
+  (`packages/backend/src/logging/log-safe-url.ts`) before the `url` field is
+  logged: an `/auth` request loses its whole query (the CLI's `nonce` and
+  `code_challenge` outbound, GitHub's `code`/`state` inbound), and everywhere
+  else the *values* of granting parameters — `token` (the share-link
+  credential on `GET /documents/:id/file`), `code`, `api_key`, … — become
+  `<redacted>` while the names stay. The path predicate matches every
+  spelling the router accepts (case-insensitive, percent-decoded, collapsed
+  slashes), because every 4xx is logged at `warn`.
 - Production emits raw JSON (one line per event); non-production pipes
   through `pino-pretty` for readability.
 - `autoLogging` is disabled entirely under `NODE_ENV=test`.

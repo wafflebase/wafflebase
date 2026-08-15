@@ -1,11 +1,22 @@
 import { BadRequestException, ExecutionContext } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { CliAuthStore } from './cli-auth.store';
 import {
+  CLI_CONFIRM_COOKIE,
+  CLI_CONFIRM_PARAM,
+  CliConsentRequest,
   GitHubAuthGuard,
   OAUTH_STATE_COOKIE,
+  stateSignature,
   WEB_STATE_PREFIX,
 } from './github-auth.guard';
+
+const SECRET = 'test-secret';
+
+const configService = {
+  get: (key: string) => (key === 'JWT_SECRET' ? SECRET : undefined),
+} as unknown as ConfigService;
 
 /**
  * The guard is the only place the CLI's `nonce` and `code_challenge` enter
@@ -15,20 +26,26 @@ import {
  * it would try to run the GitHub strategy and redirect. What is under test
  * is what the guard recorded on the way through.
  */
-function contextFor(query: Record<string, unknown>) {
-  const req: Record<string, unknown> = { query };
+function contextFor(
+  query: Record<string, unknown>,
+  reqCookies: Record<string, unknown> = {},
+) {
+  const req: Record<string, unknown> = { query, cookies: reqCookies };
   const cookies: Array<{
     name: string;
     value: string;
     options: Record<string, unknown>;
   }> = [];
+  const cleared: string[] = [];
   const res = {
     cookie: (name: string, value: string, options: Record<string, unknown>) =>
       cookies.push({ name, value, options }),
+    clearCookie: (name: string) => cleared.push(name),
   };
   return {
     req,
     cookies,
+    cleared,
     context: {
       switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
     } as unknown as ExecutionContext,
@@ -52,16 +69,32 @@ describe('GitHubAuthGuard', () => {
       true as never,
     );
     store = new CliAuthStore();
-    guard = new GitHubAuthGuard(store);
+    guard = new GitHubAuthGuard(store, configService);
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
+  /** The token a CLI start must echo back off its consent page. */
+  const CONFIRM = 'confirm-token';
+
+  /**
+   * A confirmed CLI start: the consent click's query half plus the cookie
+   * half the interstitial set. Every test below that is about the *other*
+   * bindings starts from here, so the consent gate is not silently what they
+   * are measuring.
+   */
+  function confirmedContext(query: Record<string, unknown>) {
+    return contextFor(
+      { ...query, [CLI_CONFIRM_PARAM]: CONFIRM },
+      { [CLI_CONFIRM_COOKIE]: CONFIRM },
+    );
+  }
+
   /** Run the guard and read back what it put in the store. */
   function stateFor(query: Record<string, unknown>) {
-    const { req, context } = contextFor(query);
+    const { req, context } = confirmedContext(query);
     guard.canActivate(context);
     const token = req.__oauthState as string | undefined;
     return token && !token.startsWith(WEB_STATE_PREFIX)
@@ -151,7 +184,7 @@ describe('GitHubAuthGuard', () => {
   // the one that began it, which is what stops a state pointing at an
   // attacker-owned loopback port from being walked through by the victim.
   it('binds a CLI login to the browser that started it', () => {
-    const { req, cookies, context } = contextFor(cliQuery());
+    const { req, cookies, context } = confirmedContext(cliQuery());
     guard.canActivate(context);
 
     expect(cookies).toHaveLength(1);
@@ -163,12 +196,70 @@ describe('GitHubAuthGuard', () => {
   });
 
   it('binds each CLI login to its own cookie value', () => {
-    const first = contextFor(cliQuery());
+    const first = confirmedContext(cliQuery());
     guard.canActivate(first.context);
-    const second = contextFor(cliQuery());
+    const second = confirmedContext(cliQuery());
     guard.canActivate(second.context);
 
     expect(first.cookies[0].value).not.toBe(second.cookies[0].value);
+  });
+
+  // The nonce, the challenge and the browser-binding cookie are all things
+  // whoever *wrote* the start URL holds. A victim who clicks an attacker's
+  // `?mode=cli&port=` link satisfies all three and hands a code to the
+  // attacker's loopback listener, so a CLI start never reaches GitHub
+  // unasked: it stops on an interstitial naming the port.
+  describe('CLI consent gate', () => {
+    it('stops an unconfirmed CLI start before GitHub', () => {
+      const { req, cookies, context } = contextFor(cliQuery());
+
+      expect(guard.canActivate(context)).toBe(true);
+      // No authorization request was started: no state, nothing stored.
+      expect(req.__oauthState).toBeUndefined();
+      const consent = req.__cliConsent as CliConsentRequest;
+      expect(consent).toMatchObject({ port: 9876, nonce: 'n0nce-x/y' });
+
+      // The page's half of the click is set as a cookie, so the link on it
+      // carries something an attacker's crafted URL cannot.
+      expect(cookies).toHaveLength(1);
+      expect(cookies[0].name).toBe(CLI_CONFIRM_COOKIE);
+      expect(cookies[0].value).toBe(consent.confirmToken);
+      expect(cookies[0].options).toMatchObject({ httpOnly: true, path: '/' });
+    });
+
+    // Otherwise the gate would be one query parameter away from useless.
+    it('re-asks when the confirm parameter has no matching cookie', () => {
+      const { req, context } = contextFor({
+        ...cliQuery(),
+        [CLI_CONFIRM_PARAM]: 'forged',
+      });
+      guard.canActivate(context);
+
+      expect(req.__oauthState).toBeUndefined();
+      expect(req.__cliConsent).toBeDefined();
+    });
+
+    it('re-asks when the cookie is for a different confirmation', () => {
+      const { req, context } = contextFor(
+        { ...cliQuery(), [CLI_CONFIRM_PARAM]: 'a'.repeat(12) },
+        { [CLI_CONFIRM_COOKIE]: 'b'.repeat(12) },
+      );
+      guard.canActivate(context);
+
+      expect(req.__oauthState).toBeUndefined();
+      expect(req.__cliConsent).toBeDefined();
+    });
+
+    it('starts the login once the click is confirmed, and spends the token', () => {
+      const { req, cleared, context } = confirmedContext(cliQuery());
+      guard.canActivate(context);
+
+      expect(req.__cliConsent).toBeUndefined();
+      expect(store.consumeState(req.__oauthState as string)).toMatchObject({
+        port: 9876,
+      });
+      expect(cleared).toContain(CLI_CONFIRM_COOKIE);
+    });
   });
 
   it('stores no CLI state for a non-CLI request or an out-of-range port', () => {
@@ -197,22 +288,44 @@ describe('GitHubAuthGuard', () => {
     expect(state.startsWith(WEB_STATE_PREFIX)).toBe(true);
     expect(cookies).toHaveLength(1);
     expect(cookies[0].name).toBe(OAUTH_STATE_COOKIE);
-    // The cookie is the other half of the double submit: same value, sent
-    // separately from the query parameter.
-    expect(state.slice(WEB_STATE_PREFIX.length)).toBe(cookies[0].value);
+    // The query half is the *signature* of the cookie, not a copy of it.
+    // Echoing the value would make the pair forgeable by anyone who can
+    // plant a cookie — a sibling subdomain, an http injection — which is the
+    // forced-login CSRF this exists to stop.
+    expect(state.slice(WEB_STATE_PREFIX.length)).not.toBe(cookies[0].value);
+    expect(state.slice(WEB_STATE_PREFIX.length)).toBe(
+      stateSignature(SECRET, cookies[0].value),
+    );
     // Attributes are the control, not decoration: without httpOnly a script
-    // reads the half it is not supposed to have, and without `path=/auth`
-    // the callback never receives it.
+    // reads the half it is not supposed to have, and `path=/` is what the
+    // `__Host-` prefix (production, where the name is prefixed) requires.
     expect(cookies[0].options).toMatchObject({
       httpOnly: true,
       sameSite: 'lax',
-      path: '/auth',
+      path: '/',
       maxAge: 5 * 60 * 1000,
     });
   });
 
+  // A cookie a sibling subdomain can write is not a binding. In production
+  // the name carries `__Host-`, which the browser only accepts from this
+  // exact host, with `Secure` and `Path=/` and no `Domain`.
+  it('prefixes the state cookie with `__Host-` in production', () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const { cookies, context } = contextFor({});
+      guard.canActivate(context);
+
+      expect(cookies[0].name).toBe(`__Host-${OAUTH_STATE_COOKIE}`);
+      expect(cookies[0].options).toMatchObject({ secure: true, path: '/' });
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+
   it('leaves the CLI state alone rather than overwriting it with a web one', () => {
-    const { req, cookies, context } = contextFor(cliQuery());
+    const { req, cookies, context } = confirmedContext(cliQuery());
     guard.canActivate(context);
 
     expect((req.__oauthState as string).startsWith(WEB_STATE_PREFIX)).toBe(

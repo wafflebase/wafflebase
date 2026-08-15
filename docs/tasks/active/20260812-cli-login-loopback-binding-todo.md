@@ -130,3 +130,32 @@ piece of login work starts from `main` on its own branch.
       fails closed with a message naming the cause (it does **not**
       complete — see the plan bullet above; this replaces the earlier
       criterion, which asked for behavior that would reopen the hole).
+
+## Review round 2 (2026-08-15)
+
+The panel accepted the bindings but not their reach. Added in this round:
+
+- [x] A CLI start does not redirect to GitHub on its own — the backend
+      renders a consent page naming the loopback port, and continuing
+      echoes a token that page set as a `wafflebase_cli_confirm` cookie.
+      The nonce, the challenge and the browser-binding cookie are all
+      held by whoever *wrote* the start URL, so none of them saw a victim
+      clicking `?mode=cli&port=<attacker's listener>`.
+- [x] The browser flow's `state` is the HMAC of the state cookie rather
+      than a copy of it, and the cookie carries `__Host-` in production
+      (`Path=/`). An unsigned double submit is only as strong as the
+      cookie jar, and a sibling subdomain can write that.
+- [x] The authorization URL never reaches `open()`. The browser is given
+      a single-use `http://127.0.0.1:<port>/launch/<token>` redirect, so
+      the nonce and PKCE challenge stay out of a child process's argv,
+      which any local user can read on the shared host the bindings are
+      for.
+- [x] `logSafeUrl` redacts granting query parameters everywhere, not just
+      under `/auth` — `GET /documents/:id/file?token=` carries a
+      share-link credential and is logged at `warn` on every 4xx.
+- [x] A browser callback that fails the state check lands on
+      `FRONTEND_URL/login?error=login_state`, which the login form
+      explains, instead of a JSON `401` with no way back.
+- [x] `openBrowser`'s async `error` absorption has a test that fails if
+      the listener is dropped (an `EventEmitter` with no `error` listener
+      rethrows).

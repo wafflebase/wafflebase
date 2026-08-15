@@ -49,7 +49,8 @@ export function registerLoginCommand(program: Command): void {
       const codeChallenge = createHash('sha256')
         .update(codeVerifier)
         .digest('base64url');
-      const { port, waitForCallback, close } = await startCallbackServer(nonce);
+      const { port, waitForCallback, close, armLaunch } =
+        await startCallbackServer(nonce);
 
       // 3. Build OAuth URL and open browser
       const oauthUrl =
@@ -58,7 +59,15 @@ export function registerLoginCommand(program: Command): void {
         `&code_challenge=${encodeURIComponent(codeChallenge)}`;
       console.error('Opening browser for GitHub login...');
 
-      await openBrowser(oauthUrl);
+      // The browser is handed a loopback URL, never the authorization URL
+      // itself: opening a URL spawns a child process with that URL in its
+      // argv, and on a shared host any local user can read `/proc/<pid>/
+      // cmdline` or `ps`. That would leak this login's nonce *and* PKCE
+      // challenge — the two bindings the rest of this flow rests on — to
+      // exactly the attacker those bindings exist to stop. The loopback URL
+      // gives away nothing: its token is single-use, and spending it is
+      // visible, since the genuine browser then lands on a 404.
+      await openBrowser(armLaunch(oauthUrl));
       const urlFile = announceLoginUrl(oauthUrl);
 
       // 4. Wait for callback
@@ -172,8 +181,11 @@ export function registerLoginCommand(program: Command): void {
  * takes the process down. So the event is absorbed and the caller announces
  * the URL regardless: treating "spawned" as "opened" is what left headless
  * users staring at a 30-second timeout with no way to continue.
+ *
+ * Exported for tests: the `error` listener is the whole point of the helper
+ * and nothing else observes it.
  */
-async function openBrowser(url: string): Promise<void> {
+export async function openBrowser(url: string): Promise<void> {
   try {
     const open = (await import('open')).default;
     const child = await open(url);
@@ -288,14 +300,30 @@ function nonceMatches(expected: string, received: string | null): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** Path prefix of the single-use redirect that starts the login. */
+const LAUNCH_PREFIX = '/launch/';
+
 /** Exported for tests — the nonce gate is the only thing guarding this port. */
 export function startCallbackServer(expectedNonce: string): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
+  /**
+   * Park an authorization URL behind a single-use loopback redirect and
+   * return the URL to hand the browser.
+   *
+   * The authorization URL carries this login's nonce and PKCE challenge, so
+   * it must not appear in a child process's argv (see `openBrowser`'s call
+   * site). The token is 32 random bytes, so nothing else on the machine can
+   * guess the redirect; it is spent on first use, so a local reader who wins
+   * the race takes the URL away from the real browser rather than sharing it.
+   */
+  armLaunch: (authorizationUrl: string) => string;
 }> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let launchToken: string | undefined;
+    let launchTarget: string | undefined;
     // A code that arrived carrying no `state` at all is also what a backend
     // predating the echo looks like, so remember it and say so on timeout
     // rather than leaving the user with a bare "timed out".
@@ -310,6 +338,31 @@ export function startCallbackServer(expectedNonce: string): Promise<{
 
     const srv = createServer((req, res) => {
       const url = new URL(req.url ?? '/', `http://127.0.0.1`);
+
+      if (url.pathname.startsWith(LAUNCH_PREFIX)) {
+        const presented = url.pathname.slice(LAUNCH_PREFIX.length);
+        if (
+          !launchToken ||
+          !launchTarget ||
+          !nonceMatches(launchToken, presented)
+        ) {
+          res.writeHead(404);
+          res.end('Not found');
+          return;
+        }
+        const target = launchTarget;
+        // Single use: a second visit gets nothing, so a local reader who
+        // lifted the loopback URL out of argv cannot also let the real
+        // browser through and stay unnoticed.
+        launchTarget = undefined;
+        res.writeHead(302, {
+          Location: target,
+          'Cache-Control': 'no-store',
+          'Referrer-Policy': 'no-referrer',
+        });
+        res.end();
+        return;
+      }
 
       if (url.pathname !== '/callback') {
         res.writeHead(404);
@@ -413,6 +466,11 @@ export function startCallbackServer(expectedNonce: string): Promise<{
           close: () => {
             clearTimeout(timeout);
             srv.close();
+          },
+          armLaunch: (authorizationUrl: string) => {
+            launchToken = randomBytes(32).toString('base64url');
+            launchTarget = authorizationUrl;
+            return `http://127.0.0.1:${addr.port}${LAUNCH_PREFIX}${launchToken}`;
           },
         });
       });

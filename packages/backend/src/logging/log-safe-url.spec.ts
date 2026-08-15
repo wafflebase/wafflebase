@@ -39,9 +39,30 @@ describe('logSafeUrl', () => {
 
   it('keeps the query string everywhere else', () => {
     expect(logSafeUrl('/documents?folderId=1')).toBe('/documents?folderId=1');
-    // `/authz` is a different path, not an `/auth` sub-route.
-    expect(logSafeUrl('/authz?token=t')).toBe('/authz?token=t');
+    // `/authz` is a different path, not an `/auth` sub-route — its ordinary
+    // parameters survive.
+    expect(logSafeUrl('/authz?next=/x')).toBe('/authz?next=/x');
     expect(logSafeUrl('/api/v1/auth?x=1')).toBe('/api/v1/auth?x=1');
+  });
+
+  // `/auth` is not the only route that takes a credential on the query
+  // string. A share-link `token` is the whole of an anonymous visitor's
+  // access to a document, and the request that carries it is not under
+  // `/auth`, so a path-only rule left it in the log verbatim.
+  it('redacts a granting parameter outside /auth, keeping the rest', () => {
+    expect(logSafeUrl('/documents/abc/file?token=s3cret')).toBe(
+      '/documents/abc/file?token=<redacted>',
+    );
+    expect(logSafeUrl('/documents/abc/file?page=2&token=s3cret&zoom=1')).toBe(
+      '/documents/abc/file?page=2&token=<redacted>&zoom=1',
+    );
+    // Query parameter names are case-insensitive to Express's consumers only
+    // by convention, so match on the folded name.
+    expect(logSafeUrl('/x?Token=s3cret&api_key=k')).toBe(
+      '/x?Token=<redacted>&api_key=<redacted>',
+    );
+    // The name is kept — it is what makes the line worth reading.
+    expect(logSafeUrl('/x?token')).toBe('/x?token');
   });
 
   it('passes through a URL with no query string unchanged', () => {

@@ -6,6 +6,7 @@ import { UserService } from 'src/user/user.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { CliAuthStore } from './cli-auth.store';
+import { stateSignature } from './github-auth.guard';
 import { JwtStrategy } from './jwt.strategy';
 
 function createMockResponse() {
@@ -15,6 +16,8 @@ function createMockResponse() {
     sendStatus: jest.fn(),
     redirect: jest.fn(),
     json: jest.fn(),
+    type: jest.fn(),
+    send: jest.fn(),
   } as unknown as Response;
 }
 
@@ -32,6 +35,7 @@ describe('AuthController', () => {
   const configService = {
     get: jest.fn((key: string) => {
       if (key === 'FRONTEND_URL') return 'http://localhost:5173';
+      if (key === 'JWT_SECRET') return 'test-secret';
       if (key === 'JWT_ACCESS_COOKIE_MAX_AGE_MS') return '1000';
       if (key === 'JWT_REFRESH_COOKIE_MAX_AGE_MS') return '2000';
       return undefined;
@@ -251,7 +255,7 @@ describe('AuthController', () => {
       // The state cookie is single-use and cleared on the way through.
       expect(res.clearCookie).toHaveBeenCalledWith(
         'wafflebase_oauth_state',
-        expect.objectContaining({ path: '/auth' }),
+        expect.objectContaining({ path: '/' }),
       );
     });
 
@@ -311,7 +315,7 @@ describe('AuthController', () => {
 
       expect(res.clearCookie).toHaveBeenCalledWith(
         'wafflebase_oauth_state',
-        expect.objectContaining({ path: '/auth' }),
+        expect.objectContaining({ path: '/' }),
       );
     });
 
@@ -390,6 +394,11 @@ describe('AuthController', () => {
       } as unknown as Request;
     }
 
+    /** The `state` GitHub hands back for a cookie holding `value`. */
+    function webState(value: string): string {
+      return `${'w.'}${stateSignature('test-secret', value)}`;
+    }
+
     it('completes the web flow when the state matches its cookie', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({
@@ -403,7 +412,7 @@ describe('AuthController', () => {
       await controller.githubAuthCallback(
         webRequest(value) as any,
         res,
-        `w.${value}`,
+        webState(value),
       );
 
       expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173');
@@ -411,23 +420,43 @@ describe('AuthController', () => {
       // Single use: the state cookie is cleared on the way through.
       expect(res.clearCookie).toHaveBeenCalledWith(
         'wafflebase_oauth_state',
-        expect.objectContaining({ path: '/auth' }),
+        expect.objectContaining({ path: '/' }),
       );
     });
 
+    // Echoing the cookie's value would make the pair forgeable by anyone who
+    // can plant a cookie for the registrable domain; the query half is its
+    // HMAC, which they cannot compute.
+    it('refuses a state that merely copies the cookie value', async () => {
+      const res = createMockResponse();
+      const value = randomBytes(32).toString('base64url');
+
+      await controller.githubAuthCallback(
+        webRequest(value) as any,
+        res,
+        `w.${value}`,
+      );
+
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(userService.findOrCreateUser).not.toHaveBeenCalled();
+    });
+
+    // A refused browser callback is a top-level navigation, so it goes back
+    // to the login page with a reason rather than rendering a JSON 401 the
+    // person cannot act on. No session is issued either way.
     it('refuses a callback whose state does not match the cookie', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
       const res = createMockResponse();
 
-      await expect(
-        controller.githubAuthCallback(
-          webRequest(randomBytes(32).toString('base64url')) as any,
-          res,
-          `w.${randomBytes(32).toString('base64url')}`,
-        ),
-      ).rejects.toThrow(UnauthorizedException);
+      await controller.githubAuthCallback(
+        webRequest(randomBytes(32).toString('base64url')) as any,
+        res,
+        webState(randomBytes(32).toString('base64url')),
+      );
 
-      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:5173/login?error=login_state',
+      );
       expect(res.cookie).not.toHaveBeenCalled();
       // The user is never even looked up for a callback we did not start.
       expect(userService.findOrCreateUser).not.toHaveBeenCalled();
@@ -436,26 +465,66 @@ describe('AuthController', () => {
     it('refuses a callback that carries no state at all', async () => {
       const res = createMockResponse();
 
-      await expect(
-        controller.githubAuthCallback(webRequest() as any, res, undefined),
-      ).rejects.toThrow(UnauthorizedException);
+      await controller.githubAuthCallback(
+        webRequest() as any,
+        res,
+        undefined,
+      );
 
-      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:5173/login?error=login_state',
+      );
       expect(res.cookie).not.toHaveBeenCalled();
     });
 
     it('refuses a web state when the cookie is missing', async () => {
       const res = createMockResponse();
 
-      await expect(
-        controller.githubAuthCallback(
-          webRequest() as any,
-          res,
-          `w.${randomBytes(32).toString('base64url')}`,
-        ),
-      ).rejects.toThrow(UnauthorizedException);
+      await controller.githubAuthCallback(
+        webRequest() as any,
+        res,
+        webState(randomBytes(32).toString('base64url')),
+      );
 
-      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:5173/login?error=login_state',
+      );
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+  });
+
+  // A CLI start is an unauthenticated link anyone can write, pointing `port`
+  // at a listener they own. The guard stops it here instead of redirecting to
+  // GitHub, and the controller renders the page that asks.
+  describe('GET /auth/github — CLI consent page', () => {
+    it('renders the interstitial instead of starting the login', async () => {
+      const res = createMockResponse();
+      (res.type as jest.Mock).mockReturnValue(res);
+      const req = {
+        path: '/auth/github',
+        __cliConsent: {
+          port: 9876,
+          nonce: 'n0nce-x/y',
+          codeChallenge: 'c'.repeat(43),
+          confirmToken: 'tok-123',
+        },
+      } as unknown as Request;
+
+      await controller.githubAuth(req, res);
+
+      const html = (res.send as jest.Mock).mock.calls[0][0] as string;
+      // The port is named, because it is the one thing that tells a genuine
+      // `wafflebase login` apart from an attacker's link.
+      expect(html).toContain('http://127.0.0.1:9876');
+      // Continuing carries the token the same response set as a cookie.
+      expect(html).toContain('cli_confirm=tok-123');
+      expect(html).toContain('/auth/github?mode=cli&amp;port=9876');
+    });
+
+    it('does nothing for an ordinary start (the guard already redirected)', async () => {
+      const res = createMockResponse();
+      await controller.githubAuth({ path: '/auth/github' } as any, res);
+      expect(res.send).not.toHaveBeenCalled();
     });
   });
 

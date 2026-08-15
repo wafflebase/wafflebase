@@ -22,17 +22,33 @@ import { AuthGuard } from '@nestjs/passport';
 import { AuthenticatedRequest } from './auth.types';
 import { CliAuthStore } from './cli-auth.store';
 import {
+  bindingSecret,
+  CLI_CONFIRM_PARAM,
+  CliConsentRequest,
   GitHubAuthGuard,
+  loginCookieName,
+  loginCookieOptions,
   OAUTH_STATE_COOKIE,
+  secretEquals,
+  stateSignature,
   WEB_STATE_PREFIX,
 } from './github-auth.guard';
-import { timingSafeEqual } from 'node:crypto';
 
-/** Constant-time compare of two `state` halves (never leak by timing). */
-function secretEquals(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
+/** Escape a value for interpolation into the consent page's HTML. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** What a validated CLI callback needs in order to mint and deliver a code. */
+interface CliCallbackState {
+  port: number;
+  nonce: string;
+  codeChallenge: string;
 }
 
 const ACCESS_COOKIE_NAME = 'wafflebase_session';
@@ -93,18 +109,82 @@ export class AuthController {
 
   @Get('github')
   @UseGuards(GitHubAuthGuard)
-  async githubAuth(
-    @Query('mode') mode: string | undefined,
-    @Query('port') port: string | undefined,
-    @Req() req: Request,
-  ) {
+  async githubAuth(@Req() req: Request, @Res() res: Response) {
     // NOTE(hackerwins): Redirect to GitHub for authentication.
     // The guard injects the OAuth `state` via __oauthState — a stored token
     // for CLI mode, a cookie-backed one for the browser — and handles the
-    // redirect itself.
-    void mode;
-    void port;
-    void req;
+    // redirect itself, so this handler only runs for the one case the guard
+    // deliberately stops short of GitHub: an unconfirmed CLI start.
+    const consent = (req as Request & { __cliConsent?: CliConsentRequest })
+      .__cliConsent;
+    if (consent) {
+      return res
+        .type('html')
+        // Continue against this very route, so a global path prefix (or the
+        // spelling the router matched) is carried over rather than guessed.
+        .send(this.renderCliConsent(consent, req.path || '/auth/github'));
+    }
+  }
+
+  /**
+   * The page a CLI login stops on before GitHub sees it.
+   *
+   * `?mode=cli&port=` is an unauthenticated parameter anyone can put in a
+   * link, and the nonce, the PKCE challenge and the browser-binding cookie
+   * are all things whoever *wrote* the link holds. What none of them covers
+   * is a victim clicking an attacker's start URL: consent succeeds and the
+   * code is delivered to a loopback port the attacker is listening on. So the
+   * person is asked, once, with the port spelled out.
+   *
+   * The click is not forgeable from a link: continuing carries a token this
+   * response also sets as an httpOnly cookie, so an attacker who appends
+   * `cli_confirm=` to their own URL presents a value the victim's browser has
+   * no cookie for.
+   */
+  private renderCliConsent(consent: CliConsentRequest, self: string): string {
+    const params = new URLSearchParams({
+      mode: 'cli',
+      port: String(consent.port),
+      nonce: consent.nonce,
+      code_challenge: consent.codeChallenge,
+      [CLI_CONFIRM_PARAM]: consent.confirmToken,
+    });
+    const href = escapeHtml(`${self}?${params.toString()}`);
+    const port = escapeHtml(String(consent.port));
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Confirm command-line sign-in</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; justify-content: center; align-items: center; min-height: 100vh;
+    margin: 0; background: #fafafa; color: #1a1a1a; }
+  .card { max-width: 30rem; padding: 2.5rem; background: #fff; border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04); }
+  h2 { margin: 0 0 0.75rem; font-size: 1.25rem; }
+  p { margin: 0 0 1rem; color: #444; font-size: 0.95rem; line-height: 1.5; }
+  code { background: #f2f2f2; padding: 0.1rem 0.3rem; border-radius: 4px; }
+  a.continue { display: inline-block; padding: 0.6rem 1.2rem; border-radius: 8px;
+    background: #1a1a1a; color: #fff; text-decoration: none; font-size: 0.95rem; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h2>Confirm command-line sign-in</h2>
+    <p>A command-line application is asking to sign in to your Wafflebase
+    account. If you continue, it receives access at
+    <code>http://127.0.0.1:${port}</code> on this computer.</p>
+    <p><strong>Only continue if you just ran <code>wafflebase login</code>
+    yourself.</strong> If you got here from a link or a message, close this
+    page — continuing would hand your account to whoever sent it.</p>
+    <a class="continue" href="${href}">Continue sign-in</a>
+  </div>
+</body>
+</html>`;
   }
 
   @Get('github/callback')
@@ -117,7 +197,21 @@ export class AuthController {
   ) {
     // Validated before the user is touched: a callback we did not start is
     // not a login, whichever flow it claims to be.
-    const cliState = this.verifyCallbackState(req, res, stateToken);
+    let cliState: CliCallbackState | undefined;
+    try {
+      cliState = this.verifyCallbackState(req, res, stateToken);
+    } catch (error) {
+      // A browser lands here as a top-level navigation, so a thrown 401
+      // renders as a JSON body with no way back to the app — and the common
+      // cause is not an attack but a consent screen left open past the
+      // five-minute cookie. Send the person to the login page with a reason;
+      // no session is issued either way. A CLI failure still throws: its
+      // callback is read by the CLI, not by a person.
+      if (error instanceof UnauthorizedException) {
+        return res.redirect(this.loginErrorUrl('login_state'));
+      }
+      throw error;
+    }
 
     const githubUser = req.user;
 
@@ -175,11 +269,18 @@ export class AuthController {
     req: Request,
     res: Response,
     stateToken: string | undefined,
-  ): { port: number; nonce: string; codeChallenge: string } | undefined {
+  ): CliCallbackState | undefined {
     if (stateToken?.startsWith(WEB_STATE_PREFIX)) {
       const presented = stateToken.slice(WEB_STATE_PREFIX.length);
-      const expected = this.takeStateCookie(req, res);
-      if (typeof expected !== 'string' || !secretEquals(expected, presented)) {
+      const cookie = this.takeStateCookie(req, res);
+      // The `state` is the *signature* of the cookie, not a copy of it, so
+      // planting a cookie (a sibling subdomain, an http injection) does not
+      // also produce the query half that matches it.
+      const expected =
+        typeof cookie === 'string'
+          ? stateSignature(bindingSecret(this.configService), cookie)
+          : undefined;
+      if (expected === undefined || !secretEquals(expected, presented)) {
         throw new UnauthorizedException(
           'Login session expired or invalid. Please sign in again.',
         );
@@ -219,12 +320,23 @@ export class AuthController {
    * cannot be retried against the same half.
    */
   private takeStateCookie(req: Request, res: Response): unknown {
-    const value = req.cookies?.[OAUTH_STATE_COOKIE];
-    res.clearCookie(OAUTH_STATE_COOKIE, {
-      ...this.baseCookieOptions(),
-      path: '/auth',
-    });
+    const name = loginCookieName(OAUTH_STATE_COOKIE);
+    const value = req.cookies?.[name];
+    res.clearCookie(name, loginCookieOptions());
     return value;
+  }
+
+  /**
+   * Where a browser goes when its login could not be completed. The target is
+   * `FRONTEND_URL` from configuration — never anything off the request — so
+   * this is not a redirector an attacker can point elsewhere.
+   */
+  private loginErrorUrl(reason: string): string {
+    const base = (this.configService.get<string>('FRONTEND_URL') ?? '').replace(
+      /\/$/,
+      '',
+    );
+    return `${base}/login?error=${encodeURIComponent(reason)}`;
   }
 
   /**
