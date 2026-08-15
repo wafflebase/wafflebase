@@ -179,19 +179,18 @@ describe('assertFetchableImageUrl', () => {
     ).not.toThrow();
   });
 
-  it('exempts the server host on any port or scheme', () => {
+  it('exempts the server endpoint on either scheme', () => {
     // The frontend writes *absolute* image URLs into document content, so a
     // doc authored against `http://localhost:3000` carries that spelling
-    // forever. Pinning the exemption to the exact origin would refuse every
-    // image in it whenever the CLI is pointed at the same machine by another
-    // port or scheme — a working install that stops exporting.
+    // forever and must still export when the CLI is pointed at the same
+    // service over TLS. A scheme does not select a different service; the
+    // port does.
     for (const src of [
       'http://localhost:3000/images/abc',
-      'http://localhost:5173/images/abc',
       'https://localhost:3000/images/abc',
     ]) {
       expect(() =>
-        assertFetchableImageUrl(src, 'http://localhost:8080'),
+        assertFetchableImageUrl(src, 'https://localhost:3000'),
       ).not.toThrow();
     }
     // A *different* private host is still refused — that one needs the env var.
@@ -201,6 +200,28 @@ describe('assertFetchableImageUrl', () => {
         'http://localhost:3000',
       ),
     ).toThrow(/non-public address/);
+  });
+
+  it('refuses another port on the server host', () => {
+    // The exemption is the endpoint the operator chose, not the machine it
+    // runs on. Exempting the whole host would let document content aim the
+    // export at everything else listening there — an admin API, a database
+    // HTTP port, the container runtime — from inside the operator's network.
+    for (const src of [
+      'http://localhost:9200/_cluster/state',
+      'http://localhost:2375/containers/json',
+      'https://localhost:5984/_all_dbs',
+    ]) {
+      expect(() =>
+        assertFetchableImageUrl(src, 'http://localhost:3000'),
+      ).toThrow(/non-public address/);
+    }
+    // …unless the operator names that port, the way a split-origin install must.
+    expect(() =>
+      assertFetchableImageUrl('http://localhost:9000/blob.png', 'http://localhost:3000', [
+        'localhost:9000',
+      ]),
+    ).not.toThrow();
   });
 
   it('refuses IPv6 spellings that embed or tunnel a private address', () => {

@@ -32,22 +32,34 @@ export WAFFLEBASE_API_KEY=wfb_…
 export WAFFLEBASE_WORKSPACE=ws-…
 ```
 
+## Image fetching
+
 `docs export` / `slides export` fetch the images a document references. An
 image `src` is content someone else may have written, so the fetcher speaks
 only `http`/`https`/`data` and refuses a non-public address (loopback,
 private, `169.254.169.254`, CGNAT, multicast/reserved, and any IPv6 that is
-not global unicast) unless it is the host of the configured `--server`.
-A hostname is resolved before it is fetched and refused the same way if it
-answers with a non-public address, so `169.254.169.254.nip.io` and friends
-get no further than the literal would; an `http:` request is then sent to the
-address that check approved (with the original name in `Host`), so DNS cannot
-answer differently between the check and the connection. `https:` is dialled
-by name — a certificate cannot be validated against an IP literal — so there
-it is TLS, not the resolver check, that stands between a rebound name and an
-internal host. Each image also gets 30 seconds and 25 MB, and an image that
-is refused or unreachable is reported and skipped rather than failing the
-whole export. If your deployment really serves images from an internal host —
-an internal MinIO, a reverse proxy on a second port — name it:
+not global unicast) unless it is the configured `--server`'s own host **and
+port** — either scheme, since a scheme does not select a different service
+but a port does. A hostname is resolved before it is fetched and refused the
+same way if it answers with a non-public address, so `169.254.169.254.nip.io`
+and friends get no further than the literal would; an `http:` request is then
+sent to the address that check approved, so DNS cannot answer differently
+between the check and the connection.
+
+That pinning has one cost, on plain `http:` only: the request carries
+`Host: <ip>` rather than the original name, because Node's `fetch` drops a
+`host` header as a forbidden header name. A public `http:` image served by a
+name-based virtual host can therefore come back as the wrong site or a 404 —
+list such a host in `WAFFLEBASE_IMAGE_HOSTS` (exempt hosts are never pinned)
+or serve it over `https:`, which is dialled by name because a certificate
+cannot be validated against an IP literal. On `https:` it is TLS, not the
+resolver check, that stands between a rebound name and an internal host.
+
+Each image also gets 30 seconds and 25 MB, and an image that is refused or
+unreachable is reported on stderr and skipped rather than failing the whole
+export. If your deployment really serves images from somewhere else — an
+internal MinIO, a reverse proxy on a second port, another port on the API
+host — name it:
 
 ```bash
 export WAFFLEBASE_IMAGE_HOSTS=10.0.0.5:9000,minio.internal

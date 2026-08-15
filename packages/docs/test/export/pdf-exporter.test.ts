@@ -286,27 +286,45 @@ describe('PdfExporter (images)', () => {
     ).rejects.toThrow(/imageFetcher/i);
   });
 
-  it('drops an image whose fetch fails instead of failing the export', async () => {
+  it('drops an image whose fetch fails when the caller reports errors', async () => {
     // A `src` is document content — it can be stale, external, unreachable,
-    // or refused by the CLI's SSRF guard. Losing the whole export over one
-    // image the user cannot fix is worse than losing the image, so the
-    // failure is reported and the rest of the document still renders.
-    const warned: string[] = [];
-    const warn = vi.spyOn(console, 'warn').mockImplementation((msg: string) => {
-      warned.push(String(msg));
-    });
+    // or refused by the CLI's SSRF guard. A caller that supplies a reporter
+    // (the CLI) would rather lose that image than the export, so the failure
+    // is reported and the rest of the document still renders.
+    const reported: Array<[string, string]> = [];
+    const blob = await PdfExporter.export(imageFixture, exportOpts({
+      imageFetcher: async () => {
+        throw new Error('Refusing to fetch image from a non-public address');
+      },
+      onImageError: (src, error) => {
+        reported.push([src, (error as Error).message]);
+      },
+    }));
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    expect(pdfDoc.getPageCount()).toBe(1);
+    expect(reported).toEqual([
+      ['test://image1', 'Refusing to fetch image from a non-public address'],
+    ]);
+  });
+
+  it('fails the export when a failed image is not opted into', async () => {
+    // No reporter means the caller never asked to survive a missing image —
+    // the browser exporters, whose UI reports a thrown error and has nowhere
+    // to show a `console.warn`. Swallowing here would hand the user a
+    // silently incomplete document.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const blob = await PdfExporter.export(imageFixture, exportOpts({
-        imageFetcher: async () => {
-          throw new Error('Refusing to fetch image from a non-public address');
-        },
-      }));
-      const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
-      expect(pdfDoc.getPageCount()).toBe(1);
+      await expect(
+        PdfExporter.export(imageFixture, exportOpts({
+          imageFetcher: async () => {
+            throw new Error('Image fetch failed: 404 Not Found');
+          },
+        })),
+      ).rejects.toThrow(/Image fetch failed: 404/);
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
     }
-    expect(warned.join('\n')).toMatch(/Skipping image test:\/\/image1/);
   });
 });
 

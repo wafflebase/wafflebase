@@ -438,6 +438,12 @@ inverse of the tables in Section 2.3 (px → twips, points → half-points, etc.
 - "Export as DOCX" button in the editor toolbar / file menu.
 - Click → `DocxExporter.export(document, imageFetcher)` → Blob → download.
 - `imageFetcher: (url: string) => Promise<Blob>` abstracts image fetching.
+- A failed image fails the export. `DocxExporter.export`'s fourth argument,
+  `onImageError`, opts the caller out of that: the failure is reported there
+  and the run is omitted instead. Only the CLI passes one — behind its SSRF
+  guard a refused `src` is ordinary — while the browser keeps the throw its
+  export UI can report. See
+  [`docs-pdf-export.md`](docs-pdf-export.md#surviving-a-failed-image-onimageerror).
 
 ### 3.6 Dependencies
 

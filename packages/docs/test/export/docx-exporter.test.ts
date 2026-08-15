@@ -297,10 +297,11 @@ describe('DocxExporter', () => {
     );
   });
 
-  it('should drop an image whose fetch fails rather than failing the export', async () => {
+  it('should drop a failed image when the caller reports errors', async () => {
     // An image URL is document content and can be stale, unreachable, or
     // refused by the CLI's SSRF guard; the export is what the user asked for.
-    // The run is omitted (no dangling r:embed) and the rest still exports.
+    // A caller that supplies a reporter has said so, and then the run is
+    // omitted (no dangling r:embed) and the rest still exports.
     const doc: Document = {
       blocks: [{
         id: generateBlockId(),
@@ -313,19 +314,18 @@ describe('DocxExporter', () => {
       }],
     };
 
-    const warned: string[] = [];
-    const warn = vi
-      .spyOn(console, 'warn')
-      .mockImplementation((msg: string) => void warned.push(String(msg)));
-    let blob: Blob;
-    try {
-      blob = await DocxExporter.export(doc, async () => {
+    const reported: Array<[string, string]> = [];
+    const blob = await DocxExporter.export(
+      doc,
+      async () => {
         throw new Error('Refusing to fetch image from a non-public address');
-      });
-    } finally {
-      warn.mockRestore();
-    }
-    expect(warned.join('\n')).toContain('Skipping image http://10.0.0.5/photo.jpg');
+      },
+      undefined,
+      (src, error) => reported.push([src, (error as Error).message]),
+    );
+    expect(reported).toEqual([
+      ['http://10.0.0.5/photo.jpg', 'Refusing to fetch image from a non-public address'],
+    ]);
 
     const JSZip = (await import('jszip')).default;
     const zip = await JSZip.loadAsync(await blob.arrayBuffer());
@@ -334,6 +334,35 @@ describe('DocxExporter', () => {
     expect(documentXml).not.toContain('<w:drawing>');
     const rels = await zip.file('word/_rels/document.xml.rels')!.async('string');
     expect(rels).not.toContain('/image"');
+  });
+
+  it('should fail the export when a failed image is not opted into', async () => {
+    // The browser exporter passes no reporter: there a failed fetch is a real
+    // fault and the export UI reports the thrown error. Dropping the image
+    // quietly would produce a .docx missing content the user can still see
+    // on screen, with nothing to tell them why.
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [
+          { text: '￼', style: { image: { src: 'https://cdn.example.com/photo.jpg', width: 100, height: 80 } } },
+        ],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+    };
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(
+        DocxExporter.export(doc, async () => {
+          throw new Error('Image fetch failed: 404 Not Found');
+        }),
+      ).rejects.toThrow(/Image fetch failed: 404/);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('should derive media extension from blob MIME type, not URL', async () => {

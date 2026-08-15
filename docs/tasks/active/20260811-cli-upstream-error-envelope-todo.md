@@ -50,6 +50,16 @@ Sites:
       `res.data ?? { error: { code: 'HTTP_ERROR' } }`, which only
       substituted the envelope for a *null* body.
 
+- [x] Review round: narrow the image-fetch server exemption from the whole
+      host to the configured **endpoint** (host + port, either scheme), so
+      document content cannot aim an export at another service on the
+      operator's machine; make the exporters' per-image tolerance opt-in
+      via `onImageError` (CLI opts in, browser keeps the throw it had) and
+      extend it to `exportPptx`, which had none; correct the README's
+      `Host` claim to the `Host: <ip>` reality; fold the behaviour into
+      `docs/design/docs/docs-pdf-export.md` and `docs-docx-import-export.md`
+      rather than leaving it recorded only in the CLI's doc.
+
 ## Acceptance criteria
 
 - An Express-shaped 404 body reaches stderr as
@@ -79,9 +89,17 @@ Sites:
   it via a redirect either: the fetcher takes the hops itself
   (`redirect: 'manual'`, re-checked per `Location`, capped at 5) and
   normalizes a hostname before comparing it, so `localhost.` is refused
-  like `localhost`. A deployment that genuinely serves images from an
-  internal host stays exportable through `WAFFLEBASE_IMAGE_HOSTS`, which
-  the refusal message names.
+  like `localhost`. The only exemptions are the configured server's own
+  host **and port** (either scheme) and the hosts an operator named — a
+  second port on the server machine is not exempt, so a document cannot
+  reach `localhost:9200` because the CLI talks to `localhost:3000`. A
+  deployment that genuinely serves images from elsewhere stays exportable
+  through `WAFFLEBASE_IMAGE_HOSTS`, which the refusal message names.
+- A refused image costs the image, not the export — for the CLI, which
+  opts in by passing `onImageError` on every export path (`docs export`
+  PDF/DOCX and `slides export` PPTX alike). The browser, which shares
+  those exporters and has no SSRF guard, passes no reporter and keeps the
+  loud failure its export UI reports.
 - Every CLI path that prints an upstream body shares one guard
   (`isErrorEnvelope`) in `src/output/formatter.ts`.
 - `packages/cli/README.md` and `docs/design/cli.md`'s error matrix

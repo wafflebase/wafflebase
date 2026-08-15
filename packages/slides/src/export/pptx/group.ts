@@ -30,8 +30,12 @@ import { connectorToXml } from './connector.js';
 import { escapeXmlAttr } from './xml.js';
 
 export interface ElementXmlCtx {
-  /** Resolve the relationship ID for an image element's embedded media. */
-  resolveImageRId(el: ImageElement): string;
+  /**
+   * Resolve the relationship ID for an image element's embedded media, or
+   * `null` when the image was dropped (its bytes could not be fetched and the
+   * caller opted into surviving that) and the element must be omitted.
+   */
+  resolveImageRId(el: ImageElement): string | null;
   /** Compute the bounding frame for a connector (from its start/end endpoints). */
   connectorFrame(el: ConnectorElement): Frame;
   /**
@@ -55,8 +59,12 @@ export function elementToXml(el: Element, ctx: ElementXmlCtx): string {
       return textElementToXml(el, ctx.resolveHyperlinkRId);
     case 'shape':
       return shapeToXml(el, ctx.resolveHyperlinkRId);
-    case 'image':
-      return imageToXml(el, ctx.resolveImageRId(el));
+    case 'image': {
+      // A dropped image is skipped the way an unserializable chart is: the
+      // element disappears, the rest of the slide still exports.
+      const rId = ctx.resolveImageRId(el);
+      return rId ? imageToXml(el, rId) : '';
+    }
     case 'table':
       return tableToXml(el, ctx.resolveHyperlinkRId);
     case 'connector':

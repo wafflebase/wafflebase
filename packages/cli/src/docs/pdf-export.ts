@@ -11,6 +11,7 @@ import {
   type ResolvedFont,
 } from '@wafflebase/docs';
 import { FontkitMeasurer } from './fontkit-measurer.js';
+import { reportSkippedImage } from './image-fetcher.js';
 import type { PageRange } from './page-range.js';
 
 /**
@@ -71,6 +72,10 @@ export async function exportPdf(
     measurer,
     fonts,
     imageFetcher: opts.imageFetcher,
+    // Opt the CLI into losing an image rather than the export: a refused or
+    // unreachable `src` is an ordinary outcome behind the SSRF guard, and it
+    // is reported on stderr rather than swallowed.
+    onImageError: reportSkippedImage,
   });
   const fullBytes = new Uint8Array(await blob.arrayBuffer());
 

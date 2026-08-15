@@ -1139,13 +1139,17 @@ outside the process:
   refused. A name is normalized before it is compared, because
   `http://localhost./x` parses to the hostname `localhost.` and resolves to
   the same machine.
-  The server exemption is by **host**, not origin: the frontend writes
-  *absolute* image URLs into document content, so a document authored against
-  `http://localhost:3000` carries that spelling forever and an export run with
-  another port or scheme for the same machine would otherwise have every image
-  in it refused. The operator already pointed the CLI at that host; a second
-  port on it is not a host they did not choose. A *different* internal host
-  still needs the opt-in below.
+  The server exemption is the configured **endpoint** — host *and* port, on
+  either scheme. The frontend writes *absolute* image URLs into document
+  content, so a document authored against `http://localhost:3000` carries that
+  spelling forever and must still export when the CLI is pointed at the same
+  service over TLS; a scheme does not select a different service, a port does.
+  Exempting the whole host would be too much: an image `src` is document
+  content, so it would let a document aim the export at
+  `http://localhost:9200/_cluster/state` or the container runtime's socket
+  port — everything else listening on the operator's machine, from inside
+  their network, with the address check and the pinning below skipped. A
+  second port, like a *different* internal host, needs the opt-in below.
   Redirects are the fetcher's, not `fetch`'s: `redirect: 'manual'` plus a
   re-check on every `Location` (capped at 5 hops), since a host the guard
   allows could otherwise answer `302 Location: http://169.254.169.254/…` and
@@ -1195,20 +1199,27 @@ outside the process:
   `Content-Length` first and then against the stream, since the header is a
   claim and the stream is the fact. Which host is dialled and how much it
   sends are both decided by document content, so neither may be unbounded.
-  A refusal is **not** fatal to the export: `collectAndEmbedImages` and
-  `DocxExporter.collectImages` report the failed `src` on stderr and drop that
-  one image (the DOCX run is omitted rather than left pointing at a
-  relationship that was never written). One image the user cannot fix must not
-  cost them the export they asked for — which is also what keeps a document
-  full of URLs from an origin this install cannot reach exportable.
-  Two caveats worth stating plainly. The `catch` spans the decode and embed
-  calls as well as the fetch, so undecodable bytes are dropped as quietly as a
-  refused host. And `collectAndEmbedImages` lives in `@wafflebase/docs`, so the
-  *browser* PDF/DOCX exporters inherit the same swallow, where there is no
-  SSRF guard to make a refusal ordinary and a failing image previously failed
-  loudly. `collectAndEmbedImages` takes an `onImageError` reporter for exactly
-  this, but only the `console.warn` default is wired; surfacing dropped images
-  in the browser export UI is follow-up work.
+  A refusal is **not** fatal to the export — *for the CLI*. The exporters
+  (`collectAndEmbedImages`, `DocxExporter.collectImages`, `exportPptx`) each
+  take an `onImageError` reporter, and supplying it is what turns a per-image
+  failure from fatal into a drop: the failed `src` is reported and that one
+  image is left out (the DOCX run is omitted rather than left pointing at a
+  relationship that was never written, and the PPTX element is skipped the way
+  an unserializable chart already is). Every CLI export path passes
+  `reportSkippedImage`, which prints one bounded line on stderr. One image the
+  user cannot fix must not cost them the export they asked for — which is also
+  what keeps a document full of URLs from an origin this install cannot reach
+  exportable.
+  The tolerance is opt-in precisely because those exporters are shared with
+  the browser, which passes no reporter and keeps the old loud failure: there
+  no SSRF guard makes a refusal ordinary, the export UI reports a thrown
+  error, and a `console.warn` nobody reads would hand the user a silently
+  incomplete download. The canonical write-up of that contract lives with the
+  exporters, in
+  [`docs/docs-pdf-export.md`](docs/docs-pdf-export.md#surviving-a-failed-image-onimageerror).
+  One caveat worth stating plainly: the `catch` spans the decode and embed
+  calls as well as the fetch, so for a caller that opted in, undecodable bytes
+  are dropped as quietly as a refused host.
 
 The rule is not CLI-only. The frontend talks to the same API with the user's
 session, and interpolates route-param ids the same way, so it carries the same

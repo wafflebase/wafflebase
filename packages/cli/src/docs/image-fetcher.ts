@@ -60,6 +60,38 @@ export function parseAllowedHosts(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Longest `src` or reason quoted when an image is skipped. Both are
+ * upstream-controlled — the URL is document content and the reason can carry
+ * a remote server's wording — and this line shares stderr with the JSON error
+ * envelope an agent parses, so neither may flood it.
+ */
+const MAX_SKIP_FIELD = 200;
+
+/** One line's worth of a document-controlled string: bounded and single-line. */
+function oneLine(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  const flat = text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
+  return flat.length > MAX_SKIP_FIELD
+    ? `${flat.slice(0, MAX_SKIP_FIELD)}…`
+    : flat;
+}
+
+/**
+ * The CLI's answer to an image an export could not embed: say so on stderr
+ * and carry on.
+ *
+ * The exporters only drop an image for a caller that supplies this, and the
+ * CLI is that caller because its own SSRF guard makes a refused `src` an
+ * ordinary outcome — an export a user waited minutes for must not die over
+ * one image they cannot fix. A browser caller passes nothing and keeps the
+ * loud failure, where the UI has somewhere to show it.
+ */
+export function reportSkippedImage(src: string, error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  console.warn(`Skipping image ${oneLine(src)}: ${oneLine(reason)}`);
+}
+
 /** How many `Location` hops an image fetch may take before giving up. */
 const MAX_IMAGE_REDIRECTS = 5;
 
@@ -204,24 +236,41 @@ function bareHostname(hostname: string): string {
     .replace(/\.+$/, '');
 }
 
+/** The port a URL actually connects to, with the scheme default filled in. */
+function effectivePort(url: URL): string {
+  if (url.port !== '') return url.port;
+  return url.protocol === 'https:' ? '443' : '80';
+}
+
 /**
- * Whether this URL names the host the CLI is already talking to.
+ * Whether this URL names the *endpoint* the CLI is already talking to —
+ * the configured server's host **and** port.
  *
- * Deliberately the *host*, not the origin: the frontend writes **absolute**
+ * The scheme is ignored, the port is not. The frontend writes **absolute**
  * image URLs into document content (`resolveImageUrl` in
  * `packages/frontend/src/app/spreadsheet/image-upload.ts`), so a document
- * created against `http://localhost:3000` carries that URL verbatim, and an
- * export run with `--server https://localhost:3000`, `--server
- * http://localhost:8080`, or any other scheme/port spelling of the same
- * machine would otherwise have every one of its images refused. The operator
- * already pointed the CLI at this host; a second port on it is not a host they
- * did not choose. A *different* internal host still needs
- * `WAFFLEBASE_IMAGE_HOSTS`.
+ * created against `http://localhost:3000` carries that URL verbatim and an
+ * export run with `--server https://localhost:3000` must still fetch it; a
+ * port, unlike a scheme, selects a *different service*.
+ *
+ * That distinction is the whole point. An image `src` is document content, so
+ * exempting every port on the server host would let a doc aim the export at
+ * `http://localhost:9200/_cluster/state` or `http://localhost:2375/containers/json`
+ * — the operator chose to talk to wafflebase on that machine, not to hand a
+ * document everything else listening on it. A second port (a split-origin
+ * install with blobs on an internal MinIO, a reverse proxy elsewhere) is a
+ * deployment shape the operator names in `WAFFLEBASE_IMAGE_HOSTS`, exactly as
+ * a different internal host already must be.
  */
 function sameHostAsServer(url: URL, serverBase: string): boolean {
   try {
-    const base = bareHostname(new URL(serverBase).hostname);
-    return base !== '' && base === bareHostname(url.hostname);
+    const base = new URL(serverBase);
+    const host = bareHostname(base.hostname);
+    return (
+      host !== '' &&
+      host === bareHostname(url.hostname) &&
+      effectivePort(base) === effectivePort(url)
+    );
   } catch {
     return false;
   }

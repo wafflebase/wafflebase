@@ -227,7 +227,13 @@ fixture coverage.
 Mirrors `docs export`:
 
 - `packages/cli/src/slides/pptx-export.ts` — `exportPptxCli(deck, opts)`
-  thin wrapper returning `Uint8Array` (like `docx-export.ts`).
+  thin wrapper returning `Uint8Array` (like `docx-export.ts`). It also
+  passes `onImageError`, which is what opts the CLI into dropping an image
+  the fetcher could not deliver (the element is skipped, the deck still
+  exports) — the same bargain the docs exporters make behind the SSRF
+  guard. `exportPptx` without a reporter still fails the whole export, so
+  the browser export path is unchanged; see
+  [`cli.md` §10](../cli.md).
 - `packages/cli/src/commands/slides.ts` — new
   `slides export <doc-id> <file>` action: `getSlidesContent` → resolve
   images via the existing `createImageFetcher` (handles `data:` URLs and

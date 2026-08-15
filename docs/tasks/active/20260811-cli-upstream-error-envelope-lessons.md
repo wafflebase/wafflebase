@@ -160,3 +160,41 @@
   `onImageError` seam; nothing but `console.warn` uses it yet, so a
   browser export still drops content with no user-visible signal. Left
   as a known limitation with the seam in place, not widened further.
+- The seam was there; wiring it was the fix. Four review lenses landed on
+  the same swallow the entry above left as a known limitation, and the
+  answer turned out to be smaller than the caveat: make the reporter
+  *required to get tolerance*. `onImageError` supplied → drop and report;
+  omitted → throw. The CLI passes one because its SSRF guard makes a
+  refused `src` ordinary; the browser passes none and gets back exactly
+  the behaviour it had on `main`, which is also what the canonical Docs
+  design doc has always said ("Image fetch fails → throw"). A shared
+  package should not decide a product question for every caller — making
+  the caller state it shrank this PR's blast radius instead of widening
+  it, and it is what let `slides export` join in without inventing a
+  second policy.
+- A tolerance added on one path is a regression on its siblings. The same
+  guard that made a refused image ordinary for `docs export` made it
+  *fatal* for `slides export`, because `exportPptx` fetches images with no
+  catch — a deck whose images live on an unlisted internal host stopped
+  exporting entirely. Adding a guard means auditing every consumer of the
+  thing it guards, not just the one in the issue; `resolveImageRId`
+  returning `null` (and the element being skipped the way an
+  unserializable chart already is) was all it took once the policy was
+  the same on both paths.
+- "The operator chose this host" is not "the operator chose every port on
+  it". The server exemption skipped the address check, the resolver check
+  and the pinning for *any* port on the `--server` hostname, so document
+  content could aim an export at `localhost:9200`, `localhost:2375`, or
+  anything else listening on the operator's machine — from inside their
+  network, with the whole guard short-circuited. The dev case it existed
+  for (a doc carrying `http://localhost:3000` absolute URLs, exported
+  against a different spelling of the same server) only ever needed the
+  *scheme* to be free; a port selects a different service. Comparing the
+  effective port keeps the case and closes the oracle, and
+  `WAFFLEBASE_IMAGE_HOSTS` was already the documented way to name a second
+  port.
+- A README is a contract too. The code comment recorded the `Host: <ip>`
+  trade-off honestly (previous entry), but the README a page away still
+  promised "with the original name in `Host`" — the one claim in it a user
+  could act on and be wrong. Fixing behaviour and leaving the prose is
+  half a fix; the docs lens caught what five code-reading lenses did not.

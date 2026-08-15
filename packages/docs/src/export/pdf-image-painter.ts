@@ -4,20 +4,19 @@ import type { Document, Block } from '../model/types.js';
 export type ImageFetcher = (url: string) => Promise<Blob>;
 
 /**
- * Told about an image the export could not embed. One unreachable — or
- * refused — `src` must not cost the whole document: an image URL is content
- * (it can be stale, external, behind a network the exporter cannot reach, or
- * blocked by the CLI's SSRF guard), while the export is the user's request.
- * So the image is dropped and reported rather than thrown, which is the same
- * choice the canvas renderer already makes for an image that fails to load.
+ * Told about an image the export could not embed — and, by being supplied at
+ * all, the caller's statement that it would rather lose that image than the
+ * export.
+ *
+ * Supplying it is what turns a per-image failure from fatal into a drop, so
+ * the choice belongs to the caller and never happens by default. The CLI
+ * passes one because its SSRF guard makes a refused `src` an ordinary
+ * outcome and one bad URL out of fifty must not destroy an export a user
+ * waited on. The browser exporters pass none: there a failed fetch is a real
+ * fault, the surrounding UI reports a thrown error, and a `console.warn` no
+ * one reads would turn it into a silently incomplete download.
  */
 export type ImageErrorReporter = (src: string, error: unknown) => void;
-
-/** Report a dropped image on stderr unless the caller wants it elsewhere. */
-const warnImageError: ImageErrorReporter = (src, error) => {
-  const reason = error instanceof Error ? error.message : String(error);
-  console.warn(`Skipping image ${src}: ${reason}`);
-};
 
 export interface EmbeddedImage {
   embedded: PDFImage;
@@ -42,17 +41,18 @@ export interface EmbeddedImage {
  * get a clear error.
  *
  * A *per-image* failure (fetch refused, host unreachable, undecodable
- * bytes) is reported through `onImageError` and the image is left out of
- * the map — the painter skips runs with no entry. Rethrowing would let one
- * bad `src` out of fifty destroy an export the user asked for, and the
- * CLI's SSRF guard makes a refused image an ordinary outcome rather than
- * a bug.
+ * bytes) propagates unless the caller passes `onImageError`, in which case
+ * it is reported there and the image is left out of the map — the painter
+ * skips runs with no entry. Tolerance is opt-in on purpose: the CLI asks for
+ * it because its SSRF guard makes a refused image ordinary, while a browser
+ * caller that stayed quiet would hand the user an incomplete document with
+ * no signal at all.
  */
 export async function collectAndEmbedImages(
   doc: Document,
   pdfDoc: PDFDocument,
   fetcher?: ImageFetcher,
-  onImageError: ImageErrorReporter = warnImageError,
+  onImageError?: ImageErrorReporter,
 ): Promise<Map<string, EmbeddedImage>> {
   const out = new Map<string, EmbeddedImage>();
   // Dedup is by URL string only — same image referenced via two
@@ -97,6 +97,7 @@ export async function collectAndEmbedImages(
       }
       out.set(src, { embedded: img, width: img.width, height: img.height });
     } catch (error) {
+      if (!onImageError) throw error;
       onImageError(src, error);
     }
   }

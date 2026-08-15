@@ -4,6 +4,9 @@ import { DEFAULT_PAGE_SETUP } from '../model/types.js';
 import { buildRunPropertiesXml, buildParagraphPropertiesXml } from './docx-style-map.js';
 import { pxToTwips, pxToEmus } from '../import/units.js';
 import { CONTENT_TYPES, ROOT_RELS, STYLES, DOC_RELS } from './docx-templates.js';
+// The reporter's contract — "supplying it is what opts into dropping a failed
+// image" — is one rule for both exporters, so it has one definition.
+import type { ImageErrorReporter } from './pdf-image-painter.js';
 
 export type ImageFetcher = (url: string) => Promise<Blob>;
 
@@ -36,11 +39,19 @@ export class DocxExporter {
    * @param imageFetcher - Required when the document contains image inlines.
    *   Called once per unique image src to fetch the raw image Blob. If omitted
    *   and the document contains image inlines, export will throw.
+   * @param onProgress - Progress callback, `(done, total, phase)`.
+   * @param onImageError - Opt in to surviving an image the fetcher could not
+   *   deliver: the failure is reported here and the run is omitted. Omit it —
+   *   as the browser exporter does — and a failed image fails the export, so
+   *   the caller's error path reports it instead of the user receiving a
+   *   silently incomplete document. The CLI passes one because its SSRF guard
+   *   makes a refused `src` an ordinary outcome.
    */
   static async export(
     doc: Document,
     imageFetcher?: ImageFetcher,
     onProgress?: (done: number, total: number, phase: string) => void,
+    onImageError?: ImageErrorReporter,
   ): Promise<Blob> {
     const zip = new JSZip();
     // rIds are scoped per .rels file in OOXML, so give each part its own
@@ -90,7 +101,7 @@ export class DocxExporter {
     // Collect and fetch images referenced from the main document body.
     if (fetcher) {
       for (const block of doc.blocks) {
-        await DocxExporter.collectImages(block, fetcher, zip, docImageEntries, nextDocRId, nextMediaName);
+        await DocxExporter.collectImages(block, fetcher, zip, docImageEntries, nextDocRId, nextMediaName, onImageError);
       }
     }
 
@@ -105,7 +116,7 @@ export class DocxExporter {
       headerRId = nextDocRId();
       if (fetcher) {
         for (const block of doc.header.blocks) {
-          await DocxExporter.collectImages(block, fetcher, zip, headerImageEntries, nextHeaderRId, nextMediaName);
+          await DocxExporter.collectImages(block, fetcher, zip, headerImageEntries, nextHeaderRId, nextMediaName, onImageError);
         }
       }
       const headerXml = DocxExporter.buildHeaderFooterXml(doc.header, 'header', headerImageEntries);
@@ -117,7 +128,7 @@ export class DocxExporter {
       footerRId = nextDocRId();
       if (fetcher) {
         for (const block of doc.footer.blocks) {
-          await DocxExporter.collectImages(block, fetcher, zip, footerImageEntries, nextFooterRId, nextMediaName);
+          await DocxExporter.collectImages(block, fetcher, zip, footerImageEntries, nextFooterRId, nextMediaName, onImageError);
         }
       }
       const footerXml = DocxExporter.buildHeaderFooterXml(doc.footer, 'footer', footerImageEntries);
@@ -432,24 +443,26 @@ ${rels}
     entries: ImageEntry[],
     nextRId: () => string,
     nextMediaName: (ext: string) => string,
+    onImageError?: ImageErrorReporter,
   ): Promise<void> {
     for (const inline of block.inlines) {
       if (inline.style.image) {
         const src = inline.style.image.src;
         // Skip if this src was already fetched for the same part (dedupe).
         if (entries.some((e) => e.src === src)) continue;
-        // One unreachable or refused image must not cost the whole export —
-        // the URL is document content (stale, external, or blocked by the
-        // CLI's SSRF guard), while the export is what the user asked for. The
-        // image is dropped, reported on stderr, and recorded as a failed entry
-        // so the run is omitted instead of referencing a relationship that was
-        // never written.
+        // A caller that supplied `onImageError` would rather lose one image
+        // than the export — the URL is document content (stale, external, or
+        // blocked by the CLI's SSRF guard), while the export is what the user
+        // asked for. It is reported there and recorded as a failed entry so
+        // the run is omitted instead of referencing a relationship that was
+        // never written. With no reporter the failure propagates, so a caller
+        // that never opted in cannot hand its user a quietly incomplete file.
         let blob: Blob;
         try {
           blob = await fetcher(src);
         } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          console.warn(`Skipping image ${src}: ${reason}`);
+          if (!onImageError) throw error;
+          onImageError(src, error);
           entries.push({ rId: '', path: '', ext: '', src });
           continue;
         }
@@ -465,7 +478,7 @@ ${rels}
       for (const row of block.tableData.rows) {
         for (const cell of row.cells) {
           for (const cellBlock of cell.blocks) {
-            await DocxExporter.collectImages(cellBlock, fetcher, zip, entries, nextRId, nextMediaName);
+            await DocxExporter.collectImages(cellBlock, fetcher, zip, entries, nextRId, nextMediaName, onImageError);
           }
         }
       }
