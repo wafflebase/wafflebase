@@ -332,16 +332,33 @@ GitHub OAuth flow. Full design in [cli.md](cli.md) "Login flow"; the
 backend surface is:
 
 - **`GET /auth/github?mode=cli&port=<port>&nonce=<hex>`** — extends the
-  existing endpoint to carry CLI parameters through OAuth `state`. The
-  backend generates a state token (random 32 bytes, TTL 5 minutes,
-  in-memory map) and forwards it to GitHub as `state`; `mode`, `port`
-  and `nonce` are stored against it, never put in the URL.
+  existing endpoint to carry CLI parameters through OAuth `state`. It is
+  unauthenticated and takes the loopback port off the query string, so
+  it is answered first with a **confirmation page**
+  (`CliLoginConfirmMiddleware`, `X-Frame-Options: DENY`): its Continue
+  link carries a one-time secret that also went out as an httpOnly
+  `wafflebase_cli_confirm` cookie, and only a matching pair proceeds to
+  GitHub. Without that click, a page the victim visits could navigate
+  them here and have the backend mint a code **for the victim**
+  addressed at a port the attacker chose; the loopback nonce cannot
+  cover that, because the attacker picks the nonce.
+
+  Once confirmed, the backend generates a state token (random 32 bytes,
+  TTL 5 minutes, in-memory map) and forwards it to GitHub as `state`;
+  `mode`, `port` and `nonce` are stored against it, never put in the URL.
   `nonce` is the CLI's per-attempt secret and is accepted only as
   `[0-9a-f]{32,128}`, so nothing that could smuggle another query
   parameter into the loopback redirect gets through. It is optional:
   omitted (or malformed), the login still completes, but with no
   binding for the CLI to verify.
-- **`GET /auth/github/callback`** — when the consumed state has
+- **`GET /auth/github/callback`** — requires a `state` on **every**
+  path; a callback without one is a 400, never a sign-in. A browser
+  login carries `web.<sha256(secret)>`, whose secret lives in a
+  short-lived httpOnly `wafflebase_oauth_state` cookie (double submit,
+  compared in constant time and cleared on use) — no server-side map, so
+  it survives restarts and spans replicas, which is what an in-memory
+  store could not do. Otherwise the state is a CLI token: when the
+  consumed state has
   `mode === 'cli'`, generates a short-lived authorization code (random,
   TTL 60 seconds, same in-memory map), redirects to
   `http://127.0.0.1:<port>/callback?code=<auth-code>&state=<nonce>`.
@@ -381,4 +398,5 @@ exchanged server-to-server.
 | Open redirect via CLI port parameter | `port` is range-validated; the redirect host is hard-coded to `127.0.0.1`. |
 | OAuth state forgery (CSRF) | Backend generates a random 32-byte state token per OAuth request, stores it in a 5-minute in-memory map, and consumes it on callback (single-use; an unknown or expired token is a 400, never a fall-through to the web flow). |
 | Login CSRF on the CLI loopback callback | The port space is small enough for a page the user visits to scan, so a `code` alone is not trusted: the CLI mints a per-attempt nonce, the backend echoes it as the loopback `state`, and the CLI compares it in constant time. A callback without it is refused, reported, and never ends the wait — the genuine redirect can still arrive. |
-| Login CSRF on the **web** callback | **Open.** `GET /auth/github/callback` has no `state` for browser logins, so a code obtained by an attacker and replayed through the victim's browser sets that attacker's session cookies. Closing it needs a state store that survives restarts and spans replicas, unlike the in-memory CLI map — tracked separately, not part of the CLI work. |
+| Login CSRF on the **web** callback | Browser logins carry a double-submit `state`: the secret is a short-lived httpOnly `wafflebase_oauth_state` cookie, its SHA-256 goes to GitHub as `state`, and the callback accepts only a matching pair (constant-time, single-use). The hash — not the secret — travels through referrers and logs, so a leaked `state` cannot be replayed without the cookie. A callback with no `state` at all is a 400. Being a cookie rather than a store, it survives restarts and spans replicas. |
+| CSRF into a CLI login (`?mode=cli&port=…`) | The endpoint is unauthenticated and the port comes off the query string, so a bare navigation is not enough: the backend answers with a confirmation page and only its Continue link — a one-time secret paired with an httpOnly cookie, framing blocked by `X-Frame-Options: DENY` — starts the OAuth redirect. `GitHubAuthGuard` mints CLI state only for a request the middleware confirmed, so an unwired gate degrades to a browser login instead of failing open. |

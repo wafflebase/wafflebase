@@ -78,21 +78,37 @@ describe('startCallbackServer', () => {
     }
   });
 
-  it('refuses cross-origin and non-GET requests', async () => {
+  it('refuses non-GET requests', async () => {
     const nonce = createLoginNonce();
     const { port, close } = await startCallbackServer(nonce);
     try {
-      const crossOrigin = await fetch(
-        `http://127.0.0.1:${port}/callback?code=c&state=${nonce}`,
-        { headers: { Origin: 'https://evil.example' } },
-      );
-      expect(crossOrigin.status).toBe(403);
-
       const posted = await fetch(
         `http://127.0.0.1:${port}/callback?code=c&state=${nonce}`,
         { method: 'POST' },
       );
       expect(posted.status).toBe(403);
+    } finally {
+      close();
+    }
+  });
+
+  /**
+   * The nonce is the defense, not the `Origin` header. A browser,
+   * extension or proxy may attach one (`Origin: null` among them) to the
+   * cross-origin redirect chain that *is* our callback, and refusing on
+   * that would refuse the genuine login — which, since a refusal never
+   * settles the wait, hangs the command for the whole timeout.
+   */
+  it('accepts the genuine redirect even when it carries an Origin header', async () => {
+    const nonce = createLoginNonce();
+    const { port, waitForCallback, close } = await startCallbackServer(nonce);
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${port}/callback?code=real-code&state=${nonce}`,
+        { headers: { Origin: 'null' } },
+      );
+      expect(res.status).toBe(200);
+      await expect(waitForCallback()).resolves.toBe('real-code');
     } finally {
       close();
     }
@@ -120,16 +136,16 @@ describe('startCallbackServer', () => {
     }
   });
 
-  it('names a refused cross-origin callback when the timeout is reached', async () => {
+  it('names a refused non-GET callback when the timeout is reached', async () => {
     const nonce = createLoginNonce();
     const { port, waitForCallback, close } = await startCallbackServer(nonce, {
       timeoutMs: 150,
     });
     try {
       await fetch(`http://127.0.0.1:${port}/callback?code=c&state=${nonce}`, {
-        headers: { Origin: 'https://evil.example' },
+        method: 'POST',
       });
-      await expect(waitForCallback()).rejects.toThrow(/Origin/);
+      await expect(waitForCallback()).rejects.toThrow(/non-GET/);
     } finally {
       close();
     }

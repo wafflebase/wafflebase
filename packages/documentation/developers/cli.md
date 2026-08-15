@@ -372,6 +372,9 @@ wafflebase sheets export <doc-id> output.csv --range A1:D100
 
 # Export to stdout (pipe-friendly)
 wafflebase sheets export <doc-id> - --file-format csv | head -20
+
+# Export for re-import: keep formulas as formulas
+wafflebase sheets export <doc-id> output.csv --raw
 ```
 
 | Option | Description | Default |
@@ -379,6 +382,13 @@ wafflebase sheets export <doc-id> - --file-format csv | head -20
 | `--tab <tab-id>` | Source tab | `tab-1` |
 | `--range <range>` | Cell range to export | all data |
 | `--file-format <fmt>` | File format (`csv`, `json`) | auto-detected |
+| `--raw` | CSV only: write cell text verbatim | off |
+
+CSV export prefixes anything a spreadsheet would evaluate (`=`, `+`,
+`-`, `@`, with or without leading whitespace) with `'`, so opening the
+file cannot execute a formula another workspace member put in a cell.
+Plain numbers are untouched. `--raw` turns the guard off, which is what
+you want when the file is going straight back into `sheets import`.
 
 ## slides (aliases: slide, deck)
 

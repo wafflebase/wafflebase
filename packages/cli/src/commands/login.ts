@@ -40,6 +40,10 @@ export function registerLoginCommand(program: Command): void {
       const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${nonce}`;
       console.error(`Opening browser: ${oauthUrl}`);
       console.error('If the browser does not open, visit the URL above.');
+      // The server answers this URL with a confirmation page rather than
+      // going straight to GitHub — a sign-in the user did not start must
+      // not proceed on a bare navigation. Say so, or the wait looks stuck.
+      console.error('Confirm the sign-in in the browser to continue.');
 
       try {
         const open = (await import('open')).default;
@@ -174,8 +178,14 @@ export function nonceMatches(
   return timingSafeEqual(a, b);
 }
 
-/** Default wait for the browser to come back. */
-const CALLBACK_TIMEOUT_MS = 30_000;
+/**
+ * Default wait for the browser to come back. Three minutes, not thirty
+ * seconds: the browser leg is now a confirmation page the user has to
+ * click through plus, on a cold browser, a full GitHub sign-in. It stays
+ * under the backend's five-minute OAuth state TTL, so the wait never
+ * outlives the state it is waiting on.
+ */
+const CALLBACK_TIMEOUT_MS = 180_000;
 
 /**
  * Why a callback that reached the loopback server was not accepted.
@@ -196,10 +206,9 @@ const REFUSAL = {
     'a callback carried a `state` that does not match this login ' +
     'attempt, so it did not come from the browser window this command ' +
     'opened and was ignored.',
-  notNavigation:
-    'a callback was refused for not looking like the browser redirect ' +
-    '(non-GET, or carrying an `Origin` header). Only the plain GET ' +
-    'navigation the server redirects to is accepted.',
+  notGet:
+    'a non-GET request reached the callback. The server redirects the ' +
+    'browser with a plain GET navigation, so this was not it.',
 } as const;
 
 /** The wait's failure message, naming the last refusal when there was one. */
@@ -217,9 +226,16 @@ export function loginTimeoutMessage(refusal?: string): string {
  * `http://127.0.0.1:<port>/callback?code=<attacker code>` — the port is
  * a small scannable space — and the CLI would exchange the attacker's
  * code, saving a session for the attacker's account (login CSRF /
- * session fixation). Requests carrying an `Origin` header or using a
- * method other than GET are rejected outright: our redirect is a
- * top-level GET navigation and never looks like that.
+ * session fixation). A method other than GET is rejected outright: our
+ * redirect is a top-level GET navigation and never looks like that.
+ *
+ * The nonce is the whole defense, deliberately: an earlier revision also
+ * refused any request carrying an `Origin` header, which a browser,
+ * extension, or proxy can legitimately attach to a cross-origin redirect
+ * chain (`Origin: null` among them). That would refuse the *genuine*
+ * redirect, and because a refusal never settles the wait, the login
+ * would then hang for the whole timeout. A header no attacker is
+ * obliged to send buys nothing the nonce does not already cover.
  *
  * A refusal never settles the wait — the genuine redirect may still be
  * on its way — but it is recorded and surfaced, so a refused login is
@@ -264,8 +280,8 @@ export function startCallbackServer(
         return;
       }
 
-      if (req.method !== 'GET' || req.headers.origin !== undefined) {
-        refuse(res, 403, REFUSAL.notNavigation);
+      if (req.method !== 'GET') {
+        refuse(res, 403, REFUSAL.notGet);
         return;
       }
 

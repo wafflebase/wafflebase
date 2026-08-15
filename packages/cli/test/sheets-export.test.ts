@@ -6,10 +6,11 @@ import { createProgram } from '../src/commands/root.js';
 import { registerSheetsCommand } from '../src/commands/sheets.js';
 
 /**
- * `sheets export` writes a data file, not a human render. The CSV
- * formula neutralization that protects `--format csv` must not reach
- * it: the documented pipeline exports a sheet and re-imports it
- * (`skills/recipe-csv-pipeline.md`), so a `'` prefixed onto every
+ * `sheets export` writes the CSV a user is most likely to open in a
+ * spreadsheet app, and every cell in it was settable by any other member
+ * of the workspace — so the formula guard is on by default. `--raw` opts
+ * out for the documented round-trip pipeline
+ * (`skills/recipe-csv-pipeline.md`), where a `'` prefixed onto every
  * `=SUM(...)` would turn formulas into literal text on the way back in.
  */
 const getCells = vi.fn();
@@ -52,13 +53,32 @@ describe('sheets export --file-format csv', () => {
     vi.restoreAllMocks();
   });
 
-  it('exports formulas verbatim, so export → import round-trips', async () => {
+  const cells = [
+    { ref: 'E2', value: '42', formula: '=SUM(B2:B100)' },
+    { ref: 'E3', value: '-7', formula: '' },
+  ];
+
+  it('exports formulas verbatim under --raw, so export → import round-trips', async () => {
+    getCells.mockResolvedValue({ ok: true, status: 200, data: cells });
+
+    const file = join(dir, 'out.csv');
+    await run(['sheets', 'export', 'doc-1', file, '--raw']);
+
+    const written = readFileSync(file, 'utf-8');
+    expect(written).toContain('=SUM(B2:B100)');
+    expect(written).not.toContain("'=SUM(B2:B100)");
+    expect(written).not.toContain("'-7");
+  });
+
+  // Default is the safe one: this file gets opened in Excel, and any
+  // co-member of the workspace could have planted the formula in it.
+  it('neutralizes formulas by default', async () => {
     getCells.mockResolvedValue({
       ok: true,
       status: 200,
       data: [
-        { ref: 'E2', value: '42', formula: '=SUM(B2:B100)' },
-        { ref: 'E3', value: '-7', formula: '' },
+        { ref: 'A1', value: '=HYPERLINK("http://evil","x")', formula: '' },
+        ...cells,
       ],
     });
 
@@ -66,8 +86,9 @@ describe('sheets export --file-format csv', () => {
     await run(['sheets', 'export', 'doc-1', file]);
 
     const written = readFileSync(file, 'utf-8');
-    expect(written).toContain('=SUM(B2:B100)');
-    expect(written).not.toContain("'=SUM(B2:B100)");
+    expect(written).toContain("'=HYPERLINK");
+    expect(written).toContain("'=SUM(B2:B100)");
+    // A plain negative number is arithmetic, not a formula.
     expect(written).not.toContain("'-7");
   });
 });

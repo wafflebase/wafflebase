@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { UserService } from 'src/user/user.service';
@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { CliAuthStore } from './cli-auth.store';
 import { JwtStrategy } from './jwt.strategy';
+import { createWebOAuthState } from './oauth-state';
 
 function createMockResponse() {
   return {
@@ -247,27 +248,96 @@ describe('AuthController', () => {
       expect(url).not.toContain('state=');
     });
 
-    it('falls back to web flow when state token is not CLI', async () => {
+  });
+
+  /**
+   * The browser callback used to accept any code presented to it, with
+   * no `state` at all — login CSRF / session fixation: an attacker
+   * replays a code obtained for *their* account through the victim's
+   * browser and the victim is silently signed into it. The state is a
+   * double-submit pair, so a forged callback has to carry a cookie the
+   * attacker cannot read or set.
+   */
+  describe('githubAuthCallback — web flow CSRF state', () => {
+    const mockUser = {
+      id: 42,
+      authProvider: 'github',
+      username: 'bob',
+      email: 'bob@example.com',
+      photo: null,
+    };
+
+    function webRequest(cookies: Record<string, string>) {
+      return {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: {},
+        cookies,
+      } as unknown as Request;
+    }
+
+    beforeEach(() => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({
         accessToken: 'at',
         refreshToken: 'rt',
       });
+    });
 
-      const req = {
-        user: {
-          username: 'bob',
-          email: 'bob@example.com',
-          photo: null,
-        },
-        query: {},
-      } as unknown as Request;
+    it('signs in when the state matches the cookie', async () => {
+      const { secret, state } = createWebOAuthState();
       const res = createMockResponse();
 
-      await controller.githubAuthCallback(req as any, res, undefined);
+      await controller.githubAuthCallback(
+        webRequest({ wafflebase_oauth_state: secret }) as any,
+        res,
+        state,
+      );
 
       expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173');
       expect(res.cookie).toHaveBeenCalledTimes(2);
+      // The state cookie is single-use.
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        'wafflebase_oauth_state',
+        expect.any(Object),
+      );
+    });
+
+    it('rejects a callback carrying no state at all', async () => {
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(webRequest({}) as any, res, undefined),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    it('rejects a state that does not match the cookie', async () => {
+      const { state } = createWebOAuthState();
+      const other = createWebOAuthState();
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(
+          webRequest({ wafflebase_oauth_state: other.secret }) as any,
+          res,
+          state,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+
+    it('rejects a state presented without the cookie', async () => {
+      const { state } = createWebOAuthState();
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(webRequest({}) as any, res, state),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(res.cookie).not.toHaveBeenCalled();
     });
   });
 

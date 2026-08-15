@@ -27,12 +27,18 @@ export function registerSheetsExportCommand(parent: Command) {
     .option('--tab <tab-id>', 'Source tab', 'tab-1')
     .option('--range <range>', 'Cell range to export (e.g. A1:D100)')
     .option('--file-format <fmt>', 'File format (csv, json)')
+    .option(
+      '--raw',
+      'CSV only: write cell text verbatim, without the leading-quote ' +
+        'formula guard, so `sheets import` round-trips formulas',
+    )
     .action(async function (this: Command, docId: string, file: string) {
       const opts = getGlobalOpts(this);
       const localOpts = this.opts<{
         tab: string;
         range?: string;
         fileFormat?: string;
+        raw?: boolean;
       }>();
 
       try {
@@ -43,13 +49,18 @@ export function registerSheetsExportCommand(parent: Command) {
         }
 
         const fmt = detectFormat(file, localOpts.fileFormat);
-        // Data interchange, not a render: the file this writes is the
-        // input of `sheets import` (skills/recipe-csv-pipeline.md), so
-        // an exported `=SUM(B2:B100)` has to come back as that formula.
-        // Neutralizing it here would re-import it as literal text.
+        // This writes the one CSV a user is most likely to open in a
+        // spreadsheet app, and every cell in it was settable by any other
+        // member of the workspace, so the formula guard is *on* by
+        // default: an exported `=HYPERLINK("http://evil","x")` must not
+        // execute on open. `--raw` opts out for the round-trip pipeline
+        // (skills/recipe-csv-pipeline.md), where an exported
+        // `=SUM(B2:B100)` has to re-import as that formula rather than as
+        // the literal text `'=SUM(B2:B100)`. Opting out is the caller
+        // saying they trust the sheet, which is not ours to assume.
         const formatted =
           fmt === 'csv'
-            ? formatCsv(res.data, { neutralizeFormulas: false })
+            ? formatCsv(res.data, { neutralizeFormulas: !localOpts.raw })
             : formatJson(res.data);
 
         if (file === '-') {

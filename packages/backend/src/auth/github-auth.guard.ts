@@ -1,6 +1,12 @@
 import { ExecutionContext, Injectable } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import type { Response } from 'express';
 import { CliAuthStore } from './cli-auth.store';
+import {
+  createWebOAuthState,
+  OAUTH_STATE_COOKIE,
+  oauthStateCookieOptions,
+} from './oauth-state';
 
 /**
  * Accept only a hex nonce of a sane length. The value is echoed back on
@@ -12,12 +18,29 @@ export function parseCliNonce(raw: unknown): string | undefined {
   return /^[0-9a-f]{32,128}$/.test(raw) ? raw : undefined;
 }
 
+/** The loopback port, or `undefined` when it is not a usable one. */
+export function parseCliPort(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) return undefined;
+  return port;
+}
+
 /**
- * Custom GitHub OAuth guard that detects CLI login params
- * (`?mode=cli&port=<port>&nonce=<hex>`) and injects a state token onto
- * the request so GitHubStrategy.authenticate() can forward it to GitHub.
- * The CLI nonce rides along in the stored state so the callback can
- * hand it back to the CLI (see `login.ts`).
+ * Custom GitHub OAuth guard that attaches the `state` parameter
+ * `GitHubStrategy.authenticate()` forwards to GitHub. Every login gets
+ * one — there is no stateless path:
+ *
+ * - **CLI** (`?mode=cli&port=<port>&nonce=<hex>`) — a token from
+ *   `CliAuthStore` carrying the port and the CLI's nonce, so the callback
+ *   can redirect the code to the loopback server (see `login.ts`). Minted
+ *   only once `CliLoginConfirmMiddleware` has seen the user click through
+ *   the confirmation page; without that flag this degrades to an ordinary
+ *   browser login rather than silently minting a code for whoever framed
+ *   the request.
+ * - **Browser** — a double-submit cookie pair (see `oauth-state.ts`).
+ *   Without it, `/auth/github/callback` would set session cookies for any
+ *   code presented to it, which is login CSRF / session fixation.
  */
 @Injectable()
 export class GitHubAuthGuard extends AuthGuard('github') {
@@ -26,20 +49,22 @@ export class GitHubAuthGuard extends AuthGuard('github') {
   }
 
   canActivate(context: ExecutionContext) {
-    const req = context.switchToHttp().getRequest();
-    const mode = req.query?.mode;
-    const port = req.query?.port;
+    const http = context.switchToHttp();
+    const req = http.getRequest();
+    const res = http.getResponse<Response>();
+    const port = parseCliPort(req.query?.port);
 
-    if (mode === 'cli' && port) {
-      const portNum = Number(port);
-      if (Number.isInteger(portNum) && portNum >= 1024 && portNum <= 65535) {
-        const { stateToken } = this.cliAuthStore.createState(
-          mode,
-          portNum,
-          parseCliNonce(req.query?.nonce),
-        );
-        req.__cliStateToken = stateToken;
-      }
+    if (req.query?.mode === 'cli' && port !== undefined && req.__cliConfirmed) {
+      const { stateToken } = this.cliAuthStore.createState(
+        'cli',
+        port,
+        parseCliNonce(req.query?.nonce),
+      );
+      req.__oauthState = stateToken;
+    } else {
+      const { secret, state } = createWebOAuthState();
+      res.cookie(OAUTH_STATE_COOKIE, secret, oauthStateCookieOptions());
+      req.__oauthState = state;
     }
 
     return super.canActivate(context);

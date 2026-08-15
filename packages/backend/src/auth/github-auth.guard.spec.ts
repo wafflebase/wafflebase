@@ -50,13 +50,17 @@ describe('GitHubAuthGuard.canActivate', () => {
 
   afterEach(() => superSpy.mockRestore());
 
-  function activate(query: Record<string, unknown>) {
-    const req: Record<string, unknown> = { query };
+  function activate(
+    query: Record<string, unknown>,
+    extra: Record<string, unknown> = { __cliConfirmed: true },
+  ) {
+    const req: Record<string, unknown> = { query, ...extra };
+    const res = { cookie: jest.fn() };
     const context = {
-      switchToHttp: () => ({ getRequest: () => req }),
+      switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
     } as unknown as ExecutionContext;
     const result = new GitHubAuthGuard(store).canActivate(context);
-    return { req, result };
+    return { req, res, result };
   }
 
   it('binds the request nonce into the stored state', () => {
@@ -65,7 +69,7 @@ describe('GitHubAuthGuard.canActivate', () => {
 
     expect(result).toBe(true);
     expect(createState).toHaveBeenCalledWith('cli', 49152, nonce);
-    expect(req.__cliStateToken).toBe('state-token');
+    expect(req.__oauthState).toBe('state-token');
   });
 
   it('stores no nonce when the query carries none or a malformed one', () => {
@@ -77,13 +81,44 @@ describe('GitHubAuthGuard.canActivate', () => {
     expect(createState).toHaveBeenCalledWith('cli', 49152, undefined);
   });
 
-  it('mints no state for a web login or an out-of-range port', () => {
-    const web = activate({});
-    expect(createState).not.toHaveBeenCalled();
-    expect(web.req.__cliStateToken).toBeUndefined();
-
+  it('mints no CLI state for an out-of-range port', () => {
     activate({ mode: 'cli', port: '80' });
     activate({ mode: 'cli', port: 'not-a-port' });
     expect(createState).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The confirmation page is the only thing standing between
+   * `?mode=cli&port=<attacker's>` and an auth code minted for whoever
+   * navigated the victim here. If that gate is ever unwired, the guard
+   * must not mint the CLI state anyway — it degrades to a browser login.
+   */
+  it('mints no CLI state for an unconfirmed CLI request', () => {
+    const { req } = activate({ mode: 'cli', port: '49152' }, {});
+
+    expect(createState).not.toHaveBeenCalled();
+    expect(req.__oauthState).toMatch(/^web\./);
+  });
+
+  /**
+   * A browser login with no `state` is login CSRF: the callback would
+   * set session cookies for any code presented to it.
+   */
+  it('mints a cookie-bound state for a browser login', () => {
+    const { req, res } = activate({}, {});
+
+    expect(createState).not.toHaveBeenCalled();
+    expect(req.__oauthState).toMatch(/^web\.[0-9a-f]{64}$/);
+    expect(res.cookie).toHaveBeenCalledWith(
+      'wafflebase_oauth_state',
+      expect.any(String),
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+    );
+    // The state is the *hash*; the secret never leaves the cookie.
+    const [, secret] = (res.cookie as jest.Mock).mock.calls[0] as [
+      string,
+      string,
+    ];
+    expect(req.__oauthState).not.toContain(secret);
   });
 });

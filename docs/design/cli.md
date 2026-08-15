@@ -175,6 +175,8 @@ wafflebase login
   │     and generates a per-attempt nonce (32 random bytes, hex)
   ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>&nonce=<nonce>
   │     (also prints URL for copy-paste in headless environments)
+  ├─ 3b. Backend answers with a confirmation page; the user clicks
+  │     Continue (one-time secret + httpOnly cookie) → OAuth starts
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
   ├─ 6. Backend detects mode=cli in OAuth state →
@@ -190,15 +192,17 @@ wafflebase login
 ```
 
 The local server binds to `127.0.0.1` only, accepts only `GET
-/callback`, and shuts down after a single request with a 30-second
-timeout. On timeout it prints: "Login timed out. Try again with
-`wafflebase login`."
+/callback`, and shuts down after a single request with a three-minute
+timeout — the browser leg now includes a confirmation click (step 3b)
+and, on a cold browser, a full GitHub sign-in, and the wait still ends
+inside the backend's five-minute state TTL. On timeout it prints:
+"Login timed out. Try again with `wafflebase login`."
 
 The callback is bound to the login attempt by the nonce: the CLI
 accepts a `code` only when the request carries that nonce back as
-`state` (compared in constant time), and rejects anything that is not a
-plain `GET` or that carries an `Origin` header. Without the binding, any
-page the user happens to visit during the 30-second window can hit
+`state` (compared in constant time), and refuses anything that is not a
+plain `GET`. Without the binding, any page the user happens to visit
+during the wait can hit
 `http://127.0.0.1:<port>/callback?code=…` — the port space is small
 enough to scan — and make the CLI exchange a code minted for the
 attacker's account, silently writing a session for the wrong user
@@ -207,15 +211,36 @@ does *not* end the wait, so the real redirect can still land. The nonce
 round trip is a backend contract: the loopback redirect echoes it, so a
 CLI at this version or later needs a backend at this version or later.
 
+The nonce is the whole defense, deliberately. An earlier revision also
+refused any request carrying an `Origin` header; a browser, extension
+or proxy can attach one (`Origin: null` among them) to the cross-origin
+redirect chain that *is* the genuine callback, and because a refusal
+never ends the wait, refusing on it would hang the login for the full
+timeout. A header no attacker is obliged to send adds nothing the nonce
+does not already cover.
+
 Because a refusal never ends the wait, it must not be silent either —
 otherwise a CLI pointed at an older backend refuses its own genuine
-redirect and hangs for the full 30 seconds with nothing to act on.
+redirect and hangs for the full timeout with nothing to act on.
 Every refusal names its cause on stderr as it happens, answers the
 browser tab with the same sentence, and is repeated in the timeout
 error, distinguishing the three cases: no `state` at all (the server
 does not echo the nonce — most likely older than the CLI), a `state`
-that does not match (a callback that is not ours), and a request that
-does not look like a browser navigation.
+that does not match (a callback that is not ours), and a non-GET
+request.
+
+The browser leg is gated on a click. `GET /auth/github?mode=cli&port=…`
+is unauthenticated and takes the loopback port off the query string, so
+on a bare navigation it would mint an auth code **for whoever is signed
+in to the browser** and post it to a port the caller chose — a page the
+victim visits can start that, and the loopback nonce cannot help,
+because the attacker picked the nonce. The backend therefore answers a
+CLI login with a confirmation page (`X-Frame-Options: DENY`) whose
+Continue link carries a one-time secret that also went out as an
+httpOnly cookie; only a matching pair starts the OAuth redirect. An
+attacker can navigate the victim to that page, but cannot read the
+secret out of the victim's response, and a secret minted against their
+own cookie will not match the victim's.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
@@ -844,17 +869,17 @@ still print a prose line, and the file writers — `sheets export`,
 `docs`/`slides`/`notes` `export` — write their body straight to the
 file or stdout, since it is a document, not a command result.)
 
-One gap remains, and it is a gap rather than an exception:
-`docs`/`slides`/`notes` `import` emit a real command result
-(`{ id, replaced }` or `{ id, title }`) but serialize it with a bare
-`JSON.stringify` and never read `--format`, so
-`docs import --format table` still prints JSON.
-They render through their own injected
-`ImportIO` — the seam that makes the stdin/TTY/confirm branches
+Four commands are still gaps rather than exceptions:
+`docs`/`slides`/`notes` `import` and `files upload` emit a real command
+result (`{ id, replaced }`, `{ id, title }`, or the uploaded document)
+but serialize it with a bare `JSON.stringify` and never read `--format`,
+so `docs import --format table` still prints JSON. All four render
+through their own injected IO seam — `ImportIO`, and `upload.ts`'s
+`io.stdout`, the seams that make the stdin/TTY/confirm branches
 testable — rather than through the global formatter, so routing them is
 a change to that seam, not a call-site swap, and is left to its own
 change. Until then the sentence above holds for every command *except*
-the three importers.
+those four.
 
 `status` reports the answer to "am I logged in?" as data
 and still exits `0` when there is no session:
@@ -877,25 +902,31 @@ the values that command accepts. A format that cannot be *inferred*
 (`docs export out.txt` with no `--format`) is a different failure and
 stays a plain `ERROR`.
 
-`--format csv` neutralizes spreadsheet formula prefixes: a value
-starting with `=`, `+`, `-`, `@`, tab, or CR is emitted with a leading
-`'` so it lands as text, since every value in the output is
-server-supplied and another workspace member can set it. Plain signed
-numbers (`-3`, `+1.5e6`) are left alone. Any value carrying a comma,
-quote, or control character is quoted — `\r` included, or a bare CR
-would end the record early in importers that honour it and start the
+Every CSV the CLI writes neutralizes spreadsheet formula prefixes: a
+value starting with `=`, `+`, `-`, or `@` is emitted with a leading `'`
+so it lands as text, since every value in the output is server-supplied
+and another workspace member can set it. The decision is made on the
+value an importer will *see*, not on the raw bytes — leading whitespace
+(space, tab, CR, U+00A0, BOM) is skipped before the test, because
+importers that trim on the way in (LibreOffice's "Trim spaces", and
+several CSV-to-sheet tools) would otherwise evaluate ` =HYPERLINK(…)`
+as a formula the neutralizer had waved through. Plain signed numbers
+(`-3`, `+1.5e6`), padding and all, are left alone. Any value carrying a
+comma, quote, or control character is quoted — `\r` included, or a bare
+CR would end the record early in importers that honour it and start the
 next one with a formula the neutralizer never inspected.
 
-Neutralization belongs to this **render** path only. `sheets export
-<doc> out.csv` writes a data file that `sheets import` reads back
-(`packages/cli/skills/recipe-csv-pipeline.md`), so it serializes
-verbatim: an exported `=SUM(B2:B100)` must re-import as that
-formula, not as the text
-`'=SUM(B2:B100)`. `formatCsv` therefore takes an explicit
-`neutralizeFormulas` flag rather than defaulting — the two callers want
-opposite answers, and a default would silently pick one for the next
-caller added. Quoting is shared: it is CSV correctness, and a parser
-unquotes it on the way back in.
+`sheets export <doc> out.csv` is the CSV most likely to be *opened* in a
+spreadsheet app, so it neutralizes too. Its one caller that must not is
+the round-trip pipeline (`packages/cli/skills/recipe-csv-pipeline.md`),
+where an exported `=SUM(B2:B100)` has to re-import as that formula and
+not as the text `'=SUM(B2:B100)` — that asks for `--raw` explicitly.
+Opting out is the caller saying they trust the sheet, which is not a
+thing the default may assume. `formatCsv` still takes an explicit
+`neutralizeFormulas` flag rather than defaulting, so the answer stays a
+per-call decision instead of one silently inherited by the next caller
+added. Quoting is shared: it is CSV correctness, and a parser unquotes
+it on the way back in.
 
 #### 8.2 Dry-Run
 

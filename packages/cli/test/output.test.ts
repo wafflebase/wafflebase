@@ -168,6 +168,28 @@ describe('formatCsv', () => {
     const lines = formatCsv(data, { neutralizeFormulas: true }).split('\n');
     expect(lines.slice(1)).toEqual(['-3', '+1.5', '-2e10', '.5']);
   });
+
+  // A plain leading space hides a formula just as a tab does: importers
+  // that trim on the way in (LibreOffice's "Trim spaces", and several
+  // CSV-to-sheet tools) strip it and evaluate what is left. Nothing else
+  // catches it — a leading space is not quoted either.
+  it('neutralizes a formula hidden behind leading whitespace', () => {
+    const data = [
+      { v: ' =HYPERLINK("http://evil","x")' },
+      { v: ' =cmd' },
+      { v: '\ufeff@SUM(A1)' },
+    ];
+    const lines = formatCsv(data, { neutralizeFormulas: true }).split('\n');
+    expect(lines[1]).toBe('"\' =HYPERLINK(""http://evil"",""x"")"');
+    expect(lines[2]).toBe("' =cmd");
+    expect(lines[3]).toBe("'\ufeff@SUM(A1)");
+  });
+
+  it('leaves a padded plain number and ordinary padded text alone', () => {
+    const data = [{ v: ' -3' }, { v: ' hello' }];
+    const lines = formatCsv(data, { neutralizeFormulas: true }).split('\n');
+    expect(lines.slice(1)).toEqual([' -3', ' hello']);
+  });
 });
 
 describe('formatYaml', () => {

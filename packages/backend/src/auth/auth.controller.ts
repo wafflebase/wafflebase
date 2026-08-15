@@ -22,6 +22,12 @@ import { AuthGuard } from '@nestjs/passport';
 import { AuthenticatedRequest } from './auth.types';
 import { CliAuthStore } from './cli-auth.store';
 import { GitHubAuthGuard } from './github-auth.guard';
+import {
+  isWebOAuthState,
+  OAUTH_STATE_COOKIE,
+  oauthStateCookieOptions,
+  webOAuthStateMatches,
+} from './oauth-state';
 
 const ACCESS_COOKIE_NAME = 'wafflebase_session';
 const REFRESH_COOKIE_NAME = 'wafflebase_refresh';
@@ -87,8 +93,10 @@ export class AuthController {
     @Req() req: Request,
   ) {
     // NOTE(hackerwins): Redirect to GitHub for authentication.
-    // For CLI mode, the state token is injected in the guard via
-    // __cliStateToken (see below). The guard handles the redirect.
+    // The guard attaches the OAuth `state` (via __oauthState) and handles
+    // the redirect. A CLI login (`?mode=cli`) is answered by
+    // CliLoginConfirmMiddleware with a confirmation page first, and only
+    // reaches the guard once the user has clicked through it.
     void mode;
     void port;
     void req;
@@ -115,8 +123,33 @@ export class AuthController {
       throw new Error('User not found or created');
     }
 
-    // Check if this is a CLI OAuth flow by consuming the state token.
-    if (stateToken) {
+    // No `state` at all is never a login this server started: the guard
+    // attaches one to every path, CLI and browser alike. Accepting a
+    // stateless callback is login CSRF — an attacker replays a code they
+    // obtained through the victim's browser and the victim ends up in
+    // the attacker's account (session fixation).
+    if (!stateToken) {
+      throw new BadRequestException(
+        'OAuth state missing. Start the login again from the sign-in page.',
+      );
+    }
+
+    if (isWebOAuthState(stateToken)) {
+      // Browser flow: the state is the hash of a secret that only this
+      // browser holds, in an httpOnly cookie. A code replayed with a
+      // stolen or guessed `state` cannot bring the cookie with it.
+      const cookieSecret = req.cookies?.[OAUTH_STATE_COOKIE];
+      res.clearCookie(OAUTH_STATE_COOKIE, {
+        ...oauthStateCookieOptions(),
+        maxAge: undefined,
+      });
+      if (!webOAuthStateMatches(stateToken, cookieSecret)) {
+        throw new BadRequestException(
+          'OAuth state mismatch. Start the login again from the sign-in page.',
+        );
+      }
+    } else {
+      // Otherwise it is a CLI state token; consume it.
       const state = this.cliAuthStore.consumeState(stateToken);
       if (state && state.mode === 'cli') {
         const port = state.port;

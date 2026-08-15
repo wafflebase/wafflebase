@@ -1,9 +1,19 @@
 /**
  * Leading characters a spreadsheet evaluates as a formula when the CSV
- * is opened (Excel / Sheets / LibreOffice). Tab and CR are included
- * because they let a payload hide behind whitespace the importer trims.
+ * is opened (Excel / Sheets / LibreOffice).
  */
-const FORMULA_TRIGGER = /^[=+\-@\t\r]/;
+const FORMULA_TRIGGER = /^[=+\-@]/;
+
+/**
+ * Whitespace an importer may strip before deciding what a value is —
+ * which is what lets a payload hide behind it. A plain space counts as
+ * much as a tab or a CR: LibreOffice's "Trim spaces" import option (and
+ * several third-party CSV-to-sheet importers) drop it, and ` =HYPERLINK(…)`
+ * then lands as a live formula. `\s` covers space, tab, CR, LF, form
+ * feed, vertical tab and the Unicode spaces including U+00A0; the BOM is
+ * added because it is not in `\s` and leads plenty of real files.
+ */
+const LEADING_WHITESPACE = /^[\s\ufeff]+/;
 
 /**
  * `-3`, `+1.5`, `-2e10` — a sign in front of a plain number is
@@ -21,7 +31,13 @@ const PLAIN_NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
  * moment someone opens the exported file in a spreadsheet app.
  */
 function neutralizeFormula(s: string): string {
-  if (!FORMULA_TRIGGER.test(s) || PLAIN_NUMBER.test(s)) return s;
+  // Decide on the value the importer will see, not on the bytes: a
+  // leading space, tab, CR or BOM is stripped by importers that trim,
+  // and `" =HYPERLINK(…)"` is a formula the moment it is.
+  const trimmed = s.replace(LEADING_WHITESPACE, '');
+  if (!FORMULA_TRIGGER.test(trimmed) || PLAIN_NUMBER.test(trimmed)) return s;
+  // Prefix the original, whitespace and all — the `'` has to be the
+  // first character of the field for the importer to read it as text.
   return `'${s}`;
 }
 
@@ -44,10 +60,11 @@ export interface CsvOptions {
    *
    * Required rather than defaulted: `formatCsv` serves both a human
    * render path (`--format csv`, where an opened file must not execute)
-   * and a data-interchange path (`sheets export --file-format csv`,
-   * whose output is re-imported by `sheets import` and must stay
-   * byte-faithful). The two want opposite answers, and a default would
-   * silently pick one for the next call site added.
+   * and a data-interchange path (`sheets export --raw`, whose output is
+   * re-imported by `sheets import` and must stay byte-faithful). Both
+   * default to neutralizing — only an explicit `--raw` turns it off —
+   * but the answer is per-call, and a default here would silently pick
+   * one for the next call site added.
    */
   neutralizeFormulas: boolean;
 }

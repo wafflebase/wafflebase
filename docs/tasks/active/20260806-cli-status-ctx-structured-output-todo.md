@@ -161,3 +161,49 @@ Not fixed, with reasons:
   set`), so this is not a `batch`-specific regression. Making
   `--dry-run` validate `--format` is a change across every command;
   deliberately not bundled here.
+
+## Review round 6 (panel changes-requested)
+
+- [x] loopback callback no longer refuses a request for carrying an
+      `Origin` header — a browser/extension/proxy may attach one
+      (`Origin: null`) to the genuine redirect chain, and since a
+      refusal never settles the wait that refusal hangs the login for
+      the whole timeout. The nonce is the defense; only non-GET is
+      still refused (`login.ts`, `test/login.test.ts`)
+- [x] the callback wait is 3 minutes, not 30 seconds: the browser leg
+      now includes a confirmation click plus, on a cold browser, a
+      GitHub sign-in. Still inside the backend's 5-minute state TTL
+- [x] **web** OAuth `state` closed (the round-5 "not fixed"): every
+      login path now carries one. The browser flow uses a double-submit
+      cookie — secret in a short-lived httpOnly
+      `wafflebase_oauth_state`, its SHA-256 as `state` — so it needs no
+      store and works across replicas and restarts, which is what round
+      5 said blocked the fix. A callback with no `state` is a 400
+      (`oauth-state.ts`, `github-auth.guard.ts`, `auth.controller.ts`)
+- [x] `GET /auth/github?mode=cli&port=…` gated on a click:
+      `CliLoginConfirmMiddleware` answers with a confirmation page whose
+      Continue link pairs a one-time secret with an httpOnly cookie
+      (`X-Frame-Options: DENY`). A bare navigation can no longer mint a
+      code for the victim at an attacker-chosen loopback port. The guard
+      mints CLI state only for a confirmed request, so an unwired gate
+      degrades to a browser login rather than failing open
+- [x] CSV neutralization decides on the value an importer will *see*:
+      leading whitespace (space, tab, CR, U+00A0, BOM) is skipped before
+      the formula test, so ` =HYPERLINK(…)` no longer slips through a
+      trim-on-import
+- [x] `sheets export` neutralizes by **default**; `--raw` opts out for
+      the export → import round trip. That file is the one most likely
+      to be opened in Excel, and every cell in it is settable by any
+      co-member (`sheets-export.ts`, recipe + published docs updated)
+- [x] `cli.md` §8.1 counts `files upload` among the commands that
+      bypass `--format` — it renders through its own `io.stdout` seam,
+      like the three importers
+
+Rebutted rather than fixed:
+
+- **Scope creep (design-fit, major)** — raised again. The OAuth nonce,
+  CSV neutralization and `cells batch` restructure are this panel's own
+  round-2 requests (see "Review round 2"); reverting them to satisfy
+  the design-fit lens would re-open round 2 and contradict this round's
+  own security findings, which ask for those same changes to be
+  *strengthened*. Filed as a structured rebuttal on the PR.

@@ -44,9 +44,20 @@ wafflebase sheets cells get "$DOC_ID" A1:E6
 wafflebase sheets export "$DOC_ID" out.csv --range A1:E6
 ```
 
+If the export is going to be re-imported rather than opened, add
+`--raw`:
+
+```bash
+wafflebase sheets export "$DOC_ID" out.csv --range A1:E6 --raw
+wafflebase sheets import "$DOC_ID2" out.csv
+```
+
 ## Notes
 
 - The full pipeline uses `docs create` (now plural) and `sheets …` for
   every spreadsheet-side step.
 - For large datasets, split batch updates into chunks of ~500 cells.
+- CSV export prefixes formula-looking cells with `'` so an exported file
+  opened in Excel/Sheets cannot execute what another workspace member
+  put in a cell. `--raw` turns that off for export → import round trips.
 - Always verify data after import by reading back a sample range.
