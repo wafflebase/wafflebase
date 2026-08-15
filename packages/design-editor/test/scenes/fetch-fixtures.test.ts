@@ -84,13 +84,36 @@ describe('installFetchGuard', () => {
     expect(BASE).not.toContain('design-sdk');
   });
 
-  it('lets Vite’s HMR ping through, which is not a module request', async () => {
-    // `waitForSuccessfulPing` fetches this whenever the HMR socket drops — every dev
-    // server restart. It matches none of the prefixes, so it hit the miss path and
-    // fired `onMiss`, whose contract is a hard `wb:error kind:'fetch'` naming the URL.
-    // Vite swallows the throw and HMR recovers, which is what kept it quiet: the
-    // designer just gets told their scene made an unmocked request.
-    for (const url of ['/__vite_ping', '/__open-in-editor?file=x']) {
+  it('lets the overlay’s open-in-editor through, under any base', async () => {
+    // Clicking a stack frame in Vite's error overlay `fetch`es this from inside the
+    // frame. It matched none of the prefixes, so it hit the miss path and fired
+    // `onMiss`, whose contract is a hard `wb:error kind:'fetch'` naming the URL — the
+    // designer's own scene reported as having made an unmocked request.
+    //
+    // The client prefixes the consumer's `base`, which the frame cannot know, so the
+    // match is on the last segment.
+    for (const url of ['/__open-in-editor?file=x', '/app/__open-in-editor?file=x']) {
+      await window.fetch(url);
+    }
+    expect(passthrough).toHaveBeenCalledTimes(2);
+    expect(misses).toEqual([]);
+  });
+
+  it('does not pass through a path that merely looks like Vite’s', async () => {
+    // `/__vite_ping` was briefly in this list, on the belief that
+    // `waitForSuccessfulPing` fetches it. It does not: Vite 6.4.3 opens `new
+    // WebSocket(socketUrl, 'vite-ping')` and the string is absent from its dist — it
+    // was an HTTP route back in Vite 2. Listing it would have been a passthrough for a
+    // path only a consumer can own, which is the hole this guard exists to close.
+    await expect(window.fetch('/__vite_ping')).rejects.toThrow(/unmocked request/);
+    await expect(window.fetch('/__admin')).rejects.toThrow(/unmocked request/);
+    expect(passthrough).not.toHaveBeenCalled();
+  });
+
+  it('passes the editor’s mount through with or without a trailing slash', async () => {
+    // The shell serves the mount point itself, and `startsWith(`${BASE}/`)` alone
+    // missed the un-slashed form and sent it to the miss path.
+    for (const url of [BASE, `${BASE}/api/health`]) {
       await window.fetch(url);
     }
     expect(passthrough).toHaveBeenCalledTimes(2);

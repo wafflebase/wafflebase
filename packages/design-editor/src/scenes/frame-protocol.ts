@@ -173,17 +173,75 @@ export type FrameMessage =
    */
   | { type: 'wb:deselect' };
 
-export const isHostMessage = (d: unknown): d is HostMessage =>
-  !!d &&
-  typeof d === 'object' &&
-  typeof (d as HostMessage).type === 'string' &&
-  (d as HostMessage).type.startsWith('wb:');
+/**
+ * Per-variant validation, not a `wb:` prefix test.
+ *
+ * The prefix test accepted `{ type: 'wb:set-theme', theme: 'system' }` and a bare
+ * `{ type: 'wb:select' }` — neither of which inhabits the union it narrows to. A
+ * listener then reads `msg.node.id` off `undefined`, or applies a theme that is not
+ * a theme, having been told by the type system that both are safe. These messages
+ * cross a `postMessage` boundary between two documents, so "the other side is our
+ * own code" is a claim about the page, not a guarantee.
+ *
+ * Checked to the depth the listeners read: the discriminator, every required field,
+ * and the closed value sets (`theme`, `side`, `kind`). `StampRef` and `FrameRect`
+ * are checked field by field because `wb:select` is what becomes an edit anchor.
+ */
+type Rec = Record<string, unknown>;
+const isStr = (v: unknown): boolean => typeof v === 'string';
+const isNum = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v);
+const isObj = (v: unknown): v is Rec => !!v && typeof v === 'object' && !Array.isArray(v);
+const orNull = (v: unknown, f: (x: unknown) => boolean): boolean => v === null || f(v);
+const isStrArray = (v: unknown): boolean => Array.isArray(v) && v.every(isStr);
 
-export const isFrameMessage = (d: unknown): d is FrameMessage =>
-  !!d &&
-  typeof d === 'object' &&
-  typeof (d as FrameMessage).type === 'string' &&
-  (d as FrameMessage).type.startsWith('wb:');
+const isRect = (v: unknown): boolean =>
+  isObj(v) && isNum(v.x) && isNum(v.y) && isNum(v.width) && isNum(v.height);
+
+const isStampRef = (v: unknown): boolean =>
+  isObj(v) &&
+  isStr(v.id) &&
+  isStr(v.component) &&
+  Array.isArray(v.path) &&
+  v.path.every((n) => Number.isInteger(n) && (n as number) >= 0) &&
+  isStr(v.fp) &&
+  isStr(v.tag) &&
+  isStr(v.file) &&
+  isNum(v.instances);
+
+const HOST_SHAPES: Record<string, (d: Rec) => boolean> = {
+  'wb:set-theme': (d) => d.theme === 'light' || d.theme === 'dark',
+  'wb:set-selection': (d) => orNull(d.id, isStr),
+  'wb:set-hover': (d) => orNull(d.id, isStr),
+  'wb:measure': (d) => isStr(d.id) && isNum(d.nonce),
+  'wb:set-picking': (d) => typeof d.enabled === 'boolean',
+  'wb:set-token-vars': (d) => isObj(d.vars) && Object.values(d.vars).every(isStr),
+};
+
+const FRAME_SHAPES: Record<string, (d: Rec) => boolean> = {
+  'wb:ready': (d) =>
+    isStr(d.scene) && (d.side === 'before' || d.side === 'after') && isStrArray(d.selectable),
+  'wb:select': (d) => isStampRef(d.node) && isRect(d.rect) && typeof d.altKey === 'boolean',
+  'wb:hover': (d) => orNull(d.node, isStampRef) && orNull(d.rect, isRect),
+  'wb:measured': (d) => isNum(d.nonce) && orNull(d.rect, isRect),
+  'wb:error': (d) =>
+    ['mount', 'render', 'compile', 'fetch'].includes(d.kind as string) &&
+    isStr(d.message) &&
+    (d.url === undefined || isStr(d.url)),
+  'wb:classes': (d) => isStrArray(d.classes),
+  'wb:route-change': (d) => isStr(d.path),
+  'wb:deselect': () => true,
+};
+
+/** `hasOwnProperty`, so a payload typed `"constructor"` cannot borrow a prototype member. */
+const shapedLike = (shapes: Record<string, (d: Rec) => boolean>, d: unknown): boolean =>
+  isObj(d) &&
+  typeof d.type === 'string' &&
+  Object.prototype.hasOwnProperty.call(shapes, d.type) &&
+  shapes[d.type](d);
+
+export const isHostMessage = (d: unknown): d is HostMessage => shapedLike(HOST_SHAPES, d);
+
+export const isFrameMessage = (d: unknown): d is FrameMessage => shapedLike(FRAME_SHAPES, d);
 
 /**
  * `<file>#<root>:<path>`.

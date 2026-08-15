@@ -112,6 +112,17 @@ describe('stampId', () => {
 });
 
 describe('message guards', () => {
+  const REF = {
+    id: 'a.tsx#Page:0',
+    component: 'Page',
+    path: [0],
+    fp: 'deadbeef',
+    tag: 'div',
+    file: 'a.tsx',
+    instances: 1,
+  };
+  const RECT = { x: 0, y: 0, width: 10, height: 10 };
+
   it('accepts only namespaced objects', () => {
     expect(isHostMessage({ type: 'wb:set-theme', theme: 'dark' })).toBe(true);
     expect(isFrameMessage({ type: 'wb:deselect' })).toBe(true);
@@ -120,6 +131,79 @@ describe('message guards', () => {
     for (const bad of [null, undefined, 'wb:ready', 42, {}, { type: 7 }, { type: 'ready' }]) {
       expect(isHostMessage(bad), JSON.stringify(bad)).toBe(false);
       expect(isFrameMessage(bad), JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it('rejects a namespaced payload whose fields do not inhabit the variant', () => {
+    // The `wb:` prefix alone narrowed these to the union, so a listener read
+    // `msg.node.id` off `undefined`, or applied `'system'` as a theme, with the type
+    // system saying both were safe. These cross a `postMessage` boundary between two
+    // documents, so "the other side is our own code" is a claim about the page.
+    for (const bad of [
+      { type: 'wb:set-theme', theme: 'system' },
+      { type: 'wb:set-theme' },
+      { type: 'wb:measure', id: 'a' },
+      { type: 'wb:measure', id: 'a', nonce: 'x' },
+      { type: 'wb:set-picking', enabled: 'yes' },
+      { type: 'wb:set-selection', id: 7 },
+      { type: 'wb:set-token-vars', vars: { '--a': 1 } },
+      { type: 'wb:unknown-host-verb' },
+    ]) {
+      expect(isHostMessage(bad), JSON.stringify(bad)).toBe(false);
+    }
+
+    for (const bad of [
+      { type: 'wb:select' },
+      { type: 'wb:select', node: { id: 'a' }, rect: RECT, altKey: false },
+      { type: 'wb:select', node: REF, rect: { x: 0 }, altKey: false },
+      { type: 'wb:select', node: REF, rect: RECT },
+      { type: 'wb:ready', scene: 'a', side: 'sideways', selectable: [] },
+      { type: 'wb:ready', scene: 'a', side: 'before', selectable: [7] },
+      { type: 'wb:error', kind: 'whoops', message: 'x' },
+      { type: 'wb:measured', nonce: 1, rect: { x: 0, y: 0 } },
+      { type: 'wb:classes', classes: 'p-2' },
+      { type: 'wb:unknown-frame-verb' },
+    ]) {
+      expect(isFrameMessage(bad), JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it('still accepts every well-formed variant', () => {
+    // The rejection list is only meaningful if the guard has not simply become strict
+    // enough to refuse real traffic.
+    for (const ok of [
+      { type: 'wb:set-theme', theme: 'light' },
+      { type: 'wb:set-selection', id: null },
+      { type: 'wb:set-hover', id: 'a.tsx#Page:0' },
+      { type: 'wb:measure', id: 'a.tsx#Page:0', nonce: 3 },
+      { type: 'wb:set-picking', enabled: false },
+      { type: 'wb:set-token-vars', vars: { '--primary': '#0f0' } },
+    ]) {
+      expect(isHostMessage(ok), JSON.stringify(ok)).toBe(true);
+    }
+
+    for (const ok of [
+      { type: 'wb:ready', scene: 'dash', side: 'before', selectable: ['a'] },
+      { type: 'wb:select', node: REF, rect: RECT, altKey: true },
+      { type: 'wb:hover', node: null, rect: null },
+      { type: 'wb:hover', node: REF, rect: RECT },
+      { type: 'wb:measured', nonce: 1, rect: null },
+      { type: 'wb:error', kind: 'fetch', message: 'boom', url: '/x' },
+      { type: 'wb:error', kind: 'mount', message: 'boom' },
+      { type: 'wb:classes', classes: [] },
+      { type: 'wb:route-change', path: '/x' },
+      { type: 'wb:deselect' },
+    ]) {
+      expect(isFrameMessage(ok), JSON.stringify(ok)).toBe(true);
+    }
+  });
+
+  it('does not read a variant off Object.prototype', () => {
+    // `shapes[d.type]` without an own-property check hands `"constructor"` a function,
+    // which is truthy and then called as if it were a validator.
+    for (const t of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      expect(isHostMessage({ type: t }), t).toBe(false);
+      expect(isFrameMessage({ type: t }), t).toBe(false);
     }
   });
 });

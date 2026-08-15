@@ -33,21 +33,27 @@
 import { BASE } from '../base.ts';
 
 /**
- * Vite's own dev endpoints, which are not module requests and so match none of the
- * prefixes below.
+ * Vite's error overlay opens a file by `fetch`ing this from the frame:
  *
- * `/__vite_ping` is what the client polls from `waitForSuccessfulPing` when the HMR
- * socket drops — every dev-server restart and every config save. It fell to the
- * miss path, and `onMiss`'s contract is a hard `wb:error` with `kind: 'fetch'` and
- * the URL in it, so restarting the server told the designer their scene had made an
- * unmocked request. Vite swallows the throw and HMR still recovers, which is what
- * kept it quiet. `/__open-in-editor` is the error overlay's click target.
+ *     // vite/dist/client/client.mjs
+ *     fetch(new URL(`${base}__open-in-editor?file=${encodeURIComponent(file)}`, …))
  *
- * Matched exactly, not by a `/__` prefix: that would also pass a consumer route
- * like `/__admin` straight out of the frame, which is the thing this guard exists
- * to prevent.
+ * It is not a module request, so it matches none of the prefixes below and fell to
+ * the miss path — and `onMiss`'s contract is a hard `wb:error` with `kind: 'fetch'`
+ * naming the URL. Clicking a stack frame in the overlay therefore reported the
+ * designer's own scene as having made an unmocked request.
+ *
+ * Matched on the last segment, not by a whole-path equality: the client prefixes the
+ * consumer's `base`, which the frame cannot know. Not by a bare `/__` prefix either
+ * — that would pass a consumer route like `/__admin` straight out of the frame,
+ * which is what this guard exists to prevent.
+ *
+ * There is deliberately no `/__vite_ping` here. Vite 2 served one over HTTP; 6.4.3
+ * does not — `waitForSuccessfulPing` opens a WebSocket (`new WebSocket(socketUrl,
+ * 'vite-ping')`) and the string appears nowhere in its dist. Listing it would be a
+ * passthrough for a path only a consumer could own.
  */
-const VITE_DEV_PATHS = new Set(['/__vite_ping', '/__open-in-editor']);
+const VITE_DEV_PATH_RE = /(?:^|\/)__open-in-editor$/;
 
 /** A fixture answer: JSON body, or a full `Response` for the odd status test. */
 export type FixtureValue = unknown | Response;
@@ -104,19 +110,23 @@ export function installFetchGuard(opts: FetchGuardOptions): void {
     const { path, full } = keyOf(input);
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
 
-    // Vite's own dev traffic (HMR ping, module fetches) and the editor's own mount
-    // are ours and must pass through untouched, or the frame cannot hot-update
-    // itself and cannot reach the bridge.
+    // Vite's own dev traffic (module fetches, the overlay's open-in-editor) and the
+    // editor's own mount are ours and must pass through untouched, or the frame
+    // cannot hot-update itself and cannot reach the bridge.
     //
     // `BASE`, not the prototype's literal `/__design-sdk/`: that namespace does not
     // exist in the shipped plugin, so every request to the editor's own routes fell
     // through to the miss path below and THREW. Deriving it means the passthrough
     // cannot drift from the mount again.
+    //
+    // `BASE` itself, not only `${BASE}/…` — the shell serves the mount point, and a
+    // trailing-slash-less request to it is the same route.
     if (
       path.startsWith('/@') ||
+      path === BASE ||
       path.startsWith(`${BASE}/`) ||
       path.startsWith('/node_modules/') ||
-      VITE_DEV_PATHS.has(path)
+      VITE_DEV_PATH_RE.test(path)
     ) {
       return real(input as RequestInfo, init);
     }

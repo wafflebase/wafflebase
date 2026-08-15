@@ -99,25 +99,30 @@ describe('resolveImport', () => {
     expect(resolveImport('a/b.tsx', '@/../../x', ALIASES)).toBeNull();
   });
 
-  it('prefers the longest matching alias when one NESTS inside another', () => {
-    // The sort only decides the case where two aliases both match at a segment
-    // boundary, which needs one find to be a path-prefix of the other. `@` vs `@ui`
-    // is NOT that case — `@ui/button` does not start with `@/`, so the segment
-    // check already excludes `@` and the order is irrelevant. `@app` vs
-    // `@app/design` is, and there the consumer meant the more specific one.
-    const nested: AliasEntry[] = [
+  it('takes the FIRST matching alias, as the bundler does', () => {
+    // Order decides anything only when one find is a path-segment prefix of another.
+    // `@` vs `@ui` is NOT that case — `@ui/button` does not start with `@/`, so the
+    // segment check excludes `@` whatever the order. `@app` vs `@app/design` is.
+    //
+    // The two orders are asserted to give DIFFERENT answers, which is the point:
+    // `@rollup/plugin-alias` resolves with `entries.find(...)`, so the file on screen
+    // is whichever alias the consumer listed first. A longest-first sort returned the
+    // same file for both orders, and therefore disagreed with the bundler for one of
+    // them — a drill-in opening a file other than the one rendering.
+    const outerFirst: AliasEntry[] = [
       { find: '@app', replacement: 'app' },
       { find: '@app/design', replacement: 'packages/design/src' },
     ];
-    expect(resolveImport('a/b.tsx', '@app/design/button', nested)).toBe(
+    expect(resolveImport('a/b.tsx', '@app/design/button', outerFirst)).toBe(
+      'app/design/button.tsx',
+    );
+    expect(resolveImport('a/b.tsx', '@app/design/button', [...outerFirst].reverse())).toBe(
       'packages/design/src/button.tsx',
     );
-    // Reversing the input must not change the answer.
-    expect(resolveImport('a/b.tsx', '@app/design/button', [...nested].reverse())).toBe(
-      'packages/design/src/button.tsx',
+    // A non-matching alias is skipped, so a later one still gets its turn.
+    expect(resolveImport('a/b.tsx', '@app/pages/home', [...outerFirst].reverse())).toBe(
+      'app/pages/home.tsx',
     );
-    // The outer alias still resolves everything the inner one does not claim.
-    expect(resolveImport('a/b.tsx', '@app/pages/home', nested)).toBe('app/pages/home.tsx');
   });
 
   it('resolves nothing but relative paths when the project has no aliases', () => {

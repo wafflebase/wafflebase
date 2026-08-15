@@ -85,13 +85,22 @@ const aliasMatch = (module: string, find: string): string | null => {
 /**
  * Resolve one import specifier against the consumer's aliases.
  *
- * Aliases are tried LONGEST FIRST, mirroring how a resolver has to behave when one
- * alias prefixes another (`@` and `@ui` both matching `@ui/button`): the more
- * specific alias is the one the consumer meant, and trying `@` first would send the
- * drill-in to `<@-root>/ui/button` instead. Vite's own resolver is order-sensitive
- * on the configured array rather than length-sorted, so this is deliberately NOT a
- * faithful copy of it — a drill-in target is a read, and picking the more specific
- * of two candidates is the safer failure.
+ * Aliases are tried IN CONFIGURED ORDER, first match wins — because that is what the
+ * bundler does, and the bundler decides which file is actually on screen.
+ * `@rollup/plugin-alias`, which Vite uses, is explicit about it:
+ *
+ *     // First match is supposed to be the correct one
+ *     const matchedEntry = entries.find((entry) => matches(entry.find, importee));
+ *
+ * An earlier version sorted longest-first, reasoning that the more specific alias is
+ * the one the consumer meant. Intent is not what resolves the import: with `@app`
+ * listed before `@app/design`, Vite loads `app/design/button` while the sort pointed
+ * the drill-in at `packages/design/src/button.tsx`. Confidently opening a different
+ * file from the one rendering is the wrong anchor this module must never produce.
+ *
+ * Order decides anything only when one find is a path-segment prefix of another
+ * (`@app` vs `@app/design`). `@` vs `@ui` is not that case — `@ui/button` does not
+ * start with `@/`, so `aliasMatch` excludes it whatever the order.
  */
 export function resolveImport(
   fromFile: string,
@@ -102,8 +111,7 @@ export function resolveImport(
     const dir = fromFile.split('/').slice(0, -1).join('/');
     return fileAt(joinPosix(dir, module));
   }
-  const sorted = [...aliases].sort((a, b) => b.find.length - a.find.length);
-  for (const { find, replacement } of sorted) {
+  for (const { find, replacement } of aliases) {
     const rest = aliasMatch(module, find);
     if (rest === null) continue;
     // A BARE ALIAS SPECIFIER NAMES THE REPLACEMENT ITSELF, which is a file only

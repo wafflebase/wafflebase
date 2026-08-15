@@ -56,6 +56,18 @@ interface FrameSnapshot {
 
 const STAMPED = '[data-wb-fp]';
 
+/**
+ * A fingerprint as an attribute selector, escaped.
+ *
+ * `fp` is read off the DOM, not produced by `fpOf`, so a `"` or `\` in it is
+ * reachable — a component forwarding a stale attribute, a hand-edited node. Left
+ * raw, `querySelector` throws `SyntaxError: Invalid selector`, and the throw
+ * aborts the restore loop BEFORE the page scroll and the focus restoration: one
+ * malformed entry loses every remaining restoration for that patch. `frame-picker`
+ * already escapes for the same reason; this keeps the two scene modules agreeing.
+ */
+const fpSelector = (fp: string) => `[data-wb-fp="${fp.replace(/[\\"]/g, '\\$&')}"]`;
+
 function nearestFp(el: Element | null): string | null {
   return el?.closest(STAMPED)?.getAttribute('data-wb-fp') ?? null;
 }
@@ -111,7 +123,7 @@ export function captureFrameState(): FrameSnapshot {
  */
 export function restoreFrameState(snap: FrameSnapshot): void {
   for (const s of snap.scrolls) {
-    const el = document.querySelector<HTMLElement>(`[data-wb-fp="${s.fp}"]`);
+    const el = document.querySelector<HTMLElement>(fpSelector(s.fp));
     if (el) {
       el.scrollTop = s.top;
       el.scrollLeft = s.left;
@@ -120,7 +132,7 @@ export function restoreFrameState(snap: FrameSnapshot): void {
   window.scrollTo(snap.windowScroll.x, snap.windowScroll.y);
 
   if (!snap.activeFp) return;
-  const el = document.querySelector<HTMLElement>(`[data-wb-fp="${snap.activeFp}"]`);
+  const el = document.querySelector<HTMLElement>(fpSelector(snap.activeFp));
   if (!el) return;
   const target = isTextField(el) ? el : (el.querySelector<HTMLElement>('input,textarea') ?? el);
   target.focus({ preventScroll: true });

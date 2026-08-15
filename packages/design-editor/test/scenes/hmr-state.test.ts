@@ -169,4 +169,31 @@ describe('restoreFrameState', () => {
       }),
     ).not.toThrow();
   });
+
+  it('survives a fingerprint containing selector syntax', () => {
+    // `fp` is read off the DOM, not produced by `fpOf`, so a `"` or `\` in it is
+    // reachable — a component forwarding a stale attribute, a hand-edited node.
+    // Interpolated raw, `querySelector` throws `SyntaxError: Invalid selector`, and
+    // the throw aborts the loop BEFORE the page scroll and the focus restoration, so
+    // one malformed entry loses every remaining restoration for that patch.
+    const odd = stamped('input', 'a"b\\c') as HTMLInputElement;
+    const later = scrollable('fp-list', 0);
+    document.body.append(odd, later);
+
+    expect(() =>
+      restoreFrameState({
+        activeFp: 'a"b\\c',
+        selection: null,
+        scrolls: [
+          { fp: 'a"b\\c', top: 5, left: 0 },
+          { fp: 'fp-list', top: 240, left: 12 },
+        ],
+        windowScroll: { x: 0, y: 0 },
+      }),
+    ).not.toThrow();
+
+    // The escaped node resolves, and the ordinary entry AFTER it still runs.
+    expect(document.activeElement).toBe(odd);
+    expect([later.scrollTop, later.scrollLeft]).toEqual([240, 12]);
+  });
 });
