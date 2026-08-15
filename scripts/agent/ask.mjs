@@ -29,7 +29,7 @@
 // rule above exists to keep the pure helpers testable without the SDK on disk,
 // and token-pool.mjs has no dependencies at all.
 import { createTokenPool, poolEnvNames } from "./token-pool.mjs";
-import { classifyInfraError, redactSecrets, renderInfraError } from "./redact.mjs";
+import { SESSION_LIMIT_RE, classifyInfraError, redactSecrets, renderInfraError } from "./redact.mjs";
 
 /**
  * The COMPLETE set of tools any agent spawned through this wrapper may ever be
@@ -235,7 +235,9 @@ export function assertBoundaryMatchesSdk(sdk) {
  * reported correctly. Whereas mis-classifying a transient error as permanent
  * pages a human for nothing, which is the expensive mistake.
  */
-const SESSION_LIMIT_RE = /\b(?:session|usage)\s+limit\b/i;
+// Imported, not re-declared. This file and redact.mjs each held their own copy
+// with a comment promising they matched; see SESSION_LIMIT_RE's docblock in
+// redact.mjs for the outage that promise did not survive.
 
 /**
  * Is another attempt at this HTTP status plausibly worth making?
@@ -552,10 +554,11 @@ export function credentialEnv(authToken) {
 /**
  * Is this a CLOSED USAGE WINDOW on the account, rather than any other failure?
  *
- * The one error where switching credentials is the fix. Deliberately narrow:
- * `classifyResult` also marks a 401 and our own turn ceilings non-retryable, and
- * failing over on those would burn the entire pool on a problem no other token
- * can solve — a bad secret would look exactly like "we are out of quota".
+ * One of the two errors where switching credentials is the fix; see
+ * `isCredentialRejected` for the other, and `nextCredential` for why the split
+ * matters. Still deliberately narrow: our own turn ceilings are also
+ * non-retryable, and failing over on those would burn the pool on a problem no
+ * other token can solve.
  */
 export function isAccountLimit(err) {
   if (!err || err.kind !== "api-error") return false;
@@ -566,6 +569,71 @@ export function isAccountLimit(err) {
   // do — and for any failure that never passed through `classifyResult`.
   if (err.code) return err.code === "USAGE_LIMIT";
   return SESSION_LIMIT_RE.test(String(err.detail ?? ""));
+}
+
+/**
+ * Was THIS credential refused, rather than the request being wrong?
+ *
+ * A 401/403 is a fact about one secret, and in a pool of independent accounts
+ * the other members are unaffected — so it is a failover, not a stop.
+ *
+ * This reverses an earlier rule, and the reasoning it reverses was sound for the
+ * shape it was written against. When there was one credential, a 401 could only
+ * mean "the secret is wrong", failing over could only re-find the same wrong
+ * secret, and burning the pool to learn that was pure waste. A pool of separate
+ * accounts breaks that premise: one slot expiring leaves the rest valid, and
+ * refusing to move made a per-slot fault behave like a total outage. Measured —
+ * one of four pool secrets expired, `selectStartIndex` handed roughly a quarter
+ * of runs to it, and each of those runs died on the first call with three good
+ * credentials in the same process.
+ *
+ * The old rule's fear is real but cheap: if EVERY credential is genuinely bad,
+ * this walks the whole pool before giving up. That costs one rejected round trip
+ * per slot — seconds, since a refusal returns immediately — and the pool then
+ * reports that every credential was rejected, which is a better diagnosis than
+ * the first slot's error stated as though it were the pool's.
+ *
+ * Keyed on `code` first for the same reason as `isAccountLimit`: it is decided
+ * from the raw text before redaction. The status fallback covers callers that
+ * construct a bare `{ kind, status }` without going through `classifyResult`.
+ */
+export function isCredentialRejected(err) {
+  if (!err || err.kind !== "api-error") return false;
+  if (err.code) return err.code === "AUTH_REJECTED";
+  const status = Number(err.status);
+  return status === 401 || status === 403;
+}
+
+/**
+ * The failure for "the pool had credentials, and every one of them is retired".
+ *
+ * One builder, because the condition is reachable from TWO places and they must
+ * not disagree: before the first session opens (a sibling in this process
+ * drained the pool), and inside the failover loop when the last live credential
+ * is retired. The loop used to rethrow the last slot's own error there, so the
+ * SAME outcome was reported as "credentials rejected" or "usage limit" — the
+ * first thing an operator reads would name one slot's problem as though it were
+ * the pool's, and which of the two messages you got depended on call ordering.
+ *
+ * Exported so the shape is testable without opening a session: this suite
+ * deliberately never lets `askStructured` past its validation gate, because that
+ * would burn a paid session from a unit test.
+ *
+ * The wording stays on WHAT HAPPENED (retired) rather than WHY. A slot is
+ * retired for a closed window OR a refused credential, and the two remedies are
+ * opposite — wait for a reset, versus rotate a secret. Naming one of them here
+ * would send an operator the wrong way half the time. Nothing is lost by
+ * omitting it: every failing session is already pushed to `sessionLog` with its
+ * own code before it throws, and `Agent SDK Auth Smoke Test` answers "which
+ * secret" definitively, per name.
+ */
+export function poolExhaustedError({ label, pool }) {
+  const err = new Error(
+    `${label}: every credential in the pool (${pool.size}) was retired — nothing left to fail over to`,
+  );
+  err.kind = "pool-exhausted";
+  err.retryable = false;
+  return err;
 }
 
 /**
@@ -600,9 +668,29 @@ export function __setTokenPool(pool = null) {
  * concurrency would drain the pool in a single round.
  */
 export function nextCredential({ pool, err, authToken }) {
-  if (!isAccountLimit(err)) return null;
+  if (!isAccountLimit(err) && !isCredentialRejected(err)) return null;
   const next = pool.advance(err.detail, authToken);
   return !next || next === authToken ? null : next;
+}
+
+/**
+ * What the failover loop does with one failed session: `{ next }` to retry on
+ * another credential, or `{ error }` to give up and throw.
+ *
+ * Pure and exported for the same reason `nextCredential` is — the loop that uses
+ * it can only be entered by opening a real session, which this suite refuses to
+ * do, so the decision has to be testable on its own or it is not tested at all.
+ *
+ * The `error` branch is where the two shapes of "give up" are separated. A
+ * failure no credential can fix belongs to the caller and is rethrown as-is. A
+ * failure that retired the LAST live slot belongs to the pool: rethrowing the
+ * slot's own error there reported one account's problem as the pool's verdict,
+ * and made the message depend on whether this call or a sibling drained it.
+ */
+export function failoverStep({ pool, err, authToken, label }) {
+  const next = nextCredential({ pool, err, authToken });
+  if (next !== null) return { next };
+  return { error: pool.isExhausted() ? poolExhaustedError({ label, pool }) : err };
 }
 
 /**
@@ -641,19 +729,18 @@ export async function askStructured({
   const pool = tokenPool();
   // A drained pool must FAIL, not fall through to ambient resolution. `current()`
   // is null for both "no pool configured" (fall through — correct) and "every
-  // window closed", and in these workflows the ambient credential is slot zero:
-  // one the pool has already retired. Falling through would spend a live call to
-  // fail the same way, or report "not logged in" for a pool that is merely out
-  // of quota. Non-retryable so the caller's `withRetry` does not back off around
-  // a condition that cannot clear in-run.
-  if (pool.isExhausted()) {
-    const err = new Error(
-      `${label}: every credential in the pool (${pool.size}) has hit its usage limit — nothing left to fail over to`,
-    );
-    err.kind = "pool-exhausted";
-    err.retryable = false;
-    throw err;
-  }
+  // credential retired", and in these workflows the ambient credential is slot
+  // zero: one the pool has already retired. Falling through would spend a live
+  // call to fail the same way, or report "not logged in" for a pool that is
+  // merely out of quota. Non-retryable so the caller's `withRetry` does not back
+  // off around a condition that cannot clear in-run.
+  //
+  // The wording stays on WHAT HAPPENED (retired) rather than WHY. A slot is now
+  // retired for a closed window OR a refused credential, and the two remedies are
+  // opposite — wait for a reset, versus rotate a secret. Naming one of them here
+  // would send an operator the wrong way half the time; the per-slot reason is in
+  // the run log above, and `Agent SDK Auth Smoke Test` answers it definitively.
+  if (pool.isExhausted()) throw poolExhaustedError({ label, pool });
   let authToken = pool.current();
 
   // Built BEFORE the dynamic import, because it validates the tool grant: a bad
@@ -667,14 +754,14 @@ export async function askStructured({
     try {
       return await runSession({ options, prompt, sessionLog, logMeta, label });
     } catch (err) {
-      // Null covers both "not a closed window" and "pool dry", and rethrowing is
-      // right for both. Every other failure belongs to the caller: `withRetry`
-      // still owns the transient ones, and a non-retryable error another
-      // credential cannot fix (a bad token, our own turn ceiling) must not burn
-      // the pool looking for one that can.
-      const next = nextCredential({ pool, err, authToken });
-      if (next === null) throw err;
-      authToken = next;
+      // Null covers both "no other credential could help" and "pool dry", and
+      // rethrowing is right for both. Every other failure belongs to the caller:
+      // `withRetry` still owns the transient ones, and a non-retryable error no
+      // credential can fix (our own turn ceiling, a malformed request) must not
+      // burn the pool looking for one that can.
+      const step = failoverStep({ pool, err, authToken, label });
+      if (step.error) throw step.error;
+      authToken = step.next;
       options = { ...options, env: credentialEnv(authToken) };
     }
   }

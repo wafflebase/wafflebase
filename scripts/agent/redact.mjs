@@ -281,8 +281,28 @@ const RUN_LIMIT_CODES = new Map([
   ["error_max_structured_output_retries", "RUN_LIMIT_OUTPUT_RETRIES"],
 ]);
 
-/** Session/usage limit prose, matching `ask.mjs`'s own rule for the same text. */
-const SESSION_LIMIT_RE = /\b(?:session|usage)\s+limit\b/i;
+/**
+ * A closed usage window on the ACCOUNT, in the upstream's own prose.
+ *
+ * Exported and imported by `ask.mjs` rather than copied there. The two were
+ * separate constants with a comment on each promising they matched, and they
+ * drifted the moment one of them had to grow: this rule decides `USAGE_LIMIT`,
+ * `USAGE_LIMIT` is the ONLY thing `isAccountLimit` fails over on, so a period
+ * this pattern misses is a period the credential pool cannot route around.
+ *
+ * The period alternation is the fix for a live outage. "You've hit your weekly
+ * limit · resets 11pm (UTC)" matched neither `session` nor `usage`, so it fell
+ * through to `RATE_LIMITED` (it arrives under a 429) — retryable, never a
+ * failover — and one account's weekly window froze the review panel across
+ * every open PR in the repo while three healthy credentials sat unused.
+ *
+ * `session|usage|weekly|daily|monthly` is a closed set of billing periods, not
+ * a widening. The earlier over-match this file's history warns about came from
+ * unanchored fragments (`resets?\b` catching `ECONNRESET`, bare `quota`); every
+ * member here is still anchored to a literal ` limit`, so the pattern can only
+ * match text that already says a limit was reached.
+ */
+export const SESSION_LIMIT_RE = /\b(?:session|usage|weekly|daily|monthly)\s+limit\b/i;
 
 /**
  * An upstream request id, e.g. `req_011CQVdF7Wt3xYzAbCdEfGh`.

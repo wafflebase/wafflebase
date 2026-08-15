@@ -161,7 +161,15 @@ test("classifyInfraError: every branch, and no upstream text in the output", () 
     [{ status: 401, detail: "invalid x-api-key" }, "AUTH_REJECTED"],
     [{ status: 403, detail: "forbidden" }, "AUTH_REJECTED"],
     [{ status: 429, detail: "You've hit your session limit" }, "USAGE_LIMIT"],
+    // The live outage: a weekly window arrives under a 429 like the others, and
+    // reading it as RATE_LIMITED made it retryable and un-failoverable, so one
+    // account's reset froze the review panel across every open PR.
+    [{ status: 429, detail: "You've hit your weekly limit · resets 11pm (UTC)" }, "USAGE_LIMIT"],
+    [{ status: 429, detail: "daily limit reached" }, "USAGE_LIMIT"],
+    [{ status: 429, detail: "monthly limit reached" }, "USAGE_LIMIT"],
+    // Still a plain rate limit: the period words only count next to ` limit`.
     [{ status: 429, detail: "rate limit exceeded" }, "RATE_LIMITED"],
+    [{ status: 429, detail: "too many requests this week" }, "RATE_LIMITED"],
     [{ status: 529, detail: "overloaded_error" }, "UPSTREAM_ERROR"],
     [{ status: "weird", detail: "?" }, "UPSTREAM_ERROR"],
     [{ status: null, detail: "fetch failed" }, "NO_RESPONSE"],

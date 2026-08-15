@@ -15,7 +15,11 @@ import {
   classifyResult,
   withRetry,
   isAccountLimit,
+  isCredentialRejected,
   nextCredential,
+  poolExhaustedError,
+  failoverStep,
+  __setTokenPool,
   credentialEnv,
 } from "./ask.mjs";
 import { createTokenPool, poolEnvNames } from "./token-pool.mjs";
@@ -222,8 +226,11 @@ test("credentialEnv: the failover path builds the same shape as the first attemp
 test("isAccountLimit: only a closed usage window, never another non-retryable failure", () => {
   assert.ok(isAccountLimit({ kind: "api-error", detail: "You've hit your session limit · resets 3:30pm (UTC)" }));
   assert.ok(isAccountLimit({ kind: "api-error", detail: "usage limit reached" }));
-  // A bad secret is the dangerous near-miss: failing over on a 401 would retire
-  // every healthy token in the pool over a problem none of them can fix.
+  // Every billing period, not just the two this rule started with: a `weekly
+  // limit` that reads as anything else is a window the pool cannot route around.
+  assert.ok(isAccountLimit({ kind: "api-error", detail: "You've hit your weekly limit · resets 11pm (UTC)" }));
+  // A refused credential is a failover too, but NOT a limit — the remedy is to
+  // rotate the secret, not to wait for a reset, and `isCredentialRejected` owns it.
   assert.equal(isAccountLimit({ kind: "api-error", status: 401, detail: "invalid x-api-key" }), false);
   // Our OWN ceilings, which classifyResult also marks non-retryable.
   assert.equal(isAccountLimit({ kind: "limit", detail: "error_max_turns after 9 turns" }), false);
@@ -246,17 +253,111 @@ test("nextCredential: a closed window moves to the next token", () => {
   assert.equal(nextCredential({ pool, err, authToken: "a" }), "b");
 });
 
-test("nextCredential: anything that is not a closed window gives up immediately", () => {
+test("nextCredential: a failure no other credential can fix gives up immediately", () => {
   const pool = fakePool(["a", "b"]);
   for (const err of [
-    { kind: "api-error", status: 401, detail: "invalid x-api-key" },
     { kind: "limit", detail: "error_max_turns after 9 turns" },
     { kind: "api-error", status: 529, detail: "overloaded" },
+    { kind: "api-error", status: 400, detail: "malformed schema" },
+    { kind: "no-output", detail: "subtype=error" },
   ]) {
     assert.equal(nextCredential({ pool, err, authToken: "a" }), null, err.detail);
   }
   // …and none of them consumed a credential.
   assert.equal(pool.retiredCount(), 0);
+});
+
+test("isCredentialRejected: one refused secret, not a verdict on the pool", () => {
+  assert.ok(isCredentialRejected({ kind: "api-error", code: "AUTH_REJECTED", detail: "<REDACTED>" }));
+  // Status fallback, for callers that never went through classifyResult.
+  assert.ok(isCredentialRejected({ kind: "api-error", status: 401, detail: "invalid x-api-key" }));
+  assert.ok(isCredentialRejected({ kind: "api-error", status: 403, detail: "forbidden" }));
+  // `code` wins over prose, exactly as in isAccountLimit: a redacted detail must
+  // not be able to talk the classifier out of the code it was given.
+  assert.equal(isCredentialRejected({ kind: "api-error", code: "USAGE_LIMIT", detail: "401" }), false);
+  assert.equal(isCredentialRejected({ kind: "api-error", status: 429, detail: "rate limited" }), false);
+  assert.equal(isCredentialRejected({ kind: "limit", status: 401, detail: "error_max_turns" }), false);
+  for (const bad of [null, undefined, {}, { kind: "api-error" }]) {
+    assert.equal(isCredentialRejected(bad), false, JSON.stringify(bad));
+  }
+});
+
+test("nextCredential: a refused credential fails over to a healthy one", () => {
+  // The regression this exists for: one of four pool secrets expired, roughly a
+  // quarter of runs sharded onto it, and every one of those died on its first
+  // call while three valid credentials sat unused in the same process.
+  const pool = fakePool(["dead", "good"]);
+  const err = { kind: "api-error", code: "AUTH_REJECTED", status: 401, detail: "<REDACTED>" };
+  assert.equal(nextCredential({ pool, err, authToken: "dead" }), "good");
+  assert.equal(pool.retiredCount(), 1);
+});
+
+test("poolExhaustedError: one report for a drained pool, whatever drained it", () => {
+  // The two callers must not disagree. Before this was one builder, the entry
+  // guard said "every credential retired" while the failover loop rethrew the
+  // last slot's own error, so the same outcome read as "credentials rejected"
+  // or "usage limit" depending on call ordering — one account's problem
+  // published as the pool's verdict.
+  const err = poolExhaustedError({ label: "reviewer", pool: fakePool(["a", "b"]) });
+  assert.match(err.message, /^reviewer: every credential in the pool \(2\) was retired/);
+  assert.equal(err.kind, "pool-exhausted");
+  assert.equal(err.retryable, false, "withRetry must not back off around a condition that cannot clear in-run");
+  // Nothing upstream may ride out on it: this message IS published verbatim by
+  // review-panel.mjs's non-infra path.
+  assert.ok(!/401|OAuth|limit ·/.test(err.message), err.message);
+});
+
+test("askStructured: a pool drained by a sibling fails before any session opens", async () => {
+  // The entry-guard half of the same condition, and the only half reachable
+  // without opening a session — this suite deliberately never lets
+  // askStructured past its validation gate (see the note above buildSessionOptions).
+  const pool = fakePool(["a"]);
+  pool.advance("session limit", "a");
+  assert.ok(pool.isExhausted());
+  __setTokenPool(pool);
+  try {
+    await assert.rejects(
+      () => askStructured({ prompt: "x", schema: {}, allowedTools: ["Read"] }),
+      /every credential in the pool \(1\) was retired/,
+    );
+  } finally {
+    __setTokenPool(null);
+  }
+});
+
+test("failoverStep: the last retired slot reports the POOL, not that slot", () => {
+  const pool = fakePool(["a", "b"]);
+  const rejected = { kind: "api-error", code: "AUTH_REJECTED", status: 401, detail: "<REDACTED>" };
+
+  // Still a live credential left → retry on it.
+  assert.deepEqual(failoverStep({ pool, err: rejected, authToken: "a", label: "reviewer" }), { next: "b" });
+
+  // That retired the last one → the pool's failure, not the slot's. Before this
+  // split, the loop rethrew `rejected` here and an operator's first line read
+  // "credentials rejected" for a pool that was simply used up.
+  const drained = failoverStep({ pool, err: rejected, authToken: "b", label: "reviewer" });
+  assert.equal(drained.next, undefined);
+  assert.equal(drained.error.kind, "pool-exhausted");
+  assert.match(drained.error.message, /every credential in the pool \(2\) was retired/);
+
+  // A failure no credential can fix still belongs to the caller, untouched —
+  // wrapping it would hide a turn ceiling behind a credential story.
+  const ceiling = { kind: "limit", detail: "error_max_turns after 9 turns" };
+  const fresh = fakePool(["x", "y"]);
+  assert.equal(failoverStep({ pool: fresh, err: ceiling, authToken: "x", label: "reviewer" }).error, ceiling);
+  assert.equal(fresh.retiredCount(), 0);
+});
+
+test("nextCredential: an all-bad pool drains and stops, it does not loop", () => {
+  // The cost the old rule was written to avoid, now bounded and paid on purpose:
+  // walking a wholly-bad pool costs one refusal per slot and ends with the pool
+  // reporting that every credential was retired.
+  const pool = fakePool(["a", "b"]);
+  const err = { kind: "api-error", code: "AUTH_REJECTED", status: 401, detail: "<REDACTED>" };
+  assert.equal(nextCredential({ pool, err, authToken: "a" }), "b");
+  assert.equal(nextCredential({ pool, err, authToken: "b" }), null);
+  assert.equal(pool.retiredCount(), 2);
+  assert.ok(pool.isExhausted());
 });
 
 test("nextCredential: a dry pool gives up rather than looping", () => {
