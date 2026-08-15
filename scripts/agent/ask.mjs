@@ -605,6 +605,38 @@ export function isCredentialRejected(err) {
 }
 
 /**
+ * The failure for "the pool had credentials, and every one of them is retired".
+ *
+ * One builder, because the condition is reachable from TWO places and they must
+ * not disagree: before the first session opens (a sibling in this process
+ * drained the pool), and inside the failover loop when the last live credential
+ * is retired. The loop used to rethrow the last slot's own error there, so the
+ * SAME outcome was reported as "credentials rejected" or "usage limit" — the
+ * first thing an operator reads would name one slot's problem as though it were
+ * the pool's, and which of the two messages you got depended on call ordering.
+ *
+ * Exported so the shape is testable without opening a session: this suite
+ * deliberately never lets `askStructured` past its validation gate, because that
+ * would burn a paid session from a unit test.
+ *
+ * The wording stays on WHAT HAPPENED (retired) rather than WHY. A slot is
+ * retired for a closed window OR a refused credential, and the two remedies are
+ * opposite — wait for a reset, versus rotate a secret. Naming one of them here
+ * would send an operator the wrong way half the time. Nothing is lost by
+ * omitting it: every failing session is already pushed to `sessionLog` with its
+ * own code before it throws, and `Agent SDK Auth Smoke Test` answers "which
+ * secret" definitively, per name.
+ */
+export function poolExhaustedError({ label, pool }) {
+  const err = new Error(
+    `${label}: every credential in the pool (${pool.size}) was retired — nothing left to fail over to`,
+  );
+  err.kind = "pool-exhausted";
+  err.retryable = false;
+  return err;
+}
+
+/**
  * The credential pool for this process, built once.
  *
  * Module-scoped because exhaustion is a fact about the ACCOUNT, not about one
@@ -639,6 +671,26 @@ export function nextCredential({ pool, err, authToken }) {
   if (!isAccountLimit(err) && !isCredentialRejected(err)) return null;
   const next = pool.advance(err.detail, authToken);
   return !next || next === authToken ? null : next;
+}
+
+/**
+ * What the failover loop does with one failed session: `{ next }` to retry on
+ * another credential, or `{ error }` to give up and throw.
+ *
+ * Pure and exported for the same reason `nextCredential` is — the loop that uses
+ * it can only be entered by opening a real session, which this suite refuses to
+ * do, so the decision has to be testable on its own or it is not tested at all.
+ *
+ * The `error` branch is where the two shapes of "give up" are separated. A
+ * failure no credential can fix belongs to the caller and is rethrown as-is. A
+ * failure that retired the LAST live slot belongs to the pool: rethrowing the
+ * slot's own error there reported one account's problem as the pool's verdict,
+ * and made the message depend on whether this call or a sibling drained it.
+ */
+export function failoverStep({ pool, err, authToken, label }) {
+  const next = nextCredential({ pool, err, authToken });
+  if (next !== null) return { next };
+  return { error: pool.isExhausted() ? poolExhaustedError({ label, pool }) : err };
 }
 
 /**
@@ -688,14 +740,7 @@ export async function askStructured({
   // opposite — wait for a reset, versus rotate a secret. Naming one of them here
   // would send an operator the wrong way half the time; the per-slot reason is in
   // the run log above, and `Agent SDK Auth Smoke Test` answers it definitively.
-  if (pool.isExhausted()) {
-    const err = new Error(
-      `${label}: every credential in the pool (${pool.size}) was retired — nothing left to fail over to`,
-    );
-    err.kind = "pool-exhausted";
-    err.retryable = false;
-    throw err;
-  }
+  if (pool.isExhausted()) throw poolExhaustedError({ label, pool });
   let authToken = pool.current();
 
   // Built BEFORE the dynamic import, because it validates the tool grant: a bad
@@ -714,9 +759,9 @@ export async function askStructured({
       // `withRetry` still owns the transient ones, and a non-retryable error no
       // credential can fix (our own turn ceiling, a malformed request) must not
       // burn the pool looking for one that can.
-      const next = nextCredential({ pool, err, authToken });
-      if (next === null) throw err;
-      authToken = next;
+      const step = failoverStep({ pool, err, authToken, label });
+      if (step.error) throw step.error;
+      authToken = step.next;
       options = { ...options, env: credentialEnv(authToken) };
     }
   }
