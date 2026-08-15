@@ -22,6 +22,16 @@ FRONTEND_URL=http://localhost:5173
 DATABASE_URL=postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
 JWT_SECRET=your_jwt_secret
 JWT_REFRESH_SECRET=your_refresh_secret   # Optional, defaults to JWT_SECRET
+OAUTH_STATE_SECRET=                      # Optional. Key the OAuth login
+                                        # bindings are signed with. Unset
+                                        # (default) it is HKDF-derived from
+                                        # JWT_SECRET, so nothing has to be
+                                        # configured; set it to an
+                                        # independent high-entropy value if
+                                        # you want the `state` published by
+                                        # the unauthenticated
+                                        # GET /auth/github to carry no
+                                        # relation to the session key at all.
 JWT_ACCESS_EXPIRES_IN=1h                # Optional
 JWT_REFRESH_EXPIRES_IN=7d               # Optional
 JWT_ACCESS_COOKIE_MAX_AGE_MS=3600000    # Optional

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { CliAuthStore } from './cli-auth.store';
 import {
+  bindingSecret,
   CLI_CONFIRM_COOKIE,
   CLI_CONFIRM_PARAM,
   CLI_STATE_COOKIE,
@@ -400,7 +401,7 @@ describe('GitHubAuthGuard', () => {
     // matching pair — which is what `__Host-` below is for.
     expect(state.slice(WEB_STATE_PREFIX.length)).not.toBe(cookies[0].value);
     expect(state.slice(WEB_STATE_PREFIX.length)).toBe(
-      stateSignature(SECRET, cookies[0].value),
+      stateSignature(bindingSecret(configService), cookies[0].value),
     );
     // Attributes are the control, not decoration: without httpOnly a script
     // reads the half it is not supposed to have, and `path=/` is what the
@@ -410,6 +411,46 @@ describe('GitHubAuthGuard', () => {
       sameSite: 'lax',
       path: '/',
       maxAge: 5 * 60 * 1000,
+    });
+  });
+
+  // One unauthenticated `GET /auth/github` publishes both halves of a
+  // signature: the input in `Set-Cookie`, the output in `state`. Signing that
+  // with `JWT_SECRET` itself made an anonymous request a verified (input, MAC)
+  // pair under the key that signs every session token. The binding key is
+  // HKDF-derived instead, so the published pair is a pair under a subkey and
+  // nothing else uses it.
+  describe('binding key separation', () => {
+    it('does not sign the state with `JWT_SECRET` itself', () => {
+      const { req, cookies, context } = contextFor({});
+      guard.canActivate(context);
+
+      const published = (req.__oauthState as string).slice(
+        WEB_STATE_PREFIX.length,
+      );
+      expect(published).not.toBe(stateSignature(SECRET, cookies[0].value));
+      expect(bindingSecret(configService)).not.toBe(SECRET);
+    });
+
+    // Deterministic, so a callback may land on a different replica than the
+    // start — the reason the browser flow needs no server-side entry at all.
+    it('derives the same key on every call', () => {
+      expect(bindingSecret(configService)).toBe(bindingSecret(configService));
+    });
+
+    // A deployment that wants the published pair to say nothing at all about
+    // its session key can supply an independent one.
+    it('prefers an explicitly configured `OAUTH_STATE_SECRET`', () => {
+      const dedicated = {
+        get: (key: string) =>
+          key === 'OAUTH_STATE_SECRET'
+            ? 'independent-state-secret'
+            : key === 'JWT_SECRET'
+              ? SECRET
+              : undefined,
+      } as unknown as ConfigService;
+
+      expect(bindingSecret(dedicated)).toBe('independent-state-secret');
     });
   });
 

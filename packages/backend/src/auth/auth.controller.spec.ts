@@ -6,7 +6,7 @@ import { UserService } from 'src/user/user.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { CliAuthStore } from './cli-auth.store';
-import { stateSignature } from './github-auth.guard';
+import { bindingSecret, stateSignature } from './github-auth.guard';
 import { JwtStrategy } from './jwt.strategy';
 
 function createMockResponse() {
@@ -395,9 +395,15 @@ describe('AuthController', () => {
       } as unknown as Request;
     }
 
-    /** The `state` GitHub hands back for a cookie holding `value`. */
+    /**
+     * The `state` GitHub hands back for a cookie holding `value`.
+     *
+     * Signed with the *derived* binding key, not `JWT_SECRET` — see
+     * `bindingSecret`. Deriving it here rather than hard-coding a signature
+     * is what keeps this from passing if the two ends ever disagree.
+     */
     function webState(value: string): string {
-      return `${'w.'}${stateSignature('test-secret', value)}`;
+      return `${'w.'}${stateSignature(bindingSecret(configService), value)}`;
     }
 
     it('completes the web flow when the state matches its cookie', async () => {

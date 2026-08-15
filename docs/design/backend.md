@@ -389,7 +389,19 @@ overwrote the first's binding, failing that callback as a forgery.
 the OAuth double submit, and it is the *only* thing that stops it: the HMAC
 binding proves the server issued the `state`, but one unauthenticated
 `GET /auth/github` hands any caller a matching (cookie, `state`) pair, so
-signing is no obstacle to an attacker who can plant cookies. Because the
+signing is no obstacle to an attacker who can plant cookies.
+
+That published pair is also why the binding is **not** signed with
+`JWT_SECRET`. An anonymous request that returns both a MAC's input and its
+output is a verified pair under whatever key signed it, and using the
+session-signing key there makes that request an oracle for sessions. The key
+is HKDF-derived from `JWT_SECRET` with a fixed label instead — deterministic,
+so replicas still agree and no deployment has to configure anything, while
+nothing else depends on the key that is published. Derivation separates the
+uses; it does not add entropy, so a guessable `JWT_SECRET` can still be
+tested through it (as it can against any HS256 token the server has issued).
+`OAUTH_STATE_SECRET` removes even that relation for a deployment that wants
+it. Because the
 prefix carries the whole load it is not keyed to `NODE_ENV`: it applies
 whenever `GITHUB_CALLBACK_URL` is `https://` — i.e. on every https
 deployment, whether or not that variable happens to be set — and it is
@@ -654,6 +666,7 @@ erDiagram
 | `DATABASE_URL` | Yes | — | PostgreSQL connection string |
 | `JWT_SECRET` | Yes | — | Secret for signing JWT tokens |
 | `JWT_REFRESH_SECRET` | No | `JWT_SECRET` | Secret for refresh-token signing |
+| `OAUTH_STATE_SECRET` | No | HKDF of `JWT_SECRET` | Key the OAuth login bindings are signed with. Unset, it is derived from `JWT_SECRET` with a fixed label, so no deployment has to configure it; set it to an independent value to remove any relation between the `state` an unauthenticated `GET /auth/github` publishes and the session-signing key. |
 | `JWT_ACCESS_EXPIRES_IN` | No | `1h` | Access-token expiry passed to `jsonwebtoken` |
 | `JWT_REFRESH_EXPIRES_IN` | No | `7d` | Refresh-token expiry passed to `jsonwebtoken` |
 | `JWT_ACCESS_COOKIE_MAX_AGE_MS` | No | `3600000` | Access-cookie max-age in milliseconds |

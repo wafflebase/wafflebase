@@ -7,7 +7,12 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import type { CookieOptions } from 'express';
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import {
+  createHmac,
+  hkdfSync,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 import { CliAuthStore } from './cli-auth.store';
 
 /**
@@ -185,9 +190,54 @@ export function secretEquals(a: string, b: string): boolean {
  */
 const EPHEMERAL_BINDING_SECRET = randomBytes(32).toString('base64url');
 
-/** The key the state binding is signed with; see `stateSignature`. */
+/**
+ * HKDF (RFC 5869) domain separator for the login-binding key. Versioned:
+ * changing the label rotates the key, which invalidates every login already
+ * in flight and nothing else.
+ */
+const BINDING_KEY_INFO = 'wafflebase/oauth-login-binding/v1';
+
+/** Memoized derivation — the input is one config value that does not move. */
+let derivedBindingKey: { from: string; key: string } | undefined;
+
+/**
+ * The key the login bindings are signed with; see `stateSignature`.
+ *
+ * Deliberately *not* `JWT_SECRET` itself, though that is where it comes from.
+ * `GET /auth/github` is unauthenticated and a single request hands the caller
+ * both halves of a signature — the input in `Set-Cookie`, the output in the
+ * redirect's `state`. Whatever key signs that is therefore published as a
+ * verified (input, MAC) pair to anyone who asks, and signing it with the very
+ * key that signs session JWTs turned an anonymous request into an oracle for
+ * the session-signing key. Key separation is the fix, and HKDF gives it
+ * without new configuration: the subkey is deterministic, so replicas agree
+ * and a callback may still land on a different one than the start, and every
+ * existing deployment derives it from the `JWT_SECRET` it already sets.
+ *
+ * What derivation does not do is make a guessable secret safe: an attacker
+ * can still test candidate `JWT_SECRET`s *through* the derivation, exactly as
+ * they can against any HS256 JWT this server has ever issued. Separation
+ * bounds the reuse, not the entropy. A deployment that wants the published
+ * pair to say nothing whatever about its session key sets
+ * `OAUTH_STATE_SECRET` to an independent high-entropy value; unset — the
+ * normal case, and the one every current install is in — the derived subkey
+ * is used and nothing has to change.
+ */
 export function bindingSecret(configService: ConfigService): string {
-  return configService.get<string>('JWT_SECRET') ?? EPHEMERAL_BINDING_SECRET;
+  const dedicated = configService.get<string>('OAUTH_STATE_SECRET');
+  if (dedicated) return dedicated;
+
+  const base =
+    configService.get<string>('JWT_SECRET') ?? EPHEMERAL_BINDING_SECRET;
+  if (derivedBindingKey?.from !== base) {
+    derivedBindingKey = {
+      from: base,
+      key: Buffer.from(
+        hkdfSync('sha256', base, '', BINDING_KEY_INFO, 32),
+      ).toString('base64url'),
+    };
+  }
+  return derivedBindingKey.key;
 }
 
 /**
@@ -205,6 +255,9 @@ export function bindingSecret(configService: ConfigService): string {
  * pair and plants its cookie half, and signing changes nothing. Cookie
  * planting is closed by `__Host-` (see `loginCookieName`) and by nothing else
  * here; do not read this signature as a second line of defence against it.
+ *
+ * Because that pair is published to anyone who asks, the key must not be one
+ * that anything else depends on — see `bindingSecret`.
  */
 export function stateSignature(secret: string, cookieValue: string): string {
   return createHmac('sha256', secret).update(cookieValue).digest('base64url');
