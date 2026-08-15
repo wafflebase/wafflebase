@@ -523,6 +523,14 @@ export class AuthController {
     // cookies alone would only have moved the dead end one redirect later:
     // the callback would validate and then hand out a session the browser
     // throws away.
+    //
+    // This is the session token, so the downgrade direction matters more here
+    // than it does for a five-minute login binding: a TLS-fronted deployment
+    // whose `GITHUB_CALLBACK_URL` still says `http://` would have `Secure`
+    // dropped from a cookie worth stealing. `secureCookies` therefore takes
+    // `COOKIE_SECURE` ahead of the derivation for exactly that deployment, and
+    // warns when it derives `false` under `NODE_ENV=production` on a
+    // non-loopback origin — the downgrade is configurable, and never silent.
     return {
       httpOnly: true,
       secure: secureCookies(this.configService),

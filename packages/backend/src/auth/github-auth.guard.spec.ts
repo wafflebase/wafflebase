@@ -1,4 +1,4 @@
-import { BadRequestException, ExecutionContext } from '@nestjs/common';
+import { BadRequestException, ExecutionContext, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { CliAuthStore } from './cli-auth.store';
@@ -14,6 +14,8 @@ import {
   GitHubAuthGuard,
   loginCookieName,
   OAUTH_STATE_COOKIE,
+  resetSecureCookieWarning,
+  secureCookies,
   stateSignature,
   WEB_STATE_PREFIX,
 } from './github-auth.guard';
@@ -715,6 +717,108 @@ describe('GitHubAuthGuard', () => {
         cookies[0].name,
       );
     } finally {
+      process.env.NODE_ENV = previous;
+    }
+  });
+
+  // One config string now decides the *session* cookie's `Secure` flag as
+  // well, and the case where it is wrong in the unsafe direction is a real
+  // deployment: TLS terminated at an edge, `GITHUB_CALLBACK_URL` left saying
+  // `http://`. `COOKIE_SECURE` is that deployment's way to say so, and it is
+  // read before anything is derived from a URL that is really about GitHub's
+  // redirect.
+  it('lets COOKIE_SECURE override an http callback URL', () => {
+    const fronted = {
+      get: (key: string) =>
+        key === 'COOKIE_SECURE'
+          ? 'true'
+          : key === 'GITHUB_CALLBACK_URL'
+            ? 'http://app.example.test/auth/github/callback'
+            : key === 'JWT_SECRET'
+              ? SECRET
+              : undefined,
+    } as unknown as ConfigService;
+
+    expect(secureCookies(fronted)).toBe(true);
+    expect(loginCookieName(fronted, OAUTH_STATE_COOKIE)).toBe(
+      `__Host-${OAUTH_STATE_COOKIE}`,
+    );
+
+    const { cookies, context } = contextFor({});
+    new GitHubAuthGuard(store, fronted).canActivate(context);
+    expect(cookies[0].options).toMatchObject({ secure: true });
+  });
+
+  it('lets COOKIE_SECURE=false override an https callback URL', () => {
+    const opted = {
+      get: (key: string) =>
+        key === 'COOKIE_SECURE'
+          ? 'false'
+          : key === 'GITHUB_CALLBACK_URL'
+            ? 'https://api.example.test/auth/github/callback'
+            : key === 'JWT_SECRET'
+              ? SECRET
+              : undefined,
+    } as unknown as ConfigService;
+
+    expect(secureCookies(opted)).toBe(false);
+    expect(loginCookieName(opted, OAUTH_STATE_COOKIE)).toBe(OAUTH_STATE_COOKIE);
+  });
+
+  it('ignores an unparseable COOKIE_SECURE and derives as before', () => {
+    const garbled = {
+      get: (key: string) =>
+        key === 'COOKIE_SECURE'
+          ? 'maybe'
+          : key === 'GITHUB_CALLBACK_URL'
+            ? 'https://api.example.test/auth/github/callback'
+            : key === 'JWT_SECRET'
+              ? SECRET
+              : undefined,
+    } as unknown as ConfigService;
+
+    expect(secureCookies(garbled)).toBe(true);
+  });
+
+  // A dropped `Secure` on a production origin is either a cleartext
+  // deployment or a stale callback URL, and both have to be visible: the
+  // whole objection to deriving the flag is that it can be wrong quietly.
+  it('warns once when production derives an insecure non-loopback origin', () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    resetSecureCookieWarning();
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    try {
+      expect(secureCookies(insecureConfig())).toBe(false);
+      expect(secureCookies(insecureConfig())).toBe(false);
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain('COOKIE_SECURE=true');
+    } finally {
+      warn.mockRestore();
+      resetSecureCookieWarning();
+      process.env.NODE_ENV = previous;
+    }
+  });
+
+  // Loopback in production is a smoke test or a container talking to itself,
+  // not a deployment anyone can reach in the clear — no warning owed.
+  it('does not warn for a loopback origin or outside production', () => {
+    const previous = process.env.NODE_ENV;
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    try {
+      process.env.NODE_ENV = 'production';
+      resetSecureCookieWarning();
+      expect(secureCookies(configService)).toBe(false);
+
+      process.env.NODE_ENV = 'development';
+      resetSecureCookieWarning();
+      expect(secureCookies(insecureConfig())).toBe(false);
+
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      resetSecureCookieWarning();
       process.env.NODE_ENV = previous;
     }
   });

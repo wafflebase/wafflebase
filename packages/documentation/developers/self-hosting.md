@@ -130,6 +130,14 @@ answers `400 Command-line sign-in requires an https server` on a plain-http
 deployment that is not `localhost`; the browser login still works there, but
 it, and the token the CLI would have received, are travelling in the clear.
 
+If you terminate TLS at a proxy and still hand the backend an `http://`
+callback URL, that same rule reads your https origin as cleartext and drops
+`Secure` from the **session** cookie. Set `GITHUB_CALLBACK_URL` to the https
+URL your users actually reach (the right fix), or set `COOKIE_SECURE=true` to
+state the origin's scheme directly. Running with `NODE_ENV=production` on a
+non-loopback `http://` callback URL logs a warning at the first login for this
+reason.
+
 ## Architecture
 
 ```

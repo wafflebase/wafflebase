@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
@@ -64,13 +65,71 @@ const MIN_CHALLENGE_LENGTH = 43;
 const MAX_CHALLENGE_LENGTH = 128;
 
 /**
+ * An operator's explicit answer for the `Secure` cookie attribute, if any.
+ *
+ * The derivation below reads one config string, and one config string can be
+ * wrong: a deployment that terminates TLS at an edge and then names an
+ * `http://` callback URL is served over https while telling this server it is
+ * not. `COOKIE_SECURE=true` is how such a deployment says so, and it is
+ * checked before anything is derived — an explicit statement about the origin
+ * always beats a guess made from a URL that is about GitHub's redirect.
+ * `COOKIE_SECURE=false` is the same door in the other direction, for a
+ * plain-http origin with no callback URL configured. Anything else (unset, or
+ * a value that is neither) leaves the derivation in charge.
+ */
+function configuredSecureCookies(
+  configService: ConfigService,
+): boolean | undefined {
+  const raw = (configService.get<string>('COOKIE_SECURE') ?? '')
+    .trim()
+    .toLowerCase();
+  if (raw === 'true' || raw === '1') return true;
+  if (raw === 'false' || raw === '0') return false;
+  return undefined;
+}
+
+/** The plain-http-in-production warning is a config fact; say it once. */
+let warnedPlainHttpProduction = false;
+
+/**
+ * Say out loud that this deployment's cookies carry no `Secure` flag.
+ *
+ * The derivation is a guess, and the case where it can be wrong in the unsafe
+ * direction is narrow and nameable: `NODE_ENV=production` (so this is not
+ * someone's laptop) with a plain-http callback URL that is not loopback. Then
+ * either the deployment really is serving cleartext — where the session token
+ * is exposed regardless of any cookie attribute — or the callback URL is stale
+ * and a TLS-fronted origin has just had `Secure` dropped from its session
+ * cookie. Neither should happen quietly, and the second is fixed by one line
+ * of configuration, so the log names it.
+ */
+function warnIfPlainHttpProduction(configService: ConfigService): void {
+  if (warnedPlainHttpProduction) return;
+  if (process.env.NODE_ENV !== 'production') return;
+  if (loopbackCallback(configService)) return;
+  warnedPlainHttpProduction = true;
+  new Logger('secureCookies').warn(
+    'GITHUB_CALLBACK_URL is http://, so session and login cookies are set ' +
+      'without `Secure` and without the `__Host-` prefix. If this deployment ' +
+      'is actually served over https, fix the callback URL (or set ' +
+      'COOKIE_SECURE=true); otherwise its login traffic is in the clear.',
+  );
+}
+
+/** Test seam: forget that the warning above has already been emitted. */
+export function resetSecureCookieWarning(): void {
+  warnedPlainHttpProduction = false;
+}
+
+/**
  * Whether login cookies are set `Secure` (and so can carry `__Host-`).
  *
- * The deployment's own `GITHUB_CALLBACK_URL` decides. It is the URL GitHub
- * redirects the login to, so its scheme *is* this server's public scheme, and
- * reading a configured value rather than the live request keeps the answer
- * identical on the request that sets the cookie and the callback that reads
- * it — which a per-request `req.secure` behind a proxy would not.
+ * `COOKIE_SECURE` decides when it is set; otherwise the deployment's own
+ * `GITHUB_CALLBACK_URL` does. That URL is where GitHub redirects the login, so
+ * its scheme *is* this server's public scheme, and reading a configured value
+ * rather than the live request keeps the answer identical on the request that
+ * sets the cookie and the callback that reads it — which a per-request
+ * `req.secure` behind a proxy would not.
  *
  * `NODE_ENV === 'production'` is only the fallback for a deployment that
  * configures no callback URL at all, and deliberately not an override.
@@ -87,13 +146,27 @@ const MAX_CHALLENGE_LENGTH = 128;
  * `secureCookies` is what says whether a plain-http origin is a development
  * box or a misconfigured production one, so it has to answer for the origin
  * actually being served.
+ *
+ * The residual risk is that one config string now decides the *session*
+ * cookie's `Secure` flag too, so a stale `http://` callback URL on a
+ * TLS-terminating deployment downgrades it. That is what `COOKIE_SECURE`
+ * overrides and what `warnIfPlainHttpProduction` refuses to let pass in
+ * silence; what it is not is a reason to go back to `NODE_ENV`, which got the
+ * same deployment wrong in the direction that logs nothing because nothing
+ * runs — no session at all.
  */
 export function secureCookies(configService: ConfigService): boolean {
+  const configured = configuredSecureCookies(configService);
+  if (configured !== undefined) return configured;
+
   const callbackUrl = (configService.get<string>('GITHUB_CALLBACK_URL') ?? '')
     .trimStart()
     .toLowerCase();
   if (callbackUrl.startsWith('https://')) return true;
-  if (callbackUrl.startsWith('http://')) return false;
+  if (callbackUrl.startsWith('http://')) {
+    warnIfPlainHttpProduction(configService);
+    return false;
+  }
   return process.env.NODE_ENV === 'production';
 }
 

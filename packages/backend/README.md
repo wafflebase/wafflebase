@@ -36,6 +36,19 @@ JWT_ACCESS_EXPIRES_IN=1h                # Optional
 JWT_REFRESH_EXPIRES_IN=7d               # Optional
 JWT_ACCESS_COOKIE_MAX_AGE_MS=3600000    # Optional
 JWT_REFRESH_COOKIE_MAX_AGE_MS=604800000 # Optional
+COOKIE_SECURE=                          # Optional, `true`/`false`. Whether
+                                        # session and login cookies are set
+                                        # `Secure` (and so `__Host-`-prefixed).
+                                        # Unset (default) it is derived from
+                                        # GITHUB_CALLBACK_URL's scheme. Set it
+                                        # to `true` when TLS is terminated at a
+                                        # proxy and the callback URL still says
+                                        # `http://` — otherwise the derivation
+                                        # reads that https origin as cleartext
+                                        # and drops `Secure` from the session
+                                        # cookie. `NODE_ENV=production` with a
+                                        # non-loopback `http://` callback URL
+                                        # logs a warning for that reason.
 GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
 GITHUB_CALLBACK_URL=http://localhost:3000/auth/github/callback
