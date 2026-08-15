@@ -743,10 +743,15 @@ describe('ApiV1DocsContentController', () => {
         });
       }
 
-      it('rejects an out-of-range alignment inside a text element', async () => {
+      it('rejects a non-string alignment inside a text element', async () => {
+        // Slide text bodies are read back verbatim, so the *allowlist* the
+        // docs arm applies would 400 a round-trip of a deck already carrying
+        // an out-of-set alignment (the PPTX exporter's closed Map lookup
+        // drops one at the sink). A non-string is still rejected: it can
+        // never be an alignment.
         await expectReject(
           withTextElement({
-            blocks: [{ id: 'b1', type: 'paragraph', style: { alignment: 'middle' }, inlines: [] }],
+            blocks: [{ id: 'b1', type: 'paragraph', style: { alignment: 42 }, inlines: [] }],
           }),
           /elements\[0\]\.data\.blocks\[0\].*'style\.alignment'/,
         );
@@ -777,7 +782,7 @@ describe('ApiV1DocsContentController', () => {
                     data: {
                       text: {
                         blocks: [
-                          { id: 'b1', type: 'paragraph', style: { lineHeight: null }, inlines: [] },
+                          { id: 'b1', type: 'paragraph', style: { lineHeight: 'tall' }, inlines: [] },
                         ],
                       },
                     },
@@ -830,7 +835,59 @@ describe('ApiV1DocsContentController', () => {
         );
       });
 
+      // A group child carries no `id` here on purpose: children are persisted
+      // verbatim and were never held to the element contract, so requiring
+      // `id`/`frame` of them would 400 a round-trip of an existing deck. The
+      // text body inside is still walked.
+      function withGroupChild(child: unknown): unknown {
+        return withSlides({
+          slides: [
+            {
+              id: 's1',
+              layoutId: 'l',
+              background: {},
+              elements: [
+                { id: 'g1', type: 'group', frame: {}, data: { children: [child] } },
+              ],
+              notes: [],
+            },
+          ] as unknown as [],
+        });
+      }
+
       it('rejects a bad block style inside a group child', async () => {
+        await expectReject(
+          withGroupChild({
+            type: 'text',
+            data: {
+              blocks: [
+                { id: 'b1', type: 'paragraph', style: { marginLeft: 'far' }, inlines: [] },
+              ],
+            },
+          }),
+          /children\[0\]\.data\.blocks\[0\].*'style\.marginLeft'/,
+        );
+      });
+
+      it('accepts a group child that omits id and frame', async () => {
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        await expect(
+          controller.putContent(
+            'ws-1',
+            'd1',
+            withGroupChild({
+              type: 'text',
+              data: { blocks: [{ type: 'paragraph', style: { alignment: 'center' } }] },
+            }) as never,
+          ),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
+
+      it('rejects a bad block style inside slide notes', async () => {
+        // `Slide.notes` is `Block[]` — the same docs blocks, reaching the same
+        // layout engine and the same PPTX notes-slide exporter.
         await expectReject(
           withSlides({
             slides: [
@@ -838,33 +895,114 @@ describe('ApiV1DocsContentController', () => {
                 id: 's1',
                 layoutId: 'l',
                 background: {},
-                elements: [
+                elements: [],
+                notes: [
+                  { id: 'n1', type: 'paragraph', style: { marginTop: 'lots' }, inlines: [] },
+                ],
+              },
+            ] as unknown as [],
+          }),
+          /slides\[0\]\.notes\[0\].*'style\.marginTop'/,
+        );
+      });
+
+      it('rejects a bad block style inside a layout placeholder', async () => {
+        // Layout placeholders / static elements hold the same element shapes
+        // as a slide's own elements and go through the same PUT.
+        await expectReject(
+          withSlides({
+            layouts: [
+              {
+                id: 'l1',
+                masterId: 'm1',
+                name: 'Title',
+                placeholders: [
                   {
-                    id: 'g1',
-                    type: 'group',
+                    type: 'text',
                     frame: {},
                     data: {
-                      children: [
-                        {
-                          id: 'e1',
-                          type: 'text',
-                          frame: {},
-                          data: {
-                            blocks: [
-                              { id: 'b1', type: 'paragraph', style: { alignment: 'top' }, inlines: [] },
-                            ],
-                          },
-                        },
+                      blocks: [
+                        { id: 'b1', type: 'paragraph', style: { textIndent: 'x' }, inlines: [] },
                       ],
                     },
                   },
                 ],
-                notes: [],
+                staticElements: [],
               },
             ] as unknown as [],
           }),
-          /children\[0\]\.data\.blocks\[0\].*'style\.alignment'/,
+          /layouts\[0\]\.placeholders\[0\]\.data\.blocks\[0\].*'style\.textIndent'/,
         );
+      });
+
+      it('rejects a bad block style inside a layout static element', async () => {
+        await expectReject(
+          withSlides({
+            layouts: [
+              {
+                id: 'l1',
+                masterId: 'm1',
+                name: 'Title',
+                placeholders: [],
+                staticElements: [
+                  {
+                    id: 'se1',
+                    type: 'shape',
+                    frame: {},
+                    data: {
+                      text: {
+                        blocks: [
+                          { id: 'b1', type: 'paragraph', style: { lineHeight: NaN }, inlines: [] },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            ] as unknown as [],
+          }),
+          /layouts\[0\]\.staticElements\[0\]\.data\.text\.blocks\[0\].*'style\.lineHeight'/,
+        );
+      });
+
+      it('accepts null style values in a slide text body', async () => {
+        // `null` is how JSON spells "no value", and the CRDT codec already
+        // skips it, so a stored `lineHeight: null` must survive a
+        // GET → edit → PUT round-trip rather than 400.
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        await expect(
+          controller.putContent(
+            'ws-1',
+            'd1',
+            withTextElement({
+              blocks: [
+                {
+                  id: 'b1',
+                  type: 'paragraph',
+                  style: { lineHeight: null, marginTop: null, alignment: null },
+                  inlines: [],
+                },
+              ],
+            }) as never,
+          ),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
+
+      it('accepts an out-of-set alignment string in a slide text body', async () => {
+        documentService.getDocumentOrThrow.mockRejectedValue(
+          new NotFoundException('sentinel'),
+        );
+        await expect(
+          controller.putContent(
+            'ws-1',
+            'd1',
+            withTextElement({
+              blocks: [{ id: 'b1', type: 'paragraph', style: { alignment: 'middle' }, inlines: [] }],
+            }) as never,
+          ),
+        ).rejects.toBeInstanceOf(NotFoundException);
       });
 
       it('accepts a slide text block that omits id/inlines', async () => {

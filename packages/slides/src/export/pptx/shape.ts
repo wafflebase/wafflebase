@@ -8,13 +8,93 @@ import { arrowXml } from './connector.js';
 import { attr, escapeXmlAttr } from './xml.js';
 
 /**
+ * Every {@link ShapeKind} that exports as an OOXML preset geometry, i.e. the
+ * `ShapeKind` union minus `freeform` (which has no `prst` — it emits
+ * `<a:custGeom>` or falls back to `rect`).
+ *
+ * This exists as a runtime allowlist because `ShapeKind` is a *type-only*
+ * union: `data.kind` is whatever JSON was persisted, and the v1 content PUT
+ * API (`POST/PUT /api/v1/workspaces/:wid/documents/:did/content`) lets an
+ * authenticated caller store an arbitrary string there. Interpolating that
+ * straight into the `prst` attribute would let it close the attribute and
+ * inject its own DrawingML into any `.pptx` a victim later exports. A `Map`
+ * (not an object literal) so a key like `constructor` cannot resolve through
+ * the prototype chain.
+ */
+const PRST_BY_KIND = new Map<ShapeKind, string>(
+  (
+    [
+      'rect', 'roundRect', 'ellipse',
+      'triangle', 'rtTriangle',
+      'diamond', 'parallelogram', 'trapezoid',
+      'pentagon', 'hexagon', 'heptagon', 'octagon',
+      'decagon', 'dodecagon',
+      'plus', 'donut', 'can', 'cloud',
+      'pie', 'chord', 'arc', 'blockArc',
+      'frame', 'halfFrame', 'corner', 'diagStripe',
+      'plaque', 'bevel', 'foldedCorner', 'cube',
+      'teardrop', 'smileyFace', 'heart', 'lightningBolt',
+      'sun', 'moon', 'noSmoking',
+      'snip1Rect', 'snip2SameRect', 'snip2DiagRect', 'snipRoundRect',
+      'round1Rect', 'round2SameRect', 'round2DiagRect',
+      'rightArrow', 'leftArrow', 'upArrow', 'downArrow',
+      'leftRightArrow', 'quadArrow', 'chevron', 'pentagonArrow',
+      'upDownArrow', 'leftRightUpArrow',
+      'notchedRightArrow', 'stripedRightArrow',
+      'bentArrow', 'bentUpArrow', 'uturnArrow', 'swooshArrow',
+      'circularArrow',
+      'curvedRightArrow', 'curvedLeftArrow',
+      'curvedUpArrow', 'curvedDownArrow',
+      'ribbon', 'ribbon2', 'horizontalScroll', 'verticalScroll',
+      'leftRightRibbon',
+      'wave', 'doubleWave',
+      'ellipseRibbon', 'ellipseRibbon2',
+      'wedgeRectCallout', 'wedgeRoundRectCallout',
+      'wedgeEllipseCallout', 'cloudCallout',
+      'borderCallout1', 'borderCallout2', 'borderCallout3',
+      'rightArrowCallout', 'leftArrowCallout',
+      'upArrowCallout', 'downArrowCallout',
+      'leftRightArrowCallout', 'upDownArrowCallout', 'quadArrowCallout',
+      'leftBracket', 'rightBracket', 'leftBrace', 'rightBrace',
+      'bracketPair', 'bracePair',
+      'mathPlus', 'mathMinus', 'mathMultiply',
+      'mathDivide', 'mathEqual', 'mathNotEqual',
+      'star4', 'star5', 'star6', 'star7', 'star8', 'star10',
+      'star12', 'star16', 'star24', 'star32',
+      'irregularSeal1', 'irregularSeal2',
+      'flowChartTerminator', 'flowChartPredefinedProcess',
+      'flowChartInternalStorage', 'flowChartDocument',
+      'flowChartMultidocument', 'flowChartManualInput',
+      'flowChartManualOperation', 'flowChartOffpageConnector',
+      'flowChartPunchedCard', 'flowChartPunchedTape',
+      'flowChartSummingJunction', 'flowChartOr',
+      'flowChartDelay', 'flowChartDisplay',
+      'flowChartPreparation', 'flowChartConnector',
+      'flowChartCollate', 'flowChartSort',
+      'flowChartExtract', 'flowChartMerge',
+      'flowChartOnlineStorage', 'flowChartMagneticDisk',
+      'flowChartMagneticDrum', 'flowChartMagneticTape',
+      'actionButtonBlank', 'actionButtonBackPrevious',
+      'actionButtonForwardNext', 'actionButtonBeginning',
+      'actionButtonEnd', 'actionButtonHome',
+      'actionButtonInformation', 'actionButtonReturn',
+      'actionButtonMovie', 'actionButtonSound',
+      'actionButtonDocument', 'actionButtonHelp',
+    ] as const satisfies readonly Exclude<ShapeKind, 'freeform'>[]
+  ).map((kind) => [kind, kind === 'pentagonArrow' ? 'homePlate' : kind]),
+);
+
+/**
  * Map a `ShapeKind` to the OOXML `prst` attribute value.
  *
  * Most names are identity strings; the one exception is
- * `pentagonArrow` which OOXML exports as `homePlate`.
+ * `pentagonArrow` which OOXML exports as `homePlate`. A value outside
+ * {@link PRST_BY_KIND} is not a preset PowerPoint knows *and* is untrusted
+ * (see the note there), so it degrades to `rect` — a valid file rather than
+ * a corrupt or attacker-shaped one.
  */
 export function kindToPrst(kind: ShapeKind): string {
-  return kind === 'pentagonArrow' ? 'homePlate' : kind;
+  return PRST_BY_KIND.get(kind) ?? 'rect';
 }
 
 /**
@@ -91,7 +171,9 @@ export function shapeToXml(
       ? freeformToCustGeom(data.path, frame)
       : data.kind === 'freeform'
         ? `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`
-        : `<a:prstGeom prst="${kindToPrst(data.kind)}">${avLstXml(data.adjustments)}</a:prstGeom>`;
+        : // `kindToPrst` already closes this to a known preset name; the
+          // escape is belt-and-braces at the attribute sink itself.
+          `<a:prstGeom prst="${escapeXmlAttr(kindToPrst(data.kind))}">${avLstXml(data.adjustments)}</a:prstGeom>`;
 
   const fill = data.fill ? fillXml(data.fill) : '<a:noFill/>';
 

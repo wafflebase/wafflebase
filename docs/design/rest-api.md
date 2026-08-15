@@ -238,16 +238,30 @@ an inline needs a string `text` and a `style` object; a table cell needs a
   `justify`.
 - `style.lineHeight` / `marginTop` / `marginBottom` / `textIndent` /
   `marginLeft`, when present, must be **finite numbers** — not numeric
-  strings, not `null`.
+  strings. `null` is treated as absent everywhere: it is how JSON spells "no
+  value", and the Tree codec already skips it, so it is a field the writer
+  drops rather than a `400`.
 - `header` / `footer`, when present, must be objects with a `blocks` array
   (walked with the same block validator) and a finite `marginFromEdge`.
 - On a slides body the same block-style value checks are applied to the docs
-  `Block`s inside every text body — text elements, shape text, table cells and
-  group children — since those are the same shape reaching the same layout
-  engine. The structural block checks are *not* applied there: slide text
-  bodies are stored verbatim as JSON with no attribute codec to normalize them
-  on read, so requiring fields older decks may lack would break a
-  `GET` → edit → `PUT` round-trip.
+  `Block`s wherever a deck stores them: text elements, shape text, table-cell
+  bodies, group children, `slides[].notes`, and
+  `layouts[].placeholders` / `layouts[].staticElements`. (`masters[]` needs no
+  walk — a `Master` is `{ id, themeId, background, placeholderStyles }` and
+  holds no elements and no `Block`s.) They are the same shape reaching the
+  same layout engine and the same exporters.
+- Two checks are deliberately *relaxed* on that slides walk, because slide
+  text bodies are stored **and read back** verbatim as JSON with no attribute
+  codec to normalize them: the structural block checks (`id`, `inlines`, a
+  present `style`) are not applied, and `style.alignment` need only be a
+  string rather than one of the four allowlisted values. Otherwise a
+  `GET` → edit → `PUT` round-trip of an older deck would `400` on what the
+  reader itself just handed back. An alignment the exporters do not know is
+  dropped at their own closed `Map` lookups. For the same reason, elements
+  *nested* inside another one (group children, layout placeholders — a
+  `PlaceholderSpec` has no `id` at all) are not held to the `id` / `type` /
+  `frame` contract that a slide's own `elements` are; only their text bodies
+  are walked.
 
 `GET` → edit → `PUT` stays lossless for docs bodies: the read side of the
 Tree codec (`@wafflebase/docs` `model/crdt-attrs.ts`) drops exactly the values

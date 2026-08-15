@@ -310,26 +310,46 @@ function assertValidHeaderFooter(region: unknown, path: string): void {
  * (`@wafflebase/docs` `model/crdt-attrs.ts`) will emit and read back, so a
  * `GET` → edit → `PUT` round-trip of a docs document can never hit this 400:
  * the reader drops anything outside the set before the caller ever sees it.
+ *
+ * Two deliberate tolerances keep this from rejecting what the *readers* hand
+ * back:
+ *
+ * - `null` is treated as absent for every field. It is how JSON spells "no
+ *   value" and how a cleared style field comes back over the wire, and
+ *   `serializeBlockStyleAttrs` already skips it (`raw === null` → continue),
+ *   so a `null` here is a field the writer drops, not a 400.
+ * - Slide text bodies pass `alignmentRule: 'string'`. Unlike docs blocks they
+ *   are persisted *and read back* verbatim — there is no attribute codec to
+ *   drop an out-of-set alignment on read — so applying the allowlist would
+ *   400 a `GET` → edit → `PUT` round-trip of any deck already carrying one.
+ *   The exporters resolve alignment through closed `Map` lookups
+ *   (`packages/docs/src/export/docx`, `packages/slides/src/export/pptx/text.ts`),
+ *   so an alignment they do not know falls back to the default at the sink
+ *   rather than reaching an OOXML attribute.
  */
 function assertValidBlockStyle(
   style: Record<string, unknown>,
   path: string,
+  alignmentRule: 'allowlist' | 'string' = 'allowlist',
 ): void {
-  if (
-    style.alignment !== undefined &&
-    (typeof style.alignment !== 'string' ||
-      !isBlockAlignment(style.alignment))
-  ) {
-    throw new BadRequestException(
-      `Invalid block at ${path}: 'style.alignment' must be one of ${BLOCK_ALIGNMENTS.join(', ')}`,
-    );
+  const alignment = style.alignment;
+  if (alignment !== undefined && alignment !== null) {
+    const ok =
+      alignmentRule === 'allowlist'
+        ? isBlockAlignment(alignment)
+        : typeof alignment === 'string';
+    if (!ok) {
+      throw new BadRequestException(
+        alignmentRule === 'allowlist'
+          ? `Invalid block at ${path}: 'style.alignment' must be one of ${BLOCK_ALIGNMENTS.join(', ')}`
+          : `Invalid block at ${path}: 'style.alignment' must be a string`,
+      );
+    }
   }
   for (const field of BLOCK_STYLE_NUMERIC_FIELDS) {
     const value = style[field as string];
-    if (
-      value !== undefined &&
-      (typeof value !== 'number' || !Number.isFinite(value))
-    ) {
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new BadRequestException(
         `Invalid block at ${path}: 'style.${field}' must be a finite number`,
       );
@@ -460,6 +480,39 @@ function assertValidSlidesBody(body: unknown): asserts body is SlidesDocument {
   for (let i = 0; i < slides.length; i++) {
     assertValidSlide(slides[i], `slides[${i}]`);
   }
+  // A slide is not the only place a deck stores docs `Block`s and elements.
+  // `Layout.placeholders` / `Layout.staticElements` hold the same element
+  // shapes (with the same text bodies) and are persisted verbatim through the
+  // same PUT into the same layout engine and exporters, so validating only
+  // `slides[*].elements` would leave a hole that accepts through `layouts`
+  // exactly what it rejects through `slides`.
+  //
+  // `masters` needs no walk: a `Master` is `{ id, themeId, background,
+  // placeholderStyles }` (packages/slides/src/model/master.ts) — it carries
+  // no elements and no `Block`s, so there is nothing of this shape inside it.
+  const layouts = b.layouts as unknown[];
+  for (let i = 0; i < layouts.length; i++) {
+    assertValidLayout(layouts[i], `layouts[${i}]`);
+  }
+}
+
+function assertValidLayout(layout: unknown, path: string): void {
+  if (!layout || typeof layout !== 'object') {
+    throw new BadRequestException(`Invalid layout at ${path}: not an object`);
+  }
+  const l = layout as Record<string, unknown>;
+  // Both collections are optional on the wire and are stored verbatim, so we
+  // only walk them when they are arrays — the point is the text bodies inside,
+  // not a structural contract this endpoint never enforced before.
+  for (const key of ['placeholders', 'staticElements'] as const) {
+    const list = l[key];
+    if (!Array.isArray(list)) continue;
+    for (let i = 0; i < list.length; i++) {
+      // A `PlaceholderSpec` is an `ElementInit` — it has no `id` at all — so
+      // these go through the nested (identity-free) walk.
+      assertValidNestedElement(list[i], `${path}.${key}[${i}]`);
+    }
+  }
 }
 
 function assertValidSlide(slide: unknown, path: string): void {
@@ -499,6 +552,9 @@ function assertValidSlide(slide: unknown, path: string): void {
   for (let i = 0; i < s.elements.length; i++) {
     assertValidElement(s.elements[i], `${path}.elements[${i}]`);
   }
+  // `Slide.notes` is `Block[]` — the very same docs blocks, laid out by the
+  // same engine and exported through `notesSlideToXml` → `textBodyToXml`.
+  assertValidSlideBlocks(s.notes, `${path}.notes`);
 }
 
 function assertValidElement(element: unknown, path: string): void {
@@ -521,12 +577,42 @@ function assertValidElement(element: unknown, path: string): void {
       `Invalid element at ${path}: 'frame' must be an object`,
     );
   }
-  // Slide text lives in docs `Block`s — the *same* shape the docs arm
-  // validates above, read back by `packages/slides` through the same
-  // `normalizeBlockStyle` (a bare spread) and laid out by the same docs
-  // layout engine. `writeSlidesRoot` stores them as plain JSON verbatim, so
-  // without this walk the slides arm of this endpoint is a hole through which
-  // a `NaN` margin or an alignment no renderer knows reaches the deck.
+  assertValidElementData(e, path);
+}
+
+/**
+ * Walk an element that is *nested* inside another one — a group child, or a
+ * layout placeholder / static element.
+ *
+ * Deliberately identity-free: unlike a slide's own `elements`, these were
+ * never validated before, are persisted verbatim, and legitimately lack the
+ * fields `assertValidElement` demands (a `PlaceholderSpec` is an
+ * `ElementInit`, i.e. an element *without* `id`; a group child imported from
+ * PPTX may predate any of it). Holding them to the full contract would turn a
+ * `GET` → edit → `PUT` round-trip of an existing deck into a 400. What we do
+ * check is the same thing we check everywhere else: the text bodies inside.
+ */
+function assertValidNestedElement(element: unknown, path: string): void {
+  if (!element || typeof element !== 'object') {
+    throw new BadRequestException(`Invalid element at ${path}: not an object`);
+  }
+  assertValidElementData(element as Record<string, unknown>, path);
+}
+
+/**
+ * Validate the text bodies an element's `data` carries.
+ *
+ * Slide text lives in docs `Block`s — the *same* shape the docs arm
+ * validates above, read back by `packages/slides` through the same
+ * `normalizeBlockStyle` (a bare spread) and laid out by the same docs
+ * layout engine. `writeSlidesRoot` stores them as plain JSON verbatim, so
+ * without this walk the slides arm of this endpoint is a hole through which
+ * a `NaN` margin reaches the deck.
+ */
+function assertValidElementData(
+  e: Record<string, unknown>,
+  path: string,
+): void {
   const data = e.data as Record<string, unknown> | undefined;
   if (!data || typeof data !== 'object') return;
   if (e.type === 'text') {
@@ -550,7 +636,7 @@ function assertValidElement(element: unknown, path: string): void {
   } else if (e.type === 'group') {
     const children = Array.isArray(data.children) ? data.children : [];
     for (let i = 0; i < children.length; i++) {
-      assertValidElement(children[i], `${path}.data.children[${i}]`);
+      assertValidNestedElement(children[i], `${path}.data.children[${i}]`);
     }
   }
 }
@@ -586,22 +672,33 @@ function assertValidTextBodyBlocks(
       `Invalid element at ${path}: 'blocks' must be an array`,
     );
   }
+  assertValidSlideBlocks(blocks, `${path}.blocks`);
+}
+
+/**
+ * Walk a list of docs `Block`s stored inside a deck — a text body's `blocks`,
+ * or a slide's `notes`. `path` names the list itself; entries are reported as
+ * `${path}[i]`.
+ */
+function assertValidSlideBlocks(blocks: unknown, path: string): void {
+  if (!Array.isArray(blocks)) return;
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i] as Record<string, unknown> | null;
     if (!block || typeof block !== 'object') {
       throw new BadRequestException(
-        `Invalid block at ${path}.blocks[${i}]: not an object`,
+        `Invalid block at ${path}[${i}]: not an object`,
       );
     }
     if (block.style !== undefined && block.style !== null) {
       if (typeof block.style !== 'object') {
         throw new BadRequestException(
-          `Invalid block at ${path}.blocks[${i}]: 'style' must be an object`,
+          `Invalid block at ${path}[${i}]: 'style' must be an object`,
         );
       }
       assertValidBlockStyle(
         block.style as Record<string, unknown>,
-        `${path}.blocks[${i}]`,
+        `${path}[${i}]`,
+        'string',
       );
     }
     // A docs table block inside a slide text body holds blocks of its own.
@@ -615,7 +712,7 @@ function assertValidTextBodyBlocks(
         if (!cell || typeof cell !== 'object') continue;
         assertValidTextBodyBlocks(
           cell,
-          `${path}.blocks[${i}].tableData.rows[${r}].cells[${c}]`,
+          `${path}[${i}].tableData.rows[${r}].cells[${c}]`,
         );
       }
     }

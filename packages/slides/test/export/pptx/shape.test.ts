@@ -8,6 +8,21 @@ describe('shape', () => {
   it('maps pentagonArrow to homePlate, others identity', () => {
     expect(kindToPrst('pentagonArrow')).toBe('homePlate');
     expect(kindToPrst('rect')).toBe('rect');
+    expect(kindToPrst('flowChartMagneticTape')).toBe('flowChartMagneticTape');
+    expect(kindToPrst('actionButtonHelp')).toBe('actionButtonHelp');
+  });
+  it('falls back to rect for a kind outside the preset allowlist', () => {
+    // `ShapeKind` is type-only: `data.kind` is whatever JSON was persisted,
+    // and the v1 content PUT API lets a caller put an arbitrary string there.
+    // It must never reach the `prst` attribute — closing the attribute would
+    // inject DrawingML into every exported .pptx.
+    const hostile = 'rect"/><a:custGeom><a:pathLst/></a:custGeom><a:x y="' as unknown as Parameters<typeof kindToPrst>[0];
+    expect(kindToPrst(hostile)).toBe('rect');
+    expect(kindToPrst('constructor' as unknown as Parameters<typeof kindToPrst>[0])).toBe('rect');
+    const el: ShapeElement = { id: 's', frame, type: 'shape', data: { kind: hostile } };
+    const xml = shapeToXml(el);
+    expect(xml).toContain('<a:prstGeom prst="rect">');
+    expect(xml).not.toContain('<a:custGeom>');
   });
   it('emits xfrm in EMU', () => {
     const xml = xfrmXml({ ...frame, rotation: Math.PI / 2 });

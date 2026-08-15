@@ -74,16 +74,38 @@ function clickResetIn(triggerLabel: string, editor: TextFormattingEditor): void 
   clickEl(reset);
 }
 
+/**
+ * Assert the single `applyStyle` call cleared exactly `key`.
+ *
+ * `toHaveBeenCalledWith({ key: undefined })` would NOT do: vitest's recursive
+ * equality treats an explicitly-`undefined` property as equal to an absent one
+ * (`expect({}).toEqual({ color: undefined })` passes), and "present with value
+ * `undefined`" is the whole point — the store's clear path keys off the
+ * property being there (`'color' in style`) to emit an attribute *removal*.
+ * So we assert on the own keys and the value separately.
+ */
+function expectClearedOnly(
+  editor: TextFormattingEditor,
+  key: "color" | "backgroundColor",
+): void {
+  const calls = vi.mocked(editor.applyStyle).mock.calls;
+  expect(calls).toHaveLength(1);
+  const style = calls[0][0] as Record<string, unknown>;
+  expect(Object.prototype.hasOwnProperty.call(style, key)).toBe(true);
+  expect(Object.keys(style)).toEqual([key]);
+  expect(style[key]).toBeUndefined();
+}
+
 describe("TextFormatGroup color reset (issue #728)", () => {
   test("Text color reset clears the key instead of writing an empty string", () => {
     const editor = makeEditor();
     clickResetIn("Text color", editor);
-    expect(editor.applyStyle).toHaveBeenCalledWith({ color: undefined });
+    expectClearedOnly(editor, "color");
   });
 
   test("Highlight color reset clears the key instead of writing an empty string", () => {
     const editor = makeEditor();
     clickResetIn("Highlight color", editor);
-    expect(editor.applyStyle).toHaveBeenCalledWith({ backgroundColor: undefined });
+    expectClearedOnly(editor, "backgroundColor");
   });
 });
