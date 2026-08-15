@@ -22,7 +22,12 @@ import { AuthGuard } from '@nestjs/passport';
 import { AuthenticatedRequest } from './auth.types';
 import { CliAuthStore } from './cli-auth.store';
 import { GitHubAuthGuard } from './github-auth.guard';
-import { OAUTH_STATE_COOKIE_NAME, baseCookieOptions } from './cookies';
+import {
+  OAuthFlow,
+  baseCookieOptions,
+  oauthStateCookieName,
+  oauthStateCookieOptions,
+} from './cookies';
 import { timingSafeEqual } from 'node:crypto';
 
 const ACCESS_COOKIE_NAME = 'wafflebase_session';
@@ -102,8 +107,9 @@ export class AuthController {
   ) {
     // NOTE(hackerwins): Redirect to GitHub for authentication. The guard
     // mints the `state` (`req.__oauthState`) and handles the redirect —
-    // a cookie-mirrored random value for the web flow, a CLI state token
-    // for `?mode=cli`. Both are verified in the callback below.
+    // a random value for the web flow, a CLI state token for `?mode=cli`
+    // — and mirrors either into that flow's own cookie. Both are
+    // verified against the cookie in the callback below.
     void mode;
     void port;
     void req;
@@ -123,9 +129,12 @@ export class AuthController {
     const cliState = stateToken
       ? this.cliAuthStore.consumeState(stateToken)
       : undefined;
-    if (cliState?.mode !== 'cli') {
-      this.consumeWebOAuthState(req, res, stateToken);
-    }
+    this.consumeOAuthState(
+      req,
+      res,
+      stateToken,
+      cliState?.mode === 'cli' ? 'cli' : 'web',
+    );
 
     const githubUser = req.user;
 
@@ -232,14 +241,16 @@ export class AuthController {
   }
 
   /**
-   * Spend the web flow's OAuth `state`, refusing a callback that is not
-   * the one this browser started.
+   * Spend the flow's OAuth `state`, refusing a callback that is not the
+   * one this browser started.
    *
    * Without it the callback accepts any `?code=` presented to it: an
    * attacker mints a code against their own GitHub account, gets the
    * victim's browser to load the callback with it, and the victim is
    * silently seated inside the attacker's account (OAuth login CSRF /
    * session fixation) — everything they then write goes to the attacker.
+   * The CLI flow is bound the same way, one cookie per flow, so a state
+   * token seen elsewhere cannot be replayed into a victim's browser.
    *
    * The cookie is cleared whatever the outcome, so a state that has been
    * presented once cannot be replayed. A callback carrying no `state` at
@@ -247,13 +258,15 @@ export class AuthController {
    * this backend starts carries one, so its absence means the request
    * did not come from one (or predates a deploy, which costs one retry).
    */
-  private consumeWebOAuthState(
+  private consumeOAuthState(
     req: Request,
     res: Response,
     stateToken: string | undefined,
+    flow: OAuthFlow,
   ) {
-    const cookie: unknown = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
-    res.clearCookie(OAUTH_STATE_COOKIE_NAME, baseCookieOptions());
+    const name = oauthStateCookieName(flow);
+    const cookie: unknown = req.cookies?.[name];
+    res.clearCookie(name, oauthStateCookieOptions());
 
     if (
       !stateToken ||

@@ -735,7 +735,54 @@ describe('createImageFetcher over a real listener', () => {
         1, 2, 3,
       ]);
       expect(proxy.seen.length).toBe(1);
-      expect(proxy.seen[0]).toContain('cdn.example.com');
+    } finally {
+      proxy.server.close();
+      origin.server.close();
+    }
+  }, 20_000);
+
+  /**
+   * The pin is not abandoned to the proxy: the hop is addressed to an
+   * address the gate approved, so the proxy has no name left to resolve
+   * and no second, divergent answer to act on. The name survives as the
+   * request's `Host`, which is what keeps virtual-hosted CDNs working.
+   */
+  it('asks the proxy for the gated address, under the original Host', async () => {
+    const seenHosts: string[] = [];
+    const origin = await new Promise<{ server: Server; port: number }>(
+      (resolve) => {
+        const server = createServer((req, res) => {
+          seenHosts.push(req.headers.host ?? '');
+          res.writeHead(200, { 'content-type': 'image/png' });
+          res.end(Buffer.from([1, 2, 3]));
+        });
+        server.listen(0, '127.0.0.1', () => {
+          const address = server.address();
+          if (!address || typeof address === 'string') throw new Error('port');
+          resolve({ server, port: address.port });
+        });
+      },
+    );
+    const proxy = await forwardProxy(origin.port);
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', `http://127.0.0.1:${proxy.port}`);
+    const warnings: string[] = [];
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: 'https://api.wafflebase.io',
+        lookup: async () => ['192.0.2.10'],
+        warn: (message) => warnings.push(message),
+      });
+      await fetcher('http://cdn.example.com/photo.png');
+
+      // The proxy was pointed at the approved address, never at the name.
+      expect(proxy.seen.length).toBe(1);
+      expect(proxy.seen[0]).toContain('192.0.2.10');
+      expect(proxy.seen[0]).not.toContain('cdn.example.com');
+      // ...and the origin still sees the host the document named.
+      expect(seenHosts).toEqual(['cdn.example.com']);
+      // Nothing was given up, so nothing is announced.
+      expect(warnings).toEqual([]);
     } finally {
       proxy.server.close();
       origin.server.close();
@@ -776,16 +823,50 @@ describe('createImageFetcher over a real listener', () => {
   });
 
   /**
-   * The proxy path trades the DNS-rebinding pin away — `CONNECT` carries
-   * a name, so there is nothing to pin, and refusing to proxy names
-   * would fail every external image on a proxy-only machine. That trade
-   * is accepted, but it must not be invisible: the operator who
-   * configured the proxy is the only one who can judge its resolver, and
-   * they cannot judge a weakening nobody reports.
+   * A proxy that allow-lists names refuses to connect to an address
+   * literal, and there the pin genuinely cannot be carried. The hop
+   * falls back to the name rather than failing the export on exactly the
+   * machines the proxy path exists for — but the operator who configured
+   * the proxy is the only one who can judge its resolver, and they
+   * cannot judge a weakening nobody reports.
    */
-  it('warns once that the address pin is dropped for a proxied fetch', async () => {
+  async function nameOnlyProxy(targetPort: number): Promise<{
+    server: Server;
+    port: number;
+    seen: string[];
+  }> {
+    const seen: string[] = [];
+    const server = createServer((req, res) => {
+      seen.push(`GET ${req.url}`);
+      res.writeHead(200, { 'content-type': 'image/png' });
+      res.end(Buffer.from([1, 2, 3]));
+    });
+    server.on('connect', (req, socket, head) => {
+      seen.push(`CONNECT ${req.url}`);
+      // The refusal being modelled: an address literal is not on the
+      // allow-list, a name is.
+      if (/^\d/.test(req.url ?? '')) {
+        socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
+        return;
+      }
+      const upstream = netConnect(targetPort, '127.0.0.1', () => {
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (head?.length) upstream.write(head);
+        upstream.pipe(socket);
+        socket.pipe(upstream);
+      });
+      upstream.on('error', () => socket.destroy());
+      socket.on('error', () => upstream.destroy());
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+    return { server, port: address.port, seen };
+  }
+
+  it('falls back to the name, warning once, when the proxy refuses the address', async () => {
     const origin = await listener();
-    const proxy = await forwardProxy(origin.port);
+    const proxy = await nameOnlyProxy(origin.port);
     withoutProxyEnv();
     vi.stubEnv('http_proxy', `http://127.0.0.1:${proxy.port}`);
     const warnings: string[] = [];
@@ -795,7 +876,11 @@ describe('createImageFetcher over a real listener', () => {
         lookup: async () => ['192.0.2.10'],
         warn: (message) => warnings.push(message),
       });
-      await fetcher('http://cdn.example.com/one.png');
+      // The export still succeeds — the whole reason the fallback exists.
+      const blob = await fetcher('http://cdn.example.com/one.png');
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
       await fetcher('http://cdn.example.com/two.png');
 
       // Said at all...
@@ -803,8 +888,13 @@ describe('createImageFetcher over a real listener', () => {
       expect(warnings[0]).toMatch(/proxy/i);
       expect(warnings[0]).toMatch(/pinned/i);
       expect(warnings[0]).toContain('cdn.example.com');
-      // ...and said once, however many images the document holds.
-      expect(proxy.seen.length).toBe(2);
+      // ...and said once, however many images the document holds. The
+      // second image does not retry the address either: the proxy has
+      // already answered that question for this run.
+      expect(proxy.seen.filter((s) => s.includes('192.0.2.10')).length).toBe(1);
+      expect(
+        proxy.seen.filter((s) => s.includes('cdn.example.com')).length,
+      ).toBe(2);
     } finally {
       proxy.server.close();
       origin.server.close();

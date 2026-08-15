@@ -197,6 +197,7 @@ describe('AuthController', () => {
           photo: null,
         },
         query: { state: stateToken },
+        cookies: { wafflebase_cli_oauth_state: stateToken },
       } as unknown as Request;
       const res = createMockResponse();
 
@@ -218,6 +219,7 @@ describe('AuthController', () => {
       const req = {
         user: { username: 'bob', email: 'bob@example.com', photo: null },
         query: { state: stateToken },
+        cookies: { wafflebase_cli_oauth_state: stateToken },
       } as unknown as Request;
       const res = createMockResponse();
 
@@ -225,6 +227,33 @@ describe('AuthController', () => {
 
       expect(res.redirect).toHaveBeenCalledWith(
         expect.stringContaining('&nonce=nonce-abc'),
+      );
+    });
+
+    it('refuses a CLI callback that this browser did not start', async () => {
+      // The state token alone is not proof: it travels in the printed
+      // OAuth URL, so a shared terminal or a CI log leaks it. Replaying
+      // it in a victim's browser must not mint a code for the port the
+      // attacker chose.
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const { stateToken } = cliAuthStore.createState('cli', 9876, 'nonce-abc');
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: { state: stateToken },
+        cookies: {},
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(req as any, res, stateToken),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(userService.findOrCreateUser).not.toHaveBeenCalled();
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        'wafflebase_cli_oauth_state',
+        expect.objectContaining({ httpOnly: true, path: '/' }),
       );
     });
 
@@ -262,10 +291,29 @@ describe('AuthController', () => {
       );
     });
 
+    // What the guard actually mints: `randomBytes(32).toString('base64url')`.
+    // The attack shape is an attacker-chosen state of the *same* length as
+    // the victim's cookie — a differently-sized one is refused by the
+    // length check alone and never reaches the constant-time compare.
+    const MINE = 'A'.repeat(43);
+    const THEIRS = `${'A'.repeat(42)}B`;
+    const SAME_PREFIX = `${'A'.repeat(21)}${'C'.repeat(22)}`;
+
     it.each([
-      ['the state does not match the cookie', { wafflebase_oauth_state: 'mine' }, 'theirs'],
-      ['there is no state cookie', {}, 'theirs'],
-      ['the callback carries no state at all', { wafflebase_oauth_state: 'mine' }, undefined],
+      [
+        'an equal-length state differs in its last character',
+        { wafflebase_oauth_state: MINE },
+        THEIRS,
+      ],
+      [
+        'an equal-length state shares only a prefix',
+        { wafflebase_oauth_state: MINE },
+        SAME_PREFIX,
+      ],
+      ['the state is a prefix of the cookie', { wafflebase_oauth_state: MINE }, 'A'.repeat(42)],
+      ['there is no state cookie', {}, THEIRS],
+      ['the callback carries no state at all', { wafflebase_oauth_state: MINE }, undefined],
+      ['the cookie is not a string', { wafflebase_oauth_state: 1 as unknown as string }, MINE],
     ])('refuses the web callback when %s', async (_label, cookies, state) => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
       const res = createMockResponse();
@@ -282,6 +330,12 @@ describe('AuthController', () => {
       expect(res.redirect).not.toHaveBeenCalled();
       // A rejected callback creates no account either.
       expect(userService.findOrCreateUser).not.toHaveBeenCalled();
+      // ...and spends the state, so a near-miss cannot be retried against
+      // the same cookie until one guess lands.
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        'wafflebase_oauth_state',
+        expect.objectContaining({ httpOnly: true, path: '/' }),
+      );
     });
   });
 

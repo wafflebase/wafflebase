@@ -450,68 +450,110 @@ function pinnedAgent(addresses: string[]): Agent {
 }
 
 /**
- * The dispatcher for one hop: a proxy when the environment configures
- * one for this URL, otherwise the address pin.
- *
- * These cannot be combined. `pinnedAgent` works by overriding the
- * connector's resolver, and under a proxy the only name the connector
- * resolves is the *proxy's* — pinning that to the image host's addresses
- * would send the request somewhere else entirely. So a proxied hop
- * connects to the proxy and the proxy resolves the name.
- *
- * The pin is not merely unnecessary under a proxy, it is unusable: it
- * works by overriding the CLI's own resolver, and the CLI resolves
- * nothing here. The gate itself is unchanged — a name that resolves to
- * an internal address is still refused before any request is made,
- * proxied or not.
- *
- * What is NOT covered, stated plainly rather than waved away: the proxy
- * resolves the name itself, and that answer is not the one the gate
- * approved. A nameserver with a ~0s TTL can answer the gate publicly
- * and the proxy privately, and the proxy will then fetch an address the
- * gate would have refused — reaching the *proxy's* network, not this
- * machine's. Closing it needs the connect target to travel with the
- * request, which the proxy protocols do not offer (`CONNECT` carries a
- * name, and the proxy is free to resolve it). A CLI that refused to
- * proxy names would instead fail every external image on the machines
- * that only egress through one, so the residual risk is accepted and
- * recorded here and in `docs/design/cli.md` rather than traded for that.
- *
- * Accepted, but not *silent*: `onPinDropped` says so on stderr the first
- * time it happens in a run. An accepted risk nobody is told about is
- * indistinguishable from one nobody found, and the operator who set
- * `https_proxy` is the only person who can judge whether that proxy's
- * resolver is trustworthy — a judgement they cannot make about a
- * weakening they cannot see. It is a notice rather than a refusal or an
- * opt-in flag because both of those fail the export outright on exactly
- * the proxy-only machines the `ProxyAgent` path exists to keep working.
- *
- * Without this the pinned `Agent` would override whatever the operator
- * configured and dial the resolved addresses directly, so on a machine
- * whose only route out is a proxy every external image in a document
- * would fail to export.
+ * How one hop is issued: the dispatcher, the URL actually requested, and
+ * the headers that keep an address-rewritten request addressed to the
+ * host the document named.
  */
-function hopDispatcher(
+interface Hop {
+  /** Disposed by the caller once the body is read. */
+  agent: Dispatcher | null;
+  /** What is requested — an approved address when a proxy is in play. */
+  url: string;
+  /** `Host` for an address-rewritten request; empty otherwise. */
+  headers: Record<string, string>;
+  /** Whether the pin is being carried through a proxy for this hop. */
+  pinnedThroughProxy: boolean;
+}
+
+/** A `ProxyAgent`, with an unusable proxy setting reported as one. */
+function makeProxyAgent(proxy: string, servername?: string): ProxyAgent {
+  try {
+    return new ProxyAgent({
+      uri: proxy,
+      ...(servername ? { requestTls: { servername } } : {}),
+    });
+  } catch (cause) {
+    throw new SystemError(
+      'INVALID_PROXY',
+      `Cannot use the configured proxy "${redactUrl(proxy)}".`,
+      { cause },
+    );
+  }
+}
+
+/**
+ * Plan one hop: a proxy when the environment configures one for this URL,
+ * otherwise the address pin.
+ *
+ * `pinnedAgent` cannot be combined with a proxy — it works by overriding
+ * the connector's resolver, and the only name a proxied connector
+ * resolves is the *proxy's*. Dropping the pin there is not free, though:
+ * the proxy would resolve the image host itself, and its answer is not
+ * the one the gate approved, so a ~0s-TTL nameserver could answer the
+ * gate publicly and the proxy privately and reach an address the gate
+ * refused (the proxy's network rather than this machine's).
+ *
+ * So the pin travels with the request instead of being abandoned: the
+ * URL's host is rewritten to an address the gate approved, which is what
+ * the proxy then dials (`CONNECT 192.0.2.10:443`, or an absolute-form
+ * `GET http://192.0.2.10/…`), while the *identity* of the request stays
+ * the original host — `Host:` for the HTTP request and the TLS
+ * `servername` for certificate validation and SNI. The proxy resolves
+ * nothing, so there is nothing left for it to resolve differently.
+ *
+ * Two consequences worth stating. The request has to be issued through
+ * undici's low-level `request`, because WHATWG `fetch` forbids setting
+ * `Host` and would otherwise send the address as the host name, breaking
+ * every virtual-hosted CDN. And a proxy that refuses `CONNECT` to an
+ * address literal (some do, allow-listing names) cannot serve a pinned
+ * hop at all; that hop falls back to the name once, announced on stderr
+ * by `onPinDropped`, because failing the export outright on exactly the
+ * proxy-only machines this path exists for is the worse trade. The
+ * fallback is not attacker-triggerable: whether the proxy accepts an
+ * address literal is a property of the environment, not of the document.
+ *
+ * The gate itself is unchanged either way — a name that resolves to an
+ * internal address is refused before any request is made, proxied or not.
+ */
+function planHop(
   target: string,
   addresses: string[] | null,
-  onPinDropped: (target: string) => void,
-): Dispatcher | null {
+  pinThroughProxy: boolean,
+): Hop {
   const proxy = proxyForUrl(target);
-  if (proxy) {
-    // Only a hop that *had* a pin has one to lose; `data:` opens no
-    // connection and resolves no name, so there is nothing to report.
-    if (addresses) onPinDropped(target);
-    try {
-      return new ProxyAgent(proxy);
-    } catch (cause) {
-      throw new SystemError(
-        'INVALID_PROXY',
-        `Cannot use the configured proxy "${redactUrl(proxy)}".`,
-        { cause },
-      );
-    }
+  if (!proxy) {
+    return {
+      agent: addresses ? pinnedAgent(addresses) : null,
+      url: target,
+      headers: {},
+      pinnedThroughProxy: false,
+    };
   }
-  return addresses ? pinnedAgent(addresses) : null;
+
+  const url = new URL(target);
+  // A literal needs no rewriting: it is already the address the gate
+  // approved, and the proxy has nothing to resolve.
+  if (!addresses || !pinThroughProxy || ipLiteral(url.hostname)) {
+    return {
+      agent: makeProxyAgent(proxy),
+      url: target,
+      headers: {},
+      pinnedThroughProxy: false,
+    };
+  }
+
+  // IPv4 first where there is a choice: a proxy is far likelier to have
+  // a route for it, and every approved address is equally acceptable.
+  const address = addresses.find((a) => isIP(a) === 4) ?? addresses[0];
+  const authority = url.host;
+  const servername = url.hostname;
+  url.hostname = isIP(address) === 6 ? `[${address}]` : address;
+  return {
+    agent: makeProxyAgent(proxy, servername),
+    url: url.toString(),
+    headers: { host: authority },
+    pinnedThroughProxy: true,
+  };
 }
 
 /** Read an env var under either spelling, lower case winning. */
@@ -603,13 +645,18 @@ function isOpaqueRedirect(res: Response): boolean {
 async function rawRequest(
   target: string,
   agent: Dispatcher | null,
+  extraHeaders: Record<string, string> = {},
 ): Promise<Response> {
   let res: Awaited<ReturnType<typeof undiciRequest>>;
   try {
     // `request` follows no redirects of its own (that needs an explicit
-    // `maxRedirections`), so the loop above keeps gating every hop.
+    // `maxRedirections`), so the loop above keeps gating every hop. It is
+    // also the only way to send a `Host` of our own, which is what lets a
+    // proxied hop be addressed to a pinned address without losing the
+    // name the origin server is virtual-hosted under.
     res = await undiciRequest(target, {
       method: 'GET',
+      ...(Object.keys(extraHeaders).length ? { headers: extraHeaders } : {}),
       ...(agent ? { dispatcher: agent } : {}),
     });
   } catch (cause) {
@@ -663,10 +710,11 @@ const defaultWarn = (message: string): void => {
  *
  * Redirects are followed by hand so every hop is gated the same way as
  * the first — an allowed host that 302s to `169.254.169.254` is the
- * whole point of the check — and each hop connects only to the addresses
- * its own gate pass approved, unless the environment configures an
- * egress proxy, in which case the hop goes through it and the run warns
- * once that the pin is gone (see `hopDispatcher`).
+ * whole point of the check — and each hop reaches only the addresses its
+ * own gate pass approved, directly or by being addressed to one of them
+ * through the configured egress proxy (see `planHop`). A proxy that
+ * refuses to connect to an address literal is the one case where the pin
+ * cannot be carried; that hop retries by name and the run says so once.
  *
  * A transport failure or a non-OK response is classified like every
  * other CLI request (`fetchOrThrow` / `httpError`) so an unreachable
@@ -682,17 +730,21 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
   // per process so the notice reappears for the next export in a
   // long-lived host, and so tests need no global to reset.
   let pinDropReported = false;
+  // Set once the proxy has proven it will not connect to an address
+  // literal, so the remaining images do not each pay a failed attempt.
+  let pinThroughProxy = true;
   const reportPinDropped = (hop: string) => {
     if (pinDropReported) return;
     pinDropReported = true;
     warn(
-      `Fetching images through the configured egress proxy, so the DNS ` +
-        `answers checked by the image gate cannot be pinned for the ` +
-        `connection (starting with ${redactUrl(hop)}). The proxy resolves ` +
-        `each host itself, and a rebinding nameserver could hand it an ` +
-        `address the gate refused — reaching hosts the proxy can see. Set ` +
-        `no_proxy for hosts that need no proxy, or unset http_proxy / ` +
-        `https_proxy / all_proxy, to keep the pin.`,
+      `The configured egress proxy refused to fetch an image by address, ` +
+        `so the DNS answers checked by the image gate cannot be pinned ` +
+        `for the connection (starting with ${redactUrl(hop)}). The proxy ` +
+        `resolves each host itself from here on, and a rebinding ` +
+        `nameserver could hand it an address the gate refused — reaching ` +
+        `hosts the proxy can see. Set no_proxy for hosts that need no ` +
+        `proxy, or unset http_proxy / https_proxy / all_proxy, to keep ` +
+        `the pin.`,
     );
   };
   let server: URL | null = null;
@@ -706,22 +758,59 @@ export function createImageFetcher(opts: ImageFetcherOptions): DocxImageFetcher 
     const resolved = resolveImageUrl(url, opts.serverBase);
     let target = resolved;
 
+    /** Issue one planned hop, without following or gating anything. */
+    const issue = async (plan: Hop): Promise<Response> => {
+      // A pinned proxied hop carries a `Host` of its own, which WHATWG
+      // `fetch` forbids — so it goes out through undici's `request`.
+      if (plan.pinnedThroughProxy) {
+        return rawRequest(plan.url, plan.agent, plan.headers);
+      }
+      let res = await fetchOrThrow(
+        plan.url,
+        // `dispatcher` is undici's, not the DOM's — the pin (or the
+        // proxy) travels on the same init object the fetch
+        // implementation reads.
+        {
+          redirect: 'manual',
+          ...(plan.agent ? { dispatcher: plan.agent } : {}),
+        } as RequestInit,
+        fetchImpl,
+      );
+      if (isOpaqueRedirect(res)) {
+        res = await rawRequest(plan.url, plan.agent, plan.headers);
+      }
+      return res;
+    };
+
     for (let hop = 0; ; hop++) {
       const addresses = await assertFetchableImageUrl(target, server, lookup);
-      const agent = hopDispatcher(target, addresses, reportPinDropped);
+      let plan = planHop(target, addresses, pinThroughProxy);
+      let agent = plan.agent;
       try {
-        let res = await fetchOrThrow(
-          target,
-          // `dispatcher` is undici's, not the DOM's — the pin (or the
-          // proxy) travels on the same init object the fetch
-          // implementation reads.
-          {
-            redirect: 'manual',
-            ...(agent ? { dispatcher: agent } : {}),
-          } as RequestInit,
-          fetchImpl,
-        );
-        if (isOpaqueRedirect(res)) res = await rawRequest(target, agent);
+        let res: Response;
+        try {
+          res = await issue(plan);
+        } catch (error) {
+          // A proxy that allow-lists names refuses `CONNECT` to an
+          // address literal, and the export would otherwise die on a
+          // machine whose only route out is that proxy. Retry by name,
+          // once, and say on stderr that the pin was given up — the
+          // person who configured the proxy is the only one who can
+          // judge whether its resolver is trustworthy.
+          if (
+            !plan.pinnedThroughProxy ||
+            !(error instanceof SystemError) ||
+            error.code !== 'NETWORK_ERROR'
+          ) {
+            throw error;
+          }
+          void agent?.destroy().catch(() => {});
+          pinThroughProxy = false;
+          reportPinDropped(target);
+          plan = planHop(target, addresses, false);
+          agent = plan.agent;
+          res = await issue(plan);
+        }
 
         const location = res.headers.get('location');
         if (REDIRECT_STATUSES.has(res.status) && location) {

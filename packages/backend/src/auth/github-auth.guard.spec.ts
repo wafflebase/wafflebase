@@ -17,12 +17,15 @@ describe('GitHubAuthGuard', () => {
 
   const VALID_NONCE = 'a'.repeat(43);
 
-  function contextFor(query: Record<string, unknown>): {
+  function contextFor(
+    query: Record<string, unknown>,
+    headers: Record<string, string> = {},
+  ): {
     context: ExecutionContext;
     req: Record<string, unknown>;
     res: { cookie: jest.Mock };
   } {
-    const req: Record<string, unknown> = { query };
+    const req: Record<string, unknown> = { query, headers };
     const res = { cookie: jest.fn() };
     const context = {
       switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
@@ -143,9 +146,37 @@ describe('GitHubAuthGuard', () => {
       expect.objectContaining({
         httpOnly: true,
         sameSite: 'lax',
+        path: '/',
         maxAge: 5 * 60 * 1000,
       }),
     );
+  });
+
+  it.each([
+    ['web', {}, '__Host-wafflebase_oauth_state'],
+    [
+      'CLI',
+      { mode: 'cli', port: '54321', nonce: VALID_NONCE },
+      '__Host-wafflebase_cli_oauth_state',
+    ],
+  ])('host-locks the %s state cookie in production', (_label, query, name) => {
+    // Without `__Host-`, a cookie is scoped to the registrable domain:
+    // anything that can write one there (a sibling subdomain, a MITM on a
+    // plain-http sibling) can fix the state to a value it knows and walk
+    // through the binding. The prefix makes the browser refuse that write.
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const { context, res } = contextFor(query);
+      expect(guard.canActivate(context)).toBe(true);
+      expect(res.cookie).toHaveBeenCalledWith(
+        name,
+        expect.any(String),
+        expect.objectContaining({ secure: true, path: '/', httpOnly: true }),
+      );
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
   });
 
   it('mints a fresh web state per request', () => {
@@ -158,16 +189,73 @@ describe('GitHubAuthGuard', () => {
     expect(first.req.__oauthState).not.toEqual(second.req.__oauthState);
   });
 
-  it('sets no web state cookie for a CLI login', () => {
-    // The CLI's callback lands on a loopback listener, not in a browser:
-    // its binding is the server-side state entry plus the nonce.
-    const { context, res } = contextFor({
+  it('mirrors the CLI state into its own cookie, not the web one', () => {
+    // The CLI login is browser-bound too: the callback runs in the same
+    // browser that started it, so a state token seen elsewhere (a shared
+    // terminal, a CI log) cannot be replayed into a victim's browser. A
+    // separate name so a pending web login and a pending CLI login in one
+    // browser cannot clobber each other.
+    const { context, req, res } = contextFor({
       mode: 'cli',
       port: '54321',
       nonce: VALID_NONCE,
     });
 
     expect(guard.canActivate(context)).toBe(true);
-    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.cookie).toHaveBeenCalledWith(
+      'wafflebase_cli_oauth_state',
+      req.__oauthState as string,
+      expect.objectContaining({ httpOnly: true, path: '/' }),
+    );
+    expect(res.cookie).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The cookies bind the *callback* to the browser. They cannot bind the
+   * *start*: the navigation that carries a login-CSRF is the same
+   * navigation that sets the cookie. Refusing a cross-site-initiated
+   * start is what stops a hostile page from making the victim's browser
+   * mint a code for an attacker-chosen loopback port.
+   */
+  describe('cross-site initiation', () => {
+    it.each([
+      ['a CLI login', { mode: 'cli', port: '54321', nonce: VALID_NONCE }],
+      ['a web login', {}],
+    ])('refuses %s started by another site', (_label, query) => {
+      const { context, req, res } = contextFor(query, {
+        'sec-fetch-site': 'cross-site',
+      });
+
+      expect(() => guard.canActivate(context)).toThrow(BadRequestException);
+      expect(req.__oauthState).toBeUndefined();
+      // No cookie either: a refused start must not disturb a login that
+      // is already in flight in this browser.
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(superCanActivate).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['opened by the CLI itself', 'none'],
+      ['clicked inside the app', 'same-origin'],
+      ['clicked on a sibling host of the app', 'same-site'],
+    ])('serves a login %s', (_label, site) => {
+      const { context, req } = contextFor(
+        { mode: 'cli', port: '54321', nonce: VALID_NONCE },
+        { 'sec-fetch-site': site },
+      );
+
+      expect(guard.canActivate(context)).toBe(true);
+      expect(typeof req.__oauthState).toBe('string');
+    });
+
+    it('serves a client that sends no Sec-Fetch-Site at all', () => {
+      // Not the attack shape: the attack needs the victim's browser and
+      // its GitHub session, and every browser that can be steered
+      // cross-site sends the header.
+      const { context, req } = contextFor({});
+
+      expect(guard.canActivate(context)).toBe(true);
+      expect(typeof req.__oauthState).toBe('string');
+    });
   });
 });

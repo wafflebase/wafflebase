@@ -388,14 +388,20 @@ stored, so a rejected value costs no upload.
 
 ```
 1. Frontend links to GET /auth/github
-2. Passport redirects to GitHub OAuth consent screen
-3. GitHub redirects to GET /auth/github/callback
-4. GitHubStrategy validates profile, calls UserService.findOrCreateUser()
-5. AuthService signs access and refresh JWTs with { sub, username, email, photo }
-6. Tokens are set as httpOnly cookies (`wafflebase_session`, `wafflebase_refresh`)
-7. Response redirects to FRONTEND_URL
-8. Frontend calls GET /auth/me on subsequent loads to verify session
-9. If access token expires, frontend calls POST /auth/refresh and retries once
+2. GitHubAuthGuard refuses a cross-site-initiated login (Sec-Fetch-Site),
+   mints the OAuth `state`, and mirrors it into a short-lived per-flow
+   cookie (`wafflebase_oauth_state`, or `wafflebase_cli_oauth_state` for
+   `?mode=cli`; `__Host-` prefixed when cookies are Secure)
+3. Passport redirects to GitHub OAuth consent screen with that `state`
+4. GitHub redirects to GET /auth/github/callback
+5. The callback spends the state cookie and compares it to `?state=` in
+   constant time — before any user is created — and 400s on a mismatch
+6. GitHubStrategy validates profile, calls UserService.findOrCreateUser()
+7. AuthService signs access and refresh JWTs with { sub, username, email, photo }
+8. Tokens are set as httpOnly cookies (`wafflebase_session`, `wafflebase_refresh`)
+9. Response redirects to FRONTEND_URL
+10. Frontend calls GET /auth/me on subsequent loads to verify session
+11. If access token expires, frontend calls POST /auth/refresh and retries once
 ```
 
 ## Database Schema

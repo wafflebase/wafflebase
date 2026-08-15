@@ -217,17 +217,45 @@ it was protecting is not deferred, it is deleted.
   `ImageFetcherOptions` plus a closure flag inside `createImageFetcher`
   gives both the once-per-run behaviour and a seam the test reads
   directly, with no global to reset and no stderr to capture.
-- **Two overlapping branches fixing the same hole is a merge conflict,
-  not defence in depth.** The security lens asked for a browser binding
-  on the `?mode=cli` OAuth entry. PR #786 already ships that binding —
-  a `wafflebase_cli_state` cookie, a framing-proof consent interstitial,
-  PKCE, `__Host-` prefixes, a plain-http non-loopback refusal — in the
-  same three files this branch touches. Writing a second, weaker version
-  here would have bought nothing and guaranteed a conflict in
-  `github-auth.guard.ts` and `auth.controller.ts`. The residual on this
-  branch is bounded to an attacker who already runs code on the victim's
-  machine, because the CLI redirect target is a hardcoded
-  `http://127.0.0.1:<port>/callback` with a 60-second single-use code.
-  Generalisation: before implementing a review finding, check whether a
-  sibling branch already owns that file; the right fix can be to let it
-  land.
+- **"A sibling PR owns this file" is not a fix.** The security lens
+  asked for a browser binding on the `?mode=cli` OAuth entry and the
+  answer was: PR #786 already ships one (a `wafflebase_cli_state`
+  cookie, a consent interstitial, PKCE, `__Host-` prefixes), so writing
+  a second, weaker version here would only guarantee a conflict in
+  `github-auth.guard.ts`. The next round rejected that, correctly: #786
+  is not in this tree, so the hole was live in the code being reviewed,
+  and a deferral that depends on someone else merging is not a control.
+  What landed is deliberately minimal — refuse a start whose
+  `Sec-Fetch-Site` says another site navigated the browser into it, plus
+  the same per-flow state cookie the web flow already had — precisely so
+  #786 can replace it wholesale rather than merge with it.
+  Generalisation: a finding may be deferred to another *change*, never
+  to another *branch*; the tree under review is the only tree there is.
+- **Bind the callback, refuse the start; they are different bugs.** The
+  state cookie proves the callback belongs to the browser that started
+  the login. It cannot prove the *user* started it — the navigation that
+  carries a login-CSRF is the same navigation that sets the cookie. Two
+  controls, two questions: the cookie for "is this the same browser?",
+  `Sec-Fetch-Site` for "did anyone else send that browser here?".
+- **A cookie name is not a scope.** `wafflebase_oauth_state` was one
+  name for a control that has two flows, so a second `/auth/github`
+  navigation clobbered a pending login's state, and a plain (unprefixed)
+  name is writable by anything holding the registrable domain — a
+  sibling subdomain can fix the state to a value it knows and walk
+  through the binding. One name per flow, `__Host-` wherever the
+  deployment serves `Secure` cookies, and the name computed per request
+  so the callback reads exactly what this environment issues rather than
+  accepting either spelling.
+- **An accepted risk is worth one more attempt at not accepting it.**
+  Two rounds argued that the address pin cannot survive an egress proxy
+  — `CONNECT` carries a name, so there is nothing to pin — and the
+  security lens kept (rightly) flagging the gap. The premise was wrong
+  in one word: `CONNECT` carries a *host*, and an address literal is a
+  host. Rewriting the hop's URL to an address the gate approved, and
+  keeping the name as `Host:` plus the TLS `servername`, pins the
+  connection through the proxy; the only cost is that the hop must go
+  out through undici's `request`, because WHATWG `fetch` forbids setting
+  `Host`. The fallback survives for proxies that allow-list names, which
+  is what the warning now reports. Generalisation: when a mitigation is
+  declared impossible, check whether the impossibility is in the
+  protocol or in the API being used to speak it.

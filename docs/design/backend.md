@@ -101,18 +101,39 @@ imports the full module set listed below.
 #### Authentication (`/auth`)
 
 **`GET /auth/github`**
-- Guard: `AuthGuard('github')`
+- Guard: `GitHubAuthGuard` (extends `AuthGuard('github')`)
 - Initiates GitHub OAuth flow. Redirects to GitHub's authorization page.
+- Refuses a login another site navigated the browser into: a
+  `Sec-Fetch-Site` of `cross-site` is a `400`. `none` (typed, bookmarked, or
+  opened by `wafflebase login`), `same-origin`, `same-site` and a client that
+  sends no such header are served.
+- Mints the OAuth `state` itself and hands it to `GitHubStrategy.authenticate()`
+  via `req.__oauthState` — passport-oauth2 is given no state store of its own
+  (that would need `express-session`), and with none it installs a `NullStore`
+  whose verify always succeeds. The value is mirrored into a short-lived
+  (5-minute) httpOnly cookie, one per flow: `wafflebase_oauth_state` for a web
+  login, `wafflebase_cli_oauth_state` for `?mode=cli`, each `__Host-` prefixed
+  with `Path=/` wherever cookies are `Secure` (production). A CLI login also
+  gets a server-side `CliAuthStore` entry, which is what carries the loopback
+  port and nonce across the round trip.
 
 **`GET /auth/github/callback`**
 - Guard: `AuthGuard('github')`
 - GitHub redirects here after user consents. The `GitHubStrategy` validates the
   profile and returns user data. The controller then:
-  1. Calls `UserService.findOrCreateUser()` to upsert the user in the database.
-  2. Calls `AuthService.createTokens()` to sign access/refresh JWTs.
-  3. Sets httpOnly cookies named `wafflebase_session` and
+  1. Decides which flow this is (`CliAuthStore.consumeState()`) and spends that
+     flow's state cookie, comparing it against `?state=` in constant time. A
+     mismatch, a missing cookie or a missing `state` is a `400`. This runs
+     **before** any user is touched — a callback that cannot prove it belongs
+     to a login this backend started must not create an account as a side
+     effect of being rejected (OAuth login CSRF / session fixation).
+  2. Calls `UserService.findOrCreateUser()` to upsert the user in the database.
+  3. For `?mode=cli`, mints a short-lived code and redirects to
+     `http://127.0.0.1:<port>/callback?code=…&nonce=…`.
+  4. Otherwise calls `AuthService.createTokens()` to sign access/refresh JWTs.
+  5. Sets httpOnly cookies named `wafflebase_session` and
      `wafflebase_refresh`.
-  4. Redirects to `FRONTEND_URL`.
+  6. Redirects to `FRONTEND_URL`.
 
 **`GET /auth/me`**
 - Guard: `JwtAuthGuard`

@@ -42,6 +42,33 @@ Classify at the throw site, map class → exit code at the output site.
 7. Docs — README + `docs/design/cli.md` state that 5xx counts as a
    system error too, and name the codes.
 
+## Scope taken on beyond the exit contract
+
+The exit-code work is items 1-7 above. Three security fixes landed on the
+same branch and are recorded here rather than left unexplained, because
+they touch files (`packages/backend/src/auth/*`) the original Approach
+does not name:
+
+8. **CLI login nonce** (`login.ts` + `github-auth.guard.ts`) — reached
+   through item 6: `login` was being rewritten for its exit codes, and
+   the loopback callback it drives accepted any `?code=` that found the
+   port.
+9. **Web OAuth `state`** (`github-auth.guard.ts`, `auth.controller.ts`,
+   new `cookies.ts`) — hardening the CLI half of `/auth/github` made the
+   *web* half's missing `state` visible: passport-oauth2 with no store
+   installs a `NullStore` that verifies everything, so the callback
+   minted a session for any code presented to it. Leaving a known login
+   CSRF in a guard this branch was already editing was not an option;
+   splitting it into its own PR would have meant two branches editing
+   the same two files.
+10. **Browser binding on the `?mode=cli` entry** — a cross-site-initiated
+    navigation could start a CLI round trip in the victim's browser with
+    an attacker-chosen loopback port. Refused via `Sec-Fetch-Site`, plus
+    a per-flow state cookie. An earlier round deferred this to PR #786,
+    which ships a larger version (consent interstitial, PKCE); that PR
+    is not in this tree, so the hole was live. The version here is
+    deliberately minimal so #786 can replace it wholesale.
+
 ## Non-goals
 
 - No change to the error body shape (`{"error":{"code","message"}}`)
@@ -74,3 +101,11 @@ Classify at the throw site, map class → exit code at the output site.
 - [x] `runLogin` driven by tests: nonce reaches the OAuth URL,
       `--allow-unbound-callback` reaches the listener
 - [x] A 2xx the CLI cannot use (no `id`, no bytes) exits `2`
+- [x] Address pin carried *through* an egress proxy (URL rewritten to a
+      gated address, original `Host`/SNI preserved), with a
+      once-per-run announced fallback for a proxy that refuses an
+      address literal
+- [x] Browser binding on `/auth/github`: cross-site-initiated logins
+      refused, per-flow `__Host-` state cookie for web *and* CLI,
+      constant-time compare exercised at equal length
+- [x] `__oauthState` guard→strategy hand-off covered on both sides

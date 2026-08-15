@@ -934,38 +934,50 @@ whole URL: it is unreachable either way.
 install a dispatcher, so the conventional environment variables
 (`http_proxy` / `https_proxy` / `all_proxy`, honoring `no_proxy`, either
 letter case) *are* the proxy configuration surface. When one applies to
-a hop, that hop is dispatched through a `ProxyAgent` and the address pin
-is dropped — the two cannot be combined, because the pin works by
-overriding the connector's resolver and the only name a proxied
-connector resolves is the proxy's own. The gate itself is unchanged — a
-`src` that resolves to an internal address is refused before any request
-is made, proxied or not.
+a hop, that hop is dispatched through a `ProxyAgent`. The gate itself is
+unchanged — a `src` that resolves to an internal address is refused
+before any request is made, proxied or not.
 
-The pin is **not** replaced by anything on that path, and the residual
-risk is real rather than nil: the proxy performs the connect-time
-resolution the CLI no longer performs, and its answer is not the one the
-gate approved, so a ~0s-TTL nameserver can answer the gate publicly and
-the proxy privately. The reachable target is then the *proxy's* network
-rather than the CLI's. It is accepted because the alternatives are
-worse: the proxy protocols carry a name, not an address (`CONNECT`
-included), so there is nothing to pin, and refusing to proxy names at
-all would fail every external image on exactly the machines that can
-only egress through a proxy. Forcing the pinned `Agent`
-regardless (the behavior this replaced) overrode whatever the operator
-configured and dialed the resolved addresses directly, so on a machine
-whose only route out is a proxy every external image in a document
-failed to export.
+The `Agent`-level pin cannot be combined with a proxy: it works by
+overriding the connector's resolver, and the only name a proxied
+connector resolves is the proxy's own. Dropping it there would not be
+free — the proxy would resolve the image host itself, and its answer is
+not the one the gate approved, so a ~0s-TTL nameserver could answer the
+gate publicly and the proxy privately and reach an address the gate
+refused (the *proxy's* network rather than the CLI's).
 
-Accepted is not the same as unannounced. The first proxied image hop in
-a run writes one line to stderr saying the pin is gone and why, naming
-the hop that triggered it; every later hop in the same export is silent,
-because a document with fifty images states the fact once. It is a
-notice rather than a refusal or an `--allow-proxied-images` opt-in
-because both of those fail the export outright on exactly the
-proxy-only machines the `ProxyAgent` path exists to keep working. The
-person who set `https_proxy` is the only one who can judge whether that
-proxy's resolver is trustworthy, and this is what puts the question in
-front of them.
+So the pin travels with the request instead of being abandoned. The
+hop's URL is rewritten to an address the gate approved and *that* is
+what the proxy is asked for (`CONNECT 192.0.2.10:443`, or an
+absolute-form `GET http://192.0.2.10/…`), while the identity of the
+request stays the host the document named: `Host:` for the HTTP request,
+and the TLS `servername` (`ProxyAgent`'s `requestTls`) for SNI and
+certificate validation. The proxy resolves nothing, so it has no second,
+divergent answer to act on. Two consequences: the hop goes out through
+undici's low-level `request` rather than `fetch`, because WHATWG `fetch`
+forbids setting `Host` and sending the address as the host name would
+break every virtual-hosted CDN; and the rewrite applies only to a
+name — a `src` that already names an address literal is passed through
+unchanged, since it is already the approved address.
+
+The one case where the pin cannot be carried is a proxy that
+allow-lists names and refuses `CONNECT` to an address literal. That hop
+retries by name, once, and the whole run stops trying the address form
+(the proxy has answered that question). This is a property of the
+environment rather than of the document, so it is not
+attacker-triggerable, and the alternative — failing the export outright
+on exactly the machines that can only egress through such a proxy — is
+the worse trade. The residual risk after a fallback is the one described
+above: the proxy resolves the name, and a rebinding nameserver could
+hand it an address the gate refused.
+
+A fallback is not silent. The first hop that gives the pin up writes one
+line to stderr saying so and why, naming the hop that triggered it;
+every later hop in the same export is silent, because a document with
+fifty images states the fact once. A pinned proxied fetch says nothing,
+because nothing was given up. The person who set `https_proxy` is the
+only one who can judge whether that proxy's resolver is trustworthy, and
+this is what puts the question in front of them.
 
 ##### Nonce-bound login callback
 
@@ -982,6 +994,28 @@ account.
 The binding is enforced on the **CLI** side, which is where it works: a
 callback that arrives without the expected nonce is refused, and the
 login then times out with the same message as any other timeout.
+
+The **backend** half of the same question — did this browser start this
+login at all? — is answered by `GitHubAuthGuard`. `/auth/github` refuses
+a request whose `Sec-Fetch-Site` says another site navigated the browser
+into it (`none` / `same-origin` / `same-site`, or a client that sends no
+such header, are served). Without that, a hostile page could start a
+`?mode=cli` round trip in the victim's browser with a loopback port of
+its choosing, and a code minted from the victim's GitHub session would
+be delivered there. The cookies cannot cover this case: the navigation
+that carries the attack is the same navigation that would set them.
+
+Both flows then mirror their `state` into a short-lived cookie —
+`wafflebase_oauth_state` for the web login, `wafflebase_cli_oauth_state`
+for the CLI one, each `__Host-` prefixed wherever the deployment serves
+`Secure` cookies — and the callback accepts only a `state` matching the
+cookie for its flow, compared in constant time and spent whatever the
+outcome. One name per flow so a pending CLI login and a pending web
+login in one browser cannot clobber each other. For the CLI that means
+a state token seen elsewhere (a shared terminal, a CI log) cannot be
+replayed into a victim's browser; the server-side `CliAuthStore` entry
+still carries the port and nonce, which a cookie cannot deliver to a
+loopback listener.
 
 **The printed OAuth URL is a credential while the login is pending.**
 The nonce travels in it, and in the browser's argv, so anything that
