@@ -9,6 +9,8 @@ import {
   CLI_STATE_COOKIE,
   CliConsentRequest,
   consentToken,
+  loginCookieValues,
+  MAX_CONCURRENT_LOGINS,
   GitHubAuthGuard,
   loginCookieName,
   OAUTH_STATE_COOKIE,
@@ -266,6 +268,114 @@ describe('GitHubAuthGuard', () => {
     guard.canActivate(second.context);
 
     expect(first.cookies[0].value).not.toBe(second.cookies[0].value);
+  });
+
+  // Separate names cover the browser flow against the CLI flow, but say
+  // nothing about two logins of the *same* flow — two `wafflebase login`
+  // runs, or the login page opened in two tabs. A single-valued cookie let
+  // the second start overwrite the first's binding, and the first callback
+  // was then refused as a forgery: exactly the invisible failure the
+  // separate names exist to prevent, one level down.
+  describe('concurrent logins of one flow', () => {
+    /** The cookie value(s) a start wrote, as the browser would hold them. */
+    function held(cookies: Array<{ name: string; value: string }>): string {
+      return cookies[cookies.length - 1].value;
+    }
+
+    it('keeps the earlier browser binding when a second login starts', () => {
+      const first = contextFor({});
+      guard.canActivate(first.context);
+      const firstValue = held(first.cookies);
+
+      // The browser now sends what the first start set.
+      const second = contextFor({}, { [OAUTH_STATE_COOKIE]: firstValue });
+      guard.canActivate(second.context);
+
+      const values = loginCookieValues(held(second.cookies));
+      expect(values).toHaveLength(2);
+      // The first login's binding survives the second start, so its `state`
+      // still has a cookie half to be checked against.
+      expect(values).toContain(firstValue);
+      const secret = bindingSecret(configService);
+      const firstState = (first.req.__oauthState as string).slice(
+        WEB_STATE_PREFIX.length,
+      );
+      expect(values.map((v) => stateSignature(secret, v))).toContain(
+        firstState,
+      );
+    });
+
+    it('keeps the earlier CLI binding when a second login starts', () => {
+      const first = confirmedContext(cliQuery());
+      guard.canActivate(first.context);
+      const firstValue = held(first.cookies);
+
+      const second = contextFor(
+        { ...cliQuery(), [CLI_CONFIRM_PARAM]: confirmFor(cliQuery()) },
+        {
+          [CLI_CONFIRM_COOKIE]: CONFIRM_COOKIE,
+          [CLI_STATE_COOKIE]: firstValue,
+        },
+      );
+      guard.canActivate(second.context);
+
+      const values = loginCookieValues(held(second.cookies));
+      expect(values).toContain(firstValue);
+      expect(values).toHaveLength(2);
+    });
+
+    // Bounded: a browser cannot make the server carry an unbounded cookie,
+    // and the login most recently started is the one that survives.
+    it('drops the oldest binding past the ring size', () => {
+      let carried = '';
+      const started: string[] = [];
+      for (let i = 0; i < MAX_CONCURRENT_LOGINS + 1; i++) {
+        const ctx = contextFor({}, { [OAUTH_STATE_COOKIE]: carried });
+        guard.canActivate(ctx.context);
+        carried = held(ctx.cookies);
+        started.push(loginCookieValues(carried).slice(-1)[0]);
+      }
+
+      const values = loginCookieValues(carried);
+      expect(values).toHaveLength(MAX_CONCURRENT_LOGINS);
+      expect(values).not.toContain(started[0]);
+      expect(values).toContain(started[started.length - 1]);
+    });
+
+    // Two consent pages open at once: clicking one must not invalidate the
+    // other, and must spend only its own half.
+    it('spends only the consent binding that was clicked', () => {
+      const first = contextFor(cliQuery({ port: '9876' }));
+      guard.canActivate(first.context);
+      const firstCookie = held(first.cookies);
+      const firstToken = (first.req.__cliConsent as CliConsentRequest)
+        .confirmToken;
+
+      const second = contextFor(cliQuery({ port: '4444' }), {
+        [CLI_CONFIRM_COOKIE]: firstCookie,
+      });
+      guard.canActivate(second.context);
+      const bothCookies = held(second.cookies);
+
+      // Click the first page's link while both are open.
+      const click = contextFor(
+        { ...cliQuery({ port: '9876' }), [CLI_CONFIRM_PARAM]: firstToken },
+        { [CLI_CONFIRM_COOKIE]: bothCookies },
+      );
+      guard.canActivate(click.context);
+
+      expect(store.consumeState(click.req.__oauthState as string)).toMatchObject(
+        { port: 9876 },
+      );
+      const confirmCookie = click.cookies.find(
+        (c) => c.name === CLI_CONFIRM_COOKIE,
+      );
+      // The other consent page's half survives; only the clicked one went.
+      const surviving = loginCookieValues(confirmCookie?.value);
+      expect(surviving).toHaveLength(1);
+      expect(surviving).not.toContain(loginCookieValues(firstCookie)[0]);
+      expect(click.cleared).not.toContain(CLI_CONFIRM_COOKIE);
+    });
   });
 
   // The nonce, the challenge and the browser-binding cookie are all things

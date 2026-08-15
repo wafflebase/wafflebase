@@ -471,6 +471,42 @@ describe('AuthController', () => {
       );
     });
 
+    // Separate cookie names cover web-vs-CLI, but two logins of the *same*
+    // flow (the login page opened in two tabs) shared one value: the second
+    // start overwrote the first's binding and the first callback was refused
+    // as a forgery. The cookie now carries both, and a callback spends only
+    // the one it matched.
+    it('completes the older of two browser logins in one browser', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+
+      const older = randomBytes(32).toString('base64url');
+      const newer = randomBytes(32).toString('base64url');
+      const res = createMockResponse();
+
+      await controller.githubAuthCallback(
+        webRequest(`${older}.${newer}`) as any,
+        res,
+        webState(older),
+      );
+
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173');
+      // The other tab's login survives: its binding is written back, and the
+      // cookie is not cleared out from under it.
+      expect(res.cookie).toHaveBeenCalledWith(
+        'wafflebase_oauth_state',
+        newer,
+        expect.objectContaining({ path: '/' }),
+      );
+      expect(res.clearCookie).not.toHaveBeenCalledWith(
+        'wafflebase_oauth_state',
+        expect.anything(),
+      );
+    });
+
     // Echoing the cookie's value would let a `state` this server never issued
     // be presented against a planted cookie; the query half is its HMAC.
     it('refuses a state that merely copies the cookie value', async () => {

@@ -391,6 +391,16 @@ browser can hold both logins at once (`wafflebase login` run while a browser
 sign-in waits on GitHub), and a shared name meant the second start silently
 overwrote the first's binding, failing that callback as a forgery.
 
+Two logins of the *same* flow — two `wafflebase login` runs, or the login page
+opened in two tabs — hit that same problem one level down, and are covered
+without a third cookie name: each cookie carries up to
+`MAX_CONCURRENT_LOGINS` (3) dot-separated bindings, a start appends (dropping
+the oldest once full), and a callback matches one and writes the rest back.
+A cookie *name* per login would have to be derivable from the callback, and
+anything the callback can derive a crafted start can also plant. A callback
+matching none of the bindings still clears the cookie outright — a failed
+callback must not be retriable against the same half.
+
 `__Host-` is what stops a sibling subdomain from writing the browser's half of
 the OAuth double submit, and it is the *only* thing that stops it: the HMAC
 binding proves the server issued the `state`, but one unauthenticated

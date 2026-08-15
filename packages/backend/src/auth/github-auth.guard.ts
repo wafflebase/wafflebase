@@ -32,6 +32,10 @@ export const OAUTH_STATE_COOKIE = 'wafflebase_oauth_state';
  * reason no one can see. Separate names let the two run side by side; the
  * callback already knows which flow it is validating, so it reads the one it
  * issued.
+ *
+ * Two logins of the *same* flow are covered too, and not by a third name: a
+ * cookie carries up to `MAX_CONCURRENT_LOGINS` bindings and a callback spends
+ * the one it matches. See `issueLoginCookie`.
  */
 export const CLI_STATE_COOKIE = 'wafflebase_cli_state';
 
@@ -173,6 +177,37 @@ export function loginCookieOptions(configService: ConfigService): CookieOptions 
     sameSite: 'lax',
     path: '/',
   };
+}
+
+/**
+ * How many logins of one flow a single browser may have in flight.
+ *
+ * Each login's binding is a separate value inside its flow's cookie rather
+ * than a cookie of its own, because a cookie *name* per login would have to
+ * be guessable from the callback — and anything the callback can guess, a
+ * crafted start can also plant. A short ring keeps the cookie small (three
+ * 43-character values) and bounds what one browser can make the server carry,
+ * while covering the cases that actually happen: two `wafflebase login` runs,
+ * or a login page opened in two tabs.
+ */
+export const MAX_CONCURRENT_LOGINS = 3;
+
+/**
+ * Separator between the bindings inside one login cookie. Every value is
+ * `base64url`, whose alphabet excludes `.`, so no value can contain it and
+ * the split is unambiguous.
+ */
+const BINDING_SEPARATOR = '.';
+
+/** The bindings a login cookie carries, oldest first. */
+export function loginCookieValues(raw: unknown): string[] {
+  if (typeof raw !== 'string') return [];
+  return raw.split(BINDING_SEPARATOR).filter((value) => value !== '');
+}
+
+/** The wire value of a login cookie holding `values`. */
+export function joinLoginCookieValues(values: readonly string[]): string {
+  return values.join(BINDING_SEPARATOR);
 }
 
 /** Constant-time compare of two login secrets (never leak by timing). */
@@ -447,7 +482,8 @@ export class GitHubAuthGuard extends AuthGuard('github') {
       // own. Stop before GitHub and ask the person, once, naming the port.
       // The confirmation is checked against *these* parameters, so a click
       // consented for one port does not carry another (see `consentToken`).
-      if (!this.hasConfirmation(req, params)) {
+      const confirmed = this.matchedConfirmation(req, params);
+      if (confirmed === undefined) {
         const consent: CliConsentRequest = {
           ...params,
           confirmToken: consentToken(
@@ -460,7 +496,7 @@ export class GitHubAuthGuard extends AuthGuard('github') {
         return true;
       }
 
-      this.clearLoginCookie(context, CLI_CONFIRM_COOKIE);
+      this.spendLoginCookie(context, CLI_CONFIRM_COOKIE, confirmed);
       const { stateToken } = this.cliAuthStore.createState({
         mode,
         port: portNum,
@@ -491,36 +527,49 @@ export class GitHubAuthGuard extends AuthGuard('github') {
    * own `port`, `nonce` and `code_challenge`. A confirmation obtained for a
    * different port therefore does not verify, and the person sees the page
    * naming the new one instead.
+   *
+   * Returns the cookie value the click belongs to, so the caller can spend
+   * that one and leave any other consent page this browser has open alone.
    */
-  private hasConfirmation(
+  private matchedConfirmation(
     req: {
       query?: Record<string, unknown>;
       cookies?: Record<string, unknown>;
     },
     params: CliConsentParams,
-  ): boolean {
+  ): string | undefined {
     const presented = req.query?.[CLI_CONFIRM_PARAM];
-    const cookie =
-      req.cookies?.[loginCookieName(this.configService, CLI_CONFIRM_COOKIE)];
-    if (typeof presented !== 'string' || typeof cookie !== 'string') {
-      return false;
-    }
-    return secretEquals(
-      consentToken(bindingSecret(this.configService), cookie, params),
-      presented,
+    if (typeof presented !== 'string') return undefined;
+    const secret = bindingSecret(this.configService);
+    return loginCookieValues(
+      req.cookies?.[loginCookieName(this.configService, CLI_CONFIRM_COOKIE)],
+    ).find((value) =>
+      secretEquals(consentToken(secret, value, params), presented),
     );
   }
 
   /**
-   * Mint one half of a login's double submit and set the cookie holding it.
+   * Mint one half of a login's double submit and add it to the cookie holding
+   * this flow's bindings.
    *
    * Both flows use it: the browser sends the signature of the value to GitHub
    * under the `w.` prefix, the CLI keeps the value itself beside its state
    * entry. `SameSite=Lax` still travels on GitHub's top-level redirect back
    * here, which is the only request that reads it.
+   *
+   * The new value is *appended* to whatever the browser already holds rather
+   * than replacing it. Separate names already let the browser and CLI flows
+   * run side by side, but a second login of the *same* flow — two
+   * `wafflebase login` runs, or the login page opened in two tabs — used to
+   * overwrite the first's binding, and the first callback was then refused as
+   * a forgery: a login that fails for a reason nobody can see, which is
+   * exactly what the separate names were introduced to prevent. Oldest go
+   * first once the ring is full, so the login most recently started — the one
+   * a person is looking at — is always the one that survives.
    */
   private issueLoginCookie(context: ExecutionContext, base: string): string {
     const value = randomBytes(32).toString('base64url');
+    const req = context.switchToHttp().getRequest();
     const res = context.switchToHttp().getResponse();
     // The cookie is the binding, not a nicety: without a response that can
     // set it, every callback would be refused. Fail here, where the reason
@@ -528,21 +577,43 @@ export class GitHubAuthGuard extends AuthGuard('github') {
     if (typeof res?.cookie !== 'function') {
       throw new InternalServerErrorException('Cannot start a login session');
     }
-    res.cookie(loginCookieName(this.configService, base), value, {
+    const name = loginCookieName(this.configService, base);
+    const kept = loginCookieValues(req?.cookies?.[name]).slice(
+      -(MAX_CONCURRENT_LOGINS - 1),
+    );
+    res.cookie(name, joinLoginCookieValues([...kept, value]), {
       ...loginCookieOptions(this.configService),
       maxAge: STATE_COOKIE_MAX_AGE_MS,
     });
     return value;
   }
 
-  /** Spend a login cookie: it authorizes exactly one start. */
-  private clearLoginCookie(context: ExecutionContext, base: string): void {
+  /**
+   * Spend one binding: it authorizes exactly one start, and the browser's
+   * other in-flight logins of the same flow keep theirs.
+   */
+  private spendLoginCookie(
+    context: ExecutionContext,
+    base: string,
+    spent: string,
+  ): void {
+    const req = context.switchToHttp().getRequest();
     const res = context.switchToHttp().getResponse();
-    if (typeof res?.clearCookie === 'function') {
-      res.clearCookie(
-        loginCookieName(this.configService, base),
-        loginCookieOptions(this.configService),
-      );
+    const name = loginCookieName(this.configService, base);
+    const options = loginCookieOptions(this.configService);
+    const remaining = loginCookieValues(req?.cookies?.[name]).filter(
+      (value) => value !== spent,
+    );
+
+    if (remaining.length === 0) {
+      if (typeof res?.clearCookie === 'function') res.clearCookie(name, options);
+      return;
+    }
+    if (typeof res?.cookie === 'function') {
+      res.cookie(name, joinLoginCookieValues(remaining), {
+        ...options,
+        maxAge: STATE_COOKIE_MAX_AGE_MS,
+      });
     }
   }
 }

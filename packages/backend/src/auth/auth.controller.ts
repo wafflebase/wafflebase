@@ -26,12 +26,15 @@ import {
   CLI_CONFIRM_PARAM,
   CliConsentRequest,
   GitHubAuthGuard,
+  joinLoginCookieValues,
   loginCookieName,
   CLI_STATE_COOKIE,
   loginCookieOptions,
+  loginCookieValues,
   OAUTH_STATE_COOKIE,
   secureCookies,
   secretEquals,
+  STATE_COOKIE_MAX_AGE_MS,
   stateSignature,
   WEB_STATE_PREFIX,
 } from './github-auth.guard';
@@ -293,15 +296,14 @@ export class AuthController {
   ): CliCallbackState | undefined {
     if (stateToken?.startsWith(WEB_STATE_PREFIX)) {
       const presented = stateToken.slice(WEB_STATE_PREFIX.length);
-      const cookie = this.takeStateCookie(req, res, OAUTH_STATE_COOKIE);
       // The cookie is the binding; the signature only says this server issued
       // the start (see `stateSignature` — one unauthenticated request hands
       // out a matching pair, so it is no defence against cookie planting).
-      const expected =
-        typeof cookie === 'string'
-          ? stateSignature(bindingSecret(this.configService), cookie)
-          : undefined;
-      if (expected === undefined || !secretEquals(expected, presented)) {
+      const secret = bindingSecret(this.configService);
+      const matched = this.takeStateCookie(req, res, OAUTH_STATE_COOKIE, (v) =>
+        secretEquals(stateSignature(secret, v), presented),
+      );
+      if (!matched) {
         throw new UnauthorizedException(
           'Login session expired or invalid. Please sign in again.',
         );
@@ -311,13 +313,10 @@ export class AuthController {
 
     if (stateToken) {
       const state = this.cliAuthStore.consumeState(stateToken);
-      const binding = this.takeStateCookie(req, res, CLI_STATE_COOKIE);
-      if (
-        state &&
-        state.mode === 'cli' &&
-        typeof binding === 'string' &&
-        secretEquals(state.browserBinding, binding)
-      ) {
+      const bound = this.takeStateCookie(req, res, CLI_STATE_COOKIE, (v) =>
+        state === undefined ? false : secretEquals(state.browserBinding, v),
+      );
+      if (state && state.mode === 'cli' && bound) {
         return state;
       }
 
@@ -335,18 +334,47 @@ export class AuthController {
   }
 
   /**
-   * Read one flow's login `state` cookie and clear it in the same breath.
+   * Find this callback's binding among the ones its flow's cookie carries,
+   * and spend it in the same breath.
    *
-   * Single use: it goes whether or not it matched, so a failed callback
-   * cannot be retried against the same half. Only the flow's own cookie is
-   * touched — the browser and CLI logins keep separate names precisely so
-   * that one starting (or failing) does not take the other down with it.
+   * The cookie holds up to `MAX_CONCURRENT_LOGINS` bindings, because one
+   * browser may have two logins of the same flow in flight (two
+   * `wafflebase login` runs, or the login page in two tabs) and the second
+   * start must not invalidate the first. A match spends only its own value
+   * and leaves the others, so the other login still completes.
+   *
+   * A callback that matches nothing clears the cookie outright. It spent no
+   * binding, but the rule that a failed callback cannot be retried against
+   * the same half predates the ring and is worth more than the rare
+   * collateral of a bogus callback arriving mid-login: the alternative leaves
+   * live bindings sitting in the browser for whatever sent it.
+   *
+   * Only the flow's own cookie is touched — the browser and CLI logins keep
+   * separate names precisely so that one starting (or failing) does not take
+   * the other down with it.
    */
-  private takeStateCookie(req: Request, res: Response, base: string): unknown {
+  private takeStateCookie(
+    req: Request,
+    res: Response,
+    base: string,
+    matches: (value: string) => boolean,
+  ): boolean {
     const name = loginCookieName(this.configService, base);
-    const value = req.cookies?.[name];
-    res.clearCookie(name, loginCookieOptions(this.configService));
-    return value;
+    const options = loginCookieOptions(this.configService);
+    const values = loginCookieValues(req.cookies?.[name]);
+    const hit = values.find(matches);
+
+    const remaining =
+      hit === undefined ? [] : values.filter((value) => value !== hit);
+    if (remaining.length === 0) {
+      res.clearCookie(name, options);
+    } else {
+      res.cookie(name, joinLoginCookieValues(remaining), {
+        ...options,
+        maxAge: STATE_COOKIE_MAX_AGE_MS,
+      });
+    }
+    return hit !== undefined;
   }
 
   /**
