@@ -146,16 +146,20 @@ reading `req.query.nonce` — had no test, so changing it to
 protection (verified by making exactly that edit). When a security
 property is a chain, pin the link that reads the untrusted input.
 
-## Reviews that block on "scope creep" can be blocking on their own asks
+## Work accepted mid-review grew this PR past its own issue
 
-Round 5's design-fit lens flagged the OAuth nonce and CSV
-neutralization as scope creep beyond an output-formatting issue. Both
-came from round 2 of the same panel (`todo.md` "Review round 2"). The
-finding is a fair *description* — the PR is larger than its issue — but
-it is not actionable as a fix, since unbundling means dropping work an
-earlier round required. Answer it with the history rather than by
-reverting, and take the real lesson at the other end: when a review
-asks for a change outside the PR's thesis, land it in its own PR.
+Round 2 asked for the OAuth nonce, the CSV formula guard and the
+`cells batch` restructure; all three landed here, in a PR whose issue
+(#635) is about routing two commands through `output()`. From round 5
+onward the design-fit check flagged that bundle as scope creep. The
+description is accurate — the PR is larger than its issue — and it has
+no fix left inside this branch, because unbundling now means dropping
+work earlier rounds required and later rounds extended.
+
+The lesson is at the other end: a change requested mid-review that sits
+outside the PR's thesis should be taken as its own issue and its own
+PR, not folded into the open one. Each PR's diff then stays answerable
+against a single stated outcome.
 
 ## A wiring lesson learned on one side of a chain has another side
 
@@ -269,12 +273,73 @@ next flag added to it fails locally rather than shipping unreachable.
 Prefer a test that expresses the invariant over one that pins today's
 answer, when the invariant is cheap to state.
 
-## A lens that fails in ~14 minutes can still be an infrastructure failure
+## One review check failed after a full-length run without a verdict
 
-Duration is a good first filter for "did this lens actually review the
-code" — a ~9 s failure never did — but it is not sufficient. The security
-lens here ran the full ~14 minutes and still produced no verdict: its
-message was "every credential in the pool (3) was retired". Read the
-summary before treating a lens's failure as a finding; a long run that
-reports a pool or quota condition carries no more code signal than a
-short one.
+In round 8 the security check ran its full ~14 minutes and produced no
+findings and no verdict; its summary read "every credential in the pool
+(3) was retired". That round's blocking set was therefore worked
+through from the other checks' output. Recorded because run duration
+alone did not distinguish that outcome from a completed review — a
+short run (~9 s) had been the only previous signal of an
+infrastructure failure, and here the summary was the only thing that
+said so.
+
+## A double-submit cookie is only as good as who else can write it
+
+The browser OAuth `state` was a random secret in a cookie plus its
+SHA-256 in the URL, compared in constant time — and still defeatable,
+because the cookie's name carried no `__Host-` prefix. Any sibling host
+under the registrable domain (a staging box, a takeover-able CNAME, an
+XSS on a marketing subdomain) can send `Set-Cookie: name=…;
+Domain=example.com`, which lands on the real origin. Owning both halves
+of the pair, the attacker supplies the matching `state` and the check
+confirms their own login instead of the victim's. An HMAC over the
+secret would not have helped: an attacker can mint a legitimate pair by
+starting their own login.
+
+The cryptography was never the weak part. When a check rests on "only
+this browser holds the secret", the question is which origins the
+browser will let write it — and the answer has to be applied to *every*
+cookie of that kind. The same round shipped the prefix on the state
+cookie first and left `wafflebase_cli_confirm`, which proves a consent
+click the same way, unprefixed; both now derive their name from one
+helper so a deployment cannot harden half of them.
+
+## A justification for a flag is a claim, and claims get tested
+
+`sheets export --raw` was documented — in command help, the schema
+registry, two skill files, the published CLI docs and the agent
+round-trip charter — as the way to make `sheets export` → `sheets
+import` preserve formulas, and nothing did that: an export writes one
+row per cell (`ref,value,formula,style`) while the importer read a
+positional grid. Six documents agreed with each other and none agreed
+with the code, so the claim survived every round until a reviewer read
+the import call site.
+
+Prose describing a pipeline is worth a test at whichever end is
+cheapest to pin. Repeating a rationale across files does not make it
+true; it only makes the correction six edits wide.
+
+## Query-string keys are untrusted input, including as object keys
+
+`LOGIN_ERRORS[error]` indexed a message map with whatever `?error=`
+carried, so `?error=constructor` returned `Object.prototype.constructor`
+— a function handed to React as a child — and `??` could not catch it,
+because a function is not nullish. An own-property lookup is the fix,
+and the same shape applies anywhere a URL parameter, a header or a CRDT
+key indexes a plain object.
+
+## Two sessions can work the same review round
+
+Round 9 was picked up twice in parallel. The other session pushed
+first, closing the same four findings — with a *better* answer on
+`--raw`, teaching the importer the export's record shape rather than
+correcting the prose around it. The duplicate work was dropped rather
+than merged (its docs would have contradicted the shipped importer),
+leaving only what the other pass had not covered: the CLI confirm
+cookie, the equal-length comparison test and these notes.
+
+Before starting a review round, check whether the PR's head has already
+moved past the commit the findings were filed against; and when it has,
+re-read the remote work before pushing, because "my change is done" and
+"my change is still needed" are different questions.

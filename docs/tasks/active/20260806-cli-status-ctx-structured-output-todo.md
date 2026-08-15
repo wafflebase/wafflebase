@@ -304,6 +304,17 @@ Rebutted rather than fixed:
 - [x] `rest-api.md` §7 no longer says a stateless callback is a 400 —
       it redirects to `FRONTEND_URL/login?error=oauth_state`, which is
       what `auth.controller.ts` and `backend.md` already described
+- [x] `wafflebase_cli_confirm` is `__Host-` prefixed on the same terms
+      (`hostPrefixedCookieName`, shared with the state cookie). The
+      security finding named it alongside the state cookie and it has
+      the identical property: the click is proven by possession of that
+      cookie alone, so a sibling subdomain able to write one holds both
+      halves of the `?confirm=` pair and walks itself through the
+      consent gate. The middleware reads only the name it would mint
+      now (`cli-login-confirm.middleware.spec.ts`)
+- [x] the confirm-cookie mismatch test compares equal-length strings, so
+      the refusal has to come from the comparison rather than from a
+      length check standing in for it (test-adequacy minor)
 
 Rebutted rather than fixed:
 

@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import {
-  CLI_CONFIRM_COOKIE,
+  cliConfirmCookieName,
   CliLoginConfirmMiddleware,
 } from './cli-login-confirm.middleware';
 
@@ -87,22 +87,25 @@ describe('CliLoginConfirmMiddleware', () => {
     const nonce = 'a'.repeat(64);
     const { req, res, next } = run(
       { mode: 'cli', port: '49152', nonce, confirm: 'secret-value' },
-      { [CLI_CONFIRM_COOKIE]: 'secret-value' },
+      { [cliConfirmCookieName()]: 'secret-value' },
     );
 
     expect(next).toHaveBeenCalled();
     expect(req.__cliConfirmed).toBe(true);
     // Single use.
     expect(res.clearCookie).toHaveBeenCalledWith(
-      CLI_CONFIRM_COOKIE,
+      cliConfirmCookieName(),
       expect.any(Object),
     );
   });
 
+  // Equal lengths on both sides, so the refusal has to come from
+  // comparing the contents rather than from a length check standing in
+  // for the comparison.
   it('re-prompts when the confirm param does not match the cookie', () => {
     const { req, res, next } = run(
-      { mode: 'cli', port: '49152', confirm: 'attacker-minted' },
-      { [CLI_CONFIRM_COOKIE]: 'victims-cookie' },
+      { mode: 'cli', port: '49152', confirm: 'a'.repeat(43) },
+      { [cliConfirmCookieName()]: 'b'.repeat(43) },
     );
 
     expect(next).not.toHaveBeenCalled();
@@ -126,5 +129,41 @@ describe('CliLoginConfirmMiddleware', () => {
 
     expect(next).toHaveBeenCalled();
     expect(res.send).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The click is proven by possession of this cookie alone, so it needs
+   * the same host binding as the OAuth state cookie: without `__Host-`,
+   * a foothold on any sibling subdomain can write one with `Domain=` set
+   * and walk itself through the gate with the `?confirm=` it minted. The
+   * prefix is only honoured with `Secure` and `Path=/`, so all three are
+   * asserted together — a prefixed cookie missing either is dropped by
+   * the browser, which would break every CLI login instead.
+   */
+  it('prefixes the confirm cookie with __Host- where cookies are Secure', () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const { res } = run({ mode: 'cli', port: '49152' });
+
+      expect(res.cookie).toHaveBeenCalledWith(
+        '__Host-wafflebase_cli_confirm',
+        expect.any(String),
+        expect.objectContaining({
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: true,
+          path: '/',
+        }),
+      );
+      const [, , options] = res.cookie.mock.calls[0] as [
+        string,
+        string,
+        Record<string, unknown>,
+      ];
+      expect(options.domain).toBeUndefined();
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
   });
 });

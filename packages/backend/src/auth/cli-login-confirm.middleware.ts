@@ -2,7 +2,7 @@ import { Injectable, NestMiddleware } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import type { CookieOptions, NextFunction, Request, Response } from 'express';
 import { parseCliNonce, parseCliPort } from './github-auth.guard';
-import { timingSafeEqualStr } from './oauth-state';
+import { hostPrefixedCookieName, timingSafeEqualStr } from './oauth-state';
 
 /**
  * Confirmation gate in front of `GET /auth/github?mode=cli`.
@@ -25,7 +25,21 @@ import { timingSafeEqualStr } from './oauth-state';
  * victim's. `X-Frame-Options: DENY` keeps the click from being stolen by
  * framing it.
  */
-export const CLI_CONFIRM_COOKIE = 'wafflebase_cli_confirm';
+const CLI_CONFIRM_COOKIE_BASE = 'wafflebase_cli_confirm';
+
+/**
+ * `__Host-` prefixed in production, for the same reason the OAuth state
+ * cookie is (`oauth-state.ts`): the click is proven by possession of
+ * this cookie alone, so a foothold on any sibling subdomain that can
+ * write `wafflebase_cli_confirm=<its own secret>; Domain=<parent>` also
+ * holds the `?confirm=` half and can walk itself through the gate. The
+ * prefix forbids `Domain`, and requires `Secure` and `Path=/` with it,
+ * so the name and the options move together and only the name a
+ * plain-HTTP dev server can actually set is used there.
+ */
+export function cliConfirmCookieName(): string {
+  return hostPrefixedCookieName(CLI_CONFIRM_COOKIE_BASE);
+}
 
 /** Long enough to read the page, short enough not to linger. */
 const CONFIRM_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
@@ -35,7 +49,9 @@ function confirmCookieOptions(): CookieOptions {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    path: '/auth',
+    // `/`, not `/auth`: `__Host-` is honoured only with `Path=/`. The
+    // cookie is httpOnly, single-use and lives five minutes.
+    path: '/',
     maxAge: CONFIRM_COOKIE_MAX_AGE_MS,
   };
 }
@@ -61,8 +77,12 @@ export class CliLoginConfirmMiddleware implements NestMiddleware {
     }
 
     const confirm = req.query?.confirm;
+    // Only the name this build would mint is read: honouring an
+    // unprefixed leftover in production would re-admit the very cookie
+    // tossing the prefix blocks.
+    const confirmCookie = cliConfirmCookieName();
     const cookie = (req as Request & { cookies?: Record<string, unknown> })
-      .cookies?.[CLI_CONFIRM_COOKIE];
+      .cookies?.[confirmCookie];
     if (
       typeof confirm === 'string' &&
       typeof cookie === 'string' &&
@@ -70,13 +90,16 @@ export class CliLoginConfirmMiddleware implements NestMiddleware {
     ) {
       // Single use: the cookie is what makes the secret unforgeable, so
       // it is spent here rather than left to be replayed.
-      res.clearCookie(CLI_CONFIRM_COOKIE, { ...confirmCookieOptions(), maxAge: undefined });
+      res.clearCookie(confirmCookie, {
+        ...confirmCookieOptions(),
+        maxAge: undefined,
+      });
       (req as CliConfirmedRequest).__cliConfirmed = true;
       return next();
     }
 
     const secret = randomBytes(32).toString('base64url');
-    res.cookie(CLI_CONFIRM_COOKIE, secret, confirmCookieOptions());
+    res.cookie(confirmCookie, secret, confirmCookieOptions());
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
     res.setHeader('Cache-Control', 'no-store');

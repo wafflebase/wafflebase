@@ -352,7 +352,7 @@ Created by `AuthService.createTokens()`:
 | `wafflebase_session` | httpOnly, secure, sameSite=`lax`, maxAge=1h by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=1h by default |
 | `wafflebase_refresh` | httpOnly, secure, sameSite=`lax`, maxAge=7d by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=7d by default |
 | `__Host-wafflebase_oauth_state` | httpOnly, secure, sameSite=`lax`, path=`/`, maxAge=10m | `wafflebase_oauth_state` (unprefixed), secure=`false` |
-| `wafflebase_cli_confirm` | httpOnly, secure, sameSite=`lax`, path=`/auth`, short-lived | same, secure=`false` |
+| `__Host-wafflebase_cli_confirm` | httpOnly, secure, sameSite=`lax`, path=`/`, short-lived | `wafflebase_cli_confirm` (unprefixed), secure=`false` |
 
 The two OAuth cookies are single-use: they exist only for the duration
 of one login and are cleared when consumed.
@@ -370,6 +370,13 @@ write restriction is the only property that does. The callback reads
 **only** the name it would mint now, with no fallback to the unprefixed
 one. The prefix requires `Secure`, which a plain-HTTP dev server cannot
 set, hence the unprefixed development name.
+
+The CLI confirmation cookie is prefixed on the same terms and for the
+same reason: the click it stands for is proven by possession of that
+cookie alone, so a sibling subdomain able to write it holds both halves
+of the `?confirm=` pair and can walk itself through the consent gate.
+Both names come from one helper (`hostPrefixedCookieName`), so a
+deployment cannot end up with one cookie hardened and the other not.
 Both are `lax` rather than `strict` for the same reason as the session
 cookies — GitHub redirects the browser back to us, and a `strict` cookie
 is withheld on that cross-site navigation, so every login would fail its

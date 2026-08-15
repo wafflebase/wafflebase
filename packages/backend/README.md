@@ -410,7 +410,7 @@ stored, so a rejected value costs no upload.
 A CLI login (`GET /auth/github?mode=cli&port=…`) is unauthenticated and
 takes its redirect target off the query string, so `CliLoginConfirmMiddleware`
 answers it with a confirmation page first; only the click through it
-(which carries the `wafflebase_cli_confirm` cookie secret back as
+(which carries the `__Host-wafflebase_cli_confirm` cookie secret back as
 `?confirm=`) reaches the guard. Design:
 [`docs/design/backend.md`](../../docs/design/backend.md).
 

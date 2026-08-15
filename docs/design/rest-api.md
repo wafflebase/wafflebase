@@ -337,8 +337,10 @@ backend surface is:
   it is answered first with a **confirmation page**
   (`CliLoginConfirmMiddleware`, `X-Frame-Options: DENY`): its Continue
   link carries a one-time secret that also went out as an httpOnly
-  `wafflebase_cli_confirm` cookie, and only a matching pair proceeds to
-  GitHub. Without that click, a page the victim visits could navigate
+  `__Host-wafflebase_cli_confirm` cookie (`__Host-` so a sibling
+  subdomain cannot write one of its own; unprefixed only outside
+  production, where `Secure` is unavailable), and only a matching pair
+  proceeds to GitHub. Without that click, a page the victim visits could navigate
   them here and have the backend mint a code **for the victim**
   addressed at a port the attacker chose; the loopback nonce cannot
   cover that, because the attacker picks the nonce.

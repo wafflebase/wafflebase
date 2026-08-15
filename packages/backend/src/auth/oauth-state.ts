@@ -47,7 +47,18 @@ const OAUTH_STATE_COOKIE_BASE = 'wafflebase_oauth_state';
  * back.
  */
 export function oauthStateCookieName(): string {
-  return isSecureCookie() ? `__Host-${OAUTH_STATE_COOKIE_BASE}` : OAUTH_STATE_COOKIE_BASE;
+  return hostPrefixedCookieName(OAUTH_STATE_COOKIE_BASE);
+}
+
+/**
+ * `__Host-<base>` wherever the browser will honour the prefix.
+ *
+ * Shared with `wafflebase_cli_confirm`, whose secret is proven the same
+ * way — by possession of a cookie — and which is therefore open to the
+ * same sibling-subdomain cookie tossing described above.
+ */
+export function hostPrefixedCookieName(base: string): string {
+  return isSecureCookie() ? `__Host-${base}` : base;
 }
 
 /** Marks a `state` as belonging to the web flow, not the CLI store. */
