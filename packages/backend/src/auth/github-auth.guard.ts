@@ -263,12 +263,51 @@ export function stateSignature(secret: string, cookieValue: string): string {
   return createHmac('sha256', secret).update(cookieValue).digest('base64url');
 }
 
-/** What the CLI consent interstitial needs to render itself. */
-export interface CliConsentRequest {
+/** The CLI parameters one consent page was rendered for. */
+export interface CliConsentParams {
   port: number;
   nonce: string;
   codeChallenge: string;
+}
+
+/** What the CLI consent interstitial needs to render itself. */
+export interface CliConsentRequest extends CliConsentParams {
   confirmToken: string;
+}
+
+/**
+ * The `cli_confirm` value that belongs to one consent page.
+ *
+ * The token used to be a bare copy of the cookie, which proved only that this
+ * browser had been shown *some* consent page in the last five minutes — not
+ * the page naming port 9876. That is the wrong claim: the entire defence is
+ * that a person read the port on the page they clicked, so a confirmation
+ * obtained for one set of parameters must not be spendable against another
+ * (an attacker-owned loopback listener, say) without a second page being
+ * shown. Signing the parameters into the token binds it to what was
+ * displayed: the guard recomputes it from the request's *own* `port`, `nonce`
+ * and `code_challenge`, so changing any of them invalidates the confirmation.
+ *
+ * A crafted link still cannot pre-supply it — computing the token needs the
+ * cookie half, which is httpOnly and set by the page itself, and the key.
+ *
+ * Each part is length-prefixed so no combination of values can be re-cut into
+ * a different one that signs the same (`"9|87,6"` vs `"98|7,6"`).
+ */
+export function consentToken(
+  secret: string,
+  cookieValue: string,
+  params: CliConsentParams,
+): string {
+  const parts = [
+    cookieValue,
+    String(params.port),
+    params.nonce,
+    params.codeChallenge,
+  ];
+  return createHmac('sha256', secret)
+    .update(parts.map((part) => `${part.length}:${part}`).join('|'))
+    .digest('base64url');
 }
 
 /**
@@ -334,7 +373,10 @@ function boundedToken(
  *   a CLI start never redirects to GitHub on its own: it renders an
  *   interstitial naming the loopback port, and only a click on that page —
  *   which echoes a token the page itself set as a cookie, so a crafted link
- *   cannot pre-supply it — starts the login.
+ *   cannot pre-supply it — starts the login. The token also signs the
+ *   parameters the page displayed (`consentToken`), so it authorizes that
+ *   port and no other; the claim it makes is "this browser was shown the page
+ *   naming port 9876", not "some consent page, once, recently".
  *
  * The cost is that a CLI predating the parameters can no longer log in: it
  * gets a `400` naming what is missing instead of a login with the injection
@@ -398,15 +440,21 @@ export class GitHubAuthGuard extends AuthGuard('github') {
         throw new BadRequestException('Missing or invalid code_challenge');
       }
 
+      const params: CliConsentParams = { port: portNum, nonce, codeChallenge };
+
       // Nothing about this request says the CLI wrote it — an attacker's
       // link reaches here identically, pointing `port` at a listener they
       // own. Stop before GitHub and ask the person, once, naming the port.
-      if (!this.hasConfirmation(req)) {
+      // The confirmation is checked against *these* parameters, so a click
+      // consented for one port does not carry another (see `consentToken`).
+      if (!this.hasConfirmation(req, params)) {
         const consent: CliConsentRequest = {
-          port: portNum,
-          nonce,
-          codeChallenge,
-          confirmToken: this.issueLoginCookie(context, CLI_CONFIRM_COOKIE),
+          ...params,
+          confirmToken: consentToken(
+            bindingSecret(this.configService),
+            this.issueLoginCookie(context, CLI_CONFIRM_COOKIE),
+            params,
+          ),
         };
         req.__cliConsent = consent;
         return true;
@@ -434,18 +482,32 @@ export class GitHubAuthGuard extends AuthGuard('github') {
     return super.canActivate(context);
   }
 
-  /** Whether this request carries both halves of the CLI consent click. */
-  private hasConfirmation(req: {
-    query?: Record<string, unknown>;
-    cookies?: Record<string, unknown>;
-  }): boolean {
+  /**
+   * Whether this request carries both halves of the CLI consent click *for
+   * the parameters it is asking to start with*.
+   *
+   * The query half is not a copy of the cookie but a signature over the
+   * cookie and the consented parameters, recomputed here from the request's
+   * own `port`, `nonce` and `code_challenge`. A confirmation obtained for a
+   * different port therefore does not verify, and the person sees the page
+   * naming the new one instead.
+   */
+  private hasConfirmation(
+    req: {
+      query?: Record<string, unknown>;
+      cookies?: Record<string, unknown>;
+    },
+    params: CliConsentParams,
+  ): boolean {
     const presented = req.query?.[CLI_CONFIRM_PARAM];
-    const expected =
+    const cookie =
       req.cookies?.[loginCookieName(this.configService, CLI_CONFIRM_COOKIE)];
-    return (
-      typeof presented === 'string' &&
-      typeof expected === 'string' &&
-      secretEquals(expected, presented)
+    if (typeof presented !== 'string' || typeof cookie !== 'string') {
+      return false;
+    }
+    return secretEquals(
+      consentToken(bindingSecret(this.configService), cookie, params),
+      presented,
     );
   }
 

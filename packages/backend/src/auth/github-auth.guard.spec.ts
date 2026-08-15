@@ -8,6 +8,7 @@ import {
   CLI_CONFIRM_PARAM,
   CLI_STATE_COOKIE,
   CliConsentRequest,
+  consentToken,
   GitHubAuthGuard,
   loginCookieName,
   OAUTH_STATE_COOKIE,
@@ -90,6 +91,11 @@ const CHALLENGE = createHash('sha256')
   .update(randomBytes(32).toString('base64url'))
   .digest('base64url');
 
+/** A second one, for asserting a consent token does not carry across. */
+const OTHER_CHALLENGE = createHash('sha256')
+  .update(randomBytes(32).toString('base64url'))
+  .digest('base64url');
+
 describe('GitHubAuthGuard', () => {
   let store: CliAuthStore;
   let guard: GitHubAuthGuard;
@@ -109,8 +115,17 @@ describe('GitHubAuthGuard', () => {
     jest.restoreAllMocks();
   });
 
-  /** The token a CLI start must echo back off its consent page. */
-  const CONFIRM = 'confirm-token';
+  /** The cookie half the consent page sets. */
+  const CONFIRM_COOKIE = 'confirm-cookie-value';
+
+  /** The query half that belongs to `CONFIRM_COOKIE` and these parameters. */
+  function confirmFor(query: Record<string, unknown>): string {
+    return consentToken(bindingSecret(configService), CONFIRM_COOKIE, {
+      port: Number(query.port),
+      nonce: String(query.nonce ?? ''),
+      codeChallenge: String(query.code_challenge ?? ''),
+    });
+  }
 
   /**
    * A confirmed CLI start: the consent click's query half plus the cookie
@@ -120,8 +135,8 @@ describe('GitHubAuthGuard', () => {
    */
   function confirmedContext(query: Record<string, unknown>) {
     return contextFor(
-      { ...query, [CLI_CONFIRM_PARAM]: CONFIRM },
-      { [CLI_CONFIRM_COOKIE]: CONFIRM },
+      { ...query, [CLI_CONFIRM_PARAM]: confirmFor(query) },
+      { [CLI_CONFIRM_COOKIE]: CONFIRM_COOKIE },
     );
   }
 
@@ -269,10 +284,19 @@ describe('GitHubAuthGuard', () => {
       expect(consent).toMatchObject({ port: 9876, nonce: 'n0nce-x/y' });
 
       // The page's half of the click is set as a cookie, so the link on it
-      // carries something an attacker's crafted URL cannot.
+      // carries something an attacker's crafted URL cannot. The link half is
+      // a signature over that cookie *and* the parameters just displayed —
+      // not a copy of the cookie, which would authorize any parameters at all.
       expect(cookies).toHaveLength(1);
       expect(cookies[0].name).toBe(CLI_CONFIRM_COOKIE);
-      expect(cookies[0].value).toBe(consent.confirmToken);
+      expect(cookies[0].value).not.toBe(consent.confirmToken);
+      expect(consent.confirmToken).toBe(
+        consentToken(bindingSecret(configService), cookies[0].value, {
+          port: 9876,
+          nonce: 'n0nce-x/y',
+          codeChallenge: CHALLENGE,
+        }),
+      );
       expect(cookies[0].options).toMatchObject({ httpOnly: true, path: '/' });
     });
 
@@ -324,6 +348,67 @@ describe('GitHubAuthGuard', () => {
       const { req, context } = confirmedContext(cliQuery());
       guard.canActivate(context);
 
+      expect(store.consumeState(req.__oauthState as string)).toMatchObject({
+        port: 9876,
+      });
+    });
+
+    // The gate's whole value is that a person read the *port* on the page
+    // they clicked. A bare random token proved only "some consent page was
+    // shown to this browser recently", so a confirmation obtained for one
+    // port was spendable against any other — an attacker-owned listener
+    // included — with no second page ever displayed.
+    it('refuses a confirmation minted for a different port', () => {
+      const consented = cliQuery({ port: '9876' });
+      const { req, context } = contextFor(
+        {
+          ...cliQuery({ port: '4444' }),
+          [CLI_CONFIRM_PARAM]: confirmFor(consented),
+        },
+        { [CLI_CONFIRM_COOKIE]: CONFIRM_COOKIE },
+      );
+      guard.canActivate(context);
+
+      // Not started — asked again, naming the port actually requested.
+      expect(req.__oauthState).toBeUndefined();
+      expect(req.__cliConsent).toMatchObject({ port: 4444 });
+    });
+
+    // Same for the other two bindings: the token names the whole login it
+    // was shown for, not just its port.
+    it('refuses a confirmation minted for a different nonce or challenge', () => {
+      for (const over of [
+        { nonce: 'someone-elses-nonce' },
+        { code_challenge: OTHER_CHALLENGE },
+      ]) {
+        const { req, context } = contextFor(
+          {
+            ...cliQuery(over),
+            [CLI_CONFIRM_PARAM]: confirmFor(cliQuery()),
+          },
+          { [CLI_CONFIRM_COOKIE]: CONFIRM_COOKIE },
+        );
+        guard.canActivate(context);
+
+        expect(req.__oauthState).toBeUndefined();
+        expect(req.__cliConsent).toBeDefined();
+      }
+    });
+
+    // And the page's own link still verifies — the token it embeds is the
+    // one computed from the cookie it set and the parameters it displayed.
+    it('accepts the token the consent page itself put on its link', () => {
+      const first = contextFor(cliQuery());
+      guard.canActivate(first.context);
+      const consent = first.req.__cliConsent as CliConsentRequest;
+
+      const { req, context } = contextFor(
+        { ...cliQuery(), [CLI_CONFIRM_PARAM]: consent.confirmToken },
+        { [CLI_CONFIRM_COOKIE]: first.cookies[0].value },
+      );
+      guard.canActivate(context);
+
+      expect(req.__cliConsent).toBeUndefined();
       expect(store.consumeState(req.__oauthState as string)).toMatchObject({
         port: 9876,
       });

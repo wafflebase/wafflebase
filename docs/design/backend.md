@@ -124,8 +124,14 @@ imports the full module set listed below.
     in `CliAuthStore` and sends the opaque state token to GitHub. Anyone can
     write a `?mode=cli&port=` link, so a CLI start does **not** redirect to
     GitHub on its own: it renders a consent page naming the loopback port, and
-    continuing echoes a token that page set as the `wafflebase_cli_confirm`
-    cookie (so a crafted link cannot pre-supply it). That page is the one
+    continuing echoes a token bound to the `wafflebase_cli_confirm` cookie
+    that page set (so a crafted link cannot pre-supply it). The token is an
+    HMAC over that cookie **and** the `port`, `nonce` and `code_challenge` the
+    page displayed, recomputed on the confirmed request from its own
+    parameters — so it says "this browser was shown the page naming port
+    9876", not "this browser saw some consent page recently", and a
+    confirmation cannot be carried across to a different loopback listener
+    without the person being asked again. That page is the one
     response in this app that carries its own security headers — there is no
     helmet here — because its whole defence is a deliberate click, and a
     click is what a framing overlay steals: `X-Frame-Options: DENY` and
