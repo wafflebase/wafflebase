@@ -4,7 +4,6 @@ import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockT
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
-import { blockStyleId, resolveStyleInline } from '../model/named-styles.js';
 import { DocCanvas } from './doc-canvas.js';
 import { Cursor } from './cursor.js';
 import { Selection, computeSelectionRects } from './selection.js';
@@ -24,6 +23,7 @@ import { computeTableMergeContext, type TableMergeContext } from './table-merge-
 import { createPendingStyle } from './pending-style.js';
 import { findLinkRunAt } from './link-run.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
+import { caretInlineStyle } from '../model/caret-style.js';
 import { SpellSession, type SpellError } from '../spell/session.js';
 import { SpellRouter } from '../spell/router.js';
 import { LocalSpellProvider } from '../spell/local-provider.js';
@@ -982,38 +982,17 @@ export function initialize(
    * top) and applyStyleImpl (which seeds the pending merge base).
    */
   /**
-   * Effective inline defaults a block inherits from its named style. Used to
-   * present the *computed* style (what the user sees rendered) in the toolbar
-   * pickers — a Heading 1 with no explicit run style still reads as 20pt.
-   */
-  function styleDefaultsForBlock(block: Block): Partial<InlineStyle> {
-    return resolveStyleInline(blockStyleId(block), doc.document.styles);
-  }
-
-  /**
-   * Read the inline style at the caret. With `withStyleDefaults`, the block's
-   * named-style inline defaults are layered underneath the explicit run style
-   * so the toolbar reflects the rendered (computed) style. Without it — the
-   * default — the raw explicit style is returned, so pending-style capture and
-   * style application never bake a style default into a stored run (which would
-   * break the lazy cascade when the style is later redefined).
+   * Read the inline style at the caret through the one shared caret walk
+   * (`model/caret-style.ts`), which the text editor and the slides text-box
+   * editor drive too. With `withStyleDefaults`, the block's named-style inline
+   * defaults are layered underneath the explicit run style so the toolbar
+   * reflects the rendered (computed) style. Without it — the default — the raw
+   * explicit style is returned, so pending-style capture and style application
+   * never bake a style default into a stored run (which would break the lazy
+   * cascade when the style is later redefined).
    */
   function getSelectionStyleImpl(withStyleDefaults = false): Partial<InlineStyle> {
-    // `findBlock` walks body + header + footer + table cells, so a caret in a
-    // header/footer block resolves too (a body-only lookup returned {}).
-    const block = doc.findBlock(cursor.position.blockId);
-    if (!block) return {};
-    const defaults = withStyleDefaults ? styleDefaultsForBlock(block) : undefined;
-    let pos = 0;
-    for (const inline of block.inlines) {
-      const inlineEnd = pos + inline.text.length;
-      if (cursor.position.offset <= inlineEnd) {
-        return { ...defaults, ...inline.style };
-      }
-      pos = inlineEnd;
-    }
-    const last = block.inlines[block.inlines.length - 1];
-    return last ? { ...defaults, ...last.style } : { ...defaults };
+    return caretInlineStyle(doc, cursor.position, withStyleDefaults);
   }
 
   function applyStyleImpl(style: Partial<InlineStyle>): void {
@@ -2686,27 +2665,13 @@ export function initialize(
         'superscript', 'subscript',
       ] as const;
 
-      // doc.findBlock walks body + header + footer + table cells, so
-      // the same caret/range traversal works in every editing context.
-      // Without this, header/footer carets fell through to body-only
-      // search and the picker showed empty.
-      const styleAtCaret = (): Partial<InlineStyle> => {
-        const block = doc.findBlock(cursor.position.blockId);
-        if (!block) return {};
-        // Layer the block's named-style inline defaults underneath the run
-        // style so the pickers show the computed (rendered) value.
-        const defaults = styleDefaultsForBlock(block);
-        let pos = 0;
-        for (const inline of block.inlines) {
-          const inlineEnd = pos + inline.text.length;
-          if (cursor.position.offset <= inlineEnd) {
-            return { ...defaults, ...inline.style };
-          }
-          pos = inlineEnd;
-        }
-        const last = block.inlines[block.inlines.length - 1];
-        return last ? { ...defaults, ...last.style } : { ...defaults };
-      };
+      // The shared caret walk resolves body + header + footer + table cells,
+      // so the same read works in every editing context (a body-only lookup
+      // left header/footer carets showing an empty picker), and layers the
+      // block's named-style inline defaults underneath the run style so the
+      // pickers show the computed (rendered) value.
+      const styleAtCaret = (): Partial<InlineStyle> =>
+        getSelectionStyleImpl(true);
 
       // No range — return the caret style, layered with any pending
       // inline style. The font family / size pickers in the docs

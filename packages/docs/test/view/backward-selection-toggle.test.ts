@@ -100,7 +100,11 @@ function selectTailBackward(editor: EditorAPI): void {
   });
 }
 
-function dispatchKey(container: HTMLElement, key: string): void {
+function dispatchKey(
+  container: HTMLElement,
+  key: string,
+  modifiers: { altKey?: boolean; shiftKey?: boolean } = {},
+): void {
   const textarea = container.querySelector('textarea');
   if (!textarea) throw new Error('textarea not mounted');
   textarea.dispatchEvent(
@@ -108,10 +112,20 @@ function dispatchKey(container: HTMLElement, key: string): void {
       key,
       metaKey: true,
       ctrlKey: true,
+      altKey: modifiers.altKey ?? false,
+      shiftKey: modifiers.shiftKey ?? false,
       bubbles: true,
       cancelable: true,
     }),
   );
+}
+
+/** Type one character at the caret, so any pending style is consumed. */
+function typeChar(container: HTMLElement, char: string): void {
+  const textarea = container.querySelector('textarea');
+  if (!textarea) throw new Error('textarea not mounted');
+  textarea.value = char;
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 /** Is every character of "cd" bold in the stored document? */
@@ -278,6 +292,72 @@ describe('named-style inline defaults in the range read (issue #715)', () => {
     for (const inline of store.getDocument().blocks[0].inlines) {
       expect(inline.style.bold).toBe(true);
     }
+    editor.dispose();
+  });
+
+  /**
+   * The *collapsed caret* half of the same fix. `isStyleOnInSelection`
+   * returns `undefined` without a selection, so this is the only path that
+   * exercises the named-style default layer at the caret
+   * (`styleDefaultsAtCursor`): without it, Cmd+I inside a Heading 6 computed
+   * `!false` and staged `italic: true` — a pending style the renderer could
+   * never show, and the opposite verdict from the toolbar's summary.
+   */
+  function placeCaret(editor: EditorAPI, offset: number): void {
+    // A degenerate range is not a selection (`hasSelection()` is false) but
+    // still moves the caret, so this is the collapsed-caret path.
+    editor._setSelectionForTest({
+      anchor: { blockId: BLOCK_ID, offset },
+      focus: { blockId: BLOCK_ID, offset },
+    });
+  }
+
+  test('Cmd+I at a collapsed caret stages italic OFF, not on', () => {
+    const { editor, container } = setupHeading6();
+    placeCaret(editor, 2);
+
+    dispatchKey(container, 'i');
+
+    // The pending style layered over the caret style — the state the toolbar
+    // reads back and the next typed run inherits.
+    expect(editor.getSelectionStyle().italic).toBe(false);
+    expect(editor.getRangeStyleSummary().italic).toBe(false);
+    editor.dispose();
+  });
+
+  test('Cmd+B at a collapsed caret still stages bold ON', () => {
+    const { editor, container } = setupHeading6();
+    placeCaret(editor, 2);
+
+    dispatchKey(container, 'b');
+
+    // The heading's named style sets italic, not bold, so the same layer
+    // must leave bold's add-vs-remove decision alone.
+    expect(editor.getSelectionStyle().bold).toBe(true);
+    editor.dispose();
+  });
+
+  /**
+   * The stated invariant behind keeping `visual` raw: the *decision* layers
+   * the named-style defaults in, but what gets *stored* must not, or the run
+   * stops tracking the style when it is later redefined.
+   */
+  test('the staged pending style stays raw — no baked heading defaults', () => {
+    const { editor, store, container } = setupHeading6();
+    placeCaret(editor, 2);
+
+    dispatchKey(container, 'i');
+    typeChar(container, 'X');
+
+    const inlines = store.getDocument().blocks[0].inlines;
+    const typed = inlines.find((inline) => inline.text.includes('X'));
+    expect(typed).toBeDefined();
+    // The toggle's own key is written explicitly...
+    expect(typed!.style.italic).toBe(false);
+    // ...but nothing the Heading 6 named style merely supplies is.
+    expect(typed!.style.fontSize).toBeUndefined();
+    expect(typed!.style.fontFamily).toBeUndefined();
+    expect(typed!.style.bold).toBeUndefined();
     editor.dispose();
   });
 });
@@ -635,5 +715,115 @@ describe('cell endpoints normalize to the parent table (issue #715)', () => {
     // Untouched: the write never descends into the nested table.
     const storedInner = cellBlocks[1].tableData!.rows[0].cells[0].blocks[0];
     expect(storedInner.inlines[0].style.bold).toBeUndefined();
+  });
+});
+
+/**
+ * Every keyboard style command must route a cell rectangle to the rectangle
+ * write. `Doc.applyInlineStyle` ignores `range.tableCellRange` by contract:
+ * handed a rectangle it normalizes the endpoints to the parent *table* block
+ * and rewrites every cell in the table. The B/I/U/S toggles routed around it,
+ * but clear formatting (Cmd+\) and the format painter's apply (Cmd+Alt+V)
+ * called it directly, so both spilled outside the selected cells.
+ */
+describe('cell-rectangle routing for clear formatting and the format painter', () => {
+  const editors: EditorAPI[] = [];
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+  afterEach(() => {
+    for (const editor of editors.splice(0)) editor.dispose();
+    document.body.innerHTML = '';
+  });
+
+  const para = (text: string, style: Record<string, boolean>): Block => ({
+    id: generateBlockId(),
+    type: 'paragraph',
+    inlines: [{ text, style }],
+    style: EMPTY_BLOCK_STYLE,
+  });
+
+  /**
+   * A body paragraph (italic, the format painter's source) then a 1×3 table
+   * whose three cells each hold one bold paragraph. The rectangle under test
+   * covers columns 0–1, leaving column 2 as the witness.
+   */
+  function setup(): {
+    editor: EditorAPI;
+    store: MemDocStore;
+    container: HTMLElement;
+    table: Block;
+    source: Block;
+  } {
+    const cells: TableCell[] = [0, 1, 2].map(
+      (i) => ({ blocks: [para(`c${i}`, { bold: true })], style: {} }) as TableCell,
+    );
+    const table: Block = {
+      id: generateBlockId(),
+      type: 'table',
+      inlines: [],
+      style: EMPTY_BLOCK_STYLE,
+      tableData: { rows: [{ cells }], columnWidths: [0.34, 0.33, 0.33] },
+    };
+    const source = para('src', { italic: true });
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [source, table] });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store);
+    editors.push(editor);
+    return { editor, store, container, table, source };
+  }
+
+  /** Select columns 0–1 of the table as a cell rectangle. */
+  function selectFirstTwoCells(editor: EditorAPI, table: Block): void {
+    const cells = table.tableData!.rows[0].cells;
+    editor._setSelectionForTest({
+      anchor: { blockId: cells[0].blocks[0].id, offset: 0 },
+      focus: { blockId: cells[1].blocks[0].id, offset: 2 },
+      tableCellRange: {
+        blockId: table.id,
+        start: { rowIndex: 0, colIndex: 0 },
+        end: { rowIndex: 0, colIndex: 1 },
+      },
+    });
+  }
+
+  /** The stored paragraph of cell `col` in the document's table block. */
+  function storedCell(store: MemDocStore, col: number): Block {
+    return store.getDocument().blocks[1].tableData!.rows[0].cells[col].blocks[0];
+  }
+
+  test('Cmd+\\ clears only the selected cells, not the whole table', () => {
+    const { editor, store, container, table } = setup();
+    selectFirstTwoCells(editor, table);
+
+    dispatchKey(container, '\\');
+
+    for (const col of [0, 1]) {
+      expect(storedCell(store, col).inlines[0].style.bold).toBeUndefined();
+    }
+    // The witness: outside the rectangle, so untouched.
+    expect(storedCell(store, 2).inlines[0].style.bold).toBe(true);
+  });
+
+  test('Cmd+Alt+V paints only the selected cells, not the whole table', () => {
+    const { editor, store, container, table, source } = setup();
+    // Copy formatting from the italic body paragraph…
+    editor._setSelectionForTest({
+      anchor: { blockId: source.id, offset: 1 },
+      focus: { blockId: source.id, offset: 1 },
+    });
+    dispatchKey(container, 'c', { shiftKey: true });
+
+    // …then paste it over the two-cell rectangle.
+    selectFirstTwoCells(editor, table);
+    dispatchKey(container, 'v', { altKey: true });
+
+    for (const col of [0, 1]) {
+      expect(storedCell(store, col).inlines[0].style.italic).toBe(true);
+    }
+    expect(storedCell(store, 2).inlines[0].style.italic).toBeUndefined();
   });
 });

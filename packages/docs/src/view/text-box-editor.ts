@@ -35,7 +35,7 @@ import { CanvasTextMeasurer } from './canvas-measurer.js';
 import { createPendingStyle } from './pending-style.js';
 import { findLinkRunAt } from './link-run.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
-import { blockStyleId, resolveStyleInline } from '../model/named-styles.js';
+import { caretInlineStyle } from '../model/caret-style.js';
 import {
   computeLayout,
   type ComposingContext,
@@ -830,37 +830,27 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   };
 
   /**
-   * Read the inline style at the caret. With `withStyleDefaults`, the block's
-   * named-style inline defaults are layered underneath the explicit run style,
-   * so a read reports what the renderer actually paints — a Heading 6 run with
-   * no explicit `italic` still reads as italic. Without it — the default — the
-   * raw run style is returned, so pending-style capture never bakes a style
-   * default into a stored run (which would break the lazy cascade when the
-   * named style is later redefined).
+   * Read the inline style at the caret through the one shared caret walk
+   * (`model/caret-style.ts`) — the same one `view/editor.ts` and
+   * `view/text-editor.ts` drive, so there is no copy here to drift.
    *
-   * Mirrors `getSelectionStyleImpl` in `view/editor.ts`. Reading raw style
-   * here while `getRangeStyleSummary`'s range branch reports the effective one
-   * left a caret in a styled block with the #715 disagreement: the toolbar saw
-   * "not italic" and applied italic — a permanent visual no-op — while the
-   * keyboard, which layers the same defaults, correctly removed it.
+   * With `withStyleDefaults`, the block's named-style inline defaults are
+   * layered underneath the explicit run style, so a read reports what the
+   * renderer actually paints — a Heading 6 run with no explicit `italic` still
+   * reads as italic. Without it — the default — the raw run style is returned,
+   * so pending-style capture never bakes a style default into a stored run
+   * (which would break the lazy cascade when the named style is later
+   * redefined).
+   *
+   * Reading raw style here while `getRangeStyleSummary`'s range branch reports
+   * the effective one left a caret in a styled block with the #715
+   * disagreement: the toolbar saw "not italic" and applied italic — a
+   * permanent visual no-op — while the keyboard, which layers the same
+   * defaults, correctly removed it. A hand-copied walk is what let the two
+   * sides diverge in the first place.
    */
-  const caretStyle = (withStyleDefaults: boolean): Partial<InlineStyle> => {
-    const block = doc.findBlock(cursor.position.blockId);
-    if (!block) return {};
-    const defaults = withStyleDefaults
-      ? resolveStyleInline(blockStyleId(block), doc.document.styles)
-      : undefined;
-    let pos = 0;
-    for (const inline of block.inlines) {
-      const inlineEnd = pos + inline.text.length;
-      if (cursor.position.offset <= inlineEnd) {
-        return { ...defaults, ...inline.style };
-      }
-      pos = inlineEnd;
-    }
-    const last = block.inlines[block.inlines.length - 1];
-    return last ? { ...defaults, ...last.style } : { ...defaults };
-  };
+  const caretStyle = (withStyleDefaults: boolean): Partial<InlineStyle> =>
+    caretInlineStyle(doc, cursor.position, withStyleDefaults);
 
   /**
    * Step the font size of every inline run intersecting the current

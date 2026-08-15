@@ -64,3 +64,24 @@
   traversal, so closing the gap closes it on both sides at once — recorded in
   `docs/design/docs/tables/docs-nested-tables.md` rather than left implicit in
   the code.
+
+- **The same "Mirrors X" comment came back one file later.** Collapsing the
+  *range* walk into one traversal left the *caret* walk copied in three
+  editors, and the newest copy (`view/text-box-editor.ts`) was introduced with
+  a "Mirrors `getSelectionStyleImpl`" comment — the exact pattern the lesson
+  above rejects, in the very change that wrote it, and the origin of the
+  text-box defect this task fixed. Review caught it. The walk is now
+  `model/caret-style.ts` (`caretInlineStyle` / `caretStyleDefaults`), driven by
+  all three editors and by `getRangeStyleSummary`'s caret branch. When a
+  refactor collapses N copies of a walk, check whether the *sibling* walk right
+  next to it has the same N copies.
+
+- **A contract a function documents is only as good as its callers.**
+  `Doc.applyInlineStyle` was given an explicit "a `tableCellRange` is routed
+  above this call" contract. Two keyboard commands in `view/text-editor.ts` —
+  clear formatting (Cmd+\) and the format painter's apply (Cmd+Alt+V) — never
+  got the memo and cleared or restyled the *whole table* for a cell-rectangle
+  selection. Writing the rule in a doc comment did not find them; grepping for
+  the *call* (`applyInlineStyle(`) did. Both now go through one private
+  `applyStyleToSelection`, so the routing exists once per editor rather than
+  once per command.

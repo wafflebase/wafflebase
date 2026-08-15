@@ -351,6 +351,45 @@ block. Four consequences are load-bearing:
 Zero-width runs are skipped: they carry no style and would otherwise make
 every empty block read as 'mixed'.
 
+### The shared caret walk (`model/caret-style.ts`)
+
+A *collapsed caret* is the other half of the same question, and it used to
+be hand-copied into `view/editor.ts`, `view/text-editor.ts` and
+`view/text-box-editor.ts`. The copies drifted, which is how #715 reached the
+text box: its caret read returned the raw run style while its range summary
+reported the effective one, so the toolbar saw "not italic" inside a
+Heading 6 and applying italic was a permanent visual no-op. The walk now
+lives in the model next to the range traversal and every editor delegates:
+
+```
+                  caretInlineStyle(doc, position, withStyleDefaults)
+                  caretStyleDefaults(doc, position)     model/caret-style.ts
+                    ↑                ↑                    ↑
+   editor.ts        │  text-editor.ts│    text-box-editor.ts
+   getSelectionStyleImpl / styleAtCaret   getStyleAtCursor / styleDefaultsAtCursor
+                                          caretStyle(withStyleDefaults)
+```
+
+`withStyleDefaults` is the one axis the callers differ on, and it maps onto
+the read/write split above: **true** to present or to decide (toolbar
+pickers, add-vs-remove), **false** whenever the result is *stored* (pending
+style, format painter), because baking a named-style default into a run
+breaks the lazy cascade when the style is later redefined.
+
+### One write path per editor
+
+`Doc.applyInlineStyle` ignores `range.tableCellRange` by contract: handed a
+rectangle it normalizes the endpoints to the parent *table* block and
+rewrites every cell in the table. Routing that shape to
+`Doc.applyInlineStyleToCells` is therefore the caller's job, and every
+keyboard style command in `view/text-editor.ts` — the B/I/U/S toggles, clear
+formatting (Cmd+\\) and the format painter's apply (Cmd+Alt+V) — goes through
+one private `applyStyleToSelection(range, style)` that does the routing (and
+the matching dirty-marking) once. Clear formatting and the format painter
+previously called `applyInlineStyle` directly and so restyled the whole
+table; `view/editor.ts`'s `applyStyleImpl` is the toolbar's equivalent single
+path.
+
 ### Toolbar layout — body context
 
 Final order in `docs-formatting-toolbar.tsx`, body context:

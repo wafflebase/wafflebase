@@ -19,7 +19,7 @@ import { detectTableBorder, createDragState, type BorderDragState } from './tabl
 import { computeMergedCellLineLayouts } from './table-renderer.js';
 import type { PendingStyle } from './pending-style.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
-import { blockStyleId, resolveStyleInline } from '../model/named-styles.js';
+import { caretInlineStyle, caretStyleDefaults } from '../model/caret-style.js';
 
 /**
  * Composition (IME) state tracker.
@@ -1007,15 +1007,9 @@ export class TextEditor {
           e.preventDefault();
           if (this.styleBuffer && this.selection.hasSelection() && this.selection.range) {
             this.saveSnapshot();
-            this.doc.applyInlineStyle(this.selection.range, this.styleBuffer);
-            const startIdx = this.doc.getBlockIndex(this.selection.range.anchor.blockId);
-            const endIdx = this.doc.getBlockIndex(this.selection.range.focus.blockId);
-            if (startIdx >= 0 && endIdx >= 0) {
-              for (let i = Math.min(startIdx, endIdx); i <= Math.max(startIdx, endIdx); i++) {
-                this.markDirty(this.doc.document.blocks[i].id);
-              }
-            }
-            this.requestRender();
+            // Through the shared write path so a cell rectangle restyles the
+            // selected cells, not the whole table.
+            this.applyStyleToSelection(this.selection.range, this.styleBuffer);
           }
           break;
         }
@@ -2857,21 +2851,7 @@ export class TextEditor {
       return;
     }
     this.saveSnapshot();
-    const range = this.selection.range;
-
-    this.doc.applyInlineStyle(range, clearStyle);
-    const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
-    const endIdx = this.doc.getBlockIndex(range.focus.blockId);
-    if (startIdx < 0 || endIdx < 0) {
-      this.requestRender();
-      return;
-    }
-    const lo = Math.min(startIdx, endIdx);
-    const hi = Math.max(startIdx, endIdx);
-    for (let i = lo; i <= hi; i++) {
-      this.markDirty(this.doc.document.blocks[i].id);
-    }
-    this.requestRender();
+    this.applyStyleToSelection(this.selection.range, clearStyle);
   }
 
   private toggleStyle(style: Partial<InlineStyle>): void {
@@ -2919,22 +2899,46 @@ export class TextEditor {
       this.requestRender();
       return;
     }
-    const range = this.selection.range;
-    // Route to cell-range method if selection spans multiple cells
+    this.applyStyleToSelection(this.selection.range, resolved);
+  }
+
+  /**
+   * Write an inline style over a selection, whatever shape it has.
+   *
+   * The single write path for every keyboard style command — the B/I/U/S
+   * toggles, clear formatting (Cmd+\) and the format painter's apply
+   * (Cmd+Alt+V). Routing lives here because `Doc.applyInlineStyle` ignores
+   * `range.tableCellRange` by contract: handed a cell rectangle it normalizes
+   * the endpoints to the parent *table* block and rewrites every cell in the
+   * table. Clear-formatting and the format painter used to call it directly
+   * and did exactly that.
+   *
+   * Dirty-marking follows the shape too: a rectangle marks its table, a
+   * cell-internal range marks the parent table, a body range marks the span.
+   */
+  private applyStyleToSelection(
+    range: DocRange,
+    style: Partial<InlineStyle>,
+  ): void {
+    // Cell rectangle — `Doc` walks it with the same `visitCellRectangleSlices`
+    // `isStyleOnInSelection` reads through, so the add-vs-remove decision
+    // covers the cells this writes.
     if (range.tableCellRange) {
-      this.applyStyleToCellRange(range.tableCellRange, resolved);
+      this.doc.applyInlineStyleToCells(range.tableCellRange, style);
       this.markDirty(range.tableCellRange.blockId);
       this.requestRender();
       return;
     }
 
-    this.doc.applyInlineStyle(range, resolved);
+    this.doc.applyInlineStyle(range, style);
     // Mark all blocks in the selection range as dirty
     const startIdx = this.doc.getBlockIndex(range.anchor.blockId);
     const endIdx = this.doc.getBlockIndex(range.focus.blockId);
     if (startIdx < 0 || endIdx < 0) {
       // Cell-internal block — mark the parent table block dirty
-      const cellInfo = this.getCellInfo(range.anchor.blockId);
+      const cellInfo =
+        this.getCellInfo(range.anchor.blockId) ??
+        this.getCellInfo(range.focus.blockId);
       if (cellInfo) {
         this.markDirty(cellInfo.tableBlockId);
       }
@@ -2950,33 +2954,14 @@ export class TextEditor {
   }
 
   /**
-   * Apply inline style to all blocks in all cells within a cell range.
-   *
-   * Delegates to `Doc`, which walks the rectangle with the same
-   * `visitCellRectangleSlices` `isStyleOnInSelection` reads through — so the
-   * keyboard toggle's add-vs-remove decision covers the cells this writes.
+   * The raw run style at the caret, read through the one shared caret walk
+   * (`model/caret-style.ts`) that `view/editor.ts` and the slides text-box
+   * editor drive too. Raw, not effective: callers here *store* the result
+   * (pending style, format painter), and baking a named-style default into a
+   * run breaks the lazy cascade when the style is later redefined.
    */
-  private applyStyleToCellRange(
-    cellRange: { blockId: string; start: CellAddress; end: CellAddress },
-    style: Partial<InlineStyle>,
-  ): void {
-    this.doc.applyInlineStyleToCells(cellRange, style);
-  }
-
   private getStyleAtCursor(): Partial<InlineStyle> {
-    const block = this.doc.getBlock(this.cursor.position.blockId);
-    if (!block) return {};
-
-    let pos = 0;
-    for (const inline of block.inlines) {
-      const inlineEnd = pos + inline.text.length;
-      if (this.cursor.position.offset <= inlineEnd) {
-        return { ...inline.style };
-      }
-      pos = inlineEnd;
-    }
-    const last = block.inlines[block.inlines.length - 1];
-    return last ? { ...last.style } : {};
+    return caretInlineStyle(this.doc, this.cursor.position);
   }
 
   /**
@@ -2986,9 +2971,7 @@ export class TextEditor {
    * style, style application) keep writing raw runs.
    */
   private styleDefaultsAtCursor(): Partial<InlineStyle> {
-    const block = this.doc.findBlock(this.cursor.position.blockId);
-    if (!block) return {};
-    return resolveStyleInline(blockStyleId(block), this.doc.document.styles);
+    return caretStyleDefaults(this.doc, this.cursor.position);
   }
 
   /**
