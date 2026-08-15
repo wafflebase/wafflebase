@@ -156,3 +156,46 @@ it is not actionable as a fix, since unbundling means dropping work an
 earlier round required. Answer it with the history rather than by
 reverting, and take the real lesson at the other end: when a review
 asks for a change outside the PR's thesis, land it in its own PR.
+
+## A wiring lesson learned on one side of a chain has another side
+
+Round 5 produced "Test the wiring, not just the helper it calls" — the
+backend guard reading `req.query.nonce` had no test, so renaming the key
+kept every helper test green while disabling the protection. The lesson
+was written and the backend got `github-auth.guard.spec.ts`.
+
+Round 6 found the identical gap at the other end of the same chain. The
+CLI's `login` action generates the nonce, hands it to
+`startCallbackServer`, and interpolates it into `?…&nonce=…`; every CLI
+test drove `createLoginNonce`, `nonceMatches` and `startCallbackServer`
+directly, handing the nonce in. Two different nonces, or `nonce=`
+spelled as `state=`, would leave all of them green and refuse every real
+login for the full 30-second timeout.
+
+A cross-package contract has two entry points, and fixing the one the
+review named is half the work. When a lesson is "pin the link that reads
+the untrusted input", ask immediately which *other* component writes it.
+
+The new `login-command.test.ts` drives the registered action with the
+browser stubbed by the `open` mock, which reads the port and nonce out
+of the URL the action built and hits the real loopback server. Both
+mutations were confirmed to fail it. Racing the run against the
+server's own "Refused a login callback" line matters: without it a
+broken nonce surfaces as an opaque 30-second hang instead of a named
+cause.
+
+## A doc's universal claim is a claim about code that has to be checked
+
+§8.1 was written as "every command that renders a structured result
+routes it through `output()`", with an exception list. It was true of
+everything the change touched and false of `docs`/`slides`/`notes`
+`import`, which emit `{ id, title }` through a bare `JSON.stringify` and
+ignore `--format`. The exception list made the omission worse — it reads
+as exhaustive.
+
+Routing the importers is not a call-site swap: they render through an
+injected `ImportIO`, the seam that makes their stdin/TTY/confirm
+branches testable, so it is a change to that seam and belongs in its own
+PR. The doc now names the gap as a gap rather than quietly widening the
+exception list to cover it. When writing "every X does Y", grep for X
+first — and if the answer is "all but three", say which three.

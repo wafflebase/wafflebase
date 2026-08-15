@@ -842,7 +842,21 @@ which used to print English sentences and ignore `--format`. (Commands
 that only acknowledge an action — `login`, `logout`, `ctx switch` —
 still print a prose line, and the file writers — `sheets export`,
 `docs`/`slides`/`notes` `export` — write their body straight to the
-file or stdout, since it is a document, not a command result.) `status` reports the answer to "am I logged in?" as data
+file or stdout, since it is a document, not a command result.)
+
+One gap remains, and it is a gap rather than an exception:
+`docs`/`slides`/`notes` `import` emit a real command result
+(`{ id, replaced }` or `{ id, title }`) but serialize it with a bare
+`JSON.stringify` and never read `--format`, so
+`docs import --format table` still prints JSON.
+They render through their own injected
+`ImportIO` — the seam that makes the stdin/TTY/confirm branches
+testable — rather than through the global formatter, so routing them is
+a change to that seam, not a call-site swap, and is left to its own
+change. Until then the sentence above holds for every command *except*
+the three importers.
+
+`status` reports the answer to "am I logged in?" as data
 and still exits `0` when there is no session:
 
 ```json
@@ -874,8 +888,9 @@ next one with a formula the neutralizer never inspected.
 
 Neutralization belongs to this **render** path only. `sheets export
 <doc> out.csv` writes a data file that `sheets import` reads back
-(`skills/recipe-csv-pipeline.md`), so it serializes verbatim: an exported
-`=SUM(B2:B100)` must re-import as that formula, not as the text
+(`packages/cli/skills/recipe-csv-pipeline.md`), so it serializes
+verbatim: an exported `=SUM(B2:B100)` must re-import as that
+formula, not as the text
 `'=SUM(B2:B100)`. `formatCsv` therefore takes an explicit
 `neutralizeFormulas` flag rather than defaulting — the two callers want
 opposite answers, and a default would silently pick one for the next
