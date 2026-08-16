@@ -28,7 +28,7 @@
 import type { Block, PageSetup, InlineStyle, BlockStyle, BlockType, HeadingLevel } from '../model/types.js';
 import type { ColorResolver } from '../model/color.js';
 import { defaultColorResolver, resolveColorAtPosition } from '../model/color.js';
-import { createEmptyBlock, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE } from '../model/types.js';
+import { createEmptyBlock, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE } from '../model/types.js';
 import { Doc } from '../model/document.js';
 import { MemDocStore } from '../store/memory.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
@@ -1122,7 +1122,8 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
       docStore.snapshot();
       forEachBlockInSelection((block) => {
         if (block.type === 'list-item' && block.listKind === kind) {
-          doc.setBlockType(block.id, 'paragraph');
+          const exit = unlistedBlockType(block);
+          doc.setBlockType(block.id, exit.type, exit.opts);
         } else {
           doc.setBlockType(block.id, 'list-item', {
             listKind: kind,

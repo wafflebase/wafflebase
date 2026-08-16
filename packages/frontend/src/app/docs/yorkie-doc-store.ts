@@ -1388,6 +1388,11 @@ export class YorkieDocStore implements DocStore {
       attrs.listKind = opts?.listKind ?? 'unordered';
       attrs.listLevel = String(opts?.listLevel ?? 0);
     }
+    // A bulleted heading remembers its level so removing the list restores the
+    // heading instead of flattening it to body text (see `Block`). The
+    // attribute is already on the node, so only the removal below changes.
+    const keepHeadingLevel =
+      type === 'list-item' && block.headingLevel !== undefined;
 
     // Applying a different named style re-materializes the block's style-owned
     // spacing into the same styleByPath write (Google Docs parity). A bullet
@@ -1405,7 +1410,7 @@ export class YorkieDocStore implements DocStore {
 
     // Determine stale attributes to remove (styleByPath merges, not replaces)
     const toRemove: string[] = [];
-    if (type !== 'heading') toRemove.push('headingLevel');
+    if (type !== 'heading' && !keepHeadingLevel) toRemove.push('headingLevel');
     if (type !== 'list-item') toRemove.push('listKind', 'listLevel');
 
     const cursorForHistory = this.consumePendingCursor();
@@ -1443,12 +1448,14 @@ export class YorkieDocStore implements DocStore {
     });
 
     // Update cache
+    const prevHeadingLevel = block.headingLevel;
     block.type = type;
     delete block.headingLevel;
     delete block.listKind;
     delete block.listLevel;
     if (type === 'heading') block.headingLevel = opts?.headingLevel ?? 1;
     if (type === 'list-item') {
+      if (keepHeadingLevel) block.headingLevel = prevHeadingLevel;
       block.listKind = opts?.listKind ?? 'unordered';
       block.listLevel = opts?.listLevel ?? 0;
     }

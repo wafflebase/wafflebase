@@ -1,5 +1,5 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
-import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength, unlistedBlockType, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
 import { cloneBlockWithFreshIds } from '../store/block-helpers.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
@@ -2166,7 +2166,8 @@ export class TextEditor {
     {
       const block = this.doc.getBlock(this.cursor.position.blockId);
       if (block.type === 'list-item' && block.listKind === kind) {
-        this.doc.setBlockType(block.id, 'paragraph');
+        const exit = unlistedBlockType(block);
+        this.doc.setBlockType(block.id, exit.type, exit.opts);
       } else {
         this.doc.setBlockType(block.id, 'list-item', {
           listKind: kind,

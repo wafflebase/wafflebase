@@ -1891,7 +1891,9 @@ describe('YorkieDocStore', () => {
       expect(result.headingLevel).toBe(undefined);
     });
 
-    it('should remove stale headingLevel from tree when changing to list-item', () => {
+    it('should keep headingLevel in the tree when changing to list-item', () => {
+      // Bulleting a heading applies the bullet *to* the heading, so the level
+      // survives in the tree and un-listing can restore it (#783).
       const block: Block = {
         id: generateBlockId(),
         type: 'heading',
@@ -1903,8 +1905,16 @@ describe('YorkieDocStore', () => {
       store.setBlockType(block.id, 'list-item', { listKind: 'ordered', listLevel: 0 });
       const result = store.getBlock(block.id)!;
       expect(result.type).toBe('list-item');
-      expect(result.headingLevel, 'headingLevel should be removed').toBe(undefined);
+      expect(result.headingLevel, 'headingLevel should be remembered').toBe(2);
       expect(result.listKind).toBe('ordered');
+      // Re-read from the tree, not the cache.
+      const fromTree = new YorkieDocStore(doc).getBlock(block.id)!;
+      expect(fromTree.headingLevel).toBe(2);
+
+      // An explicit "Normal text" still clears it.
+      store.setBlockType(block.id, 'paragraph');
+      expect(store.getBlock(block.id)!.headingLevel).toBe(undefined);
+      expect(new YorkieDocStore(doc).getBlock(block.id)!.headingLevel).toBe(undefined);
     });
 
     it('should remove stale listKind/listLevel from tree when changing to paragraph', () => {

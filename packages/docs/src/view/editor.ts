@@ -1,6 +1,6 @@
 import { Doc } from '../model/document.js';
 import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData } from '../model/types.js';
-import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
@@ -2867,7 +2867,8 @@ export function initialize(
       docStore.snapshot();
       forEachBlockInSelection((block) => {
         if (block.type === 'list-item' && block.listKind === kind) {
-          doc.setBlockType(block.id, 'paragraph');
+          const exit = unlistedBlockType(block);
+          doc.setBlockType(block.id, exit.type, exit.opts);
         } else {
           doc.setBlockType(block.id, 'list-item', {
             listKind: kind,
