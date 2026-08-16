@@ -170,6 +170,25 @@ describe('keyboard list exits restore the heading', () => {
     expect(block.type).toBe('heading');
     expect(block.headingLevel).toBe(3);
   });
+
+  test('splitting a bulleted heading hands the level to the new bullet', () => {
+    const store = new MemDocStore({ blocks: [makeHeading('b1', 'Quarterly results', 2)] });
+    const doc = new Doc(store);
+    doc.setBlockType('b1', 'list-item', { listKind: 'unordered', listLevel: 0 });
+
+    // Enter at the end of the bullet: the new bullet must remember the
+    // heading too, else only the first bullet restores on exit.
+    const newId = doc.splitBlock('b1', 'Quarterly results'.length);
+    const second = doc.document.blocks[1];
+    expect(second.id).toBe(newId);
+    expect(second.type).toBe('list-item');
+    expect(second.headingLevel).toBe(2);
+
+    doc.deleteBackward({ blockId: newId, offset: 0 });
+    const exited = doc.document.blocks[1];
+    expect(exited.type).toBe('heading');
+    expect(exited.headingLevel).toBe(2);
+  });
 });
 
 describe('toggleList round trip', () => {

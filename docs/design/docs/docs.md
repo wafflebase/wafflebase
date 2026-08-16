@@ -169,6 +169,12 @@ rather than hardcoding `'paragraph'`, so emptying a bulleted Heading 2
 and pressing Backspace or Enter leaves a Heading 2, the same result the
 toolbar list toggle gives (see the `headingLevel` design decision above).
 
+Splitting a *non-empty* bulleted heading copies the remembered level onto
+the new list item as well (`applySplitBlock` in
+`packages/docs/src/store/block-helpers.ts` and the matching Yorkie tree
+attrs in `yorkie-doc-store.ts`), so every bullet in the run restores its
+heading on exit — not just the first one.
+
 ## Store Abstraction
 
 ```typescript

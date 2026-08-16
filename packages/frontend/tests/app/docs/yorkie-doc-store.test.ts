@@ -1523,6 +1523,29 @@ describe('YorkieDocStore', () => {
       expect(result.blocks[1].listKind).toBe('ordered');
       expect(result.blocks[1].listLevel).toBe(1);
     });
+
+    it('should carry a bulleted heading level onto the split-off list-item', () => {
+      // A list-item remembers the heading it was bulleted from, so splitting
+      // one must hand that memory to the new bullet — otherwise only the
+      // first bullet restores its heading on exit (#783).
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        listKind: 'unordered',
+        listLevel: 0,
+        headingLevel: 2,
+        inlines: [{ text: 'HelloWorld', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-id', 'list-item');
+      const result = store.getDocument();
+      expect(result.blocks[1].type).toBe('list-item');
+      expect(result.blocks[1].headingLevel).toBe(2);
+      // Re-read from the tree, not the cache.
+      const fromTree = new YorkieDocStore(doc).getBlock('new-id')!;
+      expect(fromTree.headingLevel).toBe(2);
+    });
   });
 
   function makeTableWithText(): { tableBlock: Block; cellBlockId: string } {
