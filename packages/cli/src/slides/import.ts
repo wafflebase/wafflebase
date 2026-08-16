@@ -11,7 +11,7 @@ import {
   type CliPptxImportOptions,
 } from './pptx-import.js';
 import type { ImportReport } from '@wafflebase/slides/node';
-import { seg } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 
 /**
  * Parsing surface — split out so tests can inject a stub that returns

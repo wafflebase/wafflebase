@@ -80,4 +80,100 @@ describe('HttpClient path encoding', () => {
       `${CONFIG.server}/workspaces/ws-1/api-keys/..%2F..%2F..%2Fdocuments%2Fd1`,
     );
   });
+
+  // `config.workspace` is not a trusted constant: it comes from `--workspace`,
+  // `WAFFLEBASE_WORKSPACE`, or a profile in the YAML config, so it is exactly
+  // as caller-controlled as a document id — and it sits in the prefix every
+  // other segment is supposed to stay under.
+  describe('the workspace segment', () => {
+    const HOSTILE: CliConfig = { ...CONFIG, workspace: '../../admin/users' };
+
+    it('is escaped on the v1 API base', async () => {
+      await new HttpClient({ ...HOSTILE }).getDocument('doc-1');
+
+      expect(urlOf(0)).toBe(
+        `${CONFIG.server}/api/v1/workspaces/..%2F..%2Fadmin%2Fusers/documents/doc-1`,
+      );
+      expect(new URL(urlOf(0)).pathname).toBe(
+        '/api/v1/workspaces/..%2F..%2Fadmin%2Fusers/documents/doc-1',
+      );
+    });
+
+    it('is escaped on the api-key management route', async () => {
+      await new HttpClient({ ...HOSTILE }).listApiKeys();
+
+      expect(urlOf(0)).toBe(
+        `${CONFIG.server}/workspaces/..%2F..%2Fadmin%2Fusers/api-keys`,
+      );
+    });
+
+    it('is escaped on the multipart files route', async () => {
+      await new HttpClient({ ...HOSTILE }).uploadFileDocument(
+        new Uint8Array([1, 2]),
+        'a.bin',
+        'application/octet-stream',
+      );
+
+      expect(urlOf(0)).toBe(
+        `${CONFIG.server}/api/v1/workspaces/..%2F..%2Fadmin%2Fusers/files`,
+      );
+    });
+  });
+
+  /**
+   * Escaping is not sufficient on its own: `encodeURIComponent` leaves `.`
+   * alone, and the WHATWG parser resolves a segment that *is* `..` (or `%2e%2e`)
+   * no matter how it was written. The only correct handling is refusal — and
+   * refusal has to happen before the request goes out, because on the api-key
+   * route the resolved path (`DELETE /workspaces/<ws>/`) is the workspace-delete
+   * endpoint.
+   */
+  describe('a dot-segment identifier', () => {
+    it('is refused rather than sent on the destructive api-key route', async () => {
+      await expect(async () =>
+        new HttpClient({ ...CONFIG }).revokeApiKey('..'),
+      ).rejects.toThrow(/Invalid identifier/);
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      // What the rejected request would have become had it been sent.
+      expect(
+        new URL(`${CONFIG.server}/workspaces/ws-1/api-keys/..`).pathname,
+      ).toBe('/workspaces/ws-1/');
+    });
+
+    it('is refused as a document id', async () => {
+      // Wrapped in an async thunk because the path is built synchronously by
+      // some callers and inside the async `request()` by others — either way
+      // no request is issued.
+      await expect(async () =>
+        new HttpClient({ ...CONFIG }).getDocument('..'),
+      ).rejects.toThrow(/Invalid identifier/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('is refused as a workspace, before any request is built', async () => {
+      await expect(async () =>
+        new HttpClient({ ...CONFIG, workspace: '..' }).listDocuments(),
+      ).rejects.toThrow(/Invalid identifier/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('is neutralised, not refused, when the id merely spells one out', async () => {
+      // A literal `%2e%2e` is a double-dot segment per the URL spec, but only
+      // if it reaches the URL unescaped. Escaping the `%` is enough here, so
+      // the id is sent as data rather than rejected.
+      await new HttpClient({ ...CONFIG }).getDocument('%2e%2e');
+
+      expect(urlOf(0)).toBe(`${BASE}/documents/%252e%252e`);
+      expect(new URL(urlOf(0)).pathname).toBe(
+        '/api/v1/workspaces/ws-1/documents/%252e%252e',
+      );
+    });
+
+    it('leaves a single dot inside a longer id alone', async () => {
+      await new HttpClient({ ...CONFIG }).getDocument('report.v2..final');
+
+      expect(urlOf(0)).toBe(`${BASE}/documents/report.v2..final`);
+    });
+  });
 });

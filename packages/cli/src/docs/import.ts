@@ -3,7 +3,7 @@ import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Document, ImageUploader } from '@wafflebase/docs';
 import { importDocx, InvalidDocxError } from './docx-import.js';
-import { seg } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 
 /**
  * Minimal HTTP surface `runDocsImport` needs from the CLI's

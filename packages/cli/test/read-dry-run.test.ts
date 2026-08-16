@@ -48,7 +48,7 @@ const BASE = `${SERVER}/api/v1/workspaces/${WORKSPACE}`;
 // API-key management is not under the v1 API base — it is the workspace route.
 const KEYS_BASE = `${SERVER}/workspaces/${WORKSPACE}/api-keys`;
 
-function run(argv: string[]) {
+function run(argv: string[], workspace = WORKSPACE) {
   const program = createProgram();
   registerDocsCommand(program);
   registerNotesCommand(program);
@@ -61,7 +61,7 @@ function run(argv: string[]) {
   registerCellsCommand(sheets);
   registerSheetsExportCommand(sheets);
   return program.parseAsync(
-    ['--server', SERVER, '--workspace', WORKSPACE, '--api-key', 'wfb_test', ...argv],
+    ['--server', SERVER, '--workspace', workspace, '--api-key', 'wfb_test', ...argv],
     { from: 'user' },
   );
 }
@@ -274,6 +274,51 @@ describe('--dry-run on read commands', () => {
       expect(JSON.parse(stdout.join('\n')).url).toBe(
         `${BASE}/documents/..%2F..%2F..%2Fadmin`,
       );
+    });
+
+    // The workspace is not a trusted constant either: `--workspace` (used
+    // here), `WAFFLEBASE_WORKSPACE` and the YAML profile all feed it, and it
+    // forms the prefix every other segment is meant to stay inside.
+    it('encodes a traversal-shaped workspace in the v1 preview', async () => {
+      await run(['docs', 'get', 'doc-1', '--dry-run'], '../../admin');
+
+      expect(getDocument).not.toHaveBeenCalled();
+      expect(JSON.parse(stdout.join('\n')).url).toBe(
+        `${SERVER}/api/v1/workspaces/..%2F..%2Fadmin/documents/doc-1`,
+      );
+    });
+
+    it('encodes a traversal-shaped workspace in the api-keys preview', async () => {
+      await run(['api-keys', 'list', '--dry-run'], '../../admin');
+
+      expect(listApiKeys).not.toHaveBeenCalled();
+      expect(JSON.parse(stdout.join('\n')).url).toBe(
+        `${SERVER}/workspaces/..%2F..%2Fadmin/api-keys`,
+      );
+    });
+
+    // A bare `..` cannot be escaped into data — the URL parser resolves it
+    // however it is written — so it is refused. Printing a preview of
+    // `.../api-keys/..` would be worse than no preview: `fetch` would send
+    // `DELETE /workspaces/<ws>/`, the workspace-delete route.
+    it('refuses a bare `..` key id instead of previewing a URL fetch would resolve', async () => {
+      await run(['api-keys', 'revoke', '..', '--dry-run']);
+
+      expect(revokeApiKey).not.toHaveBeenCalled();
+      expect(stdout).toEqual([]);
+      expect(process.exitCode).toBe(1);
+      expect(stderr.join('\n')).toMatch(/Invalid identifier/);
+    });
+
+    it('refuses a bare `..` doc id', async () => {
+      // `docs get` previews before its try/catch, so the throw surfaces to
+      // `runCli`, which envelopes it. Either way nothing is printed or sent.
+      await expect(run(['docs', 'get', '..', '--dry-run'])).rejects.toThrow(
+        /Invalid identifier/,
+      );
+
+      expect(getDocument).not.toHaveBeenCalled();
+      expect(stdout).toEqual([]);
     });
   });
 });

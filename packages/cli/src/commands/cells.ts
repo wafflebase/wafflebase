@@ -1,7 +1,8 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
-import { printDryRun, seg } from '../client/dry-run.js';
+import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 
 export function registerCellsCommand(parent: Command) {
   const cell = parent

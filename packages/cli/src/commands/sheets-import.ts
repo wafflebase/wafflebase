@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
-import { printDryRun, seg } from '../client/dry-run.js';
+import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 import { parseCsv, parseStartRef, buildCellMap } from '../util/csv-parse.js';
 
 const VALID_FORMATS = ['csv', 'json'] as const;

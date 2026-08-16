@@ -711,6 +711,8 @@ packages/cli/
       http-client.ts     REST API v1 wrapper (built-in fetch)
       content-disposition.ts  Filename parser for binary responses
       dry-run.ts         Dry-run request printer
+      url.ts             Path-segment encoding + URL builders (shared by the
+                         client and the dry-run printer)
     config/
       config.ts          Config file + env + flag resolution
       session.ts         Session file read/write + token refresh
@@ -834,14 +836,25 @@ Per-command dry-run notes:
   `api-keys revoke` preview the POST / DELETE rather than minting a live
   key (whose secret is printed once) or irreversibly revoking one. Their
   endpoints sit at `/workspaces/:id/api-keys`, outside the v1 API base, so
-  the preview prints that URL rather than a `/api/v1/...` one.
+  the preview prints that URL rather than a `/api/v1/...` one. Both the
+  preview and the live request build that URL with the same `apiKeysUrl()`
+  helper in `client/url.ts`, so a route change cannot leave the preview
+  describing a request nobody sends.
 - Identifiers are URL-encoded into the previewed path exactly as the client
-  encodes them into the real request, so the printed path is the path that
-  would be fetched. `HttpClient` encodes every interpolated identifier —
-  workspace, document, tab, cell — for the same reason it matters here:
-  `fetch` resolves dot segments and truncates at `?`, so a raw `../..` in an
-  identifier would otherwise send the credentialed request outside the
-  workspace prefix. The `import` / `upload` previews are the one envelope
+  encodes them into the real request — one `seg()` in `client/url.ts`, used
+  by both — so the printed path is the path that would be fetched. Every
+  interpolated identifier goes through it: workspace (as caller-controlled as
+  the rest, via `--workspace`, `WAFFLEBASE_WORKSPACE`, or a config profile),
+  document, tab, cell. `fetch` truncates a path at `?` and resolves dot
+  segments, so a raw `../..` would otherwise send the credentialed request
+  outside the workspace prefix.
+  Encoding alone is not sufficient for one case: `encodeURIComponent` does not
+  escape `.`, and the URL spec resolves a segment that *is* `.` or `..`
+  (`%2e` spellings included) however it is written. An identifier that is
+  exactly a dot segment — or empty — is therefore **rejected**, not escaped:
+  `api-keys revoke ..` would otherwise resolve to `DELETE /workspaces/<ws>/`,
+  the workspace-delete route, and its preview would have shown the
+  unresolved `.../api-keys/..` instead. The `import` / `upload` previews are the one envelope
   variation: they print a workspace-relative `path` (plus the parsed body and,
   for `slides`, the import report) rather than the `dry_run` / `url` envelope
   above, because their value is the parse result, not the URL. The identifier
