@@ -71,7 +71,17 @@ export function registerDocsCommand(program: Command) {
       const opts = getGlobalOpts(this);
       const { type: typeStr } = this.opts<{ type?: string }>();
       try {
+        // Parsed BEFORE the dry-run branch: `--dry-run` validates inputs, so
+        // a bad `--type` must still be an error rather than a preview.
         const filterType = parseType(typeStr);
+
+        if (opts.dryRun) {
+          // `--type` filters the response client-side, so it leaves no trace
+          // on the request the server would see.
+          printDryRun(getConfig(opts), 'GET', '/documents');
+          return;
+        }
+
         const res = await getClient(opts).listDocuments();
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         let data = res.data as unknown;
@@ -112,6 +122,10 @@ export function registerDocsCommand(program: Command) {
     .description('Show document metadata')
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
+      if (opts.dryRun) {
+        printDryRun(getConfig(opts), 'GET', `/documents/${docId}`);
+        return;
+      }
       try {
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

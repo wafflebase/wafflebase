@@ -11,6 +11,10 @@ export function registerTabsCommand(parent: Command) {
     .description('List tabs in a document')
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
+      if (opts.dryRun) {
+        printDryRun(getConfig(opts), 'GET', `/documents/${docId}/tabs`);
+        return;
+      }
       try {
         const res = await getClient(opts).listTabs(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

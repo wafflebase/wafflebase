@@ -16,6 +16,21 @@ export function registerCellsCommand(parent: Command) {
     .action(async function (this: Command, docId: string, range?: string) {
       const opts = getGlobalOpts(this);
       const { tab } = this.opts<{ tab: string }>();
+
+      if (opts.dryRun) {
+        // Mirrors the three endpoints the request below picks between, and
+        // encodes the range exactly as `HttpClient.getCells` does, so the
+        // printed URL is the URL that would have been fetched.
+        const base = `/documents/${docId}/tabs/${tab}/cells`;
+        const path = range?.includes(':')
+          ? `${base}?range=${encodeURIComponent(range)}`
+          : range
+            ? `${base}/${range}`
+            : base;
+        printDryRun(getConfig(opts), 'GET', path);
+        return;
+      }
+
       try {
         const res = range?.includes(':')
           ? await getClient(opts).getCells(docId, tab, range)

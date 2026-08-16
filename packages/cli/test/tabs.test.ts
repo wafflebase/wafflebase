@@ -181,6 +181,17 @@ describe('tabs commands', () => {
       expect(listTabs).toHaveBeenCalledWith('doc-1');
       expect(JSON.parse(stdout.join('\n'))).toHaveLength(1);
     });
+
+    it('prints the request without sending it under --dry-run', async () => {
+      await run(['sheets', 'tabs', 'list', 'doc-1', '--dry-run']);
+
+      expect(listTabs).not.toHaveBeenCalled();
+      expect(JSON.parse(stdout.join('\n'))).toEqual({
+        dry_run: true,
+        method: 'GET',
+        url: `${SERVER}/api/v1/workspaces/${WORKSPACE}/documents/doc-1/tabs`,
+      });
+    });
   });
 });
 

@@ -821,6 +821,13 @@ $ wafflebase sheets cells set abc-123 A1 "Revenue" --dry-run
 
 Per-command dry-run notes:
 
+- Reads honour the flag too: `docs list`, `docs get`, `sheets tabs list`,
+  and `sheets cells get` print their GET without fetching. A dry run never
+  reaches the network, so it burns no rate limit and emits no access log
+  even when the command is harmless.
+- `sheets cells get`: the printed URL is the endpoint the range selects —
+  `?range=A1:C10` for a range, `/cells/A1` for a single ref, `/cells` for
+  the whole tab.
 - `docs content`, `docs export`: print the GET request that would be issued.
 - `docs import` (default): preview both POST (create) and PUT (push content).
 - `docs import --replace`: preview the PUT only; `--yes` is ignored — the
