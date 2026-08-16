@@ -11,6 +11,7 @@ import {
   type CliPptxImportOptions,
 } from './pptx-import.js';
 import type { ImportReport } from '@wafflebase/slides/node';
+import { seg } from '../client/dry-run.js';
 
 /**
  * Parsing surface — split out so tests can inject a stub that returns
@@ -179,7 +180,9 @@ export async function runSlidesImport(
         JSON.stringify(
           {
             method: 'PUT',
-            path: `/documents/${replace}/content`,
+            // `seg()` for the same reason `HttpClient` encodes it: the
+            // preview has to be the path the live PUT would take.
+            path: `/documents/${seg(replace)}/content`,
             body: deck,
             report: summariseReport(report),
           },

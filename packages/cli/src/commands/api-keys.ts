@@ -13,7 +13,7 @@ import type { GlobalOpts } from './root.js';
 function apiKeysUrl(opts: GlobalOpts, keyId?: string): string {
   const config = getConfig(opts);
   const server = config.server.replace(/\/$/, '');
-  const base = `${server}/workspaces/${config.workspace}/api-keys`;
+  const base = `${server}/workspaces/${seg(config.workspace)}/api-keys`;
   return keyId === undefined ? base : `${base}/${seg(keyId)}`;
 }
 

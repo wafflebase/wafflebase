@@ -3,6 +3,7 @@ import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Document, ImageUploader } from '@wafflebase/docs';
 import { importDocx, InvalidDocxError } from './docx-import.js';
+import { seg } from '../client/dry-run.js';
 
 /**
  * Minimal HTTP surface `runDocsImport` needs from the CLI's
@@ -152,7 +153,9 @@ export async function runDocsImport(
     if (dryRun) {
       io.stdout(
         JSON.stringify(
-          { method: 'PUT', path: `/documents/${replace}/content`, body: doc },
+          // `seg()` for the same reason `HttpClient` encodes it: the preview
+          // has to be the path the live PUT would take.
+          { method: 'PUT', path: `/documents/${seg(replace)}/content`, body: doc },
           null,
           2,
         ),

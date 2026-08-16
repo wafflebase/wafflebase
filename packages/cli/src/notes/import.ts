@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { NoteContent } from '../client/http-client.js';
+import { seg } from '../client/dry-run.js';
 
 /**
  * Minimal HTTP surface `runNotesImport` needs from the CLI's `HttpClient`.
@@ -144,7 +145,9 @@ export async function runNotesImport(
         JSON.stringify(
           {
             method: 'PUT',
-            path: `/documents/${replace}/content`,
+            // `seg()` for the same reason `HttpClient` encodes it: the
+            // preview has to be the path the live PUT would take.
+            path: `/documents/${seg(replace)}/content`,
             body: { content },
           },
           null,

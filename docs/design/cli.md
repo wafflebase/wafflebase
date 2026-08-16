@@ -825,20 +825,27 @@ Per-command dry-run notes:
   `content` / `export`, `notes list` / `get` / `content` / `export`,
   `slides list` / `get` / `content` / `export`, `files list` / `get` /
   `download`, `sheets tabs list`, `sheets cells get`, `sheets export`, and
-  `api-keys list` print their GET without fetching. A dry run never reaches
-  the network, so it burns no rate limit and emits no access log even when
-  the command is harmless.
+  `api-keys list` print their GET without fetching, so a preview burns no
+  rate limit and emits no access log even when the command is harmless. The
+  one command the flag does not hold back is `login`: it still completes the
+  OAuth exchange and writes the session, because there is no useful preview
+  of an interactive browser handshake.
 - Credential management is no exception: `api-keys create` and
   `api-keys revoke` preview the POST / DELETE rather than minting a live
   key (whose secret is printed once) or irreversibly revoking one. Their
   endpoints sit at `/workspaces/:id/api-keys`, outside the v1 API base, so
   the preview prints that URL rather than a `/api/v1/...` one.
 - Identifiers are URL-encoded into the previewed path exactly as the client
-  encodes them into the real request, so the printed URL is the URL that
-  would be fetched. `HttpClient` encodes every interpolated document / tab /
-  cell identifier for the same reason it matters here: `fetch` resolves dot
-  segments and truncates at `?`, so a raw `../..` in an identifier would
-  otherwise send the credentialed request outside the workspace prefix.
+  encodes them into the real request, so the printed path is the path that
+  would be fetched. `HttpClient` encodes every interpolated identifier —
+  workspace, document, tab, cell — for the same reason it matters here:
+  `fetch` resolves dot segments and truncates at `?`, so a raw `../..` in an
+  identifier would otherwise send the credentialed request outside the
+  workspace prefix. The `import` / `upload` previews are the one envelope
+  variation: they print a workspace-relative `path` (plus the parsed body and,
+  for `slides`, the import report) rather than the `dry_run` / `url` envelope
+  above, because their value is the parse result, not the URL. The identifier
+  encoding is the same.
 - `sheets cells get`: the printed URL is the endpoint the range selects —
   `?range=A1:C10` for a range, `/cells/A1` for a single ref, `/cells` for
   the whole tab.

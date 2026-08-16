@@ -22,10 +22,12 @@ export interface NoteContent {
  *
  * Identifiers reach the client straight from argv, and `fetch` parses the
  * URL string with the WHATWG parser — which resolves dot segments and stops
- * the path at a `?` or `#`. An unencoded `../../..` (or `?`) in a document,
- * tab, or cell identifier would therefore retarget the credentialed request
- * off the workspace prefix onto an arbitrary path on the configured server.
- * Every interpolated identifier goes through this.
+ * the path at a `?` or `#`. An unencoded `../../..` (or `?`) in a workspace,
+ * document, tab, or cell identifier would therefore retarget the credentialed
+ * request off the workspace prefix onto an arbitrary path on the configured
+ * server. Every interpolated identifier goes through this — including
+ * `config.workspace`, which is as attacker-reachable as the rest (`--workspace`,
+ * `WAFFLEBASE_WORKSPACE`, or a profile in the YAML config).
  */
 function seg(value: string): string {
   return encodeURIComponent(value);
@@ -95,7 +97,7 @@ export class HttpClient {
 
   private get base(): string {
     const server = this.config.server.replace(/\/$/, '');
-    return `${server}/api/v1/workspaces/${this.config.workspace}`;
+    return `${server}/api/v1/workspaces/${seg(this.config.workspace)}`;
   }
 
   /**
@@ -394,14 +396,14 @@ export class HttpClient {
   // API Keys (management endpoints use different base)
   async listApiKeys() {
     const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys`;
+    const url = `${server}/workspaces/${seg(this.config.workspace)}/api-keys`;
     const res = await fetch(url, { headers: this.jsonHeaders() });
     const data = await res.json().catch(() => null);
     return { ok: res.ok, status: res.status, data };
   }
   async createApiKey(name: string) {
     const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys`;
+    const url = `${server}/workspaces/${seg(this.config.workspace)}/api-keys`;
     const res = await fetch(url, {
       method: 'POST',
       headers: this.jsonHeaders(),
@@ -412,7 +414,7 @@ export class HttpClient {
   }
   async revokeApiKey(id: string) {
     const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys/${seg(id)}`;
+    const url = `${server}/workspaces/${seg(this.config.workspace)}/api-keys/${seg(id)}`;
     const res = await fetch(url, { method: 'DELETE', headers: this.jsonHeaders() });
     const data = await res.json().catch(() => null);
     return { ok: res.ok, status: res.status, data };

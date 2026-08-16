@@ -17,7 +17,8 @@ export function seg(value: string): string {
  * Print the request that would be sent without executing it.
  *
  * `path` is relative to the workspace-scoped v1 API base; interpolate
- * identifiers into it with `seg()`.
+ * identifiers into it with `seg()`. The workspace is encoded here, matching
+ * `HttpClient.base`.
  */
 export function printDryRun(
   config: CliConfig,
@@ -27,7 +28,7 @@ export function printDryRun(
 ) {
   const server = config.server.replace(/\/$/, '');
   printDryRunUrl(
-    `${server}/api/v1/workspaces/${config.workspace}${path}`,
+    `${server}/api/v1/workspaces/${seg(config.workspace)}${path}`,
     method,
     body,
   );
