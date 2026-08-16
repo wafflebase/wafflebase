@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { MemDocStore } from '../../src/store/memory.js';
+import { Doc } from '../../src/model/document.js';
 import { initialize, type EditorAPI } from '../../src/view/editor.js';
 import { normalizeBlockStyle, unlistedBlockType } from '../../src/model/types.js';
 import type { Block } from '../../src/model/types.js';
@@ -134,6 +135,40 @@ describe('unlistedBlockType', () => {
 
   test('a plain list item returns to a paragraph', () => {
     expect(unlistedBlockType(makeParagraph('b1', 'body text'))).toEqual({ type: 'paragraph' });
+  });
+});
+
+describe('keyboard list exits restore the heading', () => {
+  function bulletedHeading(level: 1 | 2 | 3): Doc {
+    const store = new MemDocStore({ blocks: [makeHeading('b1', '', level)] });
+    const doc = new Doc(store);
+    doc.setBlockType('b1', 'list-item', { listKind: 'unordered', listLevel: 0 });
+    return doc;
+  }
+
+  test('Enter on an empty bulleted heading leaves a heading', () => {
+    const doc = bulletedHeading(2);
+
+    expect(doc.splitBlock('b1', 0)).toBe('b1');
+
+    const block = doc.document.blocks[0];
+    expect(doc.document.blocks).toHaveLength(1);
+    expect(block.type).toBe('heading');
+    expect(block.headingLevel).toBe(2);
+  });
+
+  test('Backspace on an empty bulleted heading leaves a heading', () => {
+    const doc = bulletedHeading(3);
+
+    expect(doc.deleteBackward({ blockId: 'b1', offset: 0 })).toEqual({
+      blockId: 'b1',
+      offset: 0,
+    });
+
+    const block = doc.document.blocks[0];
+    expect(doc.document.blocks).toHaveLength(1);
+    expect(block.type).toBe('heading');
+    expect(block.headingLevel).toBe(3);
   });
 });
 

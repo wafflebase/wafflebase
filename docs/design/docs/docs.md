@@ -114,6 +114,24 @@ interface InlineStyle {
   `'paragraph'`. `BlockType` in `packages/docs/src/model/types.ts` is now
   `'paragraph' | 'title' | 'subtitle' | 'heading' | 'list-item' |
   'horizontal-rule' | 'table' | 'page-break'`.
+- **`headingLevel` on a `list-item`**: `headingLevel` no longer implies
+  `type === 'heading'`. Bulleting a heading applies the bullet *to* the
+  heading (Google Docs / Word parity), so a `list-item` **retains** the
+  level of the heading it was made from, and removing the list restores
+  that heading instead of flattening it to body text. The level is inert
+  while the block is a list item — every reader (DOCX / PDF / markdown
+  export, `blockStyleId`, the toolbar label and style id, layout) gates on
+  `type === 'heading'` — but it is real model state: it round-trips
+  through the Yorkie tree node attributes and the backend `docs-tree`
+  serializer like any other block attribute. Writers must therefore treat
+  "leave the list" as a *restore*, not a conversion to `'paragraph'`:
+  every such path goes through `unlistedBlockType(block)`
+  (`packages/docs/src/model/types.ts`), which returns the heading (with
+  its level) if one is remembered and a paragraph otherwise. The three
+  `toggleList` implementations (docs editor, text editor, text-box editor)
+  and the two keyboard exits below all share it. An explicit
+  "Normal text" / paragraph command still clears the level, because it
+  sets the type directly rather than exiting a list.
 
 ### Document manipulation
 
@@ -134,16 +152,22 @@ offset is the character index within the block's concatenated inline text.
 
 #### Empty list-item Backspace exits the list
 
-Backspace at offset 0 of an **empty** `list-item` converts it to a
-`paragraph` (exiting the list) rather than merging into the previous
-block — even when it is the first/only block — mirroring what Enter
-(`splitBlock`) already does and matching Google Docs / Notion. In
-`deleteBackward()` (`packages/docs/src/model/document.ts`) this branch
-sits after the `offset > 0` early return and **before** the
-`if (blockIndex <= 0) return pos` guard, so it also fires for the first
-block. Non-empty list items and non-list blocks are unchanged. It
-operates on `getContextBlocks()` (body / header / footer); table-cell
-Backspace is handled in the view layer.
+Backspace at offset 0 of an **empty** `list-item` exits the list rather
+than merging into the previous block — even when it is the first/only
+block — mirroring what Enter (`splitBlock`) already does and matching
+Google Docs / Notion. In `deleteBackward()`
+(`packages/docs/src/model/document.ts`) this branch sits after the
+`offset > 0` early return and **before** the `if (blockIndex <= 0)
+return pos` guard, so it also fires for the first block. Non-empty list
+items and non-list blocks are unchanged. It operates on
+`getContextBlocks()` (body / header / footer); table-cell Backspace is
+handled in the view layer.
+
+Both keyboard exits — this one and the empty-list-item branch of
+`splitBlock()` — resolve their target type through `unlistedBlockType()`
+rather than hardcoding `'paragraph'`, so emptying a bulleted Heading 2
+and pressing Backspace or Enter leaves a Heading 2, the same result the
+toolbar list toggle gives (see the `headingLevel` design decision above).
 
 ## Store Abstraction
 
