@@ -1524,10 +1524,9 @@ describe('YorkieDocStore', () => {
       expect(result.blocks[1].listLevel).toBe(1);
     });
 
-    it('should carry a bulleted heading level onto the split-off list-item', () => {
-      // A list-item remembers the heading it was bulleted from, so splitting
-      // one must hand that memory to the new bullet — otherwise only the
-      // first bullet restores its heading on exit (#783).
+    it('should not carry a bulleted heading level onto the split-off list-item', () => {
+      // The remembered heading belongs to the block that was bulleted; the
+      // new bullet is body text and must exit the list as a paragraph (#783).
       const block: Block = {
         id: generateBlockId(),
         type: 'list-item',
@@ -1541,10 +1540,10 @@ describe('YorkieDocStore', () => {
       store.splitBlock(block.id, 5, 'new-id', 'list-item');
       const result = store.getDocument();
       expect(result.blocks[1].type).toBe('list-item');
-      expect(result.blocks[1].headingLevel).toBe(2);
+      expect(result.blocks[1].headingLevel).toBe(undefined);
       // Re-read from the tree, not the cache.
       const fromTree = new YorkieDocStore(doc).getBlock('new-id')!;
-      expect(fromTree.headingLevel).toBe(2);
+      expect(fromTree.headingLevel).toBe(undefined);
     });
   });
 

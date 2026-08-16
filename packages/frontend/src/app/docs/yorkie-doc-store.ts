@@ -2046,12 +2046,7 @@ export class YorkieDocStore implements DocStore {
             afterAttrs.listLevel = String(block.listLevel);
           }
         }
-        // A list-item carries the heading it was bulleted from, so the split
-        // half keeps that memory too (mirrors `applySplitBlock`).
-        if (
-          (newBlockType === 'heading' || newBlockType === 'list-item') &&
-          block.headingLevel !== undefined
-        ) {
+        if (newBlockType === 'heading' && block.headingLevel !== undefined) {
           afterAttrs.headingLevel = String(block.headingLevel);
         }
         tree.editByPath(afterPath, afterPath, buildBlockNode({
@@ -2141,8 +2136,7 @@ export class YorkieDocStore implements DocStore {
           ...(newBlockType === 'list-item' && block.listKind !== undefined
             ? { listKind: block.listKind, listLevel: block.listLevel }
             : {}),
-          ...((newBlockType === 'heading' || newBlockType === 'list-item') &&
-          block.headingLevel !== undefined
+          ...(newBlockType === 'heading' && block.headingLevel !== undefined
             ? { headingLevel: block.headingLevel }
             : {}),
         }));

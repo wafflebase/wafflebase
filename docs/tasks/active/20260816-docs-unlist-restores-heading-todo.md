@@ -40,6 +40,9 @@ clearing the level — only the list round trip restores.
 - [x] `yorkie-doc-store.ts`: same, in the `toRemove` attrs and the cache.
 - [x] `view/editor.ts`, `view/text-editor.ts`, `view/text-box-editor.ts`:
       `toggleList` exits through `unlistedBlockType`.
+- [x] `model/document.ts`: the keyboard list exits (Enter on an empty
+      bulleted item, Backspace at offset 0) resolve their target through
+      `unlistedBlockType` too, so the three exits cannot disagree.
 - [x] Unit tests: store-level round trip (the issue's repro), editor-level
       round trip, paragraph unaffected, explicit Normal text still clears.
 
@@ -48,5 +51,8 @@ clearing the level — only the list round trip restores.
 - How a list item is *styled* while it is a list item (`blockStyleId` maps
   `list-item` → `normal`; the issue calls this working as intended).
 - Splitting a bulleted heading (Enter) — the new item stays a plain list
-  item, as today.
+  item, as today. Propagating the remembered level would turn the body
+  text typed into the following bullets into headings on exit, so
+  `applySplitBlock` keeps dropping `headingLevel` for a non-`heading`
+  split half. Only the block that was actually bulleted remembers.
 - DOCX/PPTX export of a bulleted heading's `pStyle`.

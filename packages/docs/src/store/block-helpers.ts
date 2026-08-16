@@ -253,11 +253,7 @@ export function applySplitBlock(
 
   // Remove block-specific attrs from after block
   delete after.tableData;
-  // A list-item keeps the level of the heading it was bulleted from, so
-  // splitting a bulleted heading hands the memory to the new bullet too —
-  // otherwise only the first bullet would restore its heading on exit
-  // (`unlistedBlockType`).
-  if (newBlockType !== 'heading' && newBlockType !== 'list-item') {
+  if (newBlockType !== 'heading') {
     delete after.headingLevel;
   }
   // Preserve list attrs when the new block is also a list-item
