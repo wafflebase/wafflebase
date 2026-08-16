@@ -1,8 +1,9 @@
 import { Command } from 'commander';
 import { writeFileSync } from 'node:fs';
 import { extname } from 'node:path';
-import { getGlobalOpts, getClient } from './root.js';
+import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { outputError } from '../output/formatter.js';
+import { printDryRun, seg } from '../client/dry-run.js';
 import { formatCsv } from '../output/csv.js';
 import { formatJson } from '../output/json.js';
 
@@ -36,6 +37,24 @@ export function registerSheetsExportCommand(parent: Command) {
       }>();
 
       try {
+        // Validated BEFORE the dry-run branch: a dry run validates inputs,
+        // so an unsupported `--file-format` is still an error, not a preview.
+        detectFormat(file, localOpts.fileFormat);
+
+        if (opts.dryRun) {
+          // Mirrors `HttpClient.getCells`, including the range encoding, so
+          // the printed URL is the URL that would have been fetched.
+          const query = localOpts.range
+            ? `?range=${encodeURIComponent(localOpts.range)}`
+            : '';
+          printDryRun(
+            getConfig(opts),
+            'GET',
+            `/documents/${seg(docId)}/tabs/${seg(localOpts.tab)}/cells${query}`,
+          );
+          return;
+        }
+
         const res = await getClient(opts).getCells(docId, localOpts.tab, localOpts.range);
         if (!res.ok) {
           const msg = (res.data as { error?: { message?: string } })?.error?.message;

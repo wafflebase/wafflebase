@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
-import { printDryRun } from '../client/dry-run.js';
+import { printDryRun, seg } from '../client/dry-run.js';
 import { parseContentFormat, runDocsContent } from '../docs/content.js';
 import { exportPdf } from '../docs/pdf-export.js';
 import { exportDocx } from '../docs/docx-export.js';
@@ -123,7 +123,7 @@ export function registerDocsCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'GET', `/documents/${docId}`);
+        printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}`);
         return;
       }
       try {
@@ -141,7 +141,7 @@ export function registerDocsCommand(program: Command) {
     .action(async function (this: Command, docId: string, title: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}`, { title });
+        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, { title });
         return;
       }
       try {
@@ -159,7 +159,7 @@ export function registerDocsCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'DELETE', `/documents/${docId}`);
+        printDryRun(getConfig(opts), 'DELETE', `/documents/${seg(docId)}`);
         return;
       }
       try {
@@ -195,7 +195,7 @@ export function registerDocsCommand(program: Command) {
           printDryRun(
             getConfig(opts),
             'GET',
-            `/documents/${docId}/content`,
+            `/documents/${seg(docId)}/content`,
           );
           return;
         }
@@ -257,7 +257,7 @@ export function registerDocsCommand(program: Command) {
           printDryRun(
             getConfig(opts),
             'GET',
-            `/documents/${docId}/content`,
+            `/documents/${seg(docId)}/content`,
           );
           return;
         }

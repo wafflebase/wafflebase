@@ -821,10 +821,24 @@ $ wafflebase sheets cells set abc-123 A1 "Revenue" --dry-run
 
 Per-command dry-run notes:
 
-- Reads honour the flag too: `docs list`, `docs get`, `sheets tabs list`,
-  and `sheets cells get` print their GET without fetching. A dry run never
-  reaches the network, so it burns no rate limit and emits no access log
-  even when the command is harmless.
+- Reads honour the flag too, in every namespace: `docs list` / `get` /
+  `content` / `export`, `notes list` / `get` / `content` / `export`,
+  `slides list` / `get` / `content` / `export`, `files list` / `get` /
+  `download`, `sheets tabs list`, `sheets cells get`, `sheets export`, and
+  `api-keys list` print their GET without fetching. A dry run never reaches
+  the network, so it burns no rate limit and emits no access log even when
+  the command is harmless.
+- Credential management is no exception: `api-keys create` and
+  `api-keys revoke` preview the POST / DELETE rather than minting a live
+  key (whose secret is printed once) or irreversibly revoking one. Their
+  endpoints sit at `/workspaces/:id/api-keys`, outside the v1 API base, so
+  the preview prints that URL rather than a `/api/v1/...` one.
+- Identifiers are URL-encoded into the previewed path exactly as the client
+  encodes them into the real request, so the printed URL is the URL that
+  would be fetched. `HttpClient` encodes every interpolated document / tab /
+  cell identifier for the same reason it matters here: `fetch` resolves dot
+  segments and truncates at `?`, so a raw `../..` in an identifier would
+  otherwise send the credentialed request outside the workspace prefix.
 - `sheets cells get`: the printed URL is the endpoint the range selects —
   `?range=A1:C10` for a range, `/cells/A1` for a single ref, `/cells` for
   the whole tab.

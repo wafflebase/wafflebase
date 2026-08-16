@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
-import { printDryRun } from '../client/dry-run.js';
+import { printDryRun, seg } from '../client/dry-run.js';
 import { runFilesUpload } from '../files/upload.js';
 import { runFilesDownload } from '../files/download.js';
 
@@ -56,7 +56,7 @@ export function registerFilesCommand(program: Command) {
       const local = this.opts<{ force: boolean }>();
       try {
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'GET', `/files/${docId}`);
+          printDryRun(getConfig(opts), 'GET', `/files/${seg(docId)}`);
           return;
         }
         const result = await runFilesDownload(
@@ -77,10 +77,18 @@ export function registerFilesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       const local = this.opts<{ type?: string }>();
       try {
+        // Validated BEFORE the dry-run branch: a dry run validates inputs,
+        // so a bad `--type` must still be an error rather than a preview.
         if (local.type && !BLOB_TYPES.has(local.type)) {
           throw new Error(
             `Invalid --type "${local.type}". Expected file, pdf, or image.`,
           );
+        }
+        if (opts.dryRun) {
+          // The blob-type filter is applied client-side, so it leaves no
+          // trace on the request the server would see.
+          printDryRun(getConfig(opts), 'GET', '/documents');
+          return;
         }
         const res = await getClient(opts).listDocuments();
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -102,6 +110,10 @@ export function registerFilesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       try {
+        if (opts.dryRun) {
+          printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}`);
+          return;
+        }
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
@@ -116,7 +128,7 @@ export function registerFilesCommand(program: Command) {
     .action(async function (this: Command, docId: string, title: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}`, { title });
+        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, { title });
         return;
       }
       try {
@@ -134,7 +146,7 @@ export function registerFilesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'DELETE', `/documents/${docId}`);
+        printDryRun(getConfig(opts), 'DELETE', `/documents/${seg(docId)}`);
         return;
       }
       try {

@@ -29,6 +29,24 @@ the contract a caller (or an agent pre-flight) relies on.
 - [x] `docs/design/cli.md` §8.2: add the read commands to the per-command
       dry-run notes.
 
+## Review round 2 — finish the sweep the doc claimed
+
+The doc bullet asserted "a dry run never reaches the network" as a blanket
+contract, which the four fixes did not earn: the same bug survived in other
+namespaces. Closing the gap rather than weakening the claim.
+
+- [x] `notes list` / `notes get`, `slides list` / `slides get`,
+      `files list` / `files get`, `sheets export` — same guard.
+- [x] `api-keys create` / `list` / `revoke` — the namespace that was never
+      swept, and the only one where ignoring the flag mints a live credential
+      (printing its secret) or irreversibly revokes one. Its endpoints are not
+      under the v1 API base, so `printDryRun` grew a `printDryRunUrl` sibling.
+- [x] `HttpClient`: encode every interpolated document / tab / cell
+      identifier. `fetch` resolves dot segments and truncates at `?`, so a
+      crafted id sent the credentialed request outside the workspace prefix.
+      The dry-run previews encode the same way, so the preview stays the
+      request.
+
 ## Non-goals
 
 - No change to `printDryRun` itself or to any command that already honours

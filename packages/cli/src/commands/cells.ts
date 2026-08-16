@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
-import { printDryRun } from '../client/dry-run.js';
+import { printDryRun, seg } from '../client/dry-run.js';
 
 export function registerCellsCommand(parent: Command) {
   const cell = parent
@@ -21,11 +21,11 @@ export function registerCellsCommand(parent: Command) {
         // Mirrors the three endpoints the request below picks between, and
         // encodes the range exactly as `HttpClient.getCells` does, so the
         // printed URL is the URL that would have been fetched.
-        const base = `/documents/${docId}/tabs/${tab}/cells`;
+        const base = `/documents/${seg(docId)}/tabs/${seg(tab)}/cells`;
         const path = range?.includes(':')
           ? `${base}?range=${encodeURIComponent(range)}`
           : range
-            ? `${base}/${range}`
+            ? `${base}/${seg(range)}`
             : base;
         printDryRun(getConfig(opts), 'GET', path);
         return;
@@ -63,7 +63,7 @@ export function registerCellsCommand(parent: Command) {
         printDryRun(
           getConfig(opts),
           'PUT',
-          `/documents/${docId}/tabs/${tab}/cells/${ref}`,
+          `/documents/${seg(docId)}/tabs/${seg(tab)}/cells/${seg(ref)}`,
           body,
         );
         return;
@@ -96,7 +96,7 @@ export function registerCellsCommand(parent: Command) {
         printDryRun(
           getConfig(opts),
           'DELETE',
-          `/documents/${docId}/tabs/${tab}/cells/${ref}`,
+          `/documents/${seg(docId)}/tabs/${seg(tab)}/cells/${seg(ref)}`,
         );
         return;
       }
@@ -144,7 +144,7 @@ export function registerCellsCommand(parent: Command) {
           printDryRun(
             getConfig(opts),
             'PATCH',
-            `/documents/${docId}/tabs/${tab}/cells`,
+            `/documents/${seg(docId)}/tabs/${seg(tab)}/cells`,
             { cells },
           );
           return;

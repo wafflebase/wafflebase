@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
-import { printDryRun } from '../client/dry-run.js';
+import { printDryRun, seg } from '../client/dry-run.js';
 
 export function registerTabsCommand(parent: Command) {
   const tab = parent.command('tabs').alias('tab').description('Manage tabs');
@@ -12,7 +12,7 @@ export function registerTabsCommand(parent: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'GET', `/documents/${docId}/tabs`);
+        printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}/tabs`);
         return;
       }
       try {
@@ -45,7 +45,7 @@ export function registerTabsCommand(parent: Command) {
       if (name !== undefined) body.name = name;
 
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'POST', `/documents/${docId}/tabs`, body);
+        printDryRun(getConfig(opts), 'POST', `/documents/${seg(docId)}/tabs`, body);
         return;
       }
       try {
@@ -69,7 +69,7 @@ export function registerTabsCommand(parent: Command) {
       const opts = getGlobalOpts(this);
 
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}/tabs/${tabId}`, {
+        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}/tabs/${seg(tabId)}`, {
           name,
         });
         return;

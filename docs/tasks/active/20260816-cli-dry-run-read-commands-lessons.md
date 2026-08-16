@@ -21,7 +21,19 @@
   `@wafflebase/slides` built first; without them the failure surfaces as a
   Vite "failed to resolve entry for package" that looks like a broken import.
 
+- Fixing the four commands the issue named, then documenting the result as a
+  general rule ("a dry run never reaches the network"), turned a local fix
+  into a false global claim. The re-check found the same bug in `notes`,
+  `slides`, `files`, `sheets export`, and — worst — `api-keys`, where the
+  ignored flag mints a live key or irreversibly revokes one. A contract
+  sentence in a design doc is a promise about every command, so either sweep
+  the namespace or scope the sentence.
+- The audit for "which commands ignore the flag" is `grep getClient(opts).`
+  and check each hit for a preceding `opts.dryRun` branch — a per-namespace
+  reading missed `api-keys` because it lives outside the v1 API base and so
+  never appeared in a `printDryRun` search.
+
 ## Follow-ups
 
-- None. `files download` and the `*/content` commands were re-checked and
-  already honour the flag.
+- None. `files download`, the `*/content` commands and the import paths were
+  re-checked and already honour the flag.

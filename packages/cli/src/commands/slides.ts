@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import { output, outputError } from '../output/formatter.js';
-import { printDryRun } from '../client/dry-run.js';
+import { printDryRun, seg } from '../client/dry-run.js';
 import { runSlidesImport } from '../slides/import.js';
 import {
   parseSlidesContentFormat,
@@ -37,6 +37,12 @@ export function registerSlidesCommand(program: Command) {
     .action(async function (this: Command) {
       const opts = getGlobalOpts(this);
       try {
+        if (opts.dryRun) {
+          // The `slides` filter is applied client-side, so it leaves no
+          // trace on the request the server would see.
+          printDryRun(getConfig(opts), 'GET', '/documents');
+          return;
+        }
         const res = await getClient(opts).listDocuments();
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         let data = res.data as unknown;
@@ -78,6 +84,10 @@ export function registerSlidesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       try {
+        if (opts.dryRun) {
+          printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}`);
+          return;
+        }
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         output(res.data, opts.format);
@@ -92,7 +102,7 @@ export function registerSlidesCommand(program: Command) {
     .action(async function (this: Command, docId: string, title: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}`, { title });
+        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, { title });
         return;
       }
       try {
@@ -110,7 +120,7 @@ export function registerSlidesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'DELETE', `/documents/${docId}`);
+        printDryRun(getConfig(opts), 'DELETE', `/documents/${seg(docId)}`);
         return;
       }
       try {
@@ -139,7 +149,7 @@ export function registerSlidesCommand(program: Command) {
         const format = parseSlidesContentFormat(opts.format);
 
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'GET', `/documents/${docId}/content`);
+          printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}/content`);
           return;
         }
 
@@ -195,7 +205,7 @@ export function registerSlidesCommand(program: Command) {
           throw new Error(`Cannot infer format from "${file}". Use a .pptx extension or --format pptx.`);
         }
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'GET', `/documents/${docId}/content`);
+          printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}/content`);
           return;
         }
         const res = await getClient(opts).getSlidesContent(docId);
