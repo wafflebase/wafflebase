@@ -314,6 +314,42 @@ describe('installPicker', () => {
     });
   });
 
+  it('does no document query for a pointer sample over the same element', () => {
+    // `mousemove` is not coalesced, so this runs per pointer sample. `refFor` ends in
+    // `elementsFor(id)` — a document-wide `querySelectorAll` with two attribute
+    // selectors — and it used to run before any identity check: measured, ten moves
+    // across ONE element cost ten document queries. `paint()` was already gated by
+    // `next === hoverId`, so this is the cheap half that was not.
+    picker();
+    const node = stamped('div', 'app/a.tsx', 'Page', [0], 'fp-a');
+    const other = stamped('div', 'app/a.tsx', 'Page', [1], 'fp-b');
+    document.body.append(node, other);
+
+    const real = document.querySelectorAll.bind(document);
+    let queries = 0;
+    const spy = vi
+      .spyOn(document, 'querySelectorAll')
+      .mockImplementation((sel: string) => {
+        queries++;
+        return real(sel);
+      });
+    const move = (el: Element) =>
+      el.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    try {
+      move(node);
+      queries = 0;
+      for (let i = 0; i < 10; i++) move(node);
+      expect(queries).toBe(0);
+
+      // A move to a DIFFERENT element must still resolve it, or the outline would
+      // stick to whatever was hovered first.
+      move(other);
+      expect(queries).toBeGreaterThan(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('prevents the product’s own handler while picking', () => {
     // Without capture + preventDefault a link navigates the frame before the
     // selection lands, and behind an in-memory router there is no URL to say so.

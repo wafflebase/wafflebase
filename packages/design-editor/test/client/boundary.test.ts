@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { builtinModules } from 'node:module';
+import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../src');
@@ -20,66 +21,73 @@ const BUILTINS = new Set(builtinModules);
 const isBuiltin = (spec: string) => BUILTINS.has(spec.replace(/^node:/, ''));
 
 /**
- * `import … from 'x'`, and bare `import 'x'`.
+ * Specifiers a source text depends on at RUNTIME — every `type` form is erased.
  *
- * LINE-ANCHORED, and the clause may not span a `;`. Both guards exist because the
- * first version of this had neither, and 10a is where that bit: the word "import"
- * in a doc comment — "an import specifier → the file it names" — started a match,
- * the lazy clause scanned 28 lines through the comment, and it attached to the
- * specifier of a genuinely TYPE-ONLY import far below. The file was reported as
- * value-importing a module that reaches `node:path`, so a correct file failed the
- * guard. Over-reporting is the safe direction for a leak, but a false FAILURE
- * blocks correct code, which is worse than the thing it was protecting against.
- */
-const IMPORT_RE = /^[ \t]*import\s+(?!type\b)([^;]*?\bfrom\s*)?['"]([^'"]+)['"]/gm;
-/**
- * `export { … } from 'x'` and `export * from 'x'` — runtime dependencies too, and
- * the form `client/index.ts` is almost entirely built from.
+ * PARSED, NOT MATCHED, and that is a correction. Three regexes did this, each with a
+ * documented caveat, and 10a's own review found the caveat that mattered: a
+ * TypeScript import-type QUERY —
  *
- * The shape is pinned to `*` or `{…}` rather than reusing the import pattern's lazy
- * clause: `export const label = 'Color'` also ends in a quoted string, and a lazy
- * match would read that as a dependency named `Color`.
- */
-const EXPORT_RE =
-  /^[ \t]*export\s+(?!type\b)(?:\*(?:\s+as\s+\w+)?|\{[^}]*\})\s*from\s*['"]([^'"]+)['"]/gm;
-/**
- * `import('x')` and `require('x')` — a runtime dependency in an expression, so
- * neither pattern above can see it.
+ *     type Path = import('node:path').PlatformPath;
  *
- * This is the hole line-anchoring `IMPORT_RE` opened: `import\s+` cannot match
- * `import(`, so `await import('node:path')` in a browser module was invisible and
- * the guard passed. `src/scenes/` is the tree most likely to want a lazy import and
- * the one that must never touch Node, which is what makes the gap worth closing
- * rather than noting.
+ * is an `ImportTypeNode`. TypeScript erases it completely, so it costs a browser
+ * bundle nothing, but the dynamic-import pattern reported it as `node:path` and the
+ * guard would have failed a correct file. That is the same false FAILURE the
+ * line-anchoring fix was for, reached by a different route — which is the argument
+ * for stopping: a regex cannot tell `type X = import('m')` from
+ * `const p = import('m')`, because the discriminator is the position, not the text.
  *
- * Not line-anchored, because a dynamic import is legitimately mid-expression. The
- * literal `(` is what keeps prose out: a doc comment saying "import" does not match,
- * though one showing `import('x')` as an example would — over-reporting, which is
- * this file's stated safe direction.
- */
-const DYNAMIC_RE = /\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]/g;
-
-/**
- * Specifiers a source text depends on at RUNTIME — `import type` / `export type` are
- * erased.
+ * `typescript` is already a devDependency here, so the AST costs nothing to reach.
+ * It also retires all three caveats at once: `import { type A, b }` no longer needs
+ * a special case, a wholly type-only `export { type A } from …` stops being
+ * over-reported, and a doc comment mentioning `import('x')` stops matching.
  *
- * Split from the file read so the patterns can be asserted against a string. The
- * alternative was planting a violation in a real module, and the module that would
- * have to hold it is the thing under test.
+ * Split from the file read so it can be asserted against a string. The alternative
+ * was planting a violation in a real module, and the module that would have to hold
+ * it is the thing under test.
  */
 export function valueImportsOf(text: string): string[] {
+  // `.tsx` and JSX: the browser trees hold both, and a `.ts` parse of JSX would
+  // silently produce a broken tree rather than an error.
+  const sf = ts.createSourceFile('probe.tsx', text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TSX);
   const out: string[] = [];
-  for (const m of text.matchAll(IMPORT_RE)) {
-    const clause = m[1] ?? '';
-    // A mixed clause (`import { type A, b }`) still imports `b` for its value.
-    if (/^\s*\{\s*(?:type\s+[^,}]+,?\s*)+\}\s*from\s*$/.test(clause)) continue;
-    out.push(m[2]);
-  }
-  // A wholly type-only member list (`export { type A } from …`) is over-reported
-  // here. That is the safe direction: this guard may name a module that costs the
-  // bundle nothing, but it must never miss one that does.
-  for (const m of text.matchAll(EXPORT_RE)) out.push(m[1]);
-  for (const m of text.matchAll(DYNAMIC_RE)) out.push(m[1]);
+  const push = (node: ts.Expression | undefined) => {
+    if (node && ts.isStringLiteralLike(node)) out.push(node.text);
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node)) {
+      // No clause is a bare side-effect import (`import './x.css'`) — a runtime
+      // dependency with nothing bound.
+      const clause = node.importClause;
+      const typeOnly =
+        clause?.isTypeOnly === true ||
+        // Every named member is `type`, so the whole statement erases.
+        (!!clause?.namedBindings &&
+          ts.isNamedImports(clause.namedBindings) &&
+          clause.namedBindings.elements.length > 0 &&
+          clause.namedBindings.elements.every((e) => e.isTypeOnly) &&
+          !clause.name);
+      if (!typeOnly) push(node.moduleSpecifier);
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
+      const typeOnly =
+        node.isTypeOnly ||
+        (!!node.exportClause &&
+          ts.isNamedExports(node.exportClause) &&
+          node.exportClause.elements.length > 0 &&
+          node.exportClause.elements.every((e) => e.isTypeOnly));
+      if (!typeOnly) push(node.moduleSpecifier);
+    } else if (ts.isCallExpression(node)) {
+      // `import(...)` as an EXPRESSION. `ts.isImportTypeNode` is deliberately not
+      // handled anywhere here — skipping it is the fix.
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) push(node.arguments[0]);
+      else if (ts.isIdentifier(node.expression) && node.expression.text === 'require') {
+        push(node.arguments[0]);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  ts.forEachChild(sf, visit);
   return out;
 }
 
@@ -136,19 +144,57 @@ describe('the client bundle boundary', () => {
     for (const dir of BROWSER_DIRS) expect(fs.existsSync(dir)).toBe(true);
   });
 
-  it('sees a lazy import, which the line-anchored pattern cannot', () => {
-    // The hole line-anchoring `IMPORT_RE` opened. `import\s+` cannot match `import(`,
-    // so a browser module could `await import('node:path')` and the guard passed —
-    // in the one tree that must never reach Node, and the one most likely to want a
-    // lazy import.
-    //
-    // Asserted on the scanner rather than by planting a violation, because the file
-    // that would have to hold it is the thing under test.
-    const scan = valueImportsOf;
-    expect(scan("const { sep } = await import('node:path');")).toEqual(['node:path']);
-    expect(scan('const fs = require("node:fs");')).toEqual(['node:fs']);
-    expect(scan("void import('./frame-protocol.ts');")).toEqual(['./frame-protocol.ts']);
-    // Prose is still not a dependency: the literal `(` is what separates them.
-    expect(scan(' * a comment that says import and mentions node:path')).toEqual([]);
+  it('sees a lazy import, which a line-anchored pattern cannot', () => {
+    // The hole line-anchoring the old `import` pattern opened: `import\s+` cannot
+    // match `import(`, so a browser module could `await import('node:path')` and the
+    // guard passed — in the one tree that must never reach Node.
+    expect(valueImportsOf("const { sep } = await import('node:path');")).toEqual(['node:path']);
+    expect(valueImportsOf('const fs = require("node:fs");')).toEqual(['node:fs']);
+    expect(valueImportsOf("void import('./frame-protocol.ts');")).toEqual(['./frame-protocol.ts']);
+    // A dynamic import inside an object literal, which is the shape a generated
+    // scene loader takes — and the reason `= import(` could not simply be excluded.
+    expect(valueImportsOf("export const s = { load: () => import('./a.tsx') };")).toEqual([
+      './a.tsx',
+    ]);
+  });
+
+  it('ignores a TypeScript import-type query, which erases', () => {
+    // An `ImportTypeNode` costs a browser bundle nothing, but the regex reported it
+    // and the guard would have failed a correct file — the same false FAILURE the
+    // line-anchoring fix was for, by another route. A regex cannot tell this from
+    // `const p = import('m')`: the discriminator is the position, not the text.
+    for (const src of [
+      "type Path = import('node:path').PlatformPath;",
+      "export type Stats = import('node:fs').Stats;",
+      "let p: import('node:path').PlatformPath;",
+      "function f(x: import('node:fs').Stats) { return x; }",
+    ]) {
+      expect(valueImportsOf(src), src).toEqual([]);
+    }
+  });
+
+  it('erases every type-only import and export form', () => {
+    for (const src of [
+      "import type { A } from './a.ts';",
+      "import { type A, type B } from './a.ts';",
+      "export type { A } from './a.ts';",
+      "export { type A } from './a.ts';",
+    ]) {
+      expect(valueImportsOf(src), src).toEqual([]);
+    }
+    // A mixed clause still imports the value member, and a default binding always does.
+    expect(valueImportsOf("import { type A, b } from './a.ts';")).toEqual(['./a.ts']);
+    expect(valueImportsOf("import A, { type B } from './a.ts';")).toEqual(['./a.ts']);
+    // A bare side-effect import is a runtime dependency with nothing bound.
+    expect(valueImportsOf("import './shell.css';")).toEqual(['./shell.css']);
+  });
+
+  it('does not read a dependency out of prose', () => {
+    // The original failure in this file: the word "import" in a doc comment started a
+    // match and attached to a specifier 28 lines below.
+    expect(valueImportsOf(" * an import specifier, e.g. import('node:path'), names a file")).toEqual(
+      [],
+    );
+    expect(valueImportsOf("const label = 'Color';")).toEqual([]);
   });
 });

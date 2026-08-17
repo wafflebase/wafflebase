@@ -86,6 +86,11 @@ let cancelFrames: (() => void) | null = null;
 let picking = true;
 let selectedId: string | null = null;
 let hoverId: string | null = null;
+/**
+ * The node `hoverId` was derived from, so a pointer sample over the same element can
+ * return before paying for `refFor`'s document query. Cleared wherever `hoverId` is.
+ */
+let hoverEl: HTMLElement | null = null;
 
 /**
  * Figma-style click cycling: repeatedly clicking the SAME spot walks up the
@@ -484,11 +489,31 @@ export function installPicker({ send }: PickerOptions): void {
     );
   }
 
+  /**
+   * ELEMENT IDENTITY IS CHECKED BEFORE ANYTHING IS COMPUTED.
+   *
+   * `mousemove` is not coalesced the way `scroll` and `resize` are, so this runs per
+   * pointer sample — tens of times a frame. It used to call `refFor(el)` first, and
+   * `refFor` ends in `elementsFor(id)`: a document-wide `querySelectorAll` with two
+   * attribute selectors, to count the instances. Measured with a counting stub, ten
+   * moves across ONE element cost ten document queries.
+   *
+   * Not the runaway the ResizeObserver was — the `next === hoverId` check already
+   * gated `paint()`, the expensive half — but a per-sample document query for an
+   * answer that cannot have changed. Comparing the node first makes the common case,
+   * moving within one element, free.
+   *
+   * `hoverEl` is cleared at every site that clears `hoverId`. Out of sync it would
+   * either skip a hover that did change — a silently missing outline — or recompute
+   * one that did not.
+   */
   window.addEventListener(
     'mousemove',
     (e) => {
       if (!picking) return;
       const el = stampedAt(e.target);
+      if (el === hoverEl) return;
+      hoverEl = el;
       const ref = el ? refFor(el) : null;
       const next = ref?.id ?? null;
       if (next === hoverId) return;
@@ -500,6 +525,7 @@ export function installPicker({ send }: PickerOptions): void {
   );
 
   window.addEventListener('mouseleave', () => {
+    hoverEl = null;
     if (hoverId === null) return;
     hoverId = null;
     paint();
@@ -635,6 +661,8 @@ export function installPicker({ send }: PickerOptions): void {
         break;
       case 'wb:set-hover':
         hoverId = msg.id;
+        // The host set it, so the cached node no longer explains it.
+        hoverEl = null;
         paint();
         break;
       case 'wb:set-picking':
@@ -688,6 +716,7 @@ export function disposePicker(): void {
   resetCycle();
   selectedId = null;
   hoverId = null;
+  hoverEl = null;
   picking = true;
   started = false;
 }
