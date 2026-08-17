@@ -176,6 +176,19 @@ non-`heading` split half). The memory belongs to the one block that was
 bulleted; propagating it would turn the body-text bullets typed after it
 into headings the moment the list is toggled off.
 
+For the same reason a **merge** can invalidate the memory: Backspace at
+the start of a bullet appends its text into the previous block, so an
+emptied bulleted heading absorbing that text no longer holds any of the
+heading it remembers. `mergeDropsHeadingMemory(block)`
+(`packages/docs/src/store/block-helpers.ts`) is the shared predicate —
+list item, has a remembered level, no text of its own — and both merge
+paths honour it: `applyMergeBlocks` deletes the attribute (covering
+`MemDocStore` and the `YorkieDocStore` cache), and
+`YorkieDocStore.mergeBlock` additionally `removeStyleByPath`s
+`headingLevel` off the tree node so the CRDT and the cache agree. A
+bulleted heading that still has its own text keeps the memory — the
+heading text survives the merge, so exiting the list still restores it.
+
 ## Store Abstraction
 
 ```typescript

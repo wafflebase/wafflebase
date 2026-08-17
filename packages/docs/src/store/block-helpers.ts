@@ -266,11 +266,31 @@ export function applySplitBlock(
 }
 
 /**
+ * Whether a merge into `block` invalidates the heading level a bulleted
+ * heading remembers (see `Block`). A merge appends another block's text into
+ * `block`; when `block` is a list item that has no text of its own, none of
+ * the remembered heading survives, so the level must not travel onto the
+ * incoming body text — otherwise removing the list promotes text that was
+ * never a heading.
+ *
+ * Shared by `applyMergeBlocks` and `YorkieDocStore.mergeBlock`, which has to
+ * drop the same attribute from the Yorkie tree to stay in sync.
+ */
+export function mergeDropsHeadingMemory(block: Block): boolean {
+  return (
+    block.type === 'list-item' &&
+    block.headingLevel !== undefined &&
+    block.inlines.every((inline) => inline.text.length === 0)
+  );
+}
+
+/**
  * Merge nextBlock into block. Returns the merged block.
  */
 export function applyMergeBlocks(block: Block, nextBlock: Block): Block {
   const merged = cloneBlock(block);
   const nextClone = cloneBlock(nextBlock);
+  if (mergeDropsHeadingMemory(merged)) delete merged.headingLevel;
   merged.inlines = normalizeInlines([...merged.inlines, ...nextClone.inlines]);
   return merged;
 }

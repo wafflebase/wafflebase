@@ -35,6 +35,7 @@ import {
   applyInsertInline,
   applySplitBlock,
   applyMergeBlocks,
+  mergeDropsHeadingMemory,
   blockStyleId,
   materializeBlockSpacing,
 } from '@wafflebase/docs';
@@ -2180,6 +2181,11 @@ export class YorkieDocStore implements DocStore {
       throw new Error('Blocks to merge must be adjacent and in order');
     }
 
+    // An emptied bulleted heading absorbing the next block's text no longer
+    // holds the heading it remembers, so the attribute has to leave the tree
+    // as well as the cache (`applyMergeBlocks` drops it there).
+    const dropHeadingMemory = mergeDropsHeadingMemory(firstBlock);
+
     const cursorForHistory = this.consumePendingCursor();
     this.doc.update((root, p) => {
       if (cursorForHistory) {
@@ -2188,6 +2194,11 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      if (dropHeadingMemory) {
+        const endPath = [...blockPath];
+        endPath[endPath.length - 1] += 1;
+        tree.removeStyleByPath(blockPath, endPath, ['headingLevel']);
+      }
       // Read inline count from the actual tree, not the cache, because
       // previous split/merge operations can leave the tree with a different
       // number of inline nodes than the cache (e.g. split fragments).

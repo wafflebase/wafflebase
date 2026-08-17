@@ -1,10 +1,35 @@
 // @vitest-environment jsdom
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import JSZip from 'jszip';
 import { MemDocStore } from '../../src/store/memory.js';
 import { Doc } from '../../src/model/document.js';
 import { initialize, type EditorAPI } from '../../src/view/editor.js';
 import { normalizeBlockStyle, unlistedBlockType } from '../../src/model/types.js';
-import type { Block } from '../../src/model/types.js';
+import { blockStyleId } from '../../src/model/named-styles.js';
+import { serializeMarkdown } from '../../src/serialize/markdown.js';
+import { serializeText } from '../../src/serialize/text.js';
+import { DocxExporter } from '../../src/export/docx-exporter.js';
+import type { Block, Document } from '../../src/model/types.js';
+
+// jsdom's Blob shim lacks arrayBuffer(); polyfill via FileReader (same shim
+// the docx-exporter test uses).
+if (typeof Blob.prototype.arrayBuffer !== 'function') {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (Blob.prototype as any).arrayBuffer = function arrayBuffer(this: Blob): Promise<ArrayBuffer> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(this);
+    });
+  };
+}
+
+async function docxDocumentXml(doc: Document): Promise<string> {
+  const blob = await DocxExporter.export(doc);
+  const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+  return (await zip.file('word/document.xml')!.async('string')) ?? '';
+}
 
 /**
  * Bulleting a heading and un-bulleting it must give the heading back
@@ -189,6 +214,52 @@ describe('keyboard list exits restore the heading', () => {
   });
 });
 
+describe('a merge drops a heading memory it no longer describes', () => {
+  test('body text merged into an emptied bulleted heading exits as a paragraph', () => {
+    const store = new MemDocStore({
+      blocks: [makeHeading('b1', 'Quarterly results', 2), makeParagraph('b2', 'body text')],
+    });
+    const doc = new Doc(store);
+    doc.setBlockType('b1', 'list-item', { listKind: 'unordered', listLevel: 0 });
+    doc.setBlockType('b2', 'list-item', { listKind: 'unordered', listLevel: 0 });
+
+    // Empty the bulleted heading, then Backspace at the start of the next
+    // bullet so its body text merges into it. Nothing of the heading is left,
+    // so the remembered level must not survive the merge (#783 follow-up).
+    doc.deleteText({ blockId: 'b1', offset: 0 }, 'Quarterly results'.length);
+    doc.deleteBackward({ blockId: 'b2', offset: 0 });
+
+    const merged = doc.document.blocks[0];
+    expect(doc.document.blocks).toHaveLength(1);
+    expect(merged.id).toBe('b1');
+    expect(merged.inlines.map((i) => i.text).join('')).toBe('body text');
+    expect(merged.headingLevel).toBeUndefined();
+    expect(unlistedBlockType(merged)).toEqual({ type: 'paragraph' });
+
+    // And the keyboard exit agrees: emptying the merged bullet and pressing
+    // Backspace leaves body text, not a Heading 2.
+    doc.deleteText({ blockId: 'b1', offset: 0 }, 'body text'.length);
+    doc.deleteBackward({ blockId: 'b1', offset: 0 });
+    expect(doc.document.blocks[0].type).toBe('paragraph');
+    expect(doc.document.blocks[0].headingLevel).toBeUndefined();
+  });
+
+  test('a bulleted heading that keeps its own text keeps the memory', () => {
+    const store = new MemDocStore({
+      blocks: [makeHeading('b1', 'Quarterly results', 2), makeParagraph('b2', ' addendum')],
+    });
+    const doc = new Doc(store);
+    doc.setBlockType('b1', 'list-item', { listKind: 'unordered', listLevel: 0 });
+    doc.setBlockType('b2', 'list-item', { listKind: 'unordered', listLevel: 0 });
+
+    doc.deleteBackward({ blockId: 'b2', offset: 0 });
+
+    const merged = doc.document.blocks[0];
+    expect(merged.inlines.map((i) => i.text).join('')).toBe('Quarterly results addendum');
+    expect(merged.headingLevel).toBe(2);
+  });
+});
+
 describe('toggleList round trip', () => {
   beforeEach(() => {
     installCanvasShim();
@@ -247,5 +318,114 @@ describe('toggleList round trip', () => {
     expect(block.type).toBe('heading');
     expect(block.headingLevel).toBe(3);
     editor.dispose();
+  });
+});
+
+/**
+ * The Cmd/Ctrl+Shift+7 / +8 shortcuts run `TextEditor.toggleList`, a separate
+ * implementation from the toolbar's `EditorAPI.toggleList` above. Both must
+ * exit through `unlistedBlockType` or the keyboard path silently drifts back
+ * to flattening a bulleted heading into body text.
+ */
+describe('keyboard bullet shortcut round trip', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  function pressListShortcut(container: HTMLElement, kind: 'ordered' | 'unordered'): void {
+    const textarea = container.querySelector('textarea');
+    if (!textarea) throw new Error('textarea not mounted');
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        // Both modifiers so the dispatch works whichever platform jsdom
+        // reports (`mod` is Meta on Mac, Ctrl elsewhere).
+        key: kind === 'ordered' ? '7' : '8',
+        ctrlKey: true,
+        metaKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
+  test('Cmd/Ctrl+Shift+8 twice gives the heading back', () => {
+    const { editor, container } = setupEditor([makeHeading('b1', 'Quarterly results', 2)]);
+
+    pressListShortcut(container, 'unordered');
+    let block = editor.getDoc().document.blocks[0];
+    expect(block.type).toBe('list-item');
+    expect(block.headingLevel).toBe(2);
+
+    pressListShortcut(container, 'unordered');
+    block = editor.getDoc().document.blocks[0];
+    expect(block.type).toBe('heading');
+    expect(block.headingLevel).toBe(2);
+    editor.dispose();
+  });
+
+  test('Cmd/Ctrl+Shift+7 twice gives the heading back', () => {
+    const { editor, container } = setupEditor([makeHeading('b1', 'Quarterly results', 3)]);
+
+    pressListShortcut(container, 'ordered');
+    expect(editor.getDoc().document.blocks[0].type).toBe('list-item');
+
+    pressListShortcut(container, 'ordered');
+    const block = editor.getDoc().document.blocks[0];
+    expect(block.type).toBe('heading');
+    expect(block.headingLevel).toBe(3);
+    editor.dispose();
+  });
+
+  test('Cmd/Ctrl+Shift+8 twice leaves a paragraph a paragraph', () => {
+    const { editor, container } = setupEditor([makeParagraph('b1', 'body text')]);
+
+    pressListShortcut(container, 'unordered');
+    pressListShortcut(container, 'unordered');
+
+    const block = editor.getDoc().document.blocks[0];
+    expect(block.type).toBe('paragraph');
+    expect(block.headingLevel).toBeUndefined();
+    editor.dispose();
+  });
+});
+
+/**
+ * A `list-item` that remembers a heading level is only safe because every
+ * reader gates on `type === 'heading'` (see the `Block.headingLevel` doc
+ * comment). Assert the invariant instead of trusting the comment.
+ */
+describe('a remembered heading level is inert while the block is a list item', () => {
+  const bulletedHeading: Block = {
+    id: 'b1',
+    type: 'list-item',
+    listKind: 'unordered',
+    listLevel: 0,
+    headingLevel: 2,
+    inlines: [{ text: 'Quarterly results', style: {} }],
+    style: normalizeBlockStyle({}),
+  };
+
+  test('markdown serializes it as a bullet, not a heading', () => {
+    expect(serializeMarkdown({ blocks: [bulletedHeading] })).toBe('- Quarterly results');
+  });
+
+  test('blockStyleId (named styles, layout, toolbar label) reads Normal', () => {
+    expect(blockStyleId(bulletedHeading)).toBe('normal');
+  });
+
+  test('plain-text serialization is unaffected', () => {
+    expect(serializeText({ blocks: [bulletedHeading] })).toContain('Quarterly results');
+  });
+
+  test('DOCX export emits no Heading paragraph style', async () => {
+    const xml = await docxDocumentXml({ blocks: [bulletedHeading] });
+    expect(xml).toContain('Quarterly results');
+    expect(xml).not.toContain('w:pStyle w:val="Heading');
   });
 });

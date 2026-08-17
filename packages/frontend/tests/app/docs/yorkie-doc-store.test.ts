@@ -1203,6 +1203,58 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       expect(() => store.mergeBlock(block.id, block.id)).toThrow(/Cannot merge/);
     });
+
+    it('should drop a bulleted headings remembered level when it holds no text', () => {
+      // An emptied bulleted heading that absorbs the next bullet's body text
+      // no longer holds the heading it remembers, so the level must leave both
+      // the cache and the tree — otherwise un-listing promotes body text
+      // that was never a heading (#783 follow-up).
+      const emptied: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        listKind: 'unordered',
+        listLevel: 0,
+        headingLevel: 2,
+        inlines: [{ text: '', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      const next: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        listKind: 'unordered',
+        listLevel: 0,
+        inlines: [{ text: 'body text', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [emptied, next] });
+      store.mergeBlock(emptied.id, next.id);
+
+      const merged = store.getBlock(emptied.id)!;
+      expect(merged.inlines.map((i) => i.text).join('')).toBe('body text');
+      expect(merged.headingLevel).toBe(undefined);
+      // Re-read from the tree, not the cache.
+      expect(new YorkieDocStore(doc).getBlock(emptied.id)!.headingLevel).toBe(undefined);
+    });
+
+    it('should keep the remembered level when the bulleted heading keeps its text', () => {
+      const bulleted: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        listKind: 'unordered',
+        listLevel: 0,
+        headingLevel: 2,
+        inlines: [{ text: 'Title', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      const next = makeBlock(' addendum');
+      store.setDocument({ blocks: [bulleted, next] });
+      store.mergeBlock(bulleted.id, next.id);
+
+      const merged = store.getBlock(bulleted.id)!;
+      expect(merged.inlines.map((i) => i.text).join('')).toBe('Title addendum');
+      expect(merged.headingLevel).toBe(2);
+      expect(new YorkieDocStore(doc).getBlock(bulleted.id)!.headingLevel).toBe(2);
+    });
   });
 
   describe('applyStyle', () => {
