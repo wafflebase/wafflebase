@@ -202,6 +202,30 @@ loopback redirect, and a `GET /callback` whose `state` does not match
 not settle the login. Without that, the first `code` to arrive would win,
 and an injected one would be exchanged and saved as the user's session.
 
+What the nonce covers, and what it does not: it stops an injector that
+cannot read this process — a page the browser visited (the same-origin
+policy keeps it from reading the redirect URL) and any blind local
+injector. It is **not** a secret from a local process that can read the
+CLI's command line: the nonce has to reach the browser, and `open()`
+passes the URL as an argv entry, which `/proc/<pid>/cmdline` exposes to
+other users on Linux. `login` therefore keeps the nonce out of stderr —
+the "Opening browser" line prints the URL without it, and the full URL
+appears only when the browser could not be opened, where it is the only
+way to continue — but argv exposure remains, and closing it needs the
+secret to never leave the CLI: a PKCE-shaped `POST /auth/cli/start` that
+registers `sha256(verifier)` and an exchange that must present the
+verifier. That endpoint is not part of this design yet; the residual
+exposure is tracked in the [rest-api.md](rest-api.md) risk table.
+
+A missing `state` is treated separately from a wrong one, because it is
+the version-skew signal rather than an attack: `@wafflebase/cli` is
+published separately from the server it is pointed at (`--server`,
+`WAFFLEBASE_SERVER`, self-hosting), so a backend older than the echo
+redirects without one. That callback fails the login immediately with an
+actionable message instead of the 30-second timeout, and
+`wafflebase login --allow-unbound-callback` accepts it — the escape hatch
+for logging in against such a server, at the cost of the binding.
+
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
 port-validation details live in [rest-api.md](rest-api.md) "CLI Auth
@@ -864,12 +888,16 @@ Per-command dry-run notes:
   exactly a dot segment is therefore **rejected**, not escaped:
   `api-keys revoke ..` would otherwise resolve to `DELETE /workspaces/<ws>/`,
   the workspace-delete route, and its preview would have shown the
-  unresolved `.../api-keys/..` instead. An *empty* segment is not rejected: it
-  resolves nowhere — it only yields a path the server 404s on — and it is the
-  state `resolveConfig` returns for a workspace nobody has chosen yet, so
-  refusing it would break every command and every offline preview with an
-  `Invalid identifier ""` instead of the 404 that documents the missing
-  workspace. The `import` / `upload` previews are the one envelope
+  unresolved `.../api-keys/..` instead. An *empty* identifier is rejected too,
+  and for a reason that is not traversal: Nest runs Express with strict routing
+  disabled, so `/documents/` matches the **collection** route — `docs get ""`
+  would list every document rather than 404 on a missing id. The workspace is
+  the one segment allowed to be empty (`workspaceSeg()`), because `''` is the
+  state `resolveConfig` returns for a workspace nobody has chosen yet and every
+  path built on it carries further segments (`/workspaces//documents` matches no
+  route), so tolerating it costs nothing and refusing it would break every
+  command and every offline preview with an `Invalid identifier ""`.
+  The `import` / `upload` previews are the one envelope
   variation: they print a workspace-relative `path` (plus the parsed body and,
   for `slides`, the import report) rather than the `dry_run` / `url` envelope
   above, because their value is the parse result, not the URL. The identifier

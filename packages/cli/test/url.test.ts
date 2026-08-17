@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apiKeysUrl, apiV1Base, seg } from '../src/client/url.js';
+import { apiKeysUrl, apiV1Base, seg, workspaceSeg } from '../src/client/url.js';
 import type { CliConfig } from '../src/config/config.js';
 
 const CONFIG: CliConfig = {
@@ -28,15 +28,32 @@ describe('seg', () => {
   });
 
   /**
+   * Express runs with strict routing disabled, so `/documents/` matches the
+   * *collection* route: an empty id would list every document rather than 404.
+   */
+  it('refuses an empty identifier', () => {
+    expect(() => seg('')).toThrow(/Invalid identifier ""/);
+  });
+});
+
+describe('workspaceSeg', () => {
+  /**
    * `resolveConfig` deliberately returns `workspace: ''` when no `--workspace`,
    * `WAFFLEBASE_WORKSPACE`, session `activeWorkspace` or profile value exists,
    * and `login` persists `activeWorkspace: ''` for an account with no
-   * workspaces. An empty segment is not a traversal — it cannot retarget the
-   * request, it only yields a path the server 404s on — so it must pass
-   * through rather than break every command and every `--dry-run` preview.
+   * workspaces. Every path built on the workspace has further segments, so an
+   * empty one matches no route — it must pass through rather than break every
+   * command and every `--dry-run` preview.
    */
-  it('passes the empty segment through instead of rejecting it', () => {
-    expect(seg('')).toBe('');
+  it('passes an unconfigured workspace through as an empty segment', () => {
+    expect(workspaceSeg({ ...CONFIG, workspace: '' })).toBe('');
+  });
+
+  it('escapes a non-empty workspace like any other identifier', () => {
+    expect(workspaceSeg({ ...CONFIG, workspace: 'a/b' })).toBe('a%2Fb');
+    expect(() => workspaceSeg({ ...CONFIG, workspace: '..' })).toThrow(
+      /Invalid identifier/,
+    );
   });
 });
 

@@ -25,18 +25,23 @@ const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i;
  *
  * This is the single definition used by both the live client and the
  * `--dry-run` preview, so a preview cannot disagree with the request it
- * describes — including for `config.workspace`, which is as caller-controlled
- * as the rest (`--workspace`, `WAFFLEBASE_WORKSPACE`, or a config profile).
+ * describes.
  *
- * The *empty* segment is deliberately not rejected. It is not a traversal —
- * it cannot retarget the request, it only produces a path the server 404s on —
- * and it is the state `resolveConfig` intentionally returns for an
- * unconfigured workspace (`workspace: ''`, see `config/config.ts`). Throwing
- * on it would turn every command, and every offline `--dry-run` preview, into
- * an `Invalid identifier ""` error for a caller who has simply not picked a
- * workspace yet.
+ * The *empty* segment is refused too. It does not retarget the request the way
+ * a traversal does, but it does not 404 either: Nest runs Express with strict
+ * routing disabled, so `GET /api/v1/workspaces/<ws>/documents/` matches the
+ * *collection* route — `documents get ""` would silently list every document
+ * instead of failing on a missing id. The one segment allowed to be empty is
+ * the workspace (see `workspaceSeg`).
  */
 export function seg(value: string): string {
+  if (value === '') {
+    throw new Error(
+      'Invalid identifier "": a URL path segment cannot be empty — Express ' +
+        'matches the trailing-slash path against the collection route, so the ' +
+        'request would address the collection rather than the named resource.',
+    );
+  }
   const encoded = encodeURIComponent(value);
   if (DOT_SEGMENT.test(encoded)) {
     throw new Error(
@@ -53,9 +58,30 @@ function origin(config: CliConfig): string {
   return config.server.replace(/\/$/, '');
 }
 
+/**
+ * The workspace path segment — the one identifier allowed to be empty.
+ *
+ * `resolveConfig` intentionally returns `workspace: ''` when nobody has picked
+ * one (`--workspace`, `WAFFLEBASE_WORKSPACE`, session `activeWorkspace`, or a
+ * config profile are all absent), and `login` persists `activeWorkspace: ''`
+ * for an account with no workspaces. Throwing here would turn every command,
+ * and every offline `--dry-run` preview, into an `Invalid identifier ""` for a
+ * caller who has simply not chosen a workspace yet. Unlike an empty document or
+ * tab id, an empty workspace cannot fall through to a collection route: every
+ * path built on it has further segments (`/documents`, `/api-keys`), so
+ * `/workspaces//documents` matches no route at all.
+ *
+ * A non-empty workspace goes through `seg()` unchanged — it is as
+ * caller-controlled as the rest and gets the same escaping and dot-segment
+ * rejection.
+ */
+export function workspaceSeg(config: CliConfig): string {
+  return config.workspace === '' ? '' : seg(config.workspace);
+}
+
 /** Workspace-scoped v1 API base — everything under `/api/v1`. */
 export function apiV1Base(config: CliConfig): string {
-  return `${origin(config)}/api/v1/workspaces/${seg(config.workspace)}`;
+  return `${origin(config)}/api/v1/workspaces/${workspaceSeg(config)}`;
 }
 
 /**
@@ -66,6 +92,6 @@ export function apiV1Base(config: CliConfig): string {
  * is a single definition of the request.
  */
 export function apiKeysUrl(config: CliConfig, keyId?: string): string {
-  const base = `${origin(config)}/workspaces/${seg(config.workspace)}/api-keys`;
+  const base = `${origin(config)}/workspaces/${workspaceSeg(config)}/api-keys`;
   return keyId === undefined ? base : `${base}/${seg(keyId)}`;
 }
