@@ -253,8 +253,16 @@ export function applySplitBlock(
 
   // Remove block-specific attrs from after block
   delete after.tableData;
-  if (newBlockType !== 'heading') {
+  // A bulleted heading's remembered level describes that block's own text, so
+  // a split at offset 0 — which hands *all* of that text to the new block —
+  // moves the memory across instead of stranding it on the empty leading
+  // bullet (which would otherwise be the half `unlistedBlockType` promotes).
+  const movesMemory = splitMovesHeadingMemory(block, offset, newBlockType);
+  if (newBlockType !== 'heading' && !movesMemory) {
     delete after.headingLevel;
+  }
+  if (movesMemory) {
+    delete before.headingLevel;
   }
   // Preserve list attrs when the new block is also a list-item
   if (newBlockType !== 'list-item') {
@@ -263,6 +271,34 @@ export function applySplitBlock(
   }
 
   return [before, after];
+}
+
+/**
+ * Whether splitting `block` at `offset` hands the heading level a bulleted
+ * heading remembers to the split-off block instead of leaving it behind.
+ *
+ * The memory only describes the text the block that was bulleted holds, and a
+ * split at offset 0 moves every character of it into the new block — leaving
+ * the level on the now-empty leading bullet would make the wrong half restore
+ * a heading, and would strip it from the text that actually was one. Any other
+ * offset keeps the memory where it is: the heading text starts in `before`, so
+ * the new bullet is body text (see `Block.headingLevel`).
+ *
+ * Shared by `applySplitBlock` and `YorkieDocStore.splitBlock`, which has to
+ * move the same attribute in the Yorkie tree to stay in sync.
+ */
+export function splitMovesHeadingMemory(
+  block: Block,
+  offset: number,
+  newBlockType: BlockType,
+): boolean {
+  return (
+    offset === 0 &&
+    newBlockType === 'list-item' &&
+    block.type === 'list-item' &&
+    block.headingLevel !== undefined &&
+    block.inlines.some((inline) => inline.text.length > 0)
+  );
 }
 
 /**

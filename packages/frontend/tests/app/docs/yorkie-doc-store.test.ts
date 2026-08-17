@@ -1597,6 +1597,31 @@ describe('YorkieDocStore', () => {
       const fromTree = new YorkieDocStore(doc).getBlock('new-id')!;
       expect(fromTree.headingLevel).toBe(undefined);
     });
+
+    it('should move a bulleted heading level onto the split-off block at offset 0', () => {
+      // A split at the very start hands the whole heading text to the new
+      // block, so the memory travels with it instead of stranding on the
+      // empty leading bullet (#783 follow-up).
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        listKind: 'unordered',
+        listLevel: 0,
+        headingLevel: 2,
+        inlines: [{ text: 'HelloWorld', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 0, 'new-id', 'list-item');
+
+      const result = store.getDocument();
+      expect(result.blocks[0].headingLevel).toBe(undefined);
+      expect(result.blocks[1].headingLevel).toBe(2);
+      // Re-read from the tree, not the cache.
+      const fresh = new YorkieDocStore(doc);
+      expect(fresh.getBlock(block.id)!.headingLevel).toBe(undefined);
+      expect(fresh.getBlock('new-id')!.headingLevel).toBe(2);
+    });
   });
 
   function makeTableWithText(): { tableBlock: Block; cellBlockId: string } {

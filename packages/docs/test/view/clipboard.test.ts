@@ -167,6 +167,97 @@ describe('clipboard JSON serialization', () => {
   });
 });
 
+/**
+ * The internal flavour is JSON any page can put on the system clipboard, and
+ * the paste handler prefers it over text/html — so the payload is untrusted
+ * input, not our own model. It must be rebuilt key by key rather than cast to
+ * `Block[]`, or a hostile page writes arbitrary values into the shared CRDT
+ * and the exporters (`headingLevel` reaches an unescaped DOCX attribute).
+ */
+describe('clipboard payload validation', () => {
+  function parseOne(block: unknown) {
+    return deserializeBlocks(JSON.stringify({ version: 1, blocks: [block] }))[0];
+  }
+
+  it('drops a non-numeric headingLevel', () => {
+    const block = parseOne({
+      type: 'heading',
+      headingLevel: '1" w:customStyle="1',
+      inlines: [{ text: 'x', style: {} }],
+    });
+    expect(block.headingLevel).toBe(1);
+  });
+
+  it('drops an out-of-range headingLevel on a bulleted heading', () => {
+    const block = parseOne({
+      type: 'list-item',
+      headingLevel: 99,
+      inlines: [{ text: 'x', style: {} }],
+    });
+    expect(block.type).toBe('list-item');
+    expect(block.headingLevel).toBeUndefined();
+  });
+
+  it('keeps a valid remembered level on a bulleted heading', () => {
+    const block = parseOne({
+      type: 'list-item',
+      headingLevel: 2,
+      listKind: 'ordered',
+      listLevel: 1,
+      inlines: [{ text: 'x', style: {} }],
+    });
+    expect(block.headingLevel).toBe(2);
+    expect(block.listKind).toBe('ordered');
+    expect(block.listLevel).toBe(1);
+  });
+
+  it('falls back to a paragraph for an unknown block type', () => {
+    const block = parseOne({ type: 'script', inlines: [{ text: 'x', style: {} }] });
+    expect(block.type).toBe('paragraph');
+  });
+
+  it('drops unknown keys and wrongly-typed known keys', () => {
+    const block = parseOne({
+      type: 'paragraph',
+      inlines: [{ text: 'x', style: { bold: 'yes', fontSize: 'huge', evil: 1 } }],
+      style: { alignment: 'drop-table', lineHeight: 'tall', marginLeft: 12 },
+      onload: 'alert(1)',
+    });
+    expect((block as unknown as Record<string, unknown>).onload).toBeUndefined();
+    expect((block.inlines[0].style as unknown as Record<string, unknown>).evil).toBeUndefined();
+    expect(block.inlines[0].style.bold).toBeUndefined();
+    expect(block.inlines[0].style.fontSize).toBeUndefined();
+    // Bad values fall back to the defaults; good ones survive.
+    expect(block.style.alignment).toBe('left');
+    expect(block.style.lineHeight).toBe(1.5);
+    expect(block.style.marginLeft).toBe(12);
+  });
+
+  it('drops a listLevel outside the indent range', () => {
+    expect(parseOne({ type: 'list-item', listLevel: 5000 }).listLevel).toBe(8);
+    expect(parseOne({ type: 'list-item', listLevel: -4 }).listLevel).toBe(0);
+  });
+
+  it('survives structurally broken payloads', () => {
+    expect(deserializeBlocks(JSON.stringify({ version: 1, blocks: 'nope' }))).toEqual([]);
+    expect(deserializeBlocks(JSON.stringify({ version: 1, blocks: [null, 7] }))).toHaveLength(2);
+    expect(deserializeBlocks('not json')).toEqual([]);
+    // A table block with no recoverable tableData is dropped, not rendered.
+    expect(deserializeBlocks(JSON.stringify({ version: 1, blocks: [{ type: 'table' }] }))).toEqual([]);
+  });
+
+  it('validates the tableCells half of the payload too', () => {
+    const json = JSON.stringify({
+      version: 1,
+      blocks: [],
+      tableCells: [[{ blocks: [{ type: 'heading', headingLevel: 'x' }], style: { padding: 'wide' } }]],
+    });
+    const cells = deserializeClipboard(json).tableCells!;
+    expect(cells[0][0].blocks[0].headingLevel).toBe(1);
+    expect(cells[0][0].style.padding).toBe(4);
+  });
+});
+
 describe('HTML paste parsing', () => {
   it('should parse bold tags', () => {
     const inlines = parseHtmlToInlines('<b>hello</b> world');

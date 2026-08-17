@@ -4,6 +4,7 @@ import JSZip from 'jszip';
 import { MemDocStore } from '../../src/store/memory.js';
 import { Doc } from '../../src/model/document.js';
 import { initialize, type EditorAPI } from '../../src/view/editor.js';
+import { initializeTextBox, type TextBoxEditorAPI } from '../../src/view/text-box-editor.js';
 import { normalizeBlockStyle, unlistedBlockType } from '../../src/model/types.js';
 import { blockStyleId } from '../../src/model/named-styles.js';
 import { serializeClipboard, WAFFLEDOCS_MIME } from '../../src/view/clipboard.js';
@@ -224,6 +225,31 @@ describe('keyboard list exits restore the heading', () => {
 
     doc.deleteBackward({ blockId: newId, offset: 0 });
     expect(doc.document.blocks[1].type).toBe('paragraph');
+  });
+
+  test('Enter at the start of a bulleted heading moves the memory with the text', () => {
+    const store = new MemDocStore({ blocks: [makeHeading('b1', 'Quarterly results', 2)] });
+    const doc = new Doc(store);
+    doc.setBlockType('b1', 'list-item', { listKind: 'unordered', listLevel: 0 });
+
+    // Splitting at offset 0 hands *every* character of the heading to the new
+    // block, so the level has to travel with it — leaving it on the empty
+    // leading bullet would restore the heading on the wrong half and strip it
+    // from the text that actually was one.
+    const newId = doc.splitBlock('b1', 0);
+    const [first, second] = doc.document.blocks;
+
+    expect(first.id).toBe('b1');
+    expect(first.inlines.map((i) => i.text).join('')).toBe('');
+    expect(first.headingLevel).toBeUndefined();
+    expect(second.id).toBe(newId);
+    expect(second.inlines.map((i) => i.text).join('')).toBe('Quarterly results');
+    expect(second.headingLevel).toBe(2);
+
+    // The half holding the heading text restores it on exit; the empty
+    // leading bullet exits as a plain paragraph.
+    expect(unlistedBlockType(second)).toEqual({ type: 'heading', opts: { headingLevel: 2 } });
+    expect(unlistedBlockType(first)).toEqual({ type: 'paragraph' });
   });
 });
 
@@ -522,6 +548,117 @@ describe('paste does not move a heading memory onto foreign text', () => {
     expect(block.inlines.map((i) => i.text).join('')).toBe('body text');
     expect(block.headingLevel).toBeUndefined();
     editor.dispose();
+  });
+
+  test('a multi-block paste into an empty bullet keeps the pasted order', () => {
+    const { editor, container } = setupEditor([makeBulletedHeading('b1', '', 2)]);
+
+    // `Doc.splitBlock` short-circuits on an empty list item (it exits the list
+    // and returns the *same* block), so the head and the tail used to be one
+    // block and the last pasted block landed in front of the first.
+    pasteBlocks(container, editor, { blockId: 'b1', offset: 0 }, [
+      makeParagraph('p1', 'first'),
+      makeParagraph('p2', 'second'),
+    ]);
+
+    const blocks = editor.getDoc().document.blocks;
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].inlines.map((i) => i.text).join('')).toBe('first');
+    expect(blocks[1].inlines.map((i) => i.text).join('')).toBe('second');
+    editor.dispose();
+  });
+
+  test('a paste into a bulleted heading keeps the destination’s own memory', () => {
+    const { editor, container } = setupEditor([makeBulletedHeading('b1', 'Chapter', 2)]);
+    const plainBullet: Block = {
+      id: 'p1',
+      type: 'list-item',
+      listKind: 'unordered',
+      listLevel: 0,
+      inlines: [{ text: ' extra', style: {} }],
+      style: normalizeBlockStyle({}),
+    };
+
+    pasteBlocks(container, editor, { blockId: 'b1', offset: 'Chapter'.length }, [
+      plainBullet,
+      makeParagraph('p2', 'detail'),
+    ]);
+
+    // The destination's heading text survives the fold, so its remembered
+    // level does too — the pasted bullet must not overwrite it with nothing.
+    const head = editor.getDoc().document.blocks[0];
+    expect(head.type).toBe('list-item');
+    expect(head.inlines.map((i) => i.text).join('')).toBe('Chapter extra');
+    expect(head.headingLevel).toBe(2);
+    expect(unlistedBlockType(head)).toEqual({ type: 'heading', opts: { headingLevel: 2 } });
+    editor.dispose();
+  });
+});
+
+/**
+ * `initializeTextBox` (the slides text-box editor) is the third `toggleList`
+ * implementation. It must exit through `unlistedBlockType` like the toolbar
+ * and keyboard paths, or bulleting a heading inside a slide text box and
+ * un-bulleting it silently flattens it to body text.
+ */
+describe('text-box editor toggleList round trip', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  function mountTextBox(blocks: Block[]): TextBoxEditorAPI {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const canvas = document.createElement('canvas');
+    canvas.width = 400;
+    canvas.height = 200;
+    container.appendChild(canvas);
+    return initializeTextBox({
+      container,
+      canvas,
+      blocks,
+      contentWidth: 400,
+      contentHeight: 200,
+    });
+  }
+
+  test('bullet on then off gives the heading back', () => {
+    const api = mountTextBox([makeHeading('b1', 'Quarterly results', 2)]);
+
+    api.toggleList('unordered');
+    expect(api.getBlockType()).toMatchObject({ type: 'list-item', headingLevel: 2 });
+
+    api.toggleList('unordered');
+    expect(api.getBlockType()).toMatchObject({ type: 'heading', headingLevel: 2 });
+    api.detach();
+  });
+
+  test('bullet on then off leaves a paragraph a paragraph', () => {
+    const api = mountTextBox([makeParagraph('b1', 'body text')]);
+
+    api.toggleList('unordered');
+    api.toggleList('unordered');
+
+    const blockType = api.getBlockType();
+    expect(blockType.type).toBe('paragraph');
+    expect(blockType.headingLevel).toBeUndefined();
+    api.detach();
+  });
+
+  test('switching bullet kind keeps the heading recoverable', () => {
+    const api = mountTextBox([makeHeading('b1', 'Quarterly results', 3)]);
+
+    api.toggleList('unordered');
+    api.toggleList('ordered');
+    api.toggleList('ordered');
+
+    expect(api.getBlockType()).toMatchObject({ type: 'heading', headingLevel: 3 });
+    api.detach();
   });
 });
 

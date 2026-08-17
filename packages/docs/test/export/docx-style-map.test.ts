@@ -72,6 +72,15 @@ describe('buildRunPropertiesXml', () => {
   });
 });
 
+const BODY_STYLE = {
+  alignment: 'left' as const,
+  lineHeight: 1.5,
+  marginTop: 0,
+  marginBottom: 8,
+  textIndent: 0,
+  marginLeft: 0,
+};
+
 describe('buildParagraphPropertiesXml', () => {
   it('should generate center alignment', () => {
     const xml = buildParagraphPropertiesXml({ alignment: 'center', lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 });
@@ -81,5 +90,28 @@ describe('buildParagraphPropertiesXml', () => {
   it('should generate justify as "both"', () => {
     const xml = buildParagraphPropertiesXml({ alignment: 'justify', lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 });
     expect(xml).toContain('<w:jc w:val="both"/>');
+  });
+
+  it('emits the heading style for a real level', () => {
+    const xml = buildParagraphPropertiesXml(BODY_STYLE, 3);
+    expect(xml).toContain('<w:pStyle w:val="Heading3"/>');
+  });
+
+  it('coerces a hostile heading level instead of interpolating it', () => {
+    // `headingLevel` is typed 1–6 but arrives from untrusted input (the
+    // internal clipboard payload, imports), so a string could otherwise close
+    // the attribute quote and inject attributes into the pStyle element.
+    const xml = buildParagraphPropertiesXml(
+      BODY_STYLE,
+      '1" w:customStyle="1' as unknown as number,
+    );
+    expect(xml).not.toContain('w:customStyle');
+    expect(xml).toContain('<w:pStyle w:val="Heading1"/>');
+  });
+
+  it('clamps an out-of-range heading level to 1–6', () => {
+    expect(buildParagraphPropertiesXml(BODY_STYLE, 42)).toContain('w:val="Heading6"');
+    expect(buildParagraphPropertiesXml(BODY_STYLE, 2.7)).toContain('w:val="Heading2"');
+    expect(buildParagraphPropertiesXml(BODY_STYLE, -3)).toContain('w:val="Heading1"');
   });
 });

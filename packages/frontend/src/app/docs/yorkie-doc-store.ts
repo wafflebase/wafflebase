@@ -36,6 +36,7 @@ import {
   applySplitBlock,
   applyMergeBlocks,
   mergeDropsHeadingMemory,
+  splitMovesHeadingMemory,
   blockStyleId,
   materializeBlockSpacing,
 } from '@wafflebase/docs';
@@ -2010,6 +2011,11 @@ export class YorkieDocStore implements DocStore {
       throw new Error(`splitBlock does not support ${block.type} blocks`);
     }
 
+    // Splitting a bulleted heading at offset 0 moves the remembered level onto
+    // the block that takes the heading text, so the attribute has to move in
+    // the tree too (`applySplitBlock` moves it in the cache below).
+    const movesHeadingMemory = splitMovesHeadingMemory(block, offset, newBlockType);
+
     const cursorForHistory = this.consumePendingCursor();
     this.doc.update((root, p) => {
       if (cursorForHistory) {
@@ -2017,6 +2023,12 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+
+      if (movesHeadingMemory) {
+        const endPath = [...blockPath];
+        endPath[endPath.length - 1] += 1;
+        tree.removeStyleByPath(blockPath, endPath, ['headingLevel']);
+      }
 
       const treeRoot = tree.getRootTreeNode();
       const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
@@ -2047,7 +2059,10 @@ export class YorkieDocStore implements DocStore {
             afterAttrs.listLevel = String(block.listLevel);
           }
         }
-        if (newBlockType === 'heading' && block.headingLevel !== undefined) {
+        if (
+          (newBlockType === 'heading' || movesHeadingMemory) &&
+          block.headingLevel !== undefined
+        ) {
           afterAttrs.headingLevel = String(block.headingLevel);
         }
         tree.editByPath(afterPath, afterPath, buildBlockNode({
@@ -2137,7 +2152,8 @@ export class YorkieDocStore implements DocStore {
           ...(newBlockType === 'list-item' && block.listKind !== undefined
             ? { listKind: block.listKind, listLevel: block.listLevel }
             : {}),
-          ...(newBlockType === 'heading' && block.headingLevel !== undefined
+          ...((newBlockType === 'heading' || movesHeadingMemory) &&
+          block.headingLevel !== undefined
             ? { headingLevel: block.headingLevel }
             : {}),
         }));

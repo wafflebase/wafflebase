@@ -93,7 +93,14 @@ export function buildParagraphPropertiesXml(
   const parts: string[] = [];
 
   if (headingLevel) {
-    parts.push(`<w:pStyle w:val="Heading${headingLevel}"/>`);
+    // `headingLevel` is typed 1–6 but reaches export from untrusted input
+    // (the internal clipboard payload, DOCX/HTML/PPTX imports), so it can be
+    // any JSON value at runtime. Coerce to the integer range Word defines
+    // rather than interpolating whatever arrived into the attribute value —
+    // a string could otherwise close the quote and inject attributes, the
+    // same risk `escapeXmlAttr` above guards for font family.
+    const level = Math.min(6, Math.max(1, Math.trunc(Number(headingLevel)) || 1));
+    parts.push(`<w:pStyle w:val="Heading${level}"/>`);
   }
 
   const align = style.alignment === 'justify' ? 'both' : style.alignment;

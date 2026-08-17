@@ -176,6 +176,17 @@ non-`heading` split half). The memory belongs to the one block that was
 bulleted; propagating it would turn the body-text bullets typed after it
 into headings the moment the list is toggled off.
 
+The single exception is a split at **offset 0**, which hands *every*
+character of the heading to the new block: there the memory moves with
+the text rather than staying on the now-empty leading bullet, or Enter at
+the start of a bulleted Heading 2 would leave the heading text as plain
+body text and put the Heading 2 on the empty bullet above it.
+`splitMovesHeadingMemory(block, offset, newBlockType)`
+(`packages/docs/src/store/block-helpers.ts`) is the shared predicate, and
+both writers honour it: `applySplitBlock` moves the attribute in the
+cache, and `YorkieDocStore.splitBlock` `removeStyleByPath`s it off the
+original tree node while stamping it onto the new one.
+
 For the same reason a **merge** can invalidate the memory: Backspace at
 the start of a bullet appends its text into the previous block, so an
 emptied bulleted heading absorbing that text no longer holds any of the
@@ -197,11 +208,31 @@ block-level attrs — that is a merge into the destination, so it runs
 `mergeDropsHeadingMemory` on the destination. A multi-block paste splits
 at the caret and lets the first and last pasted blocks overwrite the head
 and tail blocks' attrs; there the memory travels *in*, so
-`pastedHeadingLevel()` withholds a `list-item`'s remembered level whenever
-the destination keeps text of its own on the other side of the caret. A
-whole-block paste into an empty destination still carries the memory
-across, and a real `heading` block always keeps its level (dropping it
-would leave a heading with no level at all).
+`foldedHeadingLevel()` withholds a `list-item`'s remembered level whenever
+the destination keeps text of its own on the other side of the caret —
+and, symmetrically, keeps the *destination's* own memory in that case, so
+a paste into a bulleted heading does not flatten it. A whole-block paste
+into an empty destination still carries the pasted memory across, and a
+real `heading` block always keeps its level (dropping it would leave a
+heading with no level at all).
+
+The multi-block branch also cannot use `Doc.splitBlock` blindly: on an
+**empty** list item that call short-circuits into the list exit above and
+returns the *same* block id, which would make the head and the tail one
+block and interleave the pasted content. `insertBlocks` detects that case
+and inserts the empty tail block the split would have produced instead.
+
+Because those attrs come off the clipboard, the internal
+`application/x-waffledocs` payload is treated as **untrusted input**: any
+page can populate that flavour from its own `copy` handler and the paste
+handler prefers it over `text/html`. `deserializeBlocks` /
+`deserializeClipboard` (`packages/docs/src/view/clipboard.ts`) therefore
+rebuild the model key by key — known keys only, each value shape-checked,
+`headingLevel` narrowed to the integer range 1–6 — instead of casting the
+parsed JSON to `Block[]`. That is what keeps a hand-authored payload from
+reaching the shared Yorkie tree or an exporter that interpolates the
+value into markup (`buildParagraphPropertiesXml`'s `<w:pStyle>`, which
+clamps the level again on its own side).
 
 ## Store Abstraction
 

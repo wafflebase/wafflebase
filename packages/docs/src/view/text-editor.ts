@@ -23,24 +23,38 @@ import { dirtyBlockIdsForRange } from '../model/range-slices.js';
 import { caretInlineStyle, caretStyleDefaults } from '../model/caret-style.js';
 
 /**
- * The `headingLevel` a pasted block may hand to the destination block it is
- * folded into (`insertBlocks`' head and tail blocks, which adopt the pasted
+ * The `headingLevel` the destination block ends up with when a pasted block is
+ * folded into it (`insertBlocks`' head and tail blocks, which adopt the pasted
  * block's block-level attrs).
  *
  * A `list-item`'s level is a *memory* of the heading it was bulleted from, and
  * it only describes that block's own text (see `Block.headingLevel`). Paste
  * folds the pasted block into a destination block that keeps its own text on
- * one side of the caret, so the memory would then describe text that was never
- * a heading and removing the list would promote it — the same provenance rule
- * `mergeDropsHeadingMemory` enforces on the merge path. Drop it whenever the
- * destination contributes text of its own; a whole-block paste into an empty
- * destination still carries the memory across.
+ * one side of the caret, so the pasted memory would then describe text that was
+ * never a heading and removing the list would promote it — the same provenance
+ * rule `mergeDropsHeadingMemory` enforces on the merge path. Drop it whenever
+ * the destination contributes text of its own; a whole-block paste into an
+ * empty destination still carries the memory across.
  *
- * Only the list-item memory is dropped: a real `heading` block must keep its
- * level, or the paste would leave a heading with no level at all.
+ * Symmetrically, a destination that keeps its own text keeps its *own* memory:
+ * the pasted bullet must not overwrite the level of the bulleted heading the
+ * caret sits in, or exiting the list would flatten a heading the paste never
+ * touched.
+ *
+ * Only the list-item memory is treated this way: a real `heading` block must
+ * keep its level, or the paste would leave a heading with no level at all.
  */
-function pastedHeadingLevel(pasted: Block, destOwnTextLen: number): HeadingLevel | undefined {
-  if (pasted.type === 'list-item' && destOwnTextLen > 0) return undefined;
+function foldedHeadingLevel(
+  dest: Block,
+  pasted: Block,
+  destOwnTextLen: number,
+): HeadingLevel | undefined {
+  if (pasted.type === 'heading') return pasted.headingLevel;
+  // Every other type the fold produces carries no level of its own.
+  if (pasted.type !== 'list-item') return undefined;
+  if (destOwnTextLen > 0) {
+    return dest.type === 'list-item' ? dest.headingLevel : undefined;
+  }
   return pasted.headingLevel;
 }
 
@@ -3592,18 +3606,36 @@ export class TextEditor {
       // Multi-block: split the current block, then insert pasted blocks
       this.invalidateLayout();
 
-      // Split at cursor
-      const tailBlockId = this.docSplitBlock(pos.blockId, pos.offset);
+      // Split at cursor. `Doc.splitBlock` short-circuits on an *empty* list
+      // item — it exits the list and returns the same block instead of
+      // splitting — which would leave the head and the tail as one block and
+      // interleave the pasted content into itself. There is no text to divide
+      // there, so create the empty tail the split would have produced.
+      const destBlock = this.doc.getBlock(pos.blockId);
+      const splitExitsList =
+        destBlock.type === 'list-item' && getBlockTextLength(destBlock) === 0;
+      let tailBlockId: string;
+      if (splitExitsList) {
+        const tail = createBlock('paragraph');
+        tail.style = { ...destBlock.style };
+        this.doc.insertBlockAfter(pos.blockId, tail);
+        // Same pending-style rebind `docSplitBlock` does for a real split.
+        this.pending?.rebindAnchor(tail.id);
+        tailBlockId = tail.id;
+      } else {
+        tailBlockId = this.docSplitBlock(pos.blockId, pos.offset);
+      }
 
       // Append first pasted block's inlines to the head block, preserving block metadata
       const headBlock = this.doc.getBlock(pos.blockId);
       const firstPasted = blocks[0];
       const firstPastedInlines = firstPasted.inlines;
       const headOwnTextLen = getBlockTextLength(headBlock);
+      const headLevel = foldedHeadingLevel(headBlock, firstPasted, headOwnTextLen);
       headBlock.inlines = this.spliceInlinesAt(headBlock.inlines, headOwnTextLen, firstPastedInlines);
       headBlock.type = firstPasted.type;
       headBlock.style = { ...firstPasted.style };
-      headBlock.headingLevel = pastedHeadingLevel(firstPasted, headOwnTextLen);
+      headBlock.headingLevel = headLevel;
       headBlock.listKind = firstPasted.listKind;
       headBlock.listLevel = firstPasted.listLevel;
       headBlock.marker = firstPasted.marker ? { ...firstPasted.marker } : undefined;
@@ -3630,10 +3662,11 @@ export class TextEditor {
       const lastPastedInlines = lastPasted.inlines;
       const lastPastedTextLen = lastPastedInlines.reduce((sum, il) => sum + il.text.length, 0);
       const tailOwnTextLen = getBlockTextLength(tailBlock);
+      const tailLevel = foldedHeadingLevel(tailBlock, lastPasted, tailOwnTextLen);
       tailBlock.inlines = this.spliceInlinesAt(tailBlock.inlines, 0, lastPastedInlines);
       tailBlock.type = lastPasted.type;
       tailBlock.style = { ...lastPasted.style };
-      tailBlock.headingLevel = pastedHeadingLevel(lastPasted, tailOwnTextLen);
+      tailBlock.headingLevel = tailLevel;
       tailBlock.listKind = lastPasted.listKind;
       tailBlock.listLevel = lastPasted.listLevel;
       tailBlock.marker = lastPasted.marker ? { ...lastPasted.marker } : undefined;
