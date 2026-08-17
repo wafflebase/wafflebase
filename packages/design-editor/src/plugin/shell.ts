@@ -28,7 +28,28 @@ export { BASE };
 export interface ShellDeps {
   /** Directory holding the prebuilt `index.html`, `scene.html` and assets. */
   distDir: string;
+  /**
+   * URL the scene document should load its entry from, served by the CONSUMER's
+   * dev server rather than from `distDir`.
+   *
+   * Passed in rather than derived here, because only the caller knows where the
+   * installed package sits — and it cannot be baked into the prebuilt document at
+   * all. Measured against Vite 6.4.3 + @vitejs/plugin-react 4.3.4:
+   *
+   *   /@id/__x00__virtual:wb-scene-entry.tsx   500   plugin-react does not transform
+   *                                                  a virtual module even with a
+   *                                                  .tsx id — the JSX reaches
+   *                                                  import-analysis verbatim
+   *   a real .tsx under node_modules           200   transformed
+   *
+   * So it is a real file path, and the path depends on the consumer's package
+   * manager and whether it hoisted us above their root.
+   */
+  sceneEntryUrl: string;
 }
+
+/** The token `scene.html` ships with, replaced by `sceneEntryUrl` on the way out. */
+const SCENE_ENTRY_TOKEN = '__WB_SCENE_ENTRY__';
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -89,6 +110,28 @@ export function shellServer(deps: ShellDeps): Plugin {
             `design-editor shell asset not found: ${rel}\n` +
               `(expected under ${deps.distDir} — was the package built?)`,
           );
+          return;
+        }
+
+        // The scene document is the one asset that cannot be shipped final: its
+        // script src names a file whose location depends on the consumer's install.
+        // Read and substituted rather than streamed, and asserted rather than
+        // assumed — a document whose token survived would load `__WB_SCENE_ENTRY__`
+        // as a relative URL, 404 inside the frame, and read as a broken scene.
+        if (rel === 'scene.html') {
+          const html = fs.readFileSync(abs, 'utf8');
+          if (!html.includes(SCENE_ENTRY_TOKEN)) {
+            res.statusCode = 500;
+            res.end(
+              `design-editor: ${SCENE_ENTRY_TOKEN} missing from scene.html\n` +
+                `(the built shell is stale or was edited — rebuild the package)`,
+            );
+            return;
+          }
+          res.statusCode = 200;
+          res.setHeader('Content-Type', CONTENT_TYPES['.html']);
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(html.split(SCENE_ENTRY_TOKEN).join(deps.sceneEntryUrl));
           return;
         }
 

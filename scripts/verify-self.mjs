@@ -303,7 +303,11 @@ const LANES = [
   },
   {
     name: "design-editor:check",
-    cmd: "pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test",
+    // The shell build joins this lane rather than earning its own. `dist/` is
+    // gitignored, so nothing else in CI would ever run it — and a broken shell build
+    // is not cosmetic: `shellServer` serves `dist/shell`, so the whole editor 404s
+    // without it. ~3s, which is well under the cost of another lane.
+    cmd: "pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test && pnpm --filter @wafflebase/design-editor build",
     pkgs: ["design-editor"],
     // `pkgs` alone would never select this lane: harness.config.json lists
     // packages/design-editor/** as inert, and an inert match short-circuits the
