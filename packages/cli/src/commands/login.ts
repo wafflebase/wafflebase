@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   loadSession,
   saveSession,
@@ -29,11 +30,20 @@ export function registerLoginCommand(program: Command): void {
         }
       }
 
-      // 2. Start local HTTP server
-      const { port, waitForCallback, close } = await startCallbackServer();
+      // 2. Start local HTTP server, bound to a nonce this invocation minted.
+      // The loopback callback is reachable by anything running on the machine
+      // and by any page the browser visits, so without a binding the first
+      // `GET /callback?code=…` to arrive wins — letting someone else's
+      // authorization code be exchanged and saved as this user's session.
+      // The nonce travels to the backend and comes back on the redirect, so
+      // only the browser leg the CLI itself started is accepted.
+      const state = randomBytes(32).toString('base64url');
+      const { port, waitForCallback, close } = await startCallbackServer(state);
 
       // 3. Build OAuth URL and open browser
-      const oauthUrl = `${server}/auth/github?mode=cli&port=${port}`;
+      const oauthUrl =
+        `${server}/auth/github?mode=cli&port=${port}` +
+        `&cliState=${encodeURIComponent(state)}`;
       console.error(`Opening browser: ${oauthUrl}`);
       console.error('If the browser does not open, visit the URL above.');
 
@@ -150,7 +160,19 @@ function ask(prompt: string): Promise<string> {
   });
 }
 
-function startCallbackServer(): Promise<{
+/**
+ * Constant-time comparison of two `state` values of possibly different length.
+ * `timingSafeEqual` throws on a length mismatch, so the lengths are compared
+ * first — the length of a nonce is not a secret.
+ */
+function stateMatches(expected: string, received: string | null): boolean {
+  if (received === null) return false;
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(received, 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function startCallbackServer(expectedState: string): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
@@ -178,6 +200,16 @@ function startCallbackServer(): Promise<{
       if (!code) {
         res.writeHead(400);
         res.end('Missing code');
+        return;
+      }
+
+      // A callback that does not carry this invocation's nonce is not the
+      // browser leg we started: reject it without settling, so an injected
+      // code cannot become this machine's session and the real callback can
+      // still arrive.
+      if (!stateMatches(expectedState, url.searchParams.get('state'))) {
+        res.writeHead(400);
+        res.end('State mismatch');
         return;
       }
 

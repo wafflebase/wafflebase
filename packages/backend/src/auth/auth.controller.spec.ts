@@ -211,6 +211,29 @@ describe('AuthController', () => {
       expect(res.cookie).not.toHaveBeenCalled();
     });
 
+    // The loopback callback is reachable by every local process and by any
+    // page the browser visits, so the CLI can only trust a callback that
+    // carries the nonce its own invocation minted. Echoing it back is what
+    // makes that check possible.
+    it('echoes the CLI nonce back on the localhost redirect', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const { stateToken } = cliAuthStore.createState('cli', 9876, 'nonce-abc');
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: { state: stateToken },
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await controller.githubAuthCallback(req as any, res, stateToken);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /^http:\/\/127\.0\.0\.1:9876\/callback\?code=.+&state=nonce-abc$/,
+        ),
+      );
+    });
+
     it('falls back to web flow when state token is not CLI', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({

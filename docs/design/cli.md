@@ -172,12 +172,12 @@ wafflebase login
   │
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
   ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>
-  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>
+  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>&cliState=<nonce>
   │     (also prints URL for copy-paste in headless environments)
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
-  ├─ 6. Backend detects mode=cli in OAuth state →
-  │     redirects to http://127.0.0.1:<port>/callback?code=<short-lived-code>
+  ├─ 6. Backend detects mode=cli in OAuth state → redirects to
+  │     http://127.0.0.1:<port>/callback?code=<short-lived-code>&state=<nonce>
   ├─ 7. CLI local server receives code, calls POST /auth/cli/exchange
   │     with { code } → receives { accessToken, refreshToken }
   ├─ 8. CLI local server serves success HTML, shuts down
@@ -191,6 +191,16 @@ The local server binds to `127.0.0.1` only, accepts only `GET
 /callback`, and shuts down after a single request with a 30-second
 timeout. On timeout it prints: "Login timed out. Try again with
 `wafflebase login`."
+
+Binding to `127.0.0.1` limits *who* can reach the listener to the local
+machine — which still includes every process on it and every page the
+browser visits — so the listener also binds the callback to the
+invocation that opened it: `login` mints a 32-byte `cliState` nonce, the
+backend stores it with the flow and echoes it back as `state` on the
+loopback redirect, and a `GET /callback` whose `state` does not match
+(compared in constant time) is answered `400 State mismatch` and does
+not settle the login. Without that, the first `code` to arrive would win,
+and an injected one would be exchanged and saved as the user's session.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
@@ -851,10 +861,15 @@ Per-command dry-run notes:
   Encoding alone is not sufficient for one case: `encodeURIComponent` does not
   escape `.`, and the URL spec resolves a segment that *is* `.` or `..`
   (`%2e` spellings included) however it is written. An identifier that is
-  exactly a dot segment — or empty — is therefore **rejected**, not escaped:
+  exactly a dot segment is therefore **rejected**, not escaped:
   `api-keys revoke ..` would otherwise resolve to `DELETE /workspaces/<ws>/`,
   the workspace-delete route, and its preview would have shown the
-  unresolved `.../api-keys/..` instead. The `import` / `upload` previews are the one envelope
+  unresolved `.../api-keys/..` instead. An *empty* segment is not rejected: it
+  resolves nowhere — it only yields a path the server 404s on — and it is the
+  state `resolveConfig` returns for a workspace nobody has chosen yet, so
+  refusing it would break every command and every offline preview with an
+  `Invalid identifier ""` instead of the 404 that documents the missing
+  workspace. The `import` / `upload` previews are the one envelope
   variation: they print a workspace-relative `path` (plus the parsed body and,
   for `slides`, the import report) rather than the `dry_run` / `url` envelope
   above, because their value is the parse result, not the URL. The identifier

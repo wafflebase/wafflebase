@@ -27,14 +27,22 @@ const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i;
  * `--dry-run` preview, so a preview cannot disagree with the request it
  * describes — including for `config.workspace`, which is as caller-controlled
  * as the rest (`--workspace`, `WAFFLEBASE_WORKSPACE`, or a config profile).
+ *
+ * The *empty* segment is deliberately not rejected. It is not a traversal —
+ * it cannot retarget the request, it only produces a path the server 404s on —
+ * and it is the state `resolveConfig` intentionally returns for an
+ * unconfigured workspace (`workspace: ''`, see `config/config.ts`). Throwing
+ * on it would turn every command, and every offline `--dry-run` preview, into
+ * an `Invalid identifier ""` error for a caller who has simply not picked a
+ * workspace yet.
  */
 export function seg(value: string): string {
   const encoded = encodeURIComponent(value);
-  if (encoded === '' || DOT_SEGMENT.test(encoded)) {
+  if (DOT_SEGMENT.test(encoded)) {
     throw new Error(
       `Invalid identifier ${JSON.stringify(value)}: a URL path segment cannot ` +
-        `be empty, "." or ".." — the URL parser resolves those, so the request ` +
-        `would reach a different endpoint than the one named.`,
+        `be "." or ".." — the URL parser resolves those, so the request would ` +
+        `reach a different endpoint than the one named.`,
     );
   }
   return encoded;
