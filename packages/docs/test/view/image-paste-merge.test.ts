@@ -127,10 +127,21 @@ function pasteTextPayload(
   text: string,
   offset: number,
 ): void {
+  pasteStyledPayload(textarea, editor, text, {}, offset);
+}
+
+/** As above, but the pasted run carries `style`. */
+function pasteStyledPayload(
+  textarea: HTMLTextAreaElement,
+  editor: EditorAPI,
+  text: string,
+  style: Record<string, unknown>,
+  offset: number,
+): void {
   const payload = JSON.stringify({
     version: 1,
     blocks: [
-      { id: 'p1', type: 'paragraph', inlines: [{ text, style: {} }], style: EMPTY_BLOCK_STYLE },
+      { id: 'p1', type: 'paragraph', inlines: [{ text, style }], style: EMPTY_BLOCK_STYLE },
     ],
   });
   editor._setSelectionForTest({
@@ -162,6 +173,35 @@ describe('pasting an image beside another (issue #726)', () => {
     } else {
       (globalThis as { ResizeObserver?: unknown }).ResizeObserver = originalResizeObserver;
     }
+  });
+
+  test('ordinary text still merges into the run it lands in', () => {
+    // The other half of the guard: refusing to merge *structural* inlines
+    // must not stop plain runs from merging. Without that, every paste
+    // would leave the block one run more fragmented than before, and run
+    // count is what drives layout measurement and CRDT node count.
+    const { editor, textarea } = setupEditor([
+      { id: 'b1', type: 'paragraph', inlines: [{ text: 'hello', style: {} }], style: EMPTY_BLOCK_STYLE },
+    ]);
+    pasteTextPayload(textarea, editor, 'XY', 2);
+
+    const inlines = editor.getDoc().document.blocks[0].inlines;
+    expect(inlines).toHaveLength(1);
+    expect(inlines[0].text).toBe('heXYllo');
+    editor.dispose();
+  });
+
+  test('a run with different formatting is still kept separate', () => {
+    // …and merging must stay conditional on the styles actually matching.
+    const { editor, textarea } = setupEditor([
+      { id: 'b1', type: 'paragraph', inlines: [{ text: 'hello', style: {} }], style: EMPTY_BLOCK_STYLE },
+    ]);
+    pasteStyledPayload(textarea, editor, 'B', { bold: true }, 2);
+
+    const inlines = editor.getDoc().document.blocks[0].inlines;
+    expect(inlines.map((i) => i.text)).toEqual(['he', 'B', 'llo']);
+    expect(inlines[1].style.bold).toBe(true);
+    editor.dispose();
   });
 
   test('a different image pasted next to one keeps both', () => {
