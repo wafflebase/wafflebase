@@ -190,7 +190,7 @@ describe('EditorAPI.onCursorMove', () => {
     editor.dispose();
   });
 
-  test('the Cmd/Ctrl+Alt+N heading shortcut fires the callbacks', () => {
+  test('the Cmd/Ctrl+Alt+2 heading shortcut fires the callbacks', () => {
     // The same control is driven by the keyboard path, which reaches the
     // callbacks through `requestRender` (wired to `renderWithScroll`, which
     // calls `afterCursorRender`). Pin that so the shortcut can't regress
