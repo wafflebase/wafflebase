@@ -15,6 +15,7 @@ import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { DocumentService } from '../../document/document.service';
 import { createTab, resolveRename } from '../../yorkie/tab-ops';
+import { initialSpreadsheetDocument } from '@wafflebase/sheets';
 
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/tabs')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
@@ -91,13 +92,17 @@ export class ApiV1TabsController {
       );
     }
 
-    return this.yorkieService.withDocument(documentId, (doc) => {
-      let result: { id: string; name: string; type: string } | undefined;
-      doc.update((root) => {
-        result = createTab(root, { name: body?.name });
-      });
-      return result;
-    });
+    return this.yorkieService.withDocument(
+      documentId,
+      (doc) => {
+        let result: { id: string; name: string; type: string } | undefined;
+        doc.update((root) => {
+          result = createTab(root, { name: body?.name });
+        });
+        return result;
+      },
+      { initialRoot: initialSpreadsheetDocument() },
+    );
   }
 
   @Patch(':tabId')
@@ -109,32 +114,36 @@ export class ApiV1TabsController {
   ) {
     await this.assertSheetDocument(documentId, workspaceId);
 
-    return this.yorkieService.withDocument(documentId, (doc) => {
-      const resolution = resolveRename(
-        doc.getRoot().tabs ?? {},
-        tabId,
-        body?.name ?? '',
-      );
+    return this.yorkieService.withDocument(
+      documentId,
+      (doc) => {
+        const resolution = resolveRename(
+          doc.getRoot().tabs ?? {},
+          tabId,
+          body?.name ?? '',
+        );
 
-      if (!resolution.ok) {
-        switch (resolution.reason) {
-          case 'not_found':
-            throw new NotFoundException('Tab not found');
-          case 'blank':
-            throw new BadRequestException('name is required');
-          case 'conflict':
-            throw new ConflictException(
-              `Tab name "${(body?.name ?? '').trim()}" already exists.`,
-            );
+        if (!resolution.ok) {
+          switch (resolution.reason) {
+            case 'not_found':
+              throw new NotFoundException('Tab not found');
+            case 'blank':
+              throw new BadRequestException('name is required');
+            case 'conflict':
+              throw new ConflictException(
+                `Tab name "${(body?.name ?? '').trim()}" already exists.`,
+              );
+          }
         }
-      }
 
-      doc.update((root) => {
-        const tab = root.tabs?.[tabId];
-        if (tab) tab.name = resolution.name;
-      });
+        doc.update((root) => {
+          const tab = root.tabs?.[tabId];
+          if (tab) tab.name = resolution.name;
+        });
 
-      return { id: tabId, name: resolution.name, type: resolution.type };
-    });
+        return { id: tabId, name: resolution.name, type: resolution.type };
+      },
+      { initialRoot: initialSpreadsheetDocument() },
+    );
   }
 }
