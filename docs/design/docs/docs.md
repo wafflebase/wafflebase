@@ -189,6 +189,20 @@ paths honour it: `applyMergeBlocks` deletes the attribute (covering
 bulleted heading that still has its own text keeps the memory — the
 heading text survives the merge, so exiting the list still restores it.
 
+**Paste folds blocks together the same way**, so `insertBlocks`
+(`packages/docs/src/view/text-editor.ts`) obeys the same provenance rule
+in both of its shapes. A single-block paste splices the pasted inlines
+into the caret's block without adopting any of the pasted block's
+block-level attrs — that is a merge into the destination, so it runs
+`mergeDropsHeadingMemory` on the destination. A multi-block paste splits
+at the caret and lets the first and last pasted blocks overwrite the head
+and tail blocks' attrs; there the memory travels *in*, so
+`pastedHeadingLevel()` withholds a `list-item`'s remembered level whenever
+the destination keeps text of its own on the other side of the caret. A
+whole-block paste into an empty destination still carries the memory
+across, and a real `heading` block always keeps its level (dropping it
+would leave a heading with no level at all).
+
 ## Store Abstraction
 
 ```typescript

@@ -6,6 +6,7 @@ import { Doc } from '../../src/model/document.js';
 import { initialize, type EditorAPI } from '../../src/view/editor.js';
 import { normalizeBlockStyle, unlistedBlockType } from '../../src/model/types.js';
 import { blockStyleId } from '../../src/model/named-styles.js';
+import { serializeClipboard, WAFFLEDOCS_MIME } from '../../src/view/clipboard.js';
 import { serializeMarkdown } from '../../src/serialize/markdown.js';
 import { serializeText } from '../../src/serialize/text.js';
 import { DocxExporter } from '../../src/export/docx-exporter.js';
@@ -97,6 +98,18 @@ function makeParagraph(id: string, text: string): Block {
   return {
     id,
     type: 'paragraph',
+    inlines: [{ text, style: {} }],
+    style: normalizeBlockStyle({}),
+  };
+}
+
+function makeBulletedHeading(id: string, text: string, level: 1 | 2 | 3): Block {
+  return {
+    id,
+    type: 'list-item',
+    listKind: 'unordered',
+    listLevel: 0,
+    headingLevel: level,
     inlines: [{ text, style: {} }],
     style: normalizeBlockStyle({}),
   };
@@ -390,6 +403,123 @@ describe('keyboard bullet shortcut round trip', () => {
 
     const block = editor.getDoc().document.blocks[0];
     expect(block.type).toBe('paragraph');
+    expect(block.headingLevel).toBeUndefined();
+    editor.dispose();
+  });
+});
+
+/**
+ * Paste folds a pasted block into the block the caret sits in, exactly the
+ * way a merge does — so it has to obey the same provenance rule
+ * (`mergeDropsHeadingMemory`). A bulleted heading's remembered level must not
+ * land on the destination block's own text, or removing the list promotes text
+ * that was never a heading.
+ */
+describe('paste does not move a heading memory onto foreign text', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  function pasteBlocks(
+    container: HTMLElement,
+    editor: EditorAPI,
+    at: { blockId: string; offset: number },
+    blocks: Block[],
+  ): void {
+    editor._setSelectionForTest({ anchor: at, focus: at });
+    const json = serializeClipboard({ blocks });
+    const ev = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'clipboardData', {
+      value: {
+        items: [] as DataTransferItem[],
+        getData: (type: string) => (type === WAFFLEDOCS_MIME ? json : ''),
+      },
+    });
+    const textarea = container.querySelector('textarea');
+    if (!textarea) throw new Error('textarea not mounted');
+    textarea.dispatchEvent(ev);
+  }
+
+  test('a bulleted heading pasted onto existing text loses the memory', () => {
+    const { editor, container } = setupEditor([makeParagraph('b1', 'Intro ')]);
+
+    pasteBlocks(container, editor, { blockId: 'b1', offset: 'Intro '.length }, [
+      makeBulletedHeading('p1', 'Results', 2),
+      makeParagraph('p2', 'detail'),
+    ]);
+
+    const head = editor.getDoc().document.blocks[0];
+    expect(head.type).toBe('list-item');
+    expect(head.inlines.map((i) => i.text).join('')).toBe('Intro Results');
+    expect(head.headingLevel).toBeUndefined();
+    expect(unlistedBlockType(head)).toEqual({ type: 'paragraph' });
+    editor.dispose();
+  });
+
+  test('a bulleted heading pasted into an empty block keeps the memory', () => {
+    const { editor, container } = setupEditor([makeParagraph('b1', '')]);
+
+    pasteBlocks(container, editor, { blockId: 'b1', offset: 0 }, [
+      makeBulletedHeading('p1', 'Results', 2),
+      makeParagraph('p2', 'detail'),
+    ]);
+
+    // Nothing of the destination survives alongside it, so the pasted block
+    // moved across whole — the heading it was bulleted from is still its own.
+    const head = editor.getDoc().document.blocks[0];
+    expect(head.type).toBe('list-item');
+    expect(head.inlines.map((i) => i.text).join('')).toBe('Results');
+    expect(head.headingLevel).toBe(2);
+    editor.dispose();
+  });
+
+  test('the tail block gets the same treatment', () => {
+    const { editor, container } = setupEditor([makeParagraph('b1', 'Tail text')]);
+
+    pasteBlocks(container, editor, { blockId: 'b1', offset: 0 }, [
+      makeParagraph('p1', 'first'),
+      makeBulletedHeading('p2', 'Results', 3),
+    ]);
+
+    const tail = editor.getDoc().document.blocks[1];
+    expect(tail.type).toBe('list-item');
+    expect(tail.inlines.map((i) => i.text).join('')).toBe('ResultsTail text');
+    expect(tail.headingLevel).toBeUndefined();
+    editor.dispose();
+  });
+
+  test('a real pasted heading still keeps its level', () => {
+    const { editor, container } = setupEditor([makeParagraph('b1', 'Tail text')]);
+
+    pasteBlocks(container, editor, { blockId: 'b1', offset: 0 }, [
+      makeParagraph('p1', 'first'),
+      makeHeading('p2', 'Results', 2),
+    ]);
+
+    const tail = editor.getDoc().document.blocks[1];
+    expect(tail.type).toBe('heading');
+    expect(tail.headingLevel).toBe(2);
+    editor.dispose();
+  });
+
+  test('text pasted into an emptied bulleted heading drops the memory', () => {
+    const { editor, container } = setupEditor([makeBulletedHeading('b1', '', 2)]);
+
+    // Single-block paste splices inlines into the destination without taking
+    // any of the pasted block's attrs, so the merge predicate applies as-is:
+    // an empty bulleted heading leaves nothing for the level to describe.
+    pasteBlocks(container, editor, { blockId: 'b1', offset: 0 }, [
+      makeParagraph('p1', 'body text'),
+    ]);
+
+    const block = editor.getDoc().document.blocks[0];
+    expect(block.type).toBe('list-item');
+    expect(block.inlines.map((i) => i.text).join('')).toBe('body text');
     expect(block.headingLevel).toBeUndefined();
     editor.dispose();
   });
