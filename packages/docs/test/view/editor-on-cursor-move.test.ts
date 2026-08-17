@@ -171,6 +171,56 @@ describe('EditorAPI.onCursorMove', () => {
     editor.dispose();
   });
 
+  test('setBlockType fires the callbacks with the new type readable', () => {
+    // Issue #792: the Text style control re-derives its label from
+    // `getBlockType()` when a cursor-move callback re-renders the toolbar.
+    // `setBlockType` never fired them, so the button kept reading
+    // "Normal text" after applying Heading 2.
+    const { editor } = setupEditor([styledBlock('b1', 'hello world')]);
+    const seen: string[] = [];
+    editor.onCursorMove(() => {
+      const bt = editor.getBlockType();
+      seen.push(`${bt.type}:${bt.headingLevel ?? '-'}`);
+    });
+
+    editor.setBlockType('heading', { headingLevel: 2 });
+
+    expect(seen).toContain('heading:2');
+
+    editor.dispose();
+  });
+
+  test('the Cmd/Ctrl+Alt+N heading shortcut fires the callbacks', () => {
+    // The same control is driven by the keyboard path, which reaches the
+    // callbacks through `requestRender` (wired to `renderWithScroll`, which
+    // calls `afterCursorRender`). Pin that so the shortcut can't regress
+    // into the staleness `setBlockType` had.
+    const { editor, container } = setupEditor([styledBlock('b1', 'hello world')]);
+    const seen: string[] = [];
+    editor.onCursorMove(() => {
+      const bt = editor.getBlockType();
+      seen.push(`${bt.type}:${bt.headingLevel ?? '-'}`);
+    });
+
+    const textarea = container.querySelector('textarea');
+    if (!textarea) throw new Error('textarea not mounted');
+    // Both modifiers so the assertion holds whatever `navigator.platform`
+    // reports under jsdom (`mod` is Meta on Mac, Ctrl elsewhere).
+    textarea.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '2',
+        ctrlKey: true,
+        metaKey: true,
+        altKey: true,
+        bubbles: true,
+      }),
+    );
+
+    expect(seen).toContain('heading:2');
+
+    editor.dispose();
+  });
+
   test('dispose drops all listeners', () => {
     const { editor } = setupEditor([styledBlock('b1', 'hello world')]);
     const cb = vi.fn();

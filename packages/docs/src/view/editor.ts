@@ -2804,6 +2804,11 @@ export function initialize(
       doc.setBlockType(cursor.position.blockId, type, opts);
       invalidateLayout();
       render();
+      // The caret did not move but the block under it is a different type
+      // now, so the Text style control would keep its old label until some
+      // unrelated action fired the cursor-move callbacks. Same reason every
+      // sibling mutation below notifies. See issue #792.
+      notifyStyleApplied();
     },
     getDocStyles: () => docStore.getDocStyles(),
     setDocStyles(styles: DocStyles) {
