@@ -256,6 +256,35 @@ export const CLEAR_INLINE_STYLE: Partial<InlineStyle> = {
   href: undefined,
 };
 
+/**
+ * Color keys whose "None" / "Reset" picker entry passes an empty string.
+ * See `normalizeStyleClears`.
+ */
+const CLEARABLE_COLOR_KEYS = ['color', 'backgroundColor'] as const;
+
+/**
+ * Normalize an inline-style patch so an empty-string color means "clear this
+ * key", the same way `CLEAR_INLINE_STYLE` and `removeLink` express it: the key
+ * present with the value `undefined` (absent would mean "leave it alone").
+ *
+ * The color pickers' "None" / "Reset" entries pass `''` rather than dropping
+ * the key. Merged verbatim, that stores a dead `backgroundColor: ''` on the run:
+ * it stops painting (`''` is falsy) but never compares equal to an unset color,
+ * so `normalizeInlines` can never merge the run back into its neighbours, and
+ * anything treating a present `backgroundColor` as "there is a highlight" —
+ * export paths included — still sees one (issue #793).
+ */
+export function normalizeStyleClears(style: Partial<InlineStyle>): Partial<InlineStyle> {
+  let normalized: Partial<InlineStyle> | null = null;
+  for (const key of CLEARABLE_COLOR_KEYS) {
+    if (style[key] === '') {
+      normalized ??= { ...style };
+      normalized[key] = undefined;
+    }
+  }
+  return normalized ?? style;
+}
+
 let counter = 0;
 
 /**

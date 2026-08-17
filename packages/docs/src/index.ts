@@ -40,6 +40,7 @@ export {
   getBlockText,
   getBlockTextLength,
   inlineStylesEqual,
+  normalizeStyleClears,
   resolvePageSetup,
   getEffectiveDimensions,
   normalizeBlockStyle,

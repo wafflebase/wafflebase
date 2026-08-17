@@ -14,6 +14,7 @@ import {
   createTableBlock,
   findImageAtOffset,
   clampImageToWidth,
+  normalizeStyleClears,
 } from '../../src/model/types.js';
 
 describe('BlockStyle', () => {
@@ -108,6 +109,30 @@ describe('createBlock', () => {
     expect(block.type).toBe('list-item');
     expect(block.listKind).toBe('unordered');
     expect(block.listLevel).toBe(0);
+  });
+});
+
+describe('normalizeStyleClears', () => {
+  it('turns an empty-string color into an explicit undefined key', () => {
+    const result = normalizeStyleClears({ backgroundColor: '' });
+    expect('backgroundColor' in result).toBe(true);
+    expect(result.backgroundColor).toBeUndefined();
+  });
+
+  it('turns an empty-string text color into an explicit undefined key', () => {
+    const result = normalizeStyleClears({ color: '', bold: true });
+    expect(result.color).toBeUndefined();
+    expect(result.bold).toBe(true);
+  });
+
+  it('leaves real colors and unrelated keys untouched', () => {
+    const style: Partial<InlineStyle> = { color: '#123456', href: '', fontSize: 12 };
+    expect(normalizeStyleClears(style)).toBe(style);
+  });
+
+  it('leaves an absent color key absent — absent means "do not touch"', () => {
+    const result = normalizeStyleClears({ backgroundColor: '' });
+    expect('color' in result).toBe(false);
   });
 });
 

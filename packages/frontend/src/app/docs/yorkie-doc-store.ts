@@ -37,6 +37,7 @@ import {
   applyMergeBlocks,
   blockStyleId,
   materializeBlockSpacing,
+  normalizeStyleClears,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -1872,8 +1873,11 @@ export class YorkieDocStore implements DocStore {
     // styleByPath only merges, so keys explicitly cleared to `undefined`
     // (e.g. removeLink → { href: undefined }) must also be removed via
     // removeStyleByPath; otherwise the old attribute survives on the node.
-    const styleAttrs = serializeInlineStyle(style as InlineStyle);
-    const removeAttrs = removedInlineStyleAttrs(style);
+    // `normalizeStyleClears` routes a color picker's "None" (`''`) into that
+    // same removal path instead of writing an empty attribute (#793).
+    const clearedStyle = normalizeStyleClears(style);
+    const styleAttrs = serializeInlineStyle(clearedStyle as InlineStyle);
+    const removeAttrs = removedInlineStyleAttrs(clearedStyle);
     for (let i = startIdx; i < endIdx; i++) {
       const existingAttrs = inlines[i].attributes ?? {};
       tree.styleByPath([...blockPath, i], { ...existingAttrs, ...styleAttrs });

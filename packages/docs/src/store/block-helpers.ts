@@ -1,6 +1,6 @@
 // packages/docs/src/store/block-helpers.ts
 import type { Block, Inline, InlineStyle, BlockType } from '../model/types.js';
-import { inlineStylesEqual, generateBlockId } from '../model/types.js';
+import { inlineStylesEqual, generateBlockId, normalizeStyleClears } from '../model/types.js';
 
 export interface InlinePosition {
   inlineIndex: number;
@@ -313,8 +313,9 @@ export function applyInlineStyle(
   to: number,
   style: Partial<InlineStyle>,
 ): Block {
-  // Enforce mutual exclusion: superscript and subscript cannot coexist
-  const resolvedStyle: Partial<InlineStyle> = { ...style };
+  // `''` from a color picker's "None" / "Reset" means clear, not "store an
+  // empty color" — normalize before merging so the key is dropped instead.
+  const resolvedStyle: Partial<InlineStyle> = { ...normalizeStyleClears(style) };
   if (resolvedStyle.superscript) {
     resolvedStyle.subscript = undefined;
   } else if (resolvedStyle.subscript) {
