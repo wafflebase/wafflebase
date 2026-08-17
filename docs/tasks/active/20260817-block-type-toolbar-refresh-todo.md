@@ -18,13 +18,16 @@ Every style mutation the toolbar's *displayed* state depends on already ends in
 `updateStyleToMatch`, `resetNamedStyle`, `resetAllNamedStyles`, `insertLink` /
 `removeLink`, `applySpellSuggestion`. `setBlockType` is the outlier.
 
-`toggleList`, `indent` and `outdent` do not notify either — the issue lists
-them as if they did, but they do not. That is invisible today because no
-control derives its rendered state from list kind or level: the list buttons in
-`text-paragraph-group.tsx` are plain actions with no active/checked state, and
-`TextStyleGroup` never offers `list-item`. Left alone as out of scope for #792
-(a fix would be unobservable), noted here so the next reader does not repeat
-the issue's claim.
+`toggleList`, `indent` and `outdent` did not notify either. An earlier draft of
+this note called that unobservable, reasoning that no control renders list kind
+or level — true of the list buttons in `text-paragraph-group.tsx` (plain
+actions, no checked state). But it missed the *Text style* control: `toggleList`
+rewrites `block.type`, so bulleting a Heading 2 turns it into a `list-item`
+whose `getBlockLabel` is "Normal text"
+(`packages/frontend/src/components/text-formatting/text-style-options.ts:113`),
+and the button kept reading "Heading 2". That is the same staleness as
+`setBlockType`, reachable from the toolbar's list buttons, so all three now
+notify — matching `text-box-editor.ts`, which already did.
 
 ## Scope
 
@@ -35,6 +38,7 @@ the issue's claim.
       the moment they fire.
 - [x] Regression test for the keyboard path (`⌘⌥2`), which the issue also
       calls stale.
+- [x] Fire it from `toggleList` / `indent` / `outdent` too, with tests.
 
 ## Note on the keyboard shortcut
 
