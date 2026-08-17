@@ -666,6 +666,32 @@ describe('YorkieDocStore', () => {
       // Non-cleared key survives.
       expect(cleared.style.italic).toBe(true);
     });
+
+    // Issue #793: the highlight picker's "None" passes `''`, not `undefined`.
+    // Written verbatim it leaves a dead `backgroundColor=""` attribute on the
+    // Tree node — invisible, but a peer / reload still sees a highlight there
+    // and the run can never re-merge with its neighbours.
+    it('clears backgroundColor from the Tree when applyStyle gets an empty string', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 0, 5, { backgroundColor: '#FFF176' });
+      expect(reread(block).inlines[0].style.backgroundColor).toBe('#FFF176');
+
+      store.applyStyle(block.id, 0, 5, { backgroundColor: '' });
+      const inline = reread(block).inlines[0];
+      expect('backgroundColor' in inline.style).toBe(false);
+    });
+
+    it('keeps other styles when a highlight is cleared with an empty string', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 0, 5, { bold: true, color: '#ff0000', backgroundColor: '#FFF176' });
+      store.applyStyle(block.id, 0, 5, { backgroundColor: '' });
+      const inline = reread(block).inlines[0];
+      expect('backgroundColor' in inline.style).toBe(false);
+      expect(inline.style.bold).toBe(true);
+      expect(inline.style.color).toBe('#ff0000');
+    });
   });
 
   describe('caching', () => {

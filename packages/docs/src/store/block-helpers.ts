@@ -316,6 +316,7 @@ export function applyInlineStyle(
   // `''` from a color picker's "None" / "Reset" means clear, not "store an
   // empty color" — normalize before merging so the key is dropped instead.
   const resolvedStyle: Partial<InlineStyle> = { ...normalizeStyleClears(style) };
+  // Enforce mutual exclusion: superscript and subscript cannot coexist
   if (resolvedStyle.superscript) {
     resolvedStyle.subscript = undefined;
   } else if (resolvedStyle.subscript) {
