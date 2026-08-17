@@ -198,6 +198,18 @@ const LANES = [
     anyPkg: true,
     tags: ["docsProse"],
   },
+  // The third direction on the same subject. `verify:doc-index` asks whether a
+  // file was ever introduced; `verify:entropy` walks links out of the design
+  // docs; this one walks the whole graph from CLAUDE.md and asks whether the
+  // paths a reader is invited to follow lead anywhere. An index is a promise,
+  // and the other two gates check that the promise exists, not that it holds.
+  // Same shape as the gate above: reads markdown, builds nothing.
+  {
+    name: "verify:doc-links",
+    cmd: "pnpm verify:doc-links",
+    anyPkg: true,
+    tags: ["docsProse"],
+  },
   // Import-boundary rules. Neither arch config sets `parserOptions.project`, so
   // both are pure syntactic lints and need no `dist/` — which is why they sit
   // above the builds rather than after them.

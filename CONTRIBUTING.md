@@ -196,7 +196,8 @@ generated from merged PRs at release time
 Wafflebase is happy to accept work generated with help from coding
 agents (Claude Code, Codex, Cursor, etc.). The repository ships
 agent-facing instructions in [`CLAUDE.md`](CLAUDE.md) (also exposed as
-`AGENTS.md` via symlink) and [`.superpowers/`](.superpowers/) skills.
+`AGENTS.md` via symlink) and `.superpowers/` skills, which are installed
+per-machine rather than committed — `.gitignore` excludes them.
 
 Expectations:
 
