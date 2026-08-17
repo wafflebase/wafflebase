@@ -172,8 +172,9 @@ wafflebase login
   │
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
   ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>
-  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>&cliState=<nonce>
-  │     (also prints URL for copy-paste in headless environments)
+  ├─ 3. Opens (and prints, for copy-paste in headless environments) the
+  │     nonce-free http://127.0.0.1:<port>/start, which 302s the browser,
+  │     once, to GET /auth/github?mode=cli&port=<port>&cliState=<nonce>
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
   ├─ 6. Backend detects mode=cli in OAuth state → redirects to
@@ -187,9 +188,9 @@ wafflebase login
   └─ 12. Writes ~/.wafflebase/session.json
 ```
 
-The local server binds to `127.0.0.1` only, accepts only `GET
-/callback`, and shuts down after a single request with a 30-second
-timeout. On timeout it prints: "Login timed out. Try again with
+The local server binds to `127.0.0.1` only, serves only `GET /start`
+(once) and `GET /callback`, and shuts down after the callback with a
+30-second timeout. On timeout it prints: "Login timed out. Try again with
 `wafflebase login`."
 
 Binding to `127.0.0.1` limits *who* can reach the listener to the local
@@ -202,29 +203,38 @@ loopback redirect, and a `GET /callback` whose `state` does not match
 not settle the login. Without that, the first `code` to arrive would win,
 and an injected one would be exchanged and saved as the user's session.
 
-What the nonce covers, and what it does not: it stops an injector that
-cannot read this process — a page the browser visited (the same-origin
-policy keeps it from reading the redirect URL) and any blind local
-injector. It is **not** a secret from a local process that can read the
-CLI's command line: the nonce has to reach the browser, and `open()`
-passes the URL as an argv entry, which `/proc/<pid>/cmdline` exposes to
-other users on Linux. `login` therefore keeps the nonce out of stderr —
-the "Opening browser" line prints the URL without it, and the full URL
-appears only when the browser could not be opened, where it is the only
-way to continue — but argv exposure remains, and closing it needs the
-secret to never leave the CLI: a PKCE-shaped `POST /auth/cli/start` that
-registers `sha256(verifier)` and an exchange that must present the
-verifier. That endpoint is not part of this design yet; the residual
-exposure is tracked in the [rest-api.md](rest-api.md) risk table.
+The nonce reaches the browser through the listener, not through argv or
+stderr. `login` prints and opens `http://127.0.0.1:<port>/start`, and
+that route answers a single `302` whose `Location` is the authorize URL
+carrying `cliState`; a second `GET /start` is answered `410` and hands
+out nothing. So the URL a headless user copies is the same one `open()`
+is given and the same one that works, while the nonce appears neither in
+`/proc/<pid>/cmdline` (which exposes `open()`'s argument to other users
+on Linux) nor in scrollback and CI logs. What the nonce covers, then, is
+every injector that cannot read the redirect: a page the browser visited
+(the same-origin policy keeps it from reading the `Location` of a
+`no-cors` fetch) and any blind local injector. What remains is a local
+process that races the browser to `GET /start` — single use means it
+steals the nonce only by breaking the login visibly, never silently.
+Closing even that needs the secret to never leave the CLI: a PKCE-shaped
+`POST /auth/cli/start` that registers `sha256(verifier)` and an exchange
+that must present the verifier. That endpoint is not part of this design
+yet; the residual exposure is tracked in the
+[rest-api.md](rest-api.md) risk table.
 
 A missing `state` is treated separately from a wrong one, because it is
 the version-skew signal rather than an attack: `@wafflebase/cli` is
 published separately from the server it is pointed at (`--server`,
 `WAFFLEBASE_SERVER`, self-hosting), so a backend older than the echo
-redirects without one. That callback fails the login immediately with an
-actionable message instead of the 30-second timeout, and
-`wafflebase login --allow-unbound-callback` accepts it — the escape hatch
-for logging in against such a server, at the cost of the binding.
+redirects without one. Such a callback is answered `400` and reported on
+stderr, but it does **not** end the login: that request is available to
+every local process and visited page, so letting it abort the login (and
+point the user at the flag that turns the binding off) would be a
+downgrade lever. The version-skew message replaces the timeout message
+when the 30 seconds expire having seen nothing else, and
+`wafflebase login --allow-unbound-callback` accepts the nonce-less
+callback outright — the escape hatch for logging in against such a
+server, at the cost of the binding.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
