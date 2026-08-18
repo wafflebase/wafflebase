@@ -236,10 +236,19 @@ async function main() {
       const after = await shellText();
       // A click inside the frame reaching the host is the boundary crossing that the
       // whole protocol exists for.
+      // `Selected` carries the ID; `Tag` is the frame's own detail about it. They are
+      // separate because the outline knows only the id — storing a `StampRef` as the one
+      // source of truth made the outline invent one, which rendered `undefined — …` and
+      // would have shown another node's `instances` against this one.
       check(
         'a click inside the frame selects in the host',
-        /Selected\s*\w+ — app\//.test(after),
+        /Selected\s*app\/\S+#\w+:[\d.]*/.test(after),
         after.match(/Selected.{0,60}/)?.[0],
+      );
+      check(
+        'and the frame supplied the detail only it knows',
+        /Tag\s*\w+/.test(after) && !/Tag\s*not painted/.test(after),
+        after.match(/Tag.{0,40}/)?.[0],
       );
       check(
         'and the frame drew its overlay',
@@ -248,6 +257,40 @@ async function main() {
 
       // The file header's central claim: a viewport is a REAL width, so a breakpoint
       // resolves truthfully. Zoom must NOT change it — that is why zoom is a transform.
+      console.log('\nthe outline and the frame agree');
+      const rows = await page.$$eval('[data-row-id]', (ns) => ns.map((n) => n.getAttribute('data-row-id')));
+      // The outline is the COMPLETE list; the frame is the subset on screen. Both being
+      // non-empty is the claim, and the outline being at least as large is the point of
+      // having one.
+      check('the outline rendered a node tree', rows.length > 1, `${rows.length} rows`);
+      check(
+        'from the consumer’s own file',
+        rows.every((r) => r?.startsWith('app/')),
+        JSON.stringify(rows.slice(0, 3)),
+      );
+      const marked = await page.$$eval('[aria-label="Clickable in the frame"]', (n) => n.length);
+      // Marked rows come from `wb:ready`'s selectable set: the outline saying which rows
+      // the frame could actually reach is what keeps the two honest about the difference.
+      check('and marks which rows the frame can reach', marked > 0, `${marked} marked`);
+
+      // Frame → outline. A node selected in the frame has to light up in its own tree, or
+      // the outline reads as having ignored the click.
+      await inner.click('[data-wb-node]');
+      await page.waitForTimeout(500);
+      const lit = await page.$$eval('[data-row-id]', (ns) =>
+        ns.filter((n) => n.className.includes('wb-accent')).map((n) => n.getAttribute('data-row-id')),
+      );
+      check('a frame selection highlights its outline row', lit.length === 1, JSON.stringify(lit));
+
+      // Outline → frame, the other direction through `wb:set-selection`.
+      const secondRow = (await page.$$('[data-row-id]'))[1];
+      await secondRow.click();
+      await page.waitForTimeout(500);
+      check(
+        'and an outline selection reaches the frame',
+        (await inner.$eval('[data-wb-overlay="selection"]', (e) => getComputedStyle(e).display)) === 'block',
+      );
+
       const viewportButtons = await page.$$('button[title^="Viewport"]');
       await viewportButtons[0].click();
       await page.waitForTimeout(600);

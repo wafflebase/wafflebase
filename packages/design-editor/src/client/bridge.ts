@@ -27,6 +27,7 @@ import { API_BASE } from '../base.ts';
 import type { FrameSide, MutateRequest, MutateResult, Transaction } from '../plugin/protocol.ts';
 import type { TransactionSummary } from '../plugin/transactions.ts';
 import type { ExternalChange } from '../plugin/tracked.ts';
+import type { DesignMetadata } from '../types.ts';
 import type { AliasEntry } from '../plugin/aliases.ts';
 import type { TokenFamilyMeta, TokenBindings, TokenVars } from '../tokens/adapter.ts';
 
@@ -71,6 +72,16 @@ export interface HealthResult extends BridgeResult {
   fsRevision?: number;
   externalChanges?: ExternalChange[];
   safelist?: number;
+}
+
+/**
+ * `GET /metadata`. `failed` names any declared file the analyser could not read —
+ * reported rather than dropped, because a dropped scene reads as "this project has fewer
+ * scenes" instead of as a parse failure.
+ */
+export interface MetadataResult extends BridgeResult {
+  metadata?: DesignMetadata;
+  failed?: { file: string; error: string }[];
 }
 
 export interface TokensResult extends BridgeResult {
@@ -162,6 +173,13 @@ export interface PlanResult extends BridgeResult {
 
 export interface BridgeClient {
   health(): Promise<HealthResult>;
+  /**
+   * The outline's data — every declared scene and component, analysed.
+   *
+   * RE-READ, NEVER CACHED, by the client too: a `layout-insert` renumbers every following
+   * sibling, so a client holding a pre-write tree fails on all of them at the next save.
+   */
+  metadata(): Promise<MetadataResult>;
   tokens(): Promise<TokensResult>;
   previewTokens(intents: MutateRequest[]): Promise<PreviewTokensResult>;
   /** One intent. `dryRun` returns the diff and writes nothing. */
@@ -226,6 +244,7 @@ export function createBridgeClient(options: BridgeClientOptions = {}): BridgeCli
 
   return {
     health: () => request<HealthResult>('/health'),
+    metadata: () => request<MetadataResult>('/metadata'),
     tokens: () => request<TokensResult>('/tokens'),
     previewTokens: (intents) => post<PreviewTokensResult>('/preview-tokens', { intents }),
     // `?? intent.dryRun`, not a bare override: `dryRun` is part of `MutateRequest`, so

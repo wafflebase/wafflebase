@@ -41,6 +41,7 @@ export interface BridgeDeps {
    */
   loadExtractor: () => Promise<{
     analyzeFile: (abs: string) => unknown;
+    analyzeNodes: (abs: string) => unknown;
     analyzeScene: (abs: string, cfg: unknown) => unknown;
     buildMetadata: (input: { files: unknown[]; scenes?: unknown[] }) => unknown;
   }>;
@@ -389,8 +390,19 @@ export function bridge(deps: BridgeDeps): Plugin {
                 continue;
               }
               try {
-                const meta = extractor.analyzeFile(r.abs) as { file?: string };
-                files.push({ ...meta, file: deps.guard.relOf(r.abs) });
+                /**
+                 * BOTH analysers, and the outline needs the second one.
+                 *
+                 * `analyzeFile` reports CVA variant tables and off-token values — the
+                 * token half. It produces no node tree, so a component drilled into from
+                 * the outline had `roots: undefined` and rendered as a component with no
+                 * nodes rather than as one nobody analysed. `analyzeNodes` is where the
+                 * tree comes from, and a declared component is exactly the thing a
+                 * drill-in opens.
+                 */
+                const meta = extractor.analyzeFile(r.abs) as Record<string, unknown>;
+                const nodes = extractor.analyzeNodes(r.abs) as Record<string, unknown>;
+                files.push({ ...meta, ...nodes, file: deps.guard.relOf(r.abs) });
               } catch (err) {
                 failed.push({ file: rel, error: String(err) });
               }
