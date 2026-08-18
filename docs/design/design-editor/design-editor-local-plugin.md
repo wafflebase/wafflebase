@@ -122,13 +122,11 @@ is the type and `hasPreview()`; the contents belong beside `providers.tsx` in
 > dogfood is also the only proof the split holds, and it earned its keep
 > immediately: see the ⚠ note at the end of [§6](#6-the-couplings-that-must-become-configuration).
 >
-> The scene half of population C — `providers.tsx`, `fixtures/**`, `canvas/**`,
-> `mock-metadata.ts` — is still homeless, deliberately. Every one of those is
-> loaded by the scene runtime (`scene-entry.tsx`, `SceneHost`), which PRs 10–12
-> build, so moving them in 8c would have landed ~1,000 lines that nothing can
-> execute and whose comments describe files that do not exist.
-> `mock-metadata.ts` (908 lines) is not moving at all: the `/metadata` endpoint
-> replaced it, and Phase 3 made that structural rather than cosmetic — a client
+> The scene half of population C was left homeless until the scene runtime that
+> loads it existed. 11b built that runtime, so the deferral has expired:
+> `providers.tsx` and `fixtures/**` move in 11c, `canvas/**` in 12.
+> `mock-metadata.ts` (908 lines) is not moving at all — the `/metadata` endpoint
+> replaced it, and Phase 3 made that structural rather than cosmetic: a client
 > holding a pre-write tree fails on every following sibling after a
 > `layout-insert`.
 
@@ -589,7 +587,8 @@ cap is what sets the granularity.
 | 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | in review (#855) — see below |
 | 11a | the shell build — `dist/shell`, two documents, self-contained CSS | in review — see below |
 | 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | written — see below |
-| 12 | the token panels and the canvas scenes, as the row above always said | held |
+| 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | next, before 12 — see below |
+| 12 | the token panels, `ComponentList`, and the canvas scenes | held |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
 review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
@@ -597,50 +596,76 @@ deliberately *not* reviewed in their current form: every repo-absolute constant 
 them is scheduled for rewrite, and reviewing 2,538 lines of soon-to-be-deleted
 path handling spends reviewer budget on nothing.
 
-#### What 11b took, and what it deliberately did not
+#### What 11b took
 
-11b is the whole of its row: the three-pane layout, `SceneHost`, `scene-entry`, the
-outline / node-detail / class-editor panels, and 9c's `history` + `anchors`. Four
-things about it are worth recording, because each corrects something this document
-said earlier.
+The whole of its row: the three-pane layout, `SceneHost`, `scene-entry`, the outline /
+node-detail / class-editor panels, and 9c's `history` + `anchors`. Four corrections to
+earlier claims in this document:
 
-**§6's "`SceneHost` alone has 25 `Select` call sites" was wrong**, and it was steering
-the plan toward vendoring Radix into the shell. 25 is what `grep -o 'Select'` returns
-— it counts the import, the type, and every closing tag. Measured: **one** `<Select>`
-(the zoom dropdown), one `<Tabs>`, two `<Popover>`s. The three primitives are ~400
-lines of local code under `src/shell/ui/`, which is why the shell bundle carries no
-Radix.
+- **§6's "`SceneHost` alone has 25 `Select` call sites" was wrong.** 25 is what
+  `grep -o 'Select'` returns. Measured: one `<Select>`, one `<Tabs>`, two `<Popover>`s.
+  They are ~400 local lines under `src/shell/ui/`, so the shell bundles no Radix.
+- **The scene list comes from `GET /metadata`, not `virtual:wb-scenes`.** The shell is
+  prebuilt and cannot import a module the consumer's server generates. `/health` gained
+  a per-process `session`; the staged-edit history keys its `localStorage` record on it,
+  so a restarted dev server drops the stack instead of replaying it against moved files.
+- **The drill-in cache is not a cache.** `/metadata` carries `roots` for every analysed
+  file, so opening a component is a lookup. That deletes the prototype's re-fetch step.
+- **Not ported:** the `components` mode. `ComponentList` is population A and moves to 12;
+  `PreviewPane` is blocked on `registry.tsx` — see 11c below. `ReviewApproveModal` is
+  12's, so ⌘S writes the plan directly today.
 
-**The scene list comes from `GET /metadata`, not `virtual:wb-scenes`.** The shell is
-prebuilt and cannot import a module the consumer's dev server generates — the same
-asymmetry that makes the frame a separate Vite entry. `/health` also gained a
-per-process `session`, which the staged-edit history keys its `localStorage` record
-on: without it a restarted dev server silently restores edits against files that have
-moved on.
+Three defects fixed in the ported code: `SceneNodeDetail` printed `expression — cn(…)`
+for every non-literal `className` (7b's `classNameExpr` is what actually distinguishes
+them); `FloatingClassEditor` leaked a `pointermove` listener when unmounted mid-drag;
+its icon-only buttons had no accessible name.
 
-**The drill-in cache stopped being a cache.** `/metadata` already carries `roots` for
-every analysed file, so opening a component is a lookup rather than a per-file
-request. That deletes the prototype's most delicate refresh step — re-fetching each
-drilled-into file so its staged anchors could still be rebased — because there is only
-ever one payload to refresh.
+Two gate findings. `verify:frame` rebuilt the shell only when the bundle was *missing*,
+so it could pass on bytes older than the change under test — it now compares mtimes.
+And the port nearly dropped Tailwind candidate registration (`useTailwindCandidates` is
+in no PR's file list); without it a composed class has no CSS rule and previews as
+nothing.
 
-**Not ported, and not scheduled:** the prototype's `components` mode (`ComponentList`
-+ `PreviewPane`). It addresses one primitive's CVA values rather than a scene's
-`NodeAnchor` and previews through a class override rather than a patched module, so it
-is a different feature that shares a window; it appears in neither 11b's file list nor
-12's. `ReviewApproveModal` is 12's, so ⌘S currently writes the plan directly and
-reports the result — the plan count and the write log make what a save will do visible
-beforehand, but the per-intent diff review is genuinely absent.
+**Only the browser gate covers staging.** The class editor needs a measured selection
+rect, which arrives from the frame over `postMessage`; jsdom loads no iframe. So the
+click → stage → ⌘Z → ⇧⌘Z loop lives in `verify:frame` (34 checks) and nowhere else.
 
-**What only the browser gate covers.** Staging an edit needs the floating class editor,
-which needs a measured selection rect, which arrives from the frame over `postMessage`
-after the iframe loads a real scene. jsdom loads no iframe, so the click → stage → ⌘Z →
-⇧⌘Z loop and the write plan behind it are exercised by `pnpm verify:frame` (34 checks)
-and nowhere else. That gate also had to be fixed before it was worth trusting: it
-rebuilt the shell only when the bundle was *missing*, so it could serve bytes older
-than the change under test and pass.
+#### 11c — the scene half of `design-sandbox`
 
-#### PR 8 splits in three, by pipeline — not by file
+**Measured state after 11b:** the editor renders the fixture consumer's scene (34/34)
+but not wafflebase's. Booting `packages/design-sandbox` gives a real scene list, a
+17-row outline of `app/login/page.tsx`, and `tokens: configured` — and a frame that
+says `no scene "login" in the scene manifest`. All 11 scenes are `deferred: true`, and
+`renderScenesModule` filters those out, so the frame's loader table is empty.
+
+**Why a letter under 11.** These letters mark PRs the code forced apart on the way to a
+working editor, not strict subject membership — 11a is a build step, not chrome either.
+The editor is not working for *us* until this lands, and it is the only row that touches
+`design-sandbox` rather than `design-editor`.
+
+**Why before 12.** 12's value proposition is judging a token change on a real page, and
+`TokenBindingPanel` needs a `component` + `variantState` that no surface currently
+supplies. Both presuppose scenes that mount.
+
+| Work | Lines | Where |
+| --- | --- | --- |
+| `providers.tsx` — theme / router / query / tooltip / `app/Layout` | 212 | `design-sandbox/src/scenes/` |
+| `fixtures/**` (5 files), rewired to be manifest-referenced | 377 | same |
+| the deferred `vite.config.ts` rows — `react()`, `tailwindcss()`, `@` + `@wafflebase/*` aliases, app-libs aliases, `optimizeDeps.include`, `define`, antlr4ts shims, `yorkieOffline()` | ~40 | `design-sandbox/vite.config.ts` |
+| drop `deferred` | 11 | `scenes.config.json` |
+
+**The plugin does not change.** That is the point: if applying the editor to our own app
+required editing the plugin, the split would have failed.
+
+Two things to settle while doing it:
+
+- `scene-entry.tsx` reads fixtures from the MANIFEST, not from a `fixtures/` module, so
+  the prototype's `fixturesFor()` call shape does not survive. The data does.
+- `/metadata` does not filter `deferred`, so the shell lists 11 scenes the frame cannot
+  mount and the user sees a frame-side manifest error instead of "this scene is
+  deferred". Offering an unclickable row is the defect; fix it here.
+
+#### PR 8 splits in three, by pipeline — not by file#### PR 8 splits in three, by pipeline — not by file
 
 The obvious cut is one PR per file: the host is `vite.config.ts`, the adapter is
 `edits.ts`. [§6](#6-the-couplings-that-must-become-configuration) shows why that
@@ -845,8 +870,7 @@ So the cut follows the one that already worked for the module underneath it —
   **Where 11 and 12 divide, which this row already said.** The old `11–12` entry reads
   "the React chrome (`SceneHost`, panels, `scene-entry`), token panels, canvas" — the
   comma is the split. 11 is the chrome AND its panels; 12 is the token panels and the
-  canvas scenes. An intermediate `11c` was briefly written into this table and removed:
-  it was not in the plan, and the plan already had the line in it.
+  canvas scenes.
 
   11a exists inside 11 because the *code* forces a seam there: the build has no React and
   needs none, and the chrome cannot exist without it. So 11a is the build, and 11b is
