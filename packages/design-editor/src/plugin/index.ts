@@ -189,7 +189,7 @@ export function designEditor(options?: DesignEditorOptions): Plugin[] {
       // Read on every load rather than cached, so editing the manifest and
       // refreshing is enough — the manifest is the consumer's authoring surface and
       // a restart-to-see-it loop is what makes §5's cliff worse.
-      return renderScenesModule(o.root, readManifest(o.scenes), o.providers);
+      return renderScenesModule(o.root, readManifest(o.scenes), o.providers, o.fixtures);
     },
 
     /**

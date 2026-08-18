@@ -42,6 +42,8 @@
     "jsx": "react-jsx",
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    /* `import.meta.hot`, reached through `@wafflebase/design-editor/scenes`. */
+    "types": ["vite/client"],
 
     /*
      * `allowJs` without `checkJs`, for the same reason the editor package does
@@ -61,11 +63,13 @@
      * deprecated and errors in TypeScript 7, and it buys nothing here.
      */
     "paths": {
-      "@/*": ["../frontend/src/*"],
+      "react-router-dom": ["../frontend/node_modules/react-router-dom"],
+      "@tanstack/react-query": ["../frontend/node_modules/@tanstack/react-query"],
       "@wafflebase/sheets": ["../sheets/src"],
       "@wafflebase/docs": ["../docs/src"],
       "@wafflebase/notes": ["../notes/src"],
-      "@wafflebase/slides": ["../slides/src"]
+      "@wafflebase/slides": ["../slides/src"],
+      "@wafflebase/board": ["../board/src"]
     }
   },
   /*

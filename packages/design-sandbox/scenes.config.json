@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "Scene manifest — which of wafflebase's routes are editable in the design editor.",
+    "Scene manifest \u2014 which of wafflebase's routes are editable in the design editor.",
     "",
     "COMMITTED ON PURPOSE, and not a glob over app/**. Which routes are worth editing,",
     "what each needs mocked, and which fixture makes it look real are curation decisions",
@@ -10,7 +10,7 @@
     "This is population C: the manifest is wafflebase's, and `@wafflebase/design-editor`",
     "reads it through `options.scenes` without knowing anything in it. Its schema is",
     "`SceneConfig` in that package's `src/plugin/scenes.ts`, which is also where each",
-    "field's reasoning lives — `routePattern`, `shell`, `deferred` and the rest are",
+    "field's reasoning lives \u2014 `routePattern`, `shell`, `deferred` and the rest are",
     "documented there rather than duplicated here.",
     "",
     "`components` feeds the per-component CVA/token panels. `scenes` feeds the layout",
@@ -21,11 +21,11 @@
     "<Outlet/>), because that is how App.tsx renders it. Every route except /login is an",
     "<Outlet/> body: rendered bare it is a padded box in an empty viewport, and judgements",
     "about width, gutters and the header relationship are then made against the wrong",
-    "container. Shell scenes need `router`, `query`, `auth` and `tooltip` — the shell",
+    "container. Shell scenes need `router`, `query`, `auth` and `tooltip` \u2014 the shell",
     "itself fetches /workspaces, /analytics/enabled and /auth/me.",
     "",
     "`documents` / `datasources` / `analytics` / `settings` point at the workspace-scoped",
-    "pages under app/workspaces/ — what Layout.tsx's sidebar actually links to",
+    "pages under app/workspaces/ \u2014 what Layout.tsx's sidebar actually links to",
     "(`/w/:workspaceId/...`) once a workspace exists, which is the case for every real",
     "user. The flat `/documents` / `/datasources` pages are Layout's no-workspace fallback",
     "only, not the primary render path, so they are deliberately not manifest scenes.",
@@ -37,8 +37,8 @@
     "EVERY SCENE IS `deferred` IN THIS PR, and each says why below. `deferred` keeps the",
     "entry and its reasoning while generating no loader, which is exactly the state the",
     "editor is in: PR 8c ships the token pipeline, and the scene runtime that mounts these",
-    "— the frame entry, SceneHost, providers.tsx, the fixtures and the offline Yorkie shim",
-    "— is PRs 10-12. A loader whose target cannot mount is not free even if never clicked:",
+    "\u2014 the frame entry, SceneHost, providers.tsx, the fixtures and the offline Yorkie shim",
+    "\u2014 is PRs 10-12. A loader whose target cannot mount is not free even if never clicked:",
     "the specifier is statically analysable, so Vite's dependency scanner crawls it at",
     "startup. The flags come off in the PR that supplies what each scene is waiting for.",
     "",
@@ -47,8 +47,8 @@
     "itself.",
     "",
     "CANVAS scenes additionally wait on the offline Yorkie provider. They mount the REAL",
-    "Sheets/Docs/Slides/Notes engines against a Document that is real but DETACHED — never",
-    "attached to a live Yorkie connection — which needs a dev-server-wide redirect of every",
+    "Sheets/Docs/Slides/Notes engines against a Document that is real but DETACHED \u2014 never",
+    "attached to a live Yorkie connection \u2014 which needs a dev-server-wide redirect of every",
     "`@yorkie-js/react` import to a shim, plus seed content per docKey. `sheet-editor`",
     "points at `document-detail.tsx` (the page that owns the `DocumentProvider`), not",
     "`sheet-view.tsx` (a child that needs one from its parent and a `tabId` prop neither",
@@ -70,9 +70,14 @@
       "file": "packages/frontend/src/app/login/page.tsx",
       "export": "default",
       "route": "/login",
-      "mocks": ["theme", "router"],
-      "viewports": ["mobile", "desktop"],
-      "deferred": true
+      "mocks": [
+        "theme",
+        "router"
+      ],
+      "viewports": [
+        "mobile",
+        "desktop"
+      ]
     },
     {
       "id": "documents",
@@ -83,10 +88,20 @@
       "route": "/w/ws-fixture",
       "routePattern": "/w/:workspaceId",
       "shell": "app",
-      "mocks": ["theme", "router", "query", "auth", "tooltip"],
-      "fixtures": { "query": "documents/list" },
-      "viewports": ["mobile", "desktop"],
-      "deferred": true
+      "mocks": [
+        "theme",
+        "router",
+        "query",
+        "auth",
+        "tooltip"
+      ],
+      "fixtures": {
+        "query": "documents/list"
+      },
+      "viewports": [
+        "mobile",
+        "desktop"
+      ]
     },
     {
       "id": "datasources",
@@ -97,10 +112,19 @@
       "route": "/w/ws-fixture/datasources",
       "routePattern": "/w/:workspaceId/datasources",
       "shell": "app",
-      "mocks": ["theme", "router", "query", "auth", "tooltip"],
-      "fixtures": { "query": "datasources/list" },
-      "viewports": ["desktop"],
-      "deferred": true
+      "mocks": [
+        "theme",
+        "router",
+        "query",
+        "auth",
+        "tooltip"
+      ],
+      "fixtures": {
+        "query": "datasources/list"
+      },
+      "viewports": [
+        "desktop"
+      ]
     },
     {
       "id": "analytics",
@@ -111,10 +135,19 @@
       "route": "/w/ws-fixture/analytics",
       "routePattern": "/w/:workspaceId/analytics",
       "shell": "app",
-      "mocks": ["theme", "router", "query", "auth", "tooltip"],
-      "fixtures": { "query": "workspace/analytics" },
-      "viewports": ["desktop"],
-      "deferred": true
+      "mocks": [
+        "theme",
+        "router",
+        "query",
+        "auth",
+        "tooltip"
+      ],
+      "fixtures": {
+        "query": "workspace/analytics"
+      },
+      "viewports": [
+        "desktop"
+      ]
     },
     {
       "id": "settings",
@@ -125,10 +158,20 @@
       "route": "/w/ws-fixture/settings",
       "routePattern": "/w/:workspaceId/settings",
       "shell": "app",
-      "mocks": ["theme", "router", "query", "auth", "tooltip"],
-      "fixtures": { "query": "workspace/settings" },
-      "viewports": ["mobile", "desktop"],
-      "deferred": true
+      "mocks": [
+        "theme",
+        "router",
+        "query",
+        "auth",
+        "tooltip"
+      ],
+      "fixtures": {
+        "query": "workspace/settings"
+      },
+      "viewports": [
+        "mobile",
+        "desktop"
+      ]
     },
     {
       "id": "settings-personal",
@@ -138,9 +181,17 @@
       "export": "default",
       "route": "/settings",
       "shell": "app",
-      "mocks": ["theme", "router", "query", "auth", "tooltip"],
-      "viewports": ["mobile", "desktop"],
-      "deferred": true
+      "mocks": [
+        "theme",
+        "router",
+        "query",
+        "auth",
+        "tooltip"
+      ],
+      "viewports": [
+        "mobile",
+        "desktop"
+      ]
     },
     {
       "id": "sheet-editor",
@@ -150,9 +201,20 @@
       "export": "default",
       "route": "/s/fixture",
       "routePattern": "/s/:id",
-      "mocks": ["theme", "router", "query", "auth", "tooltip", "sheets-store"],
-      "fixtures": { "sheets-store": "sheets/revenue" },
-      "viewports": ["desktop"],
+      "mocks": [
+        "theme",
+        "router",
+        "query",
+        "auth",
+        "tooltip",
+        "sheets-store"
+      ],
+      "fixtures": {
+        "sheets-store": "sheets/revenue"
+      },
+      "viewports": [
+        "desktop"
+      ],
       "readOnly": true,
       "deferred": true
     },
@@ -164,9 +226,20 @@
       "export": "default",
       "route": "/d/fixture",
       "routePattern": "/d/:id",
-      "mocks": ["theme", "router", "query", "auth", "tooltip", "docs-store"],
-      "fixtures": { "docs-store": "docs/fixture" },
-      "viewports": ["desktop"],
+      "mocks": [
+        "theme",
+        "router",
+        "query",
+        "auth",
+        "tooltip",
+        "docs-store"
+      ],
+      "fixtures": {
+        "docs-store": "docs/fixture"
+      },
+      "viewports": [
+        "desktop"
+      ],
       "readOnly": true,
       "deferred": true
     },
@@ -178,9 +251,20 @@
       "export": "default",
       "route": "/p/fixture",
       "routePattern": "/p/:id",
-      "mocks": ["theme", "router", "query", "auth", "tooltip", "slides-store"],
-      "fixtures": { "slides-store": "slides/fixture" },
-      "viewports": ["desktop"],
+      "mocks": [
+        "theme",
+        "router",
+        "query",
+        "auth",
+        "tooltip",
+        "slides-store"
+      ],
+      "fixtures": {
+        "slides-store": "slides/fixture"
+      },
+      "viewports": [
+        "desktop"
+      ],
       "readOnly": true,
       "deferred": true
     },
@@ -192,9 +276,20 @@
       "export": "default",
       "route": "/n/fixture",
       "routePattern": "/n/:id",
-      "mocks": ["theme", "router", "query", "auth", "tooltip", "notes-store"],
-      "fixtures": { "notes-store": "notes/fixture" },
-      "viewports": ["desktop"],
+      "mocks": [
+        "theme",
+        "router",
+        "query",
+        "auth",
+        "tooltip",
+        "notes-store"
+      ],
+      "fixtures": {
+        "notes-store": "notes/fixture"
+      },
+      "viewports": [
+        "desktop"
+      ],
       "readOnly": true,
       "deferred": true
     },
@@ -206,9 +301,20 @@
       "export": "FileDetail",
       "route": "/f/fixture",
       "routePattern": "/f/:id",
-      "mocks": ["theme", "router", "query", "auth", "tooltip", "file-store"],
-      "fixtures": { "file-store": "files/fixture" },
-      "viewports": ["desktop"],
+      "mocks": [
+        "theme",
+        "router",
+        "query",
+        "auth",
+        "tooltip",
+        "file-store"
+      ],
+      "fixtures": {
+        "file-store": "files/fixture"
+      },
+      "viewports": [
+        "desktop"
+      ],
       "readOnly": true,
       "deferred": true
     }
