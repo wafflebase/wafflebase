@@ -4194,17 +4194,28 @@ export class Sheet {
    */
   async changeDecimals(delta: number): Promise<void> {
     const { dp, nf, valueDp, explicitDp } = await this.getActiveDecimalState();
-    if (dp + delta < 0 && !explicitDp) {
+    const stepped = dp + delta;
+    if (stepped < 0 && !explicitDp) {
       // Nothing is stored to step down from, so the cell stays untouched rather
       // than acquiring a zero-decimal format it never asked for.
       return;
     }
-    const target = Math.max(0, dp + delta);
+    // A step that ran into the floor reverses nothing — the active cell already
+    // sits at zero decimals. The rest of the selection still follows it there,
+    // but the stored format stays put instead of being unset along the way.
+    const clamped = stepped < 0;
+    const target = clamped ? 0 : stepped;
 
-    const inheritable = !nf || nf === 'plain' || nf === 'number';
-    if (explicitDp && target === valueDp && inheritable) {
+    if (
+      explicitDp &&
+      !clamped &&
+      target === valueDp &&
+      (await this.selectionRendersAt(target))
+    ) {
       // `nf: 'number'` renders 2 decimals when no `dp` is stored, so the number
-      // format has to go with the `dp` for the cell to keep looking the same.
+      // format has to go with the `dp`. That gives up the grouping separators it
+      // added too ('1,234.5' → '1234.5'); the cell carried neither key before
+      // the first step, so restoring both is what the round trip asks for.
       const values: Partial<CellStyle> =
         nf === 'number' ? { dp, nf } : { dp };
       if (await this.unsetRangeStyleValues(values)) {
@@ -4220,33 +4231,71 @@ export class Sheet {
   }
 
   /**
+   * `selectionRendersAt` reports whether every numeric value in the current
+   * selection already shows `decimals` digits on its own.
+   *
+   * Restoring inheritance shows each cell at its *own* precision, so it is only
+   * the reverse of a step when the whole selection agrees about that precision.
+   * A neighbour holding more digits would jump back to them instead of following
+   * the step, and has to take the explicit write instead.
+   */
+  private async selectionRendersAt(decimals: number): Promise<boolean> {
+    for (const range of this.selectionTargets()) {
+      const grid = await this.store.getGrid(range);
+      for (const [, cell] of grid) {
+        const value = cell.v;
+        if (!value || isNaN(Number(value))) {
+          // Text and empty cells render no decimals to disagree about.
+          continue;
+        }
+        if (decimalsInValue(value) !== decimals) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * `selectionTargets` returns the ranges the current selection covers, falling
+   * back to the active cell when nothing is selected.
+   */
+  private selectionTargets(): Range[] {
+    return this.ranges.length > 0
+      ? this.ranges
+      : [this.getRangeOrActiveCell()];
+  }
+
+  /**
    * `unsetRangeStyleValues` removes the given key/value pairs from the style
    * layers the current selection owns, restoring inheritance for the selected
    * cells. It is the reverse of `setRangeStyle`: where that writes an explicit
    * value, this restores the absence of one.
    *
-   * Values are part of the request, not decoration. A key is only removed where
-   * it holds the given value, and anything else within the selection — a cell
-   * with its own currency format, a patch at a different `dp` — refuses the
+   * Values are part of the request, not decoration. A layer is only rewritten
+   * where it holds every requested key at the requested value, and anything else
+   * within the selection — a cell with its own currency format, a patch at a
+   * different `dp`, a cell carrying `nf` with no `dp` beside it — refuses the
    * whole operation rather than being flattened into it.
    *
    * Returns false, having written nothing, when the selection does not own a
-   * layer that sets one of the keys or when a layer inside it disagrees about
-   * the value. The stored model has no "explicitly none" token, so an inherited
-   * value cannot be masked and the caller has to write an explicit value.
+   * layer that sets one of the keys, when a layer inside it disagrees about the
+   * value, or when nothing turned out to be removable. The stored model has no
+   * "explicitly none" token, so an inherited value cannot be masked and the
+   * caller has to write an explicit value.
    */
   async unsetRangeStyleValues(style: Partial<CellStyle>): Promise<boolean> {
-    const entries = Object.entries(style) as Array<
-      [keyof CellStyle, CellStyle[keyof CellStyle]]
-    >;
+    const entries = (
+      Object.entries(style) as Array<
+        [keyof CellStyle, CellStyle[keyof CellStyle]]
+      >
+    ).filter(([, value]) => value !== undefined);
     if (entries.length === 0) {
       return false;
     }
     const keys = entries.map(([key]) => key);
 
-    const targets = this.ranges.length > 0
-      ? this.ranges
-      : [this.getRangeOrActiveCell()];
+    const targets = this.selectionTargets();
 
     const ownsSheet = this.selectionType === 'all';
     const ownsCols = ownsSheet || this.selectionType === 'column';
@@ -4254,34 +4303,52 @@ export class Sheet {
     const owned = (range: Range) =>
       targets.some((target) => containsRange(target, range));
 
-    for (const [key, value] of entries) {
-      const sheetValue = this.sheetStyle?.[key];
-      if (sheetValue !== undefined && (!ownsSheet || sheetValue !== value)) {
+    // A layer holds either all of the requested keys at the requested values or
+    // none of them. One that holds only some of them describes something else —
+    // a number format nobody paired with a `dp` — and stripping the rest of the
+    // request from it would flatten formatting this call does not own.
+    const verdictFor = (
+      layer: CellStyle | undefined,
+    ): 'absent' | 'match' | 'conflict' => {
+      if (!layer) {
+        return 'absent';
+      }
+      let held = 0;
+      for (const [key, value] of entries) {
+        const layerValue = layer[key];
+        if (layerValue === undefined) continue;
+        if (layerValue !== value) return 'conflict';
+        held++;
+      }
+      if (held === 0) return 'absent';
+      return held === entries.length ? 'match' : 'conflict';
+    };
+
+    /** A layer refuses when it disagrees, or agrees but is not ours to edit. */
+    const refuses = (layer: CellStyle | undefined, isOwned: boolean) => {
+      const verdict = verdictFor(layer);
+      return verdict === 'conflict' || (verdict === 'match' && !isOwned);
+    };
+
+    if (refuses(this.sheetStyle, ownsSheet)) {
+      return false;
+    }
+    for (const [col, colStyle] of this.colStyles) {
+      if (!targets.some((t) => col >= t[0].c && col <= t[1].c)) continue;
+      if (refuses(colStyle, ownsCols)) {
         return false;
       }
-      for (const [col, colStyle] of this.colStyles) {
-        const colValue = colStyle[key];
-        if (colValue === undefined) continue;
-        if (!targets.some((t) => col >= t[0].c && col <= t[1].c)) continue;
-        if (!ownsCols || colValue !== value) {
-          return false;
-        }
+    }
+    for (const [row, rowStyle] of this.rowStyles) {
+      if (!targets.some((t) => row >= t[0].r && row <= t[1].r)) continue;
+      if (refuses(rowStyle, ownsRows)) {
+        return false;
       }
-      for (const [row, rowStyle] of this.rowStyles) {
-        const rowValue = rowStyle[key];
-        if (rowValue === undefined) continue;
-        if (!targets.some((t) => row >= t[0].r && row <= t[1].r)) continue;
-        if (!ownsRows || rowValue !== value) {
-          return false;
-        }
-      }
-      for (const patch of this.rangeStyles) {
-        const patchValue = patch.style[key];
-        if (patchValue === undefined) continue;
-        if (!targets.some((t) => rangesIntersect(t, patch.range))) continue;
-        if (!owned(patch.range) || patchValue !== value) {
-          return false;
-        }
+    }
+    for (const patch of this.rangeStyles) {
+      if (!targets.some((t) => rangesIntersect(t, patch.range))) continue;
+      if (refuses(patch.style, owned(patch.range))) {
+        return false;
       }
     }
 
@@ -4303,11 +4370,12 @@ export class Sheet {
         if (!existing?.s) {
           continue;
         }
-        for (const [key, value] of entries) {
-          const cellValue = existing.s[key];
-          if (cellValue !== undefined && cellValue !== value) {
-            return false;
-          }
+        const verdict = verdictFor(existing.s);
+        if (verdict === 'conflict') {
+          return false;
+        }
+        if (verdict === 'absent') {
+          continue;
         }
         const next = omitStyleKeys(existing.s, keys);
         if (next) {
@@ -4316,11 +4384,13 @@ export class Sheet {
       }
     }
 
+    let changed = cellEdits.length > 0;
     this.store.beginBatch();
     try {
       if (ownsSheet && this.sheetStyle) {
         const next = omitStyleKeys(this.sheetStyle, keys);
         if (next) {
+          changed = true;
           this.sheetStyle = next;
           await this.store.setSheetStyle(next);
         }
@@ -4332,6 +4402,7 @@ export class Sheet {
           }
           const next = omitStyleKeys(colStyle, keys);
           if (next) {
+            changed = true;
             this.colStyles.set(col, next);
             await this.store.setColumnStyle(col, next);
           }
@@ -4344,6 +4415,7 @@ export class Sheet {
           }
           const next = omitStyleKeys(rowStyle, keys);
           if (next) {
+            changed = true;
             this.rowStyles.set(row, next);
             await this.store.setRowStyle(row, next);
           }
@@ -4366,6 +4438,7 @@ export class Sheet {
         }
       }
       if (patchesChanged) {
+        changed = true;
         this.rangeStyles = nextPatches;
         await this.store.setRangeStyles(this.rangeStyles);
       }
@@ -4382,7 +4455,9 @@ export class Sheet {
       this.store.endBatch();
     }
 
-    return true;
+    // Nothing removed is not success: the caller still has to write an explicit
+    // value for the step to be visible.
+    return changed;
   }
 
   /**

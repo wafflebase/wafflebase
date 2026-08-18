@@ -86,7 +86,14 @@ targets `1 === valueDp` → unstyled.
   real round trip is the correct restoration.
 - Decrease is a no-op when the active cell has no stored `dp` and no room to step
   down, which also leaves alone a selection whose other cells still have
-  decimals. Writing `dp: 0` there is the residue the fix exists to remove.
+  decimals. Writing `dp: 0` there is the residue the fix exists to remove. With a
+  stored `dp` of `0` it does write `dp: 0` (so the rest of the selection follows)
+  but never unsets: a clamped step reverses nothing, so taking the format with it
+  would be destructive rather than a round trip.
+- The unset also requires every numeric value in the selection to already render
+  at the target precision, since restoring inheritance shows each cell at its
+  *own* precision. A mixed-precision selection therefore takes the explicit
+  write and follows the step, at the cost of not returning to unstyled.
 - Emptying a column/row/sheet layer stores `{}`, since the `Store` interface has
   no delete for those layers, so `getStyle` can return `{}` where it returned
   `undefined`. Every consumer reads keys optionally, so it resolves the same.

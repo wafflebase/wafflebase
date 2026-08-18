@@ -259,6 +259,164 @@ describe('Sheet.Decimals', () => {
     expect(style?.nf).toBeUndefined();
   });
 
+  it('should round trip a row selection', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectRow(1);
+
+    await sheet.changeDecimals(1);
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      dp: 1,
+      nf: 'number',
+    });
+
+    await sheet.changeDecimals(-1);
+    const style = await sheet.getStyle({ r: 1, c: 1 });
+    expect(style?.dp).toBeUndefined();
+    expect(style?.nf).toBeUndefined();
+  });
+
+  it('should round trip a whole-sheet selection', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectAllCells();
+
+    await sheet.changeDecimals(1);
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({
+      dp: 1,
+      nf: 'number',
+    });
+
+    await sheet.changeDecimals(-1);
+    const style = await sheet.getStyle({ r: 2, c: 2 });
+    expect(style?.dp).toBeUndefined();
+    expect(style?.nf).toBeUndefined();
+  });
+
+  it('should write an explicit value when a row style sets decimals', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectRow(1);
+    await sheet.setRangeStyle({ dp: 1, nf: 'number' });
+
+    // A1 cannot unset what row 1 inherits across, so it stores dp: 0 instead.
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.changeDecimals(-1);
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      dp: 0,
+      nf: 'number',
+    });
+    expect(await sheet.getStyle({ r: 1, c: 5 })).toEqual({
+      dp: 1,
+      nf: 'number',
+    });
+  });
+
+  it('should write an explicit value when a sheet style sets decimals', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectAllCells();
+    await sheet.setRangeStyle({ dp: 1, nf: 'number' });
+
+    sheet.selectStart({ r: 2, c: 2 });
+    await sheet.changeDecimals(-1);
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({
+      dp: 0,
+      nf: 'number',
+    });
+    expect(await sheet.getStyle({ r: 4, c: 4 })).toEqual({
+      dp: 1,
+      nf: 'number',
+    });
+  });
+
+  it('should refuse a column unset when another column disagrees', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectColumn(1);
+    await sheet.setRangeStyle({ dp: 1, nf: 'number' });
+    sheet.selectColumn(2);
+    await sheet.setRangeStyle({ dp: 3, nf: 'number' });
+
+    // Column 2 sits at a different dp, so both columns take the explicit write
+    // rather than losing their format to column 1's unset.
+    sheet.selectColumn(1);
+    sheet.selectColumnRange(1, 2);
+    await sheet.changeDecimals(-1);
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      dp: 0,
+      nf: 'number',
+    });
+    expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({
+      dp: 0,
+      nf: 'number',
+    });
+  });
+
+  it('should refuse a sheet-wide unset when a cell holds deeper decimals', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 3, c: 3 }, '25');
+    await sheet.setStyle({ r: 3, c: 3 }, { dp: 4, nf: 'number' });
+
+    sheet.selectAllCells();
+    await sheet.changeDecimals(1);
+    await sheet.changeDecimals(-1);
+
+    // C3 disagrees about `dp`, so the sheet style takes the explicit write and
+    // C3 keeps the decimals it was given.
+    expect((await sheet.getStyle({ r: 3, c: 3 }))?.dp).toBe(4);
+    expect((await sheet.getStyle({ r: 1, c: 1 }))?.dp).toBe(0);
+  });
+
+  it('should keep a zero-decimal format when decrease has no room left', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1234');
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.setRangeStyle({ dp: 0, nf: 'number' });
+
+    // Decrease at the floor reverses nothing, so it must not take the format
+    // with it — the cell keeps rendering grouped and without decimals.
+    await sheet.changeDecimals(-1);
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      dp: 0,
+      nf: 'number',
+    });
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe(
+      formatValue('1234', 'number', 0),
+    );
+  });
+
+  it('should not strip a number format from a cell that stores no decimals', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 2 }, '5');
+    await sheet.setStyle({ r: 1, c: 2 }, { nf: 'number' });
+
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.changeDecimals(1);
+
+    // B1 carries `nf` with no `dp` beside it, so it is none of the unset's
+    // business and keeps the format the user chose.
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.changeDecimals(-1);
+    expect((await sheet.getStyle({ r: 1, c: 2 }))?.nf).toBe('number');
+  });
+
+  it('should follow the step when the selection disagrees about its precision', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1.5');
+    await sheet.setData({ r: 2, c: 1 }, '1.2345');
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 1 });
+
+    await sheet.changeDecimals(-1);
+    await sheet.changeDecimals(1);
+
+    // Restoring inheritance would send A2 back to four decimals instead of the
+    // one decimal the step asks for, so the selection takes the explicit write.
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe(
+      formatValue('1.5', 'number', 1),
+    );
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe(
+      formatValue('1.2345', 'number', 1),
+    );
+  });
+
   it('should report the value precision and whether dp is stored', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '12.34');

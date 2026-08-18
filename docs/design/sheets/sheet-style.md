@@ -85,18 +85,20 @@ writing one. Keys are removed from the layers the current selection owns —
 contained in the selection, and `cell.s` of cells inside it. Patches and cells
 left with no keys at all are dropped.
 
-The values in the patch are part of the request: a key is removed only where it
-holds the given value. That is what keeps an unset from flattening formatting it
-does not own — a currency cell inside a sheet-wide "one less decimal" refuses the
-operation instead of being stripped to plain.
+The values in the patch are part of the request: a layer is rewritten only where
+it holds *every* requested key at the requested value. Holding some of them is a
+refusal, not a partial match — a cell with `nf: 'number'` and no `dp` beside it
+describes a format nobody paired with a decimal count, and stripping the rest of
+the request from it would flatten formatting the call does not own. That is what
+keeps an unset off a currency cell inside a sheet-wide "one less decimal".
 
 It returns `false` and writes **nothing** when a layer the selection does not own
-sets one of the keys, or when a layer inside the selection disagrees about the
-value. There is no "explicitly none" token in the stored model, so an inherited
-value cannot be masked — the caller has to fall back to writing an explicit
-value, which is also the only way to reach a value that differs from what is
-inherited. Cells are scanned before anything is written, so a refusal leaves the
-selection untouched.
+sets one of the keys, when a layer inside the selection disagrees about the
+value, or when nothing turned out to be removable at all. There is no
+"explicitly none" token in the stored model, so an inherited value cannot be
+masked — the caller has to fall back to writing an explicit value, which is also
+the only way to reach a value that differs from what is inherited. Cells are
+scanned before anything is written, so a refusal leaves the selection untouched.
 
 Removing the last key from a column/row/sheet layer stores `{}` rather than
 deleting the entry — the `Store` interface has no delete for those layers — so
@@ -218,11 +220,22 @@ found it, including leaving no `dp`/`nf` on a cell that had none.
 `getActiveDecimalState()` reports three things about the active cell — the `dp`
 to step from, `valueDp` (the precision the raw value already shows: `2` for
 `12.34`, `0` for `12` or an empty cell) and `explicitDp` (whether any layer
-stores `dp`). When the step lands on `valueDp` and `dp` is stored,
-`changeDecimals` calls `unsetRangeStyleValues` instead of writing an equivalent
-explicit style; otherwise it writes `dp` (plus `nf: 'number'` when the format is
-plain, as before). `nf: 'number'` renders 2 decimals with no `dp`, so it is
-removed together with the `dp` rather than left behind.
+stores `dp`). The unset fires only when all of this holds:
+
+- the step lands exactly on `valueDp` and `dp` is stored (`explicitDp`), and
+- the step was not clamped at the floor — a Decrease with nothing left to give
+  reverses nothing, so it writes `dp: 0` and leaves any stored format in place
+  rather than unsetting it, and
+- every numeric value in the selection already renders at that same precision.
+  Restoring inheritance shows each cell at its *own* precision, which is only
+  the reverse of a step when the whole selection agrees about it; a neighbour
+  holding more digits would jump back to them instead of following the step.
+
+Otherwise `changeDecimals` writes `dp` explicitly (plus `nf: 'number'` when the
+format is plain, as before). When it does unset and the format is `'number'`,
+the `nf` goes with the `dp`: `nf: 'number'` renders 2 decimals with no `dp`, so
+leaving it behind would change what is on screen. Any other format keeps its
+`nf` and gives up only the `dp`.
 
 Consequences worth knowing:
 
@@ -233,14 +246,18 @@ Consequences worth knowing:
 - Nothing records *who* wrote `nf: 'number'`. A cell the user gave a number
   format can therefore lose it when its `dp` is stepped back down to the value's
   own precision; Google Sheets keeps a format there. The unset only fires where
-  the whole selection agrees on `dp` and `nf`, so it cannot reach *another*
-  cell's format — but it does drop grouping separators with the format, so a
-  value of `1234.5` goes from `1,234.5` to `1234.5`. For a genuine round trip
-  that is the point: the cell renders as it did before the first click.
+  the whole selection agrees on `dp`, `nf` and the value's own precision, so it
+  cannot reach *another* cell's format — but on the cell it does fire on it
+  drops the grouping separators with the format, so `1,234.5` renders as
+  `1234.5`. For a genuine round trip that is the point: the cell renders as it
+  did before the first click.
 - The step is read from the active cell, as it always was. When the active cell
   has no stored `dp` and nothing left to give, Decrease is a no-op rather than
   writing `dp: 0` — writing it is exactly the residue this rule exists to avoid.
   A selection whose *other* cells still have decimals is then also left alone.
+  When the active cell *does* store a `dp` and sits at zero, Decrease still
+  writes `dp: 0` so the rest of the selection can follow it down; the format
+  stays put, since a clamped step is not a reversal of anything.
 
 ## UI Integration
 
