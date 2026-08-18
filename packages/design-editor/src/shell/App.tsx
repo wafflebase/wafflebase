@@ -36,6 +36,7 @@ import {
   ChevronLeft,
   ChevronRight,
   HardDriveDownload,
+  Info,
   Moon,
   Palette,
   RotateCcw,
@@ -43,7 +44,9 @@ import {
   Sun,
 } from 'lucide-react';
 import {
+  camelToKebab,
   createBridgeClient,
+  defaultVariantState,
   layoutEditKey,
   type BridgeClient,
   saveDiff,
@@ -51,7 +54,10 @@ import {
   type HealthResult,
   type MetadataResult,
   type PendingLayoutEdit,
+  type TokensResult,
   type TransactionSummary,
+  tokenPreviewStyle,
+  type VariantState,
 } from '../client/index.ts';
 import { anchorFromStamp, planRebase, rootsLookup, type RootsHolder } from '../client/anchors.ts';
 import { useEditHistory } from '../client/history.ts';
@@ -61,12 +67,26 @@ import { SceneOutline, type OutlineFile } from './scenes/SceneOutline.tsx';
 import { SceneNodeDetail, type SceneSelection } from './scenes/SceneNodeDetail.tsx';
 import { FloatingClassEditor } from './scenes/FloatingClassEditor.tsx';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs.tsx';
+import { ComponentList } from './panels/ComponentList.tsx';
+import { ReviewApproveModal } from './panels/ReviewApproveModal.tsx';
+import { TokenBindingPanel } from './panels/TokenBindingPanel.tsx';
+import { TokenEditorPanel } from './panels/TokenEditorPanel.tsx';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.tsx';
 import { sceneNodeAt, type FileMeta, type SceneMeta } from '../types.ts';
 import { stampId, type FrameRect, type StampRef } from '../scenes/frame-protocol.ts';
 import { resolveImport } from '../scenes/import-paths.ts';
 
 const defaultBridge = createBridgeClient();
+
+/**
+ * The semantic role vocabulary — the adapter's own keys, not a compiled-in list.
+ *
+ * The prototype passed `mockMetadata.tokenVocabulary.semanticRoles`, a frozen snapshot of
+ * wafflebase's roles. What a binding may point at is whatever the consumer's semantic family
+ * actually declares, which `GET /tokens` reports per theme.
+ */
+const SEMANTIC_VOCABULARY = (tokens: TokensResult | null): string[] =>
+  Object.keys(tokens?.bindings?.themed.light ?? {}).map(camelToKebab).sort();
 
 /** View state worth surviving a reload, but NOT part of the undo history. */
 const VIEW_KEY = 'design-editor:view:v1';
@@ -205,6 +225,16 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   const [writeDepth, setWriteDepth] = useState(0);
   const [reapplyDepth, setReapplyDepth] = useState(0);
   const [busy, setBusy] = useState(false);
+  /** `GET /tokens` — the adapter's report. Re-read after every write, like metadata. */
+  const [tokens, setTokens] = useState<TokensResult | null>(null);
+  /**
+   * Which component the binding panel edits. A NAME, not the object: `allComponents` is
+   * replaced wholesale by every metadata refresh, and holding the object would pin a stale
+   * copy whose CVA no longer matches the file.
+   */
+  const [componentName, setComponentName] = useState<string | null>(null);
+  const [variantState, setVariantState] = useState<VariantState>({});
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   const onHistoryReset = useCallback(
     () => notify('info', 'Dev server restarted', 'The persisted edit history was cleared.'),
@@ -262,6 +292,10 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
     }
   }, []);
 
+  const refreshTokens = useCallback(async () => {
+    setTokens(await bridge.tokens());
+  }, [bridge]);
+
   const refreshWriteLog = useCallback(async () => {
     const h = await bridge.transactions();
     if (!h.ok) return;
@@ -274,8 +308,9 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   useEffect(() => {
     bridge.health().then(setHealth);
     refreshMetadata();
+    refreshTokens();
     refreshWriteLog();
-  }, [refreshMetadata, refreshWriteLog]);
+  }, [refreshMetadata, refreshTokens, refreshWriteLog]);
 
   const scenes: SceneMeta[] = meta?.metadata?.scenes ?? [];
   const files: FileMeta[] = meta?.metadata?.files ?? [];
@@ -289,6 +324,26 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
     setSceneId((cur) => (scenes.some((s) => s.id === cur) ? cur : scenes[0].id));
   }, [scenes]);
   const activeScene = scenes.find((s) => s.id === sceneId);
+
+  /**
+   * Every analysed component, flattened out of `metadata.files`.
+   *
+   * The prototype seeded this from a 908-line build-time snapshot and replaced it from the
+   * endpoint; there is no snapshot to seed from any more, so an empty list before the first
+   * response is simply "not loaded yet" rather than "this project has no components".
+   */
+  const allComponents = useMemo(
+    () => files.flatMap((f) => f.components ?? []),
+    [files],
+  );
+  const component = allComponents.find((c) => c.name === componentName) ?? allComponents[0];
+  /** Re-seed the variant axes when the selection changes; edits are keyed per component. */
+  const selectComponent = (name: string) => {
+    const next = allComponents.find((c) => c.name === name);
+    if (!next) return;
+    setComponentName(name);
+    setVariantState(defaultVariantState(next));
+  };
 
   /** Root-relative file → its own node tree, for every file the analyser read. */
   const holderOf = useCallback(
@@ -440,6 +495,26 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   // ---------------------------------------------------------------------------
   // Staging.
   // ---------------------------------------------------------------------------
+  /**
+   * Stage into any one of `EditState`'s maps, as one history step.
+   *
+   * `coalesce` collapses a run of changes to the same control — a colour input's keystrokes
+   * — into a single undo entry. Every panel's `onX` handler is one call to this, which is
+   * what keeps undo/redo tracking EDITS rather than saves.
+   */
+  const setIn = <K extends keyof EditState>(
+    map: K,
+    key: string,
+    value: EditState[K][string] | null,
+    coalesce?: string,
+  ) =>
+    history.update((prev) => {
+      const next = { ...prev[map] } as EditState[K];
+      if (value === null) delete next[key];
+      else next[key] = value as EditState[K][string];
+      return { ...prev, [map]: next } satisfies EditState;
+    }, coalesce);
+
   const setLayoutEdit = (key: string, value: PendingLayoutEdit | null) =>
     history.update((prev) => {
       const next = { ...prev.layoutEdits };
@@ -480,23 +555,26 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   // ---------------------------------------------------------------------------
   const plan = useMemo(() => saveDiff(history.baseline, history.state), [history.baseline, history.state]);
 
-  const save = useCallback(async () => {
+  /**
+   * ⌘S opens the REVIEW, it does not write.
+   *
+   * 11b wrote the plan straight through because the modal was PR 12's; this is that PR. The
+   * difference is not ceremony — the modal dry-runs every intent and shows the diff, which is
+   * the only place a designer sees what a class rewrite will do to source before it happens.
+   */
+  const save = useCallback(() => {
     if (!plan.length || busy) return;
-    setBusy(true);
-    const r = await bridge.commit(plan.map((p) => p.intent));
-    setBusy(false);
-    if (r.ok) {
-      history.markSaved();
-      notify('info', `Wrote ${plan.length} change${plan.length === 1 ? '' : 's'}`, r.files?.join(', '));
-      setStaleKeys({});
-    } else {
-      // NOT marked saved: the baseline must keep describing disk, or the next plan
-      // would try to revert a write that never happened.
-      notify('error', 'Nothing was written', r.error ?? 'The bridge refused the plan.');
-    }
+    setReviewOpen(true);
+  }, [plan, busy]);
+
+  /** Called by the modal once a commit actually landed. */
+  const onApproved = useCallback(() => {
+    history.markSaved();
+    setStaleKeys({});
     refreshMetadata();
+    refreshTokens();
     refreshWriteLog();
-  }, [plan, busy, history, notify, refreshMetadata, refreshWriteLog]);
+  }, [history, refreshMetadata, refreshTokens, refreshWriteLog]);
 
   /** Stepping the bridge's transaction log changes FILES, so the baseline moves too. */
   const stepWrite = async (dir: 'revert' | 'reapply') => {
@@ -655,6 +733,54 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
               </Popover>
             )}
 
+            {/*
+              THE CONFIG READOUT, moved rather than deleted.
+              
+              It was 11a's whole screen and 11a's header said it survives: "is my config
+              actually wired?" is the first question a consumer has, and §5 calls the answer
+              the real onboarding cliff. 12 needed the tab it was standing in, so it moves
+              here — the four facts a missing manifest or absent adapter gets wrong, one
+              click away, instead of gone.
+            */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  title="What the plugin found in this project"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-wb-border px-2.5 py-1 text-xs text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg"
+                >
+                  <Info className="size-3.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-96">
+                <dl className="flex flex-col gap-1 text-[10px]">
+                  <Readout label="Editing" value={health?.root ?? '(unreported)'} />
+                  <Readout
+                    label="Scene manifest"
+                    value={health?.scenes ?? 'none declared'}
+                    ok={!!health?.scenes}
+                  />
+                  <Readout
+                    label="Token adapter"
+                    value={
+                      tokens?.adapter === 'configured'
+                        ? `configured · ${tokens.families?.length ?? 0} families`
+                        : (tokens?.reason ?? 'none — the token panels are read-only')
+                    }
+                    ok={tokens?.adapter === 'configured'}
+                  />
+                  <Readout
+                    label="Aliases"
+                    value={
+                      health?.aliases?.length
+                        ? health.aliases.map((a) => `${a.find} → ${a.replacement || '.'}`).join('  ')
+                        : 'none configured'
+                    }
+                  />
+                </dl>
+              </PopoverContent>
+            </Popover>
+
             <Popover>
               <PopoverTrigger asChild>
                 <button
@@ -714,7 +840,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
               disabled={plan.length === 0 || busy}
               title={
                 plan.length
-                  ? 'Write the plan to code · ⌘S'
+                  ? 'Review the plan and write it · ⌘S'
                   : 'Nothing to write — code matches the editor'
               }
               className="inline-flex items-center gap-1.5 rounded-md bg-wb-accent px-2.5 py-1 text-xs font-medium text-wb-accent-fg transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
@@ -778,6 +904,30 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 </ul>
               )}
             </div>
+            {/*
+              THE COMPONENT LIST IS HERE, not behind a mode toggle.
+              
+              The prototype made components a MODE that replaced the centre pane with an
+              isolated preview of one primitive. That preview needs a hand-written renderer
+              per component and is not part of this rollout, so the centre stays the real
+              page — which is the better surface for judging a token change anyway. What the
+              list is for is giving "Token bindings" a subject: it edits one component's CVA
+              values, and nothing else on screen names a component.
+            */}
+            {allComponents.length > 0 && (
+              <div className="min-h-0 shrink-0 border-t border-wb-border pt-2" style={{ maxHeight: '45%' }}>
+                <p className="pb-1 font-mono text-[10px] uppercase tracking-wide text-wb-muted">
+                  Components
+                </p>
+                <div className="max-h-40 overflow-y-auto">
+                  <ComponentList
+                    components={allComponents}
+                    selected={component?.name ?? ''}
+                    onSelect={selectComponent}
+                  />
+                </div>
+              </div>
+            )}
           </aside>
 
           <main className="min-h-0 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-3">
@@ -824,6 +974,24 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
             />
           )}
 
+          <ReviewApproveModal
+            open={reviewOpen}
+            onOpenChange={setReviewOpen}
+            dark={dark}
+            plan={plan}
+            classEdits={Object.values(history.state.classEdits)}
+            tokenEdits={Object.values(history.state.tokenEdits)}
+            tokenAdds={Object.values(history.state.tokenAdds)}
+            rebinds={Object.values(history.state.rebinds)}
+            paletteEdits={Object.values(history.state.paletteEdits)}
+            tokens={tokens}
+            bridge={bridge}
+            allComponents={allComponents}
+            onApproved={onApproved}
+            onDiscard={history.dropEdits}
+            notify={notify}
+          />
+
           <aside className="min-h-0 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-3">
             <Tabs defaultValue="layout" className="flex h-full flex-col gap-3">
               <TabsList className="w-full">
@@ -834,10 +1002,16 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                   Layout
                 </TabsTrigger>
                 <TabsTrigger
+                  value="bindings"
+                  className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
+                >
+                  Bindings
+                </TabsTrigger>
+                <TabsTrigger
                   value="tokens"
                   className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
                 >
-                  Token Editor
+                  Tokens
                 </TabsTrigger>
               </TabsList>
 
@@ -867,39 +1041,58 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 </div>
               </TabsContent>
 
-              <TabsContent value="tokens" className="min-h-0 flex-1 overflow-y-auto">
-                {/*
-                  A STATED GAP, not a stub pretending to be a feature. The token editor
-                  and the token-binding panel are PR 12; what this tab reports instead
-                  is the one thing a consumer needs to know before then — whether the
-                  adapter that panel will need is even configured.
-                */}
-                <p className="text-[11px] leading-relaxed text-wb-muted">
-                  Token editing lands in a later change. What the plugin found so far:
-                </p>
-                <dl className="mt-2 flex flex-col gap-1 text-[10px]">
-                  <Readout label="Editing" value={health?.root ?? '(unreported)'} />
-                  <Readout
-                    label="Scene manifest"
-                    value={health?.scenes ?? 'none declared'}
-                    ok={!!health?.scenes}
-                  />
-                  <Readout
-                    label="Token adapter"
-                    value={
-                      health?.tokens === 'configured' ? 'configured' : 'none — panels will be read-only'
+              <TabsContent value="bindings" className="min-h-0 flex-1 overflow-hidden">
+                {component ? (
+                  <TokenBindingPanel
+                    component={component}
+                    variantState={variantState}
+                    onVariantChange={(axis, value) =>
+                      setVariantState((prev) => ({ ...prev, [axis]: value }))
                     }
-                    ok={health?.tokens === 'configured'}
+                    families={tokens?.families ?? []}
+                    vocabulary={tokens?.families?.length ? SEMANTIC_VOCABULARY(tokens) : []}
+                    /*
+                     * Roles that exist in source but not in the semantic family's own keys.
+                     * Empty: `SEMANTIC_VOCABULARY` already reads the adapter's live keys, so
+                     * there is nothing left for a second list to add. The prop stays because
+                     * a consumer whose vocabulary is curated rather than derived needs it.
+                     */
+                    extraRoles={[]}
+                    classEdits={history.state.classEdits}
+                    onClassEdit={(key, edit) => setIn('classEdits', key, edit, `class|${key}`)}
+                    onTokenAdd={(key, add) => setIn('tokenAdds', key, add)}
+                    tokenAdds={history.state.tokenAdds}
+                    existingRoles={new Set(SEMANTIC_VOCABULARY(tokens))}
+                    dark={dark}
+                    tokenStyle={tokenPreviewStyle({
+                      theme: dark ? 'dark' : 'light',
+                      literalEdits: Object.values(history.state.tokenEdits),
+                      rebinds: Object.values(history.state.rebinds),
+                      paletteEdits: Object.values(history.state.paletteEdits),
+                      bindings: tokens?.bindings?.themed[dark ? 'dark' : 'light'],
+                    })}
                   />
-                  <Readout
-                    label="Aliases"
-                    value={
-                      health?.aliases?.length
-                        ? health.aliases.map((a) => `${a.find} → ${a.replacement || '.'}`).join('  ')
-                        : 'none configured'
-                    }
-                  />
-                </dl>
+                ) : (
+                  <p className="px-1 text-[11px] leading-relaxed text-wb-muted">
+                    No components analysed. List them under `components` in the scene manifest
+                    to edit their CVA values here.
+                  </p>
+                )}
+              </TabsContent>
+
+              <TabsContent value="tokens" className="min-h-0 flex-1 overflow-hidden">
+                <TokenEditorPanel
+                  dark={dark}
+                  tokens={tokens}
+                  tokenEdits={history.state.tokenEdits}
+                  onTokenEdit={(key, edit) => setIn('tokenEdits', key, edit, `token|${key}`)}
+                  tokenAdds={history.state.tokenAdds}
+                  onTokenAdd={(key, add) => setIn('tokenAdds', key, add)}
+                  rebinds={history.state.rebinds}
+                  onRebind={(key, edit) => setIn('rebinds', key, edit)}
+                  paletteEdits={history.state.paletteEdits}
+                  onPaletteEdit={(key, edit) => setIn('paletteEdits', key, edit, `palette|${key}`)}
+                />
               </TabsContent>
             </Tabs>
           </aside>

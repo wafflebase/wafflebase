@@ -8,6 +8,7 @@
 
 export { createBridgeClient } from './bridge.ts';
 export type {
+  BatchOutcome,
   BridgeClient,
   BridgeClientOptions,
   BridgeResult,

@@ -350,6 +350,67 @@ async function main() {
         (await inner.$eval('[data-wb-overlay="selection"]', (e) => getComputedStyle(e).display)) === 'block',
       );
 
+      /**
+       * The claim the whole editor makes: an edit can be staged, taken back, and reviewed.
+       *
+       * This is the one path with no unit coverage and it cannot have any — the class editor
+       * only appears once the frame has MEASURED the selection and posted its rect back, and
+       * jsdom loads no iframe. Everything downstream (the plan count, ⌘Z, the review modal)
+       * is therefore only ever exercised here.
+       */
+      console.log('\nan edit stages, comes back, and reaches the review');
+      await inner.click('[data-wb-node]');
+      await page.waitForTimeout(700);
+      const saveBtn = async () =>
+        page.$eval('button[title*="⌘S"], button[title*="matches the editor"]', (b) => ({
+          text: (b.textContent ?? '').trim(),
+          disabled: b.disabled,
+        }));
+      if (check('the class editor opened on the selection', !!(await page.$('[data-wb-class-editor]')))) {
+        await page.click('[data-wb-class-editor] button[title="flex-col"]');
+        await page.waitForTimeout(300);
+        // The count on Save is `saveDiff(baseline, present).length` — "how many file changes
+        // it would take", which is the number the header promises.
+        check('staging one class edit puts one change in the plan', /1$/.test((await saveBtn()).text), (await saveBtn()).text);
+        check(
+          'and the toggle reads as active',
+          (await page.getAttribute('[data-wb-class-editor] button[title="flex-col"]', 'aria-pressed')) === 'true',
+        );
+
+        await page.keyboard.press('Control+z');
+        await page.waitForTimeout(300);
+        check('⌘Z empties the plan again', (await saveBtn()).disabled === true, JSON.stringify(await saveBtn()));
+
+        await page.keyboard.press('Control+Shift+z');
+        await page.waitForTimeout(300);
+        check('and ⇧⌘Z puts it back', /1$/.test((await saveBtn()).text), (await saveBtn()).text);
+
+        // ⌘S OPENS THE REVIEW; it does not write. That is PR 12's change to this path, and
+        // the modal dry-runs every intent — so its presence also proves `/mutate?dryRun`
+        // answered for a real staged edit.
+        await page.keyboard.press('Control+s');
+        await page.waitForTimeout(2500);
+        const modal = await page.$('[role="dialog"][aria-modal="true"]');
+        if (check('⌘S opens the review instead of writing', !!modal)) {
+          const text = ((await page.textContent('[role="dialog"][aria-modal="true"]')) ?? '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          check(
+            'and the review shows a diff for the staged edit',
+            /flex-col/.test(text),
+            JSON.stringify(text.slice(0, 120)),
+          );
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(400);
+          check('Escape closes it without writing', !(await page.$('[role="dialog"][aria-modal="true"]')));
+        }
+
+        // Leave nothing staged: the viewport checks below remount the frame, and a dirty
+        // editor there would make a failure read as a protocol problem.
+        await page.keyboard.press('Control+z');
+        await page.waitForTimeout(300);
+      }
+
       const viewportButtons = await page.$$('button[title^="Viewport"]');
       check('the viewport switcher is present', viewportButtons.length > 0);
       if (viewportButtons.length > 0) {

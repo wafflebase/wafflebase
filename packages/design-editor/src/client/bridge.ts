@@ -50,6 +50,17 @@ export interface BridgeClientOptions {
 /** Every response carries these two; `error` is present only when `ok` is false. */
 export interface BridgeResult {
   ok: boolean;
+  /**
+   * The HTTP status, when there WAS a response. Absent means the request never completed —
+   * the dev server is down, or the network refused it.
+   *
+   * That distinction is not cosmetic and it was previously unavailable: `/mutate` reports an
+   * intent it could not locate as a 409 with `ok: false`, which is the same shape a dead
+   * server produces. A caller could therefore only say "it failed", where "this one edit no
+   * longer matches its file" and "nothing is listening" need different words and different
+   * recovery.
+   */
+  status?: number;
   error?: string;
 }
 
@@ -131,8 +142,30 @@ export interface MutateResponse extends BridgeResult {
   parentPath?: number[];
 }
 
+/**
+ * One intent's outcome inside a batch, as `/validate` and `/commit` actually send it.
+ *
+ * NOT `MutateResult`, and the difference is load-bearing: both routes return
+ * `composeIntents`' own rows, which carry `located`, `reason`, `label` and `file` — the
+ * four fields a caller needs to report WHICH edit failed and why. Typing them as
+ * `MutateResult` hid all four, so a client could only say "the batch failed". The rows
+ * are in intent order, because `composeIntents` iterates the batch sequentially.
+ */
+export interface BatchOutcome {
+  located: boolean;
+  reason?: string;
+  /** A short human label for the edit, e.g. `token-value --primary`. */
+  label: string;
+  /** Root-relative, and correct for a layout intent (whose file is on its anchor). */
+  file: string;
+  /** `layout-remove` echoes the span it cut, so the client can store the inverse. */
+  removedText?: string;
+  removedIndex?: number;
+  parentPath?: number[];
+}
+
 export interface ValidateResult extends BridgeResult {
-  results?: MutateResult[];
+  results?: BatchOutcome[];
   fsRevision?: number;
 }
 
@@ -141,7 +174,7 @@ export interface CommitResult extends BridgeResult {
   files?: string[];
   backup?: string | null;
   txnId?: number;
-  results?: MutateResult[];
+  results?: BatchOutcome[];
   regenerated?: boolean;
   regenError?: string;
 }
@@ -231,13 +264,14 @@ export function createBridgeClient(options: BridgeClientOptions = {}): BridgeCli
       return { ok: false, error: err instanceof Error ? err.message : 'bridge unreachable' } as T;
     }
     try {
-      // Parsed whatever the status: see rule 2 — a 409 body is the useful part.
-      return (await res.json()) as T;
+      // Parsed whatever the status: see rule 2 — a 409 body is the useful part. The status
+      // rides along so the caller can tell a refusal from an outage.
+      return { status: res.status, ...((await res.json()) as T) };
     } catch {
       // A dev server that is up but not serving the bridge answers HTML here. The
       // status is the only thing worth reporting, and it is worth reporting: it
       // distinguishes "plugin not installed" (404) from "bridge threw" (500).
-      return { ok: false, error: `unexpected response (${res.status})` } as T;
+      return { ok: false, status: res.status, error: `unexpected response (${res.status})` } as T;
     }
   };
 
