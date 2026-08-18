@@ -588,8 +588,8 @@ cap is what sets the granularity.
 | 10a | frame protocol · drill-in resolver · the alias seam | in review (#855) — see below |
 | 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | in review (#855) — see below |
 | 11a | the shell build — `dist/shell`, two documents, self-contained CSS | in review — see below |
-| 11b | the React chrome (`SandboxLayout`, `SceneHost`, `scene-entry`) + 9c | held — lands React |
-| 11c–12 | the panels — outline, node detail, the class editor, the token panels, the modal | held, and NOT yet split. The measured line counts are in the 11a note below; how they divide is the decision of whoever takes them |
+| 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | held — lands React |
+| 12 | the token panels and the canvas scenes, as the row above always said | held |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
 review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
@@ -799,15 +799,18 @@ So the cut follows the one that already worked for the module underneath it —
   stylesheet"*), so this is a promised step nobody had claimed rather than a new
   decision.
 
-  **What 11a and 11b actually divide, and what is still one row.** The old `11–12`
-  entry was ~7,000 prototype lines against a series whose PRs run 500–2,000, so it had
-  to split somewhere. It splits here at the two places the *code* forces: the build has
-  no React and needs none (11a), and the chrome cannot exist without it (11b, taking
-  `SandboxLayout` 1,609 + `SceneHost` 712 + `scene-entry` 202, and absorbing 9c's
-  `history` 396 + `anchors` 245 because `SandboxLayout` is their only caller). Beyond
-  that the panels are left as one row deliberately: their boundaries are not forced by
-  anything measured yet, and inventing a split now would be a plan nobody has checked
-  against the code.
+  **Where 11 and 12 divide, which this row already said.** The old `11–12` entry reads
+  "the React chrome (`SceneHost`, panels, `scene-entry`), token panels, canvas" — the
+  comma is the split. 11 is the chrome AND its panels; 12 is the token panels and the
+  canvas scenes. An intermediate `11c` was briefly written into this table and removed:
+  it was not in the plan, and the plan already had the line in it.
+
+  11a exists inside 11 because the *code* forces a seam there: the build has no React and
+  needs none, and the chrome cannot exist without it. So 11a is the build, and 11b is
+  `SandboxLayout` 1,609 + `SceneHost` 712 + `scene-entry` 202 + `SceneOutline` 323 +
+  `SceneNodeDetail` 296 + `FloatingClassEditor` 272, absorbing 9c's `history` 396 +
+  `anchors` 245 because `SandboxLayout` is their only caller — 4,055 prototype lines,
+  large for this series and not divisible without inventing a boundary nobody checked.
 
   **The two populations get opposite mechanisms.** `index.html` is built by
   `vite.shell.config.ts` with our own React and our own compiled Tailwind, because the

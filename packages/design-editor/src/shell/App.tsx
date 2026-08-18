@@ -18,6 +18,8 @@
 import { useEffect, useState } from 'react';
 import { createBridgeClient, type HealthResult } from '../client/index.ts';
 import { cn } from './lib/cn.ts';
+import { SceneHost } from './scenes/SceneHost.tsx';
+import type { StampRef } from '../scenes/frame-protocol.ts';
 
 const bridge = createBridgeClient();
 
@@ -38,8 +40,20 @@ function Fact({ label, value, ok }: { label: string; value: string; ok?: boolean
   );
 }
 
+/**
+ * The first scene in the manifest, which is all the shell can choose until the outline
+ * panel lands. `virtual:wb-scenes` is the frame's own import, not the shell's — the shell
+ * is prebuilt and cannot read a module the consumer's server generates — so the id comes
+ * from `GET /health`'s manifest path being present, and the frame reports what it found.
+ * Until then this is a single hardcoded id, and it is named here rather than hidden.
+ */
+const FIRST_SCENE = 'dashboard';
+
 export function App() {
   const [health, setHealth] = useState<HealthResult | null>(null);
+  const [selected, setSelected] = useState<StampRef | null>(null);
+  const [classes, setClasses] = useState<string[]>([]);
+  const [selectable, setSelectable] = useState<string[]>([]);
 
   useEffect(() => {
     // No cleanup guard: the shell mounts once per document and there is nothing to
@@ -49,15 +63,48 @@ export function App() {
   }, []);
 
   return (
-    <main className="mx-auto flex h-full max-w-2xl flex-col justify-center gap-6 px-8">
-      <header>
+    <main className="flex h-full flex-col gap-3 p-4">
+      <header className="shrink-0">
         <h1 className="text-lg font-semibold tracking-tight">Design editor</h1>
         <p className="mt-1 text-sm text-wb-muted">
-          The shell is served. Panels and the scene canvas land next.
+          A live scene frame with the host protocol wired. The three-pane layout and the
+          outline panel replace this arrangement.
         </p>
       </header>
 
-      <section className="rounded-lg border border-wb-border bg-wb-panel px-4 py-2">
+      {/*
+        The frame, mounted directly rather than through the layout. `SandboxLayout` is the
+        next step and owns the three-pane arrangement; putting `SceneHost` here first makes
+        the protocol checkable in a browser at the point it was written, instead of after
+        1,609 more lines of chrome.
+      */}
+      <section className="min-h-0 flex-1">
+        <SceneHost
+          sceneId={FIRST_SCENE}
+          dark={false}
+          selectedId={selected?.id ?? null}
+          onSelect={setSelected}
+          onDeselect={() => setSelected(null)}
+          onReady={setSelectable}
+          onClasses={setClasses}
+        />
+      </section>
+
+      {/* What the protocol reported, so a wrong contract is visible rather than silent. */}
+      <section className="shrink-0 rounded-lg border border-wb-border bg-wb-panel px-4 py-2">
+        <Fact
+          label="Selected"
+          value={selected ? `${selected.tag} — ${selected.id}` : 'nothing selected'}
+        />
+        <Fact
+          label="Instances"
+          value={selected ? String(selected.instances) : '—'}
+        />
+        <Fact label="Selectable nodes" value={String(selectable.length)} />
+        <Fact label="Classes the scene rendered" value={String(classes.length)} />
+      </section>
+
+      <section className="shrink-0 rounded-lg border border-wb-border bg-wb-panel px-4 py-2">
         {health === null ? (
           <p className="py-2 text-sm text-wb-muted">Asking the plugin…</p>
         ) : health.ok ? (

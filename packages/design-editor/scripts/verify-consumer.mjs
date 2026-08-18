@@ -335,6 +335,34 @@ async function main() {
       check('rejects nothing legitimate', (cand.rejected ?? []).length === 0, JSON.stringify(cand.rejected));
     }
 
+    console.log('\nGET /metadata — the outline’s data, from the consumer’s own files');
+    const meta = (await api('/metadata')).body;
+    if (check('answers ok', meta.ok === true, meta.error)) {
+      check('nothing failed to analyse', (meta.failed ?? []).length === 0, JSON.stringify(meta.failed));
+      const scene = (meta.metadata?.scenes ?? [])[0];
+      if (check('the declared scene was analysed', !!scene, JSON.stringify(Object.keys(meta.metadata ?? {})))) {
+        // ROOT-RELATIVE, because the outline compares this against a clicked node's
+        // `parseStampId(id).file` and the stamper writes `data-wb-file` root-relative.
+        // Left absolute the two never match and a click highlights nothing — a
+        // comparison that silently always fails.
+        check('its file is root-relative, matching data-wb-file', scene.file === ROUTE, scene.file);
+        check('it kept the consumer’s own export name', scene.component === 'Dashboard', String(scene.component));
+        const roots = Object.keys(scene.roots ?? {});
+        check('and carries a node tree', roots.length > 0, JSON.stringify(roots));
+        let nodes = 0;
+        const walk = (n) => { nodes += 1; for (const c of n.children ?? []) walk(c); };
+        for (const r of Object.values(scene.roots ?? {})) walk(r);
+        check('with more than just a root', nodes > 1, `${nodes} nodes`);
+        check(
+          'and the import it drills into',
+          (scene.imports ?? []).some((i) => i.module === '@/components/badge'),
+          JSON.stringify((scene.imports ?? []).map((i) => i.module)),
+        );
+      }
+      const file = (meta.metadata?.files ?? [])[0];
+      check('the declared component was analysed too', file?.file === COMPONENT, String(file?.file));
+    }
+
     console.log('\nvirtual:wb-scenes — the consumer’s own manifest, rendered');
     const scenesSrc = await scenesModule();
     if (check('the virtual module is served', scenesSrc.length > 0)) {

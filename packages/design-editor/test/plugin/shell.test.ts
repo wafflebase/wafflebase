@@ -21,6 +21,9 @@ import { BASE } from '../../src/base.ts';
  */
 
 let dist: string;
+/** Captured in `beforeAll` so a test can make one hook fail. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let server: any;
 type Handler = (req: { url?: string }, res: FakeRes, next: () => void) => void;
 let handler: Handler;
 
@@ -79,9 +82,22 @@ beforeAll(() => {
     },
   };
   const cfg = { logger: { error() {} } };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a two-field stand-in
-  // for ViteDevServer; typing it fully would assert nothing this test reads.
-  (plugin.configureServer as any).call(null, { middlewares, config: cfg });
+  /**
+   * `transformIndexHtml` stands in for the consumer's own HTML pipeline, and the scene
+   * document MUST go through it: `@vitejs/plugin-react` injects its fast-refresh
+   * preamble there, and without it the frame mounts React and renders nothing. The fake
+   * marks what it touched so the test can prove the call happened rather than trusting
+   * that it did.
+   */
+  server = {
+    middlewares,
+    config: cfg,
+    transformIndexHtml: async (url: string, html: string) =>
+      html.replace('<!doctype-marker>', '') + `<!--transformed:${url}-->`,
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a narrow stand-in for
+  // ViteDevServer; typing it fully would assert nothing this test reads.
+  (plugin.configureServer as any).call(null, server);
 });
 
 afterAll(() => fs.rmSync(dist, { recursive: true, force: true }));
@@ -102,6 +118,30 @@ describe('the scene document', () => {
     expect(r.headers['content-type']).toBe('text/html; charset=utf-8');
     // A stale shell is indistinguishable from a broken one.
     expect(r.headers['cache-control']).toBe('no-store');
+  });
+
+  it('goes through the consumer’s own HTML transforms', async () => {
+    // NOT decoration. `plugin-react` injects its fast-refresh preamble in
+    // `transformIndexHtml`; served as static bytes the document never reaches it, and
+    // every module the consumer's plugin transformed throws `can't detect preamble` at
+    // load. Measured in a real browser before the fix: React mounted, the scene rendered
+    // NOTHING, and zero nodes were stamped — one console line and a blank frame.
+    const { res: r } = await get('/scene');
+    expect(r.body).toContain('<!--transformed:');
+    // The URL is passed through, because Vite resolves relative injections against it.
+    expect(r.body).toContain(`<!--transformed:/scene-->`);
+  });
+
+  it('reports a failing HTML transform instead of serving a blank frame', async () => {
+    const boom = new Error('a consumer plugin threw');
+    const original = (server as { transformIndexHtml: unknown }).transformIndexHtml;
+    (server as { transformIndexHtml: unknown }).transformIndexHtml = async () => {
+      throw boom;
+    };
+    const { res: r } = await get('/scene');
+    expect(r.statusCode).toBe(500);
+    expect(r.body).toContain('could not be transformed');
+    (server as { transformIndexHtml: unknown }).transformIndexHtml = original;
   });
 
   it('refuses a document whose placeholder is gone, rather than serving it', async () => {
