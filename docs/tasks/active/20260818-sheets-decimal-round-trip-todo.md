@@ -34,22 +34,27 @@ inheritance instead of writing an equivalent explicit style.
    `explicitDp` (whether any style layer sets `dp`). Today the inferred value is
    returned as `dp` and the caller cannot tell it apart from a stored one.
 
-2. **`Sheet.unsetRangeStyleKeys(keys)`** — new: removes style keys from the
+2. **`Sheet.unsetRangeStyleValues(style)`** — new: removes style keys from the
    layers the current selection *owns*, restoring inheritance.
    - owned = `sheetStyle` for an `all` selection, `colStyles` for a `column`
      selection, `rowStyles` for a `row` selection, any `rangeStyles` patch whose
      range is contained in the selection, and `cell.s` of cells inside it.
+   - a key is removed only where it holds the value the caller names, so an
+     unset can never flatten formatting it does not own.
    - returns `false` **without writing anything** when a layer outside the
-     selection still sets one of the keys — the stored model has no "explicitly
-     none" token, so unset is genuinely unrepresentable there and the caller
-     must fall back to an explicit value.
+     selection still sets one of the keys, or when a layer inside it disagrees
+     about the value — the stored model has no "explicitly none" token, so unset
+     is genuinely unrepresentable there and the caller must fall back to an
+     explicit value. Cells are scanned before the first write.
 
-3. **`Spreadsheet.increaseDecimals` / `decreaseDecimals`** collapse onto one
-   private `applyDecimalDelta(delta)`:
-   - `target = dp + delta`; `target < 0` → no-op.
-   - `target === valueDp` and `explicitDp` → try to unset (`['dp','nf']` when
+3. **`Sheet.changeDecimals(delta)`** holds the rule (the model, not the view, so
+   it is testable against `MemStore`); `Spreadsheet.increaseDecimals` /
+   `decreaseDecimals` become render-and-notify wrappers:
+   - `target = dp + delta`, clamped at `0`; nothing stored and no room left →
+     no-op, so an untouched cell gains no zero-decimal format.
+   - `target === valueDp` and `explicitDp` → try to unset (`{dp, nf}` when
      `nf === 'number'`, since `nf: number` with no `dp` renders 2 decimals and
-     would change what is on screen; otherwise `['dp']`).
+     would change what is on screen; otherwise `{dp}`).
    - otherwise the existing explicit write.
 
 Walking the reported case: empty cell → Increase writes `{dp: 1, nf: 'number'}`
@@ -61,19 +66,27 @@ targets `1 === valueDp` → unstyled.
 ## Tasks
 
 - [x] `getActiveDecimalState` returns `valueDp` + `explicitDp`
-- [x] `Sheet.unsetRangeStyleKeys(keys)` with the ownership + conflict rules
-- [x] `applyDecimalDelta` in `Spreadsheet`, both handlers routed through it
+- [x] `Sheet.unsetRangeStyleValues(style)` with the ownership + conflict rules
+- [x] `changeDecimals` in `Sheet`, both view handlers routed through it
 - [x] Unit tests: empty / integer / `12.5` round trips, N×increase + N×decrease,
       decrease-then-increase, a user `nf: 'number'` cell keeps its format when
       the target is not `valueDp`, unset falls back to an explicit write when a
-      column style sets `dp`
+      column style sets `dp`, and a currency/percent cell inside the selection
+      refuses the unset instead of being stripped
 - [x] `docs/design/sheets/sheet-style.md`: unset semantics + the decimal rule
 
-## Known deviation
+## Known deviations
 
-`nf` cannot be attributed: a `nf: 'number'` cell whose `dp` a user drags all the
-way down to the value's own precision loses the number format along with the
-`dp`, because nothing stored says who wrote it. Google Sheets keeps a format
-there. Deviating this way is what makes the reported bug fixable at all, and it
-only fires on a cell whose rendering is already identical with and without the
-format.
+- `nf` cannot be attributed: a `nf: 'number'` cell whose `dp` a user steps all
+  the way down to the value's own precision loses the number format along with
+  the `dp`, because nothing stored says who wrote it. Google Sheets keeps a
+  format there. Deviating this way is what makes the reported bug fixable at all;
+  the value-scoped unset keeps it from ever reaching *another* cell's format, but
+  it does take grouping separators with it (`1,234.5` → `1234.5`), which for a
+  real round trip is the correct restoration.
+- Decrease is a no-op when the active cell has no stored `dp` and no room to step
+  down, which also leaves alone a selection whose other cells still have
+  decimals. Writing `dp: 0` there is the residue the fix exists to remove.
+- Emptying a column/row/sheet layer stores `{}`, since the `Store` interface has
+  no delete for those layers, so `getStyle` can return `{}` where it returned
+  `undefined`. Every consumer reads keys optionally, so it resolves the same.

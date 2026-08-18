@@ -4205,9 +4205,9 @@ export class Sheet {
     if (explicitDp && target === valueDp && inheritable) {
       // `nf: 'number'` renders 2 decimals when no `dp` is stored, so the number
       // format has to go with the `dp` for the cell to keep looking the same.
-      const keys: Array<keyof CellStyle> =
-        nf === 'number' ? ['dp', 'nf'] : ['dp'];
-      if (await this.unsetRangeStyleKeys(keys)) {
+      const values: Partial<CellStyle> =
+        nf === 'number' ? { dp, nf } : { dp };
+      if (await this.unsetRangeStyleValues(values)) {
         return;
       }
     }
@@ -4220,17 +4220,30 @@ export class Sheet {
   }
 
   /**
-   * `unsetRangeStyleKeys` removes the given style keys from the style layers the
-   * current selection owns, restoring inheritance for the selected cells. It is
-   * the reverse of `setRangeStyle`: where that writes an explicit value, this
-   * restores the absence of one.
+   * `unsetRangeStyleValues` removes the given key/value pairs from the style
+   * layers the current selection owns, restoring inheritance for the selected
+   * cells. It is the reverse of `setRangeStyle`: where that writes an explicit
+   * value, this restores the absence of one.
    *
-   * Returns false — writing nothing — when a layer the selection does not own
-   * still sets one of the keys. The stored model has no "explicitly none" token,
-   * so an inherited value cannot be masked, and the caller has to keep writing
-   * an explicit value in that case.
+   * Values are part of the request, not decoration. A key is only removed where
+   * it holds the given value, and anything else within the selection — a cell
+   * with its own currency format, a patch at a different `dp` — refuses the
+   * whole operation rather than being flattened into it.
+   *
+   * Returns false, having written nothing, when the selection does not own a
+   * layer that sets one of the keys or when a layer inside it disagrees about
+   * the value. The stored model has no "explicitly none" token, so an inherited
+   * value cannot be masked and the caller has to write an explicit value.
    */
-  async unsetRangeStyleKeys(keys: Array<keyof CellStyle>): Promise<boolean> {
+  async unsetRangeStyleValues(style: Partial<CellStyle>): Promise<boolean> {
+    const entries = Object.entries(style) as Array<
+      [keyof CellStyle, CellStyle[keyof CellStyle]]
+    >;
+    if (entries.length === 0) {
+      return false;
+    }
+    const keys = entries.map(([key]) => key);
+
     const targets = this.ranges.length > 0
       ? this.ranges
       : [this.getRangeOrActiveCell()];
@@ -4241,39 +4254,64 @@ export class Sheet {
     const owned = (range: Range) =>
       targets.some((target) => containsRange(target, range));
 
-    for (const key of keys) {
-      if (!ownsSheet && this.sheetStyle?.[key] !== undefined) {
+    for (const [key, value] of entries) {
+      const sheetValue = this.sheetStyle?.[key];
+      if (sheetValue !== undefined && (!ownsSheet || sheetValue !== value)) {
         return false;
       }
-      if (!ownsCols) {
-        for (const [col, style] of this.colStyles) {
-          if (
-            style[key] !== undefined &&
-            targets.some((t) => col >= t[0].c && col <= t[1].c)
-          ) {
-            return false;
-          }
+      for (const [col, colStyle] of this.colStyles) {
+        const colValue = colStyle[key];
+        if (colValue === undefined) continue;
+        if (!targets.some((t) => col >= t[0].c && col <= t[1].c)) continue;
+        if (!ownsCols || colValue !== value) {
+          return false;
         }
       }
-      if (!ownsRows) {
-        for (const [row, style] of this.rowStyles) {
-          if (
-            style[key] !== undefined &&
-            targets.some((t) => row >= t[0].r && row <= t[1].r)
-          ) {
-            return false;
-          }
+      for (const [row, rowStyle] of this.rowStyles) {
+        const rowValue = rowStyle[key];
+        if (rowValue === undefined) continue;
+        if (!targets.some((t) => row >= t[0].r && row <= t[1].r)) continue;
+        if (!ownsRows || rowValue !== value) {
+          return false;
         }
       }
       for (const patch of this.rangeStyles) {
-        if (patch.style[key] === undefined) {
+        const patchValue = patch.style[key];
+        if (patchValue === undefined) continue;
+        if (!targets.some((t) => rangesIntersect(t, patch.range))) continue;
+        if (!owned(patch.range) || patchValue !== value) {
+          return false;
+        }
+      }
+    }
+
+    // Cells are scanned before anything is written, so a single disagreeing cell
+    // still leaves the whole selection untouched.
+    const cellEdits: Array<{ anchor: Ref; cell: Cell; style: CellStyle }> = [];
+    const visited = new Set<Sref>();
+    for (const range of targets) {
+      const grid = await this.store.getGrid(range);
+      for (const [sref] of grid) {
+        const anchor = this.normalizeRefToAnchor(parseRef(sref));
+        const anchorSref = toSref(anchor);
+        if (visited.has(anchorSref)) {
           continue;
         }
-        if (
-          targets.some((t) => rangesIntersect(t, patch.range)) &&
-          !owned(patch.range)
-        ) {
-          return false;
+        visited.add(anchorSref);
+
+        const existing = await this.store.get(anchor);
+        if (!existing?.s) {
+          continue;
+        }
+        for (const [key, value] of entries) {
+          const cellValue = existing.s[key];
+          if (cellValue !== undefined && cellValue !== value) {
+            return false;
+          }
+        }
+        const next = omitStyleKeys(existing.s, keys);
+        if (next) {
+          cellEdits.push({ anchor, cell: existing, style: next });
         }
       }
     }
@@ -4288,11 +4326,11 @@ export class Sheet {
         }
       }
       if (ownsCols) {
-        for (const [col, style] of this.colStyles) {
+        for (const [col, colStyle] of this.colStyles) {
           if (!targets.some((t) => col >= t[0].c && col <= t[1].c)) {
             continue;
           }
-          const next = omitStyleKeys(style, keys);
+          const next = omitStyleKeys(colStyle, keys);
           if (next) {
             this.colStyles.set(col, next);
             await this.store.setColumnStyle(col, next);
@@ -4300,11 +4338,11 @@ export class Sheet {
         }
       }
       if (ownsRows) {
-        for (const [row, style] of this.rowStyles) {
+        for (const [row, rowStyle] of this.rowStyles) {
           if (!targets.some((t) => row >= t[0].r && row <= t[1].r)) {
             continue;
           }
-          const next = omitStyleKeys(style, keys);
+          const next = omitStyleKeys(rowStyle, keys);
           if (next) {
             this.rowStyles.set(row, next);
             await this.store.setRowStyle(row, next);
@@ -4332,46 +4370,19 @@ export class Sheet {
         await this.store.setRangeStyles(this.rangeStyles);
       }
 
-      for (const range of targets) {
-        await this.removeCellStyleKeysInRange(range, keys);
+      for (const { anchor, cell, style: nextStyle } of cellEdits) {
+        const nextCell = compactCell(cell, nextStyle);
+        if (isEmptyCell(nextCell)) {
+          await this.store.delete(anchor);
+        } else {
+          await this.store.set(anchor, nextCell);
+        }
       }
     } finally {
       this.store.endBatch();
     }
 
     return true;
-  }
-
-  private async removeCellStyleKeysInRange(
-    range: Range,
-    keys: Array<keyof CellStyle>,
-  ): Promise<void> {
-    const grid = await this.store.getGrid(range);
-    const visited = new Set<Sref>();
-    for (const [sref] of grid) {
-      const anchor = this.normalizeRefToAnchor(parseRef(sref));
-      const anchorSref = toSref(anchor);
-      if (visited.has(anchorSref)) {
-        continue;
-      }
-      visited.add(anchorSref);
-
-      const existing = await this.store.get(anchor);
-      if (!existing?.s) {
-        continue;
-      }
-      const next = omitStyleKeys(existing.s, keys);
-      if (!next) {
-        continue;
-      }
-
-      const nextCell = compactCell(existing, next);
-      if (isEmptyCell(nextCell)) {
-        await this.store.delete(anchor);
-      } else {
-        await this.store.set(anchor, nextCell);
-      }
-    }
   }
 
   /**

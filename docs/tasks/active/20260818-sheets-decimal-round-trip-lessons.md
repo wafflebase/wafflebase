@@ -28,6 +28,16 @@ Running log of non-obvious findings while implementing
   old explicit-write path for that case — which stays correct, because when an
   upstream layer does set `dp`, an explicit value is the only way to reach the
   target precision.
+- **An unset that ignores values destroys formatting it does not own.** The first
+  cut removed `dp`/`nf` from every owned layer *and every cell* in the selection,
+  keyed only off the active cell. Select-All plus one Decrease click then wiped
+  currency and percent formats sheet-wide, leaving orphan `{cu: 'USD'}` — worse
+  than the bug being fixed, and something `setRangeStyle` never did because its
+  column/row/sheet branches never touch cells at all. Rule: an unset has to name
+  the value it expects and refuse when a layer inside the selection disagrees,
+  which is why the API is `unsetRangeStyleValues(style)` and not
+  `unsetRangeStyleKeys(keys)`. Found by an adversarial review pass, not by the
+  round-trip tests, which all used uniformly styled selections.
 - **Who wrote `nf` is unknowable.** Increase/decrease set `nf: 'number'`
   whenever the format is plain/absent, and nothing distinguishes that from a
   user-chosen number format later on. The rule adopted here (drop `nf` only when

@@ -174,6 +174,55 @@ describe('Sheet.Decimals', () => {
     );
   });
 
+  it('should not strip a format another cell in the selection carries', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 2 }, '5');
+    await sheet.setStyle({ r: 1, c: 2 }, { nf: 'currency', cu: 'USD' });
+
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.changeDecimals(1);
+
+    // B1 disagrees about `nf`, so the unset is refused for the whole selection
+    // and the currency format survives.
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.changeDecimals(-1);
+    const style = await sheet.getStyle({ r: 1, c: 2 });
+    expect(style?.nf).toBe('currency');
+    expect(style?.cu).toBe('USD');
+  });
+
+  it('should not strip a format a sheet-wide step would reach', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 3, c: 3 }, '0.25');
+    await sheet.setStyle({ r: 3, c: 3 }, { nf: 'percent' });
+
+    sheet.selectAllCells();
+    await sheet.changeDecimals(1);
+    await sheet.changeDecimals(-1);
+
+    expect((await sheet.getStyle({ r: 3, c: 3 }))?.nf).toBe('percent');
+  });
+
+  it('should not strip decimals another cell in the selection set deeper', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 2 }, '1.23456');
+    await sheet.setStyle({ r: 1, c: 2 }, { dp: 5, nf: 'number' });
+
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.changeDecimals(1);
+
+    // B1 sits at a different `dp`, so the selection takes the explicit write
+    // rather than unsetting B1's own decimals along with A1's.
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.changeDecimals(-1);
+    expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({
+      dp: 0,
+      nf: 'number',
+    });
+  });
+
   it('should write an explicit value when a column style sets decimals', async () => {
     const store = new MemStore();
     const sheet = new Sheet(store);

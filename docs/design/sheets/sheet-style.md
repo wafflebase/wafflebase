@@ -76,7 +76,7 @@ Behavior depends on selection type:
 - **Cell selection**: append a `rangeStyles` patch and only touch existing
   cell-level styles that conflict with the patch (to avoid redundant writes).
 
-### `unsetRangeStyleKeys(keys)`
+### `unsetRangeStyleValues(style)`
 
 The reverse of `setRangeStyle`: it restores the *absence* of a value instead of
 writing one. Keys are removed from the layers the current selection owns —
@@ -85,11 +85,23 @@ writing one. Keys are removed from the layers the current selection owns —
 contained in the selection, and `cell.s` of cells inside it. Patches and cells
 left with no keys at all are dropped.
 
+The values in the patch are part of the request: a key is removed only where it
+holds the given value. That is what keeps an unset from flattening formatting it
+does not own — a currency cell inside a sheet-wide "one less decimal" refuses the
+operation instead of being stripped to plain.
+
 It returns `false` and writes **nothing** when a layer the selection does not own
-still sets one of the keys. There is no "explicitly none" token in the stored
-model, so an inherited value cannot be masked — the caller has to fall back to
-writing an explicit value, which is also the only way to reach a value that
-differs from what is inherited.
+sets one of the keys, or when a layer inside the selection disagrees about the
+value. There is no "explicitly none" token in the stored model, so an inherited
+value cannot be masked — the caller has to fall back to writing an explicit
+value, which is also the only way to reach a value that differs from what is
+inherited. Cells are scanned before anything is written, so a refusal leaves the
+selection untouched.
+
+Removing the last key from a column/row/sheet layer stores `{}` rather than
+deleting the entry — the `Store` interface has no delete for those layers — so
+`getStyle` can return `{}` where it used to return `undefined`. Every consumer
+reads keys off it optionally, so an empty style resolves exactly like no style.
 
 ### `toggleRangeStyle(prop)`
 
@@ -207,12 +219,12 @@ found it, including leaving no `dp`/`nf` on a cell that had none.
 to step from, `valueDp` (the precision the raw value already shows: `2` for
 `12.34`, `0` for `12` or an empty cell) and `explicitDp` (whether any layer
 stores `dp`). When the step lands on `valueDp` and `dp` is stored,
-`changeDecimals` calls `unsetRangeStyleKeys` instead of writing an equivalent
+`changeDecimals` calls `unsetRangeStyleValues` instead of writing an equivalent
 explicit style; otherwise it writes `dp` (plus `nf: 'number'` when the format is
 plain, as before). `nf: 'number'` renders 2 decimals with no `dp`, so it is
 removed together with the `dp` rather than left behind.
 
-Two consequences worth knowing:
+Consequences worth knowing:
 
 - `dp` is **not** in `DefaultStyleValues`, so `dp: 2` is stored rather than
   pruned. Pruning it would make "no stored `dp`" and "`dp: 2`" the same state,
@@ -220,8 +232,15 @@ Two consequences worth knowing:
   — would be wrong.
 - Nothing records *who* wrote `nf: 'number'`. A cell the user gave a number
   format can therefore lose it when its `dp` is stepped back down to the value's
-  own precision; Google Sheets keeps a format there. This only fires where the
-  cell renders identically with and without the format.
+  own precision; Google Sheets keeps a format there. The unset only fires where
+  the whole selection agrees on `dp` and `nf`, so it cannot reach *another*
+  cell's format — but it does drop grouping separators with the format, so a
+  value of `1234.5` goes from `1,234.5` to `1234.5`. For a genuine round trip
+  that is the point: the cell renders as it did before the first click.
+- The step is read from the active cell, as it always was. When the active cell
+  has no stored `dp` and nothing left to give, Decrease is a no-op rather than
+  writing `dp: 0` — writing it is exactly the residue this rule exists to avoid.
+  A selection whose *other* cells still have decimals is then also left alone.
 
 ## UI Integration
 
