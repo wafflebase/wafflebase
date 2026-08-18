@@ -912,13 +912,20 @@ export class LakehouseService {
     const customEndpoint = source.endpoint
       ? this.azureBlobEndpoint(source.endpoint)
       : undefined;
+    // Only a custom endpoint takes the BlobEndpoint form, because that form
+    // is what the endpoint allowlist gates. The standard public endpoint is
+    // expressed as EndpointSuffix=core.windows.net for both auth modes, so a
+    // SAS token against plain Azure needs no allowlist entry any more than an
+    // account key does.
     let connectionString: string;
-    if (sasToken) {
+    if (sasToken && customEndpoint) {
       connectionString = [
-        `BlobEndpoint=${customEndpoint ?? `https://${accountName}.blob.core.windows.net`}`,
+        `BlobEndpoint=${customEndpoint}`,
         `AccountName=${accountName}`,
         `SharedAccessSignature=${sasToken}`,
       ].join(';');
+    } else if (sasToken) {
+      connectionString = `DefaultEndpointsProtocol=https;AccountName=${accountName};SharedAccessSignature=${sasToken};EndpointSuffix=core.windows.net`;
     } else if (customEndpoint) {
       connectionString = [
         `DefaultEndpointsProtocol=${new URL(customEndpoint).protocol.slice(0, -1)}`,

@@ -56,3 +56,11 @@
   guard the orphan's late cleanup failure by generation so it cannot poison
   the replacement it never touched. The credential invariant survives: the
   replacement instance never held the orphan's secret.
+- **Coverage gaps are worth reading, not just filling.** Writing tests for
+  the uncovered Azure credential-merge branch exposed a real defect: a SAS
+  token against the standard public endpoint was being expressed in the
+  `BlobEndpoint=` form, so it hit the custom-endpoint allowlist and every
+  such source failed with "Azure BlobEndpoint is not allowed by the server"
+  while an account key on the same endpoint passed. The standard endpoint is
+  now written as `EndpointSuffix=core.windows.net` for both auth modes; only
+  a genuinely custom endpoint takes the gated `BlobEndpoint=` form.

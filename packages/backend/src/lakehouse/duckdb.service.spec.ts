@@ -351,6 +351,43 @@ describe('DuckDbService', () => {
     expect((service as unknown as { memoryLimit: string }).memoryLimit).toBe(
       '512MB',
     );
+
+    process.env.LAKEHOUSE_DUCKDB_MEMORY_LIMIT = '256mb';
+    expect(
+      (new DuckDbService() as unknown as { memoryLimit: string }).memoryLimit,
+    ).toBe('256MB');
+  });
+
+  it('reads rows as JSON objects through queryRows', async () => {
+    const connection = mockConnection();
+    connection.runAndReadAll.mockResolvedValue({
+      getRowObjectsJson: () => [{ version: 1 }, { version: 2 }],
+    } as unknown as DuckDBResultReader);
+    createInstanceMock.mockResolvedValue(
+      mockInstance([connection]) as unknown as DuckDBInstance,
+    );
+    const service = new DuckDbService();
+
+    await expect(
+      service.withConnection((leased) =>
+        service.queryRows(leased, { sql: 'SELECT ?', values: [1] }),
+      ),
+    ).resolves.toEqual([{ version: 1 }, { version: 2 }]);
+    expect(connection.runAndReadAll).toHaveBeenCalledWith('SELECT ?', [1]);
+  });
+
+  it('times out when initialization outlives the request deadline', async () => {
+    jest.useFakeTimers();
+    createInstanceMock.mockReturnValue(new Promise<never>(() => undefined));
+    const service = new DuckDbService();
+
+    const pending = service.withConnection(() => Promise.resolve(), 100);
+    const settled = expect(pending).rejects.toBeInstanceOf(
+      DuckDbQueryTimeoutError,
+    );
+    await Promise.resolve();
+    jest.advanceTimersByTime(100);
+    await settled;
   });
 
   it('interrupts a timed-out query and rebuilds the poisoned instance', async () => {
@@ -752,6 +789,30 @@ describe('DuckDbService', () => {
     ).resolves.toBe(replacement);
     expect(connection.closeSync).toHaveBeenCalledTimes(1);
     expect(instance.closeSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('still drops the secret and rethrows when the operation itself fails', async () => {
+    const connection = mockConnection();
+    createInstanceMock.mockResolvedValue(
+      mockInstance([connection]) as unknown as DuckDBInstance,
+    );
+    const service = new DuckDbService();
+
+    await expect(
+      service.withStorageSecret(secret('s3://fixtures/table'), () =>
+        Promise.reject(new Error('remote read failed')),
+      ),
+    ).rejects.toThrow('remote read failed');
+    const sql = connection.run.mock.calls.map(([statement]) => statement);
+    expect(sql.indexOf('CREATE SECRET request_secret')).toBeGreaterThanOrEqual(
+      0,
+    );
+    expect(sql.at(-1)).toBe('DROP SECRET request_secret');
+    // A clean drop keeps the instance: the next request reuses it.
+    await expect(
+      service.withConnection((leased) => Promise.resolve(leased)),
+    ).resolves.toBe(connection);
+    expect(createInstanceMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects secret-scope waiters when cleanup poisons the instance', async () => {

@@ -2,15 +2,21 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  RequestTimeoutException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { DuckDBConnection } from '@duckdb/node-api';
-import { LakehouseSource } from '@prisma/client';
+import { LakehouseSource, Prisma } from '@prisma/client';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { PrismaService } from 'src/database/prisma.service';
 import { decrypt, encrypt } from 'src/datasource/crypto.util';
-import { DuckDbService } from './duckdb.service';
+import {
+  DuckDbQueryTimeoutError,
+  DuckDbService,
+  DuckDbUnavailableError,
+} from './duckdb.service';
 import { LakehouseService } from './lakehouse.service';
 import {
   LakehouseQueryResponse,
@@ -58,6 +64,7 @@ type UpdateSourceArgs = {
 
 class MockPrisma {
   createResult = source({ id: 'created-1' });
+  createError: Error | undefined;
   findManyResult: LakehouseSource[] = [];
   findUniqueResult: LakehouseSource | null = source();
   deleteResult = source();
@@ -72,6 +79,7 @@ class MockPrisma {
     create: (args: CreateSourceArgs): Promise<LakehouseSource> => {
       this.createCalls += 1;
       this.createdCredentials = args.data.credentials;
+      if (this.createError) return Promise.reject(this.createError);
       return Promise.resolve(this.createResult);
     },
     findMany: (): Promise<LakehouseSource[]> =>
@@ -943,6 +951,286 @@ describe('LakehouseService', () => {
     expect(duckDb.invalidateCalls).toBe(1);
     expect(duckDb.statements.at(-1)?.sql).toContain('DROP SECRET');
   });
+  it.each([
+    [
+      { format: 'iceberg' as const, basePath: 'iceberg/events' },
+      'require a .metadata.json path',
+    ],
+    [
+      { format: 'delta' as const, basePath: 'delta-events/_delta_log' },
+      'table root, not _delta_log',
+    ],
+    [
+      { format: 'delta' as const, basePath: 'delta-events/_delta_log/0.json' },
+      'table root, not _delta_log',
+    ],
+    [{ format: 'delta' as const, basePath: '   ' }, 'require basePath'],
+  ])(
+    'rejects a direct-metadata path that does not name the format %#',
+    async (patch, message) => {
+      await expect(
+        service.create(7, 'workspace-1', {
+          name: 'bad-path',
+          storage: 's3-compatible',
+          endpoint: 'http://127.0.0.1:9000',
+          region: 'us-east-1',
+          bucket: 'lakehouse-fixtures',
+          credentials: storedCredentials,
+          ...patch,
+        }),
+      ).rejects.toThrow(message);
+      expect(prisma.createCalls).toBe(0);
+    },
+  );
+
+  it('rejects local paths that do not exist or are not file URIs', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wafflebase-lakehouse-root-'));
+    process.env.LAKEHOUSE_ALLOW_LOCAL_PATHS = 'true';
+    process.env.LAKEHOUSE_LOCAL_ROOT = root;
+
+    try {
+      await expect(
+        service.create(7, 'workspace-1', {
+          name: 'missing-events',
+          format: 'delta',
+          storage: 'local',
+          basePath: join(root, 'does-not-exist'),
+          credentials: {},
+        }),
+      ).rejects.toThrow('must exist');
+      await expect(
+        service.create(7, 'workspace-1', {
+          name: 'remote-file-uri',
+          format: 'delta',
+          storage: 'local',
+          // A file URI with a remote host is not a local path.
+          basePath: 'file://nas.example.com/share/events',
+          credentials: {},
+        }),
+      ).rejects.toThrow('Invalid local lakehouse file URI');
+      expect(prisma.createCalls).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    [
+      'DefaultEndpointsProtocol=http;AccountName=account;AccountKey=key;EndpointSuffix=core.windows.net',
+      'require HTTPS',
+    ],
+    [
+      'DefaultEndpointsProtocol=https;AccountName=account;AccountKey=key;EndpointSuffix=.bad.suffix',
+      'invalid EndpointSuffix',
+    ],
+    [
+      'DefaultEndpointsProtocol=https;AccountName=account;AccountKey=key;EndpointSuffix=blob.example.com',
+      'not allowed',
+    ],
+  ])(
+    'validates the standard and custom-suffix Azure connection string forms %#',
+    async (connectionString, message) => {
+      await expect(
+        service.create(7, 'workspace-1', {
+          name: 'azure-source',
+          format: 'delta',
+          storage: 'azure',
+          bucket: 'fixtures',
+          basePath: 'delta-events',
+          credentials: { connectionString },
+        }),
+      ).rejects.toThrow(message);
+      expect(prisma.createCalls).toBe(0);
+    },
+  );
+
+  it('accepts a custom Azure EndpointSuffix whose derived endpoint is allowlisted', async () => {
+    process.env.LAKEHOUSE_ALLOWED_ENDPOINTS =
+      'http://account.blob.azurite.local';
+
+    await service.create(7, 'workspace-1', {
+      name: 'azure-suffix',
+      format: 'delta',
+      storage: 'azure',
+      bucket: 'fixtures',
+      basePath: 'delta-events',
+      credentials: {
+        connectionString:
+          'DefaultEndpointsProtocol=http;AccountName=account;AccountKey=key;EndpointSuffix=azurite.local',
+      },
+    });
+    expect(prisma.createCalls).toBe(1);
+  });
+
+  describe('Azure credential merge on update', () => {
+    const azureSource = () =>
+      source({
+        storage: 'azure',
+        endpoint: null,
+        credentials: encrypt(
+          JSON.stringify({ accountName: 'account', accountKey: 'old-key' }),
+        ),
+      });
+    const updated = () => {
+      if (!prisma.updatedCredentials) {
+        throw new Error('Expected encrypted credentials in update call');
+      }
+      return JSON.parse(decrypt(prisma.updatedCredentials)) as unknown;
+    };
+
+    it('rotates the account key and keeps the stored account name', async () => {
+      prisma.findUniqueResult = azureSource();
+      await service.update('source-1', {
+        credentials: { accountKey: 'new-key' },
+      });
+      expect(updated()).toEqual({
+        accountName: 'account',
+        accountKey: 'new-key',
+      });
+    });
+
+    it('switches from an account key to a SAS token without keeping the key', async () => {
+      prisma.findUniqueResult = azureSource();
+      await service.update('source-1', {
+        credentials: { sasToken: '?sv=1&sig=secret' },
+      });
+      expect(updated()).toEqual({
+        accountName: 'account',
+        sasToken: 'sv=1&sig=secret',
+      });
+    });
+
+    it('binds a SAS token to the standard public endpoint without an allowlist entry', async () => {
+      process.env.LAKEHOUSE_ALLOWED_ENDPOINTS = '';
+      prisma.findUniqueResult = source({
+        storage: 'azure',
+        endpoint: null,
+        bucket: 'fixtures',
+        basePath: 'delta-events',
+        credentials: encrypt(
+          JSON.stringify({
+            accountName: 'account',
+            sasToken: 'sv=1&sig=secret',
+          }),
+        ),
+      });
+
+      await service.read('source-1', {});
+
+      expect(duckDb.statements[0].values[0]).toBe(
+        'DefaultEndpointsProtocol=https;AccountName=account;SharedAccessSignature=sv=1&sig=secret;EndpointSuffix=core.windows.net',
+      );
+    });
+
+    it('re-sending the same account name alone keeps the stored key', async () => {
+      prisma.findUniqueResult = azureSource();
+      await service.update('source-1', {
+        credentials: { accountName: 'account' },
+      });
+      expect(updated()).toEqual({
+        accountName: 'account',
+        accountKey: 'old-key',
+      });
+    });
+
+    it('replaces account credentials with a connection string', async () => {
+      prisma.findUniqueResult = azureSource();
+      await service.update('source-1', {
+        credentials: {
+          connectionString:
+            'DefaultEndpointsProtocol=https;AccountName=account;AccountKey=key;EndpointSuffix=core.windows.net',
+        },
+      });
+      expect(updated()).toEqual({
+        connectionString:
+          'DefaultEndpointsProtocol=https;AccountName=account;AccountKey=key;EndpointSuffix=core.windows.net',
+      });
+    });
+
+    it('rejects combining a connection string with account credentials', async () => {
+      prisma.findUniqueResult = azureSource();
+      await expect(
+        service.update('source-1', {
+          credentials: {
+            connectionString:
+              'DefaultEndpointsProtocol=https;AccountName=account;AccountKey=key',
+            accountKey: 'new-key',
+          },
+        }),
+      ).rejects.toThrow('cannot be combined');
+      expect(prisma.updatedData).toBeUndefined();
+    });
+  });
+
+  it('maps engine timeouts and unavailability to 408 and 503', async () => {
+    prisma.findUniqueResult = source();
+
+    duckDb.queryError = new DuckDbQueryTimeoutError(30_000);
+    await expect(service.read('source-1', {})).rejects.toBeInstanceOf(
+      RequestTimeoutException,
+    );
+
+    duckDb.queryError = new DuckDbUnavailableError();
+    await expect(service.read('source-1', {})).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    // Connection tests surface the engine's own (credential-free) message.
+    await expect(service.testConnection('source-1')).resolves.toEqual({
+      success: false,
+      error: 'Lakehouse query engine is restarting',
+    });
+  });
+
+  it('reports malformed history rows as a query failure without leaking them', async () => {
+    prisma.findUniqueResult = source({
+      format: 'iceberg',
+      basePath: 'iceberg/events/metadata/00003.metadata.json',
+    });
+    duckDb.queryRowsResult = [
+      { snapshot_id: 'not-a-number', sequence_number: '1', timestamp_ms: 1 },
+    ];
+    const error = await rejectedError(service.history('source-1'));
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect(error.message).toBe('Lakehouse query failed');
+
+    duckDb.queryRowsResult = [
+      { snapshot_id: '1', sequence_number: '1', timestamp_ms: 'yesterday' },
+    ];
+    await expect(service.history('source-1')).rejects.toThrow(
+      'Lakehouse query failed',
+    );
+
+    // Digit-string epoch millis (what DuckDB's JSON rows carry) are accepted.
+    duckDb.queryRowsResult = [
+      { snapshot_id: '1', sequence_number: '1', timestamp_ms: '1000' },
+    ];
+    await expect(service.history('source-1')).resolves.toEqual([
+      {
+        ref: { kind: 'snapshot', snapshotId: '1' },
+        timestamp: '1970-01-01T00:00:01.000Z',
+      },
+    ]);
+  });
+
+  it('reports a duplicate source name as a conflict', async () => {
+    prisma.createError = new Prisma.PrismaClientKnownRequestError(
+      'Unique constraint failed',
+      { code: 'P2002', clientVersion: 'test' },
+    );
+
+    await expect(
+      service.create(7, 'workspace-1', {
+        name: 'events',
+        format: 'delta',
+        storage: 's3-compatible',
+        endpoint: 'http://127.0.0.1:9000',
+        region: 'us-east-1',
+        bucket: 'lakehouse-fixtures',
+        basePath: 'delta-events',
+        credentials: storedCredentials,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
 });
 
 describe('LakehouseService catalog mode and timestamp time travel', () => {
@@ -1161,6 +1449,34 @@ describe('LakehouseService catalog mode and timestamp time travel', () => {
       }),
     ).rejects.toThrow('does not match the delta source format');
   });
+
+  it.each([
+    ['DETACH', (sql: string) => sql.startsWith('DETACH')],
+    [
+      'the catalog secret DROP',
+      (sql: string) =>
+        sql.startsWith('DROP SECRET') && sql.includes('_catalog'),
+    ],
+  ])(
+    'invalidates DuckDB when catalog cleanup fails on %s',
+    async (_label, failing) => {
+      prisma.findUniqueResult = catalogSource();
+      duckDb.queryRowsResult = [{ schema: 'default', name: 'events' }];
+      duckDb.runError = (statement) =>
+        failing(statement.sql)
+          ? new Error('cleanup failed with sensitive details')
+          : undefined;
+
+      const error = await rejectedError(service.tables('source-1'));
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect(error.message).toBe('Lakehouse query failed');
+      expect(duckDb.invalidateCalls).toBe(1);
+      // The storage secret is still dropped after the failed catalog cleanup.
+      const sql = duckDb.statements.map((statement) => statement.sql);
+      expect(sql.at(-1)).toMatch(/^DROP SECRET IF EXISTS /);
+      expect(sql.at(-1)).not.toContain('_catalog');
+    },
+  );
 
   it('rejects a timestamp earlier than every commit', async () => {
     prisma.findUniqueResult = source();

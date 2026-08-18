@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { generateTabId } from './tab-name';
+import type { TabMeta } from './worksheet-document';
+import { buildTabNameNormalizationPatches, generateTabId } from './tab-name';
 
 describe('generateTabId', () => {
   it('keeps the tab- prefix and a millisecond timestamp', () => {
@@ -38,5 +39,49 @@ describe('generateTabId', () => {
 
     spy.mockRestore();
     random.mockRestore();
+  });
+});
+
+describe('buildTabNameNormalizationPatches', () => {
+  function tabs(
+    entries: Array<[string, string, TabMeta['type']]>,
+  ): Record<string, TabMeta> {
+    return Object.fromEntries(
+      entries.map(([id, name, type]) => [id, { id, name, type }]),
+    );
+  }
+
+  it('falls back to a per-type prefix for blank names and suffixes duplicates', () => {
+    const patches = buildTabNameNormalizationPatches(
+      ['tab-1', 'tab-2', 'tab-3', 'tab-4'],
+      tabs([
+        ['tab-1', ' Sheet1 ', 'sheet'],
+        ['tab-2', 'sheet1', 'sheet'],
+        ['tab-3', '  ', 'datasource'],
+        ['tab-4', '', 'lakehouse'],
+      ]),
+    );
+
+    expect(patches).toEqual([
+      { tabId: 'tab-1', name: 'Sheet1' },
+      { tabId: 'tab-2', name: 'sheet1 (2)' },
+      { tabId: 'tab-3', name: 'DataSource' },
+      { tabId: 'tab-4', name: 'Lakehouse' },
+    ]);
+  });
+
+  it('visits tabs missing from tabOrder after the ordered ones and skips clean names', () => {
+    const patches = buildTabNameNormalizationPatches(
+      ['tab-2', 'missing'],
+      tabs([
+        ['tab-1', 'Lakehouse', 'lakehouse'],
+        ['tab-2', 'Events', 'sheet'],
+        ['tab-3', '', 'lakehouse'],
+      ]),
+    );
+
+    // tab-2 is clean; tab-1 and tab-3 are visited in id order afterwards, so
+    // the blank lakehouse tab collides with the existing "Lakehouse" name.
+    expect(patches).toEqual([{ tabId: 'tab-3', name: 'Lakehouse (2)' }]);
   });
 });
