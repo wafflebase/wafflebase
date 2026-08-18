@@ -76,6 +76,21 @@ Behavior depends on selection type:
 - **Cell selection**: append a `rangeStyles` patch and only touch existing
   cell-level styles that conflict with the patch (to avoid redundant writes).
 
+### `unsetRangeStyleKeys(keys)`
+
+The reverse of `setRangeStyle`: it restores the *absence* of a value instead of
+writing one. Keys are removed from the layers the current selection owns —
+`sheetStyle` for an `all` selection, `colStyles` for a `column` selection,
+`rowStyles` for a `row` selection, any `rangeStyles` patch whose range is
+contained in the selection, and `cell.s` of cells inside it. Patches and cells
+left with no keys at all are dropped.
+
+It returns `false` and writes **nothing** when a layer the selection does not own
+still sets one of the keys. There is no "explicitly none" token in the stored
+model, so an inherited value cannot be masked — the caller has to fall back to
+writing an explicit value, which is also the only way to reach a value that
+differs from what is inherited.
+
 ### `toggleRangeStyle(prop)`
 
 - Computes from active cell effective style, then applies via `setRangeStyle`.
@@ -181,6 +196,32 @@ neighbor cells is bounded by explicit custom borders.
 
 Existing style keys are preserved; inferred format keys are updated only when
 inference positively detects a matching type.
+
+### Increase / decrease decimal places
+
+`Sheet.changeDecimals(delta)` steps `dp` for the selection and is reversible:
+equal numbers of increases and decreases leave the selection exactly as they
+found it, including leaving no `dp`/`nf` on a cell that had none.
+
+`getActiveDecimalState()` reports three things about the active cell — the `dp`
+to step from, `valueDp` (the precision the raw value already shows: `2` for
+`12.34`, `0` for `12` or an empty cell) and `explicitDp` (whether any layer
+stores `dp`). When the step lands on `valueDp` and `dp` is stored,
+`changeDecimals` calls `unsetRangeStyleKeys` instead of writing an equivalent
+explicit style; otherwise it writes `dp` (plus `nf: 'number'` when the format is
+plain, as before). `nf: 'number'` renders 2 decimals with no `dp`, so it is
+removed together with the `dp` rather than left behind.
+
+Two consequences worth knowing:
+
+- `dp` is **not** in `DefaultStyleValues`, so `dp: 2` is stored rather than
+  pruned. Pruning it would make "no stored `dp`" and "`dp: 2`" the same state,
+  and `explicitDp` — the signal that a stored `dp` is the buttons' own to remove
+  — would be wrong.
+- Nothing records *who* wrote `nf: 'number'`. A cell the user gave a number
+  format can therefore lose it when its `dp` is stepped back down to the value's
+  own precision; Google Sheets keeps a format there. This only fires where the
+  cell renders identically with and without the format.
 
 ## UI Integration
 

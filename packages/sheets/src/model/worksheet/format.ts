@@ -86,6 +86,18 @@ function safeFormatDate(value: string, _locale: string): string {
 }
 
 /**
+ * `decimalsInValue` returns how many decimal places a stored value string shows
+ * on its own: `2` for `12.34`, `0` for `12`, an empty cell, or text.
+ */
+export function decimalsInValue(value?: string): number {
+  if (!value) {
+    return 0;
+  }
+  const dotIndex = value.indexOf('.');
+  return dotIndex >= 0 ? value.length - dotIndex - 1 : 0;
+}
+
+/**
  * `formatValue` converts a raw value to a display string based on the number format.
  * Returns the original value for non-numeric inputs or 'plain'/undefined format.
  * @param dp decimal places override (undefined uses format default of 2)

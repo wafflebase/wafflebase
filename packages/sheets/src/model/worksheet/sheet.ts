@@ -59,7 +59,7 @@ import {
   isSpreadsheetHtml,
 } from './grids';
 import { DimensionIndex } from './dimensions';
-import { formatValue } from './format';
+import { decimalsInValue, formatValue } from './format';
 import { cellFromInput } from './input';
 import {
   cloneConditionalFormatRule,
@@ -84,6 +84,7 @@ import {
   moveRangeStylePatches,
   normalizeRangeStylePatch,
   normalizeStylePatch,
+  omitStyleKeys,
   pruneShadowedRangeStylePatches,
   resolveRangeStyleAt,
   shiftRangeStylePatches,
@@ -118,8 +119,10 @@ import {
   rangeAnchorToRange,
 } from '../workbook/anchor-conversion';
 import {
+  containsRange,
   hasCellContent,
   isEmptyCell,
+  rangesIntersect,
   compactCell,
   tryMergeRangeStylePatches,
   sameRangeStylePatchList,
@@ -4153,27 +4156,220 @@ export class Sheet {
    * of the active cell. When the cell has plain format and no explicit dp,
    * the decimal places are inferred from the stored value string so that
    * the first increase/decrease starts from the visible precision.
+   *
+   * `valueDp` is the precision the raw value already shows on its own, and
+   * `explicitDp` tells whether any style layer stores `dp`. Together they let a
+   * caller tell "no explicit dp" apart from "dp equal to the inferred one",
+   * which is what makes increase/decrease reversible.
    */
-  async getActiveDecimalState(): Promise<{ dp: number; nf?: NumberFormat }> {
+  async getActiveDecimalState(): Promise<{
+    dp: number;
+    nf?: NumberFormat;
+    valueDp: number;
+    explicitDp: boolean;
+  }> {
     const style = await this.getStyle(this.activeCell);
+    const cell = await this.store.get(
+      this.normalizeRefToAnchor(this.activeCell),
+    );
+    const valueDp = decimalsInValue(cell?.v);
+
     // If dp is explicitly set in the style, use it.
     if (style?.dp !== undefined) {
-      return { dp: style.dp, nf: style?.nf };
+      return { dp: style.dp, nf: style?.nf, valueDp, explicitDp: true };
     }
     // For plain format (or no format), infer dp from the stored value.
     if (!style?.nf || style.nf === 'plain') {
-      const cell = await this.store.get(
-        this.normalizeRefToAnchor(this.activeCell),
-      );
-      if (cell?.v) {
-        const dotIndex = cell.v.indexOf('.');
-        if (dotIndex >= 0) {
-          return { dp: cell.v.length - dotIndex - 1, nf: style?.nf };
+      return { dp: valueDp, nf: style?.nf, valueDp, explicitDp: false };
+    }
+    return { dp: 2, nf: style?.nf, valueDp, explicitDp: false };
+  }
+
+  /**
+   * `changeDecimals` moves the decimal places of the current selection by one
+   * step. When the step lands back on the precision the value already shows on
+   * its own, inheritance is restored instead of storing an equivalent explicit
+   * style — so equal numbers of increases and decreases leave the selection
+   * exactly as they found it.
+   */
+  async changeDecimals(delta: number): Promise<void> {
+    const { dp, nf, valueDp, explicitDp } = await this.getActiveDecimalState();
+    const target = dp + delta;
+    if (target < 0) {
+      return;
+    }
+
+    const inheritable = !nf || nf === 'plain' || nf === 'number';
+    if (explicitDp && target === valueDp && inheritable) {
+      // `nf: 'number'` renders 2 decimals when no `dp` is stored, so the number
+      // format has to go with the `dp` for the cell to keep looking the same.
+      const keys: Array<keyof CellStyle> =
+        nf === 'number' ? ['dp', 'nf'] : ['dp'];
+      if (await this.unsetRangeStyleKeys(keys)) {
+        return;
+      }
+    }
+
+    const patch: Partial<CellStyle> = { dp: target };
+    if (!nf || nf === 'plain') {
+      patch.nf = 'number';
+    }
+    await this.setRangeStyle(patch);
+  }
+
+  /**
+   * `unsetRangeStyleKeys` removes the given style keys from the style layers the
+   * current selection owns, restoring inheritance for the selected cells. It is
+   * the reverse of `setRangeStyle`: where that writes an explicit value, this
+   * restores the absence of one.
+   *
+   * Returns false — writing nothing — when a layer the selection does not own
+   * still sets one of the keys. The stored model has no "explicitly none" token,
+   * so an inherited value cannot be masked, and the caller has to keep writing
+   * an explicit value in that case.
+   */
+  async unsetRangeStyleKeys(keys: Array<keyof CellStyle>): Promise<boolean> {
+    const targets = this.ranges.length > 0
+      ? this.ranges
+      : [this.getRangeOrActiveCell()];
+
+    const ownsSheet = this.selectionType === 'all';
+    const ownsCols = ownsSheet || this.selectionType === 'column';
+    const ownsRows = ownsSheet || this.selectionType === 'row';
+    const owned = (range: Range) =>
+      targets.some((target) => containsRange(target, range));
+
+    for (const key of keys) {
+      if (!ownsSheet && this.sheetStyle?.[key] !== undefined) {
+        return false;
+      }
+      if (!ownsCols) {
+        for (const [col, style] of this.colStyles) {
+          if (
+            style[key] !== undefined &&
+            targets.some((t) => col >= t[0].c && col <= t[1].c)
+          ) {
+            return false;
+          }
         }
       }
-      return { dp: 0, nf: style?.nf };
+      if (!ownsRows) {
+        for (const [row, style] of this.rowStyles) {
+          if (
+            style[key] !== undefined &&
+            targets.some((t) => row >= t[0].r && row <= t[1].r)
+          ) {
+            return false;
+          }
+        }
+      }
+      for (const patch of this.rangeStyles) {
+        if (patch.style[key] === undefined) {
+          continue;
+        }
+        if (
+          targets.some((t) => rangesIntersect(t, patch.range)) &&
+          !owned(patch.range)
+        ) {
+          return false;
+        }
+      }
     }
-    return { dp: 2, nf: style?.nf };
+
+    this.store.beginBatch();
+    try {
+      if (ownsSheet && this.sheetStyle) {
+        const next = omitStyleKeys(this.sheetStyle, keys);
+        if (next) {
+          this.sheetStyle = next;
+          await this.store.setSheetStyle(next);
+        }
+      }
+      if (ownsCols) {
+        for (const [col, style] of this.colStyles) {
+          if (!targets.some((t) => col >= t[0].c && col <= t[1].c)) {
+            continue;
+          }
+          const next = omitStyleKeys(style, keys);
+          if (next) {
+            this.colStyles.set(col, next);
+            await this.store.setColumnStyle(col, next);
+          }
+        }
+      }
+      if (ownsRows) {
+        for (const [row, style] of this.rowStyles) {
+          if (!targets.some((t) => row >= t[0].r && row <= t[1].r)) {
+            continue;
+          }
+          const next = omitStyleKeys(style, keys);
+          if (next) {
+            this.rowStyles.set(row, next);
+            await this.store.setRowStyle(row, next);
+          }
+        }
+      }
+
+      let patchesChanged = false;
+      const nextPatches: RangeStylePatch[] = [];
+      for (const patch of this.rangeStyles) {
+        const next = owned(patch.range)
+          ? omitStyleKeys(patch.style, keys)
+          : undefined;
+        if (!next) {
+          nextPatches.push(patch);
+          continue;
+        }
+        patchesChanged = true;
+        if (Object.keys(next).length > 0) {
+          nextPatches.push({ range: patch.range, style: next });
+        }
+      }
+      if (patchesChanged) {
+        this.rangeStyles = nextPatches;
+        await this.store.setRangeStyles(this.rangeStyles);
+      }
+
+      for (const range of targets) {
+        await this.removeCellStyleKeysInRange(range, keys);
+      }
+    } finally {
+      this.store.endBatch();
+    }
+
+    return true;
+  }
+
+  private async removeCellStyleKeysInRange(
+    range: Range,
+    keys: Array<keyof CellStyle>,
+  ): Promise<void> {
+    const grid = await this.store.getGrid(range);
+    const visited = new Set<Sref>();
+    for (const [sref] of grid) {
+      const anchor = this.normalizeRefToAnchor(parseRef(sref));
+      const anchorSref = toSref(anchor);
+      if (visited.has(anchorSref)) {
+        continue;
+      }
+      visited.add(anchorSref);
+
+      const existing = await this.store.get(anchor);
+      if (!existing?.s) {
+        continue;
+      }
+      const next = omitStyleKeys(existing.s, keys);
+      if (!next) {
+        continue;
+      }
+
+      const nextCell = compactCell(existing, next);
+      if (isEmptyCell(nextCell)) {
+        await this.store.delete(anchor);
+      } else {
+        await this.store.set(anchor, nextCell);
+      }
+    }
   }
 
   /**

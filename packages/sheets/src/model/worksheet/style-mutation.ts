@@ -10,6 +10,11 @@ import type { RangeStylePatch } from './range-styles';
 
 /**
  * Default style values used to determine if a key is redundant.
+ *
+ * `dp` is deliberately absent even though `formatValue` renders 2 decimals
+ * without it: pruning `dp: 2` would make "no stored dp" and "dp: 2" the same
+ * state, and increase/decrease decimal places rely on telling them apart to
+ * know whether a stored `dp` is theirs to remove.
  */
 const DefaultStyleValues: Partial<CellStyle> = {
   b: false,
@@ -24,7 +29,6 @@ const DefaultStyleValues: Partial<CellStyle> = {
   bg: '',
   va: 'top',
   nf: 'plain',
-  dp: 2,
 };
 
 /**
