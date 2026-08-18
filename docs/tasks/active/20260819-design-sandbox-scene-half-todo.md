@@ -47,12 +47,57 @@ is a finding, not a task.
 
 ## Done when
 
-- [ ] a wafflebase scene paints in the frame, not a manifest error
-- [ ] clicking a node in it resolves to a `packages/frontend/**` source anchor
-- [ ] a class edit stages and undoes against a real file
-- [ ] `verify:frame` (or a sibling gate) covers one wafflebase scene, not only the fixture
-- [ ] `packages/design-editor/src/plugin/` is untouched
-- [ ] the deferred-scene listing inconsistency is gone
+- [x] a wafflebase scene paints in the frame, not a manifest error — all six dom scenes
+- [x] clicking a node in it resolves to a `packages/frontend/**` source anchor
+- [ ] a class edit stages and undoes against a real file — not yet exercised
+- [x] a gate covers wafflebase scenes, not only the fixture — `pnpm --filter
+      @wafflebase/design-sandbox verify:scenes` (18 checks), a sibling of `verify:frame`
+- [ ] ~~`packages/design-editor/src/plugin/` is untouched~~ — it was NOT. See the finding below.
+- [ ] the deferred-scene listing inconsistency is gone — `/metadata` still lists the five
+      deferred canvas scenes, so the shell offers rows the frame cannot mount
+
+## Findings
+
+**The plugin needed one option, and the constraint did its job.** The rule was "a change
+under `src/plugin/` is a finding, not a task", and the finding is real:
+`SceneConfig.fixtures` has been in the manifest type since 10a with nothing reading it, and
+11b compounded it by passing `config.mocks` — a string array documenting the scene's
+dependency surface — as the URL-keyed fixture table. It went unnoticed because the fixture
+consumer declares `"mocks": []`, which degrades to an empty table and passes.
+
+The resolver cannot ride along with `providers`: the fetch guard has to be installed before
+the first scene import (real API modules read their base URL at module scope), and
+`providers` is loaded lazily with the scene. So `options.fixtures` is a separate module,
+imported statically by `virtual:wb-scenes`, defaulting to `() => ({})`.
+
+**Four things had to be supplied, each found by the failure it caused:**
+
+| Missing | Symptom |
+| --- | --- |
+| `@wafflebase/board` in the engine aliases | 500 on a transitive import; the frame reported a mount error naming `providers.tsx`, not the failing file |
+| `optimizeDeps.include` | one frame load mixed optimizer generations → "Invalid hook call", then a frame that paints nothing. `resolve.dedupe` does NOT fix this |
+| `define` globals | `process is not defined` |
+| `providers.tsx` + `fixtures/**` | `no scene "<id>" in the scene manifest` |
+
+`@wafflebase/board` postdates the prototype's alias list — the list was stale, not wrong.
+
+**The frontend is NOT typechecked from here.** Mapping `@/*` makes `tsc` follow into the
+whole frontend graph (engines included) under this package's options: 471 errors, none of
+them real defects. Aligning `types` and `verbatimModuleSyntax` gets it to 184, and closing
+the rest would mean maintaining a copy of the frontend's tsconfig forever. So the three
+modules `providers.tsx` imports are declared in `src/scenes/frontend-modules.d.ts` with
+their real shapes, and the frontend keeps being checked by `pnpm frontend typecheck`. What
+is lost: a props change in those three fails in the browser, not here.
+
+**The app's libraries are aliased, not depended on.** `react-router-dom` and
+`@tanstack/react-query` resolve to `packages/frontend/node_modules` — declaring them would
+give this package a second copy, and the day the versions drift the scene's `useNavigate`
+and our `MemoryRouter` come from different instances. `react`/`react-dom` ARE declared:
+measured, pnpm already points both packages at the same `react@19.1.0`.
+
+**Cold load is slow, warm load is not.** ~6,000 modules, no duplicates, 3 engine modules
+(so `opaqueRoots` is working). First paint of a scene took 55–158 s on WSL2/drvfs; the same
+scene repainted in 3 s. That is why the gate polls rather than waiting on a load event.
 
 ## Parity ledger — nothing the prototype implemented may be missing
 

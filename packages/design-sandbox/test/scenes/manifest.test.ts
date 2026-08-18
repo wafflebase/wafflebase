@@ -37,6 +37,8 @@ const scenes = manifest.scenes as {
   routePattern?: string;
   shell?: string;
   mocks?: string[];
+  /** ref name → fixture set, e.g. `{ query: 'documents/list' }`. */
+  fixtures?: Record<string, string>;
   deferred?: boolean;
 }[];
 
