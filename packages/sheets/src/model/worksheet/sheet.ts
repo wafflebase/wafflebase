@@ -4194,10 +4194,12 @@ export class Sheet {
    */
   async changeDecimals(delta: number): Promise<void> {
     const { dp, nf, valueDp, explicitDp } = await this.getActiveDecimalState();
-    const target = dp + delta;
-    if (target < 0) {
+    if (dp + delta < 0 && !explicitDp) {
+      // Nothing is stored to step down from, so the cell stays untouched rather
+      // than acquiring a zero-decimal format it never asked for.
       return;
     }
+    const target = Math.max(0, dp + delta);
 
     const inheritable = !nf || nf === 'plain' || nf === 'number';
     if (explicitDp && target === valueDp && inheritable) {

@@ -101,6 +101,21 @@ describe('Sheet.Decimals', () => {
     expect(await store.getRangeStyles()).toEqual([]);
   });
 
+  it('should keep stepping a selection whose active cell is already at zero', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '12.5');
+    await sheet.setStyle({ r: 1, c: 1 }, { dp: 0, nf: 'number' });
+    await sheet.setData({ r: 1, c: 2 }, '12.567');
+    await sheet.setStyle({ r: 1, c: 2 }, { dp: 3, nf: 'number' });
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+
+    // A1 cannot go below zero, but the rest of the selection still follows it.
+    await sheet.changeDecimals(-1);
+    expect((await sheet.getStyle({ r: 1, c: 1 }))?.dp).toBe(0);
+    expect((await sheet.getStyle({ r: 1, c: 2 }))?.dp).toBe(0);
+  });
+
   it('should clear the range patch for a multi-cell selection', async () => {
     const store = new MemStore();
     const sheet = new Sheet(store);
