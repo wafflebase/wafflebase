@@ -77,7 +77,7 @@ describe('Sheet.Decimals', () => {
 
   it('should round trip in the decrease-then-increase order', async () => {
     const sheet = new Sheet(new MemStore());
-    await sheet.setData({ r: 1, c: 1 }, '1234.5');
+    await sheet.setData({ r: 1, c: 1 }, '12.5');
     sheet.selectStart({ r: 1, c: 1 });
 
     await sheet.changeDecimals(-1);
@@ -88,7 +88,73 @@ describe('Sheet.Decimals', () => {
 
     await sheet.changeDecimals(1);
     expect(await sheet.getStyle({ r: 1, c: 1 })).toBeUndefined();
-    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('1234.5');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('12.5');
+  });
+
+  it('should keep the grouping separators the step would flatten', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1234.5');
+    sheet.selectStart({ r: 1, c: 1 });
+
+    await sheet.changeDecimals(-1);
+    await sheet.changeDecimals(1);
+
+    // Unsetting would drop `nf: 'number'` and with it the grouping the cell
+    // shows right now ('1,234.5' → '1234.5'), so the format stays and the step
+    // is written explicitly.
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      dp: 1,
+      nf: 'number',
+    });
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe(
+      formatValue('1234.5', 'number', 1),
+    );
+  });
+
+  it('should keep a grouped number format the user chose', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1234.5');
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.setRangeStyle({ dp: 0, nf: 'number' });
+
+    // The step lands on the value's own precision, but restoring inheritance
+    // would take the user's number format — and its separators — with it.
+    await sheet.changeDecimals(1);
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      dp: 1,
+      nf: 'number',
+    });
+  });
+
+  it('should keep a currency format whose decimals it cannot restore', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1.5');
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.setRangeStyle({ dp: 0, nf: 'currency', cu: 'USD' });
+
+    // An absent `dp` means the currency format's own two decimals, not the
+    // value's one, so the unset would *increase* what is on screen.
+    await sheet.changeDecimals(1);
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      dp: 1,
+      nf: 'currency',
+      cu: 'USD',
+    });
+  });
+
+  it('should still step a selection whose active cell has no decimals', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '12');
+    await sheet.setData({ r: 1, c: 2 }, '1.2345');
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+
+    // A1 has nothing to drop, but B1 does — the step is not a no-op just
+    // because the active cell is already at zero decimals.
+    await sheet.changeDecimals(-1);
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe(
+      formatValue('1.2345', 'number', 0),
+    );
   });
 
   it('should not write a style when there are no decimals to drop', async () => {

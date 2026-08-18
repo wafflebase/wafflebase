@@ -226,10 +226,20 @@ stores `dp`). The unset fires only when all of this holds:
 - the step was not clamped at the floor — a Decrease with nothing left to give
   reverses nothing, so it writes `dp: 0` and leaves any stored format in place
   rather than unsetting it, and
-- every numeric value in the selection already renders at that same precision.
-  Restoring inheritance shows each cell at its *own* precision, which is only
-  the reverse of a step when the whole selection agrees about it; a neighbour
-  holding more digits would jump back to them instead of following the step.
+- the unset would leave every cell in the selection reading exactly as the
+  explicit step would have written it (`unsetKeepsRendering`, which compares
+  `formatValue` with the keys removed against `formatValue` at the step's
+  target).
+
+That last check is the whole safety rule, because an absent `dp` does **not**
+mean "the value's own precision":
+
+- a neighbour holding more digits would jump back to them instead of following
+  the step;
+- `nf: 'number'` groups thousands, so dropping it flattens `1,234.5` to
+  `1234.5`;
+- for `currency`/`percent` an absent `dp` means the *format's* default of 2, so
+  unsetting a `dp: 0` currency would show more decimals, not fewer.
 
 Otherwise `changeDecimals` writes `dp` explicitly (plus `nf: 'number'` when the
 format is plain, as before). When it does unset and the format is `'number'`,
@@ -245,19 +255,23 @@ Consequences worth knowing:
   — would be wrong.
 - Nothing records *who* wrote `nf: 'number'`. A cell the user gave a number
   format can therefore lose it when its `dp` is stepped back down to the value's
-  own precision; Google Sheets keeps a format there. The unset only fires where
-  the whole selection agrees on `dp`, `nf` and the value's own precision, so it
-  cannot reach *another* cell's format — but on the cell it does fire on it
-  drops the grouping separators with the format, so `1,234.5` renders as
-  `1234.5`. For a genuine round trip that is the point: the cell renders as it
-  did before the first click.
+  own precision; Google Sheets keeps a format there. Since provenance is
+  unavailable, the rule is about effect: the unset only fires where nothing on
+  screen moves, so the format is only ever dropped where it was rendering
+  nothing the plain value does not already render.
+- A value large enough to be grouped (`1234.5`) therefore keeps a
+  `{dp, nf: 'number'}` residue after an equal number of increases and
+  decreases, rather than returning to no style at all. That is the deliberate
+  trade: a residue that renders correctly beats a format silently destroyed.
 - The step is read from the active cell, as it always was. When the active cell
   has no stored `dp` and nothing left to give, Decrease is a no-op rather than
   writing `dp: 0` — writing it is exactly the residue this rule exists to avoid.
-  A selection whose *other* cells still have decimals is then also left alone.
-  When the active cell *does* store a `dp` and sits at zero, Decrease still
-  writes `dp: 0` so the rest of the selection can follow it down; the format
-  stays put, since a clamped step is not a reversal of anything.
+  That no-op is checked against the whole selection, though: if another selected
+  cell still shows decimals, the step is written after all, because a selection
+  with something to drop is not a no-op. When the active cell *does* store a
+  `dp` and sits at zero, Decrease still writes `dp: 0` so the rest of the
+  selection can follow it down; the format stays put, since a clamped step is
+  not a reversal of anything.
 
 ## UI Integration
 

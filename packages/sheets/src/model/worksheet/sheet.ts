@@ -4195,9 +4195,11 @@ export class Sheet {
   async changeDecimals(delta: number): Promise<void> {
     const { dp, nf, valueDp, explicitDp } = await this.getActiveDecimalState();
     const stepped = dp + delta;
-    if (stepped < 0 && !explicitDp) {
-      // Nothing is stored to step down from, so the cell stays untouched rather
-      // than acquiring a zero-decimal format it never asked for.
+    if (stepped < 0 && !explicitDp && (await this.selectionRendersAt(0))) {
+      // Nothing anywhere in the selection has a decimal left to drop, so it
+      // stays untouched rather than acquiring a zero-decimal format it never
+      // asked for. The check has to look past the active cell: a neighbour that
+      // still shows decimals has something to lose and takes the write below.
       return;
     }
     // A step that ran into the floor reverses nothing — the active cell already
@@ -4210,12 +4212,15 @@ export class Sheet {
       explicitDp &&
       !clamped &&
       target === valueDp &&
-      (await this.selectionRendersAt(target))
+      (await this.unsetKeepsRendering(nf, target))
     ) {
       // `nf: 'number'` renders 2 decimals when no `dp` is stored, so the number
-      // format has to go with the `dp`. That gives up the grouping separators it
-      // added too ('1,234.5' → '1234.5'); the cell carried neither key before
-      // the first step, so restoring both is what the round trip asks for.
+      // format has to go with the `dp`. `unsetKeepsRendering` is what makes that
+      // safe: it only agrees when every cell reads exactly as the explicit step
+      // would have left it, so a grouped format the unset would flatten
+      // ('1,234.5' → '1234.5') — or a currency whose absent `dp` means the
+      // format's own default rather than the value's precision — refuses and
+      // takes the explicit write instead.
       const values: Partial<CellStyle> =
         nf === 'number' ? { dp, nf } : { dp };
       if (await this.unsetRangeStyleValues(values)) {
@@ -4234,10 +4239,9 @@ export class Sheet {
    * `selectionRendersAt` reports whether every numeric value in the current
    * selection already shows `decimals` digits on its own.
    *
-   * Restoring inheritance shows each cell at its *own* precision, so it is only
-   * the reverse of a step when the whole selection agrees about that precision.
-   * A neighbour holding more digits would jump back to them instead of following
-   * the step, and has to take the explicit write instead.
+   * A Decrease that finds nothing to drop is only a no-op when the whole
+   * selection agrees; a neighbour still holding decimals has something to lose
+   * and has to take the write.
    */
   private async selectionRendersAt(decimals: number): Promise<boolean> {
     for (const range of this.selectionTargets()) {
@@ -4249,6 +4253,47 @@ export class Sheet {
           continue;
         }
         if (decimalsInValue(value) !== decimals) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * `unsetKeepsRendering` reports whether restoring inheritance would leave the
+   * selection reading exactly as the explicit step would have written it.
+   *
+   * An absent `dp` does not mean "the value's own precision" — it means whatever
+   * the remaining format renders by default, and dropping `nf: 'number'` also
+   * drops its grouping separators. So the unset is only the reverse of a step
+   * when nothing on screen moves: `1234.5` under `{nf: 'number', dp: 1}` reads
+   * `1,234.5` and would flatten to `1234.5`, and a currency at `dp: 0` would
+   * jump to the format's two decimals. Both keep their format and take the
+   * explicit write instead.
+   */
+  private async unsetKeepsRendering(
+    nf: NumberFormat | undefined,
+    target: number,
+  ): Promise<boolean> {
+    // Only `nf: 'number'` travels with the `dp`; every other format stays and
+    // falls back to the decimals it renders on its own.
+    const nfAfter = nf === 'number' ? undefined : nf;
+    for (const range of this.selectionTargets()) {
+      const grid = await this.store.getGrid(range);
+      for (const [sref, cell] of grid) {
+        const value = cell.v;
+        if (!value) {
+          // Empty and style-only cells render nothing to disagree about.
+          continue;
+        }
+        const ref = parseRef(sref);
+        const effective = this.resolveEffectiveStyle(ref.r, ref.c, cell.s);
+        const options = { currency: effective?.cu };
+        if (
+          formatValue(value, nfAfter, undefined, options) !==
+          formatValue(value, nf, target, options)
+        ) {
           return false;
         }
       }

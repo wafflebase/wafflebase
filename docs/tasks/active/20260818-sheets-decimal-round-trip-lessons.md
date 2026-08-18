@@ -12,12 +12,16 @@ Running log of non-obvious findings while implementing
 
 - **`pruneRedundantDefaultStyleKeys` already erases some residue, but only at
   the key's *default* value.** `DefaultStyleValues` in
-  `packages/sheets/src/model/worksheet/style-mutation.ts` carries `dp: 2`, so
-  writing `dp: 2` self-erases while `dp: 0` — the value the reported bug leaves
-  behind — is stored. That is why #749/#793 needed no new machinery and this one
-  does: the residue here is not a default value, it is an *inferred* one.
+  `packages/sheets/src/model/worksheet/style-mutation.ts` deliberately has no
+  `dp` entry, so every written `dp` is stored — including the `dp: 0` the
+  reported bug leaves behind. Adding `dp: 2` there was the first idea and it is
+  wrong: it would make "no stored `dp`" and "`dp: 2`" the same state, and
+  `explicitDp` — the signal that a stored `dp` is the buttons' own to remove —
+  depends on telling them apart. That is why #749/#793 needed no new machinery
+  and this one does: the residue here is not a default value, it is an
+  *inferred* one, and no default table can erase it.
 - **`nf: 'number'` with no `dp` renders 2 decimals** (`formatValue`,
-  `packages/sheets/src/model/worksheet/format.ts:107`). So removing `dp` while
+  `packages/sheets/src/model/worksheet/format.ts:119`). So removing `dp` while
   leaving `nf: 'number'` is not a no-op on screen — `12` would start rendering
   as `12.00`. Any unset that restores an unstyled cell has to drop both keys
   together.
@@ -40,7 +44,17 @@ Running log of non-obvious findings while implementing
   round-trip tests, which all used uniformly styled selections.
 - **Who wrote `nf` is unknowable.** Increase/decrease set `nf: 'number'`
   whenever the format is plain/absent, and nothing distinguishes that from a
-  user-chosen number format later on. The rule adopted here (drop `nf` only when
-  `dp` is being dropped *and* the target equals the value's own precision) keeps
-  rendering identical at the moment of the click; the cost is documented in the
-  todo's "Known deviation".
+  user-chosen number format later on. Provenance being unavailable, the rule is
+  about *effect*: the unset only fires where it changes nothing on screen
+  (`unsetKeepsRendering`). The cost is documented in the todo's "Known
+  deviation".
+- **"Unset `dp` means the value's own precision" is only true for plain and
+  `number`.** For `currency`/`percent` an absent `dp` means the *format's*
+  default of 2, so unsetting a `dp: 0` currency would silently add decimals —
+  a decrease click that increases what is shown. And `nf: 'number'` groups
+  thousands, so dropping it flattens `1,234.5` to `1234.5`. Both are caught by
+  comparing `formatValue` before and after rather than by reasoning about
+  `dp` alone; the comparison also subsumes the "does every cell in the
+  selection agree about its precision" check that came before it. The price is
+  that a value ≥ 1000 keeps a `{dp, nf: 'number'}` residue after a round trip —
+  a residue that renders correctly is better than a format silently destroyed.

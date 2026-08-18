@@ -80,20 +80,24 @@ targets `1 === valueDp` → unstyled.
 - `nf` cannot be attributed: a `nf: 'number'` cell whose `dp` a user steps all
   the way down to the value's own precision loses the number format along with
   the `dp`, because nothing stored says who wrote it. Google Sheets keeps a
-  format there. Deviating this way is what makes the reported bug fixable at all;
-  the value-scoped unset keeps it from ever reaching *another* cell's format, but
-  it does take grouping separators with it (`1,234.5` → `1234.5`), which for a
-  real round trip is the correct restoration.
-- Decrease is a no-op when the active cell has no stored `dp` and no room to step
-  down, which also leaves alone a selection whose other cells still have
-  decimals. Writing `dp: 0` there is the residue the fix exists to remove. With a
-  stored `dp` of `0` it does write `dp: 0` (so the rest of the selection follows)
-  but never unsets: a clamped step reverses nothing, so taking the format with it
-  would be destructive rather than a round trip.
-- The unset also requires every numeric value in the selection to already render
-  at the target precision, since restoring inheritance shows each cell at its
-  *own* precision. A mixed-precision selection therefore takes the explicit
-  write and follows the step, at the cost of not returning to unstyled.
+  format there. Deviating this way is what makes the reported bug fixable at all,
+  and it is bounded to the cases where it changes nothing on screen: the unset is
+  refused whenever the cell would read differently afterwards, so a grouped
+  `1,234.5` keeps its format instead of flattening to `1234.5`.
+- The cost of that bound is an incomplete round trip for values large enough to
+  be grouped: they keep a `{dp, nf: 'number'}` residue instead of returning to
+  no style. A residue that renders correctly beats a destroyed format.
+- Decrease is a no-op when nothing in the selection has a decimal left to drop
+  and the active cell stores no `dp`. Writing `dp: 0` there is the residue the
+  fix exists to remove. If another selected cell still shows decimals the step is
+  written after all — the no-op is a property of the selection, not of the active
+  cell. With a stored `dp` of `0` it does write `dp: 0` (so the rest of the
+  selection follows) but never unsets: a clamped step reverses nothing, so taking
+  the format with it would be destructive rather than a round trip.
+- The unset also refuses on formats whose absent `dp` is not the value's own
+  precision — `currency`/`percent` fall back to the format's default of 2, so
+  restoring inheritance there would *add* decimals to a Decrease. Those keep
+  their `dp` written explicitly.
 - Emptying a column/row/sheet layer stores `{}`, since the `Store` interface has
   no delete for those layers, so `getStyle` can return `{}` where it returned
   `undefined`. Every consumer reads keys optionally, so it resolves the same.
