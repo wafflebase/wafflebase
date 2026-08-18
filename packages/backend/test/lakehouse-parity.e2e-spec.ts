@@ -214,8 +214,20 @@ describeLakehouse('Lakehouse connector parity', () => {
   let duckDb: DuckDbService;
   let service: LakehouseService;
   let manifest: LakehouseFixtureManifest;
+  // Jest reuses a worker across spec files, so every variable set below is
+  // snapshotted here and restored in afterAll; otherwise a later suite could
+  // inherit LAKEHOUSE_ALLOW_LOCAL_PATHS=true and pass a test that should fail.
+  const overriddenEnv = [
+    'LAKEHOUSE_DUCKDB_POOL_SIZE',
+    'LAKEHOUSE_DUCKDB_MEMORY_LIMIT',
+    'LAKEHOUSE_ALLOW_LOCAL_PATHS',
+    'LAKEHOUSE_LOCAL_ROOT',
+    'LAKEHOUSE_ALLOWED_ENDPOINTS',
+  ] as const;
+  const previousEnv = new Map<string, string | undefined>();
 
   beforeAll(async () => {
+    for (const key of overriddenEnv) previousEnv.set(key, process.env[key]);
     process.env.LAKEHOUSE_DUCKDB_POOL_SIZE = '1';
     process.env.LAKEHOUSE_DUCKDB_MEMORY_LIMIT = '256MB';
     process.env.LAKEHOUSE_ALLOW_LOCAL_PATHS = 'true';
@@ -269,9 +281,13 @@ describeLakehouse('Lakehouse connector parity', () => {
 
   afterAll(async () => {
     await duckDb?.onModuleDestroy();
+    for (const [key, value] of previousEnv) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   });
 
-  const cases = buildLegs().flatMap((leg) =>
+  const cases = legs.flatMap((leg) =>
     leg.formats.map((format) => [leg.name, format] as const),
   );
 
@@ -283,7 +299,7 @@ describeLakehouse('Lakehouse connector parity', () => {
   // test names and zero skips. Name the expected matrix so a missing backend
   // fails loudly instead of shrinking the matrix.
   it('covers every storage backend the parity matrix names', () => {
-    const realized = new Set(buildLegs().map((leg) => leg.name));
+    const realized = new Set(legs.map((leg) => leg.name));
     const missing = [
       'minio-s3',
       'gcs-interop',

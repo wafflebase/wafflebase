@@ -7,6 +7,7 @@ import {
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { relative, resolve, sep } from 'node:path';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 
 export const LAKEHOUSE_FIXTURE_BUCKET = 'lakehouse-fixtures';
 export const LAKEHOUSE_FIXTURE_ACCESS_KEY = 'minioadmin';
@@ -246,8 +247,6 @@ export async function seedLakehouseFixtures(
 // fixtures embed only relative paths and need no rewriting.
 // ---------------------------------------------------------------------------
 
-import { deflateRawSync, inflateRawSync } from 'node:zlib';
-
 export const LAKEHOUSE_SOURCE_URI_PREFIX = `s3://${LAKEHOUSE_FIXTURE_BUCKET}`;
 
 export type LakehouseFixtureScheme = {
@@ -333,8 +332,10 @@ export function rewriteAvroFixture(
 
   // Header: file metadata map (count-prefixed key/value blocks, 0-terminated),
   // then the 16-byte sync marker. Keys/values are length-prefixed, so the
-  // header can be skipped without decoding the schema.
+  // header can be walked without decoding the schema; only `avro.codec` is
+  // read, because the block loop below can only re-deflate what was deflated.
   let offset = 4;
+  let codec: string | undefined;
   for (;;) {
     const [count, consumed] = readZigZagLong(content, offset);
     offset += consumed;
@@ -345,10 +346,23 @@ export function rewriteAvroFixture(
       const [, sizeConsumed] = readZigZagLong(content, offset);
       offset += sizeConsumed;
     }
-    for (let i = 0; i < entries * 2; i += 1) {
-      const [length, lengthConsumed] = readZigZagLong(content, offset);
-      offset += lengthConsumed + length;
+    for (let i = 0; i < entries; i += 1) {
+      const [keyLength, keyConsumed] = readZigZagLong(content, offset);
+      offset += keyConsumed;
+      const key = content.subarray(offset, offset + keyLength).toString('utf8');
+      offset += keyLength;
+      const [valueLength, valueConsumed] = readZigZagLong(content, offset);
+      offset += valueConsumed;
+      if (key === 'avro.codec') {
+        codec = content.subarray(offset, offset + valueLength).toString('utf8');
+      }
+      offset += valueLength;
     }
+  }
+  if (codec !== 'deflate') {
+    throw new Error(
+      `Avro fixture uses the '${codec ?? 'null'}' codec; only deflate blocks can be rewritten`,
+    );
   }
   const headerEnd = offset + 16;
   const parts: Buffer[] = [content.subarray(0, headerEnd)];
@@ -362,6 +376,11 @@ export function rewriteAvroFixture(
     offset += sizeConsumed;
     const compressed = content.subarray(offset, offset + blockSize);
     offset += blockSize;
+    // Reject a malformed block before doing any work on it.
+    if (!content.subarray(offset, offset + 16).equals(sync)) {
+      throw new Error('Avro block sync marker mismatch');
+    }
+    offset += 16;
     const rewritten = deflateRawSync(
       replaceAllBytes(inflateRawSync(compressed), search, replacement),
     );
@@ -371,10 +390,6 @@ export function rewriteAvroFixture(
       rewritten,
       Buffer.from(sync),
     );
-    if (!content.subarray(offset, offset + 16).equals(sync)) {
-      throw new Error('Avro block sync marker mismatch');
-    }
-    offset += 16;
   }
   return Buffer.concat(parts);
 }

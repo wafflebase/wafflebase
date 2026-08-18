@@ -24,9 +24,12 @@ async function main() {
 
   try {
     // First call on a cold filesystem: downloads + hardening. Second call
-    // proves the pooled instance is reusable rather than rebuilt per request.
+    // proves the pooled instance is reusable rather than rebuilt per request:
+    // both calls must be served by the same pooled connection object.
+    const servedBy = new Set();
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       const rows = await service.withConnection(async (connection) => {
+        servedBy.add(connection);
         const reader = await connection.runAndReadAll(
           "SELECT extension_name, loaded FROM duckdb_extensions() WHERE extension_name IN ('httpfs', 'iceberg', 'delta', 'azure') ORDER BY extension_name",
         );
@@ -45,6 +48,12 @@ async function main() {
           `attempt ${attempt}: DuckDB extensions failed to load: ${missing.join(', ')}`,
         );
       }
+    }
+
+    if (servedBy.size !== 1) {
+      throw new Error(
+        `expected one pooled connection to serve both attempts, saw ${servedBy.size}`,
+      );
     }
 
     process.stdout.write(

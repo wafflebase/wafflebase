@@ -220,6 +220,73 @@ describe('LakehouseDialog', () => {
     );
   });
 
+  it('flags an invalid bucket name and blocks submission until it is fixed', () => {
+    render(
+      <LakehouseDialog
+        workspaceId="workspace-1"
+        open
+        onOpenChange={() => undefined}
+        onCreated={() => undefined}
+      />,
+    );
+    fillDefaultSource();
+    fireEvent.change(screen.getByLabelText('Bucket'), {
+      target: { value: 'warehouse/prod' },
+    });
+
+    const bucket = screen.getByLabelText('Bucket');
+    const alert = screen.getByRole('alert');
+    expect(alert.id).toBe('lakehouse-bucket-error');
+    expect(bucket.getAttribute('aria-invalid')).toBe('true');
+    expect(bucket.getAttribute('aria-describedby')).toBe(alert.id);
+    expect(
+      screen.getByRole('button', { name: 'Test Connection' }),
+    ).toHaveProperty('disabled', true);
+
+    fireEvent.change(bucket, { target: { value: 'warehouse' } });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Test Connection' }),
+    ).toHaveProperty('disabled', false);
+  });
+
+  it('links the credentials error message to every credential input', () => {
+    render(
+      <LakehouseDialog
+        workspaceId="workspace-1"
+        open
+        source={savedSource}
+        onOpenChange={() => undefined}
+        onCreated={() => undefined}
+      />,
+    );
+
+    fireEvent.change(
+      screen.getByLabelText('Iceberg metadata file (.metadata.json)'),
+      {
+        target: { value: 'events/metadata/v4.metadata.json' },
+      },
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert.id).toBe('lakehouse-credentials-error');
+    for (const label of ['Access key', 'Secret key']) {
+      const input = screen.getByLabelText(label);
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(input.getAttribute('aria-describedby')).toBe(alert.id);
+    }
+
+    fireEvent.change(screen.getByLabelText('Access key'), {
+      target: { value: 'rotated-id' },
+    });
+    fireEvent.change(screen.getByLabelText('Secret key'), {
+      target: { value: 'rotated-secret' },
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(
+      screen.getByLabelText('Access key').getAttribute('aria-describedby'),
+    ).toBeNull();
+  });
+
   it('requires fresh credentials when an extra trailing slash retargets a table', () => {
     const deltaSource: LakehouseSource = {
       ...savedSource,

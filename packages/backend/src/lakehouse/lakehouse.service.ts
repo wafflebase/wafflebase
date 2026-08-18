@@ -77,6 +77,11 @@ function errorFromUnknown(error: unknown, fallback: string): Error {
   return error instanceof Error ? error : new Error(fallback);
 }
 
+/** Catalog listings are VARCHAR columns; anything else is not a name. */
+function textValue(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 @Injectable()
 export class LakehouseService {
   private readonly logger = new Logger(LakehouseService.name);
@@ -452,8 +457,8 @@ export class LakehouseService {
         );
         return rows.map((row) => ({
           // Nested Iceberg namespaces surface as dot-joined schema names.
-          namespace: String(row.schema ?? '').split('.'),
-          table: String(row.name ?? ''),
+          namespace: textValue(row.schema).split('.'),
+          table: textValue(row.name),
         }));
       },
     );
@@ -1213,7 +1218,8 @@ export class LakehouseService {
     }
 
     const match = rows.find(
-      (row) => this.safeInteger(row.sequence_number, 'sequence_number') === sequence,
+      (row) =>
+        this.safeInteger(row.sequence_number, 'sequence_number') === sequence,
     );
     if (!match) {
       throw new BadRequestException('No commit exists with that version');

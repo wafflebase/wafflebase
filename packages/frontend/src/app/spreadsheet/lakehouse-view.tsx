@@ -98,8 +98,10 @@ export function LakehouseView({ tabId, readOnly = false }: LakehouseViewProps) {
   }, [doc, tabId]);
 
   useEffect(() => {
+    // While the document is loading (or failed) the loader renders instead of
+    // the grid container, so the effect must re-run once that state clears.
     const container = containerRef.current;
-    if (!didMount || !container) return;
+    if (!didMount || loading || error || !container) return;
 
     const generation = ++sheetGenerationRef.current;
     let cancelled = false;
@@ -150,7 +152,7 @@ export function LakehouseView({ tabId, readOnly = false }: LakehouseViewProps) {
       if (sheetRef.current === sheet) sheetRef.current = undefined;
       sheet?.cleanup();
     };
-  }, [didMount, store, theme]);
+  }, [didMount, error, loading, store, theme]);
 
   useEffect(() => {
     const sequence = ++historySequenceRef.current;

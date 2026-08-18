@@ -64,5 +64,12 @@ on the issue. The design doc is the fixed spec; nothing here changes it.
 - [x] Manual smoke in `pnpm dev` (UI changed): S3-compatible, Azurite and
       local storage through the dialog, Delta and Iceberg, time travel and
       two-browser `asOf` sync. Real S3/GCS remain env-driven opt-ins.
+- [x] Review round 1 (CodeRabbit on #868): bounded escape hatch for a lease
+      that ignores its interrupt, grid initialization re-run once the document
+      finishes loading, `persist-credentials: false` on the image job's
+      checkout, credential/bucket errors linked to their inputs, README/suite
+      agreement on the mandatory Azurite leg, fixture-helper hardening (codec
+      assert, sync marker before inflate), env restore in the parity suite,
+      pooled-connection assertion in the runtime smoke, formatting.
 - [ ] `pnpm verify:self`.
 - [ ] Capture lessons, archive task files after merge.

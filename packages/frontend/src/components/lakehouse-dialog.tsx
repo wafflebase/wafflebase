@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  getLakehouseBucketError,
   getLakehouseCredentialsError,
   getLakehouseEndpointError,
   getLakehouseSourcePathError,
@@ -247,6 +248,8 @@ export function LakehouseDialog({
     });
   };
 
+  const bucketError =
+    form.storage === 'local' ? undefined : getLakehouseBucketError(form.bucket);
   const basePathError = getLakehouseSourcePathError(form);
   const endpointError = getLakehouseEndpointError(form.storage, form.endpoint);
   const canMergeStoredCredentials = canMergeSourceCredentials(source, form);
@@ -258,6 +261,7 @@ export function LakehouseDialog({
   const canSubmit = Boolean(
     form.name.trim() &&
       form.basePath.trim() &&
+      !bucketError &&
       !basePathError &&
       !endpointError &&
       !credentialsError,
@@ -426,8 +430,21 @@ export function LakehouseDialog({
                   <Input
                     id="lakehouse-bucket"
                     value={form.bucket}
+                    aria-invalid={bucketError ? true : undefined}
+                    aria-describedby={
+                      bucketError ? 'lakehouse-bucket-error' : undefined
+                    }
                     onChange={(event) => setField('bucket', event.target.value)}
                   />
+                  {bucketError ? (
+                    <p
+                      id="lakehouse-bucket-error"
+                      role="alert"
+                      className="text-xs text-destructive"
+                    >
+                      {bucketError}
+                    </p>
+                  ) : null}
                 </div>
                 {usesRegion ? (
                   <div className="grid gap-2">
@@ -529,6 +546,11 @@ export function LakehouseDialog({
                     autoComplete="off"
                     value={form.accessKeyId}
                     aria-invalid={credentialsError ? true : undefined}
+                    aria-describedby={
+                      credentialsError
+                        ? 'lakehouse-credentials-error'
+                        : undefined
+                    }
                     placeholder={
                       canMergeStoredCredentials
                         ? 'Leave blank to keep existing'
@@ -547,6 +569,11 @@ export function LakehouseDialog({
                     autoComplete="new-password"
                     value={form.secretAccessKey}
                     aria-invalid={credentialsError ? true : undefined}
+                    aria-describedby={
+                      credentialsError
+                        ? 'lakehouse-credentials-error'
+                        : undefined
+                    }
                     placeholder={
                       canMergeStoredCredentials
                         ? 'Leave blank to keep existing'
@@ -591,6 +618,11 @@ export function LakehouseDialog({
                     id="lakehouse-account-name"
                     value={form.accountName}
                     aria-invalid={credentialsError ? true : undefined}
+                    aria-describedby={
+                      credentialsError
+                        ? 'lakehouse-credentials-error'
+                        : undefined
+                    }
                     placeholder={
                       canMergeStoredCredentials
                         ? 'Leave blank to keep existing'
@@ -609,6 +641,11 @@ export function LakehouseDialog({
                     autoComplete="new-password"
                     value={form.accountKey}
                     aria-invalid={credentialsError ? true : undefined}
+                    aria-describedby={
+                      credentialsError
+                        ? 'lakehouse-credentials-error'
+                        : undefined
+                    }
                     placeholder={
                       canMergeStoredCredentials
                         ? 'Leave blank to keep existing'
@@ -630,6 +667,9 @@ export function LakehouseDialog({
                   autoComplete="new-password"
                   value={form.connectionString}
                   aria-invalid={credentialsError ? true : undefined}
+                  aria-describedby={
+                    credentialsError ? 'lakehouse-credentials-error' : undefined
+                  }
                   placeholder={
                     canMergeStoredCredentials
                       ? 'Leave blank to keep existing'
@@ -650,6 +690,9 @@ export function LakehouseDialog({
                   autoComplete="new-password"
                   value={form.sasToken}
                   aria-invalid={credentialsError ? true : undefined}
+                  aria-describedby={
+                    credentialsError ? 'lakehouse-credentials-error' : undefined
+                  }
                   placeholder={
                     canMergeStoredCredentials
                       ? 'Leave blank to keep existing'
@@ -662,7 +705,11 @@ export function LakehouseDialog({
           ) : null}
 
           {credentialsError ? (
-            <p role="alert" className="text-xs text-destructive">
+            <p
+              id="lakehouse-credentials-error"
+              role="alert"
+              className="text-xs text-destructive"
+            >
               {credentialsError}
             </p>
           ) : null}

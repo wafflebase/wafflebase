@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getLakehouseBucketError,
   getLakehouseCredentialsError,
   getLakehouseEndpointError,
   getLakehouseSourcePathError,
@@ -147,19 +148,58 @@ describe('getLakehouseSourcePathError', () => {
     ).toBeDefined();
   });
 
-  it.each(['../orders', 'orders?unsafe=true', 'order-*'])(
-    'rejects an unsafe bucket-relative object path: %s',
-    (basePath) => {
-      expect(
-        getLakehouseSourcePathError({
-          format: 'delta',
-          storage: 's3',
-          bucket: 'warehouse',
-          basePath,
-        }),
-      ).toBeDefined();
+  it.each([
+    '../orders',
+    'orders?unsafe=true',
+    'order-*',
+    // The decode step's own guards: encoded parent segment, malformed
+    // percent-encoding, and an encoded control character.
+    'orders/%2e%2e/other',
+    'orders/%zz',
+    'orders/%00name',
+  ])('rejects an unsafe bucket-relative object path: %s', (basePath) => {
+    expect(
+      getLakehouseSourcePathError({
+        format: 'delta',
+        storage: 's3',
+        bucket: 'warehouse',
+        basePath,
+      }),
+    ).toBeDefined();
+  });
+
+  it('leaves an invalid bucket to getLakehouseBucketError instead of composing it', () => {
+    // `warehouse/prod` would otherwise parse as host `warehouse` + path
+    // `/prod/orders` and pass as a valid object URI.
+    expect(
+      getLakehouseSourcePathError({
+        format: 'delta',
+        storage: 's3',
+        bucket: 'warehouse/prod',
+        basePath: 'orders',
+      }),
+    ).toBeUndefined();
+    expect(getLakehouseBucketError('warehouse/prod')).toMatch(/letters/);
+  });
+});
+
+describe('getLakehouseBucketError', () => {
+  it.each(['warehouse', 'my.bucket-1_x', 'A', '', '   ', undefined, null])(
+    'accepts %s',
+    (bucket) => {
+      expect(getLakehouseBucketError(bucket)).toBeUndefined();
     },
   );
+
+  it.each([
+    'warehouse/prod',
+    '-leading',
+    'has space',
+    'bucket?x',
+    'a'.repeat(256),
+  ])('rejects %s', (bucket) => {
+    expect(getLakehouseBucketError(bucket)).toBeDefined();
+  });
 });
 
 describe('getLakehouseEndpointError', () => {

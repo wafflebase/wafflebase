@@ -38,7 +38,10 @@ RUN_LAKEHOUSE_INTEGRATION_TESTS=true \
 
 The suite runs one assertion set per backend × format: latest read, ordered
 history, an `asOf` read at every commit, timestamp resolution, and secret
-cleanup. Omit `LAKEHOUSE_AZURITE_ENDPOINT` and the Azure leg is skipped.
+cleanup. `LAKEHOUSE_AZURITE_ENDPOINT` is required whenever
+`RUN_LAKEHOUSE_INTEGRATION_TESTS=true`: the suite names its expected backend
+matrix and fails loudly when a leg is missing, rather than quietly shrinking to
+whatever the environment happens to provide.
 
 The Iceberg fixture embeds absolute `s3://lakehouse-fixtures/…` URIs (in its
 metadata JSON and inside deflate-compressed avro manifest blocks), so the
@@ -74,7 +77,7 @@ Seeding is restricted to loopback endpoints by default. A deliberately chosen
 remote disposable target additionally requires
 `ALLOW_REMOTE_LAKEHOUSE_FIXTURE_SEED=true`.
 
-### Real-cloud smoke (opt-in, design §8)
+## Real-cloud smoke (opt-in, design §8)
 
 Point the minio-s3 leg at any real S3-compatible free tier (Cloudflare R2,
 Backblaze B2, AWS S3) and the same assertions run unchanged:
@@ -85,11 +88,14 @@ RUN_LAKEHOUSE_INTEGRATION_TESTS=true \
   LAKEHOUSE_MINIO_ENDPOINT=https://<account>.r2.cloudflarestorage.com \
   LAKEHOUSE_MINIO_ACCESS_KEY=… LAKEHOUSE_MINIO_SECRET_KEY=… \
   LAKEHOUSE_ALLOWED_ENDPOINTS=https://<account>.r2.cloudflarestorage.com \
+  LAKEHOUSE_AZURITE_ENDPOINT=http://127.0.0.1:10000/devstoreaccount1 \
   pnpm --filter @wafflebase/backend test:e2e test/lakehouse-parity.e2e-spec.ts
 ```
 
-Use a dedicated disposable bucket account: seeding writes fixture objects and
-never runs on fork PRs (credentials stay out of CI defaults).
+Keep Azurite running for that run too: the matrix assertion above still
+expects every leg. Use a dedicated disposable bucket account: seeding writes
+fixture objects and never runs on fork PRs (credentials stay out of CI
+defaults).
 
 ## Regenerating fixtures
 

@@ -137,25 +137,41 @@ describe('LakehouseController', () => {
       call: (controller: LakehouseController) => Promise<unknown>;
       service: string;
     }> = [
-      { name: 'findOne', service: 'findOne', call: (c) => c.findOne('source-1', request) },
+      {
+        name: 'findOne',
+        service: 'findOne',
+        call: (c) => c.findOne('source-1', request),
+      },
       {
         name: 'update',
         service: 'update',
         call: (c) => c.update('source-1', request, { name: 'renamed' }),
       },
-      { name: 'remove', service: 'remove', call: (c) => c.remove('source-1', request) },
+      {
+        name: 'remove',
+        service: 'remove',
+        call: (c) => c.remove('source-1', request),
+      },
       {
         name: 'testConnection',
         service: 'testConnection',
         call: (c) => c.testConnection('source-1', request),
       },
-      { name: 'tables', service: 'tables', call: (c) => c.tables('source-1', request) },
+      {
+        name: 'tables',
+        service: 'tables',
+        call: (c) => c.tables('source-1', request),
+      },
       {
         name: 'history',
         service: 'history',
         call: (c) => c.history('source-1', request, {}),
       },
-      { name: 'read', service: 'read', call: (c) => c.read('source-1', request, {}) },
+      {
+        name: 'read',
+        service: 'read',
+        call: (c) => c.read('source-1', request, {}),
+      },
     ];
 
     it.each(routes)(
@@ -179,19 +195,22 @@ describe('LakehouseController', () => {
       },
     );
 
-    it.each(routes)('$name checks membership for a member too', async ({ call, service }) => {
-      const { controller, lakehouseService, workspaceService } = setup();
+    it.each(routes)(
+      '$name checks membership for a member too',
+      async ({ call, service }) => {
+        const { controller, lakehouseService, workspaceService } = setup();
 
-      await call(controller);
+        await call(controller);
 
-      expect(workspaceService.assertMember).toHaveBeenCalledWith(
-        'workspace-1',
-        7,
-      );
-      expect(
-        (lakehouseService as Record<string, jest.Mock>)[service],
-      ).toHaveBeenCalled();
-    });
+        expect(workspaceService.assertMember).toHaveBeenCalledWith(
+          'workspace-1',
+          7,
+        );
+        expect(
+          (lakehouseService as Record<string, jest.Mock>)[service],
+        ).toHaveBeenCalled();
+      },
+    );
 
     it('refuses a non-member listing a workspace, before the service is called', async () => {
       const { controller, lakehouseService, workspaceService } = setup();

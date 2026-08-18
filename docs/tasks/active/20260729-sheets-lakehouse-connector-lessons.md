@@ -45,3 +45,14 @@
   selection presence on mount so peers still on a sheet tab do not see a
   stale cursor. Presence on read-only tabs is a datasource-spine follow-up,
   listed as a known limitation.
+- **Fail-closed must still be bounded.** A timed-out lease is normally
+  returned when its interrupted statement settles, and that return is what
+  tears the poisoned instance down. Review (#868) pointed out the hole: a
+  native operation that never honours the interrupt would hold the lease
+  forever and keep every later request failing with "engine is restarting"
+  until the process restarted. The escape hatch is to *abandon* the stuck
+  connection after a grace period rather than close it (closing a connection
+  mid-statement can block the event loop), rebuild the engine without it, and
+  guard the orphan's late cleanup failure by generation so it cannot poison
+  the replacement it never touched. The credential invariant survives: the
+  replacement instance never held the orphan's secret.

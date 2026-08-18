@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   renderSheet: vi.fn(),
   cleanup: vi.fn(),
   theme: 'light',
+  loading: false,
   read: vi.fn(),
   history: vi.fn(),
 }));
@@ -43,7 +44,7 @@ vi.mock('@yorkie-js/react', () => ({
   useDocument: () => ({
     doc: { update: mocks.docUpdate },
     root: mocks.root,
-    loading: false,
+    loading: mocks.loading,
     error: null,
   }),
 }));
@@ -135,6 +136,7 @@ describe('LakehouseView', () => {
     vi.clearAllMocks();
     mocks.root = makeRoot();
     mocks.theme = 'light';
+    mocks.loading = false;
     mocks.reloadDimensions.mockResolvedValue(undefined);
     mocks.initialize.mockResolvedValue({
       reloadDimensions: mocks.reloadDimensions,
@@ -255,7 +257,10 @@ describe('LakehouseView', () => {
     // take — the backend rejects `version` refs for Iceberg — so without this
     // the branch could be deleted and every other test would still pass while
     // Iceberg tabs silently rendered the latest commit.
-    mocks.root = makeRoot({ kind: 'snapshot', snapshotId: '7989807407367529971' });
+    mocks.root = makeRoot({
+      kind: 'snapshot',
+      snapshotId: '7989807407367529971',
+    });
 
     render(<LakehouseView tabId="lakehouse-1" />);
 
@@ -321,5 +326,16 @@ describe('LakehouseView', () => {
       await nextRead.promise;
     });
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
+  it('initializes the grid once the document finishes loading', async () => {
+    mocks.loading = true;
+    const view = render(<LakehouseView tabId="lakehouse-1" />);
+    expect(mocks.initialize).not.toHaveBeenCalled();
+
+    mocks.loading = false;
+    view.rerender(<LakehouseView tabId="lakehouse-1" />);
+    await waitFor(() => expect(mocks.initialize).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.renderSheet).toHaveBeenCalledTimes(1));
   });
 });

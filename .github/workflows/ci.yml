@@ -395,6 +395,11 @@ jobs:
 
       - uses: actions/checkout@v4
         if: env.RUN_HEAVY == 'true'
+        with:
+          # The checkout is only a build context for `docker buildx build`;
+          # nothing in this job talks back to git, so do not leave the token in
+          # `.git/config` where the PR-controlled Dockerfile could read it.
+          persist-credentials: false
 
       # QEMU registers binfmt handlers through a privileged container, so it is
       # gated like everything else: a filtered run must cost a few seconds, not

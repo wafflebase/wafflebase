@@ -1110,9 +1110,21 @@ describe('LakehouseService catalog mode and timestamp time travel', () => {
       basePath: 'iceberg/default/events/metadata/00003-abc.metadata.json',
     });
     duckDb.queryRowsResult = [
-      { sequence_number: 3, snapshot_id: '7953107897879720084', timestamp_ms: 3000 },
-      { sequence_number: 2, snapshot_id: '4492391797763991711', timestamp_ms: 2000 },
-      { sequence_number: 1, snapshot_id: '7989807407367529971', timestamp_ms: 1000 },
+      {
+        sequence_number: 3,
+        snapshot_id: '7953107897879720084',
+        timestamp_ms: 3000,
+      },
+      {
+        sequence_number: 2,
+        snapshot_id: '4492391797763991711',
+        timestamp_ms: 2000,
+      },
+      {
+        sequence_number: 1,
+        snapshot_id: '7989807407367529971',
+        timestamp_ms: 1000,
+      },
     ];
 
     await service.read('source-1', { asOf: { kind: 'version', version: 2 } });
@@ -1128,7 +1140,11 @@ describe('LakehouseService catalog mode and timestamp time travel', () => {
       basePath: 'iceberg/default/events/metadata/00003-abc.metadata.json',
     });
     duckDb.queryRowsResult = [
-      { sequence_number: 1, snapshot_id: '7989807407367529971', timestamp_ms: 1000 },
+      {
+        sequence_number: 1,
+        snapshot_id: '7989807407367529971',
+        timestamp_ms: 1000,
+      },
     ];
 
     await expect(

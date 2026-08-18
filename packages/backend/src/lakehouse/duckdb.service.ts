@@ -26,6 +26,14 @@ const DEFAULT_POOL_SIZE = 2;
 const MAX_POOL_SIZE = 8;
 const DEFAULT_MAX_PENDING = 64;
 const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
+/**
+ * How long a timed-out operation may keep ignoring its interrupt before its
+ * connection is abandoned and the engine rebuilt without it. DuckDB honours
+ * interrupts between pipeline tasks, so a well-behaved statement settles well
+ * inside this; the grace only exists so that one native operation that never
+ * does cannot hold the engine closed until the process restarts.
+ */
+const INTERRUPT_GRACE_MS = 5_000;
 
 type ConnectionWaiter = {
   resolve: (connection: DuckDBConnection) => void;
@@ -183,7 +191,11 @@ export class DuckDbService implements OnModuleDestroy {
               );
             }
           }
-          if (cleanupError) {
+          // A cleanup failure poisons the instance it happened on. Once the
+          // generation has moved on, that instance is already condemned (or,
+          // for an abandoned lease, already gone), and the replacement must
+          // not be poisoned for a secret it never held.
+          if (cleanupError && this.generation === generation) {
             this.logger.error(
               'Failed to clear temporary DuckDB request state; rebuilding DuckDB',
             );
@@ -302,14 +314,44 @@ export class DuckDbService implements OnModuleDestroy {
     } finally {
       if (timer) clearTimeout(timer);
       if (timedOut) {
-        void operationPromise.then(
-          () => this.finishLease(connection),
-          () => this.finishLease(connection),
-        );
+        this.releaseWhenSettled(connection, operationPromise);
       } else {
         this.finishLease(connection);
       }
     }
+  }
+
+  /**
+   * A timed-out lease is normally returned when its interrupted operation
+   * settles, and that return is what tears the poisoned instance down. An
+   * operation that ignores the interrupt would otherwise hold the lease
+   * forever and keep every later request failing closed, so after a grace
+   * period the connection is abandoned instead: it leaves the pool without
+   * being closed (closing a connection mid-statement can block the event
+   * loop), the rest of the poisoned instance is rebuilt, and whatever the
+   * orphan does later cannot reach the replacement because `finishLease` no
+   * longer recognizes it. The credential invariant holds either way: the
+   * replacement instance never held the orphan's secret.
+   */
+  private releaseWhenSettled(
+    connection: DuckDBConnection,
+    operationPromise: Promise<unknown>,
+  ): void {
+    const grace = setTimeout(() => {
+      if (this.closing || !this.leased.delete(connection)) return;
+      this.connections.delete(connection);
+      this.logger.warn(
+        `DuckDB ignored an interrupt for ${INTERRUPT_GRACE_MS}ms; abandoning its connection and rebuilding DuckDB`,
+      );
+      if (this.poisoned && this.leased.size === 0) {
+        this.resetPoisonedInstance();
+      }
+    }, INTERRUPT_GRACE_MS);
+    const settle = (): void => {
+      clearTimeout(grace);
+      this.finishLease(connection);
+    };
+    void operationPromise.then(settle, settle);
   }
 
   private async acquire(

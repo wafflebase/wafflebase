@@ -167,6 +167,17 @@ export function lakehouseHistoryRefKey(
     : `snapshot:${value.snapshotId}`;
 }
 
+/** Mirrors the backend DTO's bucket rule so the form flags it before submit. */
+const BUCKET_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$/;
+
+export function getLakehouseBucketError(
+  bucket: string | null | undefined,
+): string | undefined {
+  const name = bucket?.trim();
+  if (!name || BUCKET_NAME_PATTERN.test(name)) return undefined;
+  return 'Bucket or container names may only contain letters, digits, dots, hyphens, and underscores.';
+}
+
 export function getLakehouseSourcePathError({
   format,
   storage,
@@ -204,15 +215,19 @@ export function getLakehouseSourcePathError({
   }
 
   const protocol = path.match(QUALIFIED_URI_PATTERN)?.[1]?.toLowerCase();
-  if (bucket?.trim()) {
+  const container = bucket?.trim();
+  if (container) {
     if (protocol) {
       return 'Use a relative table path when a bucket or container is set.';
     }
+    // An invalid bucket is reported by getLakehouseBucketError; composing it
+    // into a URI here would let its extra segments pass as part of the path.
+    if (getLakehouseBucketError(container)) return undefined;
     const scheme =
       storage === 'gcs' ? 'gcs' : storage === 'azure' ? 'az' : 's3';
     return getObjectUriError(
       storage,
-      `${scheme}://${bucket.trim()}/${path.replace(/^\/+/, '')}`,
+      `${scheme}://${container}/${path.replace(/^\/+/, '')}`,
     );
   }
   if (!protocol) {

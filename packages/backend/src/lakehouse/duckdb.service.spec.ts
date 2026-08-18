@@ -195,7 +195,9 @@ describe('DuckDbService', () => {
     expect(sql.filter((s) => s.startsWith('INSTALL'))).toEqual([
       'INSTALL delta',
     ]);
-    expect(sql.indexOf('INSTALL delta')).toBeLessThan(sql.lastIndexOf('LOAD delta'));
+    expect(sql.indexOf('INSTALL delta')).toBeLessThan(
+      sql.lastIndexOf('LOAD delta'),
+    );
 
     await service.onModuleDestroy();
   });
@@ -579,6 +581,113 @@ describe('DuckDbService', () => {
 
     await service.onModuleDestroy();
     expect(connection.closeSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('abandons a lease that ignores its interrupt and rebuilds the engine', async () => {
+    jest.useFakeTimers();
+    const stuck = mockConnection();
+    const replacement = mockConnection();
+    const instance = mockInstance([stuck]);
+    const replacementInstance = mockInstance([replacement]);
+    createInstanceMock
+      .mockResolvedValueOnce(instance as unknown as DuckDBInstance)
+      .mockResolvedValueOnce(replacementInstance as unknown as DuckDBInstance);
+    const service = new DuckDbService();
+    let markStarted = (): void => undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let settleOrphan = (): void => undefined;
+    const timedOut = service.withConnection(() => {
+      markStarted();
+      return new Promise<void>((resolve) => {
+        settleOrphan = resolve;
+      });
+    }, 100);
+    await started;
+    jest.advanceTimersByTime(100);
+    await expect(timedOut).rejects.toBeInstanceOf(DuckDbQueryTimeoutError);
+    expect(stuck.interrupt).toHaveBeenCalledTimes(1);
+
+    // Still fail-closed while the interrupt has a chance to be honoured.
+    await expect(
+      service.withConnection(() => Promise.resolve()),
+    ).rejects.toBeInstanceOf(DuckDbUnavailableError);
+    expect(instance.closeSync).not.toHaveBeenCalled();
+
+    // Past the grace period the stuck connection is abandoned, not closed
+    // (closing mid-statement could block), and the engine is rebuilt without it.
+    jest.advanceTimersByTime(5_000);
+    expect(stuck.closeSync).not.toHaveBeenCalled();
+    expect(instance.closeSync).toHaveBeenCalledTimes(1);
+    await expect(
+      service.withConnection((leased) => Promise.resolve(leased)),
+    ).resolves.toBe(replacement);
+    expect(createInstanceMock).toHaveBeenCalledTimes(2);
+
+    // Whatever the orphan does later cannot re-enter the pool.
+    settleOrphan();
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    await expect(
+      service.withConnection((leased) => Promise.resolve(leased)),
+    ).resolves.toBe(replacement);
+    expect(createInstanceMock).toHaveBeenCalledTimes(2);
+
+    await service.onModuleDestroy();
+    expect(stuck.closeSync).not.toHaveBeenCalled();
+    expect(replacement.closeSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not poison the replacement when an abandoned lease fails its cleanup later', async () => {
+    jest.useFakeTimers();
+    const stuck = mockConnection();
+    const replacement = mockConnection();
+    stuck.run.mockImplementation((sql: string) =>
+      sql.startsWith('DROP SECRET')
+        ? Promise.reject(new Error('secret manager is gone'))
+        : Promise.resolve(undefined),
+    );
+    const instance = mockInstance([stuck]);
+    const replacementInstance = mockInstance([replacement]);
+    createInstanceMock
+      .mockResolvedValueOnce(instance as unknown as DuckDBInstance)
+      .mockResolvedValueOnce(replacementInstance as unknown as DuckDBInstance);
+    const service = new DuckDbService();
+    let markStarted = (): void => undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let settleOrphan = (): void => undefined;
+    const timedOut = service.withStorageSecret(
+      secret('s3://bucket/'),
+      () => {
+        markStarted();
+        return new Promise<void>((resolve) => {
+          settleOrphan = resolve;
+        });
+      },
+      100,
+    );
+    await started;
+    jest.advanceTimersByTime(100);
+    await expect(timedOut).rejects.toBeInstanceOf(DuckDbQueryTimeoutError);
+    jest.advanceTimersByTime(5_000);
+    await expect(
+      service.withConnection((leased) => Promise.resolve(leased)),
+    ).resolves.toBe(replacement);
+
+    // The orphan finally settles and its DROP SECRET fails on the old,
+    // already-abandoned instance. That must not condemn the replacement.
+    settleOrphan();
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    expect(stuck.run).toHaveBeenCalledWith('DROP SECRET request_secret', []);
+    await expect(
+      service.withStorageSecret(secret('s3://bucket/'), (leased) =>
+        Promise.resolve(leased),
+      ),
+    ).resolves.toBe(replacement);
+    expect(createInstanceMock).toHaveBeenCalledTimes(2);
+    expect(replacementInstance.closeSync).not.toHaveBeenCalled();
   });
 
   it('rejects queued and new acquisitions until poisoned leases drain', async () => {
