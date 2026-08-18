@@ -98,10 +98,46 @@ the §6 row while doing it.
 
 ## Done when
 
-- [ ] `/__design-editor/` renders the three-pane shell, not a `/health` readout
-- [ ] a scene frame mounts a real component from the fixture or the sandbox
-- [ ] clicking a node in the frame reaches the host and draws the overlay
-- [ ] staged edits undo/redo through 9c's history
-- [ ] the shell bundle still contains no reference to the consumer's stylesheet
-- [ ] the gate asserts the frame mounts, not merely that its document serves
-- [ ] §8 records what 11b took and what the panels row still holds
+- [x] `/__design-editor/` renders the three-pane shell, not a `/health` readout
+- [x] a scene frame mounts a real component from the fixture or the sandbox
+- [x] clicking a node in the frame reaches the host and draws the overlay
+- [x] staged edits undo/redo through 9c's history — `verify:frame` clicks a node, toggles
+      a class, and steps ⌘Z / ⇧⌘Z against the plan count. It is the ONLY thing that
+      covers this: staging needs a measured selection rect, which needs a loaded iframe.
+- [x] the shell bundle still contains no reference to the consumer's stylesheet
+- [x] the gate asserts the frame mounts, not merely that its document serves
+- [x] §8 records what 11b took and what the panels row still holds
+
+## What the writing changed
+
+Six commits, `3e97cacfe..HEAD`. Counts at the end: 991 unit tests / 39 files,
+`verify:consumer` 54/54, `verify:frame` 34/34.
+
+**Three defects fixed in the ported code**, each of which the prototype shipped:
+
+1. `SceneNodeDetail` printed the literal string `expression — cn(…)` for every
+   non-literal `className`. That guessed at the joiner — the same shape covers
+   `t("nav.home")` and `styles.row` — and it could not distinguish a class it cannot
+   edit from one that is not there. 7b's `classNameExpr` is the field that actually
+   says, so the expression is now printed verbatim.
+2. `FloatingClassEditor` attached its drag listeners inside a `pointerdown` handler and
+   removed them on `pointerup`. Unmount mid-drag left the `pointermove` handler running
+   for the session, setting state on a gone component once per mouse move; a second
+   `pointerdown` stacked another pair.
+3. Its icon-only buttons had no accessible name.
+
+**One thing found by the gate, in the gate**: `verify:frame` rebuilt the shell only
+when `dist/shell/index.html` was *missing*, so it happily served a bundle older than
+the change under test. A browser gate that can pass on stale bytes is worse than none,
+because its green is not evidence. It now compares the newest mtime under `src/`.
+
+**One feature nearly lost in the port**: the prototype registered the frame's rendered
+classes as Tailwind candidates through `useTailwindCandidates`, which is not in 11b's
+file list. Dropping it silently would have made the class editor *look* broken —
+Tailwind emits no rule for a class it never saw in source, so adding `gap-4` would
+stage an edit and preview as nothing. The layout now posts the set difference to
+`/candidates`, and the gate asserts the safelist grew.
+
+**Scope not taken**, stated rather than left as a hole: the `components` mode
+(`ComponentList` + `PreviewPane`) is in neither 11b's table nor 12's, and
+`ReviewApproveModal` is 12's — so ⌘S writes the plan directly today.

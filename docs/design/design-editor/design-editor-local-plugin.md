@@ -588,7 +588,7 @@ cap is what sets the granularity.
 | 10a | frame protocol · drill-in resolver · the alias seam | in review (#855) — see below |
 | 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | in review (#855) — see below |
 | 11a | the shell build — `dist/shell`, two documents, self-contained CSS | in review — see below |
-| 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | held — lands React |
+| 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | written — see below |
 | 12 | the token panels and the canvas scenes, as the row above always said | held |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
@@ -596,6 +596,49 @@ review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
 deliberately *not* reviewed in their current form: every repo-absolute constant in
 them is scheduled for rewrite, and reviewing 2,538 lines of soon-to-be-deleted
 path handling spends reviewer budget on nothing.
+
+#### What 11b took, and what it deliberately did not
+
+11b is the whole of its row: the three-pane layout, `SceneHost`, `scene-entry`, the
+outline / node-detail / class-editor panels, and 9c's `history` + `anchors`. Four
+things about it are worth recording, because each corrects something this document
+said earlier.
+
+**§6's "`SceneHost` alone has 25 `Select` call sites" was wrong**, and it was steering
+the plan toward vendoring Radix into the shell. 25 is what `grep -o 'Select'` returns
+— it counts the import, the type, and every closing tag. Measured: **one** `<Select>`
+(the zoom dropdown), one `<Tabs>`, two `<Popover>`s. The three primitives are ~400
+lines of local code under `src/shell/ui/`, which is why the shell bundle carries no
+Radix.
+
+**The scene list comes from `GET /metadata`, not `virtual:wb-scenes`.** The shell is
+prebuilt and cannot import a module the consumer's dev server generates — the same
+asymmetry that makes the frame a separate Vite entry. `/health` also gained a
+per-process `session`, which the staged-edit history keys its `localStorage` record
+on: without it a restarted dev server silently restores edits against files that have
+moved on.
+
+**The drill-in cache stopped being a cache.** `/metadata` already carries `roots` for
+every analysed file, so opening a component is a lookup rather than a per-file
+request. That deletes the prototype's most delicate refresh step — re-fetching each
+drilled-into file so its staged anchors could still be rebased — because there is only
+ever one payload to refresh.
+
+**Not ported, and not scheduled:** the prototype's `components` mode (`ComponentList`
++ `PreviewPane`). It addresses one primitive's CVA values rather than a scene's
+`NodeAnchor` and previews through a class override rather than a patched module, so it
+is a different feature that shares a window; it appears in neither 11b's file list nor
+12's. `ReviewApproveModal` is 12's, so ⌘S currently writes the plan directly and
+reports the result — the plan count and the write log make what a save will do visible
+beforehand, but the per-intent diff review is genuinely absent.
+
+**What only the browser gate covers.** Staging an edit needs the floating class editor,
+which needs a measured selection rect, which arrives from the frame over `postMessage`
+after the iframe loads a real scene. jsdom loads no iframe, so the click → stage → ⌘Z →
+⇧⌘Z loop and the write plan behind it are exercised by `pnpm verify:frame` (34 checks)
+and nowhere else. That gate also had to be fixed before it was worth trusting: it
+rebuilt the shell only when the bundle was *missing*, so it could serve bytes older
+than the change under test and pass.
 
 #### PR 8 splits in three, by pipeline — not by file
 
