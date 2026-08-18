@@ -33,6 +33,20 @@ import type { ResolvedOptions } from './options.ts';
 import { maybeRegenerate, TOKEN_KINDS } from './tokens.ts';
 import { readManifest } from './scenes.ts';
 
+/**
+ * This dev server's identity, minted once per process.
+ *
+ * The client persists its staged-edit stack under this value: a matching id on reload
+ * means the same server is still running and the stack still describes the files it was
+ * built against, while a different one means the server restarted and the stack must be
+ * dropped rather than replayed. Without it the client keys on `"unknown"` forever, so a
+ * restart silently restores edits against files that may have moved on.
+ *
+ * `pid` alone is not enough — operating systems reuse pids — so the start time is mixed
+ * in. Both are process-local and neither identifies the machine.
+ */
+const SESSION_ID = `${process.pid}-${Date.now().toString(36)}`;
+
 export interface BridgeDeps {
   options: ResolvedOptions;
   /**
@@ -328,6 +342,7 @@ export function bridge(deps: BridgeDeps): Plugin {
               // lifetime, and `/health` is the one call the client already makes
               // before it can resolve anything.
               aliases: deps.options.aliases,
+              session: SESSION_ID,
               fsRevision: deps.tracker.revision(),
               externalChanges: deps.tracker.recentChanges(),
               safelist: deps.safelist.size(),

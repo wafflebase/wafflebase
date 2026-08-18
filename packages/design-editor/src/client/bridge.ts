@@ -55,6 +55,12 @@ export interface BridgeResult {
 
 export interface HealthResult extends BridgeResult {
   root?: string;
+  /**
+   * The dev server's per-process identity. The staged-edit history is persisted under
+   * it, so a change means the server restarted and the stored stack — which describes
+   * files that may have moved — is dropped instead of replayed.
+   */
+  session?: string;
   scenes?: string | null;
   providers?: string | null;
   /** `'configured'` or null — null greys the token panels rather than hiding them. */

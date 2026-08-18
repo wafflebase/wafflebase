@@ -61,9 +61,18 @@ function check(label, cond, detail) {
   return false;
 }
 
-function buildShellIfMissing() {
-  if (fsSync.existsSync(path.join(PKG, 'dist/shell/index.html'))) return;
-  console.log('building the shell (dist/ is gitignored)');
+/**
+ * Build the shell when the bundle is missing OR older than its source.
+ *
+ * MISSING-ONLY WAS A REAL TRAP, and it cost an hour: the gate served a bundle built
+ * before the change under test, so a wiring fix that was genuinely present in the source
+ * failed here with no clue why. A browser gate that can silently test stale bytes is
+ * worse than no browser gate, because its green is not evidence.
+ */
+function buildShellIfStale() {
+  const bundle = path.join(PKG, 'dist/shell/index.html');
+  if (fsSync.existsSync(bundle) && newestSourceMtime() <= fsSync.statSync(bundle).mtimeMs) return;
+  console.log('building the shell (missing or older than src/)');
   const r = spawnSync('pnpm', ['exec', 'vite', 'build', '--config', './vite.shell.config.ts'], {
     cwd: PKG,
     stdio: 'inherit',
@@ -72,6 +81,22 @@ function buildShellIfMissing() {
 }
 
 /** Kill the whole group: `pnpm exec` spawns vite as its own child. */
+/** The newest mtime under `src/`, which is everything the shell bundle is built from. */
+function newestSourceMtime() {
+  let newest = 0;
+  const walk = (dir) => {
+    for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else newest = Math.max(newest, fsSync.statSync(full).mtimeMs);
+    }
+  };
+  walk(path.join(PKG, 'src'));
+  // The build config decides what goes in, so a change to it invalidates the bundle too.
+  newest = Math.max(newest, fsSync.statSync(path.join(PKG, 'vite.shell.config.ts')).mtimeMs);
+  return newest;
+}
+
 function shutdown(child) {
   try {
     if (child.pid) process.kill(-child.pid, 'SIGTERM');
@@ -109,7 +134,7 @@ async function boot() {
 }
 
 async function main() {
-  buildShellIfMissing();
+  buildShellIfStale();
 
   let chromium;
   try {
@@ -222,34 +247,65 @@ async function main() {
       const painted = ((await inner.textContent('#wb-scene-root')) ?? '').trim();
       check('and the scene painted inside it', painted.length > 0, JSON.stringify(painted.slice(0, 60)));
 
-      const shellText = async () => (await page.textContent('main')) ?? '';
+      // `body`, not `main`: the layout's `<main>` is now the frame pane alone. The
+      // surfaces asserted below are the outline (left of it) and the node detail (right).
+      const shellText = async () => (await page.textContent('body')) ?? '';
+
       // `wb:ready` and `wb:classes` are what lift the host's veil and feed Tailwind
       // candidate registration; both arriving is the protocol working in the direction
-      // unit tests cannot see.
+      // unit tests cannot see. There is no longer a status strip printing the counts, so
+      // each is read where the layout actually uses it.
+      const marked = await page.$$eval('[aria-label="Clickable in the frame"]', (n) => n.length);
+      check(
+        'the host received the selectable set',
+        marked > 0,
+        `${marked} rows marked clickable`,
+      );
+
+      // The classes the frame painted are POSTed to the bridge as Tailwind candidates —
+      // without which a class this editor composes has no CSS rule and previews as
+      // nothing. The bridge's safelist size is the observable side of that.
+      const safelist = await (
+        await fetch(`http://127.0.0.1:${PORT}/__design-editor/api/health`)
+      ).json();
+      check(
+        'and the classes the scene rendered reached the safelist',
+        (safelist.safelist ?? 0) > 0,
+        `safelist ${safelist.safelist}`,
+      );
+
       const before = await shellText();
-      check('the host received the selectable set', /Selectable nodes\s*[1-9]/.test(before), before.match(/Selectable nodes\s*\d+/)?.[0]);
-      check('and the classes the scene rendered', /Classes the scene rendered\s*[1-9]/.test(before), before.match(/Classes the scene rendered\s*\d+/)?.[0]);
-      check('nothing is selected yet', /Selected\s*nothing selected/.test(before));
+      check(
+        'nothing is selected yet',
+        /Picking must be on/.test(before),
+        before.match(/Click a node.{0,40}/)?.[0],
+      );
 
       await inner.click('[data-wb-node]');
       await page.waitForTimeout(600);
       const after = await shellText();
-      // A click inside the frame reaching the host is the boundary crossing that the
-      // whole protocol exists for.
-      // `Selected` carries the ID; `Tag` is the frame's own detail about it. They are
-      // separate because the outline knows only the id — storing a `StampRef` as the one
-      // source of truth made the outline invent one, which rendered `undefined — …` and
-      // would have shown another node's `instances` against this one.
+      // A click inside the frame reaching the host is the boundary crossing the whole
+      // protocol exists for, and the node detail is where it lands: the tag, the file it
+      // came from, and the fingerprint it resolved against.
       check(
         'a click inside the frame selects in the host',
-        /Selected\s*app\/\S+#\w+:[\d.]*/.test(after),
-        after.match(/Selected.{0,60}/)?.[0],
+        /path [\d.]*.*fp \w+/.test(after),
+        after.match(/·\s*path.{0,40}/)?.[0],
       );
+      // …and RESOLVED to a source node, which is the half that can fail silently: the
+      // click crossing the boundary only gets you a stamp, and the panel reports these
+      // facts (`scope`, the class list) exclusively when `anchorFromStamp` mapped that
+      // stamp back onto one baseline node.
+      //
+      // NOT asserted here: the instance count. The panel prints `×N rendered` only when N
+      // differs from 1, and the fixture's clicked node is rendered once — so a check on it
+      // would be testing the fixture, not the protocol.
       check(
-        'and the frame supplied the detail only it knows',
-        /Tag\s*\w+/.test(after) && !/Tag\s*not painted/.test(after),
-        after.match(/Tag.{0,40}/)?.[0],
+        'and the stamp resolved onto a source node',
+        !/Picking must be on/.test(after) && /structural edits/.test(after) && /className/.test(after),
+        after.match(/scope.{0,60}/)?.[0] ?? '(no resolved facts)',
       );
+
       check(
         'and the frame drew its overlay',
         (await inner.$eval('[data-wb-overlay="selection"]', (e) => getComputedStyle(e).display)) === 'block',
@@ -268,7 +324,6 @@ async function main() {
         rows.every((r) => r?.startsWith('app/')),
         JSON.stringify(rows.slice(0, 3)),
       );
-      const marked = await page.$$eval('[aria-label="Clickable in the frame"]', (n) => n.length);
       // Marked rows come from `wb:ready`'s selectable set: the outline saying which rows
       // the frame could actually reach is what keeps the two honest about the difference.
       check('and marks which rows the frame can reach', marked > 0, `${marked} marked`);
