@@ -44,11 +44,16 @@ const isBuiltin = (spec: string) => BUILTINS.has(spec.replace(/^node:/, ''));
  * Split from the file read so it can be asserted against a string. The alternative
  * was planting a violation in a real module, and the module that would have to hold
  * it is the thing under test.
+ *
+ * `fileName` is what picks the script kind, and it has to be the REAL one. Pinning
+ * `probe.tsx` covered JSX at the cost of the other direction: `<string>x` is a valid
+ * `.ts` assertion and JSX to a TSX parse, so a `.ts` module holding one parsed into a
+ * broken tree and every specifier after it went unseen — the guard silently blind on
+ * the tree it exists to guard. The kinds disagree both ways, so neither is the safe
+ * default; `createSourceFile` reads the extension when no kind is passed.
  */
-export function valueImportsOf(text: string): string[] {
-  // `.tsx` and JSX: the browser trees hold both, and a `.ts` parse of JSX would
-  // silently produce a broken tree rather than an error.
-  const sf = ts.createSourceFile('probe.tsx', text, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TSX);
+export function valueImportsOf(text: string, fileName = 'probe.ts'): string[] {
+  const sf = ts.createSourceFile(fileName, text, ts.ScriptTarget.ESNext, true);
   const out: string[] = [];
   const push = (node: ts.Expression | undefined) => {
     if (node && ts.isStringLiteralLike(node)) out.push(node.text);
@@ -91,15 +96,33 @@ export function valueImportsOf(text: string): string[] {
   return out;
 }
 
-const valueImports = (file: string): string[] => valueImportsOf(fs.readFileSync(file, 'utf8'));
+/**
+ * The file's own name reaches the parser, and a file that does not parse fails here
+ * rather than reporting no imports. A broken tree is the failure mode that made the
+ * pinned script kind invisible: it costs no error, it just answers `[]`.
+ */
+function valueImports(file: string): string[] {
+  const text = fs.readFileSync(file, 'utf8');
+  const { diagnostics } = ts.transpileModule(text, {
+    fileName: file,
+    reportDiagnostics: true,
+    compilerOptions: { target: ts.ScriptTarget.ESNext },
+  });
+  const messages = (diagnostics ?? []).map((d) => ts.flattenDiagnosticMessageText(d.messageText, ' '));
+  expect(messages, `${path.relative(SRC, file)} did not parse`).toEqual([]);
+  return valueImportsOf(text, file);
+}
 
 /** Every module the client pulls in for its value, transitively. */
 function closure(): string[] {
   const seen = new Set<string>();
+  // `.tsx` as well as `.ts`. The scan read only `.ts` while the parser was pinned to
+  // TSX for trees that "hold both" — so a `.tsx` browser module was not mis-parsed,
+  // it was never opened. Both ends agree on the extension now.
   const queue = BROWSER_DIRS.flatMap((dir) =>
     fs
       .readdirSync(dir)
-      .filter((f) => f.endsWith('.ts'))
+      .filter((f) => f.endsWith('.ts') || f.endsWith('.tsx'))
       .map((f) => path.join(dir, f)),
   );
   const reached: string[] = [];
@@ -187,6 +210,21 @@ describe('the client bundle boundary', () => {
     expect(valueImportsOf("import A, { type B } from './a.ts';")).toEqual(['./a.ts']);
     // A bare side-effect import is a runtime dependency with nothing bound.
     expect(valueImportsOf("import './shell.css';")).toEqual(['./shell.css']);
+  });
+
+  it('parses each source with its own script kind, both directions', () => {
+    // `<string>x` is an assertion in `.ts` and an unclosed JSX tag in `.tsx`; JSX is
+    // the reverse. A pinned kind therefore loses one of them to a broken tree, and a
+    // broken tree reports NO imports — the guard passes a file it never read. The
+    // scan walked `.ts` files only, so TSX was the losing pin.
+    const assertion = "const value = <string>unknown; void import('node:fs');";
+    expect(valueImportsOf(assertion, 'probe.ts')).toEqual(['node:fs']);
+    expect(valueImportsOf(assertion)).toEqual(['node:fs']);
+    expect(valueImportsOf(assertion, 'probe.tsx')).toEqual([]);
+
+    const jsx = "export const A = () => <div />; void import('node:path');";
+    expect(valueImportsOf(jsx, 'probe.tsx')).toEqual(['node:path']);
+    expect(valueImportsOf(jsx, 'probe.ts')).toEqual([]);
   });
 
   it('does not read a dependency out of prose', () => {
