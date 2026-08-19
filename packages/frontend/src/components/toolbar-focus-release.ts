@@ -20,12 +20,27 @@ import { releaseFocusToBody } from "./menu-focus";
  * setting the `CANVAS_TOOLBAR_ATTR` attribute — written literally as
  * `data-canvas-toolbar=""`, since a computed key does not type-check as a
  * JSX spread — on its root element.
+ *
+ * Text-edit keepalive controls (`data-text-edit-keepalive`) are exempt:
+ * there the canvas is deliberately *not* the keyboard's owner, because an
+ * in-place text box is still mounted behind the toolbar.
  */
 
 /** Marks a toolbar root whose focus should return to the canvas. */
 export const CANVAS_TOOLBAR_ATTR = "data-canvas-toolbar";
 
 const TOOLBAR_SELECTOR = `[${CANVAS_TOOLBAR_ATTR}]`;
+
+/**
+ * Controls that deliberately hold focus while a text-box edit session
+ * stays mounted. `packages/docs/src/view/text-box-editor.ts` skips its
+ * blur-commit when focus moves into one of these, so the session is still
+ * alive and the canvas must NOT get the keyboard back — releasing here
+ * would re-arm Delete / type-to-edit against the element being edited.
+ * It is also what lets the shared pickers keep their documented
+ * "dismiss restores focus to the trigger" contract.
+ */
+const TEXT_EDIT_KEEPALIVE_SELECTOR = "[data-text-edit-keepalive]";
 
 /**
  * Portalled surfaces a toolbar control can open. A pointer-down inside one
@@ -50,13 +65,15 @@ function hasOpenPopup(el: Element): boolean {
 
 /**
  * Only button-like toolbar controls are released. Text inputs inside a
- * toolbar (zoom, font size) legitimately own the keyboard while focused.
+ * toolbar (zoom, font size) legitimately own the keyboard while focused,
+ * and text-edit keepalive controls own it on behalf of a live text box.
  */
 function isReleasable(el: Element | null): boolean {
   return (
     el instanceof HTMLElement &&
     el.closest(TOOLBAR_SELECTOR) !== null &&
     (el.tagName === "BUTTON" || el.getAttribute("role") === "button") &&
+    el.closest(TEXT_EDIT_KEEPALIVE_SELECTOR) === null &&
     !hasOpenPopup(el)
   );
 }

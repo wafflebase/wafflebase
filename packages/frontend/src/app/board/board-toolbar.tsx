@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { InsertKind, SlidesEditor, SlidesStore } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
+import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
 import {
   Tooltip,
   TooltipTrigger,
@@ -128,6 +129,13 @@ export function BoardToolbar({
   // keeps focus instead of the dropdown trigger stealing it back.
   const pendingStickyColor = useRef<string | null>(null);
 
+  // A board drives the same `SlidesEditor`, so it inherits the same
+  // shortcut gate: a focused toolbar `<button>` makes the document-level
+  // keydown handler skip every rule (issue #882). The `<Toolbar>` below
+  // opts in with `data-canvas-toolbar` (= `CANVAS_TOOLBAR_ATTR`), exactly
+  // as `SlidesToolbar` does.
+  useCanvasFocusRelease();
+
   useEffect(() => {
     if (!editor) return;
     setInsertMode(editor.getInsertMode());
@@ -175,7 +183,7 @@ export function BoardToolbar({
     (gridSnap ? ", snap on" : "");
 
   return (
-    <Toolbar>
+    <Toolbar data-canvas-toolbar="">
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
       <ZoomControl controller={zoomController} />

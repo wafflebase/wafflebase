@@ -31,6 +31,23 @@ function Harness() {
           <DropdownMenuItem>Bring to front</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {/* A controlled palette trigger whose popup is already open: it
+          keeps focus, the way the color palettes' controlled DropdownMenu
+          triggers do while their swatch grid is showing. */}
+      <button type="button" aria-expanded="true" data-state="open">
+        Text color
+      </button>
+      {/* A pressed Radix `Toggle`. `data-state="on"` is NOT an open popup,
+          so a pressed toggle must still be released. */}
+      <button type="button" data-state="on">
+        Bold
+      </button>
+      {/* A text-edit keepalive control: focus parked here keeps the
+          in-place text box mounted, so the canvas must not take the
+          keyboard back. */}
+      <button type="button" data-text-edit-keepalive>
+        Text alignment
+      </button>
     </div>
   );
 }
@@ -47,15 +64,32 @@ describe("useCanvasFocusRelease", () => {
     await expectFocusReleased();
   });
 
-  it("keeps focus on a trigger whose menu is open", async () => {
+  it("keeps focus on a trigger whose popup is open", async () => {
     render(<Harness />);
-    const trigger = screen.getByRole("button", { name: "Arrange" });
+    const trigger = screen.getByRole("button", { name: "Text color" });
     await userEvent.click(trigger);
-    await screen.findByRole("menu");
-    // Radix moves focus into the portalled content; either way the trigger
-    // must not be blurred out from under an open menu.
-    await waitFor(() => expect(document.activeElement).not.toBe(document.body));
-    expect(trigger.getAttribute("data-state")).toBe("open");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Blurring the trigger out from under its own open popup would close
+    // the popup the click just opened.
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("releases focus from a pressed toggle", async () => {
+    render(<Harness />);
+    // `data-state="on"` is Radix `Toggle`'s pressed state, not an open
+    // popup — Bold / Italic must still hand the keyboard back.
+    await userEvent.click(screen.getByRole("button", { name: "Bold" }));
+    await expectFocusReleased();
+  });
+
+  it("keeps focus on a text-edit keepalive control", async () => {
+    render(<Harness />);
+    const button = screen.getByRole("button", { name: "Text alignment" });
+    await userEvent.click(button);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The text box behind the toolbar is still mounted; releasing here
+    // would re-arm Delete / type-to-edit against the element being edited.
+    expect(document.activeElement).toBe(button);
   });
 
   it("releases focus when the menu is dismissed with Escape", async () => {
