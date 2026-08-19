@@ -171,9 +171,33 @@ const shell = (p) => fetch(`http://127.0.0.1:${PORT}/__design-editor${p}`);
  * something on CI — and the build is on the `design-editor:check` lane besides, so a
  * broken build fails before this script is reached.
  */
+/** The newest mtime under `src/`, which is everything the shell bundle is built from. */
+function newestSourceMtime() {
+  let newest = 0;
+  const walk = (dir) => {
+    for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else newest = Math.max(newest, fsSync.statSync(full).mtimeMs);
+    }
+  };
+  walk(path.join(PKG, 'src'));
+  // The build config decides what goes in, so a change to it invalidates the bundle too.
+  return Math.max(newest, fsSync.statSync(path.join(PKG, 'vite.shell.config.ts')).mtimeMs);
+}
+
+/**
+ * Build when the bundle is missing OR older than its source.
+ *
+ * MISSING-ONLY SERVED STALE BYTES, twice. `verify:frame` had the same shape and cost an hour
+ * there; here it meant the stylesheet checks below passed against a bundle built before the
+ * change under test — including, on the run that added them, a fix they were written to prove.
+ * A gate that can pass on stale bytes is worse than no gate, because its green is not evidence.
+ */
 function buildShellIfMissing() {
-  if (fsSync.existsSync(path.join(PKG, 'dist/shell/index.html'))) return;
-  console.log('building the shell (dist/ is gitignored)');
+  const bundle = path.join(PKG, 'dist/shell/index.html');
+  if (fsSync.existsSync(bundle) && newestSourceMtime() <= fsSync.statSync(bundle).mtimeMs) return;
+  console.log('building the shell (missing or older than src/)');
   const r = spawnSync('pnpm', ['exec', 'vite', 'build', '--config', './vite.shell.config.ts'], {
     cwd: PKG,
     stdio: 'inherit',
@@ -341,9 +365,42 @@ async function main() {
         assets.map(async (a) => `${a} ${(await fetch(`http://127.0.0.1:${PORT}${a}`)).status}`),
       );
       check('and each one is served', fetched.every((f) => f.endsWith(' 200')), fetched.join(' '));
-      // §6: the chrome must not inherit the theme it exists to judge.
-      const css = await (await fetch(`http://127.0.0.1:${PORT}${assets.find((a) => a.endsWith('.css'))}`)).text();
-      check('the shell stylesheet is self-contained', !css.includes(STYLESHEET) && !css.includes('fonts.googleapis'), css.slice(0, 120));
+      // Asserted before it is fetched: `find` returning undefined made the fetch below hit
+      // `/undefined`, so a build that emitted no stylesheet passed this section.
+      const sheet = assets.find((a) => a.endsWith('.css'));
+      if (check('the shell emits a stylesheet', typeof sheet === 'string', String(sheet))) {
+        // §6: the chrome must not inherit the theme it exists to judge.
+        const css = await (await fetch(`http://127.0.0.1:${PORT}${sheet}`)).text();
+        check(
+          'the shell stylesheet is self-contained',
+          !css.includes(STYLESHEET) && !css.includes('fonts.googleapis'),
+          css.slice(0, 120),
+        );
+        /*
+         * BOTH palettes, and the dark one under the media query.
+         *
+         * A nested `@theme` inside `@media (prefers-color-scheme: dark)` is hoisted to the top
+         * level by Tailwind v4, so the dark values OVERWROTE the light ones: every
+         * `--color-wb-*` was emitted once with its dark value and the shell rendered dark
+         * whatever the OS said. Nothing here noticed, because the stylesheet was still
+         * self-contained and still served.
+         */
+        // DEFINITIONS only. `indexOf('--color-wb-bg')` also matches every `var(--color-wb-bg)`
+        // use, so counting mentions found the wrong second occurrence.
+        const defs = [...css.matchAll(/--color-wb-bg:([^;}]+)/g)];
+        check(
+          'the shell defines a light AND a dark palette',
+          defs.length === 2,
+          defs.map((m) => m[1].trim()).join(' | '),
+        );
+        const darkAt = defs.length === 2 ? defs[1].index : 0;
+        const before = css.slice(Math.max(0, darkAt - 400), darkAt);
+        check(
+          'and the dark one is scoped to the media query',
+          before.includes('prefers-color-scheme:dark') || before.includes('prefers-color-scheme: dark'),
+          before.slice(-90),
+        );
+      }
     }
 
     const scene = await shell('/scene');

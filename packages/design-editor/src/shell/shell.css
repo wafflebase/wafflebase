@@ -54,9 +54,14 @@
  * The shell follows the DEVELOPER's OS preference, not the theme being edited.
  * Those are different things: previewing a dark theme must not flip the chrome, or
  * the two are no longer distinguishable on screen.
+ *
+ * `:root`, NOT a nested `@theme`. Tailwind v4 hoists a nested `@theme` to the top level, so
+ * the dark values overwrote the light ones instead of overriding them under the media query:
+ * every `--color-wb-*` was emitted once, with its dark value, and the shell rendered dark
+ * whatever the OS said. Overriding the emitted custom properties is what actually scopes them.
  */
 @media (prefers-color-scheme: dark) {
-  @theme {
+  :root {
     --color-wb-bg: oklch(0.19 0.005 250);
     --color-wb-panel: oklch(0.23 0.006 250);
     --color-wb-border: oklch(0.31 0.008 250);
