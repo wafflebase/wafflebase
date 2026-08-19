@@ -133,6 +133,37 @@ focused element is inside an interactive widget (`role="dialog"`,
 `role="menu"`, focused `<button>`, etc.) so the help modal's own Tab
 navigation doesn't get hijacked by the slides Tab-cycle rule.
 
+**Toolbar focus release.** The gate must hold for the *duration* of a
+toolbar interaction, not forever after it. A plain `<button>` keeps focus
+once clicked, and Radix hands focus back to the *trigger* when a dropdown
+closes — so without a counterpart the gate stays engaged and arrow keys /
+`Delete` / the z-order shortcuts stop reaching the canvas until the user
+clicks it again (issue #882). The counterpart is
+`useCanvasFocusRelease()` (`packages/frontend/src/components/toolbar-focus-release.ts`),
+called by the desktop slides toolbar, which marks its root with
+`data-canvas-toolbar`: on `focusin` inside that root it defers one task and
+then blurs the focused control back to `document.body` (via the existing
+`releaseFocusToBody()`), so the next `keydown` targets the body and the
+rules run again. It deliberately does nothing when
+
+- the focused element is not button-like (a toolbar `<input>` — zoom, font
+  size — owns the keyboard while focused),
+- the control's popup is still open (`data-state="open"` /
+  `aria-expanded="true"`; `Toggle`'s `on`/`off` states do not match),
+- the focus did not arrive from a pointer-driven toolbar interaction — the
+  last `pointerdown` must have landed in the toolbar or in a portalled
+  popup, and any `Tab` press clears that, so keyboard navigation into the
+  toolbar keeps focus where the user put it,
+- focus has already moved on by the time the deferred check runs — which is
+  what makes text-edit controls (they end with `editor.focus()` on the
+  hidden textarea) and menu triggers handing focus to their content
+  no-ops.
+
+Board carries its own copy of the same `<button>` branch
+(`packages/frontend/src/app/board/is-editable-target.ts`); the attribute is
+opt-in, so the board toolbar can adopt the hook when that surface is
+verified.
+
 Exceptions:
 
 - `Cmd+/` (help modal) bypasses the gate — help should always open.
