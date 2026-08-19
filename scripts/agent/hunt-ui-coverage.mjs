@@ -277,6 +277,13 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
   return {
     keyVersion: COVERAGE_KEY_VERSION,
     sha,
+    // WHICH CONTROLS HAVE BEEN CLICKED AT ALL, independent of the shape key.
+    //
+    // Derivable from `shapes` today, and recorded separately anyway, because the two
+    // survive a key bump differently: a `control|shape` entry cannot claim coverage once
+    // `shape` changes meaning, but "this control has been clicked" never stops being
+    // true. `mergeCoverage` carries this across a bump for that reason.
+    usedControls: [...new Set([...shapes.values()].map((x) => x.control))].sort(),
     shapes: [...shapes.values()].sort((a, b) => `${a.control}${a.shape}`.localeCompare(`${b.control}${b.shape}`)),
     pairs: [...pairs].map(([pair, at]) => ({ pair, sha: at })).sort((a, b) => a.pair.localeCompare(b.pair)),
     readAfterMutation: [...readAfterMutation]
@@ -378,6 +385,27 @@ export function mergeCoverage(prev, next) {
     // name, and collapsing them loses one control and leaves the survivor's role a coin
     // toss.
     inventory: unionInventory([prev?.inventory, next?.inventory]),
+    // CARRIED ACROSS A KEY BUMP, like the inventory and for the same reason: a control
+    // NAME does not change meaning when the shape key does.
+    //
+    // Keeping the inventory without this was strictly worse than keeping neither.
+    // `untried` is `inventory` MINUS the controls already used, so an inventory that
+    // survives while the used-set is dropped reports the whole surface as never tried.
+    // Measured on the live sheet memory at the 3 -> 4 bump: the brief listed all 22
+    // controls under "NEVER TRIED — these exist on this surface and no run has ever
+    // clicked them", including `Bold` and `Italic` (round-tripped many times), the two
+    // decimal-places controls (already filed as #845), the four buttons the rubric names
+    // as unwired, and `Undo`/`Redo`, which that same rubric calls the single most likely
+    // false finding on the surface. Before the inventory was carried the section was
+    // simply absent, which is a worse memory but an honest one; this makes it both.
+    usedControls: [
+      ...new Set([
+        ...(Array.isArray(prev?.usedControls) ? prev.usedControls : []),
+        ...(Array.isArray(next?.usedControls) ? next.usedControls : []),
+        ...(Array.isArray(prev?.shapes) ? prev.shapes : []).map((x) => x?.control),
+        ...(Array.isArray(next?.shapes) ? next.shapes : []).map((x) => x?.control),
+      ].filter((n) => typeof n === "string" && n !== "")),
+    ].sort(),
   };
 }
 
@@ -456,7 +484,15 @@ export function renderCoverageBrief(coverage, { sha = null } = {}) {
   // This is what the memory could not say before: past journals give what WAS used, and
   // a control nobody touched appears in none of them, so it was invisible. `Clear
   // formatting` sat unclicked for eight doc runs for exactly this reason.
-  const usedControls = new Set(shapes.map((x) => x.control));
+  // BOTH sources: the shape entries this key version can still read, AND the names
+  // carried across any earlier bump. Using `shapes` alone is what made a bumped memory
+  // announce the entire surface as untried.
+  const usedControls = new Set([
+    ...shapes.map((x) => x.control),
+    ...(Array.isArray(coverage.usedControls) ? coverage.usedControls : []).filter(
+      (n) => typeof n === "string" && n !== "",
+    ),
+  ]);
   const untried = inventory.filter((x) => !usedControls.has(x.control));
 
   // MENU LEAVES ARE NOT OPPORTUNITIES, and listing them as such drowned the list that

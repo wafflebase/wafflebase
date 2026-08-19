@@ -184,6 +184,48 @@ test("mergeCoverage unions, keeps roundTripped sticky, and drops a stale key ver
   }
 });
 
+test("a key-version bump keeps WHICH CONTROLS were used, so untried stays honest", () => {
+  // THE REGRESSION THIS EXISTS FOR, measured on the live sheet memory at the 3 -> 4 bump.
+  // `untried` is `inventory` MINUS the used controls. Carrying the inventory across a bump
+  // while dropping the used-set made the brief announce the ENTIRE surface as never
+  // tried — including `Bold`, round-tripped many times, and `Undo`, which the sheet rubric
+  // calls the single most likely false finding on that surface.
+  const stale = {
+    keyVersion: COVERAGE_KEY_VERSION - 1,
+    shapes: [
+      { control: "Bold", shape: "cell", roundTripped: true },
+      { control: "Italic", shape: "cell-range", roundTripped: true },
+    ],
+    inventory: [
+      { role: "button", control: "Bold", sha: "old1" },
+      { role: "button", control: "Italic", sha: "old1" },
+      { role: "button", control: "Paint format", sha: "old1" },
+    ],
+  };
+  const merged = mergeCoverage(stale, { keyVersion: COVERAGE_KEY_VERSION, shapes: [], inventory: [] });
+
+  assert.deepEqual(merged.shapes, [], "a shape key that changed meaning still claims nothing");
+  assert.deepEqual(merged.usedControls, ["Bold", "Italic"], "but WHICH controls were clicked survives");
+
+  const md = renderCoverageBrief(merged);
+  const neverTried = md.slice(md.indexOf("NEVER TRIED"));
+  assert.match(neverTried, /`Paint format`/, "a genuinely untouched control is still offered");
+  assert.doesNotMatch(neverTried, /`Bold`/, "a control that HAS been clicked must not be offered as never tried");
+  assert.doesNotMatch(neverTried, /`Italic`/);
+});
+
+test("usedControls survives a bump even with no shapes to derive it from", () => {
+  // A record written AFTER this change carries the list directly, so a second bump must
+  // read it from there rather than re-deriving from shapes that are already gone.
+  const twiceStale = { keyVersion: COVERAGE_KEY_VERSION - 2, usedControls: ["Bold"], shapes: [], inventory: [] };
+  assert.deepEqual(mergeCoverage(twiceStale, { keyVersion: COVERAGE_KEY_VERSION }).usedControls, ["Bold"]);
+});
+
+test("coverageFromJournal records usedControls alongside the shape keys", () => {
+  const c = coverageFromJournal([sel(0, 5), click("Bold"), click("Italic")]);
+  assert.deepEqual(c.usedControls, ["Bold", "Italic"]);
+});
+
 test("a key-version bump drops shapes but KEEPS the control inventory", () => {
   // `keyVersion` versions the SHAPE key. The inventory is keyed `role|name`, which no
   // bump has changed the meaning of, and it is the expensive half of this memory to
