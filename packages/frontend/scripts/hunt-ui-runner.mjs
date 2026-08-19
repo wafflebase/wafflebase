@@ -56,6 +56,7 @@ const frontendRoot = path.resolve(__dirname, "..");
 
 const HOST = "127.0.0.1";
 import { domControls } from "./hunt-ui-dom.mjs";
+import { performDrag } from "./hunt-ui-gesture.mjs";
 
 const BRIDGE_KEY = "__WB_HUNT__";
 const READY_SELECTOR = "[data-testid='hunt-harness-root'][data-hunt-harness-ready='true']";
@@ -290,6 +291,28 @@ async function runAction(page, action, baseUrl, timeoutMs, fault = null) {
       };
       if (target.kind === "role") await target.locator.click(opts);
       else await page.mouse.click(target.point.x, target.point.y, opts);
+      return { value: null };
+    }
+    case "drag": {
+      const from = await resolveTarget(page, action.target);
+      const to = await resolveTarget(page, action.to);
+      // Both ends may be a role locator or a named reader's point; a locator is reduced to
+      // its own centre, which is what `click` already does to one.
+      //
+      // WAITS, AND REFUSES A BOX THAT IS NOT THERE. `boundingBox()` answers `null` for an
+      // element that is not rendered, so reading `.x` off it throws a TypeError naming a
+      // property rather than the target that could not be measured — the same opaque failure
+      // `resolveTarget` refuses NaN coordinates to avoid. And the per-action timeout is the
+      // budget every other action honours; without `waitFor` a drag would resolve against
+      // whatever the locator happened to be at that instant instead of waiting for it.
+      const at = async (t) => {
+        if (t.kind === "point") return t.point;
+        await t.locator.waitFor({ state: "visible", timeout: timeoutMs });
+        const box = await t.locator.boundingBox({ timeout: timeoutMs });
+        if (!box) throw new Error("drag target resolved to a locator with no bounding box — it is not rendered");
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      };
+      await performDrag(page, await at(from), await at(to));
       return { value: null };
     }
     case "type": {

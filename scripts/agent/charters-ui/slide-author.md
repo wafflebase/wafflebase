@@ -57,12 +57,28 @@ window could have changed it.
 
 ## What is true of THIS surface (facts, not suggestions)
 
-- **YOU CANNOT DRAG. THERE IS NO DRAG ACTION.** The vocabulary is
-  `goto | click | type | key | scroll | read | wait` and none of them is a press-move-
-  release. So **moving, resizing, rotating, drawing a connector, cropping an image and
-  dragging a selection box are all unreachable**, and every one of them is a large part of
-  what this editor does. Predict nothing about them. If your plan needs a drag, the plan
-  is wrong, not the app. Nudge with arrow keys instead.
+- **YOU CAN DRAG, and it is exact.** `drag` takes a `target` (where the gesture starts) and
+  a `to` (where it ends), each of them an ordinary target: a control, or a named reader's
+  point. Three readers give you points worth dragging between:
+
+  - `slides.elementCenter(id)` — an element's centre
+  - `slides.pointAt(x, y)` — an arbitrary point, in SLIDE-LOGICAL coordinates (1920x1080)
+  - `slides.handleCenter(kind)` — a selection handle: `nw n ne e se s sw w` to resize,
+    `rotate`, a connector's `start`/`end`/`bend`, or `adjust-N` on a parametric shape.
+    Handles exist only while something is SELECTED, so click first.
+
+  Measured: dragging `badge`'s centre to `slides.pointAt(700, 800)` puts its centre at
+  exactly (700, 800), and dragging `card`'s `se` handle to `slides.pointAt(1700, 900)` makes
+  it exactly `1700 - card.x` wide by `900 - card.y` tall with its top-left unmoved. That
+  exactness is what makes a drag worth predicting against.
+- **SNAPPING WILL MOVE YOUR DRAG, AND THAT IS NOT A DEFECT.** Within **8 slide-logical
+  pixels** of another element's edge or centre, the slide's centre, or a guide, the dragged
+  element snaps to it. Measured: asking for x=1156 next to an element whose edge is at 1150
+  lands at 1150, and **Alt does not disable it** — Alt only bypasses the separate grid snap.
+  So either drag to somewhere more than 8px clear of every edge and predict the exact point,
+  or predict the snapped value. Predicting the asked-for point near an edge is a violated
+  prediction with no defect behind it, and it is the likeliest false finding on this surface
+  now that dragging works.
 - **UNDO REALLY WORKS HERE.** `MemSlidesStore` keeps genuine undo/redo stacks, so this
   surface is like the document surface and UNLIKE the sheet surface, whose `undo()` is a
   no-op. Measured: `slides.canUndo` is `false` at rest and `true` after a single arrow-key
@@ -103,12 +119,13 @@ window could have changed it.
   - **`Shape` WORKS, and is the one way you can create an element.** It opens a 136-item
     picker; pick a shape and then a plain CLICK on the slide places it. Predict against
     `slides.elements` growing by exactly one.
-  - **`Text box`, `Insert table` and `Line` cannot be placed.** `Text box` and `Insert table`
-    open nothing and add nothing; `Line` opens a small picker (`Arrow`, `Curved connector`,
-    `Elbow connector`, `Scribble`) and then a click places nothing, because a connector is
-    defined by two dragged endpoints. All three arm a mode you cannot complete without a
-    drag, so a click on them changes NOTHING you can read. That is the missing drag action,
-    not a defect — do not report it, and do not spend a prediction on it.
+  - **`Text box` and `Line` NEED A DRAG, and now work.** They arm a mode a click cannot
+    complete, which is why they used to appear inert. Measured with `drag`: `Text box` then a
+    drag across empty slide space adds a `text` element; `Line` opens a picker (`Arrow`,
+    `Curved connector`, `Elbow connector`, `Scribble`) and a drag then adds a `connector` for
+    `Arrow` and a `shape` for `Scribble`. Drag out the region you want rather than clicking.
+  - **`Insert table` still adds nothing, even with a drag.** Measured: the element count does
+    not move. Predict nothing about it and do not report it.
   - **`Insert image` IS UNWIRED IN THIS HARNESS.** It needs a file picker that is not
     mounted, so its handler is a no-op. Not broken; unwired here only.
 
@@ -128,7 +145,7 @@ window could have changed it.
 
 ## What a good finding looks like
 
-Increase-that-decreases. Reorder-that-loses-an-element. Nudge-here-moves-there. Every
+Increase-that-decreases. Reorder-that-loses-an-element. Drop-here-lands-there. Every
 real UI bug this project has filed is a self-contradiction of that shape — the app
 disagreeing with its own earlier state or its own reported selection. None needed an
 external spec.
@@ -140,7 +157,7 @@ thing, reverse it BY ITS OWN CONTROL, and predict the state returns to a reading
 already took. It is ground A by construction, and it caught defects that broad
 exploration walked straight past.
 
-This surface has three unusually clean versions, because each one has an exact inverse:
+This surface has four unusually clean versions, because each one has an exact inverse:
 
 ```
 read slides.elements                       -> journal entry 4
@@ -166,14 +183,35 @@ key Meta+z
                  expect slides.elements equals "@read:15"       ground A
 ```
 
+And the sharpest one, because a drag is exact to the pixel and its inverse is just the
+reverse drag. `badge` starts centred on (1660, 360), so drag it away and back:
+
+```
+read slides.elements                       -> journal entry 21
+drag  from slides.elementCenter("badge")  to slides.pointAt(700, 800)
+drag  from slides.elementCenter("badge")  to slides.pointAt(1660, 360)
+                 expect slides.elements equals "@read:21"       ground A
+```
+
+The same shape resizes: drag a corner handle out to a point, then drag it back to where the
+corner was, and predict `slides.elements` returns. Read the frame FIRST so you know what
+"back" is — `slides.handleCenter` reports where a handle is now, not where it started.
+
+BOTH DESTINATIONS MUST BE MORE THAN 8 LOGICAL PIXELS CLEAR of every element edge and
+centre, the slide centre, and every guide, or the snap lands you somewhere else and the
+round trip fails for a reason that is not a defect. That is the one thing to get right
+about a drag round trip, and it is why the example above uses (700, 800) — measured clear
+of everything in this seed.
+
 Vary WHICH element and WHICH shape of selection: one element, several at once, the
 element already at the front, the element already at the back. `Bring to front` on
 something already frontmost is a no-op that must leave the order untouched — an
 off-by-one there is exactly the defect this pattern finds.
 
 Also worth a round trip: `Add slide` then delete it (predict `slides.slideCount` returns),
-alignment applied and then re-applied to the same selection, and entering a text box,
-typing, and undoing.
+alignment applied and then re-applied to the same selection, entering a text box, typing,
+and undoing, and placing something with `Shape` or `Text box` and then undoing the
+placement (predict `slides.elements` returns to the reading before it).
 
 **Not a round trip: which element ends up selected.** Selection after an operation is not
 a property you should assume, so read it rather than predicting it, unless the operation
@@ -184,8 +222,8 @@ is specifically about selection.
 - Anything on the document or sheet surface. You cannot reach them and must not try.
 - How something is PAINTED — a colour, a shadow, a font's shape. You have no visual
   channel; the visual regression lane owns that and already has baselines.
-- Anything needing a drag. See above. It is not that these are low priority; they are
-  not performable, so anything you "find" there is invented.
+- Image cropping. It needs a double-click to enter crop mode and then handle drags inside
+  it, which is a second interaction mode this run is not set up for.
 - PPTX import/export, presentation mode, collaboration, performance, test coverage.
 
 ## What is NOT a finding
