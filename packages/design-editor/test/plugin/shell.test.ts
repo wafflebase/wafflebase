@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { shellServer } from '../../src/plugin/shell.ts';
 import { BASE } from '../../src/base.ts';
 
@@ -21,6 +21,9 @@ import { BASE } from '../../src/base.ts';
  */
 
 let dist: string;
+/** Captured in `beforeAll` so a test can make one hook fail. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let server: any;
 type Handler = (req: { url?: string }, res: FakeRes, next: () => void) => void;
 let handler: Handler;
 
@@ -79,9 +82,22 @@ beforeAll(() => {
     },
   };
   const cfg = { logger: { error() {} } };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a two-field stand-in
-  // for ViteDevServer; typing it fully would assert nothing this test reads.
-  (plugin.configureServer as any).call(null, { middlewares, config: cfg });
+  /**
+   * `transformIndexHtml` stands in for the consumer's own HTML pipeline, and the scene
+   * document MUST go through it: `@vitejs/plugin-react` injects its fast-refresh
+   * preamble there, and without it the frame mounts React and renders nothing. The fake
+   * marks what it touched so the test can prove the call happened rather than trusting
+   * that it did.
+   */
+  server = {
+    middlewares,
+    config: cfg,
+    transformIndexHtml: async (url: string, html: string) =>
+      html.replace('<!doctype-marker>', '') + `<!--transformed:${url}-->`,
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a narrow stand-in for
+  // ViteDevServer; typing it fully would assert nothing this test reads.
+  (plugin.configureServer as any).call(null, server);
 });
 
 afterAll(() => fs.rmSync(dist, { recursive: true, force: true }));
@@ -104,6 +120,30 @@ describe('the scene document', () => {
     expect(r.headers['cache-control']).toBe('no-store');
   });
 
+  it('goes through the consumer’s own HTML transforms', async () => {
+    // NOT decoration. `plugin-react` injects its fast-refresh preamble in
+    // `transformIndexHtml`; served as static bytes the document never reaches it, and
+    // every module the consumer's plugin transformed throws `can't detect preamble` at
+    // load. Measured in a real browser before the fix: React mounted, the scene rendered
+    // NOTHING, and zero nodes were stamped — one console line and a blank frame.
+    const { res: r } = await get('/scene');
+    expect(r.body).toContain('<!--transformed:');
+    // The URL is passed through, because Vite resolves relative injections against it.
+    expect(r.body).toContain(`<!--transformed:/scene-->`);
+  });
+
+  it('reports a failing HTML transform instead of serving a blank frame', async () => {
+    const boom = new Error('a consumer plugin threw');
+    const original = (server as { transformIndexHtml: unknown }).transformIndexHtml;
+    (server as { transformIndexHtml: unknown }).transformIndexHtml = async () => {
+      throw boom;
+    };
+    const { res: r } = await get('/scene');
+    expect(r.statusCode).toBe(500);
+    expect(r.body).toContain('could not be transformed');
+    (server as { transformIndexHtml: unknown }).transformIndexHtml = original;
+  });
+
   it('refuses a document whose placeholder is gone, rather than serving it', async () => {
     // A shipped `scene.html` without the token would load `__WB_SCENE_ENTRY__` as a
     // relative URL, 404 inside the frame, and read as a scene that renders nothing.
@@ -115,6 +155,20 @@ describe('the scene document', () => {
       path.join(dist, 'scene.html'),
       '<!-- __WB_SCENE_ENTRY__ --><script src="__WB_SCENE_ENTRY__"></script>',
     );
+  });
+});
+
+describe('a request that fails mid-flight', () => {
+  it('answers 500 rather than leaving the request open', async () => {
+    // The read sits outside `serve`'s own try/catch, which is the real race: `scene.html`
+    // can go away between the existence check and the read during a rebuild. Unhandled,
+    // the request got no response at all and node reported a rejection.
+    const spy = vi.spyOn(fs, 'readFileSync').mockImplementationOnce(() => {
+      throw new Error('vanished during a rebuild');
+    });
+    const { res: r } = await get('/scene');
+    expect(r.statusCode).toBe(500);
+    spy.mockRestore();
   });
 });
 

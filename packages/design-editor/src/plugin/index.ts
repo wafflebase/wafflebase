@@ -144,10 +144,13 @@ export function designEditor(options?: DesignEditorOptions): Plugin[] {
   const loadInjector = (): Promise<Injector> =>
     (injectorPromise ??= import('../server/inject.mjs') as unknown as Promise<Injector>);
 
-  let stampPromise: Promise<{ stampSource: (t: string, f: string) => string }> | null = null;
+  /** Lazily loaded: `extract.mjs` pulls in the TypeScript compiler. */
+  let extractorPromise: Promise<never> | null = null;
+
+  let stampPromise: Promise<{ stampSource: (t: string, f: string) => { text: string; stamped: string[] } }> | null = null;
   const loadStamper = () =>
     (stampPromise ??= import('../server/stamp.mjs') as unknown as Promise<{
-      stampSource: (t: string, f: string) => string;
+      stampSource: (t: string, f: string) => { text: string; stamped: string[] };
     }>);
 
   const intentContext = async (): Promise<IntentContext> => ({
@@ -231,6 +234,8 @@ export function designEditor(options?: DesignEditorOptions): Plugin[] {
     }),
     shellServer({ distDir: SHELL_DIR, sceneEntryUrl: SCENE_ENTRY_URL }),
     bridge({
+      loadExtractor: () =>
+        (extractorPromise ??= import('../server/extract.mjs') as unknown as Promise<never>),
       get options() {
         return need();
       },
@@ -258,7 +263,7 @@ export function designEditor(options?: DesignEditorOptions): Plugin[] {
  * first scene mount does not pay for the import mid-request.
  */
 function stamperBridge(
-  loadStamper: () => Promise<{ stampSource: (t: string, f: string) => string }>,
+  loadStamper: () => Promise<{ stampSource: (t: string, f: string) => { text: string; stamped: string[] } }>,
 ): Plugin {
   return {
     name: 'wafflebase-design-editor:warm-stamper',
