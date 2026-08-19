@@ -95,8 +95,26 @@ Request arrives
       └─ JwtAuthGuard (existing cookie-or-Bearer flow)
 ```
 
-The v1 API endpoints use `CombinedAuthGuard`. Existing endpoints
-continue to use `JwtAuthGuard` only. `JwtStrategy` accepts JWTs from
+The v1 API endpoints use `CombinedAuthGuard`. Neither it nor
+`WorkspaceScopeGuard` reads `scopes` — the guards prove the key is valid and
+bound to the workspace, nothing more — so every v1 controller also mounts
+**`ApiKeyWriteScopeGuard`**
+(`packages/backend/src/api/v1/api-key-write-scope.guard.ts`), which refuses an
+API-key caller without the `write` scope on any `POST` / `PUT` / `PATCH` /
+`DELETE`. A key minted with `scopes: ['read']` gets a `403` from every
+mutating v1 route.
+
+It is one guard keyed on the HTTP method rather than a check written per
+handler, because the per-handler form is an absence waiting to happen: it was
+present on `documents.delete` and `files.upload` and missing from the other
+seven mutating routes, which made the surface *read* as covered while
+`PUT …/content` — a destructive replace of a document's whole content — was
+open to a read-only credential. A new mutating route is gated the moment it
+is added to a controller that mounts the guard. JWT callers are unaffected:
+their authority is workspace membership and document ownership, resolved by
+the per-handler checks.
+
+Existing endpoints continue to use `JwtAuthGuard` only. `JwtStrategy` accepts JWTs from
 both the `wafflebase_session` cookie and the
 `Authorization: Bearer` header so the CLI can call JWT-guarded
 endpoints with its OAuth-issued access token (see [cli.md](cli.md)
@@ -219,9 +237,116 @@ PUT    /api/v1/workspaces/:wid/documents/:did/content   Replace Document JSON
 
 `GET` returns the `Document` root from Yorkie (block tree, page setup,
 header/footer, inline metadata included as-is). `PUT` replaces the
-Yorkie root with the body JSON. Both reject when the document
-`type !== 'doc'` with HTTP 409 and a message pointing to the matching
-sheets command.
+Yorkie root with the body JSON. Both reject a spreadsheet document with
+HTTP 409 and a message pointing to the matching sheets command (the same
+routes also serve `slides` and `note` documents, dispatching on the
+persisted type).
+
+**`PUT` validation contract.** The writers dereference much of the payload
+unconditionally, so a malformed body would otherwise surface as an HTTP 500
+from inside Yorkie *after* a partial write. `PUT` therefore validates the body
+up front and answers `400` with the offending path (`blocks[3].inlines[0]`,
+`slides[1].elements[2].data`, …) on the first problem it finds. Beyond the
+structural checks (`blocks` / `inlines` / `tableData.rows[].cells[].blocks`
+must be arrays; a block needs a non-empty `id`, a `type` and a `style` object;
+an inline needs a string `text` and a `style` object; a table cell needs a
+`style` object) it validates the *values* a block style carries:
+
+- `style.alignment`, when present, must be one of `left`, `center`, `right`,
+  `justify`.
+- `style.lineHeight` / `marginTop` / `marginBottom` / `textIndent` /
+  `marginLeft`, when present, must be **finite numbers** — not numeric
+  strings. `null` is treated as absent everywhere: it is how JSON spells "no
+  value", and the Tree codec already skips it, so it is a field the writer
+  drops rather than a `400`.
+- `header` / `footer`, when present, must be objects with a `blocks` array
+  (walked with the same block validator) and a finite `marginFromEdge`.
+- On a slides body the same block-style value checks are applied to the docs
+  `Block`s wherever a deck stores them: text elements, shape text, table-cell
+  bodies, group children, `slides[].notes`, and
+  `layouts[].placeholders` / `layouts[].staticElements`. (`masters[]` needs no
+  walk — a `Master` is `{ id, themeId, background, placeholderStyles }` and
+  holds no elements and no `Block`s.) They are the same shape reaching the
+  same layout engine and the same exporters.
+- Two checks are deliberately *relaxed* on that slides walk, because slide
+  text bodies are stored **and read back** verbatim as JSON with no attribute
+  codec to normalize them: the structural block checks (`id`, a present
+  `style`) are not applied, and `style.alignment` need only be a
+  string rather than one of the four allowlisted values. Otherwise a
+  `GET` → edit → `PUT` round-trip of an older deck would `400` on what the
+  reader itself just handed back. An alignment the exporters do not know is
+  dropped at their own closed `Map` lookups. For the same reason, elements
+  *nested* inside another one (group children, layout placeholders — a
+  `PlaceholderSpec` has no `id` at all) are not held to the `id` / `type` /
+  `frame` contract that a slide's own `elements` are; only their text bodies
+  are walked.
+- `inlines` is the exception to that relaxation, because the *shared* docs
+  layout engine cannot survive it missing: `resolveBlockInlines` calls
+  `block.inlines.map`, `measureSegments` reads `inline.style.image`,
+  `resolveColorAtPosition` reads `inline.style.color`, and the slides PDF/PPTX
+  font sweep walks both — so a stored block without `inlines`, or an inline
+  without `style`, is a `TypeError` for **every viewer of that deck**, not just
+  the caller who wrote it. Rejecting an absent value would 400 the very
+  round-trip the relaxation exists to protect, so instead the walk *fills the
+  empty shape in*: a missing `inlines` becomes `[]` and a missing inline
+  `style` becomes `{}` — semantically identical to the value that was missing,
+  and exactly what the readers would otherwise have to assume. The repair
+  happens before the write and the endpoint echoes the repaired body, so what
+  the caller sees is what is stored. A value that is *present but wrong* is
+  still a 400: `inlines` must be an array, each entry an object with a string
+  `text`, and a present `style` must be an object.
+- The same repair covers every other field a stored deck's readers dereference
+  unconditionally. Nothing on read repairs them — `migrateElement` touches
+  shapes only — so each absent value becomes its empty shape before the write:
+  - a text body's `blocks` → `[]` (`body.blocks.map` in the slides text
+    renderer);
+  - a block's `style` → `{}` (`ALGN.get(block.style.alignment)` in the PPTX
+    exporter);
+  - an element's whole `data` → the empty shape its **own type** demands, for
+    every type rather than just text, because `element.data.effects?.shadow` in
+    the element renderer runs for all of them: `{ blocks: [] }` for a text
+    element (whose `data` *is* its `TextBody`, read as `el.data.blocks` by
+    `isElementEmpty`), `{ rows: [], columnWidths: [] }` for a table
+    (`data.columnWidths.length` in `drawTable`, `data.rows` in the height
+    scaler and the PDF exporter), `{ children: [] }` for a group
+    (`data.children` in `flattenElements`), `{ categories: [], series: [] }`
+    for a chart (`data.series` / `data.categories` in `drawChart`), `{}`
+    otherwise;
+  - inside a chart: an absent `categories` / `series` → `[]`;
+  - inside a table: an absent `columnWidths` / `rows` / `row.cells` → `[]`, a
+    `null` row → an empty row, a `null` cell → an empty cell, and a cell's
+    absent `style` → `{}` and `body` → `{ blocks: [] }`. The cell repair covers
+    `style` as well as `body` because `paintCellFills` reads `cell.style.fill`
+    and `paddingOf` reads `cell.style.padding` *before* the body is painted,
+    and a `null` cell is repaired rather than skipped because the PDF
+    exporter's `for (const cell of row.cells) bodies.push(cell.body)` does not
+    tolerate one even though the canvas renderer does.
+
+  Where the empty shape cannot be written back — an array is `typeof 'object'`,
+  so a repair on one is an expando that JSON serialization drops — the value is
+  rejected with a `400` instead. That rejection is applied at **every** entry
+  point that would otherwise repair in place: an element's `data`, a text body
+  (a shape's `data.text`, a table cell's `body`), and a docs table cell nested
+  in a slide text body. A present-but-wrong structural value (`rows`,
+  `columnWidths`, `children`, `series`, `cells` that is not an array; a row or
+  cell that is a primitive) is likewise a `400` rather than a silent skip.
+
+  The scope of the guarantee is exactly the list above: a deck stored through
+  this endpoint cannot be *missing* a field the shared renderers, layout engine
+  or exporters dereference without a guard. It is **not** a full model
+  validation — the values inside a repaired collection (a chart series entry, a
+  `row.height`, an image `src`) are stored as given, so a deck can still render
+  wrongly; it cannot render fatally.
+
+- The element walk is depth-bounded (`MAX_ELEMENT_DEPTH`, 32). Groups nest a
+  handful of levels in any real deck, but the walk recurses through
+  `data.children` against a 25 MB body limit, which is enough for a compact
+  payload to exhaust the stack on an authenticated endpoint.
+
+`GET` → edit → `PUT` stays lossless for docs bodies: the read side of the
+Tree codec (`@wafflebase/docs` `model/crdt-attrs.ts`) drops exactly the values
+the validator rejects, so a legacy document holding an unknown alignment or a
+`NaN` margin is returned already normalized to the block defaults.
 
 Markdown / text / PDF / DOCX serialization is **not** done by the
 backend. The CLI imports `@wafflebase/docs` and runs it locally; this
@@ -320,6 +445,7 @@ packages/backend/src/
       images.controller.ts
       files.controller.ts
       workspace-scope.guard.ts
+      api-key-write-scope.guard.ts
 ```
 
 Registered in the root application module: `ApiKeyModule`,

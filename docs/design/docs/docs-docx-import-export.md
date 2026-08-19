@@ -422,7 +422,36 @@ Document ──► Build XML strings ──► Fetch images ──►
 ### 3.3 Style Mapping (Reverse of Import)
 
 The export maps Docs model properties back to OOXML XML attributes using the
-inverse of the tables in Section 2.3 (px → twips, points → half-points, etc.).
+inverse of the tables in Section 2.3 (px → twips, points → half-points, etc.),
+with one asymmetry: **import is lenient, export is not**.
+
+The model holds whatever string reached it — DOCX/PPTX import copies
+`w:shd/@w:fill` verbatim, the HTML-paste path stores browser-normalized CSS
+such as `rgb(255, 0, 0)`, and the issue #728 "reset color" used to store `''`.
+Those are not OOXML values, so writing them verbatim yields a file Word
+refuses to open, and (for values that reach an attribute unescaped) an
+injection sink. Every value-typed attribute is therefore resolved through a
+converter that can fail closed:
+
+| Sink | Converter | Failure behavior |
+|------|-----------|------------------|
+| `<w:color w:val>`, `<w:shd w:fill>` (run + cell) | `toRgbHexColor` (`model/color.ts`, DOCX-facing alias `toDocxHexColor`) | attribute dropped; the run/cell inherits the document default |
+| `<w:jc w:val>` | `DOCX_ALIGNMENTS` lookup | falls back to the `left` default (no element emitted) |
+| `<w:pStyle w:val="HeadingN">` | `toHeadingStyleId` (integer 1–6) | element dropped; the paragraph exports unstyled |
+| `<w:rFonts w:ascii/@w:eastAsia>` | `escapeXmlAttr` | escaped, never dropped (any family name is legal) |
+
+`toRgbHexColor` accepts `#RGB`, `#RRGGBB`, `#RRGGBBAA` and `rgb()`/`rgba()`,
+normalizes to the six upper-case hex digits `ST_HexColor` requires, clamps
+out-of-gamut channels, and returns `undefined` for everything else. A **fully
+transparent** color (`rgba(0,0,0,0)`, `#00000000`) also returns `undefined`:
+these attributes carry no alpha, so keeping the triplet would paint an opaque
+black block where the screen shows nothing. Partial alpha keeps the triplet and
+renders opaque, which is closer to what the user sees than dropping the color.
+Because the converter returns only `[0-9A-F]{6}`, these attributes are
+injection-proof by construction rather than by escaping.
+
+The same normalizer backs the PPTX exporter's `<a:srgbClr val>` — see
+[slides-pptx-export.md](../slides/slides-pptx-export.md).
 
 ### 3.4 Image Export Flow
 

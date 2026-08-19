@@ -335,6 +335,11 @@ All API key endpoints require JWT authentication.
 
 All v1 endpoints accept both JWT cookies and `Authorization: Bearer wfb_...` API key auth.
 
+Every mutating v1 route (`POST` / `PUT` / `PATCH` / `DELETE`) additionally
+requires the `write` scope from an API-key caller — enforced for the whole
+surface by `ApiKeyWriteScopeGuard`, not per handler. JWT callers are
+unaffected; their authority is workspace membership and document ownership.
+
 #### Documents
 
 | Method | Route | Description |
@@ -526,7 +531,8 @@ src/
 │   ├── tabs.controller.ts     # Tab listing via Yorkie
 │   ├── cells.controller.ts    # Cell CRUD via Yorkie
 │   ├── files.controller.ts    # Blob document upload/download (any file)
-│   └── workspace-scope.guard.ts # Workspace access verification
+│   ├── workspace-scope.guard.ts # Workspace access verification
+│   └── api-key-write-scope.guard.ts # `write` scope on mutating routes
 ├── workspace/                 # Workspaces + members + sharing roles
 ├── folder/                    # Workspace folder tree (folder.md / workspace-folders.md)
 ├── share-link/                # URL-based token sharing (sharing.md)

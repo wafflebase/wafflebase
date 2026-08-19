@@ -331,3 +331,88 @@ describe('animationsToTimingXml', () => {
     expect(xml).not.toContain('presetClass="entr"&bad"');
   });
 });
+
+describe('animation attribute sinks are closed', () => {
+  const spids = new Map([['e1', 3]]);
+  const base: SlideAnimation = {
+    id: 'a1',
+    elementId: 'e1',
+    start: 'onClick',
+    category: 'entrance',
+    effect: 'fadeIn',
+    durationMs: 500,
+  };
+
+  it('never interpolates a hostile durationMs / delayMs into the cTn', () => {
+    // `durationMs` and `delayMs` are typed as numbers but hold whatever JSON
+    // was persisted — the backend never validates `slide.animations`.
+    const xml = animationsToTimingXml(
+      [
+        {
+          ...base,
+          durationMs: '500"><p:evil/><p:cTn id="0" dur="1' as unknown as number,
+          delayMs: '0"/><p:evil2 x="' as unknown as number,
+        },
+      ],
+      spids,
+    );
+    expect(xml).not.toContain('<p:evil');
+    expect(xml).toContain('dur="500"');
+    expect(xml).toContain('delay="0"');
+  });
+
+  it('never interpolates a hostile preserved presetID / presetSubtype', () => {
+    const xml = animationsToTimingXml(
+      [
+        {
+          ...base,
+          pptxPreset: {
+            class: 'entr',
+            id: '1"/><p:evil/><p:cTn id="0' as unknown as number,
+            subtype: '2"><p:evil2/><p:x y="' as unknown as number,
+          },
+        } as SlideAnimation,
+      ],
+      spids,
+    );
+    expect(xml).not.toContain('<p:evil');
+    expect(xml).toContain('presetID="1"');
+    expect(xml).toContain('presetSubtype="0"');
+  });
+
+  it('falls back on an unknown category / start / effect rather than emitting undefined', () => {
+    const xml = animationsToTimingXml(
+      [
+        {
+          ...base,
+          start: 'constructor' as unknown as SlideAnimation['start'],
+          category: 'toString' as unknown as SlideAnimation['category'],
+          effect: '__proto__' as unknown as SlideAnimation['effect'],
+        },
+      ],
+      spids,
+    );
+    expect(xml).toContain('nodeType="clickEffect"');
+    expect(xml).toContain('presetClass="entr"');
+    expect(xml).toContain('presetID="1"');
+    expect(xml).not.toContain('undefined');
+    expect(xml).not.toContain('native code');
+  });
+
+  it('falls back to <p:cut/> and omits dir for an unknown transition type/direction', () => {
+    const unknownType = transitionToXml({
+      type: 'constructor' as unknown as SlideTransition['type'],
+      durationMs: 500,
+    });
+    expect(unknownType).toContain('<p:cut/>');
+    expect(unknownType).not.toContain('undefined');
+    expect(unknownType).not.toContain('native code');
+
+    const unknownDir = transitionToXml({
+      type: 'push',
+      direction: 'toString' as unknown as SlideTransition['direction'],
+      durationMs: 500,
+    });
+    expect(unknownDir).toBe('<p:transition><p:push/></p:transition>');
+  });
+});
