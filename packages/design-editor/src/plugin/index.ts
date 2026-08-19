@@ -142,7 +142,7 @@ export function designEditor(options?: DesignEditorOptions): Plugin[] {
     apply: 'serve',
 
     configResolved(config) {
-      resolved = resolveOptions(options, config.root);
+      resolved = resolveOptions(options, config.root, config.resolve.alias);
       guard = createPathGuard(resolved.root, resolved.opaqueRoots);
       tracker = createTracker((abs) => guard.relOf(abs));
       classifier = createModuleClassifier(resolved.root, (abs) => guard.isOpaque(abs));

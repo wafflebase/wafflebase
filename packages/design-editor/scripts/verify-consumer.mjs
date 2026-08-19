@@ -14,7 +14,8 @@
  * `packages/frontend/src/`), its own stylesheet, its own scene manifest, no
  * `@wafflebase/*` dependency, and NO adapter of its own — it uses the default
  * `cssVariables()`, which is the population §4 says is the common case. Its whole
- * configuration is four lines.
+ * configuration is the plugin call plus one `resolve.alias` it would have written
+ * anyway.
  *
  * NOTHING IS WRITTEN unless `--write` is passed. Every mutation check uses `dryRun`.
  * `--write` adds one real `/commit` followed by `/undo` and asserts the tree came back
@@ -169,6 +170,11 @@ async function main() {
     check('a token adapter is configured', health.tokens === 'configured', String(health.tokens));
     check('the scene manifest resolved', typeof health.scenes === 'string', String(health.scenes));
     check('no providers module is required', health.providers === null, String(health.providers));
+    check(
+      "reports the consumer's own alias, root-relative",
+      JSON.stringify(health.aliases) === JSON.stringify([{ find: '@', replacement: 'app' }]),
+      JSON.stringify(health.aliases),
+    );
 
     console.log('\nGET /tokens — through the DEFAULT adapter');
     const tokens = (await api('/tokens')).body;
