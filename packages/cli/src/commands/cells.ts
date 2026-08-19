@@ -3,6 +3,7 @@ import { getGlobalOpts, getClient, getConfig } from './root.js';
 import {
   output,
   outputError,
+  parseOutputFormat,
   forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
@@ -22,13 +23,14 @@ export function registerCellsCommand(parent: Command) {
       const opts = getGlobalOpts(this);
       const { tab } = this.opts<{ tab: string }>();
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = range?.includes(':')
           ? await getClient(opts).getCells(docId, tab, range)
           : range
             ? await getClient(opts).getCell(docId, tab, range)
             : await getClient(opts).getCells(docId, tab);
         if (!res.ok) return forwardUpstreamError(res);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -60,6 +62,7 @@ export function registerCellsCommand(parent: Command) {
       }
 
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).setCell(
           docId,
           tab,
@@ -68,7 +71,7 @@ export function registerCellsCommand(parent: Command) {
           formula ? value : undefined,
         );
         if (!res.ok) return forwardUpstreamError(res);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -92,9 +95,10 @@ export function registerCellsCommand(parent: Command) {
       }
 
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteCell(docId, tab, ref);
         if (!res.ok) return forwardUpstreamError(res);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -112,24 +116,41 @@ export function registerCellsCommand(parent: Command) {
         data?: string;
       }>();
 
-      // The input read + JSON.parse live inside the try: a malformed
-      // `--data '{'` or a failed stdin read is the most likely way this
-      // command fails, and outside the try it escaped as a rejected action
-      // promise instead of the `{ error: { code, message } }` envelope on
-      // stderr with exit 1.
+      // Parse inside a try: a malformed `--data`/stdin payload is user
+      // input, and the message has to name which one it came from.
+      // `runCli` would envelope an uncaught `SyntaxError` anyway, but
+      // as a bare "Unexpected token …" with no mention of `--data` or
+      // stdin, and it has to be caught here to add that.
+      let cells: Record<string, unknown>;
       try {
-        let cells: Record<string, unknown>;
+        let raw: string;
         if (dataStr) {
-          cells = JSON.parse(dataStr);
+          raw = dataStr;
         } else {
           // Read from stdin
           const chunks: Buffer[] = [];
           for await (const chunk of process.stdin) {
             chunks.push(chunk as Buffer);
           }
-          cells = JSON.parse(Buffer.concat(chunks).toString('utf-8'));
+          raw = Buffer.concat(chunks).toString('utf-8');
         }
+        cells = JSON.parse(raw) as Record<string, unknown>;
+      } catch (e) {
+        outputError(
+          new Error(
+            `Invalid JSON cell data${dataStr ? ' in --data' : ' on stdin'}: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          ),
+        );
+        return;
+      }
 
+      try {
+        // Inside the try, ahead of `--format` validation: the preview is
+        // built from ids, and `seg()` refuses a `.` / `..` one. That refusal
+        // has to reach `outputError` as the error envelope rather than
+        // escape the handler as a rejected action promise.
         if (opts.dryRun) {
           printDryRun(
             getConfig(opts),
@@ -140,13 +161,14 @@ export function registerCellsCommand(parent: Command) {
           return;
         }
 
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).batchCells(
           docId,
           tab,
           cells as Record<string, { value?: string; formula?: string } | null>,
         );
         if (!res.ok) return forwardUpstreamError(res);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }

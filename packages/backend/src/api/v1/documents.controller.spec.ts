@@ -66,12 +66,9 @@ describe('ApiV1DocumentsController.remove permissions', () => {
     expect(workspaceService.assertMember).not.toHaveBeenCalled();
   });
 
-  it('forbids a read-only API key from deleting', async () => {
-    await expect(
-      controller.remove(WS, 'doc-1', req(0, true, ['read'])),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(documentService.deleteDocument).not.toHaveBeenCalled();
-  });
+  // A read-scoped key is refused before this handler runs — see
+  // `api-key-write-scope.guard.spec.ts`, which covers every mutating method
+  // and asserts the guard is mounted on this controller.
 
   it('deletes the stored blob alongside a blob-backed document', async () => {
     const fileId = '11111111-2222-3333-4444-555555555555.zip';

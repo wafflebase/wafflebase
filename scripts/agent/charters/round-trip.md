@@ -12,11 +12,15 @@ State it as an equation before you test it, then test it:
 
 - `cells set <ref> <v>` then `cells get <ref>` → returns `<v>`
 - `cells batch` of N updates ≡ N separate `cells set` calls
-- `sheets import` a CSV then `sheets export` CSV → the same data
+- `sheets import` a CSV then `sheets export --raw` CSV → the same data
+  (without `--raw` the export prefixes formulas with `'` on purpose, so
+  that pair is *not* an identity — see `skills/sheets-import-export.md`)
 - `notes import` a Markdown file then `notes export` → the same content
 - `docs import` a .docx then `docs export` .docx then re-import → stable
 - `docs content --pages 1-3` plus `--pages 4-6` covers exactly `--pages 1-6`
-- the same data under `--format json` and `--format csv` agrees
+- the same data under `--format json` and `--format csv` agrees, except
+  that CSV prefixes formula-looking values with `'` (the same guard as
+  above — deliberate, not a defect)
 - `--dry-run` changes nothing: run it, then `list`, and the document is absent
 - `cells delete` then `cells get` → an empty cell, not an error, and not the old value
 

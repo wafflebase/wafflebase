@@ -88,19 +88,37 @@ node scripts/agent/hunt.mjs run --charter contract --out /tmp/hunt-1
 ## The UI hunter
 
 ```bash
-node scripts/agent/hunt-ui.mjs run [--charter <id>]... [--surface <doc|sheet>]...
+node scripts/agent/hunt-ui.mjs run [--charter <id>]... [--surface <doc|sheet|slides>]...
                                    [--out <dir>] [--repo <dir>] [--ledger <file>]
                                    [--coverage <file>] [--run-id <id>] [--fault <id>]
 node scripts/agent/hunt-ui.mjs replay --plan <file.json> [--attempts N]
 node scripts/agent/hunt-ui.mjs report --out <dir>
 ```
 
-Two personas, each with two briefs:
+Three personas, each with two briefs — one per surface, which
+`hunt-ui.test.mjs` enforces: a surface nobody explores makes its reader list dead weight.
 
 | persona | surface | briefs |
 |---|---|---|
 | `doc-writer` | `doc` | `body-and-styles`, `structure-and-links` |
 | `sheet-author` | `sheet` | `values-and-formulas`, `navigation-and-selection` |
+| `slide-author` | `slides` | `arrange-and-order`, `content-and-undo` |
+
+A persona names its own surface, so `--surface` narrows what a named charter may run
+rather than selecting something to hunt on its own.
+
+The action vocabulary is `goto | click | type | key | scroll | read | wait | drag`. `drag`
+takes a `target` (where the gesture starts) and a `to` (where it ends), each an ordinary
+target — so a destination is a named reader's point, never a raw coordinate. On the slides
+surface that means `slides.pointAt(x, y)` for an arbitrary point in slide-logical
+coordinates, and `slides.handleCenter(kind)` for a resize, rotate, connector or adjustment
+handle.
+
+One measured caveat, because it is the likeliest false finding on that surface: within **8
+slide-logical pixels** of an element edge or centre, the slide centre, or a guide, a dragged
+element **snaps**, and Alt does not disable it (Alt bypasses only the separate grid snap). A
+brief should either drag somewhere well clear of those and predict the exact point, or
+predict the snapped value.
 
 Naming one persona runs its briefs only, which is the normal case:
 

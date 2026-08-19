@@ -41,7 +41,7 @@ export const UI_RUNNER_REL = path.join("packages", "frontend", "scripts", "hunt-
  * JavaScript" action and no CSS selector, so a caller's reachable surface is bounded
  * by code in this repository rather than by whatever it can phrase.
  */
-export const UI_ACTION_TYPES = Object.freeze(["goto", "click", "type", "key", "scroll", "read", "wait"]);
+export const UI_ACTION_TYPES = Object.freeze(["goto", "click", "type", "key", "scroll", "read", "wait", "drag"]);
 
 /**
  * Reader namespaces. This is not a duplicate of the reader list — it is the ROUTING
@@ -49,8 +49,16 @@ export const UI_ACTION_TYPES = Object.freeze(["goto", "click", "type", "key", "s
  * is the page's own bridge). The authoritative list of reader NAMES lives in the
  * bridge, which refuses an unknown one at runtime with the valid set; checking the
  * prefix here just fails a typo before paying for a browser boot.
+ *
+ * DERIVED FROM `UI_SURFACES`, plus the surfaceless `dom.` namespace. Spelled out as a
+ * literal this was the FIFTH place the surface vocabulary was written down and the last
+ * one still hardcoded after #847 — it went unnoticed because it is phrased as routing
+ * rather than as a surface list. The slides surface mounted correctly, the mounted-surface
+ * guard passed, and then every single `slides.*` read was refused as a typo. A surface
+ * that boots and can answer nothing is the most confusing possible failure, so this now
+ * follows the list rather than restating it.
  */
-export const UI_READER_PREFIXES = Object.freeze(["doc.", "sheet.", "dom."]);
+export const UI_READER_PREFIXES = Object.freeze([...UI_SURFACES.map((s) => `${s}.`), "dom."]);
 
 const DEFAULT_ATTEMPTS = 1;
 /** Beyond this a value is keyed by hash — a `dom.snapshot` must not become the key. */
@@ -142,6 +150,17 @@ export function assertSafeActionPlan(plan) {
         break;
       case "key":
         if (typeof action.key !== "string" || action.key === "") bad(`${where} needs a non-empty \`key\``);
+        break;
+      case "drag":
+        // BOTH ENDS GO THROUGH `assertTarget`, which is what keeps the closed vocabulary
+        // closed. A drag is the first action that needs a DESTINATION, and the temptation is
+        // to accept raw coordinates for it — that would hand the caller an arbitrary point on
+        // the page, which is precisely the escape hatch every other action is shaped to avoid.
+        // Instead `to` is a target like any other: a role locator, or a named reader such as
+        // `slides.pointAt` / `slides.elementCenter` / `slides.handleCenter`, all of which are
+        // code in this repository rather than a number in a prompt.
+        assertTarget(action.target, `${where} drag origin`);
+        assertTarget(action.to, `${where} drag destination`);
         break;
       case "scroll":
         if (action.target !== undefined) assertTarget(action.target, where);

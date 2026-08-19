@@ -80,7 +80,7 @@ imports the full module set listed below.
 | Module | Responsibility |
 |--------|---------------|
 | **AppModule** | Root module. Imports ConfigModule (global), LoggerModule (nestjs-pino), ThrottlerModule, plus the feature modules: AuthModule, DocumentModule, ShareLinkModule, DataSourceModule, WorkspaceModule, ApiKeyModule, YorkieModule, ApiV1Module, ImageModule, FileModule, HealthModule, UserDocStylesModule, AnalyticsModule, FolderModule, MiroModule. |
-| **AuthModule** | GitHub OAuth + JWT authentication. Provides AuthService, GitHubStrategy, JwtStrategy. Imports UserModule for user lookup/creation. |
+| **AuthModule** | GitHub OAuth + JWT authentication. Provides AuthService, GitHubStrategy, JwtStrategy, CliAuthStore. Imports UserModule for user lookup/creation. Configures one middleware, `CliLoginConfirmMiddleware`, on `GET /auth/github`. |
 | **UserModule** | User CRUD via Prisma. Exports UserService for use by AuthModule and DocumentModule. |
 | **DocumentModule** | Document REST endpoints. Uses DocumentService + UserService + PrismaService. |
 | **ShareLinkModule** | URL-based document sharing with token-based access. Manages share link CRUD and public token resolution for anonymous access. |
@@ -101,18 +101,69 @@ imports the full module set listed below.
 #### Authentication (`/auth`)
 
 **`GET /auth/github`**
-- Guard: `AuthGuard('github')`
+- Middleware: `CliLoginConfirmMiddleware` · Guard: `GitHubAuthGuard`
 - Initiates GitHub OAuth flow. Redirects to GitHub's authorization page.
+- Every login gets a `state`, minted by the guard and attached to the
+  request as `__oauthState` — the single key `GitHubStrategy.authenticate`
+  reads to put `state` on the wire. The two flows mint it differently:
+  - **Browser** — a double-submit pair (`oauth-state.ts`): a random secret
+    goes into the `__Host-wafflebase_oauth_state` cookie (unprefixed
+    outside production, where the browser will not honour `__Host-`
+    without `Secure`), its SHA-256 goes to
+    GitHub as `web.<hash>`. No server-side map, so it survives a restart
+    and works across replicas. The hash, not the secret, is what travels
+    through GitHub, referrers and access logs.
+  - **CLI** (`?mode=cli&port=…`) — a `CliAuthStore` token, because this
+    flow also has to carry the loopback port and the CLI's per-attempt
+    nonce. It is bound to the browser the same way: the guard mints a
+    secret alongside it into the `__Host-wafflebase_cli_state` cookie and
+    keeps only `sha256(secret)` beside the entry, and the callback
+    consumes the state only against a matching cookie. Without that, the
+    token is transferable — the confirmation click gates the *mint*, and
+    an attacker can perform it in their own browser, lift the `state` out
+    of the redirect to GitHub, and hand the victim a bare `authorize`
+    URL, at which point the callback would mint a code for the victim's
+    account bound to the attacker's challenge and loopback port.
+- `?mode=cli` is unauthenticated and takes the loopback port off the query
+  string, so a page the victim visits could otherwise navigate them to it
+  and have the backend mint an auth code for the *victim* at a port the
+  attacker chose. The loopback nonce cannot cover that direction (the
+  attacker picked the nonce), so `CliLoginConfirmMiddleware` gates it on a
+  click the attacker cannot forge: an interstitial page whose Continue
+  link carries a `wafflebase_cli_confirm` cookie secret back as
+  `?confirm=`, and which re-encodes `mode`/`port`/`nonce` so the login's
+  parameters survive the hop.
 
 **`GET /auth/github/callback`**
 - Guard: `AuthGuard('github')`
 - GitHub redirects here after user consents. The `GitHubStrategy` validates the
   profile and returns user data. The controller then:
   1. Calls `UserService.findOrCreateUser()` to upsert the user in the database.
-  2. Calls `AuthService.createTokens()` to sign access/refresh JWTs.
-  3. Sets httpOnly cookies named `wafflebase_session` and
+  2. Requires a `state`. A callback without one is never a login this
+     server started; accepting it is login CSRF — an attacker replays a
+     code obtained for *their* account through the victim's browser and
+     the victim is silently signed into it (session fixation).
+     - Browser `state` must match the `__Host-wafflebase_oauth_state`
+       cookie, which is cleared on use. Only that name is read — an
+       unprefixed leftover is not accepted in production.
+     - Otherwise it is consumed as a CLI state token, which likewise
+       requires the `__Host-wafflebase_cli_state` cookie minted with it
+       (cleared on use, single-use, spent even on a mismatch). Only then
+       does the callback redirect to `http://127.0.0.1:<port>/callback`
+       echoing the CLI's nonce as `state`; a state completed in another
+       browser is refused.
+  3. Calls `AuthService.createTokens()` to sign access/refresh JWTs.
+  4. Sets httpOnly cookies named `wafflebase_session` and
      `wafflebase_refresh`.
-  4. Redirects to `FRONTEND_URL`.
+  5. Redirects to `FRONTEND_URL`.
+- A browser login that fails the state check is **redirected** to
+  `FRONTEND_URL/login?error=oauth_state`, not answered with a 400. Losing
+  the state needs no attacker — the cookie lives ten minutes, which a
+  first-time sign-up with 2FA can outlast, and a second login tab
+  overwrites the first tab's — and a thrown error would leave the user on
+  the backend origin looking at raw JSON with no way back. Refusing the
+  login and returning the user somewhere they can retry are independent:
+  no session is issued on either path.
 
 **`GET /auth/me`**
 - Guard: `JwtAuthGuard`
@@ -143,8 +194,16 @@ imports the full module set listed below.
 
 **`POST /auth/cli/exchange`**
 - Guard: none (public — one-time CLI auth code)
-- Body: `{ code }`. Exchanges a one-time code minted during the CLI OAuth flow
-  for `{ accessToken, refreshToken }`. Rate-limited to 10 req/60s/IP.
+- Body: `{ code, verifier }`. Exchanges a one-time code minted during the CLI
+  OAuth flow for `{ accessToken, refreshToken }`. Rate-limited to 10 req/60s/IP.
+- The `verifier` is **required**: the code travels to the CLI as plaintext in a
+  loopback redirect URL, so on its own it would be a bearer credential worth a
+  full session. `CliAuthStore.createCode` binds it to the login attempt's
+  `sha256(verifier)` challenge (PKCE S256, registered at
+  `GET /auth/github?...&challenge=`), and `consumeCode` spends the entry on any
+  attempt and releases the user id only on a constant-time challenge match. A
+  CLI login carrying no challenge is refused at the callback — no unbound code
+  is ever minted.
 
 #### Documents (`/documents`)
 
@@ -311,6 +370,36 @@ Created by `AuthService.createTokens()`:
 |--------|------------|-------------|
 | `wafflebase_session` | httpOnly, secure, sameSite=`lax`, maxAge=1h by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=1h by default |
 | `wafflebase_refresh` | httpOnly, secure, sameSite=`lax`, maxAge=7d by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=7d by default |
+| `__Host-wafflebase_oauth_state` | httpOnly, secure, sameSite=`lax`, path=`/`, maxAge=10m | `wafflebase_oauth_state` (unprefixed), secure=`false` |
+| `__Host-wafflebase_cli_confirm` | httpOnly, secure, sameSite=`lax`, path=`/`, short-lived | `wafflebase_cli_confirm` (unprefixed), secure=`false` |
+
+The two OAuth cookies are single-use: they exist only for the duration
+of one login and are cleared when consumed.
+
+The state cookie carries the **`__Host-` prefix** in production, which
+costs it the narrower `path=/auth` (the prefix is honoured only on a
+`Secure` cookie with `Path=/` and no `Domain`). That trade is the point:
+a double-submit pair is only as strong as the browser's guarantee that
+nothing but this exact origin can write the cookie, and without the
+prefix a foothold on any sibling subdomain can set
+`wafflebase_oauth_state=<attacker secret>; Domain=<parent>` and restore
+the login CSRF the state exists to close. An HMAC would not help — the
+attacker can mint a legitimate pair by starting their own login — so the
+write restriction is the only property that does. The callback reads
+**only** the name it would mint now, with no fallback to the unprefixed
+one. The prefix requires `Secure`, which a plain-HTTP dev server cannot
+set, hence the unprefixed development name.
+
+The CLI confirmation cookie is prefixed on the same terms and for the
+same reason: the click it stands for is proven by possession of that
+cookie alone, so a sibling subdomain able to write it holds both halves
+of the `?confirm=` pair and can walk itself through the consent gate.
+Both names come from one helper (`hostPrefixedCookieName`), so a
+deployment cannot end up with one cookie hardened and the other not.
+Both are `lax` rather than `strict` for the same reason as the session
+cookies — GitHub redirects the browser back to us, and a `strict` cookie
+is withheld on that cross-site navigation, so every login would fail its
+own state check.
 
 SameSite=`lax` blocks third-party cross-site requests from carrying the
 session — the common CSRF vector — while still letting the OAuth

@@ -1,7 +1,11 @@
 import JSZip from 'jszip';
 import type { Document, Block, Inline, TableData, PageSetup, HeaderFooter } from '../model/types.js';
 import { DEFAULT_PAGE_SETUP } from '../model/types.js';
-import { buildRunPropertiesXml, buildParagraphPropertiesXml } from './docx-style-map.js';
+import {
+  buildRunPropertiesXml,
+  buildParagraphPropertiesXml,
+  toDocxHexColor,
+} from './docx-style-map.js';
 import { pxToTwips, pxToEmus } from '../import/units.js';
 import { CONTENT_TYPES, ROOT_RELS, STYLES, DOC_RELS } from './docx-templates.js';
 // The reporter's contract — "supplying it is what opts into dropping a failed
@@ -328,9 +332,15 @@ ${bodyXml}
         if (cellTwips > 0) tcPrParts.push(`<w:tcW w:w="${cellTwips}" w:type="dxa"/>`);
         if (cell.colSpan && cell.colSpan > 1) tcPrParts.push(`<w:gridSpan w:val="${cell.colSpan}"/>`);
         if (cell.rowSpan && cell.rowSpan > 1) tcPrParts.push(`<w:vMerge w:val="restart"/>`);
-        if (cell.style.backgroundColor) {
-          const hex = cell.style.backgroundColor.replace('#', '');
-          tcPrParts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${hex}"/>`);
+        // Same sink as the run-level `<w:shd w:fill>` — a cell background
+        // is an untrusted string (DOCX import copies `w:shd/@w:fill`
+        // verbatim, HTML paste copies CSS), so it goes through the shared
+        // `ST_HexColor` normalizer instead of a bare `#` strip. Anything
+        // that is not a hex color drops the attribute rather than
+        // injecting into document.xml / header1.xml / footer1.xml.
+        const cellFill = toDocxHexColor(cell.style.backgroundColor);
+        if (cellFill) {
+          tcPrParts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${cellFill}"/>`);
         }
         const tcPr = tcPrParts.length > 0 ? `<w:tcPr>${tcPrParts.join('')}</w:tcPr>` : '';
 

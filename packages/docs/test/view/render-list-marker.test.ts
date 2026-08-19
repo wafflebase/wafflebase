@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { renderListMarker } from '../../src/view/paint-layout';
 import type { Block } from '../../src/model/types';
 import { DEFAULT_BLOCK_STYLE } from '../../src/model/types';
+import { Theme } from '../../src/view/theme';
+
+/** Stand-in for a fillStyle left over from an earlier paint pass. */
+const PREVIOUS_FILL = 'rgba(1, 2, 3, 0.5)';
 
 interface FontCall {
   font?: string;
@@ -94,6 +98,44 @@ describe('renderListMarker', () => {
       /^\d+(?:\.\d+)?px 'Arial', 'Noto Sans KR', sans-serif$/,
     );
     expect(calls[0].fillStyle).toBe('#FF9900');
+  });
+
+  // Issue #728: a "reset color" used to be persisted as the empty string.
+  // `ctx.fillStyle = ''` is an invalid assignment a real canvas IGNORES, so
+  // the marker kept whatever the previous pass left behind (typically the
+  // selection fill). The recording ctx below stores assignments verbatim and
+  // starts from a marker value, so it reproduces that inheritance.
+  it('paints an empty-string marker color with the theme default', () => {
+    const { ctx, calls } = makeRecordingCtx();
+    ctx.fillStyle = PREVIOUS_FILL;
+    const block = listItem({ marker: { color: '' }, inline: { color: '#FF9900' } });
+    renderListMarker(ctx, block, 0, 24, undefined, 10, '●');
+    expect(calls[0].fillStyle).toBe(Theme.defaultColor);
+  });
+
+  it('paints an empty-string inline color with the theme default', () => {
+    const { ctx, calls } = makeRecordingCtx();
+    ctx.fillStyle = PREVIOUS_FILL;
+    const block = listItem({ inline: { color: '' } });
+    renderListMarker(ctx, block, 0, 24, undefined, 10, '●');
+    expect(calls[0].fillStyle).toBe(Theme.defaultColor);
+  });
+
+  it('routes an empty-string color through the resolver as "unset", not as ""', () => {
+    // A theme-aware resolver (slides' `makeColorResolver`) maps a *missing*
+    // color to the deck theme's text color. A cleared run must take that same
+    // branch, so the empty string has to be normalized BEFORE the resolver —
+    // normalizing only after would fall back to the docs default and paint
+    // near-black text on a dark deck.
+    const seen: Array<unknown> = [];
+    const { ctx, calls } = makeRecordingCtx();
+    const block = listItem({ inline: { color: '' } });
+    renderListMarker(ctx, block, 0, 24, undefined, 10, '●', undefined, (c) => {
+      seen.push(c);
+      return c == null ? '#ffffff' : '#123456';
+    });
+    expect(seen).toEqual([undefined]);
+    expect(calls[0].fillStyle).toBe('#ffffff');
   });
 
   it('derives the baseline from the line max font size, not the marker size', () => {

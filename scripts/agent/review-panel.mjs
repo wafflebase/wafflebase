@@ -49,6 +49,7 @@ import { publicInfraReason, redactSecrets } from "./redact.mjs";
 import { renderScopeNote, serializeReviewState } from "./review-state.mjs";
 import { CITATION } from "./citation.mjs";
 import { findingLocation, noveltyOf, baseResolves, DEMOTING_ORIGINS } from "./novelty.mjs";
+import { surfaceOfFinding, freezeResolves, DEMOTING_SCOPES } from "./review-surface.mjs";
 // The finding identity key, which used to be a private `const` here. Its own
 // docblock warned that "a second copy of this expression could drift looser than
 // the merge it is supposed to agree with", and there was already a second copy —
@@ -746,7 +747,10 @@ export function clusterCounts(findings) {
  * DEMOTES: the finding is still reported, it just stops gating the merge.
  *
  *   blocking  — real, caused by this change → fails the lens check (as before)
- *   backlog   — real, but the code predates this change → reported, not gating
+ *   backlog   — real, but not this PR's gate to pass → reported, not gating.
+ *               TWO gates put findings here, for opposite reasons: `novelty.mjs`
+ *               when the code PREDATES this change, and `review-surface.mjs` when
+ *               a FIX ROUND wrote it after the review surface froze.
  *   discarded — concretely refuted by the verifier → dropped (unchanged rule)
  *
  * The split exists because "is this defect real?" and "did this PR cause it?"
@@ -755,23 +759,32 @@ export function clusterCounts(findings) {
  * both the lens (which reasons from the diff) and the verifier (which cannot see
  * the base), so real-but-not-here findings blocked a merge and were handed to the
  * fixer. `novelty.mjs` answers the second question with git.
+ *
+ * `review-surface.mjs` later added a third question — "was this PR even scoped to
+ * this code?" — after measurement showed the loop could not converge while every
+ * line the fixer wrote to satisfy a finding became new reviewable surface that
+ * minted the next one. Same lane, because the consequence is identical: reported,
+ * not gating, not handed to the fixer.
  */
 export const LANES = ["blocking", "backlog", "discarded"];
 /** Lanes `laneCounts` tallies. `discarded` is filtered out before it is reached. */
 const COUNTED_LANES = new Set(["blocking", "backlog"]);
 
 /**
- * Route ONE blocking finding. Pure; `novelty` comes from `noveltyOf`.
+ * Route ONE blocking finding. Pure; `novelty` comes from `noveltyOf` and
+ * `surface` from `surfaceOfFinding`.
  *
  * Order matters: a concrete refutation outranks provenance, because a finding
  * that describes code which is not there should be dropped outright rather than
- * filed as a pre-existing bug that does not exist either.
+ * filed as a pre-existing bug that does not exist either. Novelty is tested before
+ * scope so a finding both gates would demote is attributed to the older, narrower
+ * claim — which is what `severity.mjs::demotedBy` reports it under.
  *
  * A missing/`unknown` novelty routes to `blocking` — the status quo. Demotion
  * requires git to have affirmatively placed the code before the base, so nothing
  * here can lose a finding that the current gate would have kept.
  */
-export function routeFinding(finding, { verdict = null, novelty = null } = {}) {
+export function routeFinding(finding, { verdict = null, novelty = null, surface = null } = {}) {
   if (isDroppingVerdict(verdict, { claimType: claimTypeOf(finding) })) return "discarded";
   // ONLY `relocated` — a line this change added, carrying code that already
   // existed. Notably NOT `pre-existing`: a finding about code the change did not
@@ -780,6 +793,24 @@ export function routeFinding(finding, { verdict = null, novelty = null } = {}) {
   // correctness/security call-site mandate says the same. Demoting on age alone
   // would route that whole class off the gate.
   if (DEMOTING_ORIGINS.has(novelty?.origin)) return "backlog";
+  // THE SURFACE GATE. A fix round wrote this line after the review surface froze
+  // at the original implement diff. See `review-surface.mjs` for the measurement
+  // that motivates it: while every line written to satisfy a finding becomes new
+  // reviewable surface, the loop's fixed point is ~6 findings rather than 0 and it
+  // cannot converge at all.
+  //
+  // CRITICAL IS CARVED OUT, deliberately and on severity alone. A critical defect
+  // should stop the PR wherever it lives — the argument for demoting is "this is
+  // not what this PR was scoped to fix", which is a scheduling claim, and it stops
+  // being worth making when the alternative is shipping a critical bug. The cost is
+  // bounded: critical is rare next to major in this corpus, so this cannot restore
+  // the treadmill by volume.
+  if (
+    DEMOTING_SCOPES.has(surface?.scope) &&
+    normalizeSeverity(finding?.severity) !== "critical"
+  ) {
+    return "backlog";
+  }
   return "blocking";
 }
 
@@ -797,7 +828,7 @@ export function routeFinding(finding, { verdict = null, novelty = null } = {}) {
  * That is what lets the summary report a refuted or pre-existing finding instead
  * of silently vanishing it.
  */
-export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex) {
+export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex, surfacesByIndex) {
   // Only stamp per-finding verifier outcomes when a verdicts array was actually
   // supplied: both production call sites pass one, index-aligned, where a null
   // entry for a BLOCKING finding means the verification session threw (see
@@ -809,9 +840,15 @@ export function annotateFindings(findings, verdictsByIndex, noveltiesByIndex) {
     if (!BLOCKING.has(normalizeSeverity(f.severity))) return f; // only blockers reach the gate
     const verdict = verdictsByIndex?.[i] ?? null;
     const novelty = noveltiesByIndex?.[i] ?? null;
-    const lane = routeFinding(f, { verdict, novelty });
+    const surface = surfacesByIndex?.[i] ?? null;
+    const lane = routeFinding(f, { verdict, novelty, surface });
     const out = { ...f, lane };
     if (novelty) out.novelty = novelty;
+    // Stamped whenever the gate had an opinion, INCLUDING `in-scope` and
+    // `unknown`. The demotion sections key off it, and "the surface gate ran and
+    // kept this finding" has to be distinguishable from "the gate never ran" when
+    // reading a check body after the fact.
+    if (surface) out.surface = surface;
     // Carried through to reporting ONLY. `unresolved` does not change the lane —
     // an unsettled finding gates exactly like a confirmed one — but a reader
     // deciding whether to trust it should be told the verifier could not settle
@@ -2485,10 +2522,47 @@ async function main() {
   } else {
     console.log(`novelty gate: on, base ${baseSha}`);
   }
+
+  // THE SURFACE GATE. `--frozen-sha` is the head as it stood when the fixer was
+  // FIRST dispatched, resolved by the workflow from the unforgeable
+  // `<!-- agent-fix-dispatch -->` ledger and passed in rather than derived: this
+  // script cannot read the PR's comments, and a guessed freeze point would
+  // mis-scope every finding at once.
+  //
+  // Absent → the gate is off and every finding routes exactly as before, which is
+  // also the correct answer for round 1 (nothing has been frozen yet) and for any
+  // PR older than the ledger.
+  const frozenShaArg = typeof args["frozen-sha"] === "string" ? args["frozen-sha"] : null;
+  // `freezeResolves` also refuses a freeze point that is not an ancestor of HEAD.
+  // That is the one catastrophic failure available here — after a rebase every line
+  // would look post-freeze and the whole PR would demote off the gate at once — so
+  // it is checked ONCE, loudly, rather than inferred per finding.
+  const frozenSha = frozenShaArg && (await freezeResolves(repo, frozenShaArg)) ? frozenShaArg : null;
+  if (!frozenShaArg) {
+    console.log("surface gate: OFF (no --frozen-sha) — every finding routes as before");
+  } else if (!frozenSha) {
+    console.log(`surface gate: OFF — --frozen-sha ${frozenShaArg} does not resolve, or is not an ancestor of HEAD, in ${repo}`);
+  } else {
+    console.log(`surface gate: on, review surface frozen at ${frozenSha}`);
+  }
   // Shared across BOTH verification passes and all lenses: the same file:line is
   // routinely judged more than once per round and `blame -C -C -C` is the one
   // slow call in this module.
   const noveltyCache = new Map();
+  const surfaceCache = new Map();
+  // Same shape and same skip rules as `noveltiesFor` below: only BLOCKING findings
+  // reach a gate, and a finding with no location cannot be probed. A separate cache
+  // because the two gates ask different questions about the same line.
+  const surfacesFor = (list) => Promise.all(list.map((f) => {
+    if (!frozenSha) return null; // gate off → no stamp at all, i.e. today's shape
+    if (!BLOCKING.has(normalizeSeverity(f.severity))) return null; // only blockers are routed
+    // `surfaceOfFinding` owns the location extraction, rather than this caller
+    // repeating `findingLocation` + the integer-line check. It answers `unknown`
+    // for a finding it cannot place, which is deliberately stamped rather than
+    // skipped: "the gate ran and could not place this" and "the gate never ran"
+    // must not look identical in a check body, and both keep the finding blocking.
+    return surfaceOfFinding(f, { repo, frozenSha, cache: surfaceCache });
+  }));
   const noveltiesFor = (list) => Promise.all(list.map((f) => {
     if (!BLOCKING.has(normalizeSeverity(f.severity))) return null; // only blockers are routed
     const loc = findingLocation(f);
@@ -2776,7 +2850,15 @@ async function main() {
     // `annotateFindings` maps, so it neither reorders nor filters — which is what
     // lets the capture take this in place of `detected` without touching the
     // verdict pairing.
-    const annotatedFresh = annotateFindings(detected, verdicts, await noveltiesFor(detected));
+    // Both gate passes CONCURRENTLY. They are independent git probes over the same
+    // findings, and `blame -C -C -C` is the slowest call in this module — awaiting
+    // them in sequence would serialise two full rounds of it inside the per-lens
+    // loop, doubling the gate's contribution to wall-clock for no reason.
+    const [novelties, surfaces] = await Promise.all([
+      noveltiesFor(detected),
+      surfacesFor(detected),
+    ]);
+    const annotatedFresh = annotateFindings(detected, verdicts, novelties, surfaces);
     const kept = keepUnrefuted(annotatedFresh);
 
     // Part 2: re-check this lens's blocking findings from the PREVIOUS round
@@ -2806,6 +2888,13 @@ async function main() {
     // affirmatively "place" a still-open blocker in old code and demote it
     // permanently. They keep today's behaviour (no lane → gates). The fresh pass
     // re-finds and re-routes anything genuinely relocated, against real lines.
+    //
+    // THE SURFACE GATE IS EXCLUDED HERE FOR THE SAME REASON, and it needs the rule
+    // more than novelty does. A stale offset landing inside fixer-written code
+    // would demote a still-open blocker to `backlog` and keep it there for the rest
+    // of the PR's life — a permanent fail-open produced by nothing but line drift.
+    // The fresh pass probes real lines, so anything genuinely out of scope is
+    // demoted there, on evidence, and nothing is lost by leaving it alone here.
     const priorKept = keepUnrefuted(
       annotateFindings(priorForLens, priorVerdicts, null),
     );

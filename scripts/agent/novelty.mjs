@@ -44,7 +44,7 @@ import { repoScopedEnv } from "./git-env.mjs";
 import { promisify } from "node:util";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseCitation } from "./citation.mjs";
+import { parseCitations } from "./citation.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -136,8 +136,7 @@ export function originFrom({
 
 /**
  * Where does a finding point? `line` if the lens supplied one, else the first
- * `file:line` citation in its evidence — but ONLY when that citation names the
- * same file as the finding.
+ * `file:line` citation in its evidence that NAMES THE SAME FILE as the finding.
  *
  * The file check is not pedantry. Evidence routinely cites a second location for
  * contrast ("unlike other.mjs:7"), and pairing the finding's file with a foreign
@@ -145,6 +144,15 @@ export function originFrom({
  * then asked about whatever happens to sit at that offset, and an arbitrary old
  * line there would demote a genuinely new finding. A location that cannot be
  * trusted is worse than none, because none yields `unknown` and stays blocking.
+ *
+ * That rule is unchanged; what changed is WHERE it looks. This used to read only
+ * the FIRST citation and discard it when the files disagreed, which threw away the
+ * matching citation sitting two clauses later — and lenses habitually open their
+ * evidence with the call site or the contract being violated before citing the file
+ * the finding is filed under. Measured on the 44 blocking findings banked across the
+ * open agent PRs: 24 carried a citation naming their own file and only 7 had it
+ * first, so 17 findings were unlocatable for no better reason than citation order,
+ * leaving both provenance gates unable to judge them.
  */
 export function findingLocation(finding) {
   if (!finding || typeof finding !== "object") return null;
@@ -152,13 +160,31 @@ export function findingLocation(finding) {
   if (Number.isInteger(finding.line) && finding.line >= 1 && file) {
     return { file, line: finding.line };
   }
-  const cited = parseCitation(finding.evidence);
-  if (!cited) return file ? { file, line: null } : null;
-  // No file on the finding → the citation is all we have, so take it whole.
-  if (!file) return { file: cited.file, line: cited.line };
-  // Both present → the line is only usable if they agree on the file. Compare
-  // on the trailing path segments so `a/b.mjs` and `./a/b.mjs` still match.
-  return samePath(file, cited.file) ? { file, line: cited.line } : { file, line: null };
+  const cited = parseCitations(finding.evidence);
+  if (cited.length === 0) return file ? { file, line: null } : null;
+  // No file on the finding → the citation is all we have, so take the first whole.
+  if (!file) return { file: cited[0].file, line: cited[0].line };
+  // Both present → take the FIRST citation that AGREES on the file, not merely the
+  // first citation. Comparison is on trailing path segments so `a/b.mjs` and
+  // `./a/b.mjs` still match.
+  //
+  // This scans rather than checking only `cited[0]`, which is what this function's
+  // documented contract always claimed ("the first same-file citation in its
+  // evidence") and what the code did not do. Lenses habitually open their evidence
+  // with the call site or the contract being violated and cite the finding's own
+  // file second — a `correctness` finding on `auth.controller.ts` whose evidence
+  // begins `cli-auth.store.ts:39` got no line at all, so BOTH provenance gates
+  // answered `unknown` and could not judge it. Across the 44 blocking findings
+  // banked on the open agent PRs that cost 17 locations, 39% of the total.
+  //
+  // The tradeoff is deliberate: a later same-file citation may point at context
+  // rather than at the defect, so the line can be less precise than a first-citation
+  // hit. That is strictly more information than the `null` it replaces, and it is
+  // the same imprecision already accepted whenever the first citation matches. The
+  // FIRST match is taken, not the closest or the last, because the earliest mention
+  // of the filed file is the likeliest to be the primary claim.
+  const match = cited.find((c) => samePath(file, c.file));
+  return match ? { file, line: match.line } : { file, line: null };
 }
 
 /** Do two path strings denote the same file, allowing `./` and prefix drift? */

@@ -8,6 +8,8 @@ import {
   format,
   output,
   outputError,
+  parseOutputFormat,
+  InvalidFormatError,
   type OutputFormat,
 } from '../src/output/formatter.js';
 import { InvalidDocxError } from '../src/docs/docx-import.js';
@@ -40,6 +42,47 @@ describe('formatTable', () => {
   it('returns no results for empty array', () => {
     expect(formatTable([])).toBe('(no results)');
   });
+
+  it('JSON-serializes a nested value in a row, not just in a record', () => {
+    const lines = formatTable([{ id: '1', meta: { x: 1 } }]).split('\n');
+    expect(lines[2]).toContain('{"x":1}');
+    expect(lines[2]).not.toContain('[object Object]');
+  });
+
+  it('formats a single object as a key/value table', () => {
+    const result = formatTable({ loggedIn: true, user: 'hackerwins' });
+    const lines = result.split('\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^loggedIn\s+true$/);
+    expect(lines[1]).toMatch(/^user\s+hackerwins$/);
+  });
+
+  it('returns no results for an object with no fields', () => {
+    expect(formatTable({})).toBe('(no results)');
+  });
+
+  it('returns no results for scalars', () => {
+    expect(formatTable('nope')).toBe('(no results)');
+    expect(formatTable(null)).toBe('(no results)');
+  });
+});
+
+describe('parseOutputFormat', () => {
+  it('accepts the supported formats', () => {
+    expect(parseOutputFormat('json')).toBe('json');
+    expect(parseOutputFormat('table')).toBe('table');
+    expect(parseOutputFormat('csv')).toBe('csv');
+  });
+
+  it('rejects an unsupported format with a structured code', () => {
+    expect(() => parseOutputFormat('bogus')).toThrow(InvalidFormatError);
+    try {
+      parseOutputFormat('bogus');
+    } catch (e) {
+      expect((e as InvalidFormatError).code).toBe('INVALID_FORMAT');
+      expect((e as Error).message).toContain('json, table, csv');
+    }
+  });
 });
 
 describe('formatCsv', () => {
@@ -48,7 +91,7 @@ describe('formatCsv', () => {
       { name: 'Alice', score: 95 },
       { name: 'Bob', score: 87 },
     ];
-    const result = formatCsv(data);
+    const result = formatCsv(data, { neutralizeFormulas: true });
     const lines = result.split('\n');
     expect(lines[0]).toBe('name,score');
     expect(lines[1]).toBe('Alice,95');
@@ -57,18 +100,18 @@ describe('formatCsv', () => {
 
   it('escapes commas and quotes', () => {
     const data = [{ value: 'has, comma' }, { value: 'has "quotes"' }];
-    const result = formatCsv(data);
+    const result = formatCsv(data, { neutralizeFormulas: true });
     const lines = result.split('\n');
     expect(lines[1]).toBe('"has, comma"');
     expect(lines[2]).toBe('"has ""quotes"""');
   });
 
   it('returns empty string for empty array', () => {
-    expect(formatCsv([])).toBe('');
+    expect(formatCsv([], { neutralizeFormulas: true })).toBe('');
   });
 
   it('formats a single object as one-row CSV', () => {
-    const result = formatCsv({ id: '1', title: 'Doc' });
+    const result = formatCsv({ id: '1', title: 'Doc' }, { neutralizeFormulas: true });
     const lines = result.split('\n');
     expect(lines[0]).toBe('id,title');
     expect(lines[1]).toBe('1,Doc');
@@ -76,10 +119,76 @@ describe('formatCsv', () => {
 
   it('serializes nested objects as JSON', () => {
     const data = [{ name: 'a', meta: { x: 1 } }];
-    const result = formatCsv(data);
+    const result = formatCsv(data, { neutralizeFormulas: true });
     const lines = result.split('\n');
     // JSON is CSV-escaped: {"x":1} → "{""x"":1}"
     expect(lines[1]).toBe('a,"{""x"":1}"');
+  });
+
+  // Every value here is server-supplied and settable by another
+  // workspace member, so a formula prefix must land as text rather than
+  // execute when the export is opened in a spreadsheet app.
+  it('neutralizes spreadsheet formula prefixes', () => {
+    const data = [
+      { v: '=HYPERLINK("http://evil","click")' },
+      { v: '+1+1' },
+      { v: '-1+1' },
+      { v: '@SUM(A1)' },
+      { v: '\t=cmd' },
+      { v: '\r=cmd' },
+    ];
+    const lines = formatCsv(data, { neutralizeFormulas: true }).split('\n');
+    expect(lines[1]).toBe('"\'=HYPERLINK(""http://evil"",""click"")"');
+    expect(lines[2]).toBe("'+1+1");
+    expect(lines[3]).toBe("'-1+1");
+    expect(lines[4]).toBe("'@SUM(A1)");
+    // Quoted, not bare: a control character inside an unquoted field
+    // would let the importer end the record early (see below).
+    expect(lines[5]).toBe('"\'\t=cmd"');
+    expect(lines[6]).toBe('"\'\r=cmd"');
+  });
+
+  // A bare CR terminates a record in importers that honour classic-Mac
+  // line endings, so an unquoted `\r` lets a value smuggle a whole new
+  // row past the neutralizer: only the *start* of the value is
+  // inspected, and after the split the payload sits at column 0.
+  it('quotes control characters so a value cannot forge a new record', () => {
+    const data = [{ v: 'ok\r=cmd|/C calc!A0' }, { v: 'a\tb' }];
+    const lines = formatCsv(data, { neutralizeFormulas: true }).split('\n');
+    expect(lines[1]).toBe('"ok\r=cmd|/C calc!A0"');
+    expect(lines[2]).toBe('"a\tb"');
+  });
+
+  it('neutralizes a formula in a header key too', () => {
+    expect(formatCsv([{ '=evil()': 1 }], { neutralizeFormulas: true }).split('\n')[0]).toBe("'=evil()");
+  });
+
+  it('leaves plain signed numbers untouched', () => {
+    const data = [{ v: -3 }, { v: '+1.5' }, { v: '-2e10' }, { v: '.5' }];
+    const lines = formatCsv(data, { neutralizeFormulas: true }).split('\n');
+    expect(lines.slice(1)).toEqual(['-3', '+1.5', '-2e10', '.5']);
+  });
+
+  // A plain leading space hides a formula just as a tab does: importers
+  // that trim on the way in (LibreOffice's "Trim spaces", and several
+  // CSV-to-sheet tools) strip it and evaluate what is left. Nothing else
+  // catches it — a leading space is not quoted either.
+  it('neutralizes a formula hidden behind leading whitespace', () => {
+    const data = [
+      { v: ' =HYPERLINK("http://evil","x")' },
+      { v: ' =cmd' },
+      { v: '\ufeff@SUM(A1)' },
+    ];
+    const lines = formatCsv(data, { neutralizeFormulas: true }).split('\n');
+    expect(lines[1]).toBe('"\' =HYPERLINK(""http://evil"",""x"")"');
+    expect(lines[2]).toBe("' =cmd");
+    expect(lines[3]).toBe("'\ufeff@SUM(A1)");
+  });
+
+  it('leaves a padded plain number and ordinary padded text alone', () => {
+    const data = [{ v: ' -3' }, { v: ' hello' }];
+    const lines = formatCsv(data, { neutralizeFormulas: true }).split('\n');
+    expect(lines.slice(1)).toEqual([' -3', ' hello']);
   });
 });
 
@@ -115,9 +224,9 @@ describe('format dispatcher', () => {
     expect(format(data, 'yaml')).toBe('- a: 1');
   });
 
-  it('rejects unsupported formats instead of returning undefined', () => {
+  it('throws instead of printing "undefined" for an unknown format', () => {
     expect(() => format(data, 'xml' as OutputFormat)).toThrow(
-      'Unsupported output format: xml',
+      InvalidFormatError,
     );
   });
 });

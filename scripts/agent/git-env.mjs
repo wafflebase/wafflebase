@@ -13,6 +13,18 @@
  * reached a public PR as a diff appearing to delete every file in the repo.
  * Read paths answer about the wrong repository; write paths corrupt it.
  *
+ * The quiet variant is the dangerous one. An inherited `GIT_INDEX_FILE` alone
+ * leaves the suite EXITING 0 while the real index is replaced by the fixture's,
+ * so `git status` then reports every tracked file as deleted and nothing in the
+ * run said a word. The loud variants (`GIT_DIR`) at least fail the tests.
+ *
+ * `--dry-run` IS NOT A DRY RUN for this. `git push --dry-run` runs the
+ * `pre-push` hook — and therefore `pnpm verify:self` — before git decides the
+ * push is a rehearsal. One of the three incidents above was exactly that: an
+ * operator being careful with `--no-verify` on every real push, then letting a
+ * `--dry-run` through as obviously harmless. If you are guarding against this
+ * class of bug with `--no-verify`, `--dry-run` needs it too.
+ *
  * Two environments, because reads and writes need different strictness:
  *
  * - `repoScopedEnv(root)` — for READING an existing repository. Strips every

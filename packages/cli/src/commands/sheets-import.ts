@@ -5,11 +5,18 @@ import { getGlobalOpts, getClient, getConfig } from './root.js';
 import {
   output,
   outputError,
+  parseOutputFormat,
   forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
-import { parseCsv, parseStartRef, buildCellMap } from '../util/csv-parse.js';
+import {
+  parseCsv,
+  parseStartRef,
+  buildCellMap,
+  buildCellMapFromTable,
+  isCellTable,
+} from '../util/csv-parse.js';
 
 const VALID_FORMATS = ['csv', 'json'] as const;
 
@@ -38,7 +45,11 @@ export function registerSheetsImportCommand(parent: Command) {
     .description('Import CSV/JSON into a tab')
     .option('--tab <tab-id>', 'Target tab', 'tab-1')
     .option('--file-format <fmt>', 'File format (csv, json)')
-    .option('--start <ref>', 'Top-left cell to start import', 'A1')
+    .option(
+      '--start <ref>',
+      'Top-left cell for a positional grid (ignored for an exported ref,value,formula table, whose rows carry their own ref)',
+      'A1',
+    )
     .action(async function (this: Command, docId: string, file: string) {
       const opts = getGlobalOpts(this);
       const localOpts = this.opts<{
@@ -48,6 +59,7 @@ export function registerSheetsImportCommand(parent: Command) {
       }>();
 
       try {
+        const outFmt = parseOutputFormat(opts.format);
         const fmt = detectFormat(file, localOpts.fileFormat);
         const raw = readInput(file);
         let rows: string[][];
@@ -77,9 +89,26 @@ export function registerSheetsImportCommand(parent: Command) {
           throw new Error('No data to import');
         }
 
+        // `sheets export` writes one row per cell (`ref,value,formula,
+        // style`), not a grid, so re-importing its output as a grid
+        // filled A1 with the word "ref". Recognising that header is what
+        // makes the export → import round trip an identity: with
+        // `--raw`, a `=SUM(B2:B100)` comes back as that formula rather
+        // than as text. Any other CSV is still a positional grid.
+        //
+        // Those rows carry their own `ref`, so `--start` has nothing to
+        // place and does not apply. Which of the two ran is reported as
+        // `mode`: the switch is a header heuristic on the *input*, not
+        // something the caller asked for, so a `--start` that turned out
+        // to be inert has to be visible in the result rather than
+        // silently dropped.
+        const cellTable = isCellTable(rows);
         const { row: startRow, col: startCol } = parseStartRef(localOpts.start);
-        const cells = buildCellMap(rows, startRow, startCol);
+        const cells = cellTable
+          ? buildCellMapFromTable(rows)
+          : buildCellMap(rows, startRow, startCol);
         const cellCount = Object.keys(cells).length;
+        const mode = cellTable ? 'cells' : 'grid';
 
         if (opts.dryRun) {
           printDryRun(
@@ -94,9 +123,9 @@ export function registerSheetsImportCommand(parent: Command) {
         const res = await getClient(opts).batchCells(docId, localOpts.tab, cells);
         if (!res.ok) return forwardUpstreamError(res);
         const result = typeof res.data === 'object' && res.data !== null
-          ? { imported: cellCount, ...res.data as Record<string, unknown> }
-          : { imported: cellCount };
-        output(result, opts.format);
+          ? { imported: cellCount, mode, ...res.data as Record<string, unknown> }
+          : { imported: cellCount, mode };
+        output(result, outFmt);
       } catch (e) {
         outputError(e);
       }

@@ -68,6 +68,29 @@ export const UI_READERS_BY_SURFACE = Object.freeze({
     ["doc.linkCount", "", "how many links the document contains"],
     ["doc.canUndo", "", "whether an undoable entry exists — CHECK THIS BEFORE PREDICTING UNDO"],
   ]),
+  slides: Object.freeze([
+    [
+      "slides.elements",
+      "",
+      "every element on the CURRENT slide: {id, type, x, y, w, h, rotation, text?} — " +
+        "x/y/w/h are SLIDE-LOGICAL pixels in a 1920x1080 space, NOT screen pixels",
+    ],
+    ["slides.selection", "", "the ids currently selected, as a list — empty when nothing is selected"],
+    ["slides.slideCount", "", "how many slides the deck has"],
+    ["slides.currentSlideIndex", "", "which slide is showing, 1-based"],
+    ["slides.elementCenter", "(id)", "an element's centre point — name it as a click target's `reader` to click that element"],
+    [
+      "slides.pointAt",
+      "(x, y)",
+      "the point at SLIDE-LOGICAL x,y in the 1920x1080 space — name it as a drag's `to` to drag somewhere specific",
+    ],
+    [
+      "slides.handleCenter",
+      "(kind)",
+      "a selection handle's centre: nw/n/ne/e/se/s/sw/w resize, `rotate`, connector `start`/`end`/`bend`, `adjust-N` — drag one to resize or rotate",
+    ],
+    ["slides.canUndo", "", "whether an undoable entry exists — TRUE here, unlike the sheet surface"],
+  ]),
   sheet: Object.freeze([
     ["sheet.cellValue", "(sref)", "a cell's STORED value, BEFORE any number format — percent/decimals do not change it"],
     ["sheet.activeCellDisplay", "", "what the ACTIVE cell reads as on screen: its stored value WITH its number format applied"],
@@ -161,7 +184,16 @@ export function checkSurfaceScope(action, surface) {
     [...Object.values(UI_READERS_BY_SURFACE).flat(), ...UI_SHARED_READERS].map(([name]) => name),
   );
 
-  const cited = [action?.type === "read" || action?.type === "wait" ? action.reader : null, action?.target?.reader, action?.expect?.read];
+  // FOUR DOORS A READER NAME CAN COME THROUGH, and `to` is the newest. This is the only
+  // place the run's assigned surface is enforced by exact name, so a door missing from this
+  // list is a door onto another surface's readers — `drag`'s destination would have been
+  // exactly that.
+  const cited = [
+    action?.type === "read" || action?.type === "wait" ? action.reader : null,
+    action?.target?.reader,
+    action?.to?.reader,
+    action?.expect?.read,
+  ];
   for (const reader of cited) {
     if (typeof reader !== "string" || reader === "") continue;
     if (allowed.has(reader)) continue;
@@ -536,7 +568,10 @@ export async function createUiServer(opts = {}) {
                 .enum([surface])
                 .optional()
                 .describe(`For goto: which surface to mount. This run explores "${surface}" and no other.`),
-              target: target.optional().describe("For click, and optionally for scroll: what to act on."),
+              target: target
+                .optional()
+                .describe("For click and drag, and optionally for scroll: what to act on. For drag this is where the gesture STARTS."),
+              to: target.optional().describe("For drag: where the gesture ENDS. Same shape as `target`."),
               button: z.enum(["left", "right", "middle"]).optional().describe("For click: defaults to left."),
               clickCount: z.number().int().optional().describe("For click: 2 for a double-click."),
               text: z.string().optional().describe("For type: the text to type at the current caret."),

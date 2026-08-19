@@ -89,3 +89,62 @@ describe('theme/layout', () => {
     expect(xml).toContain('<p:sldMaster');
   });
 });
+
+describe('clrScheme slot normalization', () => {
+  // `Theme.colors[role]` is typed as a string but holds whatever JSON was
+  // persisted — the content PUT API lets an authenticated caller store an
+  // arbitrary string there — and a `<a:clrScheme>` slot is mandatory, so it
+  // cannot be dropped the way an omittable run color can.
+  const withColor = (value: string) => ({
+    ...defaultLight,
+    colors: { ...defaultLight.colors, accent1: value },
+  });
+
+  it('normalizes shorthand and un-prefixed hex to 6 upper-case digits', () => {
+    expect(themeToXml(withColor('#f00'), 1)).toContain('<a:accent1><a:srgbClr val="FF0000"/></a:accent1>');
+    expect(themeToXml(withColor('1a73e8'), 1)).toContain('<a:accent1><a:srgbClr val="1A73E8"/></a:accent1>');
+    expect(themeToXml(withColor('rgb(255, 0, 0)'), 1)).toContain('<a:accent1><a:srgbClr val="FF0000"/></a:accent1>');
+  });
+
+  it('falls back to black for a value the normalizer cannot express', () => {
+    for (const bad of ['', 'not-a-color', 'transparent']) {
+      expect(themeToXml(withColor(bad), 1)).toContain(
+        '<a:accent1><a:srgbClr val="000000"/></a:accent1>',
+      );
+    }
+  });
+
+  it('never lets a hostile color close the val attribute', () => {
+    const hostile = 'FF0000"/><a:custom val="pwned';
+    const xml = themeToXml(withColor(hostile), 1);
+    expect(xml).toContain('<a:accent1><a:srgbClr val="000000"/></a:accent1>');
+    expect(xml).not.toContain('pwned');
+    // Every emitted slot value is 6 hex digits by construction.
+    for (const [, val] of xml.matchAll(/<a:srgbClr val="([^"]*)"\/>/g)) {
+      expect(val).toMatch(/^[0-9A-F]{6}$/);
+    }
+  });
+});
+
+describe('BUILT_IN_TO_TYPE is a closed lookup', () => {
+  // `layout.id` is persisted JSON: custom layouts carry arbitrary ids and the
+  // content PUT API lets a caller store any string.
+  it.each(['constructor', 'toString', '__proto__', 'my-custom-layout'])(
+    'falls back to type="blank" for the layout id %s',
+    (id) => {
+      const xml = layoutToXml({ ...BUILT_IN_LAYOUTS[0], id }, 1);
+      expect(xml).toContain('type="blank"');
+      expect(xml).not.toContain('native code');
+      expect(xml).not.toContain('type="undefined"');
+    },
+  );
+
+  it('never lets a hostile layout id close the type attribute', () => {
+    const xml = layoutToXml(
+      { ...BUILT_IN_LAYOUTS[0], id: 'blank" evil="1' },
+      1,
+    );
+    expect(xml).toContain('type="blank"');
+    expect(xml).not.toContain('evil=');
+  });
+});
