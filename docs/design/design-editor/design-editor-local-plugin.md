@@ -587,7 +587,7 @@ cap is what sets the granularity.
 | 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | in review (#855) — see below |
 | 11a | the shell build — `dist/shell`, two documents, self-contained CSS | in review — see below |
 | 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | written — see below |
-| 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | next, before 12 — see below |
+| 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | written — dom scenes live, see below |
 | 12 | the token panels, `ComponentList`, and the canvas scenes | held |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
@@ -635,11 +635,19 @@ outline agreement and viewport/zoom.
 
 #### 11c — the scene half of `design-sandbox`
 
-**Measured state after 11b:** the editor renders the fixture consumer's scene (34/34)
-but not wafflebase's. Booting `packages/design-sandbox` gives a real scene list, a
-17-row outline of `app/login/page.tsx`, and `tokens: configured` — and a frame that
-says `no scene "login" in the scene manifest`. All 11 scenes are `deferred: true`, and
-`renderScenesModule` filters those out, so the frame's loader table is empty.
+**Outcome:** wafflebase's own six dom scenes now render inside the real `app/Layout`, and
+a click resolves to a `packages/frontend/**` source anchor — including a node in a
+different file from the scene, which is the app-shell case. Covered by
+`pnpm --filter @wafflebase/design-sandbox verify:scenes` (18 checks). The five canvas
+scenes stay `deferred`: they need a mocked document store, which is 12.
+
+**The split held, with one exception worth naming.** Everything else is consumer-side, but
+the plugin gained `options.fixtures`: `SceneConfig.fixtures` had been in the manifest type
+since 10a with nothing reading it, and the fetch guard must be installed before the first
+scene import, so the resolver cannot ride along with the lazily-loaded providers module.
+Full findings — including why the frontend is not typechecked from this package, and why
+`react-router-dom` is aliased rather than depended on — are in
+`docs/tasks/active/20260819-design-sandbox-scene-half-todo.md`.
 
 **Why a letter under 11.** These letters mark PRs the code forced apart on the way to a
 working editor, not strict subject membership — 11a is a build step, not chrome either.
@@ -657,8 +665,10 @@ supplies. Both presuppose scenes that mount.
 | the deferred `vite.config.ts` rows — `react()`, `tailwindcss()`, `@` + `@wafflebase/*` aliases, app-libs aliases, `optimizeDeps.include`, `define`, antlr4ts shims, `yorkieOffline()` | ~40 | `design-sandbox/vite.config.ts` |
 | drop `deferred` | 11 | `scenes.config.json` |
 
-**The plugin does not change.** That is the point: if applying the editor to our own app
-required editing the plugin, the split would have failed.
+**The plugin changes once, and the exception is documented.** It gained `options.fixtures`
+— see 11c's outcome above for why the fetch guard cannot ride along with the lazily-loaded
+providers module. Everything else here is consumer-side, which is the point: if applying the
+editor to our own app had required editing the plugin broadly, the split would have failed.
 
 Two things to settle while doing it:
 
