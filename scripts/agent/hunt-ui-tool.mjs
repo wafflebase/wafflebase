@@ -68,6 +68,35 @@ export const UI_READERS_BY_SURFACE = Object.freeze({
     ["doc.linkCount", "", "how many links the document contains"],
     ["doc.canUndo", "", "whether an undoable entry exists — CHECK THIS BEFORE PREDICTING UNDO"],
   ]),
+  board: Object.freeze([
+    [
+      "board.elements",
+      "",
+      "every element on the board: {id, type, x, y, w, h, rotation, text?} — x/y/w/h are WORLD " +
+        "pixels on an unbounded plane, NOT screen pixels",
+    ],
+    ["board.selection", "", "the ids currently selected, as a list — empty when nothing is selected"],
+    ["board.elementCount", "", "how many elements the board holds"],
+    [
+      "board.viewport",
+      "",
+      "where the view is looking: {panX, panY, zoom} — scrolling changes this, so read it before " +
+        "predicting that a point is reachable",
+    ],
+    [
+      "board.pointAt",
+      "(x, y)",
+      "the point at WORLD x,y — name it as a drag's `to`; REFUSES when that world point is not " +
+        "currently on screen, which on an unbounded plane is normal",
+    ],
+    ["board.elementCenter", "(id)", "an element's centre point — name it as a click target's `reader` to click that element"],
+    [
+      "board.handleCenter",
+      "(kind)",
+      "a selection handle's centre: nw/n/ne/e/se/s/sw/w resize, `rotate`, connector `start`/`end`/`bend` — drag one to resize or rotate",
+    ],
+    ["board.canUndo", "", "whether an undoable entry exists — TRUE here"],
+  ]),
   slides: Object.freeze([
     [
       "slides.elements",

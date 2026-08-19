@@ -56,6 +56,13 @@ const SlidesToolbarLazy = lazy(() =>
   import("@/app/slides/toolbar").then((m) => ({ default: m.SlidesToolbar })),
 );
 
+const BoardToolbarLazy = lazy(() =>
+  import("@/app/board/board-toolbar").then((m) => ({ default: m.BoardToolbar })),
+);
+
+import type { BoardGridKind } from "@/app/board/board-grid";
+
+import { asBoardStore } from "./mem-board-store";
 import { installHuntBridge, type HuntSurface } from "./bridge";
 import { SEED_FRAMES } from "./slides-seed";
 
@@ -67,7 +74,7 @@ type HarnessStatus = "loading" | "ready" | "error";
 // bridge which surface actually mounted and refuses when the answer is not what the plan
 // asked for. So a substitution here is loud at the only place it could mislead anyone,
 // and this stays a convenience for a person opening the page.
-const SURFACES: readonly HuntSurface[] = ["sheet", "doc", "slides"];
+const SURFACES: readonly HuntSurface[] = ["sheet", "doc", "slides", "board"];
 
 function useSurfaceFromSearchParams(): HuntSurface {
   try {
@@ -228,6 +235,64 @@ function frameOf(id: string): { x: number; y: number; w: number; h: number } {
   return { x: found.x, y: found.y, w: found.w, h: found.h };
 }
 
+/**
+ * The board seed — four elements on one unbounded plane, ids fixed by hand.
+ *
+ * WORLD COORDINATES, and small ones. A board has no rect to be inside, so these are chosen to
+ * sit inside the pinned 960x540 view at `zoom: 1` — an element outside it is unclickable until
+ * something scrolls, and a seed that starts half off-screen makes the first action a refusal.
+ *
+ * Kept clear of each other's CENTRES for the reason the slides seed is: `board.elementCenter`
+ * aims at the middle and the canvas selects whatever is topmost there, so a covered centre
+ * makes the reader name one element and select another. Still overlapping at the corners, so
+ * a z-order change is visible.
+ */
+function seedBoardElements(): Element[] {
+  const note: Element = {
+    id: "note",
+    type: "shape",
+    frame: { x: 60, y: 60, w: 200, h: 140, rotation: 0 },
+    data: { kind: "roundRect", fill: { kind: "role", role: "accent1" } },
+  };
+  const card: Element = {
+    id: "card",
+    type: "shape",
+    frame: { x: 220, y: 150, w: 240, h: 160, rotation: 0 },
+    data: { kind: "rect", fill: { kind: "role", role: "accent2" } },
+  };
+  const label: Element = {
+    id: "label",
+    type: "text",
+    frame: { x: 560, y: 80, w: 320, h: 90, rotation: 0 },
+    data: {
+      blocks: [
+        {
+          id: "label-b1",
+          type: "paragraph",
+          inlines: [{ text: "Retro board", style: { fontSize: 28 } }],
+          style: { alignment: "left", lineHeight: 1.2, marginTop: 0, marginBottom: 0, textIndent: 0, marginLeft: 0 },
+        },
+      ],
+    },
+  };
+  const idea: Element = {
+    id: "idea",
+    type: "text",
+    frame: { x: 560, y: 300, w: 300, h: 120, rotation: 0 },
+    data: {
+      blocks: [
+        {
+          id: "idea-b1",
+          type: "paragraph",
+          inlines: [{ text: "Ship the hunter.", style: {} }],
+          style: { alignment: "left", lineHeight: 1.2, marginTop: 0, marginBottom: 0, textIndent: 0, marginLeft: 0 },
+        },
+      ],
+    },
+  };
+  return [note, card, label, idea];
+}
+
 function seedSlides(S: SlidesModule): MemSlidesStore {
   const base = new S.MemSlidesStore();
   base.batch(() => {
@@ -326,6 +391,14 @@ export default function HuntHarnessPage() {
   const [sheet, setSheet] = useState<Spreadsheet | null>(null);
   const [slides, setSlides] = useState<SlidesEditor | null>(null);
   const [slidesStore, setSlidesStore] = useState<MemSlidesStore | null>(null);
+  const [board, setBoard] = useState<SlidesEditor | null>(null);
+  const [boardStore, setBoardStore] = useState<MemSlidesStore | null>(null);
+  // REAL STATE, NOT NO-OPS. `BoardToolbarProps` requires these and says why: the grid dropdown
+  // is fully controlled, so "a consumer that omitted these would render a menu that shows a
+  // selected mode and silently ignores every click". That is exactly the shape that produced a
+  // false candidate on the sheet surface, and the component warned about it in advance.
+  const [gridKind, setGridKind] = useState<BoardGridKind>("none");
+  const [gridSnap, setGridSnap] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -341,6 +414,8 @@ export default function HuntHarnessPage() {
     let spreadsheet: Spreadsheet | undefined;
     let docEditor: EditorAPI | undefined;
     let slidesEditor: SlidesEditor | undefined;
+    let boardEditor: SlidesEditor | undefined;
+    let uninstallBoardWheel: (() => void) | null = null;
 
     /**
      * This mount's OWN container, not the shared host.
@@ -387,6 +462,10 @@ export default function HuntHarnessPage() {
       // canvas while the next one paints into the real host.
       slidesEditor?.detach();
       slidesEditor = undefined;
+      uninstallBoardWheel?.();
+      uninstallBoardWheel = null;
+      boardEditor?.detach();
+      boardEditor = undefined;
       container.remove();
     };
 
@@ -401,6 +480,100 @@ export default function HuntHarnessPage() {
           if (disposed) return disposeMounted();
           controller.setDoc({ editor: docEditor, host: container });
           setEditor(docEditor);
+        } else if (surface === "board") {
+          const S: SlidesModule = await import("@wafflebase/slides");
+          const B = await import("@wafflebase/board");
+          // The wheel helper is a frontend module, not part of the board package.
+          const { applyWheelToViewport } = await import("@/app/board/board-wheel");
+          if (disposed) return disposeMounted();
+
+          // A BOARD IS ONE UNBOUNDED PLANE, so the seed is a flat element list rather than
+          // slides. `boardToSlidesDocument` is the product's own adapter, used here so the
+          // harness cannot drift from the shape a real board has.
+          const doc = B.boardToSlidesDocument({ meta: { title: "Hunt board" }, elements: seedBoardElements() });
+          // Wrapped so the 34 methods a real board REFUSES refuse here too. See
+          // `mem-board-store.ts`: a harness laxer than production hides the constraint.
+          const store = asBoardStore(new S.MemSlidesStore(doc));
+
+          const hostW = 960;
+          const hostH = 540;
+          const dpr = window.devicePixelRatio || 1;
+
+          // THE VIEWPORT IS PINNED, and that is what determinism rests on here. A slide gets
+          // it from a fixed 1920x1080 rect; a board has no rect, so identical runs require an
+          // identical starting pan and zoom. `zoom: 1` also makes world and screen pixels the
+          // same number, which keeps a failing prediction readable.
+          const viewport: { panX: number; panY: number; zoom: number } = { panX: 0, panY: 0, zoom: 1 };
+
+          const wrap = document.createElement("div");
+          wrap.style.position = "relative";
+          wrap.style.width = `${hostW}px`;
+          wrap.style.height = `${hostH}px`;
+          wrap.style.margin = "0 auto";
+          wrap.style.overflow = "hidden";
+
+          const canvas = document.createElement("canvas");
+          canvas.width = hostW * dpr;
+          canvas.height = hostH * dpr;
+          canvas.style.display = "block";
+          canvas.style.width = `${hostW}px`;
+          canvas.style.height = `${hostH}px`;
+          canvas.style.position = "absolute";
+          canvas.style.left = "0";
+          canvas.style.top = "0";
+          wrap.appendChild(canvas);
+
+          const overlay = document.createElement("div");
+          overlay.style.position = "absolute";
+          overlay.style.left = "0";
+          overlay.style.top = "0";
+          overlay.style.width = `${hostW}px`;
+          overlay.style.height = `${hostH}px`;
+          overlay.style.pointerEvents = "none";
+          wrap.appendChild(overlay);
+
+          container.appendChild(wrap);
+
+          boardEditor = S.initializeEditor({
+            canvas,
+            overlay,
+            store,
+            hostWidth: hostW,
+            hostHeight: hostH,
+            dpr,
+            viewport,
+          });
+          if (disposed) return disposeMounted();
+
+          // WHEEL PANS AND ZOOMS, because otherwise the defining feature of an infinite canvas
+          // is unreachable and every off-screen refusal is a dead end. `board.pointAt` tells
+          // the caller to "scroll toward it"; without this listener that advice is false, and
+          // an instruction the harness cannot honour is worse than no instruction.
+          //
+          // `applyWheelToViewport` is the product's own helper — pan on a plain wheel, zoom
+          // with ctrl/meta held — so the harness pans exactly as the real board does rather
+          // than inventing a second rule.
+          const onWheel = (e: WheelEvent) => {
+            e.preventDefault();
+            const next = applyWheelToViewport(viewport, {
+              deltaX: e.deltaX,
+              deltaY: e.deltaY,
+              ctrlKey: e.ctrlKey,
+              metaKey: e.metaKey,
+              offsetX: e.offsetX,
+              offsetY: e.offsetY,
+            });
+            viewport.panX = next.panX;
+            viewport.panY = next.panY;
+            viewport.zoom = next.zoom;
+            boardEditor?.setViewport(viewport);
+          };
+          canvas.addEventListener("wheel", onWheel, { passive: false });
+          uninstallBoardWheel = () => canvas.removeEventListener("wheel", onWheel);
+
+          controller.setBoard({ editor: boardEditor, store, host: container, viewport: () => viewport });
+          setBoard(boardEditor);
+          setBoardStore(store);
         } else if (surface === "slides") {
           // Awaited HERE, inside the branch, so nothing about the slides engine is fetched
           // or transformed when the mounted surface is a sheet or a document.
@@ -497,6 +670,8 @@ export default function HuntHarnessPage() {
       setSheet(null);
       setSlides(null);
       setSlidesStore(null);
+      setBoard(null);
+      setBoardStore(null);
       controller.dispose();
       // Removes only THIS mount's container; a later mount's container is a sibling
       // this closure never sees, so teardown cannot reach across into it.
@@ -558,6 +733,28 @@ export default function HuntHarnessPage() {
         out loud, and slides has more unwired controls than sheets does. A trap the brief
         names is a trap; one it does not is a defect report.
       */}
+      {/*
+        `gridKind`/`gridSnap` are REQUIRED and fully controlled — see the state above. The two
+        optional callbacks are omitted on purpose, the same treatment the other surfaces'
+        optional handlers get: `Insert sticky` and `Insert image` therefore render and do
+        nothing, and the rubric names them. Sticky notes being inert is worth saying out loud,
+        since they are the feature a board is best known for.
+      */}
+      {surface === "board" && (
+        <div className="border-b bg-background" data-testid="hunt-harness-toolbar">
+          <Suspense fallback={null}>
+            <BoardToolbarLazy
+              editor={board}
+              store={boardStore}
+              gridKind={gridKind}
+              onGridKindChange={setGridKind}
+              gridSnap={gridSnap}
+              onGridSnapChange={setGridSnap}
+            />
+          </Suspense>
+        </div>
+      )}
+
       {surface === "slides" && (
         <div className="border-b bg-background" data-testid="hunt-harness-toolbar">
           {/*
