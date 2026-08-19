@@ -29,3 +29,29 @@ guard would have been false.
 icon and the review modal's before/after cells. Left alone they would have become a marker
 for a capability nothing has, and two empty boxes. Both needed a decision of their own — one
 icon, and the class strings — which is the part of a "just drop it" that is not free.
+
+## `echo "tsc ok"` after a pipe reports nothing
+
+Three times now a verification step read
+
+    pnpm exec tsc --noEmit 2>&1 | grep -v WARN | head -3; echo "tsc ok"
+
+which prints "tsc ok" whatever happened. It hid a real `design-sandbox` typecheck failure
+introduced in 11c for two PRs, and I asserted the branch was clean while it was not. The
+form that actually reports is
+
+    pnpm exec tsc --noEmit >/dev/null 2>&1 && echo ✅ || echo ❌
+
+Same class as the gate change that was never committed: the check that would have caught it
+is cheap, and the failure mode is a confident false statement rather than a visible error.
+
+## A narrow `git add` path has now dropped three things
+
+`git add -A packages/...` left behind, in order: five `verify:frame` staging checks, the
+`pnpm-lock.yaml` entries `design-sandbox` needs to install at all, and a typecheck fix that
+belonged in the PR whose test it fixed. Each was invisible until something downstream
+disagreed — a check count, a fresh install, a per-branch typecheck.
+
+The rule this earns: after committing, verify each branch in the stack **independently** —
+`tsc` and tests per branch, not once at the tip. A stack where only the tip is green is a
+stack of PRs that fail CI one at a time.

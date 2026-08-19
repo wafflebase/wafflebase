@@ -53,8 +53,9 @@ is a finding, not a task.
 - [x] a gate covers wafflebase scenes, not only the fixture — `pnpm --filter
       @wafflebase/design-sandbox verify:scenes` (18 checks), a sibling of `verify:frame`
 - [ ] ~~`packages/design-editor/src/plugin/` is untouched~~ — it was NOT. See the finding below.
-- [ ] the deferred-scene listing inconsistency is gone — `/metadata` still lists the five
-      deferred canvas scenes, so the shell offers rows the frame cannot mount
+- [x] the deferred-scene listing inconsistency is gone — `analyzeScene` carries `deferred`,
+      and the shell renders those rows disabled with a reason instead of omitting them or
+      offering a click whose only outcome is a frame-side manifest error
 
 ## Findings
 

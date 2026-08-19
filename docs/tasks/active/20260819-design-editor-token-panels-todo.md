@@ -64,13 +64,14 @@ The panels read `TokenFamilyMeta` from `GET /tokens`. What that replaced:
    pass. Two guards now, either sufficient — the memo removes the churn, an equality check
    makes the loop unreachable.
 
-**A label inaccuracy, deliberately not special-cased.** `core-adapter.ts` reports
-`cssVarPrefix: '--radius-'`, but `build-css.ts` emits `radius.base` as the bare `--radius` —
-which a pure prefix cannot express. The panel therefore shows `--radius-base`. It is only a
-label: `toTokenIntent` sends `family`/`constName`/`path`, so no write is misaddressed. The
-prototype special-cased it; doing that here would put a consumer's emission rule back inside
-the panel. The contract needs a way to say "this key has no suffix", or the emitter should
-emit `--radius-base`.
+**A label inaccuracy, fixed by not making the claim.** `core-adapter.ts` reports
+`cssVarPrefix: '--radius-'`, but `build-css.ts` emits `radius.base` as the bare `--radius` and
+emits none of the other four steps at all — they exist only in source, which is what
+`bindings.leaves` is for by its own doc. Nothing in the payload maps a source member to its
+emitted property, so the prefix name could not be verified. The panel now shows a variable
+name only where `vars` confirms it and the source path otherwise, which is the address
+`toTokenIntent` actually uses. The contract gap remains: it has no way to say "this key is
+emitted bare".
 
 ## Not covered
 
@@ -85,4 +86,5 @@ its public behaviour and is stated as such in the test file.
 - [x] ⌘S opens the review, which shows a dry-run diff
 - [x] the panels read family metadata from the adapter, not a compiled-in table
 - [x] `verify:frame` covers staging → ⌘Z → review
-- [ ] a real write lands through the modal's Approve — the gate stops at the diff
+- [x] a real write lands through the modal's Approve — `verify:frame --write` presses it,
+      compares the file, undoes through the bridge and compares the bytes back
