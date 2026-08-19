@@ -49,8 +49,16 @@ export const UI_ACTION_TYPES = Object.freeze(["goto", "click", "type", "key", "s
  * is the page's own bridge). The authoritative list of reader NAMES lives in the
  * bridge, which refuses an unknown one at runtime with the valid set; checking the
  * prefix here just fails a typo before paying for a browser boot.
+ *
+ * DERIVED FROM `UI_SURFACES`, plus the surfaceless `dom.` namespace. Spelled out as a
+ * literal this was the FIFTH place the surface vocabulary was written down and the last
+ * one still hardcoded after #847 — it went unnoticed because it is phrased as routing
+ * rather than as a surface list. The slides surface mounted correctly, the mounted-surface
+ * guard passed, and then every single `slides.*` read was refused as a typo. A surface
+ * that boots and can answer nothing is the most confusing possible failure, so this now
+ * follows the list rather than restating it.
  */
-export const UI_READER_PREFIXES = Object.freeze(["doc.", "sheet.", "dom."]);
+export const UI_READER_PREFIXES = Object.freeze([...UI_SURFACES.map((s) => `${s}.`), "dom."]);
 
 const DEFAULT_ATTEMPTS = 1;
 /** Beyond this a value is keyed by hash — a `dom.snapshot` must not become the key. */

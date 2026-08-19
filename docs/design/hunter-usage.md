@@ -88,19 +88,30 @@ node scripts/agent/hunt.mjs run --charter contract --out /tmp/hunt-1
 ## The UI hunter
 
 ```bash
-node scripts/agent/hunt-ui.mjs run [--charter <id>]... [--surface <doc|sheet>]...
+node scripts/agent/hunt-ui.mjs run [--charter <id>]... [--surface <doc|sheet|slides>]...
                                    [--out <dir>] [--repo <dir>] [--ledger <file>]
                                    [--coverage <file>] [--run-id <id>] [--fault <id>]
 node scripts/agent/hunt-ui.mjs replay --plan <file.json> [--attempts N]
 node scripts/agent/hunt-ui.mjs report --out <dir>
 ```
 
-Two personas, each with two briefs:
+Three personas, each with two briefs — one per surface, which
+`hunt-ui.test.mjs` enforces: a surface nobody explores makes its reader list dead weight.
 
 | persona | surface | briefs |
 |---|---|---|
 | `doc-writer` | `doc` | `body-and-styles`, `structure-and-links` |
 | `sheet-author` | `sheet` | `values-and-formulas`, `navigation-and-selection` |
+| `slide-author` | `slides` | `arrange-and-order`, `content-and-undo` |
+
+A persona names its own surface, so `--surface` narrows what a named charter may run
+rather than selecting something to hunt on its own.
+
+The slides surface has **no drag action**, because the action vocabulary has none
+(`goto | click | type | key | scroll | read | wait`). Toolbar controls, keyboard nudge,
+z-order, alignment, slide operations and text editing are all reachable; move, resize,
+rotate, connector drawing and crop are not. A brief that asks for the second group will
+produce failed actions, not findings.
 
 Naming one persona runs its briefs only, which is the normal case:
 

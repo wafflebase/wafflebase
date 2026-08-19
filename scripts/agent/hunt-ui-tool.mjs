@@ -68,6 +68,19 @@ export const UI_READERS_BY_SURFACE = Object.freeze({
     ["doc.linkCount", "", "how many links the document contains"],
     ["doc.canUndo", "", "whether an undoable entry exists — CHECK THIS BEFORE PREDICTING UNDO"],
   ]),
+  slides: Object.freeze([
+    [
+      "slides.elements",
+      "",
+      "every element on the CURRENT slide: {id, type, x, y, w, h, rotation, text?} — " +
+        "x/y/w/h are SLIDE-LOGICAL pixels in a 1920x1080 space, NOT screen pixels",
+    ],
+    ["slides.selection", "", "the ids currently selected, as a list — empty when nothing is selected"],
+    ["slides.slideCount", "", "how many slides the deck has"],
+    ["slides.currentSlideIndex", "", "which slide is showing, 1-based"],
+    ["slides.elementCenter", "(id)", "an element's centre point — name it as a click target's `reader` to click that element"],
+    ["slides.canUndo", "", "whether an undoable entry exists — TRUE here, unlike the sheet surface"],
+  ]),
   sheet: Object.freeze([
     ["sheet.cellValue", "(sref)", "a cell's STORED value, BEFORE any number format — percent/decimals do not change it"],
     ["sheet.activeCellDisplay", "", "what the ACTIVE cell reads as on screen: its stored value WITH its number format applied"],

@@ -47,6 +47,52 @@
     "verifierMaxTurns": 50
   },
   {
+    "id": "slide-author",
+    "title": "Slide author",
+    "surface": "slides",
+    "model": "claude-opus-5",
+    "oracles": [
+      "prediction",
+      "crash",
+      "dom-invariant"
+    ],
+    "briefs": [
+      {
+        "id": "arrange-and-order",
+        "task": "Build up a slide's arrangement the way someone tidying a layout would, and use the operations that have EXACT INVERSES \u2014 which on this surface is most of them. FIRST read `dom.controls`, then click an element and READ `dom.controls` AGAIN: this toolbar morphs, and every object control you want (`Arrange`, `Border color`, `Border dash`, `Border weight`) only appears once something is selected. A run that reads it once at rest will think the surface has no controls. Then work the round trips, which is the only pattern that has ever found a defect here. Read `slides.elements`, select an element, press `Cmd+ArrowUp` (bring forward) then `Cmd+ArrowDown` (send back), and predict `slides.elements` EQUALS the reading you took first \u2014 z-order is the array order, so a reorder-and-reverse is a permutation you can predict exactly. Do the same with `ArrowRight` x3 then `ArrowLeft` x3, which nudges by one slide-logical pixel per press and must land back where it started, AND must move NOTHING ELSE on the slide. Try `Bring to front` on an element that is ALREADY frontmost and on one that is already at the back \u2014 a no-op that is off by one is exactly the defect this shape catches. Then do it through the `Arrange` menu as well as the keyboard, on a single element and on a MULTI-ELEMENT selection. IMPORTANT \u2014 you cannot drag; there is no drag action. Moving, resizing and rotating by mouse are unreachable, so nudge instead and predict nothing about them."
+      },
+      {
+        "id": "content-and-undo",
+        "task": "Change what the slide CONTAINS, and use undo as the reversing control \u2014 it genuinely works on this surface, unlike the sheet surface. Read `slides.canUndo` first and confirm it is false before you edit anything, then make one edit and confirm it turned true; a capability you assumed rather than checked is how the other surfaces produced false findings. Then run the round trips, and note how text COMMITS before you predict anything about it: the text editor writes back to the store on BLUR, so typing alone changes nothing `slides.elements` can see, and Escape CANCELS rather than commits. Click a DIFFERENT element to commit. So the round trip is: read `slides.elements`, enter a text box and type, click away to commit, confirm the text actually changed, then undo and predict `slides.elements` equals the first reading \u2014 the stored text must come back exactly, not approximately. A prediction made between the keystrokes and the commit is asserting against something that has not happened yet, and will hold for the wrong reason. Do the same for adding a slide (predict `slides.slideCount` returns to its earlier reading) and for deleting an element. Add a `Text box` and a `Shape` from the toolbar and check what `slides.elements` says about them: an element that reports no `text` field is a different state from one reporting `\"\"`, and predicting the wrong one of those is a mistake rather than a defect. Also move between slides and watch what follows you \u2014 `slides.elements` always describes the CURRENT slide, slide 2 of the seed is empty, and reading `[]` there is correct. The interesting predictions are about what an edit should and should NOT touch: an edit to one element must leave every other element's frame byte-identical, and a slide change must not alter the slide you left."
+      }
+    ],
+    "codeScope": [
+      "packages/slides/src/**",
+      "packages/frontend/src/app/slides/**"
+    ],
+    "docsScope": [
+      "docs/design/slides/slides.md",
+      "docs/design/slides/slides-group.md",
+      "docs/design/slides/slides-toolbar-redesign.md",
+      "docs/design/slides/slides-keyboard-shortcuts.md"
+    ],
+    "minCitations": 1,
+    "verifiers": 2,
+    "maxVerified": 4,
+    "maxCandidates": 8,
+    "reportableSeverities": [
+      "critical",
+      "major"
+    ],
+    "actionBudget": {
+      "maxActions": 50,
+      "perActionTimeoutMs": 30000,
+      "totalTimeoutMs": 900000
+    },
+    "explorerMaxTurns": 70,
+    "verifierMaxTurns": 50
+  },
+  {
     "id": "sheet-author",
     "title": "Sheet author",
     "surface": "sheet",

@@ -137,7 +137,12 @@ async function loadPlaywright() {
  * lives in an out-of-process validator is not actually bounded. Cheap defence in
  * depth; the authoritative reader list is still the bridge's.
  */
-const READER_PREFIXES = ["doc.", "sheet.", "dom."];
+// Derived, not restated. This was the SIXTH copy of the surface vocabulary and the last
+// one to be found — the slides surface mounted, the mounted-surface guard passed, the plan
+// validator accepted the plan, and then every read was refused here as a typo. Both of the
+// remaining prefix checks now follow `UI_SURFACES`; only `dom.` is spelled out, because it
+// belongs to no surface.
+const READER_PREFIXES = [...UI_SURFACES.map((s) => `${s}.`), "dom."];
 
 function assertReaderName(name) {
   if (typeof name !== "string" || !READER_PREFIXES.some((p) => name.startsWith(p))) {
