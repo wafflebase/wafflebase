@@ -199,6 +199,95 @@ test("mergeCoverage unions, keeps roundTripped sticky, and drops a stale key ver
   }
 });
 
+const ctls = (pairs) => ({
+  action: { type: "read", reader: "dom.controls" },
+  ok: true,
+  value: pairs.map(([role, name]) => ({ role, name })),
+});
+const clickCanvas = () => ({
+  action: { type: "click", target: { reader: "slides.elementCenter", args: ["badge"] } },
+  ok: true,
+});
+
+test("controls revealed by clicking a CONTROL are that control's options", () => {
+  // #843 demoted a picker's contents by role, which stopped working the moment a picker was
+  // built from buttons. The slides `Shape` picker is 136 controls of role `button`: by role
+  // they read as 136 top-level capabilities and bury the handful that are real.
+  const c = coverageFromJournal([
+    ctls([["button", "Shape"], ["button", "Add slide"]]),
+    click("Shape"),
+    ctls([["button", "Shape"], ["button", "Add slide"], ["button", "Diamond"], ["button", "Star"]]),
+  ]);
+  const by = Object.fromEntries(c.inventory.map((x) => [x.control, x.openedBy ?? null]));
+  assert.deepEqual(by, { "Add slide": null, Diamond: "Shape", Shape: null, Star: "Shape" });
+
+  // RECORDED EXPLICITLY, not merely absent. `?? null` above cannot tell the two apart, and
+  // the difference is load-bearing: `mergeCoverage` reads a missing key as "written before
+  // provenance existed" and lets it yield, while an explicit `null` is a real observation
+  // that outranks an attribution. A run that omitted it would let a later run demote a
+  // genuinely top-level control it happened to see inside a picker.
+  for (const x of c.inventory) {
+    assert.ok("openedBy" in x, `${x.control} must record its provenance explicitly, even when top-level`);
+  }
+
+  const md = renderCoverageBrief(c);
+  const never = md.slice(md.indexOf("NEVER TRIED"));
+  assert.match(never, /`Add slide`/, "a real top-level control stays on offer");
+  assert.doesNotMatch(never.split("Also unused")[0], /`Diamond`/, "a picker's contents are not top-level opportunities");
+  assert.match(md, /Also unused: 2 item\(s\) INSIDE menus/, "they are COUNTED, never silently dropped");
+});
+
+test("controls revealed by a CANVAS click stay top-level", () => {
+  // THE DISTINCTION THAT MAKES THE ABOVE CORRECT RATHER THAN JUST QUIETER. Selecting an
+  // element on the slides surface morphs the toolbar and reveals `Arrange`, `Border color`
+  // and friends. Those are genuinely new capabilities, not options inside anything —
+  // attributing them to `slides.elementCenter` would hide them exactly as the role test
+  // hides the shapes.
+  const c = coverageFromJournal([
+    ctls([["button", "Add slide"]]),
+    clickCanvas(),
+    ctls([["button", "Add slide"], ["button", "Arrange"], ["button", "Border color"]]),
+  ]);
+  assert.deepEqual(
+    c.inventory.filter((x) => x.openedBy).map((x) => x.control),
+    [],
+    "a canvas click opens nothing",
+  );
+  const never = renderCoverageBrief(c).slice(0, 4000);
+  assert.match(never, /`Arrange`/);
+  assert.match(never, /`Border color`/);
+});
+
+test("provenance is sticky across a merge; an EXPLICIT top-level sighting wins", () => {
+  const inv = (openedBy, sha) => ({
+    keyVersion: COVERAGE_KEY_VERSION, shapes: [], usedControls: [],
+    inventory: [{ role: "button", control: "Diamond", sha, ...(openedBy === undefined ? {} : { openedBy }) }],
+  });
+
+  // Demotion is sticky, so a picker's contents stay filed under their opener across runs.
+  assert.equal(mergeCoverage(inv("Shape", "a"), inv("Shape", "b")).inventory[0].openedBy, "Shape");
+
+  // An EXPLICIT null means "seen with nothing open", i.e. reachable directly. That is a real
+  // observation and it outranks an attribution, in either order.
+  assert.equal(mergeCoverage(inv(null, "a"), inv("Shape", "b")).inventory[0].openedBy, null);
+  assert.equal(mergeCoverage(inv("Shape", "a"), inv(null, "b")).inventory[0].openedBy, null);
+
+  // A MISSING key is NOT that claim — it is a record written before provenance existed, and
+  // it must yield. Without this the live sheet memory's 72 unattributed top-level entries
+  // would outrank correct attribution for ever and could never be reclassified.
+  assert.equal(mergeCoverage(inv(undefined, "a"), inv("Shape", "b")).inventory[0].openedBy, "Shape");
+  assert.equal(mergeCoverage(inv("Shape", "a"), inv(undefined, "b")).inventory[0].openedBy, "Shape");
+});
+
+test("an inventory written before provenance existed still groups by role", () => {
+  // The role test is not redundant: it is what covers records that carry no `openedBy`.
+  const c = { keyVersion: COVERAGE_KEY_VERSION, shapes: [], usedControls: [],
+    inventory: [{ role: "menuitemcheckbox", control: "Courier New", sha: "a" }, { role: "button", control: "Bold", sha: "a" }] };
+  const md = renderCoverageBrief(c);
+  assert.match(md.slice(md.indexOf("NEVER TRIED")).split("Also unused")[0], /`Bold`/);
+  assert.match(md, /Also unused: 1 item\(s\) INSIDE menus/);
+});
+
 test("a key-version bump keeps WHICH CONTROLS were used, so untried stays honest", () => {
   // THE REGRESSION THIS EXISTS FOR, measured on the live sheet memory at the 3 -> 4 bump.
   // `untried` is `inventory` MINUS the used controls. Carrying the inventory across a bump
