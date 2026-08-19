@@ -113,6 +113,42 @@ async function waitForPaint(page) {
   return null;
 }
 
+/**
+ * Requests keep starting AFTER the first paint — React Query fires on mount and resolves
+ * later — so `waitForPaint` returning is not "this scene has finished asking for data".
+ * Without this, the `misses` array below was inspected, and the page closed, before an
+ * unmocked request had a chance to be logged: the check could pass by being early.
+ *
+ * Attach BEFORE `goto`, or the mount-time requests are never counted.
+ */
+function trackRequests(page) {
+  let inflight = 0;
+  let last = Date.now();
+  const touch = () => {
+    last = Date.now();
+  };
+  page.on('request', () => {
+    inflight += 1;
+    touch();
+  });
+  page.on('requestfinished', () => {
+    inflight -= 1;
+    touch();
+  });
+  page.on('requestfailed', () => {
+    inflight -= 1;
+    touch();
+  });
+  return async function settle(quietMs = 800) {
+    const deadline = Date.now() + PAINT_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (inflight <= 0 && Date.now() - last >= quietMs) return true;
+      await page.waitForTimeout(100);
+    }
+    return false;
+  };
+}
+
 async function main() {
   await buildShellIfStale();
   const { child, log } = await boot();
@@ -144,6 +180,7 @@ async function main() {
       page.on('console', (m) => {
         if (/unmocked/i.test(m.text())) misses.push(m.text().slice(0, 70));
       });
+      const settle = trackRequests(page);
       await page.goto(
         `http://127.0.0.1:${PORT}/__design-editor/scene?scene=${s.id}&frame=after&theme=light`,
         { waitUntil: 'commit', timeout: PAINT_TIMEOUT_MS },
@@ -158,6 +195,9 @@ async function main() {
       );
       // An unmocked request is the failure the fixture table exists to prevent, and it is
       // reported rather than tolerated: a scene whose data 401s looks like a broken scene.
+      // Only meaningful once the scene has stopped asking — see `trackRequests`.
+      const quiet = await settle();
+      check(`${s.id} settles its requests`, quiet, quiet ? 'network quiet' : 'still in flight');
       check(`${s.id} makes no unmocked request`, misses.length === 0, misses.slice(0, 2).join(' | '));
       await page.close();
     }
@@ -241,6 +281,57 @@ async function main() {
           /packages\/frontend\/src\//.test(after) && !/Picking must be on/.test(after),
           (after.match(/packages\/frontend\/src\/\S+/) ?? ['(nothing selected)'])[0],
         );
+
+        // THE CROSS-FILE CASE, asserted by name rather than by shape. `shell: "app"` mounts
+        // the scene inside the real `app/Layout`, so the frame holds stamped nodes from a
+        // file that is NOT the scene's own — and resolving those is the part most likely to
+        // regress. A `/packages\/frontend\/src\//` match cannot see that regression: the
+        // scene's own file matches it too.
+        const SCENE_FILE = 'packages/frontend/src/app/workspaces/workspace-documents.tsx';
+        const files = await inner.evaluate(() => [
+          ...new Set(
+            [...document.querySelectorAll('[data-wb-node][data-wb-file]')].map((el) =>
+              el.getAttribute('data-wb-file'),
+            ),
+          ),
+        ]);
+        const foreign = files.filter((f) => f && f !== SCENE_FILE);
+        check(
+          'the frame holds nodes from a file other than the scene',
+          foreign.length > 0,
+          `${files.length} files · foreign: ${foreign.slice(0, 2).join(', ') || '(none)'}`,
+        );
+        if (foreign.length > 0) {
+          const wanted = foreign[0];
+          const picked = await inner.evaluateHandle((f) => {
+            const els = [...document.querySelectorAll(`[data-wb-file="${f}"][data-wb-node]`)]
+              .map((el) => ({ el, r: el.getBoundingClientRect() }))
+              .filter(({ r }) => r.width > 8 && r.height > 8 && r.top >= 0 && r.top < window.innerHeight - 20)
+              .sort((a, b) => a.r.width * a.r.height - b.r.width * b.r.height);
+            return els[0]?.el ?? null;
+          }, wanted);
+          const fEl = picked.asElement();
+          if (fEl) {
+            await fEl.evaluate((n) => {
+              const r = n.getBoundingClientRect();
+              n.dispatchEvent(
+                new MouseEvent('click', {
+                  bubbles: true,
+                  cancelable: true,
+                  clientX: Math.round(r.left + r.width / 2),
+                  clientY: Math.round(r.top + r.height / 2),
+                }),
+              );
+            });
+            await page.waitForTimeout(2500);
+          }
+          const cross = (await page.textContent('aside:last-of-type')) ?? '';
+          check(
+            'a node from another file resolves to THAT file',
+            cross.includes(wanted),
+            `${wanted} · panel: ${(cross.match(/packages\/frontend\/src\/\S+/) ?? ['(none)'])[0]}`,
+          );
+        }
       }
       await page.close();
     }

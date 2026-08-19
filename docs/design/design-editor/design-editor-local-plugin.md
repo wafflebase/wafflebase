@@ -665,8 +665,10 @@ supplies. Both presuppose scenes that mount.
 | the deferred `vite.config.ts` rows — `react()`, `tailwindcss()`, `@` + `@wafflebase/*` aliases, app-libs aliases, `optimizeDeps.include`, `define`, antlr4ts shims, `yorkieOffline()` | ~40 | `design-sandbox/vite.config.ts` |
 | drop `deferred` | 11 | `scenes.config.json` |
 
-**The plugin does not change.** That is the point: if applying the editor to our own app
-required editing the plugin, the split would have failed.
+**The plugin changes once, and the exception is documented.** It gained `options.fixtures`
+— see 11c's outcome above for why the fetch guard cannot ride along with the lazily-loaded
+providers module. Everything else here is consumer-side, which is the point: if applying the
+editor to our own app had required editing the plugin broadly, the split would have failed.
 
 Two things to settle while doing it:
 

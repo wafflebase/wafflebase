@@ -178,7 +178,11 @@ describe('scenes.config.json', () => {
     for (const s of scenes.filter((x) => !x.deferred && x.shell === 'app')) {
       const table = fixturesFor({ shell: s.shell, mocks: s.mocks, fixtures: s.fixtures });
       expect(Object.keys(table), `${s.id}`).toEqual(
-        expect.arrayContaining(['/api/workspaces', '/api/auth/me']),
+        expect.arrayContaining([
+          '/api/workspaces',
+          '/api/analytics/enabled',
+          '/api/auth/me',
+        ]),
       );
     }
   });
