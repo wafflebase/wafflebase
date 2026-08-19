@@ -2052,6 +2052,26 @@ describe('YorkieDocStore', () => {
       expect(doc.blocks[0].tableData!.rows[0].cells[1].style.backgroundColor).toBe(undefined);
       expect(doc.blocks[0].tableData!.rows[1].cells[0].style.backgroundColor).toBe(undefined);
     });
+
+    // Issue #793: the cell-background "Reset" entry passes `''`. `styleByPath`
+    // only merges and `serializeCellStyle` skips falsy values, so without the
+    // removal path the old color survives in the CRDT while the cache looks
+    // cleared. Re-read through a fresh store to bypass the optimistic cache.
+    it('removes the cell background from the Tree when given an empty string', () => {
+      const tableBlock = createTableBlock(1, 1);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: '#ff0000', verticalAlign: 'middle' });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: '' });
+
+      const cached = store.getDocument().blocks[0].tableData!.rows[0].cells[0];
+      expect(cached.style.backgroundColor).toBeUndefined();
+
+      const reread = new YorkieDocStore(doc).getDocument()
+        .blocks[0].tableData!.rows[0].cells[0];
+      expect('backgroundColor' in reread.style).toBe(false);
+      // Non-cleared keys survive.
+      expect(reread.style.verticalAlign).toBe('middle');
+    });
   });
 
   describe('applyCellSpan', () => {

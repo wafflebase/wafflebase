@@ -241,6 +241,40 @@ Per the existing Yorkie store bug fix
 attributes when their value is explicitly `undefined`, so no Yorkie
 plumbing change is needed.
 
+### Empty string means "clear this color"
+
+The color pickers (text color, highlight, table-cell background) express
+their "None" / "Reset" entry as the empty string rather than dropping the
+key — `applyInlineStyle({ backgroundColor: '' })`. That is a **model-layer
+contract**, not a per-picker quirk: `''` on a color key means *clear it*,
+and is normalized into the `undefined` form documented above before any
+store writes it (issue #793).
+
+Two exported helpers in `packages/docs/src/model/types.ts` do the
+normalization, and every store write goes through one of them:
+
+| Helper | Keys | Wired into |
+| ------ | ---- | ---------- |
+| `normalizeStyleClears` | `color`, `backgroundColor` | `store/block-helpers.applyInlineStyle` (memory + cache) and `YorkieDocStore.applyStyleInTree` (the Yorkie tree, shared by `applyStyle` / `applyStyles`) |
+| `normalizeCellStyleClears` | `backgroundColor` | `MemDocStore.applyCellStyle` and `YorkieDocStore.applyCellStyle` |
+
+Normalizing at the store boundary rather than at each picker is what makes
+the contract hold for callers the toolbar doesn't own (the slides text-box
+editor, the pending-inline-style path, batched `applyStyles`).
+
+Merging `''` verbatim instead would leave a dead value behind: it stops
+painting (`''` is falsy) but never compares equal to an unset color, so
+`normalizeInlines` can no longer merge the run back into its neighbours,
+and anything reading "is there a highlight?" from key presence — the DOCX
+and PDF export paths included — still sees one. In the Yorkie stores the
+damage is worse, because `styleByPath` only *merges*: a cleared key must
+additionally be dropped with `removeStyleByPath`, or the old color survives
+in the CRDT while the local cache looks cleared.
+
+Out of scope: boolean style keys (`bold: false` vs cleared — issue #749),
+and migrating `''` values already stored in existing documents; those are
+normalized on write only, from the fix forward.
+
 ### Editor API additions
 
 Two additions to the `EditorAPI` surface exposed by

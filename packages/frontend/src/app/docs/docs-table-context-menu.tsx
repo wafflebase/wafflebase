@@ -226,6 +226,9 @@ export function DocsTableContextMenu({
         <div className="px-2 py-1.5">
           <button
             className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
+            // `""` is the picker's "clear this key" sentinel: the stores
+            // normalize it to an explicit `undefined` and remove the
+            // attribute rather than storing a dead empty color (#793).
             onClick={act(() =>
               editor.applyTableCellStyle({ backgroundColor: "" }),
             )}

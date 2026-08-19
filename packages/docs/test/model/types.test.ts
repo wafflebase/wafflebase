@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Document, Inline, InlineStyle, Block } from '../../src/model/types.js';
+import type { Document, Inline, InlineStyle, Block, CellStyle } from '../../src/model/types.js';
 import {
   DEFAULT_BLOCK_STYLE,
   DEFAULT_PAGE_SETUP,
@@ -15,6 +15,7 @@ import {
   findImageAtOffset,
   clampImageToWidth,
   normalizeStyleClears,
+  normalizeCellStyleClears,
 } from '../../src/model/types.js';
 
 describe('BlockStyle', () => {
@@ -133,6 +134,19 @@ describe('normalizeStyleClears', () => {
   it('leaves an absent color key absent — absent means "do not touch"', () => {
     const result = normalizeStyleClears({ backgroundColor: '' });
     expect('color' in result).toBe(false);
+  });
+});
+
+describe('normalizeCellStyleClears', () => {
+  it('turns an empty-string cell background into an explicit undefined key', () => {
+    const result = normalizeCellStyleClears({ backgroundColor: '' });
+    expect('backgroundColor' in result).toBe(true);
+    expect(result.backgroundColor).toBeUndefined();
+  });
+
+  it('leaves a real background and unrelated keys untouched', () => {
+    const style: Partial<CellStyle> = { backgroundColor: '#123456', padding: 4 };
+    expect(normalizeCellStyleClears(style)).toBe(style);
   });
 });
 

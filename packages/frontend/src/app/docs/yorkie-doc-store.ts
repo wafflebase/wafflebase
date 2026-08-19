@@ -38,6 +38,7 @@ import {
   blockStyleId,
   materializeBlockSpacing,
   normalizeStyleClears,
+  normalizeCellStyleClears,
 } from '@wafflebase/docs';
 import type { YorkieDocsRoot } from '@/types/docs-document';
 import type { DocsPresence } from '@/types/users';
@@ -244,6 +245,22 @@ function serializeCellStyle(cell: TableCell): Record<string, string> {
   if (s.borderLeft) attrs.borderLeft = `${s.borderLeft.width},${s.borderLeft.style},${s.borderLeft.color}`;
   if (s.borderRight) attrs.borderRight = `${s.borderRight.width},${s.borderRight.style},${s.borderRight.color}`;
   return attrs;
+}
+
+/**
+ * Cell-style keys the caller cleared explicitly (present with the value
+ * `undefined`). `serializeCellStyle` skips them, so they must be removed from
+ * the tree node separately — `styleByPath` merges and never deletes.
+ */
+const CELL_STYLE_ATTR_KEYS = [
+  'backgroundColor', 'verticalAlign', 'padding',
+  'borderTop', 'borderBottom', 'borderLeft', 'borderRight',
+] as const satisfies readonly (keyof CellStyle)[];
+
+function removedCellStyleAttrs(style: Partial<CellStyle>): string[] {
+  return CELL_STYLE_ATTR_KEYS.filter(
+    (key) => key in style && style[key] === undefined,
+  );
 }
 
 function parseBorderStyle(value: string): BorderStyle | undefined {
@@ -2415,11 +2432,21 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const block = this.resolveTableBlock(tablePath, currentDoc);
     const cell = block.tableData!.rows[rowIndex].cells[colIndex];
-    const merged = { ...cell.style, ...style };
+    // The cell-background "Reset" entry passes `''`; normalize it to an
+    // explicit `undefined` so it takes the removal path below (#793).
+    const clearedStyle = normalizeCellStyleClears(style);
+    const merged: CellStyle = { ...cell.style, ...clearedStyle };
+    // `styleByPath` only merges and `serializeCellStyle` skips falsy values,
+    // so a cleared key must additionally be removed via `removeStyleByPath`;
+    // otherwise the old attribute survives on the node while the cache looks
+    // cleared.
+    const removeAttrs = removedCellStyleAttrs(clearedStyle);
+    for (const key of removeAttrs) delete merged[key as keyof CellStyle];
 
     // Build serialized attributes for the cell node
     const attrs = serializeCellStyle({ ...cell, style: merged });
 
+    const cellPath = [...tablePath, rowIndex, colIndex];
     const cursorForHistory = this.consumePendingCursor();
     this.doc.update((root, p) => {
       if (cursorForHistory) {
@@ -2427,7 +2454,12 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
-      tree.styleByPath([...tablePath, rowIndex, colIndex], attrs);
+      tree.styleByPath(cellPath, attrs);
+      if (removeAttrs.length > 0) {
+        const endPath = [...cellPath];
+        endPath[endPath.length - 1] += 1;
+        tree.removeStyleByPath(cellPath, endPath, removeAttrs);
+      }
     });
 
     // Update cache after Yorkie update succeeds

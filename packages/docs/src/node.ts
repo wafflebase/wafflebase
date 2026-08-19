@@ -71,6 +71,7 @@ export {
   getBlockTextLength,
   inlineStylesEqual,
   normalizeStyleClears,
+  normalizeCellStyleClears,
   resolvePageSetup,
   getEffectiveDimensions,
   normalizeBlockStyle,

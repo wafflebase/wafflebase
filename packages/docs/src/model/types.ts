@@ -257,10 +257,30 @@ export const CLEAR_INLINE_STYLE: Partial<InlineStyle> = {
 };
 
 /**
- * Color keys whose "None" / "Reset" picker entry passes an empty string.
- * See `normalizeStyleClears`.
+ * Inline-style color keys whose "None" / "Reset" picker entry passes an empty
+ * string. See `normalizeStyleClears`.
  */
 const CLEARABLE_COLOR_KEYS = ['color', 'backgroundColor'] as const;
+
+/**
+ * Cell-style color keys with the same "None" / "Reset" convention. See
+ * `normalizeCellStyleClears`.
+ */
+const CLEARABLE_CELL_COLOR_KEYS = ['backgroundColor'] as const;
+
+function clearEmptyStringKeys<T extends object>(
+  style: T,
+  keys: readonly (keyof T)[],
+): T {
+  let normalized: T | null = null;
+  for (const key of keys) {
+    if ((style[key] as unknown) === '') {
+      normalized ??= { ...style };
+      normalized[key] = undefined as T[keyof T];
+    }
+  }
+  return normalized ?? style;
+}
 
 /**
  * Normalize an inline-style patch so an empty-string color means "clear this
@@ -275,14 +295,17 @@ const CLEARABLE_COLOR_KEYS = ['color', 'backgroundColor'] as const;
  * export paths included — still sees one (issue #793).
  */
 export function normalizeStyleClears(style: Partial<InlineStyle>): Partial<InlineStyle> {
-  let normalized: Partial<InlineStyle> | null = null;
-  for (const key of CLEARABLE_COLOR_KEYS) {
-    if (style[key] === '') {
-      normalized ??= { ...style };
-      normalized[key] = undefined;
-    }
-  }
-  return normalized ?? style;
+  return clearEmptyStringKeys(style, CLEARABLE_COLOR_KEYS);
+}
+
+/**
+ * The table-cell counterpart of `normalizeStyleClears`: the cell-background
+ * "Reset" entry passes `backgroundColor: ''`, which the stores must read as
+ * "clear this key" so the old color is actually removed from the CRDT node
+ * rather than merged over with a dead empty value (issue #793).
+ */
+export function normalizeCellStyleClears(style: Partial<CellStyle>): Partial<CellStyle> {
+  return clearEmptyStringKeys(style, CLEARABLE_CELL_COLOR_KEYS);
 }
 
 let counter = 0;

@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import type { Document, Block, Inline, TableData, PageSetup, HeaderFooter } from '../model/types.js';
 import { DEFAULT_PAGE_SETUP } from '../model/types.js';
-import { buildRunPropertiesXml, buildParagraphPropertiesXml } from './docx-style-map.js';
+import { buildRunPropertiesXml, buildParagraphPropertiesXml, escapeXmlAttr } from './docx-style-map.js';
 import { pxToTwips, pxToEmus } from '../import/units.js';
 import { CONTENT_TYPES, ROOT_RELS, STYLES, DOC_RELS } from './docx-templates.js';
 
@@ -307,7 +307,9 @@ ${bodyXml}
         if (cell.colSpan && cell.colSpan > 1) tcPrParts.push(`<w:gridSpan w:val="${cell.colSpan}"/>`);
         if (cell.rowSpan && cell.rowSpan > 1) tcPrParts.push(`<w:vMerge w:val="restart"/>`);
         if (cell.style.backgroundColor) {
-          const hex = cell.style.backgroundColor.replace('#', '');
+          // Untrusted (imported .docx, a peer's Yorkie attribute) and never
+          // validated as a color — escape it like every other attribute.
+          const hex = escapeXmlAttr(cell.style.backgroundColor.replace('#', ''));
           tcPrParts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${hex}"/>`);
         }
         const tcPr = tcPrParts.length > 0 ? `<w:tcPr>${tcPrParts.join('')}</w:tcPr>` : '';

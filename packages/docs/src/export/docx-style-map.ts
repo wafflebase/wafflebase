@@ -14,7 +14,8 @@ const DEFAULT_EAST_ASIAN_FAMILY = 'Noto Sans KR';
 
 /**
  * Escape a value for safe interpolation into a double-quoted XML
- * attribute. `style.fontFamily` originates from untrusted sources
+ * attribute. `style.fontFamily`, `style.color` and
+ * `style.backgroundColor` originate from untrusted sources
  * (PPTX/DOCX imports, user input in the font picker), so a hostile
  * family name like `A"><script>` could break the DOCX `<w:rFonts>`
  * element or inject attributes. The five canonical replacements cover
@@ -22,7 +23,7 @@ const DEFAULT_EAST_ASIAN_FAMILY = 'Noto Sans KR';
  * spec — applied to `&` first so subsequent escapes don't get
  * re-escaped.
  */
-function escapeXmlAttr(value: string): string {
+export function escapeXmlAttr(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -68,13 +69,19 @@ export function buildRunPropertiesXml(style: InlineStyle): string {
   // role-bound colors are dropped (no theme registered at the docs
   // layer), srgb/string forms render verbatim. Slides decks that need
   // role-aware DOCX would have to flatten themes before export.
+  // Colors take the same escaping as `fontFamily` above: they are plain
+  // strings on the run (imported .docx/.pptx, a peer's Yorkie attribute),
+  // never validated as colors, so stripping `#` alone would let a hostile
+  // value break out of the attribute.
   const colorHex = defaultColorResolver(style.color);
   if (colorHex) {
-    parts.push(`<w:color w:val="${colorHex.replace('#', '')}"/>`);
+    parts.push(`<w:color w:val="${escapeXmlAttr(colorHex.replace('#', ''))}"/>`);
   }
   const bgHex = defaultColorResolver(style.backgroundColor);
   if (bgHex) {
-    parts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${bgHex.replace('#', '')}"/>`);
+    parts.push(
+      `<w:shd w:val="clear" w:color="auto" w:fill="${escapeXmlAttr(bgHex.replace('#', ''))}"/>`,
+    );
   }
   if (style.superscript) parts.push('<w:vertAlign w:val="superscript"/>');
   if (style.subscript) parts.push('<w:vertAlign w:val="subscript"/>');

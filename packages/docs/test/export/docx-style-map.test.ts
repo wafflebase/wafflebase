@@ -57,6 +57,22 @@ describe('buildRunPropertiesXml', () => {
     expect(xml).not.toContain('w:ascii="A&B');
   });
 
+  it('XML-escapes hostile color and backgroundColor values', () => {
+    // Colors reach the run as plain strings (imported .docx/.pptx, a
+    // collaborating peer's Yorkie attribute) and are never validated as
+    // colors, so stripping `#` alone leaves the same attribute-injection
+    // hole the fontFamily escaping closes.
+    const xml = buildRunPropertiesXml({
+      color: '#00" w:themeColor="accent1',
+      backgroundColor: '#ff0000"/><w:b/><w:shd w:fill="',
+    });
+    expect(xml).toContain('<w:color w:val="00&quot; w:themeColor=&quot;accent1"/>');
+    expect(xml).toContain('ff0000&quot;/&gt;&lt;w:b/&gt;&lt;w:shd w:fill=&quot;');
+    // No injected element escaped the attribute.
+    expect(xml).not.toContain('w:themeColor="accent1"');
+    expect(xml).not.toContain('<w:b/>');
+  });
+
   it('escapes ampersand first so the other replacements do not re-escape it', () => {
     // If `&` were replaced after `<` / `>` / `"`, the entity references
     // those produced (`&lt;`, `&quot;`) would themselves get rewritten
