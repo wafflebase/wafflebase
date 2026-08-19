@@ -21,10 +21,25 @@
 
 import type { Block, EditorAPI, InlineStyle, StoredColor } from "@wafflebase/docs";
 import { formatValue, parseRef, toSref, type MemStore, type Spreadsheet } from "@wafflebase/sheets";
+// TYPE-ONLY, and it has to stay that way. `@wafflebase/slides`'s entry point re-exports
+// `importPptx`, so a VALUE import from it drags jszip and the whole PPTX importer into
+// whatever loads this module — and this module loads on every surface, including the two
+// that have no slides on them. Measured: importing it for a single constant took the hunt
+// route past `networkidle` on a cold Vite dev server, and the oracle lane failed on its
+// first navigation with a 30s timeout before printing a single check.
+//
+// `SLIDE_WIDTH` therefore arrives on the handle instead of being imported. The page already
+// knows it — it is the number the page sized the canvas against — and taking it from there
+// keeps the scale a single fact rather than two that can disagree.
+import type { Element, MemSlidesStore, SlidesEditor } from "@wafflebase/slides";
+
+// The bounds predicate lives beside the seed geometry so both are unit-testable without a
+// browser. See `isOffSlide` for why this branch was unreachable from the oracle lane.
+import { isOffSlide } from "./slides-seed";
 
 export const HUNT_BRIDGE_KEY = "__WB_HUNT__";
 
-export type HuntSurface = "sheet" | "doc";
+export type HuntSurface = "sheet" | "doc" | "slides";
 
 export type SheetHandle = {
   spreadsheet: Spreadsheet;
@@ -35,6 +50,57 @@ export type SheetHandle = {
 export type DocHandle = {
   editor: EditorAPI;
   host: HTMLElement;
+};
+
+export type SlidesHandle = {
+  editor: SlidesEditor;
+  store: MemSlidesStore;
+  host: HTMLElement;
+  /** `SLIDE_WIDTH`, supplied by the page so this module needs no value import from slides. */
+  slideWidth: number;
+};
+
+/**
+ * One element on the current slide, flattened to what a prediction can name.
+ *
+ * THE `doc.runs` OF THIS SURFACE — the general reader everything else builds on. Frames
+ * are reported in SLIDE-LOGICAL pixels (the 1920x1080 coordinate space the model stores),
+ * never in screen pixels: the same deck at a different window size would otherwise read
+ * differently, and a reader whose value depends on the viewport cannot support a
+ * round-trip prediction at all.
+ *
+ * `text` is the element's plain text, joined the same way `doc.text` joins a document.
+ *
+ * IT SHOWS COMMITTED TEXT ONLY, and that is a property of the engine rather than of this
+ * reader. The slides text editor is a docs editor mounted in the overlay, and it writes
+ * back to the store on BLUR — measured: type `XX` into the title and this still reports
+ * `"Quarterly review"`; press Escape and it still does, because Escape CANCELS; click
+ * another element and it reports `"XXQuarterly review"`. So a prediction about typing has
+ * to put a commit between the keystrokes and the read, and a prediction that types and
+ * then undoes without committing is asserting against something that never happened.
+ * An earlier version of this comment claimed typing was observable directly, and the brief
+ * built on it would have produced exactly that empty round trip.
+ *
+ * Absent on elements that hold no text rather than reported as `""`, because "this shape
+ * cannot hold text" and "this box is empty" are different states and #749's whole lesson
+ * is that collapsing those is how residue hides.
+ *
+ * GROUP CHILDREN ARE NOT FLATTENED IN. A group's children live in group-local
+ * coordinates, so reporting them beside slide-level elements would put two different
+ * coordinate spaces in one list under the same field names — the reader would be lying
+ * about `x` for exactly the elements a group operation moves. `childCount` says the
+ * children are there without pretending to locate them.
+ */
+export type ElementSnapshot = {
+  id: string;
+  type: Element["type"];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation: number;
+  text?: string;
+  childCount?: number;
 };
 
 /** A flattened text run — one `Inline`, with the style fields worth asserting on. */
@@ -73,6 +139,7 @@ type BridgeState = {
   surface: HuntSurface;
   sheet: SheetHandle | null;
   doc: DocHandle | null;
+  slides: SlidesHandle | null;
 };
 
 export type HuntBridge = {
@@ -88,6 +155,7 @@ export type HuntBridgeController = {
   setSurface(surface: HuntSurface): void;
   setSheet(handle: SheetHandle | null): void;
   setDoc(handle: DocHandle | null): void;
+  setSlides(handle: SlidesHandle | null): void;
   dispose(): void;
 };
 
@@ -112,6 +180,24 @@ function requireDoc(state: BridgeState): DocHandle {
     refuse(`doc reader used while surface is "${state.surface}" — goto the doc surface first`);
   }
   return state.doc;
+}
+
+function requireSlides(state: BridgeState): SlidesHandle {
+  if (!state.slides) {
+    refuse(`slides reader used while surface is "${state.surface}" — goto the slides surface first`);
+  }
+  return state.slides;
+}
+
+function asNumber(args: unknown[], i: number, reader: string): number {
+  const v = args[i];
+  // `Number.isFinite`, not `typeof === "number"`: `typeof NaN === "number"`, and a NaN
+  // coordinate resolves to a finite-looking point that clicks nothing. Same reasoning as
+  // the finite check in `resolveTarget`.
+  if (typeof v !== "number" || !Number.isFinite(v)) {
+    refuse(`${reader} needs a finite number at position ${i}, got ${JSON.stringify(v)}`);
+  }
+  return v;
 }
 
 function asString(args: unknown[], i: number, reader: string): string {
@@ -151,6 +237,50 @@ function runsOf(editor: EditorAPI): RunSnapshot[] {
     }
   });
   return out;
+}
+
+/** The plain text of an element, or `undefined` when it is not a kind that holds text. */
+function textOfElement(element: Element): string | undefined {
+  // Only these two carry a body. A table's text lives per cell and a chart's inside its
+  // cached series, and inventing a join for either would report a string no single
+  // control on the toolbar can change — which is how a reader manufactures a defect.
+  const blocks =
+    element.type === "text" ? element.data.blocks : element.type === "shape" ? element.data.text?.blocks : undefined;
+  if (!blocks) return undefined;
+  return blocks.map((b: Block) => b.inlines.map((i) => i.text).join("")).join("\n");
+}
+
+/**
+ * The slide the editor is currently showing, refusing rather than guessing when there is none.
+ *
+ * THE MESSAGE CARRIES NO SLIDE ID, AND BLAMES NOBODY. Both were wrong in the first version
+ * and each cost something.
+ *
+ * The id was a GENERATED uuid, so the refusal read differently on every attempt —
+ * `uiObservedKey` saw a fresh value each time, replay judged the candidate
+ * non-deterministic, and the gate dropped a defect that reproduces 3 times out of 3 (#883:
+ * undoing `Add slide` leaves the editor pointing at the removed slide). A volatile value in
+ * an observation suppresses findings silently, which is why `scrubUiVolatile` exists for
+ * block ids; slide ids simply did not match its pattern. Not naming the id costs nothing —
+ * `slides.slideCount` and `slides.currentSlideIndex` are both readable at the same moment
+ * and say more.
+ *
+ * The old wording asserted "the harness is broken, not the product", which is exactly
+ * backwards here: the editor legitimately points at a slide the store no longer has,
+ * because undo removed it. A refusal that tells the reader where to look must not guess,
+ * and this one guessed wrong in the direction that wastes a maintainer's time.
+ */
+function currentSlide(handle: SlidesHandle) {
+  const id = handle.editor.getCurrentSlideId();
+  const slide = handle.store.read().slides.find((s) => s.id === id);
+  if (!slide) {
+    refuse(
+      "the editor's current slide is not in the document — it points at a slide the store " +
+        "does not have. Read slides.slideCount and slides.currentSlideIndex to see the deck's " +
+        "actual state; a null index means the same thing this refusal does.",
+    );
+  }
+  return slide;
 }
 
 /**
@@ -330,6 +460,192 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
      * the grid has no DOM node per cell, so only the engine can say where `B2` is.
      * Mirrors `getCellCenterClientPoint` in the interaction harness.
      */
+    // --- slides ------------------------------------------------------------
+    /**
+     * Every element on the current slide — the general reader slides predictions build on.
+     *
+     * Slide-logical coordinates, so a round trip is predictable: `Bring forward` then
+     * `Send backward` must return this list to the reading taken before, and a nudge of
+     * one arrow key must move exactly one element by exactly one step. Both are
+     * properties, which is what makes them worth predicting.
+     */
+    "slides.elements": (): ElementSnapshot[] =>
+      currentSlide(requireSlides(state)).elements.map((el) => {
+        const snapshot: ElementSnapshot = {
+          id: el.id,
+          type: el.type,
+          x: el.frame.x,
+          y: el.frame.y,
+          w: el.frame.w,
+          h: el.frame.h,
+          rotation: el.frame.rotation,
+        };
+        const text = textOfElement(el);
+        if (text !== undefined) snapshot.text = text;
+        if (el.type === "group") snapshot.childCount = el.data.children.length;
+        return snapshot;
+      }),
+
+    /**
+     * The ids currently selected, in the editor's own order.
+     *
+     * AN ARRAY, and the coverage memory understands that shape as of #847 — an empty list
+     * is `none`, one id is `element`, more is `element-multi`. Selection here is a SET of
+     * objects rather than a span, which is why neither the doc nor the sheet shape fits.
+     */
+    "slides.selection": () => [...requireSlides(state).editor.getSelection()],
+
+    "slides.slideCount": () => requireSlides(state).store.read().slides.length,
+
+    /**
+     * WHICH slide is showing, as a 1-based index rather than its id.
+     *
+     * Ids are opaque and the seed's are only stable because this harness fixes them; an
+     * index is what a prediction about `Next slide` can actually name, and it stays
+     * meaningful when a slide is inserted before the current one.
+     */
+    "slides.currentSlideIndex": () => {
+      const handle = requireSlides(state);
+      const id = handle.editor.getCurrentSlideId();
+      const at = handle.store.read().slides.findIndex((s) => s.id === id);
+      return at < 0 ? null : at + 1;
+    },
+
+    /** See `doc.canUndo`. Reports TRUTHFULLY here — `MemSlidesStore` has real undo stacks. */
+    "slides.canUndo": () => requireSlides(state).store.canUndo(),
+
+    /**
+     * Viewport coordinates of an element's centre — how a caller clicks something that
+     * exists only as pixels on a canvas.
+     *
+     * THE INVERSE OF THE EDITOR'S OWN `clientToLogical`, deliberately spelled out the same
+     * way round rather than approximated:
+     *
+     *     logical = (client - rect.left) / scale - offset      // editor.ts
+     *     client  = rect.left + (logical + offset) * scale     // here
+     *
+     * with `scale = hostWidth / SLIDE_WIDTH` and the offsets zero, because this harness
+     * sizes the canvas to the slide exactly (no pasteboard). If that ever stops being
+     * true, this reader is the thing that breaks, and it breaks by selecting the wrong
+     * element — which is why it verifies the hit rather than trusting the arithmetic.
+     *
+     * ROTATION IS IGNORED ON PURPOSE: rotation is around the frame centre, so the centre
+     * is the one point on an element that rotation cannot move.
+     */
+    /**
+     * Viewport coordinates of an arbitrary point on the slide, named in SLIDE-LOGICAL
+     * coordinates — the 1920x1080 space the model stores.
+     *
+     * THE DESTINATION VOCABULARY A DRAG NEEDS. Every other target is a control or an
+     * element's centre, so "move this 200px right" was inexpressible: there was nowhere to
+     * drag TO. This is the smallest addition that fixes that, and it is deliberately not a
+     * screen-pixel escape hatch — slide-logical keeps a plan meaning the same thing at any
+     * window size, which is the whole reason the harness pins its canvas to half of
+     * 1920x1080.
+     *
+     * Refuses off-slide for the reason `slides.elementCenter` does: a point outside the
+     * canvas is finite, clickable-looking, and lands on nothing.
+     */
+    "slides.pointAt": (args) => {
+      const x = asNumber(args, 0, "slides.pointAt");
+      const y = asNumber(args, 1, "slides.pointAt");
+      const handle = requireSlides(state);
+      const canvas = handle.host.querySelector("canvas");
+      if (!canvas) refuse("slides.pointAt has no slide canvas to measure against — is the editor mounted?");
+      const origin = canvas.getBoundingClientRect();
+      const scale = origin.width / handle.slideWidth;
+      const point = { x: Math.round(origin.left + x * scale), y: Math.round(origin.top + y * scale) };
+      if (isOffSlide(point, origin)) {
+        refuse(
+          `slides.pointAt(${x}, ${y}) is off-slide — a slide is ${handle.slideWidth} wide in these ` +
+            "coordinates, so that point is outside it. Clicking or dragging there would land on " +
+            "nothing, which is NOT a defect.",
+        );
+      }
+      return point;
+    },
+
+    /**
+     * Viewport coordinates of a selection handle's centre, by kind.
+     *
+     * Read from the handle's OWN `getBoundingClientRect`, not from its `style.left`/`top`.
+     * Those are the top-LEFT corner (`left = cx - HANDLE_SIZE / 2`), so treating them as the
+     * centre aims half a handle off — close enough to work inside the hit tolerance, which is
+     * exactly the kind of nearly-right that fails once on a small handle and looks like a
+     * product bug. The rect is also correct regardless of what the CSS does next.
+     *
+     * Handles exist only while something is selected, and which ones exist depends on WHAT is
+     * selected — a connector has `start`/`end`/`bend`, a parametric shape has `adjust-N`, a
+     * plain element has the eight resize handles plus `rotate`. So the refusal lists what is
+     * actually there rather than the theoretical set.
+     */
+    "slides.handleCenter": (args) => {
+      const kind = asString(args, 0, "slides.handleCenter");
+      const handle = requireSlides(state);
+      const nodes = [...handle.host.querySelectorAll<HTMLElement>("[data-handle]")];
+      const found = nodes.find((n) => n.dataset.handle === kind);
+      if (!found) {
+        const available = nodes.map((n) => n.dataset.handle).join(", ");
+        refuse(
+          `slides.handleCenter(${JSON.stringify(kind)}) — no such handle. ` +
+            (available
+              ? `Available: ${available}.`
+              : "Nothing is selected, so there are no handles; click an element first."),
+        );
+      }
+      const rect = found.getBoundingClientRect();
+      const point = { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+      const canvas = handle.host.querySelector("canvas");
+      if (!canvas) refuse(`slides.handleCenter(${kind}) has no slide canvas to measure against`);
+      if (isOffSlide(point, canvas.getBoundingClientRect())) {
+        refuse(
+          `slides.handleCenter(${kind}) is off-slide at (${point.x}, ${point.y}) — the handle sits ` +
+            "outside the visible canvas, which happens when its element is flush against the slide " +
+            "edge. Move the element inward, or use a handle on the other side.",
+        );
+      }
+      return point;
+    },
+
+    "slides.elementCenter": (args) => {
+      const id = asString(args, 0, "slides.elementCenter");
+      const handle = requireSlides(state);
+      const element = currentSlide(handle).elements.find((el) => el.id === id);
+      if (!element) {
+        const available = currentSlide(handle)
+          .elements.map((el) => el.id)
+          .join(", ");
+        refuse(
+          `slides.elementCenter(${JSON.stringify(id)}) — no element with that id on the current slide. ` +
+            `Available: ${available || "(the slide is empty)"}. Read slides.elements for the list.`,
+        );
+      }
+      const canvas = handle.host.querySelector("canvas");
+      if (!canvas) {
+        refuse(`slides.elementCenter(${id}) has no slide canvas to measure against — is the editor mounted?`);
+      }
+      const origin = canvas.getBoundingClientRect();
+      const scale = origin.width / handle.slideWidth;
+      const x = Math.round(origin.left + (element.frame.x + element.frame.w / 2) * scale);
+      const y = Math.round(origin.top + (element.frame.y + element.frame.h / 2) * scale);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        refuse(`slides.elementCenter(${id}) resolved to a non-finite point (${x}, ${y}) — is the slide laid out?`);
+      }
+      // OFF-SLIDE ELEMENTS REFUSE, for the reason `sheet.cellCenter` does. An element
+      // dragged past the slide edge resolves to a perfectly finite point outside the
+      // canvas; clicking there selects nothing and reports no error, so the caller sees a
+      // click that "did not work" and cannot tell that from a broken app. The first sheet
+      // run proposed exactly that as a major defect.
+      if (isOffSlide({ x, y }, origin)) {
+        refuse(
+          `slides.elementCenter(${id}) is off-slide at (${x}, ${y}) — its centre lies outside the visible ` +
+            `canvas (${Math.round(origin.left)},${Math.round(origin.top)})-(${Math.round(origin.right)},${Math.round(origin.bottom)}). ` +
+            "Clicking there would select nothing, which is NOT a defect. Move it back on-slide, or use an element that is visible.",
+        );
+      }
+      return { x, y };
+    },
+
     "sheet.cellCenter": (args) => {
       const sref = asString(args, 0, "sheet.cellCenter");
       const { spreadsheet, host } = requireSheet(state);
@@ -393,7 +709,7 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
  * mounted.
  */
 export function installHuntBridge(): HuntBridgeController {
-  const state: BridgeState = { ready: false, surface: "sheet", sheet: null, doc: null };
+  const state: BridgeState = { ready: false, surface: "sheet", sheet: null, doc: null, slides: null };
   const readers = buildReaders(state);
 
   const bridge: HuntBridge = {
@@ -437,10 +753,14 @@ export function installHuntBridge(): HuntBridgeController {
     setDoc: (handle) => {
       state.doc = handle;
     },
+    setSlides: (handle) => {
+      state.slides = handle;
+    },
     dispose: () => {
       state.ready = false;
       state.sheet = null;
       state.doc = null;
+      state.slides = null;
       if (owner[HUNT_BRIDGE_KEY] === bridge) delete owner[HUNT_BRIDGE_KEY];
     },
   };

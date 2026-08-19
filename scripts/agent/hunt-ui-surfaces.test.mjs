@@ -28,10 +28,10 @@ test("the plan validator accepts every surface in the list and refuses anything 
   for (const surface of UI_SURFACES) {
     assert.doesNotThrow(() => assertSafeActionPlan({ actions: [{ type: "goto", surface }] }));
   }
-  // `"slides"` specifically: the surface being prepared for. Until it is in the list it
-  // must be refused rather than quietly turned into a sheet, which is what the runner
-  // used to do with it.
-  for (const bogus of ["slides", "Sheet", "", null, undefined, 7]) {
+  // Deliberately NOT "slides": that was the stand-in for "a surface that does not exist"
+  // until the slides surface shipped, which is exactly how a refusal test quietly starts
+  // asserting nothing. Case matters too — "Sheet" is not "sheet".
+  for (const bogus of ["not-a-surface", "Sheet", "", null, undefined, 7]) {
     assert.throws(
       () => assertSafeActionPlan({ actions: [{ type: "goto", surface: bogus }] }),
       /surface must be one of/,

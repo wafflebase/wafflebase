@@ -33,6 +33,35 @@
   reading missed `api-keys` because it lives outside the v1 API base and so
   never appeared in a `printDryRun` search.
 
+## Merging with `main`
+
+- The CLI-login hardening this branch carried alongside the `--dry-run` fix
+  was independently re-implemented on `main` (#695), in a stronger form:
+  PKCE-bound authorization codes, a confirmation page before the CLI flow
+  starts, and `__Host-` double-submit state cookies binding both the browser
+  and the CLI state to the browser that started the login. Two consent gates
+  and two state-cookie schemes cannot both run, so the merge resolved every
+  `packages/backend/src/auth/*` file and `packages/cli/src/commands/login.ts`
+  to `main`, and the branch's `login-callback.test.ts` was dropped in favour
+  of `main`'s `login.test.ts` / `login-command.test.ts` /
+  `login-listen-failure.test.ts`.
+- One defense was genuinely branch-only and was ported forward: the loopback
+  listener's `Host` check (`isLoopbackHost`), which refuses a request
+  addressed to a name that merely resolves to `127.0.0.1` (DNS rebinding).
+  It now sits in `main`'s `startCallbackServer` in front of the nonce check,
+  reported through the same `refuse()` path as every other refusal.
+- Deliberately *not* ported: the branch made a present-but-malformed CLI
+  nonce a `400`, where `main` degrades it to "no nonce". `main`'s
+  `parseCliNonce` spec pins that silent drop, and the outcome is still
+  fail-closed — the CLI's listener refuses a callback with no `state` and
+  says why. Also dropped: `--allow-unbound-callback`, which existed to
+  tolerate a backend older than the nonce echo. `main` requires the nonce
+  unconditionally, which is strictly stronger than an opt-out.
+- Ordering, where a command has both: `parseOutputFormat(opts.format)` runs
+  first, then the `--dry-run` short-circuit. A dry run validates its inputs,
+  so a bad flag is an error rather than a preview — the same rule the branch
+  already applied to `--type` and `--file-format`.
+
 ## Follow-ups
 
 - None. `files download`, the `*/content` commands and the import paths were

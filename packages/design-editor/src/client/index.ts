@@ -24,6 +24,7 @@ export type {
   TransactionsResult,
   UndoRedoResult,
   ValidateResult,
+  MetadataResult,
 } from './bridge.ts';
 
 export {

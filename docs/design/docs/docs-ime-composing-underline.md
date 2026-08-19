@@ -17,8 +17,8 @@ committed. Wafflebase gives no such visual cue, so the user cannot tell
 mid-composition text apart from committed text.
 
 The composing text already lives on a view-local render path (see
-[docs-ime-undo-history.md](docs-ime-undo-history.md) and
-[docs-intent-preserving-edits.md](docs-intent-preserving-edits.md)): during
+[20260604-ime-undo-history-todo.md](../../tasks/archive/2026/06/20260604-ime-undo-history-todo.md)
+and [docs-intent-preserving-edits.md](docs-intent-preserving-edits.md)): during
 composition it is *not* written to the document model, but spliced into the
 block's layout as a synthetic inline run by `injectComposingInline`. This note
 adds the underline on top of that existing path — the underline is purely a

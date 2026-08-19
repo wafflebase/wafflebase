@@ -33,19 +33,46 @@ import {
   type Grid,
   type Spreadsheet,
 } from "@wafflebase/sheets";
-import { useEffect, useRef, useState } from "react";
+// THE SLIDES ENGINE AND ITS TOOLBAR ARE LOADED ON DEMAND, and that is load-bearing rather
+// than tidy. `@wafflebase/slides`'s entry point re-exports `importPptx`, so a static import
+// pulls jszip and the whole PPTX importer into this route — and this route mounts ONE
+// surface at a time, so the sheet and doc surfaces were paying for all of it.
+//
+// Measured, not theorised: with both imported statically, the oracle lane's very first
+// navigation timed out after 30s waiting for `networkidle` and the run printed no checks at
+// all. The surfaces that changed were the two this feature does not touch, which is the
+// worst shape of regression to debug. Both forms below keep them byte-identical.
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
 
+import type { Element, MemSlidesStore, SlidesDocument, SlidesEditor } from "@wafflebase/slides";
+
+/** The slides module, as a type only — the value arrives from `await import(...)`. */
+type SlidesModule = typeof import("@wafflebase/slides");
+
+const SlidesToolbarLazy = lazy(() =>
+  import("@/app/slides/toolbar").then((m) => ({ default: m.SlidesToolbar })),
+);
+
 import { installHuntBridge, type HuntSurface } from "./bridge";
+import { SEED_FRAMES } from "./slides-seed";
 
 type HarnessStatus = "loading" | "ready" | "error";
+
+// STILL DEFAULTS, and that is not the oversight it looks like. A URL is typed by hand, so
+// an unrecognised `?surface=` has to resolve to something rather than fail. What changed
+// with the slides surface is that the runner no longer TRUSTS this: since #847 it asks the
+// bridge which surface actually mounted and refuses when the answer is not what the plan
+// asked for. So a substitution here is loud at the only place it could mislead anyone,
+// and this stays a convenience for a person opening the page.
+const SURFACES: readonly HuntSurface[] = ["sheet", "doc", "slides"];
 
 function useSurfaceFromSearchParams(): HuntSurface {
   try {
     const surface = new URLSearchParams(window.location.search).get("surface");
-    return surface === "doc" ? "doc" : "sheet";
+    return SURFACES.includes(surface as HuntSurface) ? (surface as HuntSurface) : "sheet";
   } catch {
     return "sheet";
   }
@@ -168,6 +195,110 @@ function seedDocument(): DocsDocument {
   return { blocks: [mixed, plain, styled], pageSetup: DEFAULT_PAGE_SETUP };
 }
 
+/**
+ * The slides seed — two slides, four elements, every id fixed by hand.
+ *
+ * IDS ARE AUTHORED, NOT GENERATED. `store.addElement` mints a UUID, and a surface whose
+ * element ids change every boot cannot support the one thing this harness is for: a
+ * prediction naming what it expects. `slides.elements` would differ between two runs of
+ * an identical plan, replay would read as divergent, and the fingerprint would treat the
+ * same defect as new every time. `makeToolbarStore` in the visual harness fixes the slide
+ * id for the same reason; this fixes the elements too.
+ *
+ * The scaffolding — themes, masters, layouts — still comes from a real empty store rather
+ * than a literal, so the seed cannot drift away from what the product actually creates.
+ *
+ * The CONTENT is chosen to make round trips observable. Two elements overlap in z-order so
+ * `Bring forward`/`Send backward` reorder something visible; two sit at different sizes so
+ * an alignment operation has work to do; the title holds text so typing has somewhere to
+ * land; and the second slide exists so navigation has a destination — a one-slide deck
+ * makes `Next slide` a no-op that looks like a bug.
+ */
+/**
+ * A seeded element's rect, from the constant `slides-seed.test.ts` asserts on.
+ *
+ * The frames live there rather than here so the "no centre under another element" rule is
+ * checkable without booting a browser — that lane is not in CI and cannot finish on a
+ * loaded machine, which is precisely when a geometry regression would slip through.
+ * Reading them back here is what keeps the tested numbers and the shipped ones the same.
+ */
+function frameOf(id: string): { x: number; y: number; w: number; h: number } {
+  const found = SEED_FRAMES.find((f) => f.id === id);
+  if (!found) throw new Error(`[hunt-harness] no seed frame named ${id}`);
+  return { x: found.x, y: found.y, w: found.w, h: found.h };
+}
+
+function seedSlides(S: SlidesModule): MemSlidesStore {
+  const base = new S.MemSlidesStore();
+  base.batch(() => {
+    base.addSlide("blank");
+    base.addSlide("blank");
+  });
+  const doc: SlidesDocument = base.read();
+
+  const title: Element = {
+    id: "title",
+    type: "text",
+    frame: { ...frameOf("title"), rotation: 0 },
+    data: {
+      blocks: [
+        {
+          id: "title-b1",
+          type: "paragraph",
+          inlines: [{ text: "Quarterly review", style: { fontSize: 56 } }],
+          style: { alignment: "center", lineHeight: 1.2, marginTop: 0, marginBottom: 0, textIndent: 0, marginLeft: 0 },
+        },
+      ],
+    },
+  };
+  const body: Element = {
+    id: "body",
+    type: "text",
+    frame: { ...frameOf("body"), rotation: 0 },
+    data: {
+      blocks: [
+        {
+          id: "body-b1",
+          type: "paragraph",
+          inlines: [{ text: "Revenue is up.", style: {} }],
+          style: { alignment: "left", lineHeight: 1.2, marginTop: 0, marginBottom: 0, textIndent: 0, marginLeft: 0 },
+        },
+      ],
+    },
+  };
+  // OVERLAPPING AT THE CORNERS, AND AT NO ELEMENT'S CENTRE. Both halves are deliberate.
+  //
+  // They overlap because a z-order change has to be visible: with the shapes apart,
+  // `Bring to front` paints an identical frame and reads exactly like a dead control.
+  //
+  // No element's centre may lie under another, because `slides.elementCenter` aims at the
+  // centre and the canvas hit-tests the TOPMOST element there. The first seed had `badge`
+  // squarely over `card`'s middle, and clicking `elementCenter("card")` selected `badge` —
+  // correct hit-testing, and a trap: the explorer predicts `["card"]`, reads `["badge"]`,
+  // and proposes "clicking an element selects a different one", which is a defect the
+  // harness manufactured. Measured on the first live probe of this surface.
+  const card: Element = {
+    id: "card",
+    type: "shape",
+    frame: { ...frameOf("card"), rotation: 0 },
+    data: { kind: "roundRect", fill: { kind: "role", role: "accent1" } },
+  };
+  const badge: Element = {
+    id: "badge",
+    type: "shape",
+    frame: { ...frameOf("badge"), rotation: 0 },
+    data: { kind: "ellipse", fill: { kind: "role", role: "accent2" } },
+  };
+
+  return new S.MemSlidesStore({
+    ...doc,
+    slides: [
+      { ...doc.slides[0], id: "slide-1", elements: [card, badge, title, body] },
+      { ...doc.slides[1], id: "slide-2", elements: [] },
+    ],
+  });
+}
+
 /** The sheet seed — values, a formula to recalculate, and rows to scroll through. */
 function seedGrid(): Grid {
   const grid: Grid = new Map([
@@ -193,6 +324,8 @@ export default function HuntHarnessPage() {
   // would stay permanently disabled.
   const [editor, setEditor] = useState<EditorAPI | null>(null);
   const [sheet, setSheet] = useState<Spreadsheet | null>(null);
+  const [slides, setSlides] = useState<SlidesEditor | null>(null);
+  const [slidesStore, setSlidesStore] = useState<MemSlidesStore | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -207,6 +340,7 @@ export default function HuntHarnessPage() {
     let disposed = false;
     let spreadsheet: Spreadsheet | undefined;
     let docEditor: EditorAPI | undefined;
+    let slidesEditor: SlidesEditor | undefined;
 
     /**
      * This mount's OWN container, not the shared host.
@@ -246,6 +380,13 @@ export default function HuntHarnessPage() {
       docEditor = undefined;
       spreadsheet?.cleanup();
       spreadsheet = undefined;
+      // `detach()`, which is what the slides editor calls its teardown — it removes the
+      // listeners and stops the render loop. Same contract as the other two engines'
+      // `dispose`/`cleanup`, and it has to run for the same reason: StrictMode's
+      // mount/unmount/remount otherwise leaves a live editor painting into a detached
+      // canvas while the next one paints into the real host.
+      slidesEditor?.detach();
+      slidesEditor = undefined;
       container.remove();
     };
 
@@ -260,6 +401,70 @@ export default function HuntHarnessPage() {
           if (disposed) return disposeMounted();
           controller.setDoc({ editor: docEditor, host: container });
           setEditor(docEditor);
+        } else if (surface === "slides") {
+          // Awaited HERE, inside the branch, so nothing about the slides engine is fetched
+          // or transformed when the mounted surface is a sheet or a document.
+          const S: SlidesModule = await import("@wafflebase/slides");
+          if (disposed) return disposeMounted();
+          const { SLIDE_WIDTH, SLIDE_HEIGHT } = S;
+          const store = seedSlides(S);
+
+          // A FIXED SLIDE SIZE, not one measured from the container.
+          //
+          // `slides.elementCenter` turns a slide-logical frame into a click point using
+          // `scale = canvasWidth / SLIDE_WIDTH`, so the scale is part of this harness's
+          // contract, not a detail of the window. Measuring the container would make every
+          // click coordinate depend on the viewport, the toolbar's wrapped height, and the
+          // machine's font metrics — three things that differ between a developer's run
+          // and CI, and all of which would move clicks onto neighbouring elements rather
+          // than fail outright. Half of 1920x1080 makes the scale exactly 0.5, so every
+          // seeded element's centre lands on a whole pixel and the arithmetic has no
+          // rounding to disagree about. It fits the runner's 1600x1200 viewport with the
+          // header and toolbar above it.
+          const hostW = SLIDE_WIDTH / 2;
+          const hostH = SLIDE_HEIGHT / 2;
+          const dpr = window.devicePixelRatio || 1;
+
+          const wrap = document.createElement("div");
+          wrap.style.position = "relative";
+          wrap.style.width = `${hostW}px`;
+          wrap.style.height = `${hostH}px`;
+          wrap.style.margin = "0 auto";
+
+          const canvas = document.createElement("canvas");
+          canvas.width = hostW * dpr;
+          canvas.height = hostH * dpr;
+          canvas.style.display = "block";
+          canvas.style.width = `${hostW}px`;
+          canvas.style.height = `${hostH}px`;
+          canvas.style.position = "absolute";
+          canvas.style.left = "0";
+          canvas.style.top = "0";
+          wrap.appendChild(canvas);
+
+          // `pointerEvents: none` mirrors the real view. The overlay hosts selection
+          // handles and the text-box editor; letting it swallow clicks would make every
+          // `slides.elementCenter` click land on a transparent div, which looks exactly
+          // like a canvas that stopped hit-testing.
+          const overlay = document.createElement("div");
+          overlay.style.position = "absolute";
+          overlay.style.left = "0";
+          overlay.style.top = "0";
+          overlay.style.width = `${hostW}px`;
+          overlay.style.height = `${hostH}px`;
+          overlay.style.pointerEvents = "none";
+          wrap.appendChild(overlay);
+
+          container.appendChild(wrap);
+
+          // No pasteboard: `slideOffsetLogicalX/Y` stay at their `0` defaults, so the
+          // canvas IS the slide rect. That is what lets `slides.elementCenter` invert
+          // `clientToLogical` with the offsets dropped.
+          slidesEditor = S.initializeEditor({ canvas, overlay, store, hostWidth: hostW, hostHeight: hostH, dpr });
+          if (disposed) return disposeMounted();
+          controller.setSlides({ editor: slidesEditor, store, host: container, slideWidth: SLIDE_WIDTH });
+          setSlides(slidesEditor);
+          setSlidesStore(store);
         } else {
           const store = new MemStore(seedGrid());
           await store.setDimensionSize("column", 1, 110);
@@ -290,6 +495,8 @@ export default function HuntHarnessPage() {
       disposed = true;
       setEditor(null);
       setSheet(null);
+      setSlides(null);
+      setSlidesStore(null);
       controller.dispose();
       // Removes only THIS mount's container; a later mount's container is a sibling
       // this closure never sees, so teardown cannot reach across into it.
@@ -336,6 +543,32 @@ export default function HuntHarnessPage() {
       {surface === "sheet" && (
         <div className="border-b bg-background" data-testid="hunt-harness-toolbar">
           <FormattingToolbar spreadsheet={sheet ?? undefined} />
+        </div>
+      )}
+
+      {/*
+        `onImagePick` is REQUIRED by the toolbar and there is no picker here, so it gets a
+        no-op — which makes `Insert image` a control that renders and does nothing. Same
+        for the four panel toggles, which are omitted rather than stubbed: opening a panel
+        this harness does not mount would invent behaviour the product does not have.
+
+        That is the same treatment the sheet toolbar's optional handlers get, and it has
+        the same requirement attached — the brief must NAME them. The sheet persona
+        proposed a false finding against exactly this shape until `sheet-author.md` said so
+        out loud, and slides has more unwired controls than sheets does. A trap the brief
+        names is a trap; one it does not is a defect report.
+      */}
+      {surface === "slides" && (
+        <div className="border-b bg-background" data-testid="hunt-harness-toolbar">
+          {/*
+            No fallback content. The driver gates on `data-hunt-harness-ready`, which the
+            effect sets only after the engine has loaded and mounted, so by the time
+            anything reads this page the toolbar's chunk has arrived. A placeholder here
+            would be a control-shaped thing `dom.controls` could see and offer.
+          */}
+          <Suspense fallback={null}>
+            <SlidesToolbarLazy editor={slides} store={slidesStore} onImagePick={() => {}} />
+          </Suspense>
         </div>
       )}
 

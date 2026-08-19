@@ -1,6 +1,10 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  output,
+  outputError,
+  parseOutputFormat,
+} from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
 
@@ -17,9 +21,10 @@ export function registerTabsCommand(parent: Command) {
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).listTabs(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -50,9 +55,12 @@ export function registerTabsCommand(parent: Command) {
         return;
       }
       try {
+        // Narrowed before the request: a rejected `--format` must not
+        // discard the response of a tab that already exists server-side.
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).createTab(docId, body);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -76,9 +84,10 @@ export function registerTabsCommand(parent: Command) {
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).renameTab(docId, tabId, name);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }

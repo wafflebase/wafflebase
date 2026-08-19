@@ -148,8 +148,30 @@ expects to resolve them.
 - **Colors (`color.ts`)**: `ThemeColor` →
   - `{ kind: 'role', role }` → `<a:schemeClr val="…">` (role → OOXML
     scheme name map, inverse of the importer's scheme→role map),
-  - `{ kind: 'srgb', hex }` → `<a:srgbClr val="RRGGBB">`,
-  - alpha → child `<a:alpha val="…">`.
+  - `{ kind: 'srgb', hex }` → `<a:srgbClr val="RRGGBB">`, where the hex goes
+    through the shared `toRgbHexColor` (docs `model/color.ts`, also used by
+    the DOCX exporter). `ST_HexColorRGB` is six hex digits, but the model
+    holds whatever string reached it (PPTX/DOCX import, HTML paste's
+    `rgb(255, 0, 0)`, the legacy `''` reset of issue #728), so the value is
+    normalized rather than trusted. The normalizer returns only
+    `[0-9A-F]{6}`, which makes the attribute injection-proof by
+    construction. What happens to a value it cannot express — including a
+    **fully transparent** one, which has no opaque equivalent — depends on
+    whether the sink may omit the color:
+    - **Omittable sinks** (`text.ts`: run fill, highlight, underline fill,
+      bullet color) normalize *before* building the `ThemeColor`, in
+      `storedColorToThemeColor`, and emit **no color child at all** — the run
+      inherits the theme/placeholder default, matching the canvas painters.
+    - **Mandatory sinks** (shape / gradient-stop / background fills, which
+      must emit some color) normalize inside `colorChildXml` itself and fall
+      back to `000000`, the same fallback the unknown-`role` arm uses. The
+      12 `<a:clrScheme>` slots (`theme.ts`) are mandatory sinks too — a slot
+      cannot be dropped, since the scheme *is* the definition every
+      `<a:schemeClr>` reference resolves against — so `Theme.colors[role]`
+      goes through the same `toRgbHexColor` and a value it cannot express
+      exports as black rather than being passed through. See §5.
+  - alpha → child `<a:alpha val="…">` (partial alpha only; at an omittable
+    sink a fully transparent color drops the whole color instead).
 - **Text (`text.ts`)**: `TextBody.blocks` → `<a:txBody>` with
   `<a:bodyPr>` (autofit: none→`noAutofit`, shrink→`normAutofit`,
   grow→`spAutoFit`; `verticalAnchor`→`anchor`). Each `Block` → `<a:p>`
@@ -178,7 +200,12 @@ Effects (`effects.ts`) attach an `<a:effectLst>` (`<a:outerShdw>`,
 
 - **Theme**: `ColorScheme` → `<a:clrScheme>` (12 OOXML slots),
   `FontScheme` → `<a:fontScheme>` major/minor. Emit one `themeN.xml` per
-  stored theme; the master references its theme by rId.
+  stored theme; the master references its theme by rId. Each slot value is a
+  **mandatory color sink** (§3): `Theme.colors[role]` is typed as a string but
+  holds whatever JSON was persisted (the content `PUT` API lets a caller store
+  an arbitrary string), so it is normalized through the shared
+  `toRgbHexColor`, which returns only `[0-9A-F]{6}`, and degrades to `000000`
+  when it cannot be expressed — the slot cannot simply be omitted.
 - **Master / Layout**: emit `<p:sldMaster>`/`<p:sldLayout>` with the
   stored background + placeholder specs. Layout carries `type="…"` in
   `<p:sldLayout matchingName>`/`<p:cSld>` so the importer re-derives the
@@ -187,7 +214,16 @@ Effects (`effects.ts`) attach an `<a:effectLst>` (`<a:outerShdw>`,
   importer preserves OOXML preset ids on `SlideAnimation`/
   `SlideTransition` (`pptxPreset`-style fields); the exporter writes them
   straight back into `<p:timing>` / `<p:transition>`. Where the model
-  carries only the abstracted form, emit the closest preset.
+  carries only the abstracted form, emit the closest preset. Both kinds of
+  attribute source are untrusted here, the same as everywhere else in the
+  exporter, because the backend never validates `slide.animations`: the
+  enumerated ones (transition `type`/`direction`, animation
+  `start`/`category`/`effect`) resolve through closed `Map`s with an explicit
+  fallback (`cut`, no `dir`, `clickEffect`, `entr`) so an inherited
+  `constructor` can never reach a tag or attribute, and the numeric ones
+  (`durationMs`, `delayMs`, `pptxPreset.id`/`.subtype`) go through an integer
+  coercion that emits only `String(Math.round(n))` of a finite number, or the
+  fallback — injection-free by construction rather than by escaping.
 
 ### 6. Round-Trip Verification & Normalization
 

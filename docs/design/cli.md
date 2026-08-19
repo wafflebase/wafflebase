@@ -171,15 +171,24 @@ developers; API keys are the path for CI and headless environments.
 wafflebase login
   │
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
-  ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>
-  ├─ 3. Opens (and prints, for copy-paste in headless environments)
-  │     GET /auth/github?mode=cli&port=<port>&cliState=<nonce>
+  ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>,
+  │     generates a per-attempt nonce (32 random bytes, hex) and a PKCE
+  │     verifier (32 random bytes, base64url) it keeps in memory
+  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>&nonce=<nonce>
+  │     &challenge=<sha256(verifier), base64url>
+  │     (also prints URL for copy-paste in headless environments)
+  ├─ 3b. Backend answers with a confirmation page; the user clicks
+  │     Continue (one-time secret + httpOnly cookie) → OAuth starts
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
-  ├─ 6. Backend detects mode=cli in OAuth state → redirects to
-  │     http://127.0.0.1:<port>/callback?code=<short-lived-code>&state=<nonce>
+  ├─ 6. Backend detects mode=cli in OAuth state →
+  │     redirects to http://127.0.0.1:<port>/callback
+  │       ?code=<short-lived-code>&state=<nonce>
   ├─ 7. CLI local server receives code, calls POST /auth/cli/exchange
-  │     with { code } → receives { accessToken, refreshToken }
+  │     with { code, verifier } → receives { accessToken, refreshToken }
+  │     (the code alone buys nothing: it arrives over plaintext loopback
+  │      HTTP, so redemption also needs the verifier, which never left
+  │      the CLI process)
   ├─ 8. CLI local server serves success HTML, shuts down
   ├─ 9. CLI calls GET /auth/me (Bearer token) for user info
   ├─ 10. CLI calls GET /workspaces (Bearer token) for workspace list
@@ -187,61 +196,67 @@ wafflebase login
   └─ 12. Writes ~/.wafflebase/session.json
 ```
 
-The local server binds to `127.0.0.1` only, answers only `GET /callback`
-(any other method is `405`, any other path `404`), and shuts down after
-the callback with a 30-second timeout. On timeout it prints: "Login timed
-out. Try again with `wafflebase login`." A request whose `Host` header is
-not a loopback literal for this port is answered `400 Bad host`: a name
-under an attacker's control that resolves to `127.0.0.1` (DNS rebinding)
-otherwise reaches the listener with the browser treating it as
-same-origin.
+The local server binds to `127.0.0.1` only, accepts only `GET
+/callback`, and shuts down after a single request with a three-minute
+timeout — the browser leg now includes a confirmation click (step 3b)
+and, on a cold browser, a full GitHub sign-in, and the wait still ends
+inside the backend's five-minute state TTL. On timeout it prints:
+"Login timed out. Try again with `wafflebase login`."
 
-Binding to `127.0.0.1` limits *who* can reach the listener to the local
-machine — which still includes every process on it and every page the
-browser visits — so the listener also binds the callback to the
-invocation that opened it: `login` mints a 32-byte `cliState` nonce, the
-backend stores it with the flow and echoes it back as `state` on the
-loopback redirect, and a `GET /callback` whose `state` does not match
-(compared in constant time) is answered `400 State mismatch` and does
-not settle the login. Without that, the first `code` to arrive would win,
-and an injected one would be exchanged and saved as the user's session.
+The callback is bound to the login attempt by the nonce: the CLI
+accepts a `code` only when the request carries that nonce back as
+`state` (compared in constant time), and refuses anything that is not a
+plain `GET`. Without the binding, any page the user happens to visit
+during the wait can hit
+`http://127.0.0.1:<port>/callback?code=…` — the port space is small
+enough to scan — and make the CLI exchange a code minted for the
+attacker's account, silently writing a session for the wrong user
+(login CSRF / session fixation). A forged hit is answered `403` and
+does *not* end the wait, so the real redirect can still land. The nonce
+round trip is a backend contract: the loopback redirect echoes it, so a
+CLI at this version or later needs a backend at this version or later.
 
-The nonce travels in the authorize URL, which is both the URL `login`
-prints and the URL it hands to `open()` — one URL, so the headless
-copy-paste path is the path the browser takes. That puts the nonce in
-this process's argv (`/proc/<pid>/cmdline` exposes `open()`'s argument to
-other users on Linux) and in stderr scrollback, and that is the accepted
-trade. The alternative tried here — printing and opening a nonce-free
-`http://127.0.0.1:<port>/start` that `302`s to the authorize URL — served
-the nonce over unauthenticated HTTP to *every* process on the machine,
-and to any page the browser could be made to fetch it; being single-use
-also meant a prefetch, a reload, or a hostile fetch consumed the one
-redirect and broke the login. That is a wider exposure than argv, not a
-narrower one. What the nonce covers, then, is every injector that cannot
-read the CLI's command line or terminal: a page the browser visited and
-any blind local injector. Closing the rest needs the secret to never
-leave the CLI: a PKCE-shaped `POST /auth/cli/start` that registers
-`sha256(verifier)` and an exchange that must present the verifier. That
-endpoint is not part of this design yet; the residual exposure is tracked
-in the [rest-api.md](rest-api.md) risk table.
+One check sits in front of the nonce: a request whose `Host` header is
+not a loopback literal (`127.0.0.1`, `localhost`, `[::1]`) on this
+listener's own port is refused. Binding to `127.0.0.1` limits *who* can
+reach the listener to the local machine, but a name under an attacker's
+control that resolves to `127.0.0.1` (DNS rebinding) still reaches it,
+with the browser treating it as same-origin — and such a request carries
+the attacker's name in `Host`. It is defence in depth, not a second
+defense: a rebound page would still have to guess the nonce; this simply
+stops it from reaching the check. A missing `Host` (HTTP/1.0) is allowed
+— a browser always sends one.
 
-A missing `state` is treated separately from a wrong one, because it is
-the version-skew signal rather than an attack: `@wafflebase/cli` is
-published separately from the server it is pointed at (`--server`,
-`WAFFLEBASE_SERVER`, self-hosting), so a backend older than the echo
-redirects without one. Such a callback is answered `400` and reported on
-stderr, but it does **not** end the login: that request is available to
-every local process and visited page, so letting it abort the login would
-be a downgrade lever. The version-skew message replaces the timeout
-message when the 30 seconds expire having seen nothing else. Neither
-message names an opt-out flag, for the same reason: the branch that
-selects them is attacker-triggerable, and a message telling the user to
-re-run with the flag that turns the binding off would be an
-attacker-drivable downgrade prompt. `wafflebase login
---allow-unbound-callback` still accepts the nonce-less callback outright
-— the escape hatch for logging in against such a server, at the cost of
-the binding — and is documented where only the CLI can put it in front of
-the user: `wafflebase login --help`.
+Beyond that the nonce is the whole defense, deliberately. An earlier revision also
+refused any request carrying an `Origin` header; a browser, extension
+or proxy can attach one (`Origin: null` among them) to the cross-origin
+redirect chain that *is* the genuine callback, and because a refusal
+never ends the wait, refusing on it would hang the login for the full
+timeout. A header no attacker is obliged to send adds nothing the nonce
+does not already cover.
+
+Because a refusal never ends the wait, it must not be silent either —
+otherwise a CLI pointed at an older backend refuses its own genuine
+redirect and hangs for the full timeout with nothing to act on.
+Every refusal names its cause on stderr as it happens, answers the
+browser tab with the same sentence, and is repeated in the timeout
+error, distinguishing the three cases: no `state` at all (the server
+does not echo the nonce — most likely older than the CLI), a `state`
+that does not match (a callback that is not ours), and a non-GET
+request.
+
+The browser leg is gated on a click. `GET /auth/github?mode=cli&port=…`
+is unauthenticated and takes the loopback port off the query string, so
+on a bare navigation it would mint an auth code **for whoever is signed
+in to the browser** and post it to a port the caller chose — a page the
+victim visits can start that, and the loopback nonce cannot help,
+because the attacker picked the nonce. The backend therefore answers a
+CLI login with a confirmation page (`X-Frame-Options: DENY`) whose
+Continue link carries a one-time secret that also went out as an
+httpOnly cookie; only a matching pair starts the OAuth redirect. An
+attacker can navigate the victim to that page, but cannot read the
+secret out of the victim's response, and a secret minted against their
+own cookie will not match the victim's.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
@@ -322,7 +337,7 @@ wafflebase
   ├── schema [<command>]                     Describe command parameters and response shape
   │
   ├── ctx
-  │     ├── list                             List workspaces (* = active)
+  │     ├── list                             List workspaces (`active: true` marks the current one)
   │     └── switch <name|id>                 Switch active workspace
   │
   ├── api-keys (alias: api-key)
@@ -364,8 +379,13 @@ wafflebase
   │     │     └── delete <doc-id> <ref>      [--tab]
   │     ├── import <doc-id> <file>
   │     │     [--tab <tab-id>] [--file-format csv|json] [--start <ref>]
+  │     │     (--start places a positional grid; it is ignored for an
+  │     │      exported `ref,value,formula` table, whose rows carry their
+  │     │      own ref. The response's `mode` says which ran: cells|grid)
   │     └── export <doc-id> <file>
   │           [--tab <tab-id>] [--range A1:C10] [--file-format csv|json]
+  │           [--raw]   (CSV: write cell text verbatim, no formula guard,
+  │                      so `sheets import` round-trips formulas)
   │
   ├── slides (aliases: slide, deck)
   │     ├── list                             List slide decks (type: slides)
@@ -570,8 +590,13 @@ wafflebase schema sheets.cells.get         # show parameters and response shape
 wafflebase schema docs.content
 wafflebase schema cell.get                 # alias → resolves to sheets.cells.get
 
+# Auth state (JSON by default; agents branch on `loggedIn`)
+wafflebase status
+wafflebase status --format table            # human-readable key/value
+
 # Context switching
-wafflebase ctx list                        # list workspaces (* = active)
+wafflebase ctx list                        # [{ id, name, active }]
+wafflebase ctx list --format table         # human-readable table
 wafflebase ctx switch "Team Workspace"
 
 # API key management
@@ -854,8 +879,83 @@ have already written their body, so they pass through with their exit code
 and no envelope.
 
 Exit codes: `0` success, `1` user error (bad input, not found),
-`2` system error (network, auth). Agents can branch on the exit code
-without parsing the error body.
+`2` system error (network, or an auth *request* the server rejected).
+Agents can branch on the exit code without parsing the error body. A
+missing local session is user error, not a system error, so
+`NOT_LOGGED_IN` exits `1`.
+
+Every command that renders a *structured result* routes it through
+`output()`, including the session commands `status` and `ctx list`,
+which used to print English sentences and ignore `--format`. (Commands
+that only acknowledge an action — `login`, `logout`, `ctx switch` —
+still print a prose line, and the file writers — `sheets export`,
+`docs`/`slides`/`notes` `export` — write their body straight to the
+file or stdout, since it is a document, not a command result.)
+
+Four commands are still gaps rather than exceptions:
+`docs`/`slides`/`notes` `import` and `files upload` emit a real command
+result (`{ id, replaced }`, `{ id, title }`, or the uploaded document)
+but serialize it with a bare `JSON.stringify` and never read `--format`,
+so `docs import --format table` still prints JSON. All four render
+through their own injected IO seam — `ImportIO`, and `upload.ts`'s
+`io.stdout`, the seams that make the stdin/TTY/confirm branches
+testable — rather than through the global formatter, so routing them is
+a change to that seam, not a call-site swap, and is left to its own
+change. Until then the sentence above holds for every command *except*
+those four.
+
+`status` reports the answer to "am I logged in?" as data
+and still exits `0` when there is no session:
+
+```json
+{ "loggedIn": false, "message": "Not logged in. Run `wafflebase login`." }
+```
+
+`ctx list` cannot answer without a session, so it emits the standard
+error body with `"code": "NOT_LOGGED_IN"` and exits `1`.
+
+An unsupported `--format` value is rejected with
+`"code": "INVALID_FORMAT"` rather than ignored. Validation is
+per-command because `docs`/`slides`/`notes` `content` and `export`
+deliberately reuse the same global `--format` flag for their own
+vocabularies (`md`, `text`, `pdf`, `docx`, `pptx`) — those commands
+check against their own list but raise the same `InvalidFormatError`, so
+`INVALID_FORMAT` means "bad `--format`" everywhere and the message names
+the values that command accepts. A format that cannot be *inferred*
+(`docs export out.txt` with no `--format`) is a different failure and
+stays a plain `ERROR`.
+
+Every CSV the CLI writes neutralizes spreadsheet formula prefixes: a
+value starting with `=`, `+`, `-`, or `@` is emitted with a leading `'`
+so it lands as text, since every value in the output is server-supplied
+and another workspace member can set it. The decision is made on the
+value an importer will *see*, not on the raw bytes — leading whitespace
+(space, tab, CR, U+00A0, BOM) is skipped before the test, because
+importers that trim on the way in (LibreOffice's "Trim spaces", and
+several CSV-to-sheet tools) would otherwise evaluate ` =HYPERLINK(…)`
+as a formula the neutralizer had waved through. Plain signed numbers
+(`-3`, `+1.5e6`), padding and all, are left alone. Any value carrying a
+comma, quote, or control character is quoted — `\r` included, or a bare
+CR would end the record early in importers that honour it and start the
+next one with a formula the neutralizer never inspected.
+
+`sheets export <doc> out.csv` is the CSV most likely to be *opened* in a
+spreadsheet app, so it neutralizes too. Its one caller that must not is
+the round-trip pipeline (`packages/cli/skills/recipe-csv-pipeline.md`),
+where an exported `=SUM(B2:B100)` has to re-import as that formula and
+not as the text `'=SUM(B2:B100)` — that asks for `--raw` explicitly.
+The other half of that round trip lives in `sheets import`: it detects
+the `ref,value,formula[,style]` header this export writes and imports
+**by reference** (not as a positional grid, which would land the word
+`ref` in A1), sending a cell's `formula` as `formula` and any other
+`=`-leading text likewise — the batch API stores `f` and `v` in
+different fields, so a formula sent as a value is never evaluated.
+Opting out is the caller saying they trust the sheet, which is not a
+thing the default may assume. `formatCsv` still takes an explicit
+`neutralizeFormulas` flag rather than defaulting, so the answer stays a
+per-call decision instead of one silently inherited by the next caller
+added. Quoting is shared: it is CSV correctness, and a parser unquotes
+it on the way back in.
 
 #### 8.2 Dry-Run
 
@@ -1149,6 +1249,9 @@ is the agent interface. This approach has key advantages:
 
 | Case                                                | Exit | Code                | Message                                                            |
 | --------------------------------------------------- | ---- | ------------------- | ------------------------------------------------------------------ |
+| Unsupported `--format` value (any command)          | 1    | INVALID_FORMAT      | "Invalid --format \"<input>\". Use one of: <that command's list>." |
+| `ctx list` without a session (`ctx switch` still prints prose — out of scope for #635) | 1 | NOT_LOGGED_IN | "Not logged in. Run `wafflebase login`."          |
+| Malformed `--data` / stdin JSON (`sheets cells batch`) | 1  | ERROR               | "Invalid JSON cell data in --data: <parser message>"               |
 | `docs.content` on sheet document                    | 1    | TYPE_MISMATCH       | "Use `sheets cells get` for spreadsheet documents"                 |
 | `sheets.cells.get` on doc                           | 1    | TYPE_MISMATCH       | "Use `docs content` for document files"                            |
 | Malformed `--pages`                                 | 1    | INVALID_RANGE       | "Invalid page range: <input>"                                      |

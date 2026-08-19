@@ -75,7 +75,13 @@ test("the reader catalogue matches the bridge registry exactly", () => {
     path.join(REPO_ROOT, "packages", "frontend", "src", "app", "harness", "hunt", "bridge.ts"),
     "utf8",
   );
-  const registered = new Set([...bridge.matchAll(/"((?:doc|sheet)\.[A-Za-z]+)":/g)].map((m) => m[1]));
+  // Namespaces come from UI_SURFACES rather than being spelled out. Hardcoded, this
+  // pattern silently stopped seeing a whole surface the moment one was added: every
+  // `slides.*` reader read as advertised-but-absent, which is the opposite of the drift
+  // this test exists to catch and would have been "fixed" by deleting the catalogue rows.
+  const registered = new Set(
+    [...bridge.matchAll(new RegExp(`"((?:${UI_SURFACES.join("|")})\\.[A-Za-z]+)":`, "g"))].map((m) => m[1]),
+  );
   assert.ok(registered.size > 0, "parsed no readers out of bridge.ts — the pattern has gone stale");
 
   const described = new Set(Object.values(UI_READERS_BY_SURFACE).flat().map(([name]) => name));
@@ -97,7 +103,14 @@ test("each reader is filed under the surface its namespace names", () => {
 test("every reader carries a one-line meaning, so the description is usable", () => {
   for (const [name, args, meaning] of [...Object.values(UI_READERS_BY_SURFACE).flat(), ...UI_SHARED_READERS]) {
     assert.ok(meaning && meaning.length > 10, `${name} needs a real description`);
-    assert.ok(args === "" || /^\(\w+\)$/.test(args), `${name} arity should be "" or "(name)", got ${args}`);
+    // `(a)` or `(a, b)`, still strictly formatted so a description stays parseable. The
+    // single-argument form was not a rule — it described every reader that existed until
+    // `slides.pointAt` needed two coordinates, which are naturally two arguments rather than
+    // one string to be split.
+    assert.ok(
+      args === "" || /^\(\w+(, \w+)*\)$/.test(args),
+      `${name} arity should be "" or "(a)" or "(a, b)", got ${args}`,
+    );
   }
 });
 
@@ -144,6 +157,21 @@ test("checkSurfaceScope refuses another surface's reader, and says which are ava
   const why = checkSurfaceScope({ type: "read", reader: "sheet.cellValue" }, "doc");
   assert.match(why, /belongs to another surface/);
   assert.match(why, /doc\.fontSizes/, "the refusal lists what IS available");
+});
+
+test("checkSurfaceScope inspects a drag's DESTINATION, not just its origin", () => {
+  // THE FOURTH DOOR. This is the only place the run's assigned surface is enforced by exact
+  // name, and `drag` added a second target field. Checked on the origin alone, `to` is a way
+  // to cite another surface's reader — which is precisely the bound the closed vocabulary
+  // exists to hold.
+  const ok = { type: "drag", target: { reader: "slides.elementCenter", args: ["a"] }, to: { reader: "slides.pointAt", args: [1, 2] } };
+  assert.equal(checkSurfaceScope(ok, "slides"), null);
+
+  const crossed = { type: "drag", target: { reader: "slides.elementCenter", args: ["a"] }, to: { reader: "sheet.cellCenter", args: ["B2"] } };
+  assert.match(String(checkSurfaceScope(crossed, "slides")), /sheet\.cellCenter/, "a destination on another surface must be refused, by name");
+
+  const unknown = { type: "drag", target: { reader: "slides.elementCenter", args: ["a"] }, to: { reader: "slides.nope" } };
+  assert.match(String(checkSurfaceScope(unknown, "slides")), /slides\.nope/, "an unknown destination reader must be refused, by name");
 });
 
 test("checkSurfaceScope refuses an unknown reader by name", () => {

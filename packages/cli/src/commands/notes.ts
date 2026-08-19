@@ -1,7 +1,12 @@
 import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  InvalidFormatError,
+  output,
+  outputError,
+  parseOutputFormat,
+} from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
 import { runNotesImport } from '../notes/import.js';
@@ -33,6 +38,7 @@ export function registerNotesCommand(program: Command) {
     .action(async function (this: Command) {
       const opts = getGlobalOpts(this);
       try {
+        const fmt = parseOutputFormat(opts.format);
         if (opts.dryRun) {
           // The `note` filter is applied client-side, so it leaves no trace
           // on the request the server would see.
@@ -47,7 +53,7 @@ export function registerNotesCommand(program: Command) {
             (d) => d.type === 'note',
           );
         }
-        output(data, opts.format);
+        output(data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -59,6 +65,7 @@ export function registerNotesCommand(program: Command) {
     .action(async function (this: Command, title: string) {
       const opts = getGlobalOpts(this);
       try {
+        const fmt = parseOutputFormat(opts.format);
         if (opts.dryRun) {
           printDryRun(getConfig(opts), 'POST', '/documents', {
             title,
@@ -68,7 +75,7 @@ export function registerNotesCommand(program: Command) {
         }
         const res = await getClient(opts).createDocument(title, 'note');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -80,13 +87,14 @@ export function registerNotesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       try {
+        const fmt = parseOutputFormat(opts.format);
         if (opts.dryRun) {
           printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}`);
           return;
         }
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -102,9 +110,10 @@ export function registerNotesCommand(program: Command) {
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -120,9 +129,10 @@ export function registerNotesCommand(program: Command) {
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -194,7 +204,7 @@ export function registerNotesCommand(program: Command) {
         const fmt: string | undefined =
           formatSource === 'cli' ? opts.format : undefined;
         if (fmt && fmt !== 'md' && fmt !== 'markdown') {
-          throw new Error(`Invalid --format "${fmt}". Only "md" is supported.`);
+          throw new InvalidFormatError(fmt, ['md']);
         }
         // `-` is stdout (advertised in the schema); no extension to infer.
         const ext = extname(file).toLowerCase();

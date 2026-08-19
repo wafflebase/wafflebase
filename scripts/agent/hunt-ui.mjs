@@ -368,12 +368,24 @@ export const UI_GATE_OPTIONS = Object.freeze({ grounds: UI_GROUNDS, citationsOf:
  * entry. Both are as fixed as the reader names already in the key.
  */
 function target(action) {
-  const t = action?.target;
-  if (t && typeof t === "object") {
-    if (typeof t.name === "string" && t.name !== "") return t.name;
-    if (typeof t.reader === "string" && t.reader !== "") return t.reader;
+  const one = (t) => {
+    if (t && typeof t === "object") {
+      if (typeof t.name === "string" && t.name !== "") return t.name;
+      if (typeof t.reader === "string" && t.reader !== "") return t.reader;
+    }
+    return "";
+  };
+  const from = one(action?.target);
+  // A DRAG IS IDENTIFIED BY BOTH ENDS. Keyed on its origin alone, every defect found by
+  // dragging the same element is one key: "dragging badge onto another element loses it" and
+  // "dragging badge off-slide loses it" would collapse, and the second is dropped as a
+  // duplicate with no record. That is the failure this key exists to avoid, and a drag makes
+  // it easy to hit because the origin is usually the same element all session.
+  if (action?.type === "drag") {
+    const to = one(action.to);
+    return to === "" ? from : `${from}->${to}`;
   }
-  return "";
+  return from;
 }
 
 export function uiDefectKey(candidate, journal, { personaId } = {}) {

@@ -1,150 +1,178 @@
-import { BadRequestException, ExecutionContext } from '@nestjs/common';
-import { randomBytes } from 'node:crypto';
+import { CanActivate, ExecutionContext } from '@nestjs/common';
+import {
+  GitHubAuthGuard,
+  parseCliChallenge,
+  parseCliNonce,
+} from './github-auth.guard';
 import { CliAuthStore } from './cli-auth.store';
-import { GitHubAuthGuard, normalizeCliState } from './github-auth.guard';
 
-type Query = Record<string, unknown>;
-
-function createContext(query: Query) {
-  const req: Query & { __oauthStateToken?: string } = { query };
-  return {
-    req,
-    context: {
-      switchToHttp: () => ({ getRequest: () => req }),
-    } as unknown as ExecutionContext,
-  };
-}
-
-describe('normalizeCliState', () => {
-  const nonce = randomBytes(32).toString('base64url');
-
-  it('accepts a nonce of the shape the CLI mints', () => {
-    expect(nonce).toHaveLength(43);
-    expect(normalizeCliState(nonce)).toBe(nonce);
+describe('parseCliNonce', () => {
+  it('accepts a hex nonce of a sane length', () => {
+    const nonce = 'a1b2c3d4'.repeat(8); // 64 chars
+    expect(parseCliNonce(nonce)).toBe(nonce);
+    expect(parseCliNonce('f'.repeat(32))).toBe('f'.repeat(32));
   });
 
-  it('treats an absent param as a CLI that predates the nonce', () => {
-    expect(normalizeCliState(undefined)).toBeUndefined();
+  it('rejects anything that could smuggle a query param into the redirect', () => {
+    expect(parseCliNonce('f'.repeat(32) + '&code=evil')).toBeUndefined();
+    expect(parseCliNonce('../callback')).toBeUndefined();
+    expect(parseCliNonce('F'.repeat(32))).toBeUndefined(); // uppercase
+    expect(parseCliNonce('f'.repeat(31))).toBeUndefined(); // too short
+    expect(parseCliNonce('f'.repeat(129))).toBeUndefined(); // too long
   });
 
-  it('accepts a duplicated param when both values are the same nonce', () => {
-    // Express's query parser yields an array for `?cliState=x&cliState=x`.
-    expect(normalizeCliState([nonce, nonce])).toBe(nonce);
-  });
-
-  it('refuses a duplicated param whose values disagree', () => {
-    const other = randomBytes(32).toString('base64url');
-    expect(() => normalizeCliState([nonce, other])).toThrow(
-      BadRequestException,
-    );
-  });
-
-  it.each([
-    ['too short', 'abc'],
-    ['too long', 'a'.repeat(129)],
-    ['outside the charset', `${nonce.slice(0, 42)}/`],
-    ['empty', ''],
-    ['not a string', 42],
-    ['an empty array', []],
-  ])('refuses a %s cliState rather than dropping it', (_label, value) => {
-    expect(() => normalizeCliState(value)).toThrow(BadRequestException);
+  it('rejects non-string input', () => {
+    expect(parseCliNonce(undefined)).toBeUndefined();
+    expect(parseCliNonce(['f'.repeat(32)])).toBeUndefined();
+    expect(parseCliNonce(42)).toBeUndefined();
   });
 });
 
-describe('GitHubAuthGuard', () => {
-  const nonce = randomBytes(32).toString('base64url');
-  let store: CliAuthStore;
-  let guard: GitHubAuthGuard;
-  let createState: jest.SpyInstance;
+describe('parseCliChallenge', () => {
+  it('accepts a 43-character base64url digest', () => {
+    const challenge = 'c'.repeat(43);
+    expect(parseCliChallenge(challenge)).toBe(challenge);
+    expect(parseCliChallenge('-_' + 'a'.repeat(41))).toBe('-_' + 'a'.repeat(41));
+  });
+
+  it('rejects anything outside the base64url digest vocabulary', () => {
+    expect(parseCliChallenge('c'.repeat(42))).toBeUndefined();
+    expect(parseCliChallenge('c'.repeat(44))).toBeUndefined();
+    expect(parseCliChallenge('c'.repeat(42) + '&')).toBeUndefined();
+    expect(parseCliChallenge('c'.repeat(42) + '=')).toBeUndefined();
+    expect(parseCliChallenge(undefined)).toBeUndefined();
+    expect(parseCliChallenge(['c'.repeat(43)])).toBeUndefined();
+  });
+});
+
+/**
+ * The CSRF binding runs query param -> stored state -> loopback
+ * `state`, and this guard is its entry point. Testing `parseCliNonce`
+ * alone leaves the wiring unpinned: read the nonce from the wrong query
+ * key, or drop the argument, and every other test in the chain still
+ * passes, because they hand `createState` a nonce directly.
+ */
+describe('GitHubAuthGuard.canActivate', () => {
+  const createState = jest
+    .fn()
+    .mockReturnValue({ stateToken: 'state-token', csrf: 'csrf' });
+  const store = { createState } as unknown as CliAuthStore;
+
+  // `super.canActivate()` would run the real passport strategy.
+  const passportProto = Object.getPrototypeOf(
+    GitHubAuthGuard.prototype,
+  ) as CanActivate;
+  let superSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    store = new CliAuthStore();
-    guard = new GitHubAuthGuard(store);
-    createState = jest.spyOn(store, 'createState');
-    // Stop at the guard's own logic: the passport half needs a real strategy.
-    jest
-      .spyOn(
-        Object.getPrototypeOf(GitHubAuthGuard.prototype) as {
-          canActivate: (context: ExecutionContext) => boolean;
-        },
-        'canActivate',
-      )
-      .mockReturnValue(true);
+    createState.mockClear();
+    superSpy = jest.spyOn(passportProto, 'canActivate').mockReturnValue(true);
   });
 
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
+  afterEach(() => superSpy.mockRestore());
 
-  it('stores a valid nonce with the flow and injects the state token', () => {
-    const { req, context } = createContext({
+  function activate(
+    query: Record<string, unknown>,
+    extra: Record<string, unknown> = { __cliConfirmed: true },
+  ) {
+    const req: Record<string, unknown> = { query, ...extra };
+    const res = { cookie: jest.fn() };
+    const context = {
+      switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
+    } as unknown as ExecutionContext;
+    const result = new GitHubAuthGuard(store).canActivate(context);
+    return { req, res, result };
+  }
+
+  it('binds the request nonce and challenge into the stored state', () => {
+    const nonce = 'a'.repeat(64);
+    const challenge = 'c'.repeat(43);
+    const { req, result } = activate({
       mode: 'cli',
       port: '49152',
-      cliState: nonce,
+      nonce,
+      challenge,
     });
 
-    expect(guard.canActivate(context)).toBe(true);
-    expect(createState).toHaveBeenCalledWith('cli', 49152, nonce);
-    expect(typeof req.__oauthStateToken).toBe('string');
-    expect(store.consumeState(req.__oauthStateToken!)?.cliState).toBe(nonce);
+    expect(result).toBe(true);
+    expect(createState).toHaveBeenCalledWith('cli', 49152, nonce, challenge);
+    expect(req.__oauthState).toBe('state-token');
   });
 
-  it('starts a nonce-less flow when the CLI sent no cliState', () => {
-    const { req, context } = createContext({ mode: 'cli', port: '49152' });
+  /**
+   * The state token goes through GitHub in a URL, so on its own it is
+   * transferable: an attacker clicks through the confirmation page in
+   * their own browser and hands the victim a bare `authorize` URL
+   * carrying the state. The cookie is what the callback checks it
+   * against, so if it is not minted here the whole binding is gone.
+   */
+  it('binds the CLI state to this browser with a cookie', () => {
+    const { res } = activate({ mode: 'cli', port: '49152' });
 
-    expect(guard.canActivate(context)).toBe(true);
-    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined);
-    expect(store.consumeState(req.__oauthStateToken!)?.cliState).toBeUndefined();
+    expect(res.cookie).toHaveBeenCalledWith(
+      'wafflebase_cli_state',
+      'csrf',
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax', path: '/' }),
+    );
   });
 
-  it('rejects a malformed cliState instead of dropping it silently', () => {
-    const { req, context } = createContext({
-      mode: 'cli',
-      port: '49152',
-      cliState: 'nope',
-    });
+  it('stores no nonce when the query carries none or a malformed one', () => {
+    activate({ mode: 'cli', port: '49152' });
+    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined, undefined);
 
-    expect(() => guard.canActivate(context)).toThrow(BadRequestException);
-    expect(createState).not.toHaveBeenCalled();
-    expect(req.__oauthStateToken).toBeUndefined();
+    createState.mockClear();
+    activate({ mode: 'cli', port: '49152', nonce: 'not-hex&code=evil' });
+    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined, undefined);
   });
 
-  // Without a state parameter the browser login has no CSRF protection at
-  // all: an attacker's authorization code, replayed into the victim's
-  // browser, completes and hands them a session for the attacker's account.
-  it('starts a state-bearing flow for the browser login too', () => {
-    const { req, context } = createContext({});
-
-    expect(guard.canActivate(context)).toBe(true);
-    expect(createState).toHaveBeenCalledWith('web', 0);
-    expect(typeof req.__oauthStateToken).toBe('string');
-    expect(store.consumeState(req.__oauthStateToken!)?.mode).toBe('web');
+  /**
+   * A malformed challenge must not degrade into an *unbound* code: the
+   * state stores none, and the callback refuses rather than minting a
+   * bearer-only code.
+   */
+  it('stores no challenge when the query carries a malformed one', () => {
+    activate({ mode: 'cli', port: '49152', challenge: 'short' });
+    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined, undefined);
   });
 
-  it('treats an out-of-range CLI port as a browser login, with state', () => {
-    const { req, context } = createContext({ mode: 'cli', port: '80' });
-
-    expect(guard.canActivate(context)).toBe(true);
-    expect(createState).toHaveBeenCalledWith('web', 0);
-    expect(store.consumeState(req.__oauthStateToken!)?.mode).toBe('web');
-  });
-
-  it('rejects a duplicated cliState whose values disagree', () => {
-    const { context } = createContext({
-      mode: 'cli',
-      port: '49152',
-      cliState: [nonce, randomBytes(32).toString('base64url')],
-    });
-
-    expect(() => guard.canActivate(context)).toThrow(BadRequestException);
+  it('mints no CLI state for an out-of-range port', () => {
+    activate({ mode: 'cli', port: '80' });
+    activate({ mode: 'cli', port: 'not-a-port' });
     expect(createState).not.toHaveBeenCalled();
   });
 
-  it('ignores cliState outside a CLI flow', () => {
-    const { req, context } = createContext({ cliState: 'nope' });
+  /**
+   * The confirmation page is the only thing standing between
+   * `?mode=cli&port=<attacker's>` and an auth code minted for whoever
+   * navigated the victim here. If that gate is ever unwired, the guard
+   * must not mint the CLI state anyway — it degrades to a browser login.
+   */
+  it('mints no CLI state for an unconfirmed CLI request', () => {
+    const { req } = activate({ mode: 'cli', port: '49152' }, {});
 
-    expect(guard.canActivate(context)).toBe(true);
-    expect(createState).toHaveBeenCalledWith('web', 0);
-    expect(store.consumeState(req.__oauthStateToken!)?.cliState).toBeUndefined();
+    expect(createState).not.toHaveBeenCalled();
+    expect(req.__oauthState).toMatch(/^web\./);
+  });
+
+  /**
+   * A browser login with no `state` is login CSRF: the callback would
+   * set session cookies for any code presented to it.
+   */
+  it('mints a cookie-bound state for a browser login', () => {
+    const { req, res } = activate({}, {});
+
+    expect(createState).not.toHaveBeenCalled();
+    expect(req.__oauthState).toMatch(/^web\.[0-9a-f]{64}$/);
+    expect(res.cookie).toHaveBeenCalledWith(
+      'wafflebase_oauth_state',
+      expect.any(String),
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+    );
+    // The state is the *hash*; the secret never leaves the cookie.
+    const [, secret] = (res.cookie as jest.Mock).mock.calls[0] as [
+      string,
+      string,
+    ];
+    expect(req.__oauthState).not.toContain(secret);
   });
 });

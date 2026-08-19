@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ApiV1FilesController } from './files.controller';
 
 const WS = 'ws-1';
@@ -60,13 +56,10 @@ describe('ApiV1FilesController.upload', () => {
     );
   });
 
-  it('rejects a read-only API key before storing anything', async () => {
-    uploadReturns(`${UUID}.zip`);
-    await expect(
-      controller.upload(WS, multer('bundle.zip'), {}, req(true, ['read'])),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(fileService.upload).not.toHaveBeenCalled();
-  });
+  // A read-scoped key is refused before this handler runs — see
+  // `api-key-write-scope.guard.spec.ts`, which covers every mutating method
+  // and asserts the guard is mounted on this controller. Nothing is stored,
+  // because the guard runs ahead of the multipart handler.
 
   it('allows a write-scoped API key', async () => {
     uploadReturns(`${UUID}.zip`);

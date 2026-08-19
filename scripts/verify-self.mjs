@@ -198,6 +198,18 @@ const LANES = [
     anyPkg: true,
     tags: ["docsProse"],
   },
+  // The third direction on the same subject. `verify:doc-index` asks whether a
+  // file was ever introduced; `verify:entropy` walks links out of the design
+  // docs; this one walks the whole graph from CLAUDE.md and asks whether the
+  // paths a reader is invited to follow lead anywhere. An index is a promise,
+  // and the other two gates check that the promise exists, not that it holds.
+  // Same shape as the gate above: reads markdown, builds nothing.
+  {
+    name: "verify:doc-links",
+    cmd: "pnpm verify:doc-links",
+    anyPkg: true,
+    tags: ["docsProse"],
+  },
   // Import-boundary rules. Neither arch config sets `parserOptions.project`, so
   // both are pure syntactic lints and need no `dist/` — which is why they sit
   // above the builds rather than after them.
@@ -291,7 +303,11 @@ const LANES = [
   },
   {
     name: "design-editor:check",
-    cmd: "pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test",
+    // The shell build joins this lane rather than earning its own. `dist/` is
+    // gitignored, so nothing else in CI would ever run it — and a broken shell build
+    // is not cosmetic: `shellServer` serves `dist/shell`, so the whole editor 404s
+    // without it. ~3s, which is well under the cost of another lane.
+    cmd: "pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test && pnpm --filter @wafflebase/design-editor build",
     pkgs: ["design-editor"],
     // `pkgs` alone would never select this lane: harness.config.json lists
     // packages/design-editor/** as inert, and an inert match short-circuits the

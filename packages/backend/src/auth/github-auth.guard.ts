@@ -1,64 +1,67 @@
-import {
-  BadRequestException,
-  ExecutionContext,
-  Injectable,
-} from '@nestjs/common';
+import { ExecutionContext, Injectable } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import type { Response } from 'express';
 import { CliAuthStore } from './cli-auth.store';
-
-/** The shape of a `cliState` nonce: `randomBytes(32).toString('base64url')`. */
-export const CLI_STATE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
+import {
+  cliStateCookieName,
+  cliStateCookieOptions,
+  createWebOAuthState,
+  oauthStateCookieName,
+  oauthStateCookieOptions,
+} from './oauth-state';
 
 /**
- * Read the `cliState` query param, or fail the request.
- *
- * Absent is legitimate: a CLI older than the nonce echo sends no `cliState`,
- * and that flow still has to work. Anything *present* but unusable is not
- * silently dropped — a dropped nonce completes the flow with a redirect the
- * current CLI's listener rejects as an injected callback, so the caller sees
- * "State mismatch" (or a login timeout) instead of the malformed parameter that
- * actually caused it. Express's query parser yields an array when the param
- * arrives twice (a proxy or a hand-copied URL can do that): identical repeats
- * are the same nonce and are accepted, a conflict is refused rather than
- * guessed at.
+ * Accept only a hex nonce of a sane length. The value is echoed back on
+ * a redirect to the CLI's loopback callback, so nothing but `[0-9a-f]`
+ * is allowed through — no delimiters, no room to smuggle query params.
  */
-export function normalizeCliState(raw: unknown): string | undefined {
-  if (raw === undefined) return undefined;
-
-  const values = Array.isArray(raw) ? raw : [raw];
-  const first: unknown = values[0];
-  if (
-    typeof first !== 'string' ||
-    !values.every((value) => value === first) ||
-    !CLI_STATE_PATTERN.test(first)
-  ) {
-    throw new BadRequestException(
-      'Invalid cliState: expected one value of 16-128 characters from ' +
-        '[A-Za-z0-9_-]. Run `wafflebase login` again.',
-    );
-  }
-  return first;
+export function parseCliNonce(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  return /^[0-9a-f]{32,128}$/.test(raw) ? raw : undefined;
 }
 
 /**
- * Custom GitHub OAuth guard that starts a flow for *every* login — browser or
- * CLI — and injects its state token onto the request so
- * `GitHubStrategy.authenticate()` forwards it to GitHub as OAuth `state`.
+ * Accept only a base64url SHA-256 digest, which is exactly 43 characters.
+ * This is the PKCE-style `challenge` half of the CLI login: the hash of a
+ * verifier the CLI keeps in memory, redeemed at
+ * `POST /auth/cli/exchange`. It is not a secret — it travels in the start
+ * URL and through the confirmation page — but it is interpolated into
+ * that page's link, so the vocabulary stays closed.
+ */
+export function parseCliChallenge(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  return /^[A-Za-z0-9_-]{43}$/.test(raw) ? raw : undefined;
+}
+
+/** The loopback port, or `undefined` when it is not a usable one. */
+export function parseCliPort(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) return undefined;
+  return port;
+}
+
+/**
+ * Custom GitHub OAuth guard that attaches the `state` parameter
+ * `GitHubStrategy.authenticate()` forwards to GitHub. Every login gets
+ * one — there is no stateless path:
  *
- * The token is 32 random bytes held for 5 minutes and consumed on the callback
- * (`AuthController.githubAuthCallback`), which is what ties a callback to a
- * flow this backend started: without it, a callback carrying an attacker's
- * authorization code would be honoured and the victim's browser would end up
- * holding a session for the attacker's GitHub account (OAuth login CSRF). The
- * browser flow previously sent no `state` at all and had no such check.
- *
- * For a CLI login (`?mode=cli&port=<port>&cliState=<nonce>`) the flow also
- * carries the nonce the CLI invocation minted for its loopback callback. It is
- * echoed back on the redirect to `127.0.0.1:<port>` so the CLI can distinguish
- * its own callback from an authorization code injected by a page the browser
- * visited or any other injector that cannot read the CLI process's command
- * line. A present-but-malformed nonce is a 400 (see `normalizeCliState`), never
- * a silent drop.
+ * - **CLI** (`?mode=cli&port=<port>&nonce=<hex>&challenge=<s256>`) — a
+ *   token from `CliAuthStore` carrying the port, the CLI's nonce and its
+ *   PKCE challenge, so the callback can redirect the code to the loopback
+ *   server and bind it to the verifier only that CLI process holds (see
+ *   `login.ts`). Minted
+ *   only once `CliLoginConfirmMiddleware` has seen the user click through
+ *   the confirmation page; without that flag this degrades to an ordinary
+ *   browser login rather than silently minting a code for whoever framed
+ *   the request. The token is paired with a cookie secret
+ *   (`cliStateCookieName()`) so it is bound to this browser, exactly as
+ *   the browser state is: the confirmation click gates the *mint*, and
+ *   an attacker can perform it in their own browser, so without the
+ *   cookie the resulting state could simply be handed to a victim.
+ * - **Browser** — a double-submit cookie pair (see `oauth-state.ts`).
+ *   Without it, `/auth/github/callback` would set session cookies for any
+ *   code presented to it, which is login CSRF / session fixation.
  */
 @Injectable()
 export class GitHubAuthGuard extends AuthGuard('github') {
@@ -67,29 +70,28 @@ export class GitHubAuthGuard extends AuthGuard('github') {
   }
 
   canActivate(context: ExecutionContext) {
-    const req = context.switchToHttp().getRequest();
-    const mode = req.query?.mode;
-    const port = req.query?.port;
-    const cliState = req.query?.cliState;
+    const http = context.switchToHttp();
+    const req = http.getRequest();
+    const res = http.getResponse<Response>();
+    const port = parseCliPort(req.query?.port);
 
-    if (mode === 'cli' && port) {
-      const portNum = Number(port);
-      if (Number.isInteger(portNum) && portNum >= 1024 && portNum <= 65535) {
-        const nonce = normalizeCliState(cliState);
-        const { stateToken } = this.cliAuthStore.createState(
-          mode,
-          portNum,
-          nonce,
-        );
-        req.__oauthStateToken = stateToken;
-        return super.canActivate(context);
-      }
+    if (req.query?.mode === 'cli' && port !== undefined && req.__cliConfirmed) {
+      const { stateToken, csrf } = this.cliAuthStore.createState(
+        'cli',
+        port,
+        parseCliNonce(req.query?.nonce),
+        parseCliChallenge(req.query?.challenge),
+      );
+      // The state token alone is transferable — it goes through GitHub in
+      // a URL. This cookie is what ties it to *this* browser, and the
+      // callback will not consume the state without it.
+      res.cookie(cliStateCookieName(), csrf, cliStateCookieOptions());
+      req.__oauthState = stateToken;
+    } else {
+      const { secret, state } = createWebOAuthState();
+      res.cookie(oauthStateCookieName(), secret, oauthStateCookieOptions());
+      req.__oauthState = state;
     }
-
-    // Browser login. `port` is meaningless here; the callback recognises the
-    // flow by `mode` and redirects to the frontend.
-    const { stateToken } = this.cliAuthStore.createState('web', 0);
-    req.__oauthStateToken = stateToken;
 
     return super.canActivate(context);
   }

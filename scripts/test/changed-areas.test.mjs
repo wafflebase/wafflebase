@@ -7,6 +7,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -24,6 +25,7 @@ import {
   resolve,
   reverseClosure,
 } from "../changed-areas.mjs";
+import { fixtureGitEnv, repoScopedEnv } from "../agent/git-env.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -44,6 +46,36 @@ const GRAPH = {
 };
 
 /**
+ * `git`, scoped to the throwaway fixture repository at `dir`. Returns trimmed
+ * stdout.
+ *
+ * THE ONLY WAY THIS FILE MAY SHELL OUT TO GIT FOR A FIXTURE.
+ *
+ * `cwd` does NOT decide which repository git operates on — `GIT_DIR` does, and
+ * it wins. With `cwd` alone, every `init` / `add` / `commit` / `checkout -b`
+ * below lands in whatever repository the ambient environment happens to name:
+ * re-initialising it, committing into it, and branching it. That is not
+ * hypothetical. It happened to this repository three times, most recently
+ * resetting a live branch to a fixture commit named `second`. `fixtureGitEnv`
+ * strips every steering variable AND pins `GIT_DIR`/`GIT_WORK_TREE` at `dir`, so
+ * git performs no discovery at all.
+ *
+ * One factory rather than a closure per test on purpose: this file previously
+ * held five near-identical copies of it, and that is precisely how one of them
+ * came to be missing `env`. A single definition is a single thing to get right,
+ * and the isolation guard at the bottom of this file covers it.
+ */
+function fixtureGit(dir) {
+  return (...args) =>
+    execFileSync("git", args, {
+      cwd: dir,
+      env: fixtureGitEnv(dir),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+}
+
+/**
  * A throwaway repository with two commits, for the tests that need real shas.
  *
  * Deliberately NOT this repository's own history. An earlier version of these
@@ -56,8 +88,7 @@ const GRAPH = {
  */
 function twoCommitRepo() {
   const dir = mkdtempSync(path.join(tmpdir(), "wb-refs-fixture-"));
-  const git = (...args) =>
-    execFileSync("git", args, { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const git = fixtureGit(dir);
   git("init", "-q", "-b", "main");
   git("config", "user.email", "t@example.com");
   git("config", "user.name", "T");
@@ -350,8 +381,7 @@ test("resolve fail-safes", async (t) => {
     // a base branch that moves on independently, a feature branch that does not,
     // and a merge of the two.
     const tmp = mkdtempSync(path.join(tmpdir(), "wb-refs-"));
-    const git = (...args) =>
-      execFileSync("git", args, { cwd: tmp, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const git = fixtureGit(tmp);
     try {
       git("init", "-q", "-b", "main");
       git("config", "user.email", "t@example.com");
@@ -385,10 +415,7 @@ test("resolve fail-safes", async (t) => {
       // Two-dot is the other way to get this wrong, and it is reachable by a
       // one-character edit: it compares the trees, so the base's own file reads
       // as a deletion-shaped change belonging to this pull request.
-      const twoDot = execFileSync("git", ["diff", "--name-only", `${base}..${head}`], {
-        cwd: tmp,
-        encoding: "utf8",
-      })
+      const twoDot = git("diff", "--name-only", `${base}..${head}`)
         .split("\n")
         .filter(Boolean);
       assert.ok(
@@ -414,8 +441,7 @@ test("resolve fail-safes", async (t) => {
     // is genuinely the head branch's own tip, so the collapsed answer is the right
     // one: everything head has that base does not is precisely this PR's change.
     const tmp = mkdtempSync(path.join(tmpdir(), "wb-update-branch-"));
-    const git = (...args) =>
-      execFileSync("git", args, { cwd: tmp, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const git = fixtureGit(tmp);
     try {
       git("init", "-q", "-b", "main");
       git("config", "user.email", "t@example.com");
@@ -465,8 +491,7 @@ test("resolve fail-safes", async (t) => {
     // `stale_base`, and the base branch's own history is charged to this pull
     // request again. That is the pre-merge state of nearly every pull request.
     const tmp = mkdtempSync(path.join(tmpdir(), "wb-stale-base-"));
-    const git = (...args) =>
-      execFileSync("git", args, { cwd: tmp, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const git = fixtureGit(tmp);
     const resolveWith = (payload) => {
       const file = path.join(tmp, "event.json");
       writeFileSync(file, JSON.stringify(payload));
@@ -572,11 +597,7 @@ test("resolve fail-safes", async (t) => {
       writeFileSync(file, JSON.stringify(payload));
       return file;
     };
-    const sha = (rev) =>
-      execFileSync("git", ["rev-parse", rev], {
-        cwd: dir,
-        encoding: "utf8",
-      }).trim();
+    const sha = (rev) => fixtureGit(dir)("rev-parse", rev);
 
     try {
       // Real commits: both ends come back as 40-hex shas, and neither is the
@@ -636,7 +657,7 @@ test("resolve fail-safes", async (t) => {
     const dir = twoCommitRepo();
     const file = path.join(dir, "event.json");
     const sha = (rev) =>
-      execFileSync("git", ["rev-parse", rev], { cwd: dir, encoding: "utf8" }).trim();
+      fixtureGit(dir)("rev-parse", rev);
     try {
       writeFileSync(
         file,
@@ -660,7 +681,7 @@ test("resolve fail-safes", async (t) => {
     // literal "HEAD" fallback is sound here and nowhere else.
     const dir = twoCommitRepo();
     const sha = (rev) =>
-      execFileSync("git", ["rev-parse", rev], { cwd: dir, encoding: "utf8" }).trim();
+      fixtureGit(dir)("rev-parse", rev);
     const resolvePush = (payload) => {
       const file = path.join(dir, "push-event.json");
       writeFileSync(file, JSON.stringify(payload));
@@ -920,6 +941,267 @@ test("the real repository config", async (t) => {
     for (const glob of ci.ciConfig) {
       const hit = known.some((f) => globToRegExp(glob).test(f));
       assert.ok(hit, `ciConfig glob \`${glob}\` matches none of the known files`);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Repository isolation — the regression guard for the three incidents across
+// 2026-08-15 and 2026-08-17, when the fixtures above wrote into the REAL
+// repository: commits on a live branch, a leaked `feature` branch,
+// `core.bare = true`, and an index staging the deletion of every tracked file.
+//
+// Asserted as a property, not as a call: no assertion below inspects
+// `fixtureGitEnv`, names it, or counts its uses. A guard that checked "the helper
+// is called" would pass against a helper that returned `process.env` unchanged —
+// this one fails against exactly that. It builds a victim repository, aims git's
+// location variables at it, runs the real fixture builder and the real
+// resolvers, and then requires the victim to be byte-identical.
+//
+// (The helpers below do CALL `fixtureGitEnv`, for their own setup and reads.
+// That is scaffolding, not the thing under test: if it regressed, the victim
+// comparison is what fails, and it fails whether or not the scaffolding used it.)
+//
+// NOT covered here, deliberately: which wrapper put `GIT_DIR` into the
+// environment in the first place (git 2.43's `pre-push` exports no location
+// variable at all, so it was ambient, and no code in this repository sets it),
+// and the read-only `git` call sites elsewhere under `scripts/` — see
+// docs/tasks/active/20260817-harness-git-env-todo.md.
+// ---------------------------------------------------------------------------
+
+/**
+ * A repository standing in for "the one you did not mean to touch".
+ *
+ * Its identity and `core.filemode` are set to values the fixtures would
+ * OVERWRITE — the fixtures configure `T` / `t@example.com`, and `git init`
+ * re-probes `core.filemode` against the filesystem — so an escape shows up as a
+ * difference rather than as a coincidence.
+ *
+ * Spells out its own `execFileSync` instead of reusing `fixtureGit`, and that is
+ * NOT an oversight to tidy up: `fixtureGit` is the thing under test here. If it
+ * regressed, a victim built through it would be built in the wrong repository
+ * too, and this guard would fail with a confusing cascade instead of the plain
+ * statement that the victim was written to.
+ */
+function victimRepo() {
+  const dir = mkdtempSync(path.join(tmpdir(), "wb-victim-"));
+  const git = (...args) =>
+    execFileSync("git", args, {
+      cwd: dir,
+      env: fixtureGitEnv(dir),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  git("init", "-q", "-b", "trunk");
+  git("config", "user.email", "victim@example.com");
+  git("config", "user.name", "Victim");
+  git("config", "core.filemode", "false");
+  writeFileSync(path.join(dir, "precious.txt"), "do not touch\n");
+  git("add", "-A");
+  git("commit", "-qm", "the victim's own commit");
+  return dir;
+}
+
+/**
+ * Everything the incidents damaged, in one comparable value: the refs (a
+ * hijacked branch tip, a leaked `feature` branch), `HEAD`, `.git/config`
+ * (`core.bare`, `core.filemode`, `user.*`), the index — whose corruption was
+ * the SILENT symptom, since `GIT_INDEX_FILE` alone leaves the test exiting 0 —
+ * and the worktree status that a rewritten index reports.
+ *
+ * Records failures instead of throwing them. A damaged repository is exactly
+ * what this has to be able to DESCRIBE: once `core.bare = true` is written,
+ * `rev-parse HEAD` and `status` fail outright with `fatal: this operation must
+ * be run in a work tree`, and an exception there would abort the comparison that
+ * is the whole point — hiding the finding behind a stack trace.
+ */
+function fingerprint(repo) {
+  const git = (...args) => {
+    try {
+      return execFileSync("git", args, {
+        cwd: repo,
+        env: repoScopedEnv(repo),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    } catch (e) {
+      const detail = String(e?.stderr || e?.message || e).trim().split("\n")[0];
+      return `<git ${args[0]} failed: ${detail}>`;
+    }
+  };
+  const digest = (file) => {
+    try {
+      return createHash("sha256").update(readFileSync(file)).digest("hex");
+    } catch {
+      return "<absent>";
+    }
+  };
+  return {
+    head: git("rev-parse", "HEAD"),
+    refs: git("show-ref"),
+    status: git("status", "--porcelain"),
+    // Kept as text, not a digest: `core.bare` / `core.filemode` / `user.*` are
+    // named symptoms, and a failing diff should show which line moved.
+    config: readFileSync(path.join(repo, ".git", "config"), "utf8"),
+    index: digest(path.join(repo, ".git", "index")),
+  };
+}
+
+/**
+ * Run `fn` with `vars` in `process.env`, restoring exactly what was there.
+ *
+ * `fn` must be synchronous, and both callers are: `process.env` is global, so an
+ * `await` inside the window would expose these variables to whatever else the
+ * runner decided to interleave. The same pattern, for the same reason, is in
+ * `scripts/agent/git-env.test.mjs` and `scripts/agent/novelty.test.mjs`.
+ */
+function withEnv(vars, fn) {
+  const saved = new Map(Object.keys(vars).map((k) => [k, process.env[k]]));
+  Object.assign(process.env, vars);
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+/**
+ * The fixture was built in the fixture, and the resolvers answer about it.
+ *
+ * `victimHead` is passed in so the fixture's tip can be shown to differ from
+ * it — without that, a fixture that had somehow been built on top of the victim
+ * would satisfy every other assertion here.
+ */
+function assertAnswersAboutFixture(fixture, victimHead) {
+  // Deliberately not `fixtureGit` — same reason as `victimRepo`: the guard has
+  // to be able to read the fixture correctly even while the helper it is
+  // guarding is broken.
+  const sha = (rev) =>
+    execFileSync("git", ["rev-parse", rev], {
+      cwd: fixture,
+      env: fixtureGitEnv(fixture),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+
+  // The write path landed where it was told to.
+  assert.match(sha("HEAD"), /^[0-9a-f]{40}$/, "the fixture has real commits");
+  assert.notEqual(sha("HEAD"), sha("HEAD~1"), "and two distinct ones");
+  assert.notEqual(sha("HEAD"), victimHead, "the fixture's tip is not the victim's tip");
+
+  // The read path answers about the fixture, not about GIT_DIR's repository.
+  const eventFile = path.join(fixture, "event.json");
+  writeFileSync(
+    eventFile,
+    JSON.stringify({
+      pull_request: { base: { sha: sha("HEAD~1") }, head: { sha: sha("HEAD") } },
+    }),
+  );
+  const refs = resolveRefs(
+    { GITHUB_EVENT_NAME: "pull_request", GITHUB_EVENT_PATH: eventFile },
+    fixture,
+  );
+  assert.ok(refs, "resolveRefs must verify the fixture's own shas");
+  assert.equal(refs.base, sha("HEAD~1"));
+  assert.equal(refs.head, sha("HEAD"));
+  assert.deepEqual(
+    changedPaths(refs, fixture),
+    ["second.txt"],
+    "changedPaths must diff the fixture, not the repository GIT_DIR names",
+  );
+}
+
+/**
+ * The whole property, run under one hostile environment.
+ *
+ * Two halves, and both matter. The fixture must be BUILT in the fixture (the
+ * write path, `twoCommitRepo`), and the resolvers must ANSWER about it (the read
+ * path, `resolveRefs` / `changedPaths` in changed-areas.mjs). Unscoped, the read
+ * path fails differently from the write path: `rev-parse --verify` runs in the
+ * victim, where the fixture's shas do not exist, so `resolveRefs` returns `null`
+ * and `changedPaths` returns `null` — a fail-safe answer that happens to be
+ * about the wrong repository.
+ *
+ * The victim is judged BEFORE anything the hostile block threw is re-raised.
+ * When the write path escapes, the fixture directory is left without a `.git` at
+ * all (its `git init` went elsewhere), so reading it throws a bare `fatal: not a
+ * git repository` — which describes a symptom and not the cause. Comparing the
+ * victim first makes the reported failure "the victim repository was written
+ * to", which is the finding.
+ */
+function assertIsolated(victim, hostile) {
+  const before = fingerprint(victim);
+  let fixture;
+  let thrown;
+  try {
+    withEnv(hostile, () => {
+      try {
+        fixture = twoCommitRepo();
+        assertAnswersAboutFixture(fixture, before.head);
+      } catch (e) {
+        thrown = e;
+      }
+    });
+  } finally {
+    if (fixture) rmSync(fixture, { recursive: true, force: true });
+  }
+
+  // The sharp symptoms first, so a regression names itself instead of printing
+  // a whole-config diff.
+  const after = fingerprint(victim);
+  assert.doesNotMatch(after.config, /bare = true/, "core.bare must not be flipped");
+  assert.match(after.config, /filemode = false/, "core.filemode must not be re-probed");
+  assert.match(after.config, /name = Victim/, "the victim's identity must survive");
+  assert.doesNotMatch(after.refs, /refs\/heads\/feature/, "no leaked fixture branch");
+  assert.equal(after.head, before.head, "the victim's HEAD must not move");
+  assert.equal(after.index, before.index, "the victim's index must not be rewritten");
+  // And then the whole thing, so a symptom nobody predicted still fails.
+  assert.deepEqual(after, before, "the victim repository must be byte-identical");
+
+  // Victim intact, so whatever the block above threw is a failure in its own
+  // right rather than a consequence of an escape.
+  if (thrown) throw thrown;
+}
+
+test("the fixtures write to the fixture, not to an inherited GIT_DIR", async (t) => {
+  await t.test("with every location variable aimed at another repository", () => {
+    const victim = victimRepo();
+    try {
+      assertIsolated(victim, {
+        GIT_DIR: path.join(victim, ".git"),
+        GIT_WORK_TREE: victim,
+        GIT_INDEX_FILE: path.join(victim, ".git", "index"),
+      });
+    } finally {
+      rmSync(victim, { recursive: true, force: true });
+    }
+  });
+
+  await t.test("with a linked worktree's GIT_DIR, the shape that flips core.bare", () => {
+    // The 2026-08-15 signature, and the reason `core.bare` is asserted at all.
+    // `git init` guesses bareness from GIT_DIR's PATH SHAPE — anything not
+    // ending in `/.git` is guessed bare — and a linked worktree's gitdir is
+    // `.git/worktrees/<name>`. The guess is then written to the COMMON config,
+    // i.e. the primary repository's `.git/config`, after which the primary tree
+    // answers `fatal: this operation must be run in a work tree`.
+    const victim = victimRepo();
+    const linked = `${victim}-linked`;
+    try {
+      execFileSync("git", ["worktree", "add", "-q", "-b", "wt", linked], {
+        cwd: victim,
+        env: repoScopedEnv(victim),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      assertIsolated(victim, {
+        GIT_DIR: path.join(victim, ".git", "worktrees", path.basename(linked)),
+      });
+    } finally {
+      rmSync(linked, { recursive: true, force: true });
+      rmSync(victim, { recursive: true, force: true });
     }
   });
 });

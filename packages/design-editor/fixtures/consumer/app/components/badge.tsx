@@ -1,12 +1,13 @@
 /*
  * A CVA component, for the class-rewrite half of the gate.
  *
- * `cva` is imported but never installed: nothing in this fixture is ever executed
- * or bundled. The plugin reads these files with its own parser — that is the whole
- * of what a consumer's component is to it — so the import exists to make the source
- * honest, not to resolve.
+ * `cva` comes from this project's OWN `app/lib/cva.ts`, not from npm, and that file
+ * explains why. The short version: through 11a nothing here ever ran, so the import did
+ * not need to resolve; 11b's frame mounts the scene, so it does. `extract.mjs`
+ * recognises the variant table by the callee being named `cva`, never by its origin, so
+ * the shape the gate exercises is unchanged.
  */
-import { cva } from 'class-variance-authority';
+import { cva } from '@/lib/cva';
 
 export const badgeVariants = cva(
   'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium',

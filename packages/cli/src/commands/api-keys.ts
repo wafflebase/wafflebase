@@ -1,6 +1,10 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  output,
+  outputError,
+  parseOutputFormat,
+} from '../output/formatter.js';
 import { printDryRunUrl } from '../client/dry-run.js';
 import { apiKeysUrl } from '../client/url.js';
 import type { GlobalOpts } from './root.js';
@@ -28,6 +32,9 @@ export function registerApiKeysCommand(program: Command) {
     .action(async function (this: Command, name: string) {
       const opts = getGlobalOpts(this);
       try {
+        // Validate before the key is minted: a bad `--format` must not
+        // discard a raw key that the server will never show again.
+        const fmt = parseOutputFormat(opts.format);
         // Credential mutations honour --dry-run like every other write: a
         // preview must not mint a live key (and print its secret).
         if (opts.dryRun) {
@@ -36,7 +43,7 @@ export function registerApiKeysCommand(program: Command) {
         }
         const res = await getClient(opts).createApiKey(name);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -48,13 +55,14 @@ export function registerApiKeysCommand(program: Command) {
     .action(async function (this: Command) {
       const opts = getGlobalOpts(this);
       try {
+        const fmt = parseOutputFormat(opts.format);
         if (opts.dryRun) {
           printDryRunUrl(previewUrl(opts), 'GET');
           return;
         }
         const res = await getClient(opts).listApiKeys();
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -66,6 +74,7 @@ export function registerApiKeysCommand(program: Command) {
     .action(async function (this: Command, keyId: string) {
       const opts = getGlobalOpts(this);
       try {
+        const fmt = parseOutputFormat(opts.format);
         // Revocation is irreversible, so this is the one command where a
         // preview that executed anyway could not be undone.
         if (opts.dryRun) {
@@ -74,7 +83,7 @@ export function registerApiKeysCommand(program: Command) {
         }
         const res = await getClient(opts).revokeApiKey(keyId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }

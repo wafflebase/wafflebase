@@ -5,9 +5,18 @@ import { DEFAULT_MASTER } from './master';
 import { generateId } from './element';
 import { defaultLight } from '../themes/default-light';
 
-const LAYOUT_ID_MIGRATIONS: Record<string, string> = {
-  title: 'title-slide',
-};
+/**
+ * Renamed layout ids, keyed by their pre-rename value.
+ *
+ * A `Map`, not an object literal: `layoutId` arrives from stored JSON (and
+ * from `PUT /content`, which accepts any non-empty string), so an object
+ * lookup would resolve `"constructor"` / `"__proto__"` / `"toString"` off
+ * `Object.prototype` and hand a function — or `Object.prototype` itself — back
+ * as the migrated layout id.
+ */
+const LAYOUT_ID_MIGRATIONS = new Map<string, string>([
+  ['title', 'title-slide'],
+]);
 
 /**
  * Migrate just the document metadata: fill defaults and preserve the
@@ -119,7 +128,11 @@ function migrateLayout(layout: any): any {
 }
 
 function migrateSlide(slide: any): any {
-  const layoutId = LAYOUT_ID_MIGRATIONS[slide?.layoutId] ?? slide?.layoutId ?? 'blank';
+  const rawLayoutId =
+    typeof slide?.layoutId === 'string' && slide.layoutId.length > 0
+      ? slide.layoutId
+      : 'blank';
+  const layoutId = LAYOUT_ID_MIGRATIONS.get(rawLayoutId) ?? rawLayoutId;
   const migrated: any = {
     id: slide?.id,
     layoutId,

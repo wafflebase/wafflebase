@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      A scene frame is a SECOND DOCUMENT, not an `about:blank` the host fills in.
+      That is what gives each frame its own JS realm, which the dual-frame diff
+      requires: engines keep module-level mutable state, so one realm with two
+      documents would have both sides painting from the same objects and showing
+      identical output.
+
+      NO viewport meta, deliberately. The host sets the frame's width as a real
+      iframe width so `matchMedia` and any `useIsMobile()` resolve truthfully. A
+      device-width tag would make the frame lie about its own breakpoint.
+
+      NO STYLESHEET OF OURS. This document loads the CONSUMER's, through their own
+      dev server, because the scene is the thing under review. The inverse of
+      `index.html`, which is prebuilt precisely so our chrome is not styled by the
+      theme it is measuring.
+
+      COPIED VERBATIM, not built. `src/shell/public/` is Vite's passthrough
+      directory, so nothing here is bundled or hashed — the script below must be
+      resolved by the consumer's Vite, not by ours.
+    -->
+    <title>Design editor — scene</title>
+    <style>
+      /* The scene owns the whole frame; no editor chrome in here. */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      #wb-scene-root {
+        min-height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="wb-scene-root"></div>
+    <!--
+      `__WB_SCENE_ENTRY__` is substituted by `shellServer` at request time.
+
+      It cannot be baked in. Measured against a live Vite 6.4.3 with
+      @vitejs/plugin-react 4.3.4:
+
+        /@id/__x00__virtual:wb-scene-entry.tsx   500  — plugin-react does not
+                                                       transform a virtual module,
+                                                       even with a .tsx suffix; the
+                                                       JSX reaches import-analysis
+                                                       verbatim and fails to parse
+        a real .tsx under node_modules            200  — JSX transformed
+
+      So the entry is a real file in the installed package, and its URL depends on
+      where the consumer's package manager put it — which a prebuilt document cannot
+      know. `shellServer` knows, because it already resolves its own package root.
+    -->
+    <script type="module" src="__WB_SCENE_ENTRY__"></script>
+  </body>
+</html>
