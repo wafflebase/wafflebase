@@ -483,6 +483,61 @@ describe('Sheet.Decimals', () => {
     );
   });
 
+  it('should step a neighbour whose decimals come from its format', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '12');
+    await sheet.setData({ r: 1, c: 2 }, '12');
+    await sheet.setStyle({ r: 1, c: 2 }, { nf: 'number' });
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+
+    // A1 shows no decimals, but B1 renders '12.00' through its number format,
+    // so the selection still has decimals to drop.
+    await sheet.changeDecimals(-1);
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe(
+      formatValue('12', 'number', 0),
+    );
+  });
+
+  it('should not unset decimals another cell renders through its format', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '12');
+    await sheet.setStyle({ r: 1, c: 1 }, { dp: 1 });
+    await sheet.setData({ r: 1, c: 2 }, '0.5');
+    await sheet.setStyle({ r: 1, c: 2 }, { dp: 1, nf: 'percent' });
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+
+    // The active cell would round trip to no style, but B1 renders through its
+    // own percent format, which falls back to two decimals without its `dp` —
+    // more decimals, not fewer. So the selection takes the explicit write and
+    // B1 keeps a `dp` instead of having it silently dropped.
+    await sheet.changeDecimals(-1);
+    expect((await sheet.getStyle({ r: 1, c: 2 }))?.dp).toBe(0);
+  });
+
+  it('should clamp decimals at the largest count Intl accepts', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1.5');
+    await sheet.setStyle({ r: 1, c: 1 }, { dp: 20, nf: 'number' });
+    sheet.selectStart({ r: 1, c: 1 });
+
+    await sheet.changeDecimals(1);
+    expect((await sheet.getStyle({ r: 1, c: 1 }))?.dp).toBe(20);
+    expect(() => sheet.toDisplayString({ r: 1, c: 1 })).not.toThrow();
+  });
+
+  it('should render a stored dp beyond the Intl range instead of throwing', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1.5');
+    // A `dp` an import or a peer could have written; Intl rejects it outright.
+    await sheet.setStyle({ r: 1, c: 1 }, { dp: 400, nf: 'number' });
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe(
+      formatValue('1.5', 'number', 20),
+    );
+  });
+
   it('should report the value precision and whether dp is stored', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '12.34');

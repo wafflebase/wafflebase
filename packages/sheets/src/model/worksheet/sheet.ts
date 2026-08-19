@@ -59,7 +59,12 @@ import {
   isSpreadsheetHtml,
 } from './grids';
 import { DimensionIndex } from './dimensions';
-import { decimalsInValue, formatValue } from './format';
+import {
+  MAX_DECIMAL_PLACES,
+  decimalsInValue,
+  formatValue,
+  renderedDecimals,
+} from './format';
 import { cellFromInput } from './input';
 import {
   cloneConditionalFormatRule,
@@ -4194,7 +4199,7 @@ export class Sheet {
    */
   async changeDecimals(delta: number): Promise<void> {
     const { dp, nf, valueDp, explicitDp } = await this.getActiveDecimalState();
-    const stepped = dp + delta;
+    const stepped = Math.min(dp + delta, MAX_DECIMAL_PLACES);
     if (stepped < 0 && !explicitDp && (await this.selectionRendersAt(0))) {
       // Nothing anywhere in the selection has a decimal left to drop, so it
       // stays untouched rather than acquiring a zero-decimal format it never
@@ -4212,7 +4217,7 @@ export class Sheet {
       explicitDp &&
       !clamped &&
       target === valueDp &&
-      (await this.unsetKeepsRendering(nf, target))
+      (await this.unsetKeepsRendering(nf === 'number', target))
     ) {
       // `nf: 'number'` renders 2 decimals when no `dp` is stored, so the number
       // format has to go with the `dp`. `unsetKeepsRendering` is what makes that
@@ -4237,22 +4242,25 @@ export class Sheet {
 
   /**
    * `selectionRendersAt` reports whether every numeric value in the current
-   * selection already shows `decimals` digits on its own.
+   * selection already *shows* `decimals` digits — as rendered, not as stored.
    *
    * A Decrease that finds nothing to drop is only a no-op when the whole
-   * selection agrees; a neighbour still holding decimals has something to lose
-   * and has to take the write.
+   * selection agrees; a neighbour still showing decimals has something to lose
+   * and has to take the write, whether those decimals come from the value
+   * itself or from the number format it renders through.
    */
   private async selectionRendersAt(decimals: number): Promise<boolean> {
     for (const range of this.selectionTargets()) {
       const grid = await this.store.getGrid(range);
-      for (const [, cell] of grid) {
+      for (const [sref, cell] of grid) {
         const value = cell.v;
         if (!value || isNaN(Number(value))) {
           // Text and empty cells render no decimals to disagree about.
           continue;
         }
-        if (decimalsInValue(value) !== decimals) {
+        const ref = parseRef(sref);
+        const effective = this.resolveEffectiveStyle(ref.r, ref.c, cell.s);
+        if (renderedDecimals(value, effective) !== decimals) {
           return false;
         }
       }
@@ -4271,14 +4279,17 @@ export class Sheet {
    * `1,234.5` and would flatten to `1234.5`, and a currency at `dp: 0` would
    * jump to the format's two decimals. Both keep their format and take the
    * explicit write instead.
+   *
+   * Every cell is judged through *its own* effective format, not the active
+   * cell's: a selection is not uniform, and a neighbour rendering through
+   * `percent` loses different digits from the plain cell the step was read from.
+   * `removeNf` says whether the request carries `nf: 'number'` away with the
+   * `dp`, which only ever applies to a cell whose own format is `'number'`.
    */
   private async unsetKeepsRendering(
-    nf: NumberFormat | undefined,
+    removeNf: boolean,
     target: number,
   ): Promise<boolean> {
-    // Only `nf: 'number'` travels with the `dp`; every other format stays and
-    // falls back to the decimals it renders on its own.
-    const nfAfter = nf === 'number' ? undefined : nf;
     for (const range of this.selectionTargets()) {
       const grid = await this.store.getGrid(range);
       for (const [sref, cell] of grid) {
@@ -4290,6 +4301,10 @@ export class Sheet {
         const ref = parseRef(sref);
         const effective = this.resolveEffectiveStyle(ref.r, ref.c, cell.s);
         const options = { currency: effective?.cu };
+        const nf = effective?.nf;
+        // Only `nf: 'number'` travels with the `dp`; every other format stays
+        // and falls back to the decimals it renders on its own.
+        const nfAfter = removeNf && nf === 'number' ? undefined : nf;
         if (
           formatValue(value, nfAfter, undefined, options) !==
           formatValue(value, nf, target, options)

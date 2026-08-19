@@ -4,6 +4,15 @@ Increase decimal places followed by Decrease decimal places must leave a cell
 exactly as it started — including leaving no `dp`/`nf` behind on a cell that had
 none.
 
+**Accepted deviation** (recorded during review, see
+`docs/design/sheets/sheet-style.md` → "Increase / decrease decimal places"): the
+outcome holds wherever restoring inheritance renders identically. Two cases keep
+a `{dp, nf: 'number'}` residue instead — a value large enough to be grouped
+(`1234.5`, whose separators live in the `nf` an unset would drop) and an
+`nf: 'number'` the user chose themselves (nothing records provenance). Where
+state restoration and rendering conflict, rendering wins: silently changing what
+a cell displays, or destroying a user-set format, is the worse failure.
+
 ## The problem
 
 Both handlers write an explicit `dp` and neither can express "unset"

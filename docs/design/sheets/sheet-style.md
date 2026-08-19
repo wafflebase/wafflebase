@@ -213,9 +213,23 @@ inference positively detects a matching type.
 
 ### Increase / decrease decimal places
 
-`Sheet.changeDecimals(delta)` steps `dp` for the selection and is reversible:
-equal numbers of increases and decreases leave the selection exactly as they
-found it, including leaving no `dp`/`nf` on a cell that had none.
+`Sheet.changeDecimals(delta)` steps `dp` for the selection and is reversible
+**wherever restoring inheritance renders identically**: equal numbers of
+increases and decreases leave such a selection exactly as they found it,
+including leaving no `dp`/`nf` on a cell that had none. That covers the case the
+buttons are actually used in — an ungrouped value with no format of its own —
+and it is a guarantee about *state*, not only about pixels.
+
+Where the two conflict, rendering wins and the state is not restored. The unset
+is refused, and the selection keeps a `{dp, nf: 'number'}` residue instead of
+returning to no style, in exactly two situations: a value large enough to be
+grouped (`1234.5`, whose separators live in the `nf` the unset would drop) and a
+`nf: 'number'` the user chose themselves (indistinguishable from one the buttons
+wrote, since nothing records provenance). Both are accepted deviations from the
+absolute wording of the issue, not oversights — the alternative is silently
+changing what a cell displays, or destroying a format the user set. The rules
+below are what decide which case applies; the "Consequences" list restates each
+deviation with its reason.
 
 `getActiveDecimalState()` reports three things about the active cell — the `dp`
 to step from, `valueDp` (the precision the raw value already shows: `2` for
@@ -229,7 +243,9 @@ stores `dp`). The unset fires only when all of this holds:
 - the unset would leave every cell in the selection reading exactly as the
   explicit step would have written it (`unsetKeepsRendering`, which compares
   `formatValue` with the keys removed against `formatValue` at the step's
-  target).
+  target). Each cell is judged through **its own** effective format, not the
+  active cell's: a selection is not uniform, and a neighbour rendering through
+  `percent` loses different digits from the plain cell the step was read from.
 
 That last check is the whole safety rule, because an absent `dp` does **not**
 mean "the value's own precision":
@@ -267,11 +283,20 @@ Consequences worth knowing:
   has no stored `dp` and nothing left to give, Decrease is a no-op rather than
   writing `dp: 0` — writing it is exactly the residue this rule exists to avoid.
   That no-op is checked against the whole selection, though: if another selected
-  cell still shows decimals, the step is written after all, because a selection
+  cell still *shows* decimals — as rendered, so a `12` under `nf: 'number'`
+  displaying `12.00` counts — the step is written after all, because a selection
   with something to drop is not a no-op. When the active cell *does* store a
   `dp` and sits at zero, Decrease still writes `dp: 0` so the rest of the
   selection can follow it down; the format stays put, since a clamped step is
   not a reversal of anything.
+- `dp` is bounded at both ends. `Intl.NumberFormat` accepts 0–20 fraction
+  digits and raises a `RangeError` outside that, so Increase stops at
+  `MAX_DECIMAL_PLACES` (20) and `formatValue` clamps whatever it is handed
+  (`clampDecimals`) rather than trusting a stored `dp`. A `dp` can arrive from
+  an `.xlsx` import or a collaborator, and an uncaught throw on a paint path
+  takes down every render of the shared document; `safeFormat` therefore also
+  degrades — locale, then options, then a bare number — instead of rethrowing
+  the same rejected arguments.
 
 ## UI Integration
 

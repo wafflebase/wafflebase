@@ -136,6 +136,41 @@ describe('formatValue', () => {
   });
 });
 
+describe('formatValue hostile input', () => {
+  it('should clamp a decimal count Intl would reject', () => {
+    expect(formatValue('1.5', 'number', 400, { locale: 'en-US' })).toBe(
+      formatValue('1.5', 'number', 20, { locale: 'en-US' }),
+    );
+    expect(formatValue('1.5', 'number', -3, { locale: 'en-US' })).toBe(
+      formatValue('1.5', 'number', 0, { locale: 'en-US' }),
+    );
+    expect(formatValue('1.5', 'number', NaN, { locale: 'en-US' })).toBe(
+      formatValue('1.5', 'number', 2, { locale: 'en-US' }),
+    );
+  });
+
+  it('should not throw on a currency code Intl rejects', () => {
+    expect(() =>
+      formatValue('1.5', 'currency', 2, {
+        locale: 'en-US',
+        currency: 'not a currency',
+      }),
+    ).not.toThrow();
+    expect(
+      formatValue('1.5', 'currency', 2, {
+        locale: 'en-US',
+        currency: 'not a currency',
+      }),
+    ).toContain('1.5');
+  });
+
+  it('should not throw on a locale Intl rejects', () => {
+    expect(() =>
+      formatValue('1.5', 'number', 2, { locale: 'not a locale' }),
+    ).not.toThrow();
+  });
+});
+
 describe('locale helpers', () => {
   it('should resolve currency from locale', () => {
     expect(resolveCurrencyForLocale('ko-KR')).toBe('KRW');
