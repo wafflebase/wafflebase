@@ -415,9 +415,13 @@ export function TokenEditorPanel({
   const existingKeys = (family: TokenFamily): Set<string> => {
     const staged = addsFor(family).map((a) => a.kebabKey);
     if (family === 'semantic') return new Set([...colorRoles, ...CURATED_ROLES, ...staged]);
-    if (family === 'palette') return new Set([...paletteColors.map((c) => c.path[0]), ...staged]);
-    if (family === 'radius') return new Set([...radiusSpecs.map((t) => t.path[0]), ...staged]);
-    return new Set([...fontSpecs.map((t) => t.path[0]), ...staged]);
+    // NORMALISED. `path[0]` is the authored member (`syrupDeep`); the draft's key is kebab
+    // (`syrup-deep`), so comparing them raw let a duplicate through the draft and into a
+    // server refusal. Only members the adapter reports are here — a non-colour sibling the
+    // client is never sent still collides server-side.
+    if (family === 'palette') return new Set([...paletteColors.map((c) => camelToKebab(c.path[0])), ...staged]);
+    if (family === 'radius') return new Set([...radiusSpecs.map((t) => camelToKebab(t.path[0])), ...staged]);
+    return new Set([...fontSpecs.map((t) => camelToKebab(t.path[0])), ...staged]);
   };
 
   /** Open the section AND start its draft row — one click, input focused. */

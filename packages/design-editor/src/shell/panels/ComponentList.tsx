@@ -22,9 +22,17 @@ export function ComponentList({ components, selected, onSelect }: ComponentListP
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Components
         </span>
+        {/*
+          Disabled rather than deleted: the row reserves the slot, and a control that looks
+          active while doing nothing reads as a broken editor. `type` is not decoration —
+          an untyped button inside a form defaults to `submit`.
+        */}
         <button
+          type="button"
+          disabled
           aria-label="New component"
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          title="Creating a component is not wired up yet"
+          className="rounded-md p-1 text-muted-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Plus className="size-4" />
         </button>
@@ -36,6 +44,7 @@ export function ComponentList({ components, selected, onSelect }: ComponentListP
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search components"
+          aria-label="Search components"
           className="w-full rounded-md border border-input bg-background py-1.5 pl-7 pr-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
         />
       </div>

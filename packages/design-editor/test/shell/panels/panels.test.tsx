@@ -163,7 +163,10 @@ describe('TokenEditorPanel', () => {
 
   it('mounts with no adapter at all, and says the panels are read-only', () => {
     const host = render(<TokenEditorPanel {...props({ ok: true, adapter: null, reason: 'no adapter' })} />);
-    expect(host.textContent).toBeTruthy();
+    // The NOTICE, not merely "something rendered" — `toBeTruthy()` passed for any output,
+    // including the configured branch, so the test could not fail for the reason it names.
+    expect(host.textContent).toContain('Bridge offline');
+    expect(host.textContent).toContain('values read from computed CSS');
   });
 
   it('renders NO rows for a family the adapter does not report', () => {

@@ -690,7 +690,7 @@ project whose tokens live anywhere else works unchanged. The full prototype→co
 and three defects it surfaced in already-merged code, are in
 `docs/tasks/active/20260819-design-editor-token-panels-todo.md`.
 
-**Two prototype files were dropped, as decisions.** `PreviewPane` + `registry.tsx`: the
+**Three prototype files were dropped, as decisions.** `PreviewPane` + `registry.tsx`: the
 registry is a hand-written renderer per component with sample children a human chose, so a
 generic package cannot ship it and requiring one is a new onboarding cliff — the scene frame
 is the preview surface, which is the argument this document already makes for judging a token

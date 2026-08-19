@@ -55,6 +55,17 @@ export function Combobox({
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  /**
+   * `listRef` was attached and never read, so ↑/↓ walked the highlight straight out of a
+   * `max-h-64 overflow-y-auto` list and the user drove a selection they could not see.
+   * `block: 'nearest'` scrolls only when the row is actually outside, so mouse hovering —
+   * which also moves `active` — does not yank the list around.
+   */
+  useEffect(() => {
+    listRef.current
+      ?.querySelector(`[data-cb-index="${active}"]`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [active]);
 
   const selected = options.find((o) => o.value === value);
 
@@ -155,6 +166,7 @@ export function Combobox({
                 key={opt.value}
                 type="button"
                 onClick={() => commit(opt.value)}
+                data-cb-index={i}
                 onMouseEnter={() => setActive(i)}
                 className={cn(
                   'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs transition-colors',

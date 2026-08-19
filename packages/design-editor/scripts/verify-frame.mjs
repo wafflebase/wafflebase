@@ -437,7 +437,16 @@ async function main() {
               await fetch(`http://127.0.0.1:${PORT}/__design-editor/api/undo`, { method: 'POST' })
             ).json();
             check('undo answers ok', undone.ok === true, undone.error);
-            check('and the file is byte-identical again', (await fs.readFile(abs, 'utf8')) === before);
+            const restored = await fs.readFile(abs, 'utf8');
+            check('and the file is byte-identical again', restored === before);
+            // The comment above promises the failure lands HERE. It only did so for the
+            // current run: an unrestored fixture keeps the written class, and the NEXT
+            // run's "Approve writes the class" check is then satisfied by the leftover
+            // rather than by a write — green while measuring nothing.
+            if (restored !== before) {
+              await fs.writeFile(abs, before, 'utf8');
+              console.log('       (undo did not restore the fixture — rewrote it from the pre-edit bytes)');
+            }
 
             // `PathGuard.backup` writes `${file}.bak` beside the source; the design doc's
             // Risks section names that and prescribes a cache directory instead. Unimplemented,

@@ -40,15 +40,21 @@ export function Dialog({
 }) {
   const panel = useRef<HTMLDivElement | null>(null);
 
+  // Split from the Escape listener below: `onOpenChange` is that effect's dependency, so
+  // a caller passing an inline arrow would re-run it every parent render and pull focus
+  // back off whatever the user was typing in. Focus is a once-per-open concern.
+  // The panel, not the first control: the plan is the thing to read first, and landing on
+  // "Approve" invites an Enter that writes files.
+  useEffect(() => {
+    if (open) panel.current?.focus();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onOpenChange(false);
     };
     document.addEventListener('keydown', onKey, true);
-    // Focus the panel, not the first control: the plan is the thing to read first, and
-    // landing on "Approve" invites an Enter that writes files.
-    panel.current?.focus();
     return () => document.removeEventListener('keydown', onKey, true);
   }, [open, onOpenChange]);
 

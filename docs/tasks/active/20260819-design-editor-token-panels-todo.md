@@ -9,8 +9,12 @@ prerequisite — mocking `useDocument()` — the prototype never finished.
 
 ## Landed
 
-`TokenEditorPanel` (861) · `TokenBindingPanel` (668) · `ReviewApproveModal` (534) ·
-`AddTokenRow` (172) · `Combobox` (170) · `Accordion` (65) · `ComponentList` (86), plus a
+Measured on the landed files, not the prototype's — the first version of this list carried
+the prototype's sizes under a heading that reads as shipped size, which is the kind of number
+a later session inherits as fact.
+
+`TokenEditorPanel` (1007) · `TokenBindingPanel` (693) · `ReviewApproveModal` (638) ·
+`AddTokenRow` (207) · `Combobox` (189) · `ComponentList` (97) · `Accordion` (65), plus a
 local `ui/dialog.tsx` and controlled mode on `ui/popover.tsx`.
 
 ⌘S now opens the review, which dry-runs every intent and shows its diff. 11b wrote the plan

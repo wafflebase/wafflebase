@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { CSSProperties } from 'react';
 import { TriangleAlert, Layers, RotateCcw, Plus, Sparkle, MousePointer2 } from 'lucide-react';
 import { cn } from '../lib/cn.ts';
@@ -194,7 +195,8 @@ function StateRow({
   roleOptions: ComboboxOption[];
   staged?: PendingClassEdit;
   onChange: (role: string, opacity: number) => void;
-  onAdd: () => void;
+  /** Absent when there is no role to write — see the call site. The control disables. */
+  onAdd?: () => void;
   onReset: () => void;
   /** Explicitly clear this state so the resting colour shows through. */
   onUnset: () => void;
@@ -254,7 +256,9 @@ function StateRow({
         <button
           type="button"
           onClick={onAdd}
-          className="inline-flex items-center gap-1 rounded-sm border border-dashed border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary"
+          disabled={!onAdd}
+          title={onAdd ? undefined : 'No token role is available to set yet'}
+          className="inline-flex items-center gap-1 rounded-sm border border-dashed border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
         >
           <Plus className="size-3" />
           {unset ? (
@@ -388,6 +392,13 @@ export function TokenBindingPanel({
   // immediately selectable.
   const allRoles = [...new Set([...vocabulary, ...extraRoles, ...Object.values(tokenAdds).map((a) => a.kebabKey)])];
   const colorOpts = tokenOptions(allRoles);
+  /**
+   * The promote path's refusal, made visible. The comment below it said refusing loudly
+   * beats staging an edit the server will reject — and then returned silently, so the
+   * button did nothing and said nothing. Reachable: the role is parsed from the authored
+   * class, not from `families`, so an adapter with no semantic family still renders it.
+   */
+  const [promoteError, setPromoteError] = useState<string | null>(null);
 
   /**
    * Interaction states for one scope. The rows are computed from the AUTHORED
@@ -403,6 +414,11 @@ export function TokenBindingPanel({
         <p className="mb-1.5 flex items-center gap-1 font-code text-[11px] uppercase tracking-wide text-muted-foreground">
           <MousePointer2 className="size-3" /> interaction states
         </p>
+        {promoteError && (
+          <p className="mb-1.5 flex items-center gap-1 text-[10px] text-destructive">
+            <TriangleAlert className="size-3 shrink-0" /> Could not promote: {promoteError}
+          </p>
+        )}
         <div className="flex flex-col gap-2">
           {slots.map((slot) => {
             const key = `${component.name}|${scope.id}|st|${slot.state}|${slot.utility}`;
@@ -478,11 +494,15 @@ export function TokenBindingPanel({
               // Seeded with the colour the modifier resolved to, so promoting changes
               // nothing visually until the token is edited — and it still resolves per
               // theme because it references var(--role).
-              const staged = stageTokenAdd(families, 'semantic', kebab, derivedStateValue(role, opacity));
-              // An adapter with no semantic family cannot have produced this control, but
-              // refusing loudly beats staging an edit the server will reject.
-              if ('error' in staged) return;
-              onTokenAdd(staged.key, staged);
+              // Named `promoted`, not `staged`: the outer `staged` (this slot's pending
+              // class edit) is still live below and was being shadowed here.
+              const promoted = stageTokenAdd(families, 'semantic', kebab, derivedStateValue(role, opacity));
+              if ('error' in promoted) {
+                setPromoteError(promoted.error);
+                return;
+              }
+              setPromoteError(null);
+              onTokenAdd(promoted.key, promoted);
               write(kebab, 100);
             };
 
@@ -493,7 +513,17 @@ export function TokenBindingPanel({
                 roleOptions={colorOpts}
                 staged={staged}
                 onChange={write}
-                onAdd={() => write(slot.base?.role ?? allRoles[0], DEFAULT_STATE_OPACITY[slot.state])}
+                /*
+                 * Guarded: with no vocabulary, no extras and nothing staged, `allRoles[0]`
+                 * is `undefined` and `buildColorClass` produced `hover:bg-undefined` — an
+                 * edit the server cannot apply. `slot.base?.role` is optional, so there is
+                 * no other value to fall back to; the control simply cannot act yet.
+                 */
+                onAdd={
+                  slot.base?.role ?? allRoles[0]
+                    ? () => write(slot.base?.role ?? allRoles[0], DEFAULT_STATE_OPACITY[slot.state])
+                    : undefined
+                }
                 onReset={() => onClassEdit(key, null)}
                 onUnset={unset}
                 onPromote={promote}

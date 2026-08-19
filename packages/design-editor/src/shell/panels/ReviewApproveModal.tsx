@@ -85,6 +85,12 @@ interface PreviewCard {
   tokenStyle: CSSProperties;
   /** For a new-token card: a single color swatch instead of a component preview. */
   swatch?: string;
+  /**
+   * The variable the new-token card names, carried rather than recovered from `title`.
+   * The title is built from the ADAPTER's label, so the literal it used to be parsed
+   * against (`New token · --`) matched nothing and the card rendered `--New color · primary`.
+   */
+  cssVar?: string;
   /** For a rebind/palette card: before → after color swatches. */
   swatchBefore?: string;
   swatchAfter?: string;
@@ -184,6 +190,7 @@ export function ReviewApproveModal({
         baseClass: '',
         tokenStyle: {},
         swatch: a.value,
+        cssVar: a.cssVar,
       });
     }
 
@@ -291,7 +298,13 @@ export function ReviewApproveModal({
   // Bridge unreachable (dev server down / network) — a transport error on ANY
   // dry-run. This is a different, louder failure than "couldn't locate a node".
   const bridgeDown = diffs.some((d) => !!d.error);
-  const anyMissing = diffs.some((d) => !d.located && !d.error);
+  /**
+   * ONE derivation, three readers. The banner's visibility, its count and its button each
+   * had their own filter and two of them omitted `d.ref` — so a row with no ref was counted,
+   * was not discarded, and kept the banner up after the click.
+   */
+  const unmatched = useMemo(() => diffs.filter((d) => !d.located && !d.error && d.ref), [diffs]);
+  const anyMissing = unmatched.length > 0;
   const card = cards[index];
 
   const approve = async () => {
@@ -301,10 +314,23 @@ export function ReviewApproveModal({
     setApplying(false);
 
     if (!res.ok) {
-      // Transport failure — surface loudly and keep the modal open.
       const err = res.error ?? 'commit failed';
-      notify('error', 'Mutation bridge unreachable', `${err} — is the Vite dev server running?`);
-      setDiffs((prev) => prev.map((d) => ({ ...d, error: err })));
+      /*
+       * SAME TEST AS THE DRY RUN ABOVE. `/commit` is all-or-nothing and answers a refusal
+       * with a 409 — the same `ok: false` a dead server produces, which is why `status`
+       * exists. Reporting both as transport told the user to restart a dev server that is
+       * running, and set `error` on every row, which flips `bridgeDown` and locks the
+       * button at "Bridge offline" until the modal is reopened.
+       */
+      if (res.status === undefined) {
+        notify('error', 'Mutation bridge unreachable', `${err} — is the Vite dev server running?`);
+        setDiffs((prev) => prev.map((d) => ({ ...d, error: err })));
+      } else {
+        // A refusal: the write did not happen, and the reason belongs on the rows as a
+        // reason, not as a transport error.
+        notify('error', 'Nothing was written', err);
+        setDiffs((prev) => prev.map((d) => ({ ...d, located: false, reason: d.reason ?? err })));
+      }
       return;
     }
 
@@ -437,7 +463,7 @@ export function ReviewApproveModal({
                   aria-hidden
                 />
                 <div className="min-w-0 font-code text-xs text-muted-foreground">
-                  <p className="text-foreground">--{card.title.replace('New token · --', '')}</p>
+                  <p className="text-foreground">--{card.cssVar}</p>
                   <p className="mt-0.5 truncate">{card.swatch}</p>
                   <p className="mt-1 text-[10px]">
                     Created as a CSS variable. Map it to a Tailwind utility
@@ -537,11 +563,11 @@ export function ReviewApproveModal({
                 will keep reporting unsaved changes until you re-make it or discard it.
               </p>
               <button
-                onClick={() => onDiscard(diffs.filter((d) => !d.located && !d.error && d.ref).map((d) => d.ref!))}
+                onClick={() => onDiscard(unmatched.map((d) => d.ref!))}
                 className="mt-1 rounded-sm border border-amber-500/50 px-1.5 py-0.5 text-[11px] transition-colors hover:bg-amber-500/15"
               >
-                Discard the {diffs.filter((d) => !d.located && !d.error).length} unmatched edit
-                {diffs.filter((d) => !d.located && !d.error).length === 1 ? '' : 's'}
+                Discard the {unmatched.length} unmatched edit
+                {unmatched.length === 1 ? '' : 's'}
               </button>
             </div>
           </div>

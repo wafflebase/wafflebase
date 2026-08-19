@@ -137,7 +137,9 @@ export function AddTokenDraft({
       <div className="mb-1.5 flex items-center gap-1.5">
         <span className="text-[10px] font-medium uppercase tracking-wide text-primary">New {meta.label}</span>
         <span className="font-code text-[10px] text-muted-foreground">
-          {kebab ? cssVarFor(meta, kebab) : cssVarFor(meta, meta.placeholder)}
+          {/* The prefix alone until a name is typed. `meta.placeholder` is the VALUE
+              placeholder, so feeding it here rendered `--oklch(0.7 0.1 250)`. */}
+          {kebab ? cssVarFor(meta, kebab) : meta.cssVarPrefix}
         </span>
       </div>
 
@@ -147,7 +149,7 @@ export function AddTokenDraft({
           value={name}
           onChange={(e) => { setName(e.target.value); setError(null); }}
           onKeyDown={onKeyDown}
-          placeholder={meta.placeholder}
+          placeholder={`${meta.label.toLowerCase()}-name`}
           aria-label={`New ${meta.label} name`}
           spellCheck={false}
           className="min-w-0 flex-1 rounded-sm border border-input bg-background px-1.5 py-1 font-code text-[11px] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -165,6 +167,7 @@ export function AddTokenDraft({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={onKeyDown}
+          placeholder={meta.placeholder}
           aria-label={`New ${meta.label} value`}
           spellCheck={false}
           className="min-w-0 flex-[1.4] rounded-sm border border-input bg-background px-1.5 py-1 font-code text-[11px] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"

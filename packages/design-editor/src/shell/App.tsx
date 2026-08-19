@@ -320,6 +320,16 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
    * first render has no manifest at all.
    */
   const mountable = useMemo(() => scenes.filter((s) => !s.deferred), [scenes]);
+  /**
+   * ONE derivation, gated ONCE. These were computed inline at two call sites with
+   * different guards — the vocabulary behind `families?.length`, `existingRoles` behind
+   * nothing — while `SEMANTIC_VOCABULARY` reads `bindings.themed.light`, a different field.
+   * An adapter with bindings but no families therefore produced an empty `allRoles` beside
+   * a full `existingRoles`, which suppressed `promoteTarget` for roles the picker could not
+   * offer either: no way forward, and no reason shown.
+   */
+  const vocabulary = useMemo(() => (tokens ? SEMANTIC_VOCABULARY(tokens) : []), [tokens]);
+  const existingRoles = useMemo(() => new Set(vocabulary), [vocabulary]);
   useEffect(() => {
     if (!scenes.length) return;
     // MOUNTABLE only. A deferred scene has no loader, so defaulting to one opens a frame
@@ -940,9 +950,6 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
             */}
             {allComponents.length > 0 && (
               <div className="min-h-0 shrink-0 border-t border-wb-border pt-2" style={{ maxHeight: '45%' }}>
-                <p className="pb-1 font-mono text-[10px] uppercase tracking-wide text-wb-muted">
-                  Components
-                </p>
                 <div className="max-h-40 overflow-y-auto">
                   <ComponentList
                     components={allComponents}
@@ -969,6 +976,15 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 onMeasured={setSelectionRect}
                 onSelectionHostRect={setSelectionHostRect}
               />
+            ) : scenes.length > 0 ? (
+              // The manifest DID arrive; every scene in it is deferred. Saying "waiting"
+              // here names the wrong cause and leaves the user waiting for something that
+              // already happened.
+              <p className="p-2 text-[11px] text-wb-muted">
+                Every scene in this manifest is <span className="font-code">deferred</span>, so
+                there is nothing to mount. Drop <span className="font-code">deferred</span> on a
+                scene to open it here.
+              </p>
             ) : (
               <p className="p-2 text-[11px] text-wb-muted">
                 Waiting for the scene manifest…
@@ -1074,7 +1090,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                       setVariantState((prev) => ({ ...prev, [axis]: value }))
                     }
                     families={tokens?.families ?? []}
-                    vocabulary={tokens?.families?.length ? SEMANTIC_VOCABULARY(tokens) : []}
+                    vocabulary={vocabulary}
                     /*
                      * Roles that exist in source but not in the semantic family's own keys.
                      * Empty: `SEMANTIC_VOCABULARY` already reads the adapter's live keys, so
@@ -1086,7 +1102,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                     onClassEdit={(key, edit) => setIn('classEdits', key, edit, `class|${key}`)}
                     onTokenAdd={(key, add) => setIn('tokenAdds', key, add)}
                     tokenAdds={history.state.tokenAdds}
-                    existingRoles={new Set(SEMANTIC_VOCABULARY(tokens))}
+                    existingRoles={existingRoles}
                     dark={dark}
                     tokenStyle={tokenPreviewStyle({
                       theme: dark ? 'dark' : 'light',
