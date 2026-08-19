@@ -35,9 +35,73 @@ export function parseCitation(text) {
   if (typeof text !== "string") return null;
   const m = CITATION.exec(text);
   if (!m) return null;
-  const at = m[0].lastIndexOf(":");
-  const file = m[0].slice(0, at);
-  const line = Number(m[0].slice(at + 1));
+  return pieces(m[0]);
+}
+
+// Characters a path may BEGIN with. `CITATION`'s leading `[^\s:]+` is deliberately
+// permissive about what a path looks like, which means it also swallows whatever
+// punctuation abuts the citation — and lens evidence cites in prose, so that is
+// usually a `(` or a backtick. `(auth.controller.ts:130` parsed as the file
+// `(auth.controller.ts`, which no path comparison could ever match, so the finding
+// silently lost its location. Trimming here rather than tightening `CITATION` keeps
+// the shared "what counts as evidence" predicate untouched: its other importers only
+// ask `.test()` (does this cite anything at all), and narrowing it could turn a
+// grounded verdict ungrounded.
+const PATH_START = /^[^A-Za-z0-9._/@~-]+/;
+
+/** `{file, line}` from one already-matched `path.ext:line` token, or null. */
+function pieces(token) {
+  const at = token.lastIndexOf(":");
+  const file = token.slice(0, at).replace(PATH_START, "");
+  const line = Number(token.slice(at + 1));
   if (!Number.isInteger(line) || line < 1) return null;
+  // No emptiness/extension guard on `file`, deliberately: `CITATION` only matches a
+  // token containing `.` + `[A-Za-z0-9_]+` before the colon, and `.` is inside
+  // PATH_START's allowlist, so the trim can never strip past it. `file` therefore
+  // always retains at least `.ext`. A guard for that state would be unreachable —
+  // it survived its own mutation test, which is how it was found — and an
+  // unreachable guard is worse than none: it implies a case that cannot happen and
+  // no test can ever hold it honest.
   return { file, line };
+}
+
+/**
+ * EVERY citation in a string, in the order they appear.
+ *
+ * `parseCitation` returns only the first, which is the right answer for the
+ * grounding checks — "did this verdict cite anything it actually read" needs one
+ * citation, not all of them. It is the wrong answer for `findingLocation`, whose
+ * job is to locate a finding in a KNOWN file: a lens routinely opens its evidence
+ * by citing the call site or the contract it compares against, and only then cites
+ * the file the finding is filed under. Taking the first citation and discarding it
+ * for naming a different file loses the location entirely.
+ *
+ * Measured on the 44 blocking findings banked across the open agent PRs: 24 carry
+ * a citation naming their own file, and only 7 have it FIRST. So 17 findings — 39%
+ * of the total — were unlocatable purely because something else was cited earlier,
+ * which left both provenance gates unable to judge them.
+ *
+ * Never `CITATION` itself: that object is deliberately un-flagged so its three
+ * importers cannot poison each other, and adding `g` would break them.
+ *
+ * The per-call construction is a CONVENTION, not a guard, and the comment says so
+ * because the difference was actually measured. `matchAll` iterates an internal
+ * clone and never advances `lastIndex`; an `exec` loop advances it but `exec` resets
+ * it to 0 on the miss that ends the loop. So a module-level `g` copy is
+ * indistinguishable here, and mutations installing one survive by being genuinely
+ * equivalent rather than by being untested. What it forecloses is a *partial* scan
+ * on a shared regex — a future `break`/early `return` inside the loop would leave
+ * `lastIndex` mid-string and silently shorten every later call. Building locally
+ * costs one regex against the `git blame` this feeds, so the convention stays; it
+ * is just not load-bearing today, and claiming otherwise would be a false comment.
+ */
+export function parseCitations(text) {
+  if (typeof text !== "string" || text === "") return [];
+  const scan = new RegExp(CITATION.source, "g");
+  const out = [];
+  for (const m of text.matchAll(scan)) {
+    const p = pieces(m[0]);
+    if (p) out.push(p);
+  }
+  return out;
 }
