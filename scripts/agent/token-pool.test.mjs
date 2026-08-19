@@ -227,3 +227,71 @@ test("createTokenPool: retired tokens are reported for the run summary", () => {
   pool.advance("session limit");
   assert.equal(pool.retiredCount(), 1);
 });
+
+// --- slot NAMES: the cross-job hand-off ---------------------------------------
+
+test("liveSlotNames/retiredSlotNames: names, never tokens, and they partition the pool", () => {
+  // The fix job cannot consult this module (it runs `claude-code-action`), so the
+  // panel reports which SECRETS are still usable and the fixer resolves the name
+  // through the `secrets` context. Names only: the report travels in a workflow
+  // artifact, which is not a credential store.
+  const env = {
+    GITHUB_RUN_ID: "11",
+    CLAUDE_CODE_OAUTH_TOKEN: "tok-zero",
+    CLAUDE_CODE_OAUTH_TOKEN_1: "tok-one",
+    CLAUDE_CODE_OAUTH_TOKEN_2: "tok-two",
+  };
+  const pool = createTokenPool({ env });
+  const all = pool.slotNames();
+  assert.deepEqual(all, ["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_1", "CLAUDE_CODE_OAUTH_TOKEN_2"]);
+  assert.deepEqual(pool.liveSlotNames(), all);
+  assert.deepEqual(pool.retiredSlotNames(), []);
+
+  // No token value ever appears in either list.
+  for (const name of [...pool.liveSlotNames(), ...pool.retiredSlotNames(), ...all]) {
+    assert.ok(!name.startsWith("tok-"), `leaked a token value: ${name}`);
+  }
+
+  // Retiring moves exactly one name across, and the two lists stay a partition.
+  const dead = pool.current();
+  pool.advance("closed window", dead);
+  assert.equal(pool.retiredSlotNames().length, 1);
+  assert.equal(pool.liveSlotNames().length, 2);
+  assert.deepEqual(
+    [...pool.liveSlotNames(), ...pool.retiredSlotNames()].sort(),
+    [...all].sort(),
+    "every slot must be in exactly one list",
+  );
+});
+
+test("liveSlotNames: a fully drained pool reports NO live slots", () => {
+  // What makes the fixer's refusal safe: an empty `live` list with a non-zero size
+  // is the one state that means "do not spend a fix round".
+  const env = { GITHUB_RUN_ID: "3", CLAUDE_CODE_OAUTH_TOKEN: "a", CLAUDE_CODE_OAUTH_TOKEN_1: "b" };
+  const pool = createTokenPool({ env });
+  assert.equal(pool.size, 2);
+  while (pool.current() !== null) pool.advance("drain", pool.current());
+  assert.deepEqual(pool.liveSlotNames(), []);
+  assert.equal(pool.retiredSlotNames().length, 2);
+  assert.equal(pool.isExhausted(), true);
+});
+
+test("slotNames: an unconfigured pool has no slots and is not exhausted", () => {
+  // `size === 0` must stay distinguishable from a drained pool — the fixer treats
+  // the two oppositely.
+  const pool = createTokenPool({ env: { GITHUB_RUN_ID: "1" } });
+  assert.equal(pool.size, 0);
+  assert.deepEqual(pool.slotNames(), []);
+  assert.deepEqual(pool.liveSlotNames(), []);
+  assert.equal(pool.isExhausted(), false, "an absent pool is not a spent one");
+});
+
+test("slotNames: a duplicated secret is ONE slot, so the report cannot promise a false failover", () => {
+  // The migration state (unsuffixed secret also copied into `_1`) dedupes to one
+  // token. If the report listed both names the fixer could be handed the very
+  // credential the panel retired, under a different name.
+  const env = { GITHUB_RUN_ID: "5", CLAUDE_CODE_OAUTH_TOKEN: "same", CLAUDE_CODE_OAUTH_TOKEN_1: "same" };
+  const pool = createTokenPool({ env });
+  assert.equal(pool.size, 1);
+  assert.deepEqual(pool.slotNames(), ["CLAUDE_CODE_OAUTH_TOKEN"]);
+});

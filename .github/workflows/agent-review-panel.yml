@@ -1149,6 +1149,7 @@ jobs:
             .agent-review/review-execution.json
             .agent-review/review-lens-stats.json
             .agent-review/review-timing.json
+            .agent-review/review-pool-state.json
           if-no-files-found: ignore
           retention-days: 1
 
@@ -1682,8 +1683,77 @@ jobs:
       # the fixer is reached; the `stalled` net then pages. `test -s` catches the
       # staged file being absent or empty, which would otherwise post nothing and
       # succeed.
-      - name: Record the fix-round dispatch
+      # WHICH CREDENTIAL THE FIXER GETS, and whether one exists at all.
+      #
+      # `claude-code-action` takes ONE credential and cannot consult
+      # `token-pool.mjs`, so this step reads the pool state the panel recorded and
+      # names a slot the panel has not retired. Without it the fixer runs on
+      # `secrets.CLAUDE_CODE_OAUTH_TOKEN` — slot ZERO of that same pool — i.e. the
+      # credential the panel is likeliest to have just burned. On #876 that killed
+      # the fixer 1.6s after init (`is_error:true`, turns=1, tokens=0) AFTER the
+      # round had been recorded, so the PR paid a fix round for a session that never
+      # started.
+      #
+      # TRUSTED copy from `$RUNNER_TEMP/agent-tools`, which "Stage the trusted agent
+      # scripts" above snapshotted from trusted main BEFORE the branch was checked
+      # out. By this point the workspace holds the UNTRUSTED branch, so
+      # `./scripts/agent` is the branch's own copy and `.trusted/` does not exist in
+      # this job at all — that directory belongs to the review-panel job. Every other
+      # script here runs from the staged path for exactly this reason.
+      #
+      # `continue-on-error` with a fail-open default: only an explicit
+      # `available=false` stops the dispatch below. A missing artifact or a broken
+      # picker leaves `available` empty, which reads as "proceed" and is exactly
+      # today's behaviour — this must never be able to block a fixer that would have
+      # worked.
+      - name: Pick a live fixer credential
+        id: cred
         if: steps.guard.outputs.proceed == 'true'
+        continue-on-error: true
+        run: |
+          [ -f "$RUNNER_TEMP/agent-tools/pick-fix-credential.mjs" ] || {
+            echo "pick-fix-credential.mjs is not on main yet; proceeding as before"
+            exit 0
+          }
+          node "$RUNNER_TEMP/agent-tools/pick-fix-credential.mjs" --state /tmp/review-panel-execution
+
+      # NO LIVE CREDENTIAL — page, and spend nothing.
+      #
+      # This is its own page because the `stalled` net cannot see it: skipping the
+      # steps below leaves the `fix` job GREEN, so `r.fix === 'failure'` is false and
+      # the PR would stall silently with no comment at all. The message says what a
+      # usage window actually needs, because unlike every other page here this one
+      # commonly clears on its own.
+      - name: Page — no live credential for the fixer
+        if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available == 'false'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ needs.review-panel.outputs.pr }}
+          CAPACITY: ${{ steps.cred.outputs.capacity }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # Body assembled with printf into a file, then posted with --body-file. An
+        # UNQUOTED heredoc would interpolate the marker and the backticks as shell;
+        # a quoted one cannot see $CAPACITY. printf keeps the marker literal and the
+        # env values substituted, and every workflow expression stays in `env:` —
+        # repo convention for steps that hold a token.
+        run: |
+          {
+            printf '%s\n' '<!-- agent-review-paged -->'
+            printf '%s\n\n' '🛑 The fix agent was **not dispatched**: no Claude credential had an open usage window, so a fix round would have been spent on a session that could not start.'
+            printf '%s\n\n' '**No fix round was consumed** — this PR'"'"'s budget is untouched.'
+            printf 'Credential capacity: %s\n\n' "${CAPACITY:-unknown}"
+            printf '%s\n\n' 'This often clears by itself, because usage windows reset. Comment `@claude rerun` once they have, or register more `CLAUDE_CODE_OAUTH_TOKEN_N` repository secrets so a heavy review round cannot starve the fixer.'
+            printf '%s\n\n' 'The review panel will not run again on this PR by itself, so the `agent-review-*` checks are frozen at their current state and the ready gate will not promote it — a rerun is what restarts the loop.'
+            printf 'Where to look: [this run](%s) — the `Pick a live fixer credential` step names the slots it found.\n' "$RUN_URL"
+          } > "$RUNNER_TEMP/no-credential.md"
+          gh pr comment "$PR" --body-file "$RUNNER_TEMP/no-credential.md"
+
+      - name: Record the fix-round dispatch
+        # `!= 'false'` and not `== 'true'`: an unset output (picker skipped, older
+        # branch, step errored) must proceed exactly as before. Only a KNOWN-drained
+        # pool stops the round from being recorded.
+        if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available != 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
@@ -1693,12 +1763,17 @@ jobs:
           gh pr comment "$PR" --body-file "$DISPATCH_FILE"
 
       - name: Address panel findings
-        if: steps.guard.outputs.proceed == 'true'
+        if: steps.guard.outputs.proceed == 'true' && steps.cred.outputs.available != 'false'
         # Pinned to the v1 release commit (immutable). github_token is the App
         # token so the fix push re-triggers CI (and a fresh review panel).
         uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The slot the picker named, falling back to the unsuffixed secret. The
+          # TOKEN never passes through a step output — only the slot NUMBER does, and
+          # the value is resolved here through the `secrets` context so it stays
+          # inside GitHub's masking. An unset picked secret yields '' and falls
+          # through to the same default this line used before.
+          claude_code_oauth_token: ${{ steps.cred.outputs.slot != '' && secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.cred.outputs.slot)] || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app-token.outputs.token }}
           # Triggered by workflow_run from the agent's own (bot) push, so the
           # initiating actor is the App bot. claude-code-action blocks

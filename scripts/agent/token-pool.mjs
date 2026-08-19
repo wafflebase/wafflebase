@@ -130,7 +130,11 @@ export function createTokenPool({
   // Set by a workflow whose jobs share one run id — see shardOffset.
   shard = env.CLAUDE_POOL_SHARD,
 } = {}) {
-  const tokens = readPoolTokens(env);
+  // Slots, not bare tokens: the NAME has to survive so a diagnostic — and the
+  // fixer's credential picker — can say WHICH secret is live without printing a
+  // credential. `readPoolTokens` is kept for callers that only want the values.
+  const slots = readPoolSlots(env);
+  const tokens = slots.map((slot) => slot.token);
   const retired = new Set();
   let index = selectStartIndex(tokens.length, { runId, runAttempt, shard });
 
@@ -140,6 +144,25 @@ export function createTokenPool({
     size: tokens.length,
     current,
     retiredCount: () => retired.size,
+
+    /**
+     * The env var names of the slots this process has NOT retired, in slot order.
+     *
+     * Names, never tokens. This exists so one job can tell ANOTHER job which
+     * credentials still have an open window — the panel runs the SDK (and so owns
+     * the pool), while the fixer runs `claude-code-action`, which takes a single
+     * credential and cannot consult a pool. Without a channel between them the
+     * fixer falls back to the ambient variable, which is slot zero: the credential
+     * `isExhausted` documents as "one the pool has already retired".
+     *
+     * `retiredSlotNames` is its complement and is reported for the operator: a
+     * page that says which accounts closed is actionable, one that says "a lens
+     * failed" is not.
+     */
+    liveSlotNames: () => slots.filter((_, i) => !retired.has(i)).map((slot) => slot.name),
+    retiredSlotNames: () => slots.filter((_, i) => retired.has(i)).map((slot) => slot.name),
+    /** Every configured slot name, in order — the denominator for a capacity report. */
+    slotNames: () => slots.map((slot) => slot.name),
 
     /**
      * Has a CONFIGURED pool been used up?

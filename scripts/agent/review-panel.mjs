@@ -45,6 +45,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify, renderSummaryMd, BLOCKING, normalizeSeverity, KNOWN } from "./severity.mjs";
 import { askStructured, withRetry, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, assertEffort } from "./ask.mjs";
+import { tokenPool } from "./ask.mjs";
+import { MAX_SLOTS } from "./token-pool.mjs";
 import { publicInfraReason, redactSecrets } from "./redact.mjs";
 import { renderScopeNote, serializeReviewState } from "./review-state.mjs";
 import { CITATION } from "./citation.mjs";
@@ -3127,6 +3129,35 @@ async function main() {
     path.join(outDir, "review-timing.json"),
     JSON.stringify({ wallMs: Date.now() - wallStart, startedAt: wallStart, endedAt: Date.now() }),
   );
+  // WHICH CREDENTIALS SURVIVED THIS ROUND. The hand-off the fixer needs and could
+  // not previously have: this job owns the pool (it drives the SDK), while the fix
+  // job runs `claude-code-action`, which takes ONE credential and cannot consult a
+  // pool. Without this file the fixer falls back to the ambient variable — slot
+  // zero, the credential `token-pool.mjs::isExhausted` documents as "one the pool
+  // has already retired" — and dies on startup with `is_error:true` and zero tokens
+  // spent, having consumed a fix round for nothing. Observed on #876.
+  //
+  // NAMES ONLY, never tokens. A workflow artifact is not a secret store, and the
+  // consumer does not need the value: it resolves the name through the `secrets`
+  // context, so the credential never leaves GitHub's own masking.
+  //
+  // Best-effort, like every other file here — a pool that cannot be read leaves the
+  // fixer exactly as it behaves today.
+  try {
+    const pool = tokenPool();
+    writeFileSync(
+      path.join(outDir, "review-pool-state.json"),
+      JSON.stringify({
+        v: 1,
+        size: pool.size,
+        maxSlots: MAX_SLOTS,
+        live: pool.liveSlotNames(),
+        retired: pool.retiredSlotNames(),
+      }),
+    );
+  } catch (err) {
+    console.error(`could not record pool state: ${String(err?.message ?? err)}`);
+  }
   process.stdout.write(panel.map((p) => `${p.id}: ${p.conclusion}${p.infraError ? " (infra)" : ""}`).join("\n") + "\n");
   // If EVERY applicable blocking lens failed on an API/quota error, the panel
   // never actually ran — surface it loudly so the workflow pages honestly (and
