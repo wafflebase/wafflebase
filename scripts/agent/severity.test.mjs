@@ -69,6 +69,82 @@ test("renderSummaryMd: a demotion prints the evidence that makes it auditable", 
   assert.match(md, /content dates to `fd374623f`/);
 });
 
+test("renderSummaryMd: out-of-scope findings get their own section and proof line", () => {
+  const md = renderSummaryMd("R", [], "", {
+    demoted: [
+      {
+        severity: "major",
+        file: "added-by-fixer.mjs",
+        summary: "unvalidated payload",
+        surface: { scope: "out-of-scope", addedBy: "fd374623f5aa9911", contentSha: "fd374623f5aa9911" },
+      },
+    ],
+  });
+  assert.match(md, /Out of scope — added by a later fix round \(1, not blocking\)/);
+  assert.match(md, /unvalidated payload/);
+  assert.match(md, /added by `fd374623f`, after the review surface froze/);
+  // It must NOT claim the code predates anything — that is the relocated gate's
+  // claim and the opposite of this one.
+  assert.doesNotMatch(md, /Relocated code/);
+  assert.doesNotMatch(md, /already existed/);
+});
+
+test("renderSummaryMd: the two demotion reasons render under separate headings", () => {
+  const md = renderSummaryMd("R", [], "", {
+    demoted: [
+      { severity: "major", summary: "old bug", novelty: { origin: "relocated", alsoAt: "abc123:old.mjs:42" } },
+      { severity: "major", summary: "fixer bug", surface: { scope: "out-of-scope", addedBy: "f".repeat(40) } },
+    ],
+  });
+  assert.match(md, /Relocated code — not written by this change \(1, not blocking\)/);
+  assert.match(md, /Out of scope — added by a later fix round \(1, not blocking\)/);
+  assert.match(md, /old bug/);
+  assert.match(md, /fixer bug/);
+});
+
+test("renderSummaryMd: novelty is reported over scope when both gates would demote", () => {
+  // `routeFinding` tests novelty first, so the section must name the gate that
+  // actually demoted the finding rather than one that merely would have.
+  const md = renderSummaryMd("R", [], "", {
+    demoted: [
+      {
+        severity: "major",
+        summary: "both",
+        novelty: { origin: "relocated", alsoAt: "abc123:old.mjs:42" },
+        surface: { scope: "out-of-scope", addedBy: "f".repeat(40) },
+      },
+    ],
+  });
+  assert.match(md, /Relocated code — not written by this change \(1, not blocking\)/);
+  assert.doesNotMatch(md, /Out of scope/);
+});
+
+test("renderSummaryMd: an in-scope surface stamp does not demote or re-file anything", () => {
+  // The gate stamps every finding it judged, including the ones it KEPT. A stamp
+  // that read as a demotion would move gating findings out of the header count.
+  const md = renderSummaryMd("R", [], "", {
+    demoted: [{ severity: "major", summary: "kept-but-listed", surface: { scope: "in-scope", addedBy: "a".repeat(40) } }],
+  });
+  // It was handed to us as demoted, so it renders — but under the default heading,
+  // never as an out-of-scope claim we cannot support.
+  assert.doesNotMatch(md, /Out of scope/);
+  assert.match(md, /kept-but-listed/);
+});
+
+test("renderSummaryMd: an out-of-scope demotion never vanishes from the body", () => {
+  // The one property that matters most: a demoted finding that renders NOWHERE is
+  // a silently lost finding.
+  for (const surface of [
+    { scope: "out-of-scope", addedBy: null },
+    { scope: "out-of-scope" },
+    { scope: "unknown" },
+    {},
+  ]) {
+    const md = renderSummaryMd("R", [], "", { demoted: [{ severity: "major", summary: "must-appear", surface }] });
+    assert.match(md, /must-appear/, JSON.stringify(surface));
+  }
+});
+
 test("renderSummaryMd: a demotion with no established proof asserts nothing", () => {
   // An audit line that can be false is worse than none — its whole job is to let
   // a reader check the demotion.

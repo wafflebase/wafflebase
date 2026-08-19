@@ -1433,6 +1433,71 @@ Components:
   `scripts/agent/metrics.mjs` renders it; read `unknownOrigin` first, since a zero `backlog`
   beside a high `unknownOrigin` means the gate ran blind rather than that nothing
   was relocated.
+  **The surface gate** (`scripts/agent/review-surface.mjs`) answers the sibling
+  question: *did a FIX ROUND put this line here?* It exists because the loop could
+  not converge. Measured over 88 scored rounds on the 8 non-converging draft agent
+  PRs of 2026-08: **79% of every round's blocking findings were newly discovered
+  rather than re-raised** (373 new against 97 carried, matched with the panel's own
+  `findingSimilarity`), the reviewed diff never shrank (+228..+358 lines per round;
+  #786 went 15 files/+218 at round 1 to 47 files/+5,595 at round 16, #810 8/+251 to
+  61/+5,059), and the finding count stayed flat at ~6 per round throughout. That is
+  roughly one blocking finding per 50 new lines: the fixer wrote ~300 lines to clear
+  ~6 findings and those lines minted ~6 more, so **the loop's fixed point was ~6
+  findings rather than 0**. `detectStalledRounds` could not see it — it requires
+  findings to REPEAT (`repeatRatio >= 0.30` twice consecutively with a non-falling
+  count) and these did not, so it reported `progressing`; replayed fresh at every
+  round it fires on exactly one of the eight, at that PR's LAST round. Seven of
+  eight ran to the round cap, paged, and `@claude rerun` granted a fresh budget
+  without changing the dynamic. The findings were mostly legitimate; the defect was
+  that nothing bounded what the PR was allowed to grow into.
+  So the review surface **freezes**. A blocking finding on a line a fix round wrote
+  stops gating: it is still reported, but it stops failing the lens check and stops
+  reaching the fixer, which is what breaks the cycle. The anchor is the head sha at
+  the moment the fixer was FIRST dispatched — the `from` field of the first
+  `<!-- agent-fix-dispatch -->` record, i.e. the PR exactly as the implement job
+  left it. That ledger is already author-gated to `github-actions[bot]`, so a branch
+  cannot move its own freeze point, and the **rerun floor is deliberately not
+  applied**: `fixRoundsUsed` cuts records before a `@claude rerun` because a
+  hand-back grants a fresh *budget*, but the surface is not a budget, and
+  re-freezing around whatever the fixer has since written would let the treadmill
+  back in one rerun at a time.
+  The rule needs **two** blames, exactly as novelty does but with the content test
+  INVERTED. Novelty demotes when the content is old; this demotes when the content
+  is new. Both are required because a fix round that RELOCATED original
+  implement-diff code into a new file gets plain-blamed to the fix commit while its
+  content predates the freeze — that is the PR's own code and must keep gating. Only
+  a line whose plain blame AND move-aware blame both land after the freeze point is
+  `out-of-scope`. There is deliberately no file-level test: "this file did not exist
+  at freeze time" is cheaper and worse, because the fixer legitimately grows
+  original files and the out-of-diff mandate carried by blast-radius, correctness
+  and security routinely cites untouched ones.
+  `critical` is **carved out on severity alone** and never demotes on scope. The
+  argument for demoting is "this is not what the PR was scoped to fix", which is a
+  scheduling claim, and it stops being worth making when the alternative is shipping
+  a critical bug; the cost is bounded because critical is rare beside major in this
+  corpus. Demotion routes through the same `backlog` lane novelty uses, so
+  out-of-scope findings inherit its whole downstream treatment for free — dropped
+  from the check's machine-readable findings, therefore invisible to the
+  carry-forward and to the non-convergence detector — and `clusterFindings` still
+  promotes a demoted survivor back to `blocking` when any other wording of the same
+  defect gated, so a lens reporting one defect twice cannot demote it by citing the
+  fixer's copy. The two demotion reasons render under separate headings, because
+  "the code already existed" and "a fix round wrote this" are opposite claims and a
+  shared heading would make one of them a false audit line.
+  FAIL DIRECTION, as everywhere here: every uncertain path yields `unknown`, which
+  keeps the finding blocking — no `--frozen-sha`, no citation, an unresolvable sha, a
+  failed or timed-out blame, a shallow clone. One case is checked **once and
+  loudly** rather than inferred per finding: a freeze point that resolves but is not
+  an ancestor of `HEAD` (a rebase, force-push or amend) would make every line look
+  post-freeze and demote the entire PR off the gate at once, so `freezeResolves`
+  refuses it and turns the gate off. Carried-forward prior findings are not routed,
+  for a reason that binds harder here than for novelty: a stale offset landing inside
+  fixer-written code would demote a still-open blocker permanently, a fail-open
+  produced by nothing but line drift. Filing the demoted findings as follow-up issues
+  is deliberately NOT part of this — they are reported in the check body where
+  `relocated` demotions already live, and issue-filing from the panel job is a larger
+  blast radius that belongs in its own change.
+
   **Token attribution.** Every SDK call is stamped with `{ lens, role }`
   (`role` ∈ `detection` | `verifier`) as `scripts/agent/ask.mjs` pushes its result
   to the shared execution log, so `scripts/agent/metrics.mjs`'s
