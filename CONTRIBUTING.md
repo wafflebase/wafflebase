@@ -18,8 +18,8 @@ workflow.
 
 All PRs target `main`. CI runs `verify:self` and `verify:integration` —
 only the parts your change can affect (see
-[What CI actually runs](#what-ci-actually-runs)) — and posts a summary as
-a PR comment.
+[What CI actually runs](#what-ci-actually-runs)) — and comments with the
+scope it chose.
 
 ## Before you start
 
@@ -98,9 +98,10 @@ your change.
 | `pnpm verify:self`               | Before opening a PR. Adds full builds, chunk budgets, visual + entropy checks. |
 | `pnpm verify:integration:docker` | When touching backend, datasource, share-link, or Yorkie code paths. Spins up Postgres + Yorkie automatically. |
 
-CI re-runs these on every PR and posts a per-lane summary comment. The
-two checkboxes in the PR template must be green (or the skip reason
-filled in) before review.
+CI re-runs these on every PR. Pass/fail is in the PR's checks list; the
+comment reports the scope CI chose — what was skipped and why. The two
+checkboxes in the PR template must be green (or the skip reason filled
+in) before review.
 
 ## What CI actually runs
 

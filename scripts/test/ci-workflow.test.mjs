@@ -247,6 +247,7 @@ function readReportSteps() {
     const body = lines.slice(start, heads[n + 1] ?? lines.length);
     const nameLine = body.find((l) => /^ {6}- name:|^ {8}name:/.test(l));
     const tokenLine = body.find((l) => /^ {10}github-token:/.test(l));
+    const ifLine = body.find((l) => /^ {8}if:/.test(l));
 
     let script = null;
     const scriptAt = body.findIndex((l) => /^ {10}script: \|/.test(l));
@@ -262,6 +263,7 @@ function readReportSteps() {
     return {
       name: nameLine ? nameLine.replace(/^\s*-?\s*name:/, "").trim() : `step ${n + 1}`,
       token: tokenLine ? tokenLine.replace(/^ {10}github-token:/, "").trim() : null,
+      condition: ifLine ? ifLine.replace(/^ {8}if:/, "").trim() : null,
       script,
     };
   });
@@ -354,4 +356,139 @@ test("ci-report.yml keeps its reads off the App token", () => {
     "one step both reads with ambient-only permissions and writes with the App " +
       "token — `github-script` binds ONE client per step, so it cannot do both.",
   );
+});
+
+test("ci-report.yml's skip facts read ci.yml's gate-marker step", () => {
+  // THE BUG THIS EXISTS FOR. The first version of this read the heavy job's own
+  // conclusion — `j.conclusion === 'skipped'`. `ci.yml` gates the STEPS and never
+  // the job, because a job-level `if:` files the check run under the bare name and
+  // branch protection requires the matrix one. So a heavy job that did nothing
+  // still concludes `success`, that comparison was never true, and every reduced
+  // run was reported as "Full CI / No job was skipped" — the comment's entire
+  // payload, wrong in the one direction it exists to report, with nothing failing.
+  const resolve = readReportSteps().find((s) => /Resolve what to report/.test(s.name));
+  assert.ok(resolve?.script, "ci-report.yml has no `Resolve what to report` step");
+
+  assert.ok(
+    !/\.conclusion\s*===\s*['"]skipped['"]/.test(resolve.script),
+    "ci-report.yml decides `skipped` by comparing a conclusion to 'skipped'. For a " +
+      "JOB that is always false — ci.yml gates steps, not jobs — so read the " +
+      "gate-marker step's conclusion instead.",
+  );
+
+  const declared = resolve.script.match(/const GATE_STEP = '([^']+)'/);
+  assert.ok(declared, "ci-report.yml no longer declares GATE_STEP");
+  const gateStep = declared[1];
+
+  // The coupling, and the reason this test spans both files: that name has to be a
+  // real step in every heavy job, and it has to be the one that runs only when the
+  // gate is CLOSED. Rename it in ci.yml alone and every run reports as full CI.
+  const jobs = readJobs();
+  for (const name of ["verify-browser", "verify-integration"]) {
+    const job = jobs.find((j) => j.name === name);
+    assert.ok(job, `${name} not found in ci.yml`);
+
+    const at = job.lines.findIndex((l) => /^ {6}- name:/.test(l) && l.includes(gateStep));
+    assert.ok(
+      at >= 0,
+      `ci-report.yml looks for a step named ${JSON.stringify(gateStep)} in ${name}, ` +
+        `and ci.yml has none — the two files have drifted and every reduced run ` +
+        `would be reported as the whole suite.`,
+    );
+
+    const body = [];
+    for (let i = at + 1; i < job.lines.length && !/^ {6}- /.test(job.lines[i]); i++) {
+      body.push(job.lines[i]);
+    }
+    const condition = body.filter((l) => /^ {8}if:/.test(l)).join(" ");
+    assert.match(
+      condition,
+      /RUN_HEAVY != 'true'/,
+      `${name}: the gate-marker step ${JSON.stringify(gateStep)} must run only when ` +
+        `the gate is closed (\`RUN_HEAVY != 'true'\`), or its success proves nothing ` +
+        `about whether the job did any work.\n  if: ${condition || "(none)"}`,
+    );
+  }
+});
+
+test("ci-report.yml writes nothing until the pull request is bound", () => {
+  // `ci-context/pr-number` is produced by a job that ran the pull request's own
+  // code, so on a fork it is attacker-chosen. The read step validates it against
+  // `run.head_sha` and leaves `pr_number` unset when it does not match — this
+  // `if:` is the whole reason that validation binds rather than advises.
+  const writes = readReportSteps().filter((s) => s.token?.includes("app-token"));
+  assert.equal(
+    writes.length,
+    1,
+    `expected exactly one App-token step in ci-report.yml, found ${writes.length}`,
+  );
+  assert.match(
+    writes[0].condition ?? "(none)",
+    /steps\.resolve\.outputs\.pr_number != ''/,
+    `step \`${writes[0].name}\` writes on the App token with no \`pr_number\` gate, ` +
+      `so an unvalidated number would be commented on and labelled.`,
+  );
+});
+
+test("ci-report.yml's scope heading is what ran, not what changed", () => {
+  // `skipped` is measured from the run's own steps. The gating-file list is
+  // recomputed independently — base-branch globs against the API's file list — so
+  // the two can disagree, and only the first is evidence of what happened. The
+  // gating-file block may append a reason; it must never own the heading, or the
+  // comment asserts a suite that did not run.
+  const step = readReportSteps().find((s) => s.script?.includes("const marker ="));
+  assert.ok(step, "ci-report.yml has no comment-body step");
+  const lines = step.script.split("\n");
+
+  const scopeAt = lines.findIndex((l) => l.includes("if (skipped === null)"));
+  const gatingAt = lines.findIndex((l) => l.includes("if (gatingFiles"));
+  assert.ok(scopeAt >= 0, "the body no longer branches on `skipped`");
+  assert.ok(gatingAt >= 0, "the body no longer reports which gating files changed");
+  assert.ok(
+    scopeAt < gatingAt,
+    "the gating-file branch is reached first, so a run whose heavy jobs were " +
+      "skipped is still reported as the whole suite. The heading has to come from " +
+      "`skipped`, and the gating files after it.",
+  );
+
+  // Bounded to the gating block. `readReportSteps` has already dedented the script
+  // body, so the closing brace sits at column 0.
+  const end = lines.findIndex((l, i) => i > gatingAt && /^\}$/.test(l));
+  assert.ok(end > gatingAt, "could not find the end of the gating-file block");
+  const block = lines.slice(gatingAt, end).join("\n");
+  assert.ok(
+    !/lines\.push\([`']###/.test(block),
+    "the gating-file block pushes its own `###` heading. It may add a reason, but " +
+      "the heading must state what the run actually did.",
+  );
+
+  // The three headings the run's own facts produce, and nothing else.
+  for (const heading of ["### CI scope unknown", "### Reduced CI", "### Full CI"]) {
+    assert.ok(
+      step.script.includes(heading),
+      `the comment body no longer has a ${JSON.stringify(heading)} branch`,
+    );
+  }
+});
+
+test("ci-report.yml interpolates no artifact field raw", () => {
+  // `summary.json` and `areas.json` are written by a job running the pull
+  // request's own code. Reaching markdown, every string from them goes through
+  // `clean` (which strips `<`, `>`, backticks, pipes and newlines) and every count
+  // through a numeric coercion. Interpolated raw, one of them can forge the
+  // `<!-- harness-verification -->` marker this file upserts on — arbitrary hidden
+  // markup published under the bot's identity, on a comment reviewers trust.
+  const step = readReportSteps().find((s) => s.script?.includes("const marker ="));
+  assert.ok(step, "ci-report.yml has no comment-body step");
+
+  for (const line of step.script.split("\n")) {
+    if (!/lines\.push\(/.test(line)) continue;
+    for (const [, expr] of line.matchAll(/\$\{([^}]+)\}/g)) {
+      assert.ok(
+        !/\b(summary|areas)\b/.test(expr),
+        `ci-report.yml interpolates \`${expr.trim()}\` straight into the comment. ` +
+          `Route it through \`clean\`, or coerce it if it is a count.\n  ${line.trim()}`,
+      );
+    }
+  }
 });

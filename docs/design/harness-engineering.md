@@ -344,6 +344,18 @@ pull-request code, runs no `pnpm`, and executes nothing from the triggering run.
 It reads two artifacts as *data* and calls the API. Adding a checkout of
 `head_sha` or a build step there would hand the token to the fork.
 
+**The invariant that follows from it:** reads run in their own
+`actions/github-script` step on the ambient token, writes in a second step on the
+App token — never both in one step. `github-script` binds exactly one client per
+step, and because there is no checkout there is no `node_modules`, so a second
+client cannot be built inside a step body: `require('@actions/github')` throws
+`Cannot find module` before the first API call. #831 did exactly that, and since a
+`workflow_run` workflow cannot fail its own pull request, it silently cost every
+PR both the comment and the `ci-config-changed` label until the split.
+`scripts/test/ci-workflow.test.mjs` holds both halves — inline scripts may
+`require` only Node builtins, and the read endpoints never appear in the
+App-token step.
+
 Consequences worth knowing:
 
 - The resolution and the PR number travel in a `ci-context` artifact, because
@@ -352,11 +364,26 @@ Consequences worth knowing:
 - Artifact contents are attacker-controlled (lane names come from the PR's own
   `scripts/verify-self.mjs`, reasons embed its diff paths). They are only interpolated
   into markdown, never executed, but are still collapsed for `|`, backticks,
-  angle brackets and newlines so a crafted name cannot forge table rows or
-  smuggle HTML, and length-capped so it cannot flood the comment.
+  angle brackets and newlines so a crafted name cannot smuggle HTML or forge the
+  `<!-- harness-verification -->` marker under the bot's identity, and
+  length-capped so it cannot flood the comment. The lane counts take the same
+  risk through a different door and so are coerced to numbers rather than
+  collapsed: a count that is not a number is a `.harness-reports/` summary written
+  to smuggle markup, and the line is dropped.
 - Heavy-job outcomes are read from the run's job list rather than a second
   artifact, so *skipped* is distinguishable from *never wrote a file*. That is
-  also what collapses the old two-phase "⏳ pending…" comment into one.
+  also what collapses the old two-phase "⏳ pending…" comment into one. What it
+  reads is the **gate-marker step**, not the job's conclusion: `ci.yml` gates the
+  steps and never the job, because a job-level `if:` renames the check run away
+  from the required context — so a heavy job that did nothing still concludes
+  `success`, and believing the job would report every reduced run as a full one.
+- The comment reports CI's **scope** — what was skipped, which changed file forced
+  the whole suite, how many lanes were filtered — and not pass/fail, which the
+  PR's checks list already shows. Its heading is always what the run did; the
+  gating-file list is recomputed independently and can only ever be a reason
+  appended to that. Nothing machine-reads the comment:
+  `scripts/agent/mark-ready.mjs` takes the run conclusion from the Actions API,
+  because a comment is author-writable.
 - Without the App configured the reporter degrades to the ambient token, which
   still works for same-repo PRs. The `changes` job's **run summary** needs no
   token at all, so it remains the copy that always survives.

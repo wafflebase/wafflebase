@@ -160,8 +160,17 @@ jobs:
             // so it has to be what actually happened. `actions: read` is
             // ambient-only, which is why it cannot move to the write step.
             //
+            // NOT the job's own conclusion. `ci.yml` gates the STEPS and never
+            // the job, because a job-level `if:` renames the check run and the
+            // renamed one is not the required context — so a heavy job that did
+            // nothing still concludes `success`, and reading the job would report
+            // every reduced run as a full one. The gate-marker step is the only
+            // signal that the gate closed; `scripts/test/ci-workflow.test.mjs`
+            // pins its name against `ci.yml` so the two cannot drift apart.
+            //
             // An unset output means UNKNOWN, which the comment renders as neither.
             const HEAVY = ['verify-browser', 'verify-integration'];
+            const GATE_STEP = 'Why this job is doing nothing';
             try {
               const jobs = await github.paginate(
                 github.rest.actions.listJobsForWorkflowRun,
@@ -169,7 +178,8 @@ jobs:
               );
               const skipped = HEAVY.filter((needle) => {
                 const j = jobs.find((x) => x.name.startsWith(needle));
-                return j && j.conclusion === 'skipped';
+                const gate = (j?.steps ?? []).find((s) => s.name === GATE_STEP);
+                return gate?.conclusion === 'success';
               });
               core.setOutput('skipped', JSON.stringify(skipped));
             } catch (error) {
@@ -319,14 +329,12 @@ jobs:
             const marker = '<!-- harness-verification -->';
             const lines = [marker];
 
-            if (gatingFiles && gatingFiles.length > 0) {
-              const total = Number(process.env.GATING_TOTAL) || gatingFiles.length;
-              const shown = gatingFiles.map((f) => `\`${clean(f, 120)}\``).join(' · ');
-              const more = total > gatingFiles.length ? ` and ${total - gatingFiles.length} more` : '';
-              lines.push('### Full CI — a gating file changed', '');
-              lines.push(`${shown}${more}`, '');
-              lines.push('These decide how much CI every later PR runs, so this one is measured by the whole suite.');
-            } else if (skipped === null) {
+            // The heading is what the run DID. The gating-file list is recomputed
+            // independently — base-branch globs against the API's file list — so it
+            // can only ever be a reason appended below, never the scope claim
+            // itself: when the two disagree, a gating-file heading would assert a
+            // suite that did not run.
+            if (skipped === null) {
               // The jobs read failed. Not knowing what was skipped is not the
               // same as nothing having been skipped, and this comment exists to
               // report exactly that — so say so rather than claim the happy case.
@@ -342,10 +350,27 @@ jobs:
               lines.push('No job was skipped.');
             }
 
+            if (gatingFiles && gatingFiles.length > 0) {
+              const total = Number(process.env.GATING_TOTAL) || gatingFiles.length;
+              const shown = gatingFiles.map((f) => `\`${clean(f, 120)}\``).join(' · ');
+              const more = total > gatingFiles.length ? ` and ${total - gatingFiles.length} more` : '';
+              lines.push('', `Gating files changed: ${shown}${more}`);
+              lines.push('These decide how much CI every later PR runs, so this one is meant to run the whole suite.');
+            }
+
             // Lane filtering happens inside `verify-self` and is visible nowhere
             // else — not in the checks list, not in the job name. One line.
-            if (summary && summary.lanesFiltered > 0) {
-              lines.push('', `Lanes: ${summary.lanesRun} of ${summary.lanesTotal} ran, ${summary.lanesFiltered} filtered.`);
+            //
+            // Coerced rather than `clean`ed: these are counts, so a non-number is a
+            // `summary.json` the pull request's own code wrote to smuggle markup —
+            // an HTML comment forging the marker above, under the bot's identity.
+            // Drop the line instead.
+            const count = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+            const lanesRun = count(summary?.lanesRun);
+            const lanesTotal = count(summary?.lanesTotal);
+            const lanesFiltered = count(summary?.lanesFiltered);
+            if (lanesFiltered !== null && lanesFiltered > 0 && lanesRun !== null && lanesTotal !== null) {
+              lines.push('', `Lanes: ${lanesRun} of ${lanesTotal} ran, ${lanesFiltered} filtered.`);
             } else if (!summary) {
               lines.push('', '`verify:self` produced no lane report — it may have crashed before writing one, or been skipped.');
             }
