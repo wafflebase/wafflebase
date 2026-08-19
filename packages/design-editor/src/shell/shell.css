@@ -1,0 +1,88 @@
+/*
+ * The shell's own stylesheet — compiled at BUILD time, into the shell bundle.
+ *
+ * SELF-CONTAINED, which is the §6 row this file exists to satisfy. The prototype
+ * did the opposite:
+ *
+ *     @import "../../frontend/src/index.css";
+ *     @source "../../frontend/src";
+ *
+ * so the chrome inherited the product's own theme by relative path. Two problems,
+ * and the second is the real one: it only works inside the monorepo it was written
+ * in, and the panels exist to JUDGE the consumer's theme — inheriting it makes the
+ * instrument read the same as the thing being measured. A designer darkening
+ * `--primary` would watch the editor's own buttons darken with the preview.
+ *
+ * NO WEB FONTS. The prototype linked three Google Fonts families from its HTML.
+ * "Self-contained" rules out a request to fonts.gstatic.com on every dev-server
+ * open, so the chrome uses the platform stack. The SCENE is unaffected — it loads
+ * the consumer's own stylesheet, fonts included, because that is the thing under
+ * review.
+ *
+ * The `wb-` prefix on every custom property is deliberate: these are compiled into
+ * our bundle, but the shell document and a scene frame share an origin and the
+ * frame's stylesheet is the consumer's. An unprefixed `--background` would be a
+ * coin flip.
+ */
+@import 'tailwindcss';
+
+/*
+ * Scanning is scoped to the shell's own tree. Without this Tailwind would look at
+ * the package root and pull candidates out of `src/plugin/**` — Node code whose
+ * string literals are file paths and CSS property names, not classes.
+ */
+@source './';
+
+@theme {
+  --color-wb-bg: oklch(0.99 0 0);
+  --color-wb-panel: oklch(0.97 0.002 250);
+  --color-wb-border: oklch(0.9 0.004 250);
+  --color-wb-fg: oklch(0.25 0.01 250);
+  --color-wb-muted: oklch(0.55 0.01 250);
+  --color-wb-accent: oklch(0.62 0.17 255);
+  --color-wb-accent-fg: oklch(0.99 0 0);
+  --color-wb-danger: oklch(0.58 0.19 25);
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/*
+ * The shell follows the DEVELOPER's OS preference, not the theme being edited.
+ * Those are different things: previewing a dark theme must not flip the chrome, or
+ * the two are no longer distinguishable on screen.
+ *
+ * `:root`, NOT a nested `@theme`. Tailwind v4 hoists a nested `@theme` to the top level, so
+ * the dark values overwrote the light ones instead of overriding them under the media query:
+ * every `--color-wb-*` was emitted once, with its dark value, and the shell rendered dark
+ * whatever the OS said. Overriding the emitted custom properties is what actually scopes them.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-wb-bg: oklch(0.19 0.005 250);
+    --color-wb-panel: oklch(0.23 0.006 250);
+    --color-wb-border: oklch(0.31 0.008 250);
+    --color-wb-fg: oklch(0.94 0.003 250);
+    --color-wb-muted: oklch(0.66 0.01 250);
+    --color-wb-accent: oklch(0.68 0.16 255);
+    --color-wb-accent-fg: oklch(0.17 0.01 250);
+    --color-wb-danger: oklch(0.66 0.18 25);
+  }
+}
+
+html,
+body,
+#wb-root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-wb-bg);
+  color: var(--color-wb-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

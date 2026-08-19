@@ -37,6 +37,7 @@ import { fileURLToPath } from "node:url";
 // scripts/agent/node_modules ABSENT, so a module that statically pulled in the
 // Agent SDK would take this whole file down with it (ask.test.mjs enforces this).
 import { classifyResult } from "./ask.mjs";
+import { redactSecrets } from "./redact.mjs";
 import { emitBestEffortWarning } from "./guard-verdict.mjs";
 
 // Each session posts its OWN hidden metric comment (append-only) — no shared
@@ -861,14 +862,20 @@ export function renderFixEffort({ rec, outcome, head, runUrl }) {
     // Spelled out per kind: "limit" is a ceiling the run hit and will hit again
     // unchanged, while a retryable api-error is a transient the same command
     // clears. Telling a maintainer to retry a `max_turns` failure wastes a round.
-    const detail = String(outcome.detail || "").slice(0, 500);
+    // `reason` FIRST — the closed-vocabulary sentence built by `classifyResult`,
+    // which carries no upstream text at all. This block renders into a PR comment,
+    // so `detail` is the fallback only for records written before the vocabulary
+    // existed (persisted session logs outlive a deploy), and it is redacted.
+    const detail = String(outcome.reason || redactSecrets(String(outcome.detail || ""))).slice(0, 500);
     // A SESSION LIMIT is neither of the other two, and calling it either sends a
     // maintainer the wrong way. `classifyResult` marks it non-retryable — correct,
     // because retrying inside the same run cannot help — but it clears on its own
     // once the window resets, so the right advice is "wait, then re-run", not "a
     // human should look at this". Both reruns on #632/#648 failed this way and the
     // pipeline's only message was a generic page about the branch head.
-    const sessionLimited = /\b(?:session|usage)\s+limit\b/i.test(detail);
+    // `code` is decided from the RAW upstream text before redaction, so it is the
+    // authoritative signal; the prose test remains for pre-vocabulary records.
+    const sessionLimited = outcome.code ? outcome.code === "USAGE_LIMIT" : /\b(?:session|usage)\s+limit\b/i.test(detail);
     const advice = sessionLimited
       ? "This is an account **session limit**, not a defect in the PR — no work was done. "
         + "It clears when the window resets (the message above says when); comment `@claude fix` again after that."

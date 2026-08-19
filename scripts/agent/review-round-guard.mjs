@@ -17,6 +17,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { redactSecrets } from "./redact.mjs";
 import {
   collectFixDispatches,
   fixAttemptCommits,
@@ -46,7 +47,11 @@ const allValid = allValidArg === "true";
 const requiredCheckNames = (requiredChecksArg ?? "").split(",").filter(Boolean);
 // Non-empty when EVERY blocking lens failed on an API/quota error (the panel
 // never ran) — a distinct, non-code failure worth its own honest hand-off.
-const infra = (infraArg ?? "").trim();
+// Redacted at the boundary even though it arrives safe by construction: this
+// value comes in as a COMMAND-LINE ARGUMENT from a workflow, so it is only as
+// trustworthy as every future edit to that workflow, and `page()` puts it
+// straight into a public PR comment. One call is cheaper than the invariant.
+const infra = redactSecrets((infraArg ?? "").trim());
 
 // Convergence tuning, read from the env rather than added as a 6th and 7th
 // positional: this script already takes five, and keeping it env-driven means

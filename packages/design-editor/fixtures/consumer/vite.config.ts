@@ -11,10 +11,17 @@
  * entry point a real installation resolves — and would break the same way if a subpath
  * were misdeclared.
  */
+import path from 'node:path';
 import { defineConfig } from 'vite';
 import { designEditor, cssVariables } from '@wafflebase/design-editor';
 
 export default defineConfig({
+  // A real alias, in this project's own idiom — `@` points at `app/`, not at a
+  // `src/`. The plugin reads this rather than being told about it, so the outline's
+  // drill-in resolves `@/components/badge` without any editor configuration.
+  resolve: {
+    alias: { '@': path.resolve(import.meta.dirname, 'app') },
+  },
   plugins: [
     designEditor({
       scenes: 'scenes.config.json',

@@ -97,8 +97,10 @@ test("assertSafeActionPlan refuses a goto to an unknown surface", () => {
   // Names the valid surfaces from the shared list rather than a pair spelled out here, so
   // adding one does not silently leave this assertion describing the old vocabulary.
   assert.throws(
-    () => assertSafeActionPlan({ actions: [{ type: "goto", surface: "slides" }] }),
-    /surface must be one of sheet, doc/,
+    // NOT "slides" — that used to be the stand-in for "a surface that does not exist"
+    // and became a real one, so this needs a token nothing will ever mount.
+    () => assertSafeActionPlan({ actions: [{ type: "goto", surface: "not-a-surface" }] }),
+    /surface must be one of sheet, doc, slides/,
   );
 });
 

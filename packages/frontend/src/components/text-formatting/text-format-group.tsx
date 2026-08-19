@@ -8,6 +8,7 @@ import { useCallback, useState } from "react";
 import type { InlineStyle } from "@wafflebase/docs";
 import { useMenuCloseHandlers } from "@/components/menu-focus";
 import type { TextFormattingEditor } from "./types";
+import { isStyleOn } from "./style-summary";
 import { Toggle } from "@/components/ui/toggle";
 import {
   Tooltip,
@@ -87,29 +88,37 @@ export function TextFormatGroup({
   defaultHighlightColor,
 }: TextFormatGroupProps) {
   const selectionStyle = editor?.getSelectionStyle();
+  // The four B/I/U/S toggles read the range summary, not the caret style:
+  // a backward selection leaves the caret at the range's start, where
+  // `getSelectionStyle()` reports the *preceding* run and the toggle inverts
+  // the wrong value (issue #715). The color swatches below still read the
+  // caret style — they set a value rather than invert one.
+  const styleSummary = editor?.getRangeStyleSummary();
 
   const toggleBold = useCallback(() => {
     if (!editor) return;
-    const current = editor.getSelectionStyle();
-    editor.applyStyle({ bold: !current.bold });
+    editor.applyStyle({ bold: !isStyleOn(editor.getRangeStyleSummary().bold) });
   }, [editor]);
 
   const toggleItalic = useCallback(() => {
     if (!editor) return;
-    const current = editor.getSelectionStyle();
-    editor.applyStyle({ italic: !current.italic });
+    editor.applyStyle({
+      italic: !isStyleOn(editor.getRangeStyleSummary().italic),
+    });
   }, [editor]);
 
   const toggleUnderline = useCallback(() => {
     if (!editor) return;
-    const current = editor.getSelectionStyle();
-    editor.applyStyle({ underline: !current.underline });
+    editor.applyStyle({
+      underline: !isStyleOn(editor.getRangeStyleSummary().underline),
+    });
   }, [editor]);
 
   const toggleStrike = useCallback(() => {
     if (!editor) return;
-    const current = editor.getSelectionStyle();
-    editor.applyStyle({ strikethrough: !current.strikethrough });
+    editor.applyStyle({
+      strikethrough: !isStyleOn(editor.getRangeStyleSummary().strikethrough),
+    });
   }, [editor]);
 
   // Controlled open state so the swatch click closes the palette — the
@@ -154,7 +163,7 @@ export function TextFormatGroup({
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
-            pressed={!!selectionStyle?.bold}
+            pressed={isStyleOn(styleSummary?.bold)}
             onPressedChange={toggleBold}
             onMouseDown={(e) => e.preventDefault()}
             className="h-7 w-7 cursor-pointer"
@@ -172,7 +181,7 @@ export function TextFormatGroup({
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
-            pressed={!!selectionStyle?.italic}
+            pressed={isStyleOn(styleSummary?.italic)}
             onPressedChange={toggleItalic}
             onMouseDown={(e) => e.preventDefault()}
             className="h-7 w-7 cursor-pointer"
@@ -190,7 +199,7 @@ export function TextFormatGroup({
         <TooltipTrigger asChild>
           <Toggle
             size="sm"
-            pressed={!!selectionStyle?.underline}
+            pressed={isStyleOn(styleSummary?.underline)}
             onPressedChange={toggleUnderline}
             onMouseDown={(e) => e.preventDefault()}
             className="h-7 w-7 cursor-pointer"
@@ -209,7 +218,7 @@ export function TextFormatGroup({
           <TooltipTrigger asChild>
             <Toggle
               size="sm"
-              pressed={!!selectionStyle?.strikethrough}
+              pressed={isStyleOn(styleSummary?.strikethrough)}
               onPressedChange={toggleStrike}
               onMouseDown={(e) => e.preventDefault()}
               className="h-7 w-7 cursor-pointer"

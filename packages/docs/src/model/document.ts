@@ -28,6 +28,7 @@ import {
 } from './types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
+import { visitCellRectangleSlices, visitRangeSlices } from './range-slices.js';
 
 
 /**
@@ -344,98 +345,38 @@ export class Doc {
   }
 
   /**
-   * Apply inline style to a range of text within a single block.
+   * Apply inline style to every block slice the range covers.
+   *
+   * The dispatch — same block, cross-block inside one cell, top-level with
+   * cell endpoints normalized to their parent table — lives in
+   * `visitRangeSlices`, which the *reads* (`visitStyledRunsInRange`, and
+   * through it the style summary and the B/I/U/S toggles) drive too. Keeping
+   * one traversal is what guarantees a toggle decides add-vs-remove from the
+   * runs it is about to write (issue #715).
+   *
+   * A `range.tableCellRange` is ignored here, as it always was: the editors
+   * route a cell rectangle to `applyStyleToCellRange` above this call.
    */
   applyInlineStyle(range: DocRange, style: Partial<InlineStyle>): void {
-    const anchorCellInfo = this._blockParentMap.get(range.anchor.blockId);
-    const focusCellInfo = this._blockParentMap.get(range.focus.blockId);
+    visitRangeSlices(this, range, (blockId, from, to) => {
+      this.store.applyStyle(blockId, from, to, style);
+    });
+    this.refresh();
+  }
 
-    // Same block — works for both top-level and cell blocks
-    if (range.anchor.blockId === range.focus.blockId) {
-      const [start, end] = range.anchor.offset <= range.focus.offset
-        ? [range.anchor.offset, range.focus.offset]
-        : [range.focus.offset, range.anchor.offset];
-      if (start < end) {
-        this.store.applyStyle(range.anchor.blockId, start, end, style);
-      }
-      this.refresh();
-      return;
-    }
-
-    // Cross-block within same cell — apply style per block via store
-    if (anchorCellInfo && focusCellInfo &&
-        anchorCellInfo.tableBlockId === focusCellInfo.tableBlockId &&
-        anchorCellInfo.rowIndex === focusCellInfo.rowIndex &&
-        anchorCellInfo.colIndex === focusCellInfo.colIndex) {
-      const tableBlock = this.getBlock(anchorCellInfo.tableBlockId);
-      const cell = tableBlock.tableData!.rows[anchorCellInfo.rowIndex].cells[anchorCellInfo.colIndex];
-      const anchorIdx = cell.blocks.findIndex((b) => b.id === range.anchor.blockId);
-      const focusIdx = cell.blocks.findIndex((b) => b.id === range.focus.blockId);
-      const [fromIdx, toIdx, from, to] = anchorIdx <= focusIdx
-        ? [anchorIdx, focusIdx, range.anchor, range.focus]
-        : [focusIdx, anchorIdx, range.focus, range.anchor];
-
-      for (let i = fromIdx; i <= toIdx; i++) {
-        const block = cell.blocks[i];
-        const blockLen = getBlockTextLength(block);
-        const start = i === fromIdx ? from.offset : 0;
-        const end = i === toIdx ? to.offset : blockLen;
-        if (start < end) {
-          this.store.applyStyle(block.id, start, end, style);
-        }
-      }
-      this.refresh();
-      return;
-    }
-
-    // Existing top-level cross-block logic
-    // Normalize cell endpoints to their parent table block for index lookup
-    const anchorTopId = anchorCellInfo ? anchorCellInfo.tableBlockId : range.anchor.blockId;
-    const focusTopId = focusCellInfo ? focusCellInfo.tableBlockId : range.focus.blockId;
-    const startBlock = this.getBlockIndex(anchorTopId);
-    const endBlock = this.getBlockIndex(focusTopId);
-
-    const [from, to] =
-      startBlock < endBlock ||
-      (startBlock === endBlock && range.anchor.offset <= range.focus.offset)
-        ? [range.anchor, range.focus]
-        : [range.focus, range.anchor];
-
-    const fromTopId = this._blockParentMap.get(from.blockId)?.tableBlockId ?? from.blockId;
-    const toTopId = this._blockParentMap.get(to.blockId)?.tableBlockId ?? to.blockId;
-    const fromBlockIdx = this.getBlockIndex(fromTopId);
-    const toBlockIdx = this.getBlockIndex(toTopId);
-
-    const contextBlocks = this.getContextBlocks();
-    for (let i = fromBlockIdx; i <= toBlockIdx; i++) {
-      const block = contextBlocks[i];
-
-      // Table block in the middle of a cross-block selection:
-      // apply style to every block in every cell.
-      if (block.type === 'table' && block.tableData) {
-        for (let r = 0; r < block.tableData.rows.length; r++) {
-          for (let c = 0; c < block.tableData.rows[r].cells.length; c++) {
-            const cell = block.tableData.rows[r].cells[c];
-            if (cell.colSpan === 0) continue;
-            for (const cellBlock of cell.blocks) {
-              const len = getBlockTextLength(cellBlock);
-              if (len > 0) {
-                this.store.applyStyle(cellBlock.id, 0, len, style);
-              }
-            }
-          }
-        }
-        continue;
-      }
-
-      const blockLen = getBlockTextLength(block);
-      const start = i === fromBlockIdx ? from.offset : 0;
-      const end = i === toBlockIdx ? to.offset : blockLen;
-
-      if (start >= end) continue;
-      this.store.applyStyle(block.id, start, end, style);
-    }
-
+  /**
+   * Apply inline style to every block of every cell in a cell rectangle.
+   *
+   * Shares `visitCellRectangleSlices` with the summary read, so the toolbar's
+   * verdict for a cell-rectangle selection describes the cells this writes.
+   */
+  applyInlineStyleToCells(
+    cellRange: { blockId: string; start: CellAddress; end: CellAddress },
+    style: Partial<InlineStyle>,
+  ): void {
+    visitCellRectangleSlices(this, cellRange, (blockId, from, to) => {
+      this.store.applyStyle(blockId, from, to, style);
+    });
     this.refresh();
   }
 

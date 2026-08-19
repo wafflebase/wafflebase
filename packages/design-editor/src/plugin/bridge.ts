@@ -312,6 +312,11 @@ export function bridge(deps: BridgeDeps): Plugin {
               // Absent adapter is a first-class, reportable state: the client greys
               // the token panels rather than offering edits the server refuses.
               tokens: deps.options.tokens ? 'configured' : null,
+              // The drill-in resolver's alias table. Reported here rather than on
+              // its own route because it is config, fixed for the dev server's
+              // lifetime, and `/health` is the one call the client already makes
+              // before it can resolve anything.
+              aliases: deps.options.aliases,
               fsRevision: deps.tracker.revision(),
               externalChanges: deps.tracker.recentChanges(),
               safelist: deps.safelist.size(),

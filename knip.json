@@ -31,8 +31,14 @@
       "project": ["src/**/*.ts"]
     },
     "packages/design-editor": {
-      "entry": ["src/plugin/index.ts", "test/**/*.test.{ts,mts,mjs}"],
-      "project": ["src/**/*.{ts,mts,mjs}", "test/**/*.{ts,mts,mjs}"]
+      "entry": [
+        "src/plugin/index.ts",
+        "vite.shell.config.ts",
+        "src/shell/main.tsx",
+        "src/scenes/scene-entry.tsx",
+        "test/**/*.test.{ts,mts,mjs}"
+      ],
+      "project": ["src/**/*.{ts,tsx,mts,mjs}", "test/**/*.{ts,mts,mjs}"]
     },
     "packages/design-sandbox": {
       "entry": ["vite.config.ts", "scripts/*.mjs", "test/**/*.test.ts"],

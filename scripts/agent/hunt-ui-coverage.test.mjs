@@ -43,6 +43,21 @@ test("sheet.activeCell's bare sref is a cell selection, not an absent one", () =
   }
 });
 
+test("a slides selection reading keys coverage by element shape, not as none", () => {
+  // The other half of #847's array branch. `selectionShape` understanding a list is
+  // useless if no reader is wired to feed it one — the surface would key every action
+  // `none`, which is exactly the bug that fix was for.
+  const pick = (ids) => ({ action: { type: "read", reader: "slides.selection" }, ok: true, value: ids });
+  const one = coverageFromJournal([pick(["badge"]), click("Arrange")]);
+  assert.deepEqual(one.shapes, [{ control: "Arrange", shape: "element", roundTripped: false, sha: null }]);
+
+  const many = coverageFromJournal([pick(["badge", "card"]), click("Arrange")]);
+  assert.equal(many.shapes[0].shape, "element-multi", "one element and several are different coverage");
+
+  const empty = coverageFromJournal([pick([]), click("Add slide")]);
+  assert.equal(empty.shapes[0].shape, "none", "nothing selected really is `none`");
+});
+
 test("a list of selected ids is an element selection", () => {
   // Nothing returns this yet — it is the shape a canvas surface reports, where selection
   // is a set of objects rather than a span. Ordered before the object branches because an
@@ -182,6 +197,48 @@ test("mergeCoverage unions, keeps roundTripped sticky, and drops a stale key ver
     assert.equal(mergeCoverage(junk, newer).shapes.length, 1);
     assert.equal(mergeCoverage(newer, junk).shapes.length, 1);
   }
+});
+
+test("a key-version bump keeps WHICH CONTROLS were used, so untried stays honest", () => {
+  // THE REGRESSION THIS EXISTS FOR, measured on the live sheet memory at the 3 -> 4 bump.
+  // `untried` is `inventory` MINUS the used controls. Carrying the inventory across a bump
+  // while dropping the used-set made the brief announce the ENTIRE surface as never
+  // tried — including `Bold`, round-tripped many times, and `Undo`, which the sheet rubric
+  // calls the single most likely false finding on that surface.
+  const stale = {
+    keyVersion: COVERAGE_KEY_VERSION - 1,
+    shapes: [
+      { control: "Bold", shape: "cell", roundTripped: true },
+      { control: "Italic", shape: "cell-range", roundTripped: true },
+    ],
+    inventory: [
+      { role: "button", control: "Bold", sha: "old1" },
+      { role: "button", control: "Italic", sha: "old1" },
+      { role: "button", control: "Paint format", sha: "old1" },
+    ],
+  };
+  const merged = mergeCoverage(stale, { keyVersion: COVERAGE_KEY_VERSION, shapes: [], inventory: [] });
+
+  assert.deepEqual(merged.shapes, [], "a shape key that changed meaning still claims nothing");
+  assert.deepEqual(merged.usedControls, ["Bold", "Italic"], "but WHICH controls were clicked survives");
+
+  const md = renderCoverageBrief(merged);
+  const neverTried = md.slice(md.indexOf("NEVER TRIED"));
+  assert.match(neverTried, /`Paint format`/, "a genuinely untouched control is still offered");
+  assert.doesNotMatch(neverTried, /`Bold`/, "a control that HAS been clicked must not be offered as never tried");
+  assert.doesNotMatch(neverTried, /`Italic`/);
+});
+
+test("usedControls survives a bump even with no shapes to derive it from", () => {
+  // A record written AFTER this change carries the list directly, so a second bump must
+  // read it from there rather than re-deriving from shapes that are already gone.
+  const twiceStale = { keyVersion: COVERAGE_KEY_VERSION - 2, usedControls: ["Bold"], shapes: [], inventory: [] };
+  assert.deepEqual(mergeCoverage(twiceStale, { keyVersion: COVERAGE_KEY_VERSION }).usedControls, ["Bold"]);
+});
+
+test("coverageFromJournal records usedControls alongside the shape keys", () => {
+  const c = coverageFromJournal([sel(0, 5), click("Bold"), click("Italic")]);
+  assert.deepEqual(c.usedControls, ["Bold", "Italic"]);
 });
 
 test("a key-version bump drops shapes but KEEPS the control inventory", () => {

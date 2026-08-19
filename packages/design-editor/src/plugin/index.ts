@@ -86,12 +86,35 @@ function packageRoot(from: string): string {
 /**
  * Where the prebuilt shell lives.
  *
- * `dist/shell` under the package root, which is what the build in PRs 10–12 emits.
+ * `dist/shell` under the package root, which is what `vite.shell.config.ts` emits.
  * §2's target layout draws `index.html` / `scene.html` at the package root; they are
  * kept under `dist/` instead so the served set is exactly the built artefacts and a
  * stray root-level HTML file cannot be served by accident.
  */
 const SHELL_DIR = path.join(packageRoot(HERE), 'dist', 'shell');
+
+/**
+ * The scene frame's entry, as a URL the CONSUMER's dev server resolves.
+ *
+ * `/@fs/<abs>` rather than a bare specifier or a virtual module. Measured against
+ * Vite 6.4.3 + @vitejs/plugin-react 4.3.4: a virtual module is NOT transformed even
+ * with a `.tsx` id — its JSX reaches `vite:import-analysis` verbatim and the frame
+ * 500s on its own entry — while a real `.tsx` under `node_modules` is. So it has to
+ * be a real path, and it is computed here at serve time because a prebuilt document
+ * cannot know where the consumer's package manager put us.
+ *
+ * From SOURCE, not from `dist`: this file has to stay untransformed for the
+ * consumer's `plugin-react` to be the one transforming it, which is the whole reason
+ * it is excluded from the shell bundle.
+ *
+ * POSIX separators unconditionally — this is a URL, and a Windows `\` in it would
+ * be a path segment escape rather than a separator.
+ */
+const SCENE_ENTRY_URL = `/@fs/${path
+  .join(packageRoot(HERE), 'src', 'scenes', 'scene-entry.tsx')
+  .split(path.sep)
+  .join('/')
+  .replace(/^\/+/, '')}`;
 
 export function designEditor(options?: DesignEditorOptions): Plugin[] {
   // Resolved in `configResolved`, because Vite's own root is not known before it.
@@ -142,7 +165,7 @@ export function designEditor(options?: DesignEditorOptions): Plugin[] {
     apply: 'serve',
 
     configResolved(config) {
-      resolved = resolveOptions(options, config.root);
+      resolved = resolveOptions(options, config.root, config.resolve.alias);
       guard = createPathGuard(resolved.root, resolved.opaqueRoots);
       tracker = createTracker((abs) => guard.relOf(abs));
       classifier = createModuleClassifier(resolved.root, (abs) => guard.isOpaque(abs));
@@ -206,7 +229,7 @@ export function designEditor(options?: DesignEditorOptions): Plugin[] {
       stampSource: async (text, file) => (await loadStamper()).stampSource(text, file),
       readFile: (abs) => tracker.read(abs),
     }),
-    shellServer({ distDir: SHELL_DIR }),
+    shellServer({ distDir: SHELL_DIR, sceneEntryUrl: SCENE_ENTRY_URL }),
     bridge({
       get options() {
         return need();

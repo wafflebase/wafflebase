@@ -163,7 +163,9 @@ test("validatePersona fails LOUD on a misconfigured surface", () => {
   // shown, so a typo hands it an empty toolbox and it reports nothing, forever.
   assert.match(validatePersona({ ...PERSONA, surface: "docs" }).join(";"), /not one of/);
   assert.match(validatePersona({ ...PERSONA, surface: undefined }).join(";"), /not one of/);
-  assert.match(validatePersona({ ...PERSONA, surface: "slides" }).join(";"), /not one of/);
+  // NOT "slides": it was the stand-in for "a surface that does not exist" and is now a
+  // real one, which is how a refusal test quietly starts asserting nothing.
+  assert.match(validatePersona({ ...PERSONA, surface: "not-a-surface" }).join(";"), /not one of/);
   assert.deepEqual(validatePersona(PERSONA), []);
 });
 

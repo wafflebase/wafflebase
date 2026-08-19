@@ -50,5 +50,11 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src", "test"]
+  /*
+   * `vite.shell.config.ts` is listed explicitly because it sits at the package root
+   * rather than under `src`. Without it `tsc --noEmit` skips the build config, and a
+   * typo in the one file that produces `dist/shell` would surface as a failed build
+   * in CI rather than a typecheck error here.
+   */
+  "include": ["src", "test", "vite.shell.config.ts"]
 }

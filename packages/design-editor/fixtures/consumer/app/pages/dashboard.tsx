@@ -5,7 +5,7 @@
  * touch, and a `.map()` body they may not — `extract.mjs` scopes the second as
  * `iteration`, so a `layout-remove` there must be refused rather than written.
  */
-import { Badge } from '../components/badge';
+import { Badge } from '@/components/badge';
 
 const ROWS = [
   { id: 'a', label: 'Revenue' },
