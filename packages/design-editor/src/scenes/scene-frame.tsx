@@ -140,7 +140,12 @@ export function SceneFrame({
   useEffect(() => {
     let alive = true;
     if (!config) {
-      setMountError(`no scene "${sceneId}" in the scene manifest`);
+      // Every other failure path below reports before it renders; this one did not, and
+      // `SceneHost` keeps `ready === false` with `error === null`, so its mounting veil
+      // covered the message forever.
+      const message = `no scene "${sceneId}" in the scene manifest`;
+      send({ type: 'wb:error', kind: 'mount', message });
+      setMountError(message);
       return;
     }
     loadScene(sceneId, side).then(

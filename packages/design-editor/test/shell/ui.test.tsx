@@ -213,3 +213,22 @@ describe('Select', () => {
     expect(sel.getAttribute('title')).toBe('Zoom');
   });
 });
+
+/**
+ * A `role="dialog"` with no name is announced as a bare "dialog", and the header's two
+ * popovers are the only dialogs in the shell.
+ */
+describe('PopoverContent naming', () => {
+  it('takes its accessible name from `label`', () => {
+    render(
+      <Popover>
+        <PopoverTrigger>open</PopoverTrigger>
+        <PopoverContent label="Write log">body</PopoverContent>
+      </Popover>,
+    );
+    click(document.querySelector('button')!);
+    expect(document.querySelector('[role="dialog"]')!.getAttribute('aria-label')).toBe(
+      'Write log',
+    );
+  });
+});

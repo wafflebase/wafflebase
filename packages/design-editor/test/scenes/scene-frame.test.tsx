@@ -178,9 +178,12 @@ describe('readiness', () => {
 
 describe('failures, by kind', () => {
   it('an unknown scene says so instead of leaving a blank frame', async () => {
-    const { el } = frame({ config: undefined, sceneId: 'nope' });
+    const { el, sent } = frame({ config: undefined, sceneId: 'nope' });
     await settle();
     expect(el.textContent).toMatch(/no scene "nope"/);
+    // And REPORTED, not only painted: `SceneHost` lifts its mounting veil on a message,
+    // so a frame that fails silently here stays hidden behind it forever.
+    expect(kinds(sent)).toEqual(['mount']);
   });
 
   it('a missing export is a mount error naming what it looked for', async () => {

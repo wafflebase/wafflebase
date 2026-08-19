@@ -175,9 +175,11 @@ export function FloatingClassEditor({
     spaceBelow > PANEL_HEIGHT || spaceBelow > hostRect.top
       ? hostRect.top + hostRect.height + GAP_PX
       : Math.max(GAP_PX, hostRect.top - PANEL_HEIGHT - GAP_PX);
-  const anchoredLeft = Math.min(
-    Math.max(GAP_PX, hostRect.left),
-    window.innerWidth - PANEL_WIDTH - GAP_PX,
+  // The `min` is applied last, so on a window narrower than PANEL_WIDTH + GAP_PX its
+  // right-edge bound goes negative and would win over the left-edge floor.
+  const anchoredLeft = Math.max(
+    GAP_PX,
+    Math.min(Math.max(GAP_PX, hostRect.left), window.innerWidth - PANEL_WIDTH - GAP_PX),
   );
   const top = anchoredTop + dragOffset.y;
   const left = anchoredLeft + dragOffset.x;

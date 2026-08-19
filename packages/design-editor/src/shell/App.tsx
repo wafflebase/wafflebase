@@ -623,7 +623,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                     {staleCount} stale
                   </button>
                 </PopoverTrigger>
-                <PopoverContent className="w-80">
+                <PopoverContent className="w-80" label="Stale edits">
                   <p className="mb-1 text-[10px] text-wb-muted">
                     The file changed under these edits, so the text they expect to find is
                     gone. Discarding is the only recovery — the old value no longer
@@ -660,13 +660,14 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 <button
                   type="button"
                   title="Writes on disk, newest first"
+                  aria-label={`Write log (${writeDepth} on disk)`}
                   className="inline-flex items-center gap-1.5 rounded-md border border-wb-border px-2.5 py-1 text-xs text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg"
                 >
                   <ScrollText className="size-3.5" />
                   {writeDepth}
                 </button>
               </PopoverTrigger>
-              <PopoverContent className="w-80">
+              <PopoverContent className="w-80" label="Write log">
                 <p className="mb-1 text-[10px] font-medium text-wb-muted">Write log</p>
                 {writeLog.length === 0 ? (
                   <p className="text-[10px] text-wb-muted">Nothing written this session.</p>

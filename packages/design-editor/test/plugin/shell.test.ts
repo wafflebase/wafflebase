@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { shellServer } from '../../src/plugin/shell.ts';
 import { BASE } from '../../src/base.ts';
 
@@ -155,6 +155,20 @@ describe('the scene document', () => {
       path.join(dist, 'scene.html'),
       '<!-- __WB_SCENE_ENTRY__ --><script src="__WB_SCENE_ENTRY__"></script>',
     );
+  });
+});
+
+describe('a request that fails mid-flight', () => {
+  it('answers 500 rather than leaving the request open', async () => {
+    // The read sits outside `serve`'s own try/catch, which is the real race: `scene.html`
+    // can go away between the existence check and the read during a rebuild. Unhandled,
+    // the request got no response at all and node reported a rejection.
+    const spy = vi.spyOn(fs, 'readFileSync').mockImplementationOnce(() => {
+      throw new Error('vanished during a rebuild');
+    });
+    const { res: r } = await get('/scene');
+    expect(r.statusCode).toBe(500);
+    spy.mockRestore();
   });
 });
 

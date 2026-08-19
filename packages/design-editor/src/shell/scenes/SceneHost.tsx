@@ -410,10 +410,17 @@ export function SceneHost({
    * The delta IS divided by `zoom`, because `customSize` is stored in real px while the
    * pointer moves in screen px.
    */
+  /** Teardown for an in-flight resize, so unmounting mid-drag cannot leak its listeners. */
+  const endResize = useRef<(() => void) | null>(null);
+  useEffect(() => () => endResize.current?.(), []);
+
   const beginResize = useCallback(
     (axis: 'width' | 'height' | 'both') => (e: ReactPointerEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      // The drag crosses the iframe, and the frame's document swallows the pointer events
+      // the window is listening for. Capturing keeps them routed here for the whole drag.
+      e.currentTarget.setPointerCapture?.(e.pointerId);
       const startX = e.clientX;
       const startY = e.clientY;
       const startWidth = renderWidth || stage.width || MIN_SIZE;
@@ -430,9 +437,16 @@ export function SceneHost({
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        endResize.current = null;
       };
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
+      // `pointercancel` too: capture is lost to a gesture or a focus change without ever
+      // producing a `pointerup`, which would otherwise leave `onMove` live and let a
+      // later stray move resize the frame with no drag in progress.
+      window.addEventListener('pointercancel', onUp);
+      endResize.current = onUp;
     },
     [renderWidth, renderHeight, stage.width, stage.height, zoom],
   );

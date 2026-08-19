@@ -70,7 +70,18 @@ export function shellServer(deps: ShellDeps): Plugin {
 
     configureServer(server) {
       server.middlewares.use(BASE, (req, res, next) => {
-        void serve(req, res, next);
+        // `serve` reads the filesystem outside its own try/catch — `statSync` can lose a
+        // race with a rebuild, `readFileSync` can fail outright. Without a terminal catch
+        // the request never gets a response and node reports an unhandled rejection.
+        void serve(req, res, next).catch((err: unknown) => {
+          server.config.logger.error(`[design-editor] shell request failed — ${String(err)}`);
+          if (res.headersSent) {
+            res.destroy();
+            return;
+          }
+          res.statusCode = 500;
+          res.end('design-editor: failed to serve a shell asset');
+        });
       });
 
       const serve = async (

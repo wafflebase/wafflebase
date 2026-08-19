@@ -204,7 +204,11 @@ async function main() {
     );
 
     console.log('\na click reaches the host');
-    await (await page.$('[data-wb-node]')).click();
+    // Guarded rather than dereferenced: `page.$` yields null when nothing matched, and
+    // `null.click()` throws a TypeError before check() can name which gate failed.
+    const nodeHandle = await page.$('[data-wb-node]');
+    check('a stamped node is there to click', Boolean(nodeHandle));
+    if (nodeHandle) await nodeHandle.click();
     await page.waitForTimeout(400);
     const display = await page.$eval('[data-wb-overlay="selection"]', (e) => getComputedStyle(e).display);
     check('the selection overlay is drawn', display === 'block', display);
@@ -347,21 +351,31 @@ async function main() {
       );
 
       const viewportButtons = await page.$$('button[title^="Viewport"]');
-      await viewportButtons[0].click();
-      await page.waitForTimeout(600);
-      const mobileFrame = page.frames().find((f) => f.url().includes('/scene?'));
-      check(
-        'a mobile viewport gives the frame a real 390px width',
-        (await mobileFrame.evaluate(() => window.innerWidth)) === 390,
-        String(await mobileFrame.evaluate(() => window.innerWidth)),
-      );
-      await page.selectOption('select', '0.5');
-      await page.waitForTimeout(600);
-      check(
-        'and zoom scales the picture without changing that width',
-        (await mobileFrame.evaluate(() => window.innerWidth)) === 390,
-        String(await mobileFrame.evaluate(() => window.innerWidth)),
-      );
+      check('the viewport switcher is present', viewportButtons.length > 0);
+      if (viewportButtons.length > 0) {
+        await viewportButtons[0].click();
+        await page.waitForTimeout(600);
+        const mobileFrame = page.frames().find((f) => f.url().includes('/scene?'));
+        check('the mobile frame is still attached', Boolean(mobileFrame));
+        if (mobileFrame) {
+          // Read once per assertion: evaluating twice crossed the frame boundary a second
+          // time and could report a width the condition never saw.
+          const mobileWidth = await mobileFrame.evaluate(() => window.innerWidth);
+          check(
+            'a mobile viewport gives the frame a real 390px width',
+            mobileWidth === 390,
+            String(mobileWidth),
+          );
+          await page.selectOption('select', '0.5');
+          await page.waitForTimeout(600);
+          const zoomedWidth = await mobileFrame.evaluate(() => window.innerWidth);
+          check(
+            'and zoom scales the picture without changing that width',
+            zoomedWidth === 390,
+            String(zoomedWidth),
+          );
+        }
+      }
     }
   } finally {
     if (browser) await browser.close();

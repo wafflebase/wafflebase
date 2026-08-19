@@ -173,6 +173,14 @@ describe('the panel', () => {
     expect(panel()!.parentElement).toBe(document.body);
   });
 
+  it('stays on-screen when the window is narrower than the panel', () => {
+    // 288 + 6 > 200, so the right-edge bound is negative. Applied last it would win over
+    // the left-edge floor and hang the panel off the left of the viewport.
+    Object.defineProperty(window, 'innerWidth', { value: 200, configurable: true });
+    render(<FloatingClassEditor {...props()} />);
+    expect(parseFloat(panel()!.style.left)).toBeGreaterThanOrEqual(0);
+  });
+
   it('anchors below the selection', () => {
     render(<FloatingClassEditor {...props()} />);
     expect(panel()!.style.top).toBe('86px'); // 60 + 20 + 6

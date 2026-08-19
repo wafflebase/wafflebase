@@ -230,3 +230,64 @@ describe('the frame element', () => {
     expect(host.textContent).not.toContain('mounting dash');
   });
 });
+
+/**
+ * The resize handle drags ACROSS the iframe, and the frame's document consumes the
+ * pointer events the window is listening for. All three tests here describe the same
+ * failure: listeners that outlive the drag and let a later stray move resize the frame.
+ */
+describe('the resize handle', () => {
+  const handle = (host: HTMLElement) =>
+    host.querySelector<HTMLElement>('.cursor-ew-resize')!;
+
+  const down = (el: HTMLElement, captured: number[]) => {
+    // jsdom has no setPointerCapture; the component calls it optionally, so record it.
+    (el as unknown as { setPointerCapture: (id: number) => void }).setPointerCapture = (
+      id: number,
+    ) => captured.push(id);
+    act(() => {
+      const e = new MouseEvent('pointerdown', { bubbles: true, clientX: 100 });
+      Object.defineProperty(e, 'pointerId', { value: 7 });
+      el.dispatchEvent(e);
+    });
+  };
+
+  const move = (x: number) =>
+    act(() => {
+      const e = new MouseEvent('pointermove', { bubbles: true, clientX: x });
+      window.dispatchEvent(e);
+    });
+
+  it('captures the pointer so the iframe cannot swallow the drag', () => {
+    const { host } = mount();
+    const captured: number[] = [];
+    down(handle(host), captured);
+    expect(captured).toEqual([7]);
+  });
+
+  it('stops resizing on pointercancel, not only on pointerup', () => {
+    const { host } = mount();
+    down(handle(host), []);
+    move(160);
+    const afterDrag = handle(host).parentElement!.style.width;
+    act(() => window.dispatchEvent(new MouseEvent('pointercancel', { bubbles: true })));
+    move(400);
+    // Unchanged: a cancelled drag that kept its listeners would have taken this move.
+    expect(handle(host).parentElement!.style.width).toBe(afterDrag);
+  });
+
+  it('drops an in-flight drag when the host unmounts', () => {
+    // Asserted on the teardown itself, not on a symptom: a leaked listener calling
+    // `setCustomSize` after unmount does not throw and does not move the DOM, so
+    // "nothing happened" is true whether or not the listener was removed.
+    const add = vi.spyOn(window, 'addEventListener');
+    const remove = vi.spyOn(window, 'removeEventListener');
+    const { host } = mount();
+    down(handle(host), []);
+    const onMove = add.mock.calls.find(([t]) => t === 'pointermove')?.[1];
+    expect(onMove).toBeDefined();
+    act(() => root!.unmount());
+    root = null;
+    expect(remove.mock.calls.some(([t, h]) => t === 'pointermove' && h === onMove)).toBe(true);
+  });
+});

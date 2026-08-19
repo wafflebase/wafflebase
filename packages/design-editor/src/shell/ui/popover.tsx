@@ -118,11 +118,14 @@ export function PopoverTrigger({
 export function PopoverContent({
   className,
   align = 'end',
+  label,
   children,
 }: {
   className?: string;
   /** Which edge the panel lines up with. The header's popovers both open leftward. */
   align?: 'start' | 'end';
+  /** The dialog's accessible name — without one it is announced as a bare "dialog". */
+  label?: string;
   children?: ReactNode;
 }) {
   const { open, id } = usePopover('PopoverContent');
@@ -131,6 +134,7 @@ export function PopoverContent({
     <div
       id={id}
       role="dialog"
+      aria-label={label}
       className={cn(
         'absolute top-full z-50 mt-1 min-w-48 rounded-md border border-wb-border bg-wb-panel p-2 shadow-lg',
         align === 'end' ? 'right-0' : 'left-0',

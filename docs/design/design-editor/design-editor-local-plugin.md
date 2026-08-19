@@ -626,9 +626,12 @@ And the port nearly dropped Tailwind candidate registration (`useTailwindCandida
 in no PR's file list); without it a composed class has no CSS rule and previews as
 nothing.
 
-**Only the browser gate covers staging.** The class editor needs a measured selection
-rect, which arrives from the frame over `postMessage`; jsdom loads no iframe. So the
-click → stage → ⌘Z → ⇧⌘Z loop lives in `verify:frame` (34 checks) and nowhere else.
+**Staging has no browser coverage yet.** The class editor needs a measured selection
+rect, which arrives from the frame over `postMessage`, and jsdom loads no iframe — so the
+staging *logic* is unit-tested (`history`, `anchors`, `FloatingClassEditor`) while the
+click → stage → ⌘Z → ⇧⌘Z loop gains its first `verify:frame` checks in 12a and its
+`--write` cycle after. 11b's `verify:frame` covers mounting, selection, overlay geometry,
+outline agreement and viewport/zoom.
 
 #### 11c — the scene half of `design-sandbox`
 

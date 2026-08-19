@@ -253,7 +253,9 @@ function Rows(props: RowsProps) {
         style={{ paddingLeft: `${depth * 10}px` }}
       >
         <button
+          type="button"
           onClick={() => hasChildren && onToggle(key)}
+          disabled={!hasChildren}
           className={cn('shrink-0 p-0.5', !hasChildren && 'invisible')}
           aria-label={isCollapsed ? 'Expand' : 'Collapse'}
         >
