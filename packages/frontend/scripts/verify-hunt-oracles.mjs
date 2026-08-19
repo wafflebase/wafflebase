@@ -21,6 +21,7 @@ import { createServer } from "vite";
 
 import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
 import { domControls } from "./hunt-ui-dom.mjs";
+import { UI_SURFACES } from "../../../scripts/agent/hunt-ui-surfaces.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
@@ -255,6 +256,35 @@ const READER_EXPECTATIONS = [
     v === null || (v && typeof v === "object" && !Array.isArray(v)) ? null : "expected a style object or null"],
   ["sheet", "sheet.cellCenter", ["B2"], (v) =>
     v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+
+  // --- slides surface, against seedSlides(): slide-1 holds card, badge, title, body ---
+  //
+  // Asserted against the SEED's actual values rather than against a shape. `expected an
+  // array` would pass for an empty one, and an empty element list is exactly what a
+  // broken mount produces — the surface would boot, answer every reader, and report a
+  // slide with nothing on it.
+  ["slides", "slides.elements", [], (v) => {
+    if (!Array.isArray(v)) return "expected an array of elements";
+    const ids = v.map((e) => e.id).join(",");
+    if (ids !== "card,badge,title,body") return `expected the seeded ids in z-order, got ${ids}`;
+    const title = v.find((e) => e.id === "title");
+    if (title?.text !== "Quarterly review") return `title must carry its seeded text, got ${JSON.stringify(title?.text)}`;
+    // SLIDE-LOGICAL, not screen. The seed puts `title` at x=160 in a 1920-wide space; if
+    // this ever reads ~80 the reader has started reporting scaled pixels and every
+    // prediction about position becomes a function of the window size.
+    if (title?.x !== 160 || title?.w !== 1600) return `title must be in slide-logical px, got x=${title?.x} w=${title?.w}`;
+    // A shape holds no text, and must not claim `""` — "cannot hold text" and "is empty"
+    // are different states, which is the whole reason #749 was invisible.
+    const card = v.find((e) => e.id === "card");
+    if ("text" in (card ?? {})) return `a shape with no body must omit text, got ${JSON.stringify(card.text)}`;
+    return null;
+  }],
+  ["slides", "slides.selection", [], (v) => (Array.isArray(v) ? null : "expected an array of selected ids")],
+  ["slides", "slides.slideCount", [], (v) => (v === 2 ? null : "expected the seed's 2 slides")],
+  ["slides", "slides.currentSlideIndex", [], (v) => (v === 1 ? null : "expected to start on slide 1")],
+  ["slides", "slides.canUndo", [], (v) => (typeof v === "boolean" ? null : "expected a boolean")],
+  ["slides", "slides.elementCenter", ["title"], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
 ];
 
 /** Read one reader out of page context. `read` is async, so the promise is returned
@@ -269,7 +299,11 @@ async function checkReaderRegistry(page, baseUrl) {
   const problems = [];
   const seen = new Set();
 
-  for (const surface of ["doc", "sheet"]) {
+  // Every surface the harness can mount, not a list restated here. A surface added
+  // without a row in this loop would skip its whole expectation table silently, and the
+  // completeness assertion at the end of this function would then be the only thing
+  // holding — which reports "no expectation exercises it" rather than "it was never run".
+  for (const surface of UI_SURFACES) {
     await page.goto(`${baseUrl}/harness/hunt?surface=${surface}`, { waitUntil: "networkidle" });
     await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
     // `sheet.activeCell` needs a selection to report; the doc surface needs none.
@@ -435,6 +469,96 @@ async function checkOffscreenRefusal(page, baseUrl) {
  * worth fixing, not a contract worth freezing, and pinning it would make an
  * improvement look like a regression. The sheet value is reported, not enforced.
  */
+/**
+ * The slides surface, end to end: aim, click, mutate, observe.
+ *
+ * `checkReaderRegistry` proves every slides reader ANSWERS. That is not the same as the
+ * surface being usable, and the gap between those two facts is where this harness can
+ * manufacture a defect rather than find one.
+ *
+ * THE CENTRE-SELECTS-ITSELF ASSERTION IS THE POINT. `slides.elementCenter` aims at an
+ * element's middle and the canvas hit-tests whatever is TOPMOST there, so a seed where one
+ * element covers another's centre makes the reader name one element and select a
+ * different one. The first live probe of this surface did exactly that — `badge` sat over
+ * `card`'s middle, clicking `elementCenter("card")` selected `badge` — and an explorer
+ * meeting that would predict `["card"]`, read `["badge"]`, and propose "clicking an
+ * element selects a different one" as a major defect with a deterministic repro. The seed
+ * was moved; this is what stops it drifting back.
+ */
+async function checkSlidesTargeting(page, baseUrl) {
+  const problems = [];
+  await page.goto(`${baseUrl}/harness/hunt?surface=slides`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+
+  const elements = await readReader(page, "slides.elements", []);
+  if (!elements.ok || !Array.isArray(elements.value) || elements.value.length === 0) {
+    problems.push(`slides.elements gave nothing to aim at (${elements.error ?? JSON.stringify(elements.value)}) — this check cannot run`);
+    return problems;
+  }
+
+  for (const element of elements.value) {
+    const point = await readReader(page, "slides.elementCenter", [element.id]);
+    if (!point.ok) {
+      problems.push(`slides.elementCenter(${element.id}) refused a seeded element: ${point.error.slice(0, 140)}`);
+      continue;
+    }
+    await page.mouse.click(point.value.x, point.value.y);
+    const selection = await readReader(page, "slides.selection", []);
+    const got = JSON.stringify(selection.value);
+    if (got !== JSON.stringify([element.id])) {
+      problems.push(
+        `clicking slides.elementCenter(${element.id}) selected ${got} — the seed must not put any ` +
+          "element's centre under another, or every prediction naming an element is aimed at the wrong one",
+      );
+    }
+  }
+
+  // An id that is not on the slide must refuse AND say what is, so a wrong guess costs one
+  // readable action rather than a click at nothing.
+  const missing = await readReader(page, "slides.elementCenter", ["no-such-element"]);
+  if (missing.ok) {
+    problems.push(`slides.elementCenter("no-such-element") returned ${JSON.stringify(missing.value)} instead of refusing`);
+  } else if (!/Available:/.test(missing.error)) {
+    problems.push(`slides.elementCenter must name the available ids when it refuses, got ${missing.error.slice(0, 140)}`);
+  }
+
+  // A MUTATION THE READERS CAN SEE, and its capability flag. Selecting proves hit-testing;
+  // this proves the surface is live and that `slides.elements` reflects a change rather
+  // than a snapshot taken at mount. Arrow-nudge is the cheapest real mutation available —
+  // no menu to navigate, no toolbar state to reach.
+  const restUndo = await readReader(page, "slides.canUndo", []);
+  if (restUndo.value !== false) {
+    problems.push(`slides.canUndo must be false before anything is edited, got ${JSON.stringify(restUndo.value)}`);
+  }
+  const target = elements.value[0];
+  const before = await readReader(page, "slides.elementCenter", [target.id]);
+  await page.mouse.click(before.value.x, before.value.y);
+  await page.keyboard.press("ArrowRight");
+
+  const after = await readReader(page, "slides.elements", []);
+  const moved = after.ok ? after.value.find((e) => e.id === target.id) : null;
+  const originally = elements.value.find((e) => e.id === target.id);
+  if (!moved || moved.x === originally.x) {
+    problems.push(`ArrowRight on ${target.id} did not move it — x stayed ${originally.x}, so the surface is mounted but inert`);
+  }
+  // Nothing ELSE may move. A nudge that shifted the whole slide would pass a
+  // "did it change" assertion while being exactly the defect worth catching.
+  for (const e of after.ok ? after.value : []) {
+    const was = elements.value.find((o) => o.id === e.id);
+    if (was && e.id !== target.id && (e.x !== was.x || e.y !== was.y)) {
+      problems.push(`nudging ${target.id} also moved ${e.id} from (${was.x},${was.y}) to (${e.x},${e.y})`);
+    }
+  }
+  const editedUndo = await readReader(page, "slides.canUndo", []);
+  if (editedUndo.value !== true) {
+    problems.push(
+      `slides.canUndo must be true after an edit, got ${JSON.stringify(editedUndo.value)} — ` +
+        "this surface has real undo stacks, and a caller told otherwise predicts the wrong thing",
+    );
+  }
+  return problems;
+}
+
 async function checkUndoCapability(page, baseUrl) {
   const problems = [];
 
@@ -1291,6 +1415,11 @@ try {
     for (const p of offscreenProblems) failures.push(`off-screen cell: ${p}`);
     if (offscreenProblems.length === 0) {
       console.log("[verify:hunt-oracles] a scrolled-away cell refuses, and a visible one still clicks");
+    }
+    const slidesProblems = await checkSlidesTargeting(page, baseUrl);
+    for (const p of slidesProblems) failures.push(`slides surface: ${p}`);
+    if (slidesProblems.length === 0) {
+      console.log("[verify:hunt-oracles] every slide element's centre selects itself, and a nudge moves only it");
     }
     const sheetToolbarProblems = await checkSheetToolbar(page, baseUrl);
     for (const p of sheetToolbarProblems) failures.push(`sheet toolbar: ${p}`);

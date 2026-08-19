@@ -88,7 +88,7 @@ node scripts/agent/hunt.mjs run --charter contract --out /tmp/hunt-1
 ## The UI hunter
 
 ```bash
-node scripts/agent/hunt-ui.mjs run [--charter <id>]... [--surface <doc|sheet>]...
+node scripts/agent/hunt-ui.mjs run [--charter <id>]... [--surface <doc|sheet|slides>]...
                                    [--out <dir>] [--repo <dir>] [--ledger <file>]
                                    [--coverage <file>] [--run-id <id>] [--fault <id>]
 node scripts/agent/hunt-ui.mjs replay --plan <file.json> [--attempts N]
@@ -101,6 +101,18 @@ Two personas, each with two briefs:
 |---|---|---|
 | `doc-writer` | `doc` | `body-and-styles`, `structure-and-links` |
 | `sheet-author` | `sheet` | `values-and-formulas`, `navigation-and-selection` |
+
+The `slides` surface mounts and answers readers, but **has no persona yet**, so nothing
+hunts it. `--surface slides` on its own therefore explores nothing — a persona names its
+own surface, and the surface is what the persona is pointed at rather than a target you can
+select. Adding one is the next step; until then the surface exists for the oracle lane and
+for `hunt-ui.mjs replay`.
+
+The slides surface also has **no drag action**, because the action vocabulary has none
+(`goto | click | type | key | scroll | read | wait`). Toolbar controls, keyboard nudge,
+z-order, alignment, slide operations and text editing are all reachable; move, resize,
+rotate, connector drawing and crop are not. A brief that asks for the second group will
+produce failed actions, not findings.
 
 Naming one persona runs its briefs only, which is the normal case:
 
