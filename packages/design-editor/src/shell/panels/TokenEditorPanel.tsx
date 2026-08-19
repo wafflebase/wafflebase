@@ -142,6 +142,22 @@ interface TokenEditorPanelProps {
  * re-typing the previous value looked clean. Introspection is refetched after
  * every commit/undo/redo, so the newly written value simply *is* the new default.
  */
+/**
+ * Every top-level palette member, kebab-normalised, for the draft's duplicate check.
+ *
+ * TWO ways a duplicate used to slip through. `path[0]` is the authored member
+ * (`syrupDeep`) while a draft key is kebab (`syrup-deep`), so a raw comparison never
+ * matched; and the panel checked only `isColor` refs, which is the REBIND PICKER's display
+ * filter — a name collides with a sibling whatever its type, so `syrupRgb` was accepted
+ * here and refused by the server.
+ *
+ * Exported because it is the whole of the rule, and testing it through the rendered draft
+ * would test the section-opening UI instead.
+ */
+export function paletteCollisionKeys(refs: TokenRef[] | undefined): string[] {
+  return (refs ?? []).map((r) => r.path[0]).filter(Boolean).map(camelToKebab);
+}
+
 export function TokenEditorPanel({
   dark,
   tokenEdits,
@@ -242,6 +258,13 @@ export function TokenEditorPanel({
     () => (introspection?.bindings?.refs ?? []).filter((c: TokenRef) => c.isColor),
     [introspection],
   );
+  /**
+   * EVERY top-level palette member, colour or not. `paletteColors` is the display set —
+   * `isColor` exists so the rebind picker shows only swatchable refs — but a name collides
+   * with a sibling whatever its type, so a draft checked against the colours alone accepts
+   * `syrup-rgb` and the server then refuses it.
+   */
+  const paletteMembers = useMemo(() => paletteCollisionKeys(introspection?.bindings?.refs), [introspection]);
   // ref → effective value (source value, overridden by a pending palette edit).
   const paletteValueByRef = useMemo(() => {
     const m = new Map<string, string>();
@@ -415,11 +438,10 @@ export function TokenEditorPanel({
   const existingKeys = (family: TokenFamily): Set<string> => {
     const staged = addsFor(family).map((a) => a.kebabKey);
     if (family === 'semantic') return new Set([...colorRoles, ...CURATED_ROLES, ...staged]);
-    // NORMALISED. `path[0]` is the authored member (`syrupDeep`); the draft's key is kebab
-    // (`syrup-deep`), so comparing them raw let a duplicate through the draft and into a
-    // server refusal. Only members the adapter reports are here — a non-colour sibling the
-    // client is never sent still collides server-side.
-    if (family === 'palette') return new Set([...paletteColors.map((c) => camelToKebab(c.path[0])), ...staged]);
+    // NORMALISED, and over EVERY member. `path[0]` is the authored member (`syrupDeep`)
+    // while the draft's key is kebab (`syrup-deep`), so comparing them raw let a duplicate
+    // through; and checking only the colours let a non-colour sibling through as well.
+    if (family === 'palette') return new Set([...paletteMembers, ...staged]);
     if (family === 'radius') return new Set([...radiusSpecs.map((t) => camelToKebab(t.path[0])), ...staged]);
     return new Set([...fontSpecs.map((t) => camelToKebab(t.path[0])), ...staged]);
   };

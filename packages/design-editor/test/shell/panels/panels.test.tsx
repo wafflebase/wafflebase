@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { AddTokenDraft } from '../../../src/shell/panels/AddTokenRow.tsx';
-import { TokenEditorPanel } from '../../../src/shell/panels/TokenEditorPanel.tsx';
+import { TokenEditorPanel, paletteCollisionKeys } from '../../../src/shell/panels/TokenEditorPanel.tsx';
 import type { TokensResult } from '../../../src/client/bridge.ts';
 import type { TokenFamilyMeta } from '../../../src/tokens/adapter.ts';
 
@@ -244,6 +244,28 @@ describe('TokenEditorPanel', () => {
  * the user to run a filter that does not exist. Routes belong in `BASE`; nothing under
  * `panels/` may name the old package at all, in copy or in comment.
  */
+describe('paletteCollisionKeys', () => {
+  const refs = [
+    { ref: 'palette.syrupDeep', path: ['syrupDeep'], value: '#123456', isColor: true },
+    { ref: 'palette.syrupRgb', path: ['syrupRgb'], value: '18 52 86', isColor: false },
+    { ref: 'palette.plain', path: ['plain'], value: '#fff', isColor: true },
+  ];
+
+  it('normalises the authored member to the kebab key a draft is typed as', () => {
+    // `syrupDeep` vs `syrup-deep` — compared raw, the duplicate reached the server.
+    expect(paletteCollisionKeys(refs)).toContain('syrup-deep');
+  });
+
+  it('includes non-colour members, which `isColor` only hides from the rebind picker', () => {
+    expect(paletteCollisionKeys(refs)).toContain('syrup-rgb');
+  });
+
+  it('leaves an already-lowercase member alone, and tolerates no refs at all', () => {
+    expect(paletteCollisionKeys(refs)).toContain('plain');
+    expect(paletteCollisionKeys(undefined)).toEqual([]);
+  });
+});
+
 describe('the panels never name the prototype package', () => {
   it('has no `design-sdk` anywhere under panels/', async () => {
     // `process.cwd()`, not `import.meta.url`: this file runs under jsdom, where
