@@ -97,6 +97,19 @@ describe('styleColor', () => {
   it('returns black for undefined', () => {
     expect(styleColor(undefined)).toEqual({ r: 0, g: 0, b: 0 });
   });
+  // Same normalizer as the DOCX/PPTX sinks: the model routinely holds
+  // browser-normalized CSS from the HTML-paste path, which used to export
+  // as black.
+  it('parses the CSS rgb() form the paste path stores', () => {
+    expect(styleColor('rgb(255, 128, 0)')).toEqual({ r: 1, g: 128 / 255, b: 0 });
+  });
+  it('expands #RGB shorthand', () => {
+    expect(styleColor('#f80')).toEqual({ r: 1, g: 136 / 255, b: 0 });
+  });
+  it('reads the wrapped srgb form', () => {
+    expect(styleColor({ kind: 'srgb', value: 'rgb(255, 128, 0)' }))
+      .toEqual({ r: 1, g: 128 / 255, b: 0 });
+  });
 });
 
 describe('isItalicShim', () => {

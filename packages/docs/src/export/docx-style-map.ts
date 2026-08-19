@@ -1,5 +1,5 @@
 import type { InlineStyle, BlockStyle } from '../model/types.js';
-import { defaultColorResolver } from '../model/color.js';
+import { defaultColorResolver, toRgbHexColor } from '../model/color.js';
 import { pointsToHalfPoints, pxToTwips } from '../import/units.js';
 import { isKoreanCapableFamily } from '../view/fonts.js';
 
@@ -14,22 +14,38 @@ const DEFAULT_EAST_ASIAN_FAMILY = 'Noto Sans KR';
 
 /**
  * Escape a value for safe interpolation into a double-quoted XML
- * attribute. `style.fontFamily`, `style.color` and
- * `style.backgroundColor` originate from untrusted sources
- * (PPTX/DOCX imports, user input in the font picker), so a hostile
- * family name like `A"><script>` could break the DOCX `<w:rFonts>`
- * element or inject attributes. The five canonical replacements cover
+ * attribute. Style values like `fontFamily` and `color` originate from
+ * untrusted sources (PPTX/DOCX imports, user input in the font picker),
+ * so a hostile family name like `A"><script>` could break the DOCX
+ * `<w:rFonts>` element or inject attributes. The five canonical replacements cover
  * every reserved character inside attribute content per the XML 1.0
  * spec — applied to `&` first so subsequent escapes don't get
  * re-escaped.
  */
-export function escapeXmlAttr(value: string): string {
+function escapeXmlAttr(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+/**
+ * Normalize a color string into an OOXML `ST_HexColor` value (six hex
+ * digits, no leading `#`), or `undefined` when it cannot be expressed as
+ * one — in which case the caller drops the attribute and the run inherits
+ * the document default rather than carrying a broken value.
+ *
+ * DOCX-facing name for the shared `toRgbHexColor` normalizer: `w:color`
+ * (`ST_HexColor`) and PPTX's `<a:srgbClr val>` (`ST_HexColorRGB`) need the
+ * same six-digit triplet from the same untrusted `StoredColor` strings, so
+ * both sinks share one implementation in `model/color.ts` (including its
+ * fully-transparent → `undefined` rule: `w:shd` has no alpha, so an
+ * `rgba(0,0,0,0)` paste must not become an opaque black block).
+ */
+export function toDocxHexColor(color: string | undefined): string | undefined {
+  return toRgbHexColor(color);
 }
 
 /**
@@ -69,25 +85,62 @@ export function buildRunPropertiesXml(style: InlineStyle): string {
   // role-bound colors are dropped (no theme registered at the docs
   // layer), srgb/string forms render verbatim. Slides decks that need
   // role-aware DOCX would have to flatten themes before export.
-  // Colors take the same escaping as `fontFamily` above: they are plain
-  // strings on the run (imported .docx/.pptx, a peer's Yorkie attribute),
-  // never validated as colors, so stripping `#` alone would let a hostile
-  // value break out of the attribute.
-  const colorHex = defaultColorResolver(style.color);
+  //
+  // `defaultColorResolver` passes any string through untouched, and
+  // `InlineStyle.color` really can hold a non-palette string (DOCX/PPTX
+  // import, HTML paste, the legacy `''` reset of issue #728), so run it
+  // through `toDocxHexColor`: anything that is not expressible as an
+  // `ST_HexColor` is dropped instead of emitted verbatim, which keeps the
+  // attribute both schema-valid and injection-proof.
+  const colorHex = toDocxHexColor(defaultColorResolver(style.color));
   if (colorHex) {
-    parts.push(`<w:color w:val="${escapeXmlAttr(colorHex.replace('#', ''))}"/>`);
+    parts.push(`<w:color w:val="${colorHex}"/>`);
   }
-  const bgHex = defaultColorResolver(style.backgroundColor);
+  const bgHex = toDocxHexColor(defaultColorResolver(style.backgroundColor));
   if (bgHex) {
-    parts.push(
-      `<w:shd w:val="clear" w:color="auto" w:fill="${escapeXmlAttr(bgHex.replace('#', ''))}"/>`,
-    );
+    parts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${bgHex}"/>`);
   }
   if (style.superscript) parts.push('<w:vertAlign w:val="superscript"/>');
   if (style.subscript) parts.push('<w:vertAlign w:val="subscript"/>');
 
   if (parts.length === 0) return '';
   return `<w:rPr>${parts.join('')}</w:rPr>`;
+}
+
+/**
+ * `BlockStyle.alignment` → OOXML `ST_Jc` token. A `Map`, not an object
+ * literal: an object lookup consults the prototype chain, so an alignment of
+ * `toString` / `constructor` / `valueOf` would resolve to an inherited
+ * `Object.prototype` member, survive the `?? 'left'` fallback and be
+ * stringified into the `w:val` attribute. `Map.get` only ever returns an own
+ * entry, which is what makes this lookup actually closed.
+ */
+const DOCX_ALIGNMENTS = new Map<string, string>([
+  ['left', 'left'],
+  ['center', 'center'],
+  ['right', 'right'],
+  ['justify', 'both'],
+]);
+
+/**
+ * `Block.headingLevel` → the `HeadingN` style id `<w:pStyle w:val>` carries.
+ *
+ * `headingLevel` is typed as `HeadingLevel` (1–6) but reaches this exporter as
+ * whatever was persisted into the CRDT (DOCX/PPTX import, the content PUT API,
+ * an older schema), exactly like `alignment` and the colors below — and both
+ * CRDT readers coerce it with `Number(...)`, which yields `NaN` rather than
+ * failing, so nothing upstream guarantees a value in range. Interpolating it
+ * raw would let a hostile string close the attribute and inject its own
+ * WordprocessingML into the exported `.docx`. Resolve it to one of the six
+ * built-in `HeadingN` style ids Word knows (matching `HeadingLevel`), or to
+ * `undefined` so the caller drops the element and the paragraph exports
+ * unstyled rather than broken.
+ */
+function toHeadingStyleId(headingLevel: number | undefined): string | undefined {
+  if (headingLevel === undefined) return undefined;
+  const n = Number(headingLevel);
+  if (!Number.isInteger(n) || n < 1 || n > 6) return undefined;
+  return `Heading${n}`;
 }
 
 /**
@@ -99,11 +152,18 @@ export function buildParagraphPropertiesXml(
 ): string {
   const parts: string[] = [];
 
-  if (headingLevel) {
-    parts.push(`<w:pStyle w:val="Heading${headingLevel}"/>`);
+  const headingStyleId = toHeadingStyleId(headingLevel);
+  if (headingStyleId) {
+    parts.push(`<w:pStyle w:val="${headingStyleId}"/>`);
   }
 
-  const align = style.alignment === 'justify' ? 'both' : style.alignment;
+  // `BlockStyle.alignment` is typed, but the value reaching an exporter is
+  // whatever string was persisted into the CRDT (DOCX/PPTX import, the
+  // content PUT API, an older schema), so it is untrusted at this sink the
+  // same way colors are. Resolve it through a closed lookup — mirroring the
+  // PPTX exporter's `ALGN[...] ?? 'l'` — so `<w:jc w:val>` can only ever
+  // carry an `ST_Jc` token and never an attacker-chosen fragment.
+  const align = DOCX_ALIGNMENTS.get(style.alignment as string) ?? 'left';
   if (align !== 'left') {
     parts.push(`<w:jc w:val="${align}"/>`);
   }

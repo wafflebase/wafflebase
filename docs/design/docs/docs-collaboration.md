@@ -83,6 +83,31 @@ element and text nodes:
 - **Text nodes** — Leaf nodes inside `<inline>` elements containing the actual
   character data.
 
+#### Attribute encoding contract (block style)
+
+Block-style attributes are **optional on the wire**. `BlockStyle` is a full
+shape in the model, but the persisted attribute set is a partial: the v1
+content `PUT` API accepts `style: {}`, and documents written before a field
+existed simply lack it. So the writer emits an attribute only when it carries a
+value the reader can invert — an alignment in
+`{left, center, right, justify}`, and a *finite* number for each of
+`lineHeight` / `marginTop` / `marginBottom` / `textIndent` / `marginLeft`. An
+absent attribute means "unspecified" and reads back as `DEFAULT_BLOCK_STYLE`;
+`header`/`footer` `marginFromEdge` follows the same rule with
+`DEFAULT_HEADER_MARGIN_FROM_EDGE`. Symmetrically, the reader drops any
+attribute the writer would not have emitted (`Number("undefined") → NaN`, an
+unknown alignment) rather than passing it to `normalizeBlockStyle`, which is a
+bare spread and would carry `NaN` straight into the layout engine.
+
+Two writers encode this tree — the editor's `YorkieDocStore`
+(`packages/frontend/src/app/docs/yorkie-doc-store.ts`) and the backend's
+`docs-tree.ts` behind the v1 content REST endpoint — so the codec is a single
+shared module, `@wafflebase/docs` `model/crdt-attrs.ts`
+(`serializeBlockStyleAttrs` / `parseBlockStyleAttrs` /
+`serializeMarginFromEdgeAttrs` / `parseMarginFromEdgeAttr`). Both sides import
+it; neither keeps a copy, because a divergence would make one writer's output
+unreadable by the other's reader.
+
 Tables have since shipped as `type: 'table'` element nodes (including nested
 tables) — see `packages/docs/src/model/document.ts` (`insertTable`,
 `insertTableInCell`, `createTableBlock`) and [`docs-tables.md`](docs-tables.md).

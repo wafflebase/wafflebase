@@ -1,7 +1,7 @@
 import type { Block } from '../model/types.js';
 import { LIST_INDENT_PX, UNORDERED_MARKERS } from '../model/types.js';
 import type { ColorResolver } from '../model/color.js';
-import { defaultColorResolver } from '../model/color.js';
+import { defaultColorResolver, resolveStoredColor } from '../model/color.js';
 import type { DocumentLayout, LayoutBlock, LayoutRun } from './layout.js';
 import { computeListCounters } from './layout.js';
 import type { LayoutPage } from './pagination.js';
@@ -381,8 +381,11 @@ export function renderRun(
     ? (style.fontSize ?? theme.defaultFontSize) * 0.6
     : style.fontSize;
 
-  // Link defaults: blue text + underline (user-set values take precedence)
-  const resolvedColor = resolveColor(style.color);
+  // Link defaults: blue text + underline (user-set values take precedence).
+  // `resolveStoredColor` (not a bare `resolveColor`) because a cleared color
+  // can reach here as an empty string — see issue #728 and the helper's
+  // comment for why the normalization has to straddle the resolver.
+  const resolvedColor = resolveStoredColor(resolveColor, style.color);
   let textColor = resolvedColor ?? theme.defaultColor;
   let showUnderline = style.underline ?? false;
   if (style.href) {
@@ -447,7 +450,7 @@ export function renderRun(
     const uStyle = style.underlineStyle;
     ctx.save();
     ctx.beginPath();
-    ctx.strokeStyle = resolveColor(style.underlineColor) ?? textColor;
+    ctx.strokeStyle = resolveStoredColor(resolveColor, style.underlineColor) ?? textColor;
     ctx.lineWidth = uStyle === 'heavy' ? 2 : 1;
     if (uStyle === 'dotted') ctx.setLineDash([1, 2]);
     else if (uStyle === 'dashed') ctx.setLineDash([3, 2]);
@@ -538,10 +541,9 @@ export function renderListMarker(
   const firstInline = block.inlines[0]?.style;
   const fontSize = m?.fontSize ?? firstInline?.fontSize ?? theme.defaultFontSize;
   const fontFamily = m?.fontFamily ?? firstInline?.fontFamily;
-  // `StoredColor` has no falsy legal value (hex strings start with '#',
-  // role / srgb shapes are objects), so `??` and `!== undefined` produce
-  // identical results here — keep `??` for stylistic uniformity with the
-  // axes above.
+  // `??` picks the marker's own color over the inline's, matching the axes
+  // above; a cleared color still reaches here as '' (issue #728), which
+  // `resolveStoredColor` below treats as unset.
   const colorSource = m?.color ?? firstInline?.color;
   const fontSizePx = ptToPx(fontSize);
   // Marker font stays the marker's own size, but the baseline uses the
@@ -550,6 +552,6 @@ export function renderListMarker(
     lineBaselineY(lineY, lineHeight, lineMaxFontSizePx ?? fontSizePx),
   );
   ctx.font = buildFont(fontSize, fontFamily, false, false);
-  ctx.fillStyle = resolveColor(colorSource) ?? theme.defaultColor;
+  ctx.fillStyle = resolveStoredColor(resolveColor, colorSource) ?? theme.defaultColor;
   ctx.fillText(markerText, markerX, baselineY);
 }

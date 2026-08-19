@@ -113,6 +113,47 @@ describe('DocxExporter', () => {
     expect(docXml).toContain('<w:tcW w:w="6750" w:type="dxa"/>');
   });
 
+  it('normalizes a table cell background into w:shd and drops a hostile one', async () => {
+    // `CellStyle.backgroundColor` is untrusted: the DOCX importer copies
+    // `w:shd/@w:fill` verbatim and HTML paste copies browser CSS. Emitted
+    // raw it both injects into document.xml and produces an invalid
+    // ST_HexColor, so it goes through the same normalizer as run props.
+    const cell = (text: string, backgroundColor?: string) => ({
+      blocks: [{ id: generateBlockId(), type: 'paragraph' as const, inlines: [{ text, style: {} }], style: { ...DEFAULT_BLOCK_STYLE } }],
+      style: backgroundColor !== undefined ? { backgroundColor } : {},
+    });
+    const doc: Document = {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'table',
+        inlines: [],
+        style: { ...DEFAULT_BLOCK_STYLE },
+        tableData: {
+          rows: [{
+            cells: [
+              cell('A', '#ff0000'),
+              cell('B', 'a"/><w:b'),
+              cell('C', 'rgb(0, 128, 255)'),
+            ],
+          }],
+          columnWidths: [0.34, 0.33, 0.33],
+        },
+      }],
+    };
+
+    const blob = await DocxExporter.export(doc);
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const docXml = await zip.file('word/document.xml')!.async('string');
+    expect(docXml).toContain('<w:shd w:val="clear" w:color="auto" w:fill="FF0000"/>');
+    expect(docXml).toContain('<w:shd w:val="clear" w:color="auto" w:fill="0080FF"/>');
+    // The hostile value must not reach the attribute in any form — raw
+    // (attribute injection) or escaped (invalid ST_HexColor).
+    expect(docXml).not.toContain('w:fill="a"/>');
+    expect(docXml).not.toContain('a&quot;/&gt;&lt;w:b');
+    expect(docXml.match(/<w:shd /g)!.length).toBe(2);
+  });
+
   it('should skip horizontal merge placeholder cells (no extra w:tc with w:vMerge)', async () => {
     // Owner with colSpan=2 covers the next grid column; the placeholder
     // at cell index 1 must NOT round-trip as a stray vMerge continuation,

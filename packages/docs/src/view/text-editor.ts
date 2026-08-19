@@ -1,5 +1,5 @@
 import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
-import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges } from '../model/types.js';
+import { generateBlockId, getBlockText, getBlockTextLength, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges, isStructuralInline } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
 import { cloneBlockWithFreshIds } from '../store/block-helpers.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables, WAFFLEDOCS_MIME } from './clipboard.js';
@@ -3714,7 +3714,13 @@ export class TextEditor {
     for (const inline of inlines) {
       if (inline.text.length === 0) continue;
       const last = merged[merged.length - 1];
-      if (last && this.inlineStylesMatch(last.style, inline.style)) {
+      // Structural inlines never merge, however identical they look. An
+      // image keeps its payload in the style while its text is a single
+      // placeholder character, so one inline describes exactly one object
+      // — concatenating two gives a two-character run under a single
+      // `style.image`, which cannot describe two images (#726).
+      if (last && !isStructuralInline(last) && !isStructuralInline(inline) &&
+          this.inlineStylesMatch(last.style, inline.style)) {
         last.text += inline.text;
       } else {
         merged.push({ text: inline.text, style: { ...inline.style } });

@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Body,
   Controller,
-  ForbiddenException,
   Get,
   NotFoundException,
   Param,
@@ -18,6 +17,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
+import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { DocumentService } from '../../document/document.service';
 import {
   assertFileIdAllowed,
@@ -47,7 +47,7 @@ const MAX_MIME_TYPE_LENGTH = 255;
  * two-phase protocol for clients to get wrong.
  */
 @Controller('api/v1/workspaces/:workspaceId/files')
-@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
+@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
 // Match the inline-image routes' raised bucket: a scripted upload loop bursts
 // past the global 120/min default.
 @Throttle({ default: { limit: 600, ttl: 60_000 } })
@@ -73,13 +73,9 @@ export class ApiV1FilesController {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
-    // `CombinedAuthGuard` only proves the key is valid, and
-    // `WorkspaceScopeGuard` only that it is bound to this workspace — neither
-    // reads `scopes`. Without this a read-scoped key could create documents.
-    // Mirrors the check on `documents.delete`.
-    if (req.user.isApiKey && !req.user.scopes?.includes('write')) {
-      throw new ForbiddenException('This API key does not have write access');
-    }
+    // The API key `write` scope is enforced by `ApiKeyWriteScopeGuard` on the
+    // controller, so a read-scoped key never reaches this handler and no
+    // upload is stored for it.
 
     // Resolve the title before storing anything: a rejected title should not
     // cost an upload, even though the cleanup below would cover it.

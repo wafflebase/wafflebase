@@ -26,13 +26,13 @@ import {
   type TreeNode,
 } from '@yorkie-js/sdk';
 import {
-  DEFAULT_BLOCK_STYLE,
-  DEFAULT_HEADER_MARGIN_FROM_EDGE,
-  normalizeBlockStyle,
+  parseBlockStyleAttrs,
+  parseMarginFromEdgeAttr,
+  serializeBlockStyleAttrs,
+  serializeMarginFromEdgeAttrs,
 } from '@wafflebase/docs';
 import type {
   DocsBlock,
-  DocsBlockStyle,
   DocsDocument,
   DocsInline,
   DocsPageSetup,
@@ -136,33 +136,14 @@ function parseInlineStyle(
   return style;
 }
 
-function serializeBlockStyle(
-  style: DocsBlock['style'],
-): Record<string, string> {
-  return {
-    alignment: style.alignment,
-    lineHeight: String(style.lineHeight),
-    marginTop: String(style.marginTop),
-    marginBottom: String(style.marginBottom),
-    textIndent: String(style.textIndent),
-    marginLeft: String(style.marginLeft),
-  };
-}
-
-function parseBlockStyle(
-  attrs: Record<string, string> | undefined,
-): DocsBlockStyle {
-  if (!attrs) return { ...DEFAULT_BLOCK_STYLE };
-  const partial: Partial<DocsBlockStyle> = {};
-  if ('alignment' in attrs)
-    partial.alignment = attrs.alignment as DocsBlockStyle['alignment'];
-  if ('lineHeight' in attrs) partial.lineHeight = Number(attrs.lineHeight);
-  if ('marginTop' in attrs) partial.marginTop = Number(attrs.marginTop);
-  if ('marginBottom' in attrs) partial.marginBottom = Number(attrs.marginBottom);
-  if ('textIndent' in attrs) partial.textIndent = Number(attrs.textIndent);
-  if ('marginLeft' in attrs) partial.marginLeft = Number(attrs.marginLeft);
-  return normalizeBlockStyle(partial);
-}
+// Block-level style is encoded by the shared codec in `@wafflebase/docs`
+// (`model/crdt-attrs.ts`) rather than a copy here: the editor's
+// `YorkieDocStore` writes the same Tree attributes, and a divergence between
+// the two encodings would make one writer's output unreadable by the other's
+// reader. See that module for the partial-on-the-wire contract (absent fields
+// are omitted, non-finite numbers and unknown alignments are dropped).
+const serializeBlockStyle = serializeBlockStyleAttrs;
+const parseBlockStyle = parseBlockStyleAttrs;
 
 function serializeCellStyle(cell: DocsTableCell): Record<string, string> {
   const attrs: Record<string, string> = {};
@@ -284,12 +265,16 @@ function buildRowNode(row: DocsTableRow): ElementNode {
   };
 }
 
+// `marginFromEdge` follows the same partial-on-the-wire contract as block
+// style, and is encoded by the same shared codec for the same reason.
+const serializeMarginFromEdge = serializeMarginFromEdgeAttrs;
+
 function buildTreeChildren(document: DocsDocument): ElementNode[] {
   const children: ElementNode[] = [];
   if (document.header) {
     children.push({
       type: 'header',
-      attributes: { marginFromEdge: String(document.header.marginFromEdge) },
+      attributes: serializeMarginFromEdge(document.header.marginFromEdge),
       children: document.header.blocks.map(buildBlockNode),
     });
   }
@@ -299,12 +284,14 @@ function buildTreeChildren(document: DocsDocument): ElementNode[] {
   if (document.footer) {
     children.push({
       type: 'footer',
-      attributes: { marginFromEdge: String(document.footer.marginFromEdge) },
+      attributes: serializeMarginFromEdge(document.footer.marginFromEdge),
       children: document.footer.blocks.map(buildBlockNode),
     });
   }
   return children;
 }
+
+const parseMarginFromEdge = parseMarginFromEdgeAttr;
 
 // ---------------------------------------------------------------------------
 // ElementNode → Document
@@ -437,18 +424,14 @@ export function readDocsRoot(root: DocsYorkieRoot): DocsDocument {
       const attrs = (header.attributes ?? {}) as Record<string, string>;
       doc.header = {
         blocks: (header.children ?? []).map(treeNodeToBlock),
-        marginFromEdge: attrs.marginFromEdge
-          ? Number(attrs.marginFromEdge)
-          : DEFAULT_HEADER_MARGIN_FROM_EDGE,
+        marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
       };
     } else if (child.type === 'footer') {
       const footer = child as ElementNode;
       const attrs = (footer.attributes ?? {}) as Record<string, string>;
       doc.footer = {
         blocks: (footer.children ?? []).map(treeNodeToBlock),
-        marginFromEdge: attrs.marginFromEdge
-          ? Number(attrs.marginFromEdge)
-          : DEFAULT_HEADER_MARGIN_FROM_EDGE,
+        marginFromEdge: parseMarginFromEdge(attrs.marginFromEdge),
       };
     } else if (child.type === 'block') {
       doc.blocks.push(treeNodeToBlock(child));

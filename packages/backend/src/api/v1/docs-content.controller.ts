@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
+import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { DocumentService } from '../../document/document.service';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import {
@@ -32,6 +33,12 @@ import type {
   DocsDocument,
   SlidesDocument,
 } from '../../yorkie/yorkie.types';
+
+import {
+  BLOCK_ALIGNMENTS,
+  BLOCK_STYLE_NUMERIC_FIELDS,
+  isBlockAlignment,
+} from '@wafflebase/docs';
 
 import { YORKIE_DOC_KEY_PREFIXES } from '../../yorkie/yorkie-doc-key';
 
@@ -65,7 +72,7 @@ type ContentDocument = DocsDocument | SlidesDocument | NoteDocument;
  * these endpoints so it never needs to ship a Yorkie SDK dependency.
  */
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/content')
-@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
+@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
 export class ApiV1DocsContentController {
   constructor(
     private readonly documentService: DocumentService,
@@ -123,6 +130,10 @@ export class ApiV1DocsContentController {
     @Param('documentId') documentId: string,
     @Body() body: unknown,
   ): Promise<ContentDocument> {
+    // This route is a *destructive replace* of a document's whole content.
+    // `ApiKeyWriteScopeGuard` on the controller has already refused a
+    // read-scoped API key before this handler runs.
+    //
     // Hand-rolled shape guard. `@Body()` is compile-time typed only, so a
     // malformed payload would otherwise reach the writer and surface as
     // HTTP 500 deep inside Yorkie. We validate just the fields the writer
@@ -249,6 +260,106 @@ function assertValidDocsBody(body: unknown): asserts body is DocsDocument {
   for (let i = 0; i < blocks.length; i++) {
     assertValidBlock(blocks[i], `blocks[${i}]`);
   }
+  // `writeDocsRoot` persists `header.blocks` / `footer.blocks` through the
+  // very same `buildBlockNode`, so a payload that smuggles a malformed block
+  // (or an out-of-range alignment) into a header would otherwise bypass every
+  // check above and surface as a 500 from inside Yorkie. Validate both
+  // regions with the same walker, and their `marginFromEdge` too — the writer
+  // reads it verbatim.
+  assertValidHeaderFooter((body as { header?: unknown }).header, 'header');
+  assertValidHeaderFooter((body as { footer?: unknown }).footer, 'footer');
+}
+
+function assertValidHeaderFooter(region: unknown, path: string): void {
+  if (region === undefined || region === null) return;
+  if (typeof region !== 'object') {
+    throw new BadRequestException(
+      `Invalid docs content payload: '${path}' must be an object`,
+    );
+  }
+  const r = region as Record<string, unknown>;
+  if (!Array.isArray(r.blocks)) {
+    throw new BadRequestException(
+      `Invalid docs content payload: '${path}.blocks' must be an array`,
+    );
+  }
+  if (
+    r.marginFromEdge !== undefined &&
+    (typeof r.marginFromEdge !== 'number' ||
+      !Number.isFinite(r.marginFromEdge))
+  ) {
+    throw new BadRequestException(
+      `Invalid docs content payload: '${path}.marginFromEdge' must be a finite number`,
+    );
+  }
+  for (let i = 0; i < r.blocks.length; i++) {
+    assertValidBlock(r.blocks[i], `${path}.blocks[${i}]`);
+  }
+}
+
+/**
+ * Validate the *values* a block style carries, not just its shape. Every
+ * field is optional (`style: {}` is a valid partial the reader fills from
+ * `DEFAULT_BLOCK_STYLE`), but a present field has to be something the writer
+ * can express: `alignment` reaches an OOXML attribute via the DOCX exporter,
+ * and the geometry fields reach the layout engine as numbers. The writer
+ * drops what it cannot express and the exporters clamp at their own sinks, so
+ * this is defence in depth — its job is to hand the caller a 400 instead of
+ * silently rewriting their style. Reached for body, header, footer and
+ * table-cell blocks alike, since `assertValidBlock` recurses into cells — and
+ * for the block styles inside slide text bodies, which are the same
+ * `BlockStyle` shape reaching the same layout engine (see
+ * `assertValidTextBodyBlocks`).
+ *
+ * The alignment allowlist is the same set the CRDT codec
+ * (`@wafflebase/docs` `model/crdt-attrs.ts`) will emit and read back, so a
+ * `GET` → edit → `PUT` round-trip of a docs document can never hit this 400:
+ * the reader drops anything outside the set before the caller ever sees it.
+ *
+ * Two deliberate tolerances keep this from rejecting what the *readers* hand
+ * back:
+ *
+ * - `null` is treated as absent for every field. It is how JSON spells "no
+ *   value" and how a cleared style field comes back over the wire, and
+ *   `serializeBlockStyleAttrs` already skips it (`raw === null` → continue),
+ *   so a `null` here is a field the writer drops, not a 400.
+ * - Slide text bodies pass `alignmentRule: 'string'`. Unlike docs blocks they
+ *   are persisted *and read back* verbatim — there is no attribute codec to
+ *   drop an out-of-set alignment on read — so applying the allowlist would
+ *   400 a `GET` → edit → `PUT` round-trip of any deck already carrying one.
+ *   The exporters resolve alignment through closed `Map` lookups
+ *   (`packages/docs/src/export/docx`, `packages/slides/src/export/pptx/text.ts`),
+ *   so an alignment they do not know falls back to the default at the sink
+ *   rather than reaching an OOXML attribute.
+ */
+function assertValidBlockStyle(
+  style: Record<string, unknown>,
+  path: string,
+  alignmentRule: 'allowlist' | 'string' = 'allowlist',
+): void {
+  const alignment = style.alignment;
+  if (alignment !== undefined && alignment !== null) {
+    const ok =
+      alignmentRule === 'allowlist'
+        ? isBlockAlignment(alignment)
+        : typeof alignment === 'string';
+    if (!ok) {
+      throw new BadRequestException(
+        alignmentRule === 'allowlist'
+          ? `Invalid block at ${path}: 'style.alignment' must be one of ${BLOCK_ALIGNMENTS.join(', ')}`
+          : `Invalid block at ${path}: 'style.alignment' must be a string`,
+      );
+    }
+  }
+  for (const field of BLOCK_STYLE_NUMERIC_FIELDS) {
+    const value = style[field as string];
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new BadRequestException(
+        `Invalid block at ${path}: 'style.${field}' must be a finite number`,
+      );
+    }
+  }
 }
 
 function assertValidBlock(block: unknown, path: string): void {
@@ -265,6 +376,7 @@ function assertValidBlock(block: unknown, path: string): void {
   if (!b.style || typeof b.style !== 'object') {
     throw new BadRequestException(`Invalid block at ${path}: 'style' must be an object`);
   }
+  assertValidBlockStyle(b.style as Record<string, unknown>, path);
   if (b.type === 'table') {
     const td = b.tableData as Record<string, unknown> | undefined;
     if (!td || typeof td !== 'object') {
@@ -284,7 +396,7 @@ function assertValidBlock(block: unknown, path: string): void {
         );
       }
       for (let c = 0; c < row.cells.length; c++) {
-        const cell = row.cells[c] as { blocks?: unknown };
+        const cell = row.cells[c] as { blocks?: unknown; style?: unknown };
         if (!cell || !Array.isArray(cell.blocks)) {
           throw new BadRequestException(
             `Invalid block at ${path}.tableData.rows[${r}].cells[${c}]: 'blocks' must be an array`,
@@ -296,12 +408,42 @@ function assertValidBlock(block: unknown, path: string): void {
             `${path}.tableData.rows[${r}].cells[${c}].blocks[${cb}]`,
           );
         }
+        // `serializeCellStyle` dereferences `cell.style` unconditionally, so
+        // a cell without one is a 500 from inside the writer rather than a
+        // 400 here. Checked after the nested blocks so the innermost problem
+        // is still the one reported.
+        if (!cell.style || typeof cell.style !== 'object') {
+          throw new BadRequestException(
+            `Invalid block at ${path}.tableData.rows[${r}].cells[${c}]: 'style' must be an object`,
+          );
+        }
       }
     }
     return;
   }
   if (!Array.isArray(b.inlines)) {
     throw new BadRequestException(`Invalid block at ${path}: 'inlines' must be an array`);
+  }
+  // `buildInlineNode` reads `inline.text.length` and `serializeInlineStyle`
+  // reads every key off `inline.style`, both unconditionally — an element
+  // missing either turns a malformed PUT into a 500 from inside the writer.
+  for (let i = 0; i < b.inlines.length; i++) {
+    const inline = b.inlines[i] as { text?: unknown; style?: unknown } | null;
+    if (!inline || typeof inline !== 'object') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: not an object`,
+      );
+    }
+    if (typeof inline.text !== 'string') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: 'text' must be a string`,
+      );
+    }
+    if (!inline.style || typeof inline.style !== 'object') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: 'style' must be an object`,
+      );
+    }
   }
 }
 
@@ -343,6 +485,39 @@ function assertValidSlidesBody(body: unknown): asserts body is SlidesDocument {
   for (let i = 0; i < slides.length; i++) {
     assertValidSlide(slides[i], `slides[${i}]`);
   }
+  // A slide is not the only place a deck stores docs `Block`s and elements.
+  // `Layout.placeholders` / `Layout.staticElements` hold the same element
+  // shapes (with the same text bodies) and are persisted verbatim through the
+  // same PUT into the same layout engine and exporters, so validating only
+  // `slides[*].elements` would leave a hole that accepts through `layouts`
+  // exactly what it rejects through `slides`.
+  //
+  // `masters` needs no walk: a `Master` is `{ id, themeId, background,
+  // placeholderStyles }` (packages/slides/src/model/master.ts) — it carries
+  // no elements and no `Block`s, so there is nothing of this shape inside it.
+  const layouts = b.layouts as unknown[];
+  for (let i = 0; i < layouts.length; i++) {
+    assertValidLayout(layouts[i], `layouts[${i}]`);
+  }
+}
+
+function assertValidLayout(layout: unknown, path: string): void {
+  if (!layout || typeof layout !== 'object') {
+    throw new BadRequestException(`Invalid layout at ${path}: not an object`);
+  }
+  const l = layout as Record<string, unknown>;
+  // Both collections are optional on the wire and are stored verbatim, so we
+  // only walk them when they are arrays — the point is the text bodies inside,
+  // not a structural contract this endpoint never enforced before.
+  for (const key of ['placeholders', 'staticElements'] as const) {
+    const list = l[key];
+    if (!Array.isArray(list)) continue;
+    for (let i = 0; i < list.length; i++) {
+      // A `PlaceholderSpec` is an `ElementInit` — it has no `id` at all — so
+      // these go through the nested (identity-free) walk.
+      assertValidNestedElement(list[i], `${path}.${key}[${i}]`);
+    }
+  }
 }
 
 function assertValidSlide(slide: unknown, path: string): void {
@@ -382,6 +557,9 @@ function assertValidSlide(slide: unknown, path: string): void {
   for (let i = 0; i < s.elements.length; i++) {
     assertValidElement(s.elements[i], `${path}.elements[${i}]`);
   }
+  // `Slide.notes` is `Block[]` — the very same docs blocks, laid out by the
+  // same engine and exported through `notesSlideToXml` → `textBodyToXml`.
+  assertValidSlideBlocks(s.notes, `${path}.notes`);
 }
 
 function assertValidElement(element: unknown, path: string): void {
@@ -403,5 +581,426 @@ function assertValidElement(element: unknown, path: string): void {
     throw new BadRequestException(
       `Invalid element at ${path}: 'frame' must be an object`,
     );
+  }
+  assertValidElementData(e, path);
+}
+
+/**
+ * Walk an element that is *nested* inside another one — a group child, or a
+ * layout placeholder / static element.
+ *
+ * Deliberately identity-free: unlike a slide's own `elements`, these were
+ * never validated before, are persisted verbatim, and legitimately lack the
+ * fields `assertValidElement` demands (a `PlaceholderSpec` is an
+ * `ElementInit`, i.e. an element *without* `id`; a group child imported from
+ * PPTX may predate any of it). Holding them to the full contract would turn a
+ * `GET` → edit → `PUT` round-trip of an existing deck into a 400. What we do
+ * check is the same thing we check everywhere else: the text bodies inside.
+ */
+function assertValidNestedElement(
+  element: unknown,
+  path: string,
+  depth = 0,
+): void {
+  if (!element || typeof element !== 'object') {
+    throw new BadRequestException(`Invalid element at ${path}: not an object`);
+  }
+  assertValidElementData(element as Record<string, unknown>, path, depth);
+}
+
+/**
+ * Depth ceiling for the element walk. Group nesting is a handful of levels in
+ * any real deck (PPTX and Google Slides both keep it shallow), but the walk
+ * recurses through `data.children` and the JSON body limit is 25 MB — enough
+ * for a compact payload to exhaust the stack on an authenticated endpoint.
+ */
+const MAX_ELEMENT_DEPTH = 32;
+
+/**
+ * Validate the text bodies an element's `data` carries.
+ *
+ * Slide text lives in docs `Block`s — the *same* shape the docs arm
+ * validates above, read back by `packages/slides` through the same
+ * `normalizeBlockStyle` (a bare spread) and laid out by the same docs
+ * layout engine. `writeSlidesRoot` stores them as plain JSON verbatim, so
+ * without this walk the slides arm of this endpoint is a hole through which
+ * a `NaN` margin reaches the deck.
+ *
+ * `Element.data` is required by the model for *every* type and the renderer
+ * dereferences it unconditionally (`element.data.effects?.shadow` in
+ * `packages/slides/src/view/canvas/element-renderer.ts` runs for shape / image
+ * / text / table alike), so an absent one is a TypeError for every viewer of
+ * the stored deck — `migrateElement` repairs nothing but shapes. It therefore
+ * gets the same repair the text bodies below get: the empty shape its own type
+ * demands (`{ blocks: [] }` for a text element, whose `data` *is* its
+ * `TextBody` and is read as `el.data.blocks` by `isElementEmpty`;
+ * `{ rows: [], columnWidths: [] }` for a table, whose `data.columnWidths.length`
+ * and `data.rows` are read by `drawTable` and the PDF exporter;
+ * `{ children: [] }` for a group, whose `data.children` is walked by
+ * `flattenElements`; `{}` otherwise).
+ *
+ * An array is rejected rather than repaired: `typeof [] === 'object'`, so a
+ * repair would land as an array expando that JSON serialization drops, leaving
+ * the crashing shape stored anyway.
+ */
+function assertValidElementData(
+  e: Record<string, unknown>,
+  path: string,
+  depth = 0,
+): void {
+  if (depth > MAX_ELEMENT_DEPTH) {
+    throw new BadRequestException(
+      `Invalid element at ${path}: elements are nested too deeply`,
+    );
+  }
+  const raw = e.data;
+  if (Array.isArray(raw)) {
+    throw new BadRequestException(
+      `Invalid element at ${path}: 'data' must be an object`,
+    );
+  }
+  if (raw === undefined || raw === null) {
+    e.data = emptyElementData(e.type);
+    return;
+  }
+  if (typeof raw !== 'object') {
+    throw new BadRequestException(
+      `Invalid element at ${path}: 'data' must be an object`,
+    );
+  }
+  const data = raw as Record<string, unknown>;
+  if (e.type === 'text') {
+    assertValidTextBodyBlocks(data, `${path}.data`);
+    return;
+  }
+  if (e.type === 'shape') {
+    // A shape's inline text body is lazily created, so it is often absent.
+    if (data.text !== undefined && data.text !== null) {
+      assertValidTextBody(data.text, `${path}.data.text`);
+    }
+  } else if (e.type === 'table') {
+    assertValidTableData(data, path);
+  } else if (e.type === 'chart') {
+    // `drawChart` reads `data.series` and `data.categories` unconditionally
+    // (`packages/slides/src/view/canvas/chart-renderer.ts`), so they get the
+    // same treatment as a table's `rows` / `columnWidths`.
+    for (const key of ['categories', 'series'] as const) {
+      const value = data[key];
+      if (value === undefined || value === null) {
+        data[key] = [];
+      } else if (!Array.isArray(value)) {
+        throw new BadRequestException(
+          `Invalid element at ${path}.data: '${key}' must be an array`,
+        );
+      }
+    }
+  } else if (e.type === 'group') {
+    const children = data.children;
+    if (children === undefined || children === null) {
+      data.children = [];
+      return;
+    }
+    if (!Array.isArray(children)) {
+      throw new BadRequestException(
+        `Invalid element at ${path}.data: 'children' must be an array`,
+      );
+    }
+    for (let i = 0; i < children.length; i++) {
+      assertValidNestedElement(
+        children[i],
+        `${path}.data.children[${i}]`,
+        depth + 1,
+      );
+    }
+  }
+}
+
+/**
+ * The empty `data` an element of `type` must carry for its readers.
+ *
+ * A `Map` rather than a chain of `===` on an object literal lookup, so the
+ * untrusted `type` string can never reach a prototype key.
+ */
+const EMPTY_ELEMENT_DATA = new Map<string, () => Record<string, unknown>>([
+  ['text', () => ({ blocks: [] })],
+  ['table', () => ({ rows: [], columnWidths: [] })],
+  ['group', () => ({ children: [] })],
+  ['chart', () => ({ categories: [], series: [] })],
+]);
+
+function emptyElementData(type: unknown): Record<string, unknown> {
+  const build =
+    typeof type === 'string' ? EMPTY_ELEMENT_DATA.get(type) : undefined;
+  return build ? build() : {};
+}
+
+/**
+ * Validate — and where merely absent, repair — a table element's `data`.
+ *
+ * Every field touched here is read unconditionally by a *reader* of the
+ * stored deck, earlier in the same pass than the cell body:
+ * `drawTable` reads `data.columnWidths.length` and `data.rows.length`
+ * before anything else, `paintCellFills` reads `cell.style.fill` and
+ * `paddingOf` reads `cell.style.padding`
+ * (`packages/slides/src/view/canvas/table-renderer.ts`), the PDF exporter
+ * walks `row.cells` and reads `cell.body` on every entry
+ * (`packages/slides/src/export/pdf.ts`), and `scaleElementHeight` iterates
+ * `data.rows` (`packages/slides/src/model/slide-size.ts`). Repairing only the
+ * body would leave the same stored crash the repair exists to prevent.
+ *
+ * A `null` cell is repaired rather than skipped for the same reason: the
+ * canvas renderer tolerates one (`if (!cell || isCovered(cell)) continue`) but
+ * the PDF exporter's `for (const cell of row.cells) bodies.push(cell.body)`
+ * does not.
+ */
+function assertValidTableData(data: Record<string, unknown>, path: string): void {
+  const widths = data.columnWidths;
+  if (widths === undefined || widths === null) {
+    data.columnWidths = [];
+  } else if (!Array.isArray(widths)) {
+    throw new BadRequestException(
+      `Invalid element at ${path}.data: 'columnWidths' must be an array`,
+    );
+  }
+  const rows = data.rows;
+  if (rows === undefined || rows === null) {
+    data.rows = [];
+    return;
+  }
+  if (!Array.isArray(rows)) {
+    throw new BadRequestException(
+      `Invalid element at ${path}.data: 'rows' must be an array`,
+    );
+  }
+  for (let r = 0; r < rows.length; r++) {
+    const rowPath = `${path}.data.rows[${r}]`;
+    const row = rows[r] as Record<string, unknown> | null | undefined;
+    if (row === undefined || row === null) {
+      rows[r] = { height: 0, cells: [] };
+      continue;
+    }
+    if (typeof row !== 'object' || Array.isArray(row)) {
+      throw new BadRequestException(
+        `Invalid element at ${rowPath}: not an object`,
+      );
+    }
+    const cells = row.cells;
+    if (cells === undefined || cells === null) {
+      row.cells = [];
+      continue;
+    }
+    if (!Array.isArray(cells)) {
+      throw new BadRequestException(
+        `Invalid element at ${rowPath}: 'cells' must be an array`,
+      );
+    }
+    for (let c = 0; c < cells.length; c++) {
+      const cellPath = `${rowPath}.cells[${c}]`;
+      const cell = cells[c] as Record<string, unknown> | null | undefined;
+      if (cell === undefined || cell === null) {
+        cells[c] = { body: { blocks: [] }, style: {} };
+        continue;
+      }
+      if (typeof cell !== 'object' || Array.isArray(cell)) {
+        throw new BadRequestException(
+          `Invalid element at ${cellPath}: not an object`,
+        );
+      }
+      if (cell.style === undefined || cell.style === null) {
+        // Every paint pass reads `cell.style` before the body — fill in the
+        // empty shape rather than 400 a round-trip, exactly like `block.style`.
+        cell.style = {};
+      } else if (typeof cell.style !== 'object' || Array.isArray(cell.style)) {
+        throw new BadRequestException(
+          `Invalid element at ${cellPath}: 'style' must be an object`,
+        );
+      }
+      if (cell.body === undefined || cell.body === null) {
+        // `TableCell.body` is required by the model and the table renderer
+        // reads `cell.body.blocks` unconditionally, so an absent body crashes
+        // every viewer of the stored deck. Fill in the same empty shape the
+        // store itself writes (`MemSlidesStore` clears a cell to
+        // `{ blocks: [] }`).
+        cell.body = { blocks: [] };
+        continue;
+      }
+      assertValidTextBody(cell.body, `${cellPath}.body`);
+    }
+  }
+}
+
+function assertValidTextBody(body: unknown, path: string): void {
+  // An array is rejected rather than walked: `typeof [] === 'object'`, so the
+  // `blocks` repair below would land as an array expando that JSON
+  // serialization drops, storing the crashing shape anyway.
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new BadRequestException(
+      `Invalid element at ${path}: text body must be an object`,
+    );
+  }
+  assertValidTextBodyBlocks(body as Record<string, unknown>, path);
+}
+
+/**
+ * Validate the block *styles* inside a slide text body.
+ *
+ * Deliberately narrower than the docs arm's `assertValidBlock`: slide text
+ * bodies are persisted verbatim as JSON (there is no attribute codec to
+ * normalize them on read), so requiring fields the docs writer dereferences —
+ * `id` — would 400 a `GET` → edit → `PUT` round-trip of any deck whose stored
+ * blocks predate them. What it does check is every value that would otherwise
+ * reach the layout engine unusable: a `style` that is not an object, and the
+ * alignment/geometry values inside it.
+ *
+ * The fields the shared consumers cannot survive missing — a body's `blocks`,
+ * a block's `inlines` and `style`, an inline's `style` — are *filled in* with
+ * their empty shape rather than demanded, for the same reason: absence must
+ * not 400 a round-trip, but it must not be stored either. `TextBody.blocks` is
+ * required by the model and every reader of a stored deck dereferences it
+ * unconditionally (`body.blocks.map` in the slides text renderer,
+ * `for (const block of body.blocks)` in the PDF exporter,
+ * `data.blocks.length` in the animation paragraph counter), so an absent
+ * `blocks` is the same TypeError-for-every-viewer as an absent `inlines`.
+ * See {@link normalizeSlideInlines}.
+ */
+function assertValidTextBodyBlocks(
+  body: Record<string, unknown>,
+  path: string,
+): void {
+  const blocks = body.blocks;
+  if (blocks === undefined || blocks === null) {
+    body.blocks = [];
+    return;
+  }
+  if (!Array.isArray(blocks)) {
+    throw new BadRequestException(
+      `Invalid element at ${path}: 'blocks' must be an array`,
+    );
+  }
+  assertValidSlideBlocks(blocks, `${path}.blocks`);
+}
+
+/**
+ * Walk a list of docs `Block`s stored inside a deck — a text body's `blocks`,
+ * or a slide's `notes`. `path` names the list itself; entries are reported as
+ * `${path}[i]`.
+ */
+function assertValidSlideBlocks(blocks: unknown, path: string): void {
+  if (!Array.isArray(blocks)) return;
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i] as Record<string, unknown> | null;
+    if (!block || typeof block !== 'object') {
+      throw new BadRequestException(
+        `Invalid block at ${path}[${i}]: not an object`,
+      );
+    }
+    if (block.style === undefined || block.style === null) {
+      // `Block.style` is required by the model and the PPTX exporter reads it
+      // unconditionally (`ALGN.get(block.style.alignment)` in
+      // packages/slides/src/export/pptx/text.ts), so an absent one throws when
+      // the stored deck is exported. Fill in the empty shape — every reader
+      // resolves the individual fields through `normalizeBlockStyle`'s
+      // defaults anyway, so `{}` is semantically identical to absent.
+      block.style = {};
+    } else {
+      if (typeof block.style !== 'object' || Array.isArray(block.style)) {
+        throw new BadRequestException(
+          `Invalid block at ${path}[${i}]: 'style' must be an object`,
+        );
+      }
+      assertValidBlockStyle(
+        block.style as Record<string, unknown>,
+        `${path}[${i}]`,
+        'string',
+      );
+    }
+    normalizeSlideInlines(block, `${path}[${i}]`);
+    // A docs table block inside a slide text body holds blocks of its own.
+    const rows = (block.tableData as { rows?: unknown } | undefined)?.rows;
+    if (!Array.isArray(rows)) continue;
+    for (let r = 0; r < rows.length; r++) {
+      const cells = (rows[r] as { cells?: unknown })?.cells;
+      if (!Array.isArray(cells)) continue;
+      for (let c = 0; c < cells.length; c++) {
+        const cellPath = `${path}[${i}].tableData.rows[${r}].cells[${c}]`;
+        const cell = cells[c] as Record<string, unknown> | null;
+        if (cell === undefined || cell === null) continue;
+        // Rejected rather than skipped for the same reason a text body is:
+        // `typeof [] === 'object'`, so the `blocks` repair inside would land
+        // as an array expando that JSON serialization drops, leaving the
+        // crashing shape stored.
+        if (typeof cell !== 'object' || Array.isArray(cell)) {
+          throw new BadRequestException(
+            `Invalid block at ${cellPath}: not an object`,
+          );
+        }
+        assertValidTextBodyBlocks(cell, cellPath);
+      }
+    }
+  }
+}
+
+/**
+ * Validate — and where the value is merely *absent*, repair — the inline runs
+ * of a `Block` stored inside a deck.
+ *
+ * The docs layout engine is shared, and it dereferences both fields
+ * unconditionally: `resolveBlockInlines` calls `block.inlines.map`
+ * (`packages/docs/src/view/layout.ts`), `measureSegments` reads
+ * `inline.style.image`, `resolveColorAtPosition` reads `inline.style.color`
+ * (`packages/docs/src/model/color.ts`) and the PDF/PPTX exporters walk
+ * `block.inlines` / `inline.style.fontFamily` (`packages/slides/src/export/pdf.ts`).
+ * Slide text bodies are persisted verbatim as JSON by `writeSlidesRoot` — no
+ * codec normalizes them on read — so a stored block missing `inlines`, or an
+ * inline missing `style`, is a `TypeError` for *every* viewer of that deck,
+ * not just the caller who PUT it.
+ *
+ * Rejecting an absent `inlines`/`style` outright would 400 a `GET` → edit →
+ * `PUT` round-trip of a deck that already stores one, which is why the rest of
+ * this walk tolerates them. So instead of a 400 we *fill the empty shape in*:
+ * `inlines` defaults to `[]` and an inline's `style` to `{}` — exactly what
+ * the readers would have to assume anyway, and semantically identical to the
+ * value that was missing. Validation runs before `writeSlidesRoot` and the
+ * endpoint echoes this same object back, so what the caller sees is what is
+ * stored, and no deck can be persisted in the crashing shape.
+ *
+ * A value that is *present but wrong* is still a 400: it cannot be repaired
+ * without silently rewriting the caller's content.
+ */
+function normalizeSlideInlines(
+  block: Record<string, unknown>,
+  path: string,
+): void {
+  const inlines = block.inlines;
+  if (inlines === undefined || inlines === null) {
+    block.inlines = [];
+    return;
+  }
+  if (!Array.isArray(inlines)) {
+    throw new BadRequestException(
+      `Invalid block at ${path}: 'inlines' must be an array`,
+    );
+  }
+  for (let i = 0; i < inlines.length; i++) {
+    const inline = inlines[i] as Record<string, unknown> | null;
+    if (!inline || typeof inline !== 'object') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: not an object`,
+      );
+    }
+    if (typeof inline.text !== 'string') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: 'text' must be a string`,
+      );
+    }
+    if (inline.style === undefined || inline.style === null) {
+      inline.style = {};
+      continue;
+    }
+    if (typeof inline.style !== 'object') {
+      throw new BadRequestException(
+        `Invalid block at ${path}.inlines[${i}]: 'style' must be an object`,
+      );
+    }
   }
 }

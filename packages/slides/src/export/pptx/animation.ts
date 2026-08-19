@@ -38,7 +38,7 @@
  * no nodeType — only the effect cTn carries `clickEffect`/`withEffect`/etc.
  */
 
-import type { AnimCategory, AnimDirection, AnimEffect, AnimEasing, AnimStart } from '../../model/element.js';
+import type { AnimEffect, AnimEasing } from '../../model/element.js';
 import type { SlideAnimation, SlideTransition } from '../../model/presentation.js';
 import { escapeXmlAttr } from './xml.js';
 
@@ -49,17 +49,40 @@ import { escapeXmlAttr } from './xml.js';
 /**
  * Maps `SlideTransition['type']` to the OOXML child element local name.
  * `'none'` emits `<p:cut/>` (instant cut), `'slide'` approximates to `<p:push>`.
+ *
+ * A `Map` (read with an explicit `?? 'cut'` fallback), not an object literal,
+ * for the same reason as the connector/shape/layout lookups: `transition.type`
+ * is persisted JSON the content PUT API lets a caller set to any string, and an
+ * object lookup consults the prototype chain — a type of `constructor` would
+ * resolve to an inherited `Object.prototype` member and be stringified into the
+ * element *name*, while an unknown own key would emit `<p:undefined/>`.
  */
-const TYPE_TO_TAG: Record<SlideTransition['type'], string> = {
-  none: 'cut',
-  fade: 'fade',
-  dissolve: 'dissolve',
-  slide: 'push',   // approximation; closest OOXML directional effect
-  flip: 'flip',
-  cube: 'cube',
-  wipe: 'wipe',
-  push: 'push',
-};
+const TYPE_TO_TAG = new Map<string, string>([
+  ['none', 'cut'],
+  ['fade', 'fade'],
+  ['dissolve', 'dissolve'],
+  ['slide', 'push'],   // approximation; closest OOXML directional effect
+  ['flip', 'flip'],
+  ['cube', 'cube'],
+  ['wipe', 'wipe'],
+  ['push', 'push'],
+]);
+
+/**
+ * Coerce a persisted numeric field to the integer an OOXML attribute expects.
+ *
+ * `durationMs` / `delayMs` / `pptxPreset.id` / `pptxPreset.subtype` are typed
+ * as numbers but hold whatever JSON was persisted (PPTX import, the content
+ * PUT API, an older schema). Interpolated raw, a string there closes the
+ * attribute and injects its own timing nodes into every exported `.pptx`.
+ * Returning only `String(Math.round(n))` of a finite number — or the caller's
+ * fallback — makes these attributes injection-free by construction rather than
+ * by escaping.
+ */
+function toXmlInt(value: unknown, fallback: number): string {
+  const n = Number(value);
+  return String(Number.isFinite(n) ? Math.round(n) : fallback);
+}
 
 /** Milliseconds → OOXML `spd` attribute (three-bucket). */
 function msToSpd(ms: number): string {
@@ -68,13 +91,18 @@ function msToSpd(ms: number): string {
   return 'slow';
 }
 
-/** `AnimDirection` → OOXML `dir` attribute (l/r/u/d). */
-const DIR_TO_ATTR: Record<AnimDirection, string> = {
-  left: 'l',
-  right: 'r',
-  up: 'u',
-  down: 'd',
-};
+/**
+ * `AnimDirection` → OOXML `dir` attribute (l/r/u/d).
+ *
+ * A `Map` for the same reason as {@link TYPE_TO_TAG}; an unknown direction
+ * omits the attribute entirely rather than emitting `dir="undefined"`.
+ */
+const DIR_TO_ATTR = new Map<string, string>([
+  ['left', 'l'],
+  ['right', 'r'],
+  ['up', 'u'],
+  ['down', 'd'],
+]);
 
 /**
  * Serialize a `SlideTransition` to a `<p:transition>` XML string.
@@ -87,13 +115,14 @@ export function transitionToXml(t: SlideTransition): string {
   const spd = msToSpd(t.durationMs);
   const spdAttr = spd !== 'med' ? ` spd="${spd}"` : '';  // med is the default, omit for brevity
 
-  const tag = TYPE_TO_TAG[t.type];
+  const tag = TYPE_TO_TAG.get(t.type) ?? 'cut';
 
   // Direction attribute for push/wipe types.
-  const dirAttr =
-    (t.type === 'push' || t.type === 'wipe' || t.type === 'slide') && t.direction
-      ? ` dir="${DIR_TO_ATTR[t.direction]}"`
-      : '';
+  const dir =
+    t.type === 'push' || t.type === 'wipe' || t.type === 'slide'
+      ? DIR_TO_ATTR.get(t.direction as string)
+      : undefined;
+  const dirAttr = dir ? ` dir="${dir}"` : '';
 
   // 'none' / 'cut' and 'fade' / 'dissolve' have no direction; their child is self-closing.
   const child = `<p:${tag}${dirAttr}/>`;
@@ -106,51 +135,53 @@ export function transitionToXml(t: SlideTransition): string {
 // ---------------------------------------------------------------------------
 
 /**
- * OOXML `presetClass` strings per `AnimCategory`.
+ * OOXML `presetClass` strings per `AnimCategory`. A `Map` with an explicit
+ * `?? 'entr'` fallback — see {@link TYPE_TO_TAG}.
  */
-const CATEGORY_TO_CLASS: Record<AnimCategory, string> = {
-  entrance: 'entr',
-  exit: 'exit',
-  emphasis: 'emph',
-};
+const CATEGORY_TO_CLASS = new Map<string, string>([
+  ['entrance', 'entr'],
+  ['exit', 'exit'],
+  ['emphasis', 'emph'],
+]);
 
 /**
  * `AnimEffect` → OOXML `{ presetClass, presetID }`.
  * Mirrors the PRESET_EFFECT table in `src/import/pptx/anim-preset-map.ts`.
+ * A `Map` for the same prototype-chain reason as {@link TYPE_TO_TAG}.
  */
-const EFFECT_TO_PRESET: Record<AnimEffect, { cls: string; id: number }> = {
+const EFFECT_TO_PRESET = new Map<string, { cls: string; id: number }>([
   // Entrance
-  appear:     { cls: 'entr', id: 1  },
-  flyIn:      { cls: 'entr', id: 2  },
-  spin:       { cls: 'entr', id: 8  },
-  fadeIn:     { cls: 'entr', id: 10 },
-  zoomIn:     { cls: 'entr', id: 23 },
+  ['appear',     { cls: 'entr', id: 1  }],
+  ['flyIn',      { cls: 'entr', id: 2  }],
+  ['spin',       { cls: 'entr', id: 8  }],
+  ['fadeIn',     { cls: 'entr', id: 10 }],
+  ['zoomIn',     { cls: 'entr', id: 23 }],
   // Exit
-  disappear:  { cls: 'exit', id: 1  },
-  flyOut:     { cls: 'exit', id: 2  },
-  fadeOut:    { cls: 'exit', id: 10 },
-  zoomOut:    { cls: 'exit', id: 23 },
+  ['disappear',  { cls: 'exit', id: 1  }],
+  ['flyOut',     { cls: 'exit', id: 2  }],
+  ['fadeOut',    { cls: 'exit', id: 10 }],
+  ['zoomOut',    { cls: 'exit', id: 23 }],
   // Emphasis
-  grow:       { cls: 'emph', id: 6  },
-  pulse:      { cls: 'emph', id: 18 },
-};
+  ['grow',       { cls: 'emph', id: 6  }],
+  ['pulse',      { cls: 'emph', id: 18 }],
+]);
 
 /** `AnimDirection` → OOXML fly subtype (bitmask). Inverse of SUBTYPE_TO_DIRECTION. */
-const DIR_TO_SUBTYPE: Record<AnimDirection, number> = {
-  right: 1,
-  left:  2,
-  up:    4,
-  down:  8,
-};
+const DIR_TO_SUBTYPE = new Map<string, number>([
+  ['right', 1],
+  ['left',  2],
+  ['up',    4],
+  ['down',  8],
+]);
 
 const FLY_EFFECTS = new Set<AnimEffect>(['flyIn', 'flyOut']);
 
-/** `AnimStart` → OOXML `nodeType` attribute. */
-const START_TO_NODE_TYPE: Record<AnimStart, string> = {
-  onClick:   'clickEffect',
-  withPrev:  'withEffect',
-  afterPrev: 'afterEffect',
-};
+/** `AnimStart` → OOXML `nodeType` attribute. Closed, defaulting to a click. */
+const START_TO_NODE_TYPE = new Map<string, string>([
+  ['onClick',   'clickEffect'],
+  ['withPrev',  'withEffect'],
+  ['afterPrev', 'afterEffect'],
+]);
 
 /**
  * `AnimEasing` → OOXML `accel`/`decel` hundredths-of-percent values.
@@ -174,28 +205,32 @@ function easingAttrs(easing: AnimEasing | undefined): string {
  * @param spid   - the integer shape ID for the element (from `elementIdToSpid`)
  */
 function effectParXml(anim: SlideAnimation, spid: number): string {
-  const nodeType = START_TO_NODE_TYPE[anim.start];
+  const nodeType = START_TO_NODE_TYPE.get(anim.start) ?? 'clickEffect';
   const easing = easingAttrs(anim.easing);
 
   let presetClass: string;
-  let presetID: number;
-  let presetSubtype: number | undefined;
+  let presetID: string;
+  let presetSubtype: unknown;
 
   if (anim.pptxPreset) {
     // Preserved unknown preset — write back the raw class/id/subtype.
     presetClass = anim.pptxPreset.class;
-    presetID = anim.pptxPreset.id;
+    presetID = toXmlInt(anim.pptxPreset.id, 1);
     presetSubtype = anim.pptxPreset.subtype;
   } else {
-    const preset = EFFECT_TO_PRESET[anim.effect];
-    presetClass = preset?.cls ?? CATEGORY_TO_CLASS[anim.category];
-    presetID = preset?.id ?? 1;
+    const preset = EFFECT_TO_PRESET.get(anim.effect);
+    presetClass =
+      preset?.cls ?? CATEGORY_TO_CLASS.get(anim.category) ?? 'entr';
+    presetID = toXmlInt(preset?.id, 1);
     if (FLY_EFFECTS.has(anim.effect) && anim.direction !== undefined) {
-      presetSubtype = DIR_TO_SUBTYPE[anim.direction];
+      presetSubtype = DIR_TO_SUBTYPE.get(anim.direction);
     }
   }
 
-  const subtypeAttr = presetSubtype !== undefined ? ` presetSubtype="${escapeXmlAttr(String(presetSubtype))}"` : '';
+  const subtypeAttr =
+    presetSubtype === undefined || presetSubtype === null
+      ? ''
+      : ` presetSubtype="${toXmlInt(presetSubtype, 0)}"`;
 
   // Build target element — spTgt with optional txEl for byParagraph.
   const tgtEl = anim.byParagraph
@@ -218,9 +253,9 @@ function effectParXml(anim: SlideAnimation, spid: number): string {
   }
 
   const cTn =
-    `<p:cTn id="0" dur="${anim.durationMs}" nodeType="${nodeType}"` +
+    `<p:cTn id="0" dur="${toXmlInt(anim.durationMs, 500)}" nodeType="${nodeType}"` +
     ` presetClass="${escapeXmlAttr(presetClass)}" presetID="${presetID}"${subtypeAttr}${easing}>` +
-    `<p:stCondLst><p:cond evt="onNext" delay="${anim.delayMs ?? 0}"/></p:stCondLst>` +
+    `<p:stCondLst><p:cond evt="onNext" delay="${toXmlInt(anim.delayMs ?? 0, 0)}"/></p:stCondLst>` +
     `<p:childTnLst>${behaviorEl}</p:childTnLst>` +
     `</p:cTn>`;
 

@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
+import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { DocumentService } from '../../document/document.service';
 import {
@@ -25,7 +26,7 @@ import {
 @Controller(
   'api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId/cells',
 )
-@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
+@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
 export class ApiV1CellsController {
   constructor(
     private readonly yorkieService: YorkieService,

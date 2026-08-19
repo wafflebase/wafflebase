@@ -52,6 +52,19 @@ export {
   getCellText,
   DEFAULT_HEADER_MARGIN_FROM_EDGE,
 } from './model/types.js';
+
+// Yorkie Tree attribute codec for block style. Shared by the editor store
+// (`YorkieDocStore`) and the backend's `docs-tree.ts` so both writers encode
+// the same attributes and either reader can invert the other's output.
+export {
+  BLOCK_ALIGNMENTS,
+  BLOCK_STYLE_NUMERIC_FIELDS,
+  isBlockAlignment,
+  serializeBlockStyleAttrs,
+  parseBlockStyleAttrs,
+  serializeMarginFromEdgeAttrs,
+  parseMarginFromEdgeAttr,
+} from './model/crdt-attrs.js';
 export type { StyleId, NamedStyleDef, DocStyles } from './model/named-styles.js';
 export {
   BUILTIN_STYLES,
@@ -68,6 +81,7 @@ export type { StoredColor, ColorResolver } from './model/color.js';
 export {
   defaultColorResolver,
   storedColorsEqual,
+  toRgbHexColor,
   wrapLegacyColor,
 } from './model/color.js';
 
