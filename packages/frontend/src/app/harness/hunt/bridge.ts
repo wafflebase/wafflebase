@@ -239,12 +239,35 @@ function textOfElement(element: Element): string | undefined {
   return blocks.map((b: Block) => b.inlines.map((i) => i.text).join("")).join("\n");
 }
 
-/** The slide the editor is currently showing, refusing rather than guessing when there is none. */
+/**
+ * The slide the editor is currently showing, refusing rather than guessing when there is none.
+ *
+ * THE MESSAGE CARRIES NO SLIDE ID, AND BLAMES NOBODY. Both were wrong in the first version
+ * and each cost something.
+ *
+ * The id was a GENERATED uuid, so the refusal read differently on every attempt —
+ * `uiObservedKey` saw a fresh value each time, replay judged the candidate
+ * non-deterministic, and the gate dropped a defect that reproduces 3 times out of 3 (#883:
+ * undoing `Add slide` leaves the editor pointing at the removed slide). A volatile value in
+ * an observation suppresses findings silently, which is why `scrubUiVolatile` exists for
+ * block ids; slide ids simply did not match its pattern. Not naming the id costs nothing —
+ * `slides.slideCount` and `slides.currentSlideIndex` are both readable at the same moment
+ * and say more.
+ *
+ * The old wording asserted "the harness is broken, not the product", which is exactly
+ * backwards here: the editor legitimately points at a slide the store no longer has,
+ * because undo removed it. A refusal that tells the reader where to look must not guess,
+ * and this one guessed wrong in the direction that wastes a maintainer's time.
+ */
 function currentSlide(handle: SlidesHandle) {
   const id = handle.editor.getCurrentSlideId();
   const slide = handle.store.read().slides.find((s) => s.id === id);
   if (!slide) {
-    refuse(`the editor reports slide ${JSON.stringify(id)} but the store has no such slide — the harness is broken, not the product`);
+    refuse(
+      "the editor's current slide is not in the document — it points at a slide the store " +
+        "does not have. Read slides.slideCount and slides.currentSlideIndex to see the deck's " +
+        "actual state; a null index means the same thing this refusal does.",
+    );
   }
   return slide;
 }

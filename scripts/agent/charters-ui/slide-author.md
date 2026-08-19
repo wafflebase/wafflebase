@@ -97,11 +97,27 @@ window could have changed it.
   middle and `elementCenter` will now name one element and select the other. That is
   correct hit-testing, not a defect. If a click selects something unexpected, read
   `slides.elements` and check the geometry before believing you found something.
-- **`Insert image` IS UNWIRED IN THIS HARNESS.** It needs a file picker that is not
-  mounted, so its handler is a no-op and the click is swallowed. It is not broken; it is
-  unwired here only. Predict nothing about it and do not report it. The theme, format,
-  motion and background panels are likewise not mounted, so their toggles are absent from
-  the toolbar rather than dead — if you cannot find a control, that is why.
+- **THE INSERT CONTROLS SPLIT INTO THREE GROUPS, and they are not obvious.** Measured, one
+  by one, because guessing here wastes actions in both directions:
+
+  - **`Shape` WORKS, and is the one way you can create an element.** It opens a 136-item
+    picker; pick a shape and then a plain CLICK on the slide places it. Predict against
+    `slides.elements` growing by exactly one.
+  - **`Text box`, `Insert table` and `Line` cannot be placed.** `Text box` and `Insert table`
+    open nothing and add nothing; `Line` opens a small picker (`Arrow`, `Curved connector`,
+    `Elbow connector`, `Scribble`) and then a click places nothing, because a connector is
+    defined by two dragged endpoints. All three arm a mode you cannot complete without a
+    drag, so a click on them changes NOTHING you can read. That is the missing drag action,
+    not a defect — do not report it, and do not spend a prediction on it.
+  - **`Insert image` IS UNWIRED IN THIS HARNESS.** It needs a file picker that is not
+    mounted, so its handler is a no-op. Not broken; unwired here only.
+
+  The theme, format, motion and background panels are likewise not mounted, so their toggles
+  are absent from the toolbar rather than dead — if you cannot find a control, that is why.
+- **THE SHAPE PICKER PUTS 136 CONTROLS ON THE PAGE.** They are all `button`, so a
+  `dom.controls` reading taken with it open is mostly shape names. That is a long tail of
+  options within one control rather than 136 capabilities: exercising a fifth shape tests
+  nothing the fourth did not. Pick one, place it, move on.
 - **THE DECK HAS TWO SLIDES AND SLIDE 2 IS EMPTY.** `slides.slideCount` is 2 and
   `slides.currentSlideIndex` starts at 1. `slides.elements` always describes the CURRENT
   slide, so navigating and then reading it is expected to return `[]`, not a bug.
