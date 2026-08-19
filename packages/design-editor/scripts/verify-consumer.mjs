@@ -29,8 +29,9 @@
  *   pnpm --filter @wafflebase/design-editor verify:consumer --write
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -158,7 +159,54 @@ async function scenesModule() {
   return res.ok ? res.text() : '';
 }
 
+/** A shell URL, which is NOT under `/api` — `BASE` cannot be reused for these. */
+const shell = (p) => fetch(`http://127.0.0.1:${PORT}/__design-editor${p}`);
+
+/**
+ * Build the shell if it is not there.
+ *
+ * `dist` is gitignored, so a clean checkout has no shell at all and every check
+ * below would fail on a missing file rather than on a wrong one. Building here
+ * rather than trusting the caller to remember is what makes this gate's verdict mean
+ * something on CI — and the build is on the `design-editor:check` lane besides, so a
+ * broken build fails before this script is reached.
+ */
+/** The newest mtime under `src/`, which is everything the shell bundle is built from. */
+function newestSourceMtime() {
+  let newest = 0;
+  const walk = (dir) => {
+    for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else newest = Math.max(newest, fsSync.statSync(full).mtimeMs);
+    }
+  };
+  walk(path.join(PKG, 'src'));
+  // The build config decides what goes in, so a change to it invalidates the bundle too.
+  return Math.max(newest, fsSync.statSync(path.join(PKG, 'vite.shell.config.ts')).mtimeMs);
+}
+
+/**
+ * Build when the bundle is missing OR older than its source.
+ *
+ * MISSING-ONLY SERVED STALE BYTES, twice. `verify:frame` had the same shape and cost an hour
+ * there; here it meant the stylesheet checks below passed against a bundle built before the
+ * change under test — including, on the run that added them, a fix they were written to prove.
+ * A gate that can pass on stale bytes is worse than no gate, because its green is not evidence.
+ */
+function buildShellIfMissing() {
+  const bundle = path.join(PKG, 'dist/shell/index.html');
+  if (fsSync.existsSync(bundle) && newestSourceMtime() <= fsSync.statSync(bundle).mtimeMs) return;
+  console.log('building the shell (missing or older than src/)');
+  const r = spawnSync('pnpm', ['exec', 'vite', 'build', '--config', './vite.shell.config.ts'], {
+    cwd: PKG,
+    stdio: 'inherit',
+  });
+  if (r.status !== 0) throw new Error('shell build failed');
+}
+
 async function main() {
+  buildShellIfMissing();
   console.log(`booting vite in ${path.relative(PKG, PROJECT)} on :${PORT}`);
   const child = await boot();
   try {
@@ -295,6 +343,86 @@ async function main() {
       // Generated, never called: no browser mounts it here, which is why this project
       // needs no React installed to satisfy the gate.
       check('generates a loader for it', scenesSrc.includes('import('), scenesSrc.slice(0, 200));
+    }
+
+    console.log('\nthe shell — prebuilt documents and assets, served by the plugin');
+    const index = await shell('/');
+    if (check('the mount point serves the chrome document', index.status === 200, String(index.status))) {
+      const html = await index.text();
+      check('it mounts the shell root', html.includes('id="wb-root"'));
+      // The asset URLs are BASE-prefixed by the build. Emitted at the default `/`
+      // they would resolve against the consumer's dev server instead, and their app
+      // would answer — a 404 if they are lucky, their own asset if they are not.
+      const assets = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((m) => m[1]);
+      check(
+        'every asset URL is under the plugin mount',
+        assets.length > 0 && assets.every((a) => a.startsWith('/__design-editor/')),
+        assets.join(' '),
+      );
+      // Fetched, not just parsed out of the HTML: a hashed filename that does not
+      // resolve is the failure mode a stale build produces.
+      const fetched = await Promise.all(
+        assets.map(async (a) => `${a} ${(await fetch(`http://127.0.0.1:${PORT}${a}`)).status}`),
+      );
+      check('and each one is served', fetched.every((f) => f.endsWith(' 200')), fetched.join(' '));
+      // Asserted before it is fetched: `find` returning undefined made the fetch below hit
+      // `/undefined`, so a build that emitted no stylesheet passed this section.
+      const sheet = assets.find((a) => a.endsWith('.css'));
+      if (check('the shell emits a stylesheet', typeof sheet === 'string', String(sheet))) {
+        // §6: the chrome must not inherit the theme it exists to judge.
+        const css = await (await fetch(`http://127.0.0.1:${PORT}${sheet}`)).text();
+        check(
+          'the shell stylesheet is self-contained',
+          !css.includes(STYLESHEET) && !css.includes('fonts.googleapis'),
+          css.slice(0, 120),
+        );
+        /*
+         * BOTH palettes, and the dark one under the media query.
+         *
+         * A nested `@theme` inside `@media (prefers-color-scheme: dark)` is hoisted to the top
+         * level by Tailwind v4, so the dark values OVERWROTE the light ones: every
+         * `--color-wb-*` was emitted once with its dark value and the shell rendered dark
+         * whatever the OS said. Nothing here noticed, because the stylesheet was still
+         * self-contained and still served.
+         */
+        // DEFINITIONS only. `indexOf('--color-wb-bg')` also matches every `var(--color-wb-bg)`
+        // use, so counting mentions found the wrong second occurrence.
+        const defs = [...css.matchAll(/--color-wb-bg:([^;}]+)/g)];
+        check(
+          'the shell defines a light AND a dark palette',
+          defs.length === 2,
+          defs.map((m) => m[1].trim()).join(' | '),
+        );
+        const darkAt = defs.length === 2 ? defs[1].index : 0;
+        const before = css.slice(Math.max(0, darkAt - 400), darkAt);
+        check(
+          'and the dark one is scoped to the media query',
+          before.includes('prefers-color-scheme:dark') || before.includes('prefers-color-scheme: dark'),
+          before.slice(-90),
+        );
+      }
+    }
+
+    const scene = await shell('/scene');
+    if (check('the frame document serves', scene.status === 200, String(scene.status))) {
+      const html = await scene.text();
+      // The token must be gone: a document that shipped it would load
+      // `__WB_SCENE_ENTRY__` as a relative URL and 404 inside the frame, which reads
+      // as a scene that renders nothing.
+      check('the entry placeholder was substituted', !html.includes('__WB_SCENE_ENTRY__'));
+      const src = [...html.matchAll(/<script[^>]*src="([^"]+)"/g)].map((m) => m[1]).pop();
+      check('the entry is a real file path, not a virtual module', !!src && src.startsWith('/@fs/'), String(src));
+      // The decisive one. A virtual module 500s here (plugin-react does not transform
+      // it); this asserts the consumer's own server both serves the entry AND
+      // resolves what it imports.
+      const entry = await fetch(`http://127.0.0.1:${PORT}${src}`);
+      if (check('the CONSUMER’s server serves the entry', entry.status === 200, String(entry.status))) {
+        const js = await entry.text();
+        check('transformed, with its imports rewritten', js.includes('/@fs/') && js.includes('installFetchGuard'), js.slice(0, 120));
+        const dep = [...js.matchAll(/from "([^"]+)"/g)].map((m) => m[1])[0];
+        const depRes = await fetch(`http://127.0.0.1:${PORT}${dep}`);
+        check('and what it imports resolves too', depRes.status === 200, `${dep} ${depRes.status}`);
+      }
     }
 
     console.log('\nPOST /mutate — refusals reach the client as reasons');

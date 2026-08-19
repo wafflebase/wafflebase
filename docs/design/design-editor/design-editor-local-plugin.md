@@ -405,8 +405,8 @@ inspection. Corrections are marked ⚠.
 | ⚠ `optimizeDeps.include` — the app's own dependencies | `vite.config.ts:2387-2436` | consumer's own config | 8a drops |
 | ⚠ `define`: `process.env`, `__APP_VERSION__` / `rootVersion()`, `VITE_BACKEND_API_URL` → `SCENE_API_ORIGIN` | `vite.config.ts:2330-2341,2378-2386` | consumer's own config; the scene API stub becomes an option | 8a |
 | ⚠ `plugins: [… react(), tailwindcss() …]` | `vite.config.ts:2356-2365` | the plugin adds **neither** — the host already has both | 8a |
-| ⚠ two HTML entries + the package's own Vite root | `vite.config.ts:2366-2377` | prebuilt shell served by `configureServer` — see below | 8a |
-| `@import "../../frontend/src/index.css"` + `@source "../../frontend/src"` | `src/sandbox.css` | shell CSS prebuilt and self-contained; the *frame* keeps using the host's stylesheet | 8a |
+| ✅ two HTML entries + the package's own Vite root | `vite.config.ts:2366-2377` | prebuilt shell served by `configureServer` — see below. **Closed in 11a**: `vite.shell.config.ts` emits `dist/shell`, and `scene.html` is copied verbatim rather than built, because its script must be resolved by the consumer's Vite | 8a serves · 11a builds |
+| ✅ `@import "../../frontend/src/index.css"` + `@source "../../frontend/src"` | `src/sandbox.css` | shell CSS prebuilt and self-contained; the *frame* keeps using the host's stylesheet. **Closed in 11a**: `src/shell/shell.css` compiles into the shell bundle, scoped by `@source './'`, with prefixed `--color-wb-*` tokens and the platform font stack — the prototype's three CDN font families are gone, because "self-contained" rules out a request to fonts.gstatic.com on every dev-server open | 11a |
 | the safelist file the shell CSS imports | `vite.config.ts:213-250,2308` | virtual `@source` injected into the host's stylesheet — see below | 8a |
 | ⚠ `ALLOWED_EXT = .json .css .ts .tsx` — the write allowlist | `vite.config.ts:892` | add `.js`/`.jsx`. Found while porting 8a, and it is not cosmetic: the frame propagates `.js`/`.jsx`, the stamper stamps `.jsx`, `parse()` reads either as TSX — and then the write is refused at the last step, so a JavaScript consumer watches the editor locate the node, preview the diff, and refuse to save. `.mjs` stays out (no JSX convention, and it is where this package's own engine modules live) | 8a |
 | ⚠ `stripFrameQuery` rebuilds the query with `URLSearchParams` | `vite.config.ts:576-583` | split on `&` and filter. `URLSearchParams` is lossy for Vite's VALUELESS flags — `new URLSearchParams('import').toString()` is `'import='`, and Vite matches those flags by pattern on the raw id, so the added byte un-sets the flag (measured: `/(\?\|&)import(&\|$)/` matches `?import`, not `?import=`). Latent in the prototype because every call site split the result on `?` and used only the file half | 8a |
@@ -584,10 +584,12 @@ cap is what sets the granularity.
 | 9a | bridge client (`bridge` · `states` · `property-labels`) | **merged** (#846) — see below |
 | 9b | `edits.ts` | **merged** (#848) — see below |
 | gate | `fixtures/consumer` + `verify-consumer.mjs` | **merged** (#849) — see above |
-| 9c | `history` · `anchors` | held |
+| 9c | `history` · `anchors` | folded into 11b — `SandboxLayout` is their only caller |
 | 10a | frame protocol · drill-in resolver · the alias seam | in review (#855) — see below |
-| 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | in review — see below |
-| 11–12 | the React chrome (`SceneHost`, panels, `scene-entry`), token panels, canvas | held — lands React |
+| 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | in review (#855) — see below |
+| 11a | the shell build — `dist/shell`, two documents, self-contained CSS | in review — see below |
+| 11b | the React chrome (`SandboxLayout`, `SceneHost`, `scene-entry`) + 9c | held — lands React |
+| 11c–12 | the panels — outline, node detail, the class editor, the token panels, the modal | held, and NOT yet split. The measured line counts are in the 11a note below; how they divide is the decision of whoever takes them |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
 review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
@@ -787,6 +789,66 @@ So the cut follows the one that already worked for the module underneath it —
   imports the fixtures that §2 files under population C. Every one of those is the
   `registry.tsx` problem again: generic-looking chrome built from the consumer's
   component library. They land with the shell, as a rewrite rather than a move.
+
+- **11a — the shell build, a step §8 never listed.** `shellServer` and
+  `SHELL_DIR = <pkg>/dist/shell` shipped in 8a and nothing ever built that directory.
+  Measured against the fixture: `/__design-editor/api/health` answered 200 while `/`
+  and `/scene` both 404'd — the engine, the plugin host, the token seam, the browser
+  client and the frame runtime all in place, with no screen. §6 had already settled the
+  shape (*"shell CSS prebuilt and self-contained; the frame keeps using the host's
+  stylesheet"*), so this is a promised step nobody had claimed rather than a new
+  decision.
+
+  **What 11a and 11b actually divide, and what is still one row.** The old `11–12`
+  entry was ~7,000 prototype lines against a series whose PRs run 500–2,000, so it had
+  to split somewhere. It splits here at the two places the *code* forces: the build has
+  no React and needs none (11a), and the chrome cannot exist without it (11b, taking
+  `SandboxLayout` 1,609 + `SceneHost` 712 + `scene-entry` 202, and absorbing 9c's
+  `history` 396 + `anchors` 245 because `SandboxLayout` is their only caller). Beyond
+  that the panels are left as one row deliberately: their boundaries are not forced by
+  anything measured yet, and inventing a split now would be a plan nobody has checked
+  against the code.
+
+  **The two populations get opposite mechanisms.** `index.html` is built by
+  `vite.shell.config.ts` with our own React and our own compiled Tailwind, because the
+  consumer's Tailwind would restyle the panels that exist to judge their theme.
+  `scene.html` is the inverse — it renders their components, imports
+  `virtual:wb-scenes`, and needs their `plugin-react` — so it is NOT a build input: it
+  sits in `src/shell/public/` and is copied verbatim.
+
+  **How the scene document reaches that transform was probed, not reasoned.** Against a
+  live Vite 6.4.3 + `@vitejs/plugin-react` 4.3.4:
+
+  | script src | HTTP | JSX transform | fast refresh |
+  | --- | --- | --- | --- |
+  | `/@id/__x00__virtual:wb-scene-entry.tsx` | **500** | — | — |
+  | a real `.tsx` in the project root | 200 | yes | yes |
+  | a real `.tsx` under `node_modules`, via `/@fs/<abs>` | 200 | yes | no |
+
+  A virtual module is not an option: `plugin-react` does not transform one even with a
+  `.tsx` id, so the JSX reaches `vite:import-analysis` verbatim and the frame 500s on
+  its own entry. Assumed rather than probed, that would have surfaced in 11b as a blank
+  frame. So the entry is a real file — and its URL cannot be baked into a prebuilt
+  document, because the install path differs per consumer and a monorepo may hoist us
+  above their root. `scene.html` ships a `__WB_SCENE_ENTRY__` token and `shellServer`
+  substitutes it per request: the one shell asset read-and-rewritten rather than
+  streamed, with a 500 when the token is absent so a stale build cannot serve a document
+  whose script 404s inside the frame.
+
+  11a's chrome is a `GET /health` readout rather than a placeholder, because that is
+  what proves the chain a panel will depend on — React mounts, the compiled stylesheet
+  applies, `cn()` resolves, and `createBridgeClient()` reaches the plugin across its own
+  mount. Each is a separate way the build can be wrong while still returning 200.
+
+  **The scene entry is deliberately React-free in 11a.** `react` resolved from a file
+  inside our own package finds OUR copy — a devDependency the shell build needs —
+  before the consumer's, and two Reacts in the frame breaks hooks in the components
+  under review. The fix (a peer dependency plus `resolve.dedupe`) lands with 11b, where
+  a consumer that has React exists to probe it against.
+
+  **Not covered:** `plugin-react` gives no fast-refresh boundary to a `node_modules`
+  file, so editing the entry itself needs a frame reload. Nothing a consumer does
+  reaches that, and `hmr-state.ts` carries frame state across a patch regardless.
 
 **8a's intermediate is green, and that was checked rather than assumed.**
 `vite.config.ts` imports nothing from `src/sandbox/` — only node builtins, `vite`,
