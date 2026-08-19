@@ -305,9 +305,13 @@ reached a public PR as a diff appearing to delete every file in the repo.
 - **`.github/workflows/ci.yml` itself is read-only** (`permissions: contents: read`). Every write to
   a pull request happens in `.github/workflows/ci-report.yml`; see
   [Reporting onto a fork PR](#reporting-onto-a-fork-pr).
-- On PRs, `.github/workflows/ci-report.yml` posts one verification comment
-  covering `verify-self`, `verify-browser`, `verify-integration` and the per-lane
-  detail, and applies `ci-config-changed` when the mapping was touched.
+- On PRs, `.github/workflows/ci-report.yml` posts one comment reporting CI's
+  **scope** — which heavy jobs were skipped and why, which changed file forced
+  the full suite, how many lanes were filtered — and applies `ci-config-changed`
+  when the mapping was touched. It deliberately does not repeat pass/fail: the
+  PR's own checks list already shows that, and `scripts/agent/mark-ready.mjs`
+  reads the Actions API rather than this comment precisely because a comment is
+  author-writable.
 - CI triggers on `push` to `main`, `pull_request` targeting `main`, and
   `merge_group` (see below).
 

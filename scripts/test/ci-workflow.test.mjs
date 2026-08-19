@@ -10,6 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { builtinModules } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -216,4 +217,141 @@ test("ci-report.yml's inlined glob matcher cannot drift", async (t) => {
     assert.ok(results.some(Boolean), "no glob matched anything");
     assert.ok(results.some((r) => !r), "every glob matched everything");
   });
+});
+
+// ---------------------------------------------------------------------------
+// `ci-report.yml` holds the only write-capable token in the CI pair, and runs on
+// `workflow_run` — so a mistake in it cannot fail a pull request. It fails after
+// the merge, on main, and the only symptom is a report that stops arriving. Both
+// guards below exist because that already happened.
+
+const REPORT_PATH = path.join(REPO_ROOT, ".github/workflows/ci-report.yml");
+
+/**
+ * `ci-report.yml`'s steps: `{ name, token, script }`. Line-based for the same
+ * reason as `readJobs()` above. `script` is the block scalar's body, dedented;
+ * null if the step has none.
+ */
+function readReportSteps() {
+  const lines = readFileSync(REPORT_PATH, "utf8").split("\n");
+  const heads = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (/^ {6}- (name|uses):/.test(lines[i])) heads.push(i);
+  }
+  assert.ok(
+    heads.length >= 5,
+    `ci-report.yml: expected to find its steps, found ${heads.length}`,
+  );
+
+  return heads.map((start, n) => {
+    const body = lines.slice(start, heads[n + 1] ?? lines.length);
+    const nameLine = body.find((l) => /^ {6}- name:|^ {8}name:/.test(l));
+    const tokenLine = body.find((l) => /^ {10}github-token:/.test(l));
+
+    let script = null;
+    const scriptAt = body.findIndex((l) => /^ {10}script: \|/.test(l));
+    if (scriptAt >= 0) {
+      const out = [];
+      for (let i = scriptAt + 1; i < body.length; i++) {
+        if (body[i].trim() !== "" && !/^ {12}/.test(body[i])) break;
+        out.push(body[i].slice(12));
+      }
+      script = out.join("\n");
+    }
+
+    return {
+      name: nameLine ? nameLine.replace(/^\s*-?\s*name:/, "").trim() : `step ${n + 1}`,
+      token: tokenLine ? tokenLine.replace(/^ {10}github-token:/, "").trim() : null,
+      script,
+    };
+  });
+}
+
+test("ci-report.yml's inline scripts require only Node builtins", () => {
+  // THE BUG THIS EXISTS FOR. #831 wanted a second Octokit on the ambient token
+  // and built it inside the `github-script` body with
+  //
+  //   require('@actions/github').getOctokit(process.env.READ_TOKEN)
+  //
+  // `actions/github-script` injects one already-bound `github` client per step
+  // and does NOT make `@actions/github` requirable: the action is bundled, and
+  // this workflow checks out no code on purpose, so `require` has no
+  // `node_modules` to resolve against. `READ_TOKEN` was unconditionally set, so
+  // the require ran on every run and threw before the first API call. That took
+  // the label AND the comment with it, on every pull request from #831 until the
+  // split into a read step and a write step.
+  const allowed = new Set(builtinModules);
+  const steps = readReportSteps().filter((s) => s.script);
+  assert.ok(steps.length >= 2, "ci-report.yml has no inline scripts to check");
+
+  for (const step of steps) {
+    for (const [, spec] of step.script.matchAll(/\brequire\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+      assert.ok(
+        allowed.has(spec.replace(/^node:/, "")),
+        `ci-report.yml step \`${step.name}\` requires ${JSON.stringify(spec)}, which is ` +
+          `not a Node builtin. This workflow checks out no code, so there is nothing ` +
+          `for require to resolve against and the step throws before its first API ` +
+          `call. To use a second token, add another actions/github-script step with ` +
+          `its own \`github-token:\` — do NOT add a checkout.`,
+      );
+    }
+  }
+});
+
+test("ci-report.yml keeps its reads off the App token", () => {
+  // The App token is minted with `permission-issues: write` and nothing else,
+  // because asking for a permission the installation lacks makes the mint step
+  // fail and its `continue-on-error` would then degrade every write. So the
+  // reads have to come from a separate step on the ambient token.
+  //
+  // Nothing catches a violation at runtime today: the repository is public, so
+  // these endpoints answer any valid token, and a read wrongly issued on the App
+  // token would work here and 403 on a private fork of this harness. The split
+  // is therefore only ever enforced by this test.
+  const AMBIENT = "${{ github.token }}";
+  const READS = [
+    "actions.listJobsForWorkflowRun", // needs actions: read
+    "pulls.listFiles", //                needs pull-requests: read
+    "repos.getContent", //               needs contents: read
+  ];
+  const WRITES = [
+    "issues.createComment",
+    "issues.updateComment",
+    "issues.addLabels",
+    "issues.removeLabel",
+  ];
+
+  const steps = readReportSteps().filter((s) => s.script);
+  const readers = steps.filter((s) => READS.some((r) => s.script.includes(r)));
+  const writers = steps.filter((s) => WRITES.some((w) => s.script.includes(w)));
+
+  assert.ok(readers.length > 0, "expected a step doing the privileged reads");
+  assert.ok(writers.length > 0, "expected a step doing the PR writes");
+
+  for (const step of readers) {
+    assert.equal(
+      step.token,
+      AMBIENT,
+      `ci-report.yml step \`${step.name}\` reads an endpoint the App token has no ` +
+        `permission for, but does not run on the ambient token. Move the read to ` +
+        `the resolve step, or give this step \`github-token: ${AMBIENT}\`.`,
+    );
+  }
+
+  for (const step of writers) {
+    assert.match(
+      step.token ?? "",
+      /steps\.app-token\.outputs\.token/,
+      `ci-report.yml step \`${step.name}\` writes to the pull request but does not ` +
+        `use the App token. The ambient token is read-only here, so the write ` +
+        `would fail — silently, on a fork.`,
+    );
+  }
+
+  assert.equal(
+    readers.some((r) => writers.includes(r)),
+    false,
+    "one step both reads with ambient-only permissions and writes with the App " +
+      "token — `github-script` binds ONE client per step, so it cannot do both.",
+  );
 });
