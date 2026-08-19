@@ -469,9 +469,10 @@ describe('header table cell range summary (issue #715)', () => {
     dispatchKey(container, 'b');
 
     // Keyboard and toolbar now read the same runs, so both turn bold off.
+    // Turning it off clears the key rather than storing `false` (#749).
     for (const block of storedCellBlocks(store)) {
       for (const inline of block.inlines) {
-        expect(inline.style.bold).toBe(false);
+        expect('bold' in inline.style).toBe(false);
       }
     }
   });
@@ -574,7 +575,8 @@ describe('cell endpoints normalize to the parent table (issue #715)', () => {
 
     for (const col of [0, 1]) {
       for (const inline of storedCellBlock(store, col).inlines) {
-        expect(inline.style.bold).toBe(false);
+        // Cleared, not stored as `false` (#749).
+        expect('bold' in inline.style).toBe(false);
       }
     }
   });
@@ -630,7 +632,8 @@ describe('cell endpoints normalize to the parent table (issue #715)', () => {
 
     for (const col of [0, 1]) {
       for (const inline of storedCellBlock(store, col).inlines) {
-        expect(inline.style.bold).toBe(false);
+        // Cleared, not stored as `false` (#749).
+        expect('bold' in inline.style).toBe(false);
       }
     }
   });
@@ -711,7 +714,8 @@ describe('cell endpoints normalize to the parent table (issue #715)', () => {
 
     const storedOuter = store.getDocument().blocks[1];
     const cellBlocks = storedOuter.tableData!.rows[0].cells[0].blocks;
-    expect(cellBlocks[0].inlines[0].style.bold).toBe(false);
+    // Written: the flag is cleared, not stored as `false` (#749).
+    expect('bold' in cellBlocks[0].inlines[0].style).toBe(false);
     // Untouched: the write never descends into the nested table.
     const storedInner = cellBlocks[1].tableData!.rows[0].cells[0].blocks[0];
     expect(storedInner.inlines[0].style.bold).toBeUndefined();

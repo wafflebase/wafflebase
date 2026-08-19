@@ -304,6 +304,27 @@ export function applyInsertInline(block: Block, offset: number, inline: Inline):
 }
 
 /**
+ * Merge a style patch over a run's style, treating a key set to `undefined`
+ * as "remove it" rather than "store it as undefined".
+ *
+ * A plain spread would leave the key present with an `undefined` value, which
+ * reads the same everywhere but keeps a phantom entry in the stored run (and
+ * in anything that enumerates it). Clearing is how `CLEAR_INLINE_STYLE` and
+ * the boolean toggle-off path express themselves, so it is the one merge both
+ * go through.
+ */
+function mergeInlineStyle(
+  base: InlineStyle,
+  patch: Partial<InlineStyle>,
+): InlineStyle {
+  const merged: InlineStyle = { ...base, ...patch };
+  for (const key of Object.keys(patch) as (keyof InlineStyle)[]) {
+    if (patch[key] === undefined) delete merged[key];
+  }
+  return merged;
+}
+
+/**
  * Apply inline style to a range within a block. Returns new Block.
  * Splits inlines as needed and normalizes the result.
  */
@@ -343,7 +364,7 @@ export function applyInlineStyle(
 
       newInlines.push({
         text: inline.text.slice(overlapStart, overlapEnd),
-        style: { ...inline.style, ...resolvedStyle },
+        style: mergeInlineStyle(inline.style, resolvedStyle),
       });
 
       if (overlapEnd < inline.text.length) {

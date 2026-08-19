@@ -299,6 +299,72 @@ describe('Doc', () => {
       expect(doc.document.blocks[1].inlines[0].text).toBe('Wor');
       expect(doc.document.blocks[1].inlines[0].style.underline).toBe(true);
     });
+
+    // Issue #749 — turning a boolean style off used to store an explicit
+    // `false`, which `inlineStylesEqual` can never match against a neighbour
+    // that simply lacks the key, so the run stayed split forever and the dead
+    // flag also pinned it against a later style redefinition.
+    it('restores a single run when a boolean style is toggled on and off', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      const range = {
+        anchor: { blockId, offset: 2 },
+        focus: { blockId, offset: 4 },
+      };
+
+      doc.applyInlineStyle(range, { italic: true });
+      expect(doc.document.blocks[0].inlines).toHaveLength(3);
+
+      doc.applyInlineStyle(range, { italic: false });
+
+      const inlines = doc.document.blocks[0].inlines;
+      expect(inlines).toHaveLength(1);
+      expect(inlines[0].text).toBe('abcdef');
+      expect('italic' in inlines[0].style).toBe(false);
+    });
+
+    it('clears the key for every boolean toggle, not just italic', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      const range = {
+        anchor: { blockId, offset: 2 },
+        focus: { blockId, offset: 4 },
+      };
+
+      for (const key of ['bold', 'underline', 'strikethrough', 'superscript', 'subscript'] as const) {
+        doc.applyInlineStyle(range, { [key]: true });
+        doc.applyInlineStyle(range, { [key]: false });
+        const inlines = doc.document.blocks[0].inlines;
+        expect(inlines).toHaveLength(1);
+        expect(key in inlines[0].style).toBe(false);
+      }
+    });
+
+    it('keeps an explicit false where the named style supplies the flag', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      // Heading 6's built-in style is italic, so only an explicit `false` can
+      // turn it off — clearing the key would be a visual no-op.
+      doc.setBlockType(blockId, 'heading', { headingLevel: 6 });
+
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
+        { italic: false },
+      );
+
+      const cd = doc.document.blocks[0].inlines.find((i) => i.text === 'cd');
+      expect(cd?.style.italic).toBe(false);
+      // A key the style does not supply is still cleared in the same write.
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
+        { bold: false },
+      );
+      const after = doc.document.blocks[0].inlines.find((i) => i.text === 'cd');
+      expect('bold' in (after?.style ?? {})).toBe(false);
+    });
   });
 
   describe('setBlockType', () => {

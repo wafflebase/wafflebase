@@ -28,7 +28,22 @@ import {
 } from './types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
+import { blockStyleId, resolveStyleInline } from './named-styles.js';
 import { visitCellRectangleSlices, visitRangeSlices } from './range-slices.js';
+
+/**
+ * The inline-style keys the B/I/U/S toggles write as plain booleans. Kept
+ * here rather than derived from `InlineStyle` because `pageNumber` is a
+ * boolean too and is structural, not character formatting.
+ */
+const BOOLEAN_INLINE_STYLE_KEYS = [
+  'bold',
+  'italic',
+  'underline',
+  'strikethrough',
+  'superscript',
+  'subscript',
+] as const;
 
 
 /**
@@ -359,9 +374,47 @@ export class Doc {
    */
   applyInlineStyle(range: DocRange, style: Partial<InlineStyle>): void {
     visitRangeSlices(this, range, (blockId, from, to) => {
-      this.store.applyStyle(blockId, from, to, style);
+      this.store.applyStyle(blockId, from, to, this.styleOffAsClear(blockId, style));
     });
     this.refresh();
+  }
+
+  /**
+   * Rewrite a boolean inline key that the caller turned *off* from an explicit
+   * `false` into `undefined`, i.e. "remove the key" — the convention
+   * `CLEAR_INLINE_STYLE` already uses and the Yorkie store already honours.
+   *
+   * A stored `false` is a dead flag: `inlineStylesEqual` compares strictly, so
+   * `false !== undefined` and `normalizeInlines` can never re-merge the run
+   * with the identical-looking neighbour it was split from. Worse, style
+   * resolution layers named-style defaults *underneath* the run style, so the
+   * dead flag also pins the run against a style later redefined to set it —
+   * the lazy-cascade hazard `getSelectionStyleImpl` documents (issue #749).
+   *
+   * The exception is the case where `false` carries information: when the
+   * block's named style supplies the key (Heading 6 is italic), clearing it
+   * would leave the run italic and the toggle-off would be a visual no-op.
+   * There the explicit `false` is the override and is kept.
+   */
+  private styleOffAsClear(
+    blockId: string,
+    style: Partial<InlineStyle>,
+  ): Partial<InlineStyle> {
+    let defaults: Partial<InlineStyle> | undefined;
+    let cleared: Partial<InlineStyle> | undefined;
+    for (const key of BOOLEAN_INLINE_STYLE_KEYS) {
+      if (style[key] !== false) continue;
+      if (!defaults) {
+        const block = this.findBlock(blockId);
+        defaults = block
+          ? resolveStyleInline(blockStyleId(block), this._document.styles)
+          : {};
+      }
+      if (defaults[key]) continue;
+      cleared = cleared ?? { ...style };
+      cleared[key] = undefined;
+    }
+    return cleared ?? style;
   }
 
   /**
@@ -375,7 +428,7 @@ export class Doc {
     style: Partial<InlineStyle>,
   ): void {
     visitCellRectangleSlices(this, cellRange, (blockId, from, to) => {
-      this.store.applyStyle(blockId, from, to, style);
+      this.store.applyStyle(blockId, from, to, this.styleOffAsClear(blockId, style));
     });
     this.refresh();
   }
