@@ -583,9 +583,9 @@ cap is what sets the granularity.
 | 9b | `edits.ts` | **merged** (#848) — see below |
 | gate | `fixtures/consumer` + `verify-consumer.mjs` | **merged** (#849) — see above |
 | 9c | `history` · `anchors` | folded into 11b — `SandboxLayout` is their only caller |
-| 10a | frame protocol · drill-in resolver · the alias seam | in review (#855) — see below |
-| 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | in review (#855) — see below |
-| 11a | the shell build — `dist/shell`, two documents, self-contained CSS | in review — see below |
+| 10a | frame protocol · drill-in resolver · the alias seam | **merged** (#855) — see below |
+| 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | **merged** (#855) — see below |
+| 11a | the shell build — `dist/shell`, two documents, self-contained CSS | in review (#879) — see below |
 | 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | written — see below |
 | 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | written — dom scenes live, see below |
 | 12a | the token panels, the review modal, `ComponentList` — `design-editor` | written — §6's last row closed |

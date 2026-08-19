@@ -55,7 +55,8 @@ is a finding, not a task.
       bridge and compares the bytes back
 - [x] a gate covers wafflebase scenes, not only the fixture — `pnpm --filter
       @wafflebase/design-sandbox verify:scenes` (18 checks), a sibling of `verify:frame`
-- [ ] ~~`packages/design-editor/src/plugin/` is untouched~~ — it was NOT. See the finding below.
+- **Not met, deliberately:** `packages/design-editor/src/plugin/` was NOT untouched — the
+      constraint did its job and produced a finding. See below.
 - [x] the deferred-scene listing inconsistency is gone — `analyzeScene` carries `deferred`,
       and the shell renders those rows disabled with a reason instead of omitting them or
       offering a click whose only outcome is a frame-side manifest error
