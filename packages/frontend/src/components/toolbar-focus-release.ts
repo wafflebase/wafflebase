@@ -17,7 +17,9 @@ import { releaseFocusToBody } from "./menu-focus";
  *
  * This hook closes that gap by dropping focus back to the body once a
  * pointer-driven toolbar interaction is finished. Opt a toolbar in by
- * spreading `CANVAS_TOOLBAR_ATTR` onto its root element.
+ * setting the `CANVAS_TOOLBAR_ATTR` attribute — written literally as
+ * `data-canvas-toolbar=""`, since a computed key does not type-check as a
+ * JSX spread — on its root element.
  */
 
 /** Marks a toolbar root whose focus should return to the canvas. */
