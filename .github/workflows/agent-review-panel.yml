@@ -171,6 +171,7 @@ jobs:
         id: gate
         uses: actions/github-script@v7
         with:
+          retries: 3
           script: |
             const owner = context.repo.owner, repo = context.repo.repo;
             const branch = context.payload.workflow_run.head_branch;
@@ -277,6 +278,7 @@ jobs:
         id: wait
         uses: actions/github-script@v7
         with:
+          retries: 3
           script: |
             // Mirrors `ciRunDecision` in scripts/agent/checks.mjs, which is where
             // the rule is unit-tested — a github-script step has no checkout and
@@ -414,6 +416,7 @@ jobs:
         id: pr
         uses: actions/github-script@v7
         with:
+          retries: 3
           script: |
             const branch = context.payload.workflow_run.head_branch;
             const prs = await github.rest.pulls.list({
@@ -479,6 +482,7 @@ jobs:
         if: steps.pr.outputs.number != ''
         uses: actions/github-script@v7
         with:
+          retries: 3
           script: |
             const fs = require('fs');
             const owner = context.repo.owner, repo = context.repo.repo;
@@ -751,6 +755,7 @@ jobs:
         continue-on-error: true
         uses: actions/github-script@v7
         with:
+          retries: 3
           script: |
             const fs = require('fs');
             const sha = context.payload.workflow_run.head_sha;
@@ -898,6 +903,24 @@ jobs:
       # `failure()` is still covered, so a panel that genuinely crashed keeps
       # failing closed, and `close-stuck-checks` below closes whatever this step
       # did not.
+      # RETRIES, and this is the step that earned them. On 2026-08-17 a GitHub API
+      # outage returned `503 No server is currently available` for about four
+      # minutes, and three panel runs died inside this step — each discarding a
+      # completed review the pipeline had already paid for ($60.94 of agent effort
+      # on #863 alone). `actions/github-script` defaults to ZERO retries, so one
+      # transient 5xx anywhere in the loop is fatal.
+      #
+      # Worse, the safety net shares the dependency it guards: the same outage
+      # failed the `stalled` job's "Page a human" step on #867, so that PR got no
+      # page, no `agent-review-paged` latch and no label change — it simply stopped,
+      # in `agent:reviewing`, with nothing to re-trigger it and nothing telling a
+      # human. A net that dies with the thing it catches is not a net.
+      #
+      # `retries: 3` turns on @octokit/plugin-retry, which backs off and retries
+      # 5xx and network errors (4xx still fails fast, so a real permission or
+      # validation bug is not papered over). Every github-script step in the agent
+      # workflows sets it; `eval/test-lane.test.mjs` asserts that, because the
+      # default is the dangerous value and a new step inherits it silently.
       - name: Post per-lens check runs
         id: panel
         if: >-
@@ -909,6 +932,7 @@ jobs:
           # in full mode, which keeps those titles byte-identical to before.
           NARROWED_SINCE: ${{ steps.narrow.outputs.mode == 'incremental' && steps.scope.outputs.since || '' }}
         with:
+          retries: 3
           script: |
             const fs = require('fs');
             const sha = context.payload.workflow_run.head_sha;
@@ -2093,6 +2117,7 @@ jobs:
         env:
           PANEL_RESULT: ${{ needs.review-panel.result }}
         with:
+          retries: 3
           script: |
             const sha = context.payload.workflow_run.head_sha;
             const superseded = process.env.PANEL_RESULT === 'cancelled';
@@ -2162,6 +2187,7 @@ jobs:
           PROMOTE_RESULT: ${{ needs.promote.result }}
           FIX_RESULT: ${{ needs.fix.result }}
         with:
+          retries: 3
           script: |
             const branch = context.payload.workflow_run.head_branch;
             const prs = await github.rest.pulls.list({
