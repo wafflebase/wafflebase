@@ -1433,6 +1433,24 @@ Components:
   `scripts/agent/metrics.mjs` renders it; read `unknownOrigin` first, since a zero `backlog`
   beside a high `unknownOrigin` means the gate ran blind rather than that nothing
   was relocated.
+  **Placing a finding** is the shared input both gates depend on, and it was quietly
+  losing most of them. `novelty.mjs::findingLocation` takes the finding's own `line`
+  when a lens supplied one, and otherwise the first `file:line` citation in its
+  evidence that NAMES THE SAME FILE — the same-file rule being what stops a foreign
+  file's offset from inventing a location that exists but means nothing. Two bugs
+  made that rule lose locations it should have found. It read only the FIRST citation
+  and discarded it on a file mismatch, while lenses habitually open their evidence
+  with the call site or the violated contract and cite the filed file second; and
+  `CITATION`'s permissive leading `[^\s:]+` swallowed whatever punctuation abutted
+  the citation, so the extremely common `(auth.controller.ts:130)` parsed as the file
+  `(auth.controller.ts` and could never match anything. Measured over the 44 blocking
+  findings banked on the open agent PRs: 24 carried a same-file citation, 7 were
+  being placed. Scanning for the first AGREEING citation and trimming characters that
+  cannot begin a path took that to 23 placed, and the surface gate's share of the
+  backlog from 9% to 25%. `CITATION` itself is deliberately not tightened — its other
+  importers only ask `.test()` ("does this cite anything at all"), and narrowing that
+  predicate could turn a grounded verdict ungrounded.
+
   **The surface gate** (`scripts/agent/review-surface.mjs`) answers the sibling
   question: *did a FIX ROUND put this line here?* It exists because the loop could
   not converge. Measured over 88 scored rounds on the 8 non-converging draft agent
