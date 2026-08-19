@@ -124,12 +124,12 @@ files no row names, which is why this ledger is per-file rather than per-PR.
 | `sandbox/PreviewPane.tsx` | 204 | **DROPPED** (12a) — its renderer map cannot be derived from source |
 | `sandbox/registry.tsx` | 49 | **DROPPED** (12a) — hand-written per component; the scene frame is the preview |
 | `sandbox/AgentPopover.tsx` | 164 | **DROPPED** (12a) — the Phase 4 agent pipeline was withdrawn |
-| `scenes/providers.tsx` | 212 | **11c** (this PR) — dom mocks only; `*-store` mocks in 12 |
-| `scenes/fixtures/{documents,workspace,datasources,auth}.ts` | 286 | **11c** (this PR) |
-| `scenes/fixtures/canvas.ts` | 91 | **12b** |
-| `scenes/canvas/yorkie-offline.tsx` | 315 | **12b** |
-| `scenes/canvas/seed-{sheets,docs,notes}.ts` | 240 | **12b** |
-| `scripts/{smoke-scene,smoke-canvas,smoke-layout}.ts` | 730 | superseded by `verify-consumer` (54) + `verify-frame` (34) |
+| `scenes/providers.tsx` | 212 | **11c — landed**; the canvas `*-store` mocks became 12b's shim |
+| `scenes/fixtures/{documents,workspace,datasources,auth}.ts` | 286 | **11c — landed** |
+| `scenes/fixtures/canvas.ts` | 91 | **12b — landed** |
+| `scenes/canvas/yorkie-offline.tsx` | 315 | **12b — landed** |
+| `scenes/canvas/seed-{sheets,docs,notes}.ts` | 240 | **12b — landed** |
+| `scripts/{smoke-scene,smoke-canvas,smoke-layout}.ts` | 730 | superseded by `verify-consumer` (54) + `verify-frame` (37, 41 with `--write`) + `verify-scenes` (27) |
 | `scripts/verify-bridge.mjs` | 311 | superseded by `verify-consumer` |
 | `scripts/crawl-frame-graph.mjs` | 103 | superseded — frame graph is `?wbFrame=` per-module now |
 | `scripts/poke-scene-preview.mjs` | 98 | superseded by `verify-frame` |
@@ -140,6 +140,11 @@ files no row names, which is why this ledger is per-file rather than per-PR.
 | `sandbox.css` | 45 | superseded by `shell/shell.css` |
 
 The remaining 19 files landed under their own names.
+
+**The ledger is closed as of 12b.** Every one of the 57 prototype `.ts/.tsx/.mjs` files is
+landed, dropped as a recorded decision, or superseded by something that does the same job —
+nothing is unaccounted for. Deleting `packages/design-sdk` is now a separate, reviewable step
+rather than a leap of faith.
 
 ## Canvas scenes — corrected findings
 

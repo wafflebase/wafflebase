@@ -44,7 +44,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { designEditor } from '@wafflebase/design-editor';
 import { wafflebaseCore } from './src/tokens/core-adapter';
@@ -77,7 +77,51 @@ const REPO_ROOT = path.resolve(HERE, '../..');
  * NOT here: measured, pnpm already gives both packages the same physical `react@19.1.0`,
  * so declaring them is one copy already.
  */
-const APP_LIBS = ['react-router-dom', '@tanstack/react-query', '@tanstack/react-table', 'sonner', '@tabler/icons-react'];
+const APP_LIBS = [
+  'react-router-dom',
+  '@tanstack/react-query',
+  '@tanstack/react-table',
+  'sonner',
+  '@tabler/icons-react',
+  // Canvas engines reach the SDK directly, and the shim constructs its `Document` from it.
+  // One copy — the app's — for the same class-identity reason as the rest of this list.
+  '@yorkie-js/sdk',
+];
+
+/**
+ * The offline shim `@yorkie-js/react` is redirected to, and the escape specifier the shim
+ * uses to reach the real package.
+ *
+ * A canvas scene's page imports `@yorkie-js/react` directly (`DocumentProvider`,
+ * `useDocument`, `usePresences`) and that binding is what attaches a document to a live
+ * server. Rather than fake a WebSocket, the whole module is redirected to a shim that
+ * constructs a real but DETACHED `Document` — see `src/scenes/canvas/yorkie-offline.tsx`
+ * for why that works and for the class-identity trap that rules out reimplementing it.
+ *
+ * The ESCAPE is aliased by this exact longer string, never by the bare specifier:
+ * `vite:alias` runs before every user plugin, even one declared `enforce: 'pre'`, so
+ * aliasing `@yorkie-js/react` would rewrite it to the real package before the plugin below
+ * ever saw the string to redirect. Every canvas scene would then bind to the real,
+ * network-backed provider — which renders without throwing and waits forever on an
+ * `attach()` that never happens.
+ */
+const YORKIE_SHIM = path.resolve(HERE, 'src/scenes/canvas/yorkie-offline.tsx');
+const YORKIE_REAL = '@yorkie-js/react/__wb-real';
+
+function yorkieOffline(): Plugin {
+  return {
+    name: 'design-sandbox-yorkie-offline',
+    enforce: 'pre',
+    async resolveId(source, importer, options) {
+      if (source === '@yorkie-js/react') return YORKIE_SHIM;
+      if (source === YORKIE_REAL) {
+        // `skipSelf`, or this hook answers its own question forever.
+        return this.resolve(YORKIE_REAL, importer, { ...options, skipSelf: true });
+      }
+      return null;
+    },
+  };
+}
 
 /**
  * A DELIBERATELY UNRESOLVABLE API origin.
@@ -165,6 +209,8 @@ export default defineConfig({
       ...Object.fromEntries(
         APP_LIBS.map((pkg) => [pkg, path.resolve(REPO_ROOT, 'packages/frontend/node_modules', pkg)]),
       ),
+      // The escape only. See `YORKIE_REAL` above for why the bare specifier is not here.
+      [YORKIE_REAL]: path.resolve(REPO_ROOT, 'packages/frontend/node_modules/@yorkie-js/react'),
     },
   },
   /**
@@ -217,6 +263,8 @@ export default defineConfig({
      * `plugin-react` is the one that has to run — see the fixture consumer's config for
      * the same reasoning on a project that is not wafflebase.
      */
+    // BEFORE `react()`: the redirect has to win before the transform sees the specifier.
+    yorkieOffline(),
     react(),
     designEditor({
       root: REPO_ROOT,

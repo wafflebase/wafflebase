@@ -589,7 +589,7 @@ cap is what sets the granularity.
 | 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | written — see below |
 | 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | written — dom scenes live, see below |
 | 12a | the token panels, the review modal, `ComponentList` — `design-editor` | written — §6's last row closed |
-| 12b | the canvas scenes — `design-sandbox` | held, and unmeasured: see below |
+| 12b | the canvas scenes — `design-sandbox` | written — four of five render |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
 review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
@@ -697,12 +697,20 @@ is the preview surface, which is the argument this document already makes for ju
 change on a real page. `AgentPopover`: the Phase 4 agent pipeline was withdrawn, so it has no
 destination.
 
-**12b's risk is unmeasured.** Canvas scene files are ordinary editable JSX — `sheet-editor`
-points at `document-detail.tsx`, 41 elements of sidebar, header and toolbar. What blocks them
-is that the page imports `{ DocumentProvider, useDocument }` from `@yorkie-js/react`, and the
-prototype's own manifest called these scenes "listed for shape, not function". `kind: 'canvas'`
-is a grouping label, not a code path — nothing branches on it — so no plugin work is expected,
-only store mocking in `design-sandbox`.
+**12b measured out cheaper than expected, and the plugin did not change.** The four editor
+scenes render their fixture content inside the real app shell; only `pdf-viewer` stays
+deferred, because it needs the file's bytes at a blob URL and a table of JSON responses cannot
+produce one. `kind: 'canvas'` was and remains a grouping label — nothing branches on it.
+
+What made it work is `yorkie-offline.tsx`: `@yorkie-js/react` is redirected module-wide to a
+shim that constructs a real but DETACHED `Document`. A document never attached to a `Client` is
+fully functional — re-probed against the installed `@yorkie-js/sdk@0.7.16`, not inherited from
+the prototype's 0.7.13 measurement — so only the react binding needed replacing. The shim
+re-exports the real package and shadows `Tree`/`Text`/`Counter` from the SDK realm, because
+`@yorkie-js/react` bundles its own 824 KB SDK copy and a CRDT value from the wrong realm is
+silently flattened into a plain object rather than rejected. Findings, including a Yorkie proxy
+that answers `false` to `in` for a field it holds, are in
+`docs/tasks/active/20260819-design-sandbox-canvas-todo.md`.
 
 #### PR 8 splits in three, by pipeline — not by file
 

@@ -139,20 +139,27 @@ describe('scenes.config.json', () => {
     }
   });
 
-  it('runs every dom scene and still defers every canvas scene', () => {
-    // The 8c assertion here was "every scene is deferred", and it said it expected to
-    // change. 11c is the change: the dom scenes have providers and fixtures now, so they
-    // mount. The canvas scenes need a mocked document store (`useDocument()` from
-    // `@yorkie-js/react`) that PR 12 supplies, and a loader for a scene that cannot mount
-    // costs a startup specifier crawl and a mount error someone has to diagnose.
+  it('runs every scene except the one that still cannot mount', () => {
+    // This assertion has now changed twice, as intended. 8c: every scene deferred. 11c: the
+    // dom scenes live. 12b: the canvas scenes too — `yorkie-offline.tsx` gives them a real
+    // but detached `Document`, so `useDocument()` resolves without a server.
     const live = scenes.filter((s) => !s.deferred).map((s) => s.id);
     const held = scenes.filter((s) => s.deferred).map((s) => s.id);
-    expect(live.sort()).toEqual(
-      ['analytics', 'datasources', 'documents', 'login', 'settings', 'settings-personal'],
-    );
-    expect(scenes.filter((s) => !s.deferred).every((s) => s.kind === 'dom')).toBe(true);
-    expect(scenes.filter((s) => s.deferred).every((s) => s.kind === 'canvas')).toBe(true);
-    expect(held.length).toBe(5);
+    expect(live.sort()).toEqual([
+      'analytics',
+      'datasources',
+      'docs-editor',
+      'documents',
+      'login',
+      'notes-editor',
+      'settings',
+      'settings-personal',
+      'sheet-editor',
+      'slides-editor',
+    ]);
+    // `pdf-viewer` is the one that stays: it needs a blob URL for the file itself, and a
+    // fixture table of JSON responses cannot produce one.
+    expect(held).toEqual(['pdf-viewer']);
   });
 
   it('resolves every fixture ref a live scene names', () => {

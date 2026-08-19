@@ -215,8 +215,7 @@
       "viewports": [
         "desktop"
       ],
-      "readOnly": true,
-      "deferred": true
+      "readOnly": true
     },
     {
       "id": "docs-editor",
@@ -240,8 +239,7 @@
       "viewports": [
         "desktop"
       ],
-      "readOnly": true,
-      "deferred": true
+      "readOnly": true
     },
     {
       "id": "slides-editor",
@@ -265,8 +263,7 @@
       "viewports": [
         "desktop"
       ],
-      "readOnly": true,
-      "deferred": true
+      "readOnly": true
     },
     {
       "id": "notes-editor",
@@ -290,8 +287,7 @@
       "viewports": [
         "desktop"
       ],
-      "readOnly": true,
-      "deferred": true
+      "readOnly": true
     },
     {
       "id": "pdf-viewer",

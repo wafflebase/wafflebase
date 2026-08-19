@@ -22,6 +22,7 @@ import { SHELL_FIXTURES } from './shell.ts';
 import { DOCUMENTS_FIXTURES } from './documents.ts';
 import { DATASOURCES_FIXTURES } from './datasources.ts';
 import { WORKSPACE_SETTINGS_FIXTURES, WORKSPACE_ANALYTICS_FIXTURES } from './workspace.ts';
+import { SHEETS_FIXTURE, DOCS_FIXTURE, SLIDES_FIXTURE, NOTES_FIXTURE } from './canvas.ts';
 
 /** mock name → the fixtures installing it contributes. */
 const BY_MOCK: Record<string, FixtureTable> = {
@@ -31,16 +32,24 @@ const BY_MOCK: Record<string, FixtureTable> = {
 /**
  * `fixtures: { query: "documents/list" }` → the table under that key.
  *
- * The canvas scenes' refs (`sheets/revenue`, `docs/fixture`, `slides/fixture`,
- * `notes/fixture`, `files/fixture`) are NOT here yet: those scenes need a mocked
- * document store as well, which is PR 12. An unknown ref resolves to nothing, so those
- * scenes miss loudly instead of rendering half-populated.
+ * The canvas refs answer the `/api/documents/:id` fetch a canvas page makes for its
+ * METADATA (title, type, permissions). The document CONTENT is a separate substitution —
+ * a canvas page has no fetch to intercept for "what is in this document", so that happens
+ * at `Document` construction in `canvas/yorkie-offline.tsx`.
+ *
+ * `files/fixture` (the pdf viewer) has no entry: it needs a blob URL rather than JSON, and
+ * nothing here can produce one. That scene stays deferred, and an unknown ref contributes
+ * nothing — so the first request that needed it trips the guard and names the URL.
  */
 const BY_FIXTURE_REF: Record<string, FixtureTable> = {
   'documents/list': DOCUMENTS_FIXTURES,
   'datasources/list': DATASOURCES_FIXTURES,
   'workspace/settings': WORKSPACE_SETTINGS_FIXTURES,
   'workspace/analytics': WORKSPACE_ANALYTICS_FIXTURES,
+  'sheets/revenue': SHEETS_FIXTURE,
+  'docs/fixture': DOCS_FIXTURE,
+  'slides/fixture': SLIDES_FIXTURE,
+  'notes/fixture': NOTES_FIXTURE,
 };
 
 export interface SceneFixtureConfig {

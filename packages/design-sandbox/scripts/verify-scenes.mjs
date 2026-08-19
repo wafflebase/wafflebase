@@ -149,6 +149,32 @@ function trackRequests(page) {
   };
 }
 
+/**
+ * SETTLED, not first paint — and the difference produced a false report once.
+ *
+ * The app shell paints before the engine inside it mounts, so reading at the first non-empty
+ * `innerHTML` catches a canvas scene mid-load and shows its title placeholder ("Loading…").
+ * I recorded four canvas scenes as stuck on that; they render fine. This waits for the text to
+ * stop changing instead.
+ */
+async function waitForSettled(page) {
+  const deadline = Date.now() + PAINT_TIMEOUT_MS;
+  let last = '';
+  let stable = 0;
+  while (Date.now() < deadline) {
+    const t = ((await page.textContent('#wb-scene-root').catch(() => '')) ?? '').replace(/\s+/g, ' ').trim();
+    if (t && t === last) {
+      stable += 1;
+      if (stable >= 3) return t;
+    } else {
+      stable = 0;
+    }
+    last = t;
+    await page.waitForTimeout(2000);
+  }
+  return last || null;
+}
+
 async function main() {
   await buildShellIfStale();
   const { child, log } = await boot();
@@ -185,12 +211,12 @@ async function main() {
         `http://127.0.0.1:${PORT}/__design-editor/scene?scene=${s.id}&frame=after&theme=light`,
         { waitUntil: 'commit', timeout: PAINT_TIMEOUT_MS },
       );
-      const text = await waitForPaint(page);
+      const text = await waitForSettled(page);
       const stamped = text === null ? 0 : (await page.$$('[data-wb-node]')).length;
       // A mount error PAINTS, so "it rendered" is not the check — stamped nodes are.
       check(
         `${s.id} renders and is stampable`,
-        stamped > 0 && !/mount error/i.test(text ?? ''),
+        stamped > 0 && !/mount error/i.test(text ?? '') && !/Loading\.\.\./.test(text ?? ''),
         `${stamped} nodes · ${JSON.stringify((text ?? '(empty)').slice(0, 70))}`,
       );
       // An unmocked request is the failure the fixture table exists to prevent, and it is
@@ -234,7 +260,7 @@ async function main() {
         `http://127.0.0.1:${PORT}/__design-editor/scene?scene=documents&frame=after&theme=light`,
         { waitUntil: 'commit', timeout: PAINT_TIMEOUT_MS },
       );
-      const text = (await waitForPaint(page)) ?? '';
+      const text = (await waitForSettled(page)) ?? '';
       // `Acme Design` is the app shell's own fetch; `Q4 Revenue Model` is the scene's ref.
       // Only the second proves `fixtures: { query: "documents/list" }` was resolved.
       check('the app shell fetched its own data', text.includes('Acme Design'));
