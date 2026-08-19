@@ -24,6 +24,7 @@ import {
   tokenOverrideStyle,
   type EditRef,
   type PendingClassEdit,
+  type PendingLayoutEdit,
   type PendingPaletteEdit,
   type PendingTokenAdd,
   type PendingTokenEdit,
@@ -49,6 +50,16 @@ interface ReviewApproveModalProps {
   tokenAdds: PendingTokenAdd[];
   rebinds: PendingTokenRebind[];
   paletteEdits: PendingPaletteEdit[];
+  /**
+   * The floating class editor's output — and the reason this prop exists at all.
+   *
+   * The card builder handled the five token/class maps and nothing else, so a class edit made
+   * in the frame produced ZERO cards: the header said "1 file change staged", the diff list
+   * below showed the real change, and the card area said "No changes to review." Measured on a
+   * wafflebase scene. The staging path (11b) and this modal (12a) were wired independently and
+   * never met.
+   */
+  layoutEdits: PendingLayoutEdit[];
   /** `GET /tokens`, for the palette swatches and the cascade-impact line. */
   tokens: TokensResult | null;
   /**
@@ -110,6 +121,7 @@ export function ReviewApproveModal({
   tokenAdds,
   rebinds,
   paletteEdits,
+  layoutEdits,
   tokens,
   bridge,
   allComponents,
@@ -150,6 +162,36 @@ export function ReviewApproveModal({
         variant: e.revealVariant,
         overrideClass: e.replacements.map((r) => r.to).join(' '),
         baseClass: e.replacements.map((r) => r.from).join(' '),
+        tokenStyle: {},
+      });
+    }
+
+    /*
+     * One card per staged layout edit. `classOps` is the only op the UI can produce today —
+     * the structural controls are not built — so a card for anything else names the op rather
+     * than inventing a diff for it.
+     */
+    for (const e of layoutEdits) {
+      const adds = e.classOps?.additions ?? [];
+      const removes = e.classOps?.removals ?? [];
+      cards.push({
+        componentName: '',
+        title: `<${e.anchor.tag}> · ${e.anchor.component}`,
+        /*
+         * The op goes in the SUBTITLE when there is no class change, not in `impact` — that
+         * field is only rendered by the palette-rebind branch, so a layout card setting it says
+         * nothing at all. Reachable once the structural controls exist: a `props` edit that
+         * only sets an attribute would otherwise show two empty class lists and read as a
+         * change that does nothing.
+         */
+        subtitle:
+          `${e.anchor.file} · path ${e.anchor.path.join('.') || '(root)'} (${e.scopeLabel})` +
+          (adds.length || removes.length ? '' : ` · ${e.op} — no class change staged`),
+        variant: {},
+        // The class lists are the substance, and `ClassList` renders them: what the node has on
+        // disk, and what it would have after the write.
+        baseClass: removes.join(' '),
+        overrideClass: adds.join(' '),
         tokenStyle: {},
       });
     }
@@ -227,7 +269,7 @@ export function ReviewApproveModal({
     }
     return cards;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [classEdits, tokenEdits, tokenAdds, rebinds, paletteEdits, allComponents, byName, colorByRef]);
+  }, [classEdits, layoutEdits, tokenEdits, tokenAdds, rebinds, paletteEdits, allComponents, byName, colorByRef]);
 
   const reverts = useMemo(() => plan.filter((p) => p.mode === 'revert'), [plan]);
 

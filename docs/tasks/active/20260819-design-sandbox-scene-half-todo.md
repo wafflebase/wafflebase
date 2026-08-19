@@ -49,7 +49,10 @@ is a finding, not a task.
 
 - [x] a wafflebase scene paints in the frame, not a manifest error — all six dom scenes
 - [x] clicking a node in it resolves to a `packages/frontend/**` source anchor
-- [ ] a class edit stages and undoes against a real file — not yet exercised
+- [x] a class edit stages and undoes against a real file — `verify:scenes --write` (40 checks)
+      clicks a node in a wafflebase scene, stages a class, steps ⌘Z / ⇧⌘Z, opens the review,
+      approves it into `packages/frontend/src/components/app-sidebar.tsx`, undoes through the
+      bridge and compares the bytes back
 - [x] a gate covers wafflebase scenes, not only the fixture — `pnpm --filter
       @wafflebase/design-sandbox verify:scenes` (18 checks), a sibling of `verify:frame`
 - [ ] ~~`packages/design-editor/src/plugin/` is untouched~~ — it was NOT. See the finding below.
@@ -175,3 +178,28 @@ needs the file's bytes at a blob URL.
 gap in the guard itself: `installFetchGuard` wraps `fetch` only, so the app shell's
 `/api/notifications/stream` left the frame as an `EventSource` and reached the real backend,
 against the guard's own stated contract. Fixed in `design-editor`, where the defect is.
+
+## What the class-edit check found
+
+Getting one class edit to land against wafflebase's own source took three attempts, and each
+failure was information rather than a bug in the loop.
+
+**The scene's own nodes are not painted.** `workspace-documents.tsx` renders skeletons while
+its query is pending and delegates to `<DocumentList/>` once it resolves — so an outline row
+from the scene file resolves to a real anchor and then reports "Not currently visible". The
+outline's clickable marks come from `wb:ready`, captured before the data arrived, so they were
+describing a DOM that no longer exists.
+
+**Almost nothing on screen was editable.** Measured after load: 90 of the 91 visible stamped
+nodes belong to `document-list.tsx`, and the rest to `app-sidebar.tsx`, `nav-main.tsx`,
+`nav-user.tsx`, `avatar.tsx`, `site-header.tsx`. The manifest declared two components
+(`button`, `badge`), so every click on the visible page resolved to "was not analysed, so this
+click has no source anchor" — correct behaviour, and a scene nobody could edit. Declaring the
+five files the shell scenes actually paint is what made the surface real.
+
+**The review modal showed an empty state for the change it was reviewing.** The card builder
+handled the five token/class maps; the floating class editor stages `layoutEdits`. So the
+header said "1 file change staged", the diff list showed the change, and the card area said
+"No changes to review". 11b wired the staging and 12a ported the modal, independently, and
+they never met. Fixed with a layout card, and the gate now asserts the card area is not the
+empty state.

@@ -22,6 +22,7 @@
  * All four are silent in every other lane.
  */
 import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +31,15 @@ const HERE = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = Number(process.env.PORT ?? 5299);
 /** Generous: the cold graph is ~6,000 modules on a drvfs mount. */
 const PAINT_TIMEOUT_MS = Number(process.env.PAINT_TIMEOUT_MS ?? 300_000);
+/** The monorepo root — the write boundary the plugin is configured with. */
+const ROOT = path.resolve(HERE, '../..');
+/**
+ * NOTHING IS WRITTEN unless `--write` is passed, the same contract as `verify-consumer` and
+ * `verify-frame`. With it, one class edit is approved into `packages/frontend/src/**` and then
+ * undone through the bridge, with the bytes compared back. That file is product source, so the
+ * restore is asserted rather than assumed.
+ */
+const WRITE = process.argv.includes('--write');
 
 let checks = 0;
 let failures = 0;
@@ -388,6 +398,173 @@ async function main() {
             cross.includes(wanted),
             `${wanted} · panel: ${(cross.match(/packages\/frontend\/src\/\S+/) ?? ['(none)'])[0]}`,
           );
+        }
+
+        /**
+         * A CLASS EDIT AGAINST WAFFLEBASE'S OWN SOURCE.
+         *
+         * `verify:frame` already covers staging → ⌘Z → review → write, but against the 6-file
+         * fixture consumer. This is the same loop against a real page: the anchor resolves into
+         * `packages/frontend/src/**`, and with `--write` the edit lands in a file the product
+         * ships.
+         *
+         * THE NODE IS CHOSEN FOR BEING PAINTED AND HAVING CLASSES, and both halves were learned
+         * the hard way. Measured on the documents scene after its data arrives: 90 of the 91
+         * visible stamped nodes belong to `document-list.tsx` and the rest to the shell chrome —
+         * the scene's OWN nodes are all in its loading branch and unmount when the query
+         * resolves. So an outline row from the scene file resolves to an anchor and then reports
+         * "Not currently visible", and a click on the deepest visible element lands in a file
+         * the manifest did not declare. Declaring those files (see `components:` in the
+         * manifest) is what makes anything on screen editable at all.
+         */
+        /*
+         * Restricted to files `/metadata` ACTUALLY ANALYSED, which is what makes this
+         * deterministic. The visible page is assembled from a dozen components; picking the
+         * smallest visible element lands on whichever of them happens to be smallest —
+         * measured, `folder-breadcrumb.tsx`, then `nav-user.tsx` — and an undeclared file
+         * correctly has no anchor. The point of this check is the EDIT path, not rediscovering
+         * that undeclared files are undeclared.
+         */
+        const analysed = await (
+          await fetch(`http://127.0.0.1:${PORT}/__design-editor/api/metadata`)
+        ).json();
+        const declared = (analysed.metadata?.files ?? []).map((f) => f.file);
+        const editable = await inner.evaluateHandle((files) => {
+          const vis = [...document.querySelectorAll('[data-wb-node]')]
+            .filter(
+              (el) =>
+                el instanceof HTMLElement &&
+                String(el.className || '').trim() &&
+                files.includes(el.getAttribute('data-wb-file') ?? ''),
+            )
+            .map((el) => ({ el, r: el.getBoundingClientRect() }))
+            .filter(({ r }) => r.width > 24 && r.height > 16 && r.top >= 0 && r.top < window.innerHeight - 24)
+            // Smallest first: an outer container's centre often sits over a child, which the
+            // frame reads as a gutter click and reports as a deselect.
+            .sort((a, b) => a.r.width * a.r.height - b.r.width * b.r.height);
+          return vis[0]?.el ?? null;
+        }, declared);
+        const editTarget = editable.asElement();
+        if (editTarget) {
+          await editTarget.evaluate((n) => {
+            const r = n.getBoundingClientRect();
+            n.dispatchEvent(
+              new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                clientX: Math.round(r.left + r.width / 2),
+                clientY: Math.round(r.top + r.height / 2),
+              }),
+            );
+          });
+          await page.waitForTimeout(3000);
+        }
+        const detail = ((await page.textContent('aside:last-of-type')) ?? '').replace(/\s+/g, ' ');
+        check(
+          'the clicked node resolves to a declared frontend file',
+          /packages\/frontend\/src\//.test(detail) && !/was not analysed/.test(detail),
+          (detail.match(/packages\/frontend\/src\/\S+/) ?? ['(no anchor)'])[0],
+        );
+
+        const saveBtn = async () =>
+          page.$eval('button[title*="⌘S"], button[title*="matches the editor"]', (b) => ({
+            text: (b.textContent ?? '').trim(),
+            disabled: b.disabled,
+          }));
+
+        if (check('the class editor opens on a wafflebase node', !!(await page.$('[data-wb-class-editor]')))) {
+          await page.click('[data-wb-class-editor] button[title="flex-col"]');
+          await page.waitForTimeout(400);
+          check(
+            'a class edit stages against a frontend file',
+            /1$/.test((await saveBtn()).text),
+            (await saveBtn()).text,
+          );
+
+          await page.keyboard.press('Control+z');
+          await page.waitForTimeout(400);
+          check('⌘Z takes it back', (await saveBtn()).disabled === true, JSON.stringify(await saveBtn()));
+
+          await page.keyboard.press('Control+Shift+z');
+          await page.waitForTimeout(400);
+          check('and ⇧⌘Z restages it', /1$/.test((await saveBtn()).text), (await saveBtn()).text);
+
+          await page.keyboard.press('Control+s');
+          await page.waitForTimeout(3000);
+          if (check('⌘S opens the review', !!(await page.$('[role="dialog"][aria-modal="true"]')))) {
+            const modal = ((await page.textContent('[role="dialog"][aria-modal="true"]')) ?? '')
+              .replace(/\s+/g, ' ')
+              .trim();
+            check(
+              'and the diff names the frontend file',
+              /packages\/frontend\/src\//.test(modal) && /flex-col/.test(modal),
+              JSON.stringify(modal.slice(0, 110)),
+            );
+            /*
+             * The CARD, not just the diff list. Measured before this check existed: the header
+             * said "1 file change staged", the diff list showed the change, and the card area
+             * said "No changes to review" — the class editor stages `layoutEdits` and the card
+             * builder knew only the token/class maps. A reviewer reading the card area would
+             * have concluded there was nothing to approve.
+             */
+            check(
+              'and the card area shows the change rather than an empty state',
+              !/No changes to review/.test(modal),
+              JSON.stringify(modal.slice(0, 130)),
+            );
+
+            if (WRITE) {
+              /*
+               * A REAL WRITE INTO `packages/frontend`. Restored through the bridge's own
+               * transaction log, which is the path a user takes — so a broken undo fails here
+               * rather than leaving product source edited for the next run to discover.
+               */
+              const rel = (modal.match(/packages\/frontend\/src\/[\w./-]+\.tsx/) ?? [])[0];
+              if (check('the review names which file it will write', !!rel, rel)) {
+                const abs = path.join(ROOT, rel);
+                const before = await fs.readFile(abs, 'utf8');
+                const approve = (await page.$$('[role="dialog"] button')).at(-1);
+                await approve?.click();
+                await page.waitForTimeout(4000);
+                const written = await fs.readFile(abs, 'utf8');
+                check(
+                  'Approve writes the class into wafflebase’s own source',
+                  written !== before && written.includes('flex-col'),
+                  written === before ? 'unchanged' : 'changed',
+                );
+
+                const undone = await (
+                  await fetch(`http://127.0.0.1:${PORT}/__design-editor/api/undo`, { method: 'POST' })
+                ).json();
+                check('undo answers ok', undone.ok === true, undone.error);
+                check(
+                  'and the file is byte-identical again',
+                  (await fs.readFile(abs, 'utf8')) === before,
+                  'a difference here means product source was left edited',
+                );
+
+                // `PathGuard.backup` writes `${file}.bak` beside the source; the design doc's
+                // Risks section names that and prescribes a cache directory instead.
+                let left = false;
+                try {
+                  await fs.unlink(`${abs}.bak`);
+                  console.log(`       removed ${rel}.bak (see the Risks section)`);
+                } catch {
+                  try {
+                    await fs.access(`${abs}.bak`);
+                    left = true;
+                  } catch {
+                    /* never created */
+                  }
+                }
+                check('no backup was left in packages/frontend', !left, `${rel}.bak`);
+              }
+            } else {
+              await page.keyboard.press('Escape');
+              await page.waitForTimeout(400);
+              console.log('       (skipping the real Approve — pass --write to include it)');
+            }
+          }
         }
       }
       await page.close();

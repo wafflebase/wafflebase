@@ -59,7 +59,12 @@
   ],
   "components": [
     "packages/frontend/src/components/ui/button.tsx",
-    "packages/frontend/src/components/ui/badge.tsx"
+    "packages/frontend/src/components/ui/badge.tsx",
+    "packages/frontend/src/app/documents/document-list.tsx",
+    "packages/frontend/src/components/app-sidebar.tsx",
+    "packages/frontend/src/components/nav-main.tsx",
+    "packages/frontend/src/components/nav-user.tsx",
+    "packages/frontend/src/components/site-header.tsx"
   ],
   "scenes": [
     {

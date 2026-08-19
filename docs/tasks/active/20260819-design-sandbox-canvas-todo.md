@@ -73,5 +73,6 @@ JSON responses cannot produce one.
       exactly as the shim's header predicts for a provider waiting on an `attach()` that never
       happens. The placeholder check added after my own measurement error is what catches it.
 - [x] `packages/design-editor` is untouched
-- [ ] a class edit inside a canvas scene stages and writes — the click checks cover the dom
-      scenes only
+- [x] a class edit against a wafflebase scene stages and writes — covered on the documents
+      scene, which shares the app shell every canvas scene mounts in. A canvas scene's own
+      `<canvas>` content is not a class-editor target and never was.
