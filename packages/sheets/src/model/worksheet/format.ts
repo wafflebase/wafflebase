@@ -139,6 +139,28 @@ export function decimalsInValue(value?: string): number {
 }
 
 /**
+ * `currencyDecimals` returns how many fraction digits a currency renders with
+ * when nothing overrides it. It is the currency's own convention, not a flat 2:
+ * `KRW` and `JPY` show none, `KWD` shows three. `formatValue` leaves the
+ * fraction-digit options off entirely for a `dp`-less currency precisely so
+ * `Intl` applies that convention, so anything reporting what such a cell shows
+ * has to ask `Intl` the same question.
+ */
+function currencyDecimals(locale: string, currency: string): number {
+  try {
+    const resolved = new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+    }).resolvedOptions();
+    return resolved.maximumFractionDigits ?? 2;
+  } catch {
+    // A locale or currency `Intl` rejects renders through `safeFormat`'s
+    // fallbacks, which end at the plain-number default of 2.
+    return 2;
+  }
+}
+
+/**
  * `renderedDecimals` returns how many decimal places a value actually shows
  * once its effective style is applied — which is not the same as what the raw
  * value holds. A cell storing `12` under `nf: 'number'` displays `12.00`, and a
@@ -146,16 +168,25 @@ export function decimalsInValue(value?: string): number {
  * digits.
  *
  * Formats that pass the value through untouched (`plain`, `date`, none) report
- * the value's own precision; the numeric formats report their stored `dp`, or
- * the format default of 2 when none is stored.
+ * the value's own precision. The numeric formats report their stored `dp`; with
+ * none stored, `number`/`percent` render 2 digits and a `currency` renders its
+ * own convention — which is what `formatValue` does for the same input.
  */
 export function renderedDecimals(
   value: string,
   style: CellStyle | undefined,
+  options?: FormatValueOptions,
 ): number {
   const nf = style?.nf;
   if (!nf || nf === 'plain' || nf === 'date') {
     return decimalsInValue(value);
+  }
+  if (nf === 'currency' && style?.dp === undefined) {
+    const locale = options?.locale ?? resolveSystemLocale();
+    return currencyDecimals(
+      locale,
+      options?.currency ?? resolveCurrencyForLocale(locale),
+    );
   }
   return clampDecimals(style?.dp, 2);
 }

@@ -524,7 +524,12 @@ describe('Sheet.Decimals', () => {
 
     await sheet.changeDecimals(1);
     expect((await sheet.getStyle({ r: 1, c: 1 }))?.dp).toBe(20);
-    expect(() => sheet.toDisplayString({ r: 1, c: 1 })).not.toThrow();
+    // `toDisplayString` is async, so a rejected `Intl` call would surface as a
+    // rejected promise rather than a synchronous throw: await the string and
+    // read its digits.
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toMatch(
+      new RegExp(`^1[.,]50{19}$`),
+    );
   });
 
   it('should render a stored dp beyond the Intl range instead of throwing', async () => {
@@ -533,8 +538,76 @@ describe('Sheet.Decimals', () => {
     // A `dp` an import or a peer could have written; Intl rejects it outright.
     await sheet.setStyle({ r: 1, c: 1 }, { dp: 400, nf: 'number' });
 
+    // 20 fraction digits, spelled out rather than compared against another
+    // `formatValue` call through the same clamp.
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toMatch(
+      new RegExp(`^1[.,]50{19}$`),
+    );
+  });
+
+  it('should step a stored dp beyond the Intl range from what it renders', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1.5');
+    await sheet.setStyle({ r: 1, c: 1 }, { dp: 400, nf: 'number' });
+    sheet.selectStart({ r: 1, c: 1 });
+
+    // The cell renders at 20 digits, so one Decrease has to land on 19 rather
+    // than spending 380 presses walking back from a `dp` nothing ever showed.
+    await sheet.changeDecimals(-1);
+    expect((await sheet.getStyle({ r: 1, c: 1 }))?.dp).toBe(19);
+  });
+
+  it('should step a NaN dp instead of wedging on it', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1.5');
+    // `NaN + delta` is `NaN`, which used to be written straight back.
+    await sheet.setStyle({ r: 1, c: 1 }, { dp: NaN, nf: 'number' });
+    sheet.selectStart({ r: 1, c: 1 });
+
+    await sheet.changeDecimals(1);
+    // The cell rendered at the format's 2 digits, so Increase lands on 3.
+    expect((await sheet.getStyle({ r: 1, c: 1 }))?.dp).toBe(3);
     expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe(
-      formatValue('1.5', 'number', 20),
+      formatValue('1.5', 'number', 3),
+    );
+  });
+
+  it('should keep a neighbour number format the step is not about', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1.5');
+    await sheet.setData({ r: 1, c: 2 }, '0.5');
+    await sheet.setStyle({ r: 1, c: 2 }, { nf: 'percent' });
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+
+    // The active cell has no format, so the step gives it `nf: 'number'` — as a
+    // default for the cells that have none, not as a conversion of B1, which
+    // still has to read as a percentage afterwards.
+    await sheet.changeDecimals(-1);
+    expect((await sheet.getStyle({ r: 1, c: 2 }))?.nf).toBe('percent');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe(
+      formatValue('0.5', 'percent', 0),
+    );
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe(
+      formatValue('1.5', 'number', 0),
+    );
+  });
+
+  it('should keep a neighbour format inherited from a column style', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1.5');
+    await sheet.setData({ r: 1, c: 2 }, '0.5');
+    sheet.selectColumn(2);
+    await sheet.setRangeStyle({ nf: 'percent' });
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.changeDecimals(-1);
+
+    // The range patch the step appends sits above the column style, so B1 needs
+    // its inherited format pinned to keep rendering as a percentage.
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe(
+      formatValue('0.5', 'percent', 0),
     );
   });
 

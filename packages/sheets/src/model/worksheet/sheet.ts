@@ -61,6 +61,7 @@ import {
 import { DimensionIndex } from './dimensions';
 import {
   MAX_DECIMAL_PLACES,
+  clampDecimals,
   decimalsInValue,
   formatValue,
   renderedDecimals,
@@ -161,6 +162,33 @@ const DefaultResetStylePatch: Partial<CellStyle> = {
   va: 'top',
   nf: 'plain',
 };
+
+/**
+ * `withoutSetDefaults` drops the keys a caller only meant as a default for a
+ * layer that already sets them, so the layer keeps its own value instead of
+ * being overwritten by one that was never about it.
+ */
+function withoutSetDefaults(
+  style: Partial<CellStyle>,
+  layer: CellStyle | undefined,
+  defaultKeys?: Array<keyof CellStyle>,
+): Partial<CellStyle> {
+  if (!defaultKeys?.length || !layer) {
+    return style;
+  }
+
+  let next = style;
+  for (const key of defaultKeys) {
+    if (style[key] === undefined || layer[key] === undefined) {
+      continue;
+    }
+    if (next === style) {
+      next = { ...style };
+    }
+    delete next[key];
+  }
+  return next;
+}
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
@@ -3696,14 +3724,26 @@ export class Sheet {
    * `setRangeStyle` applies the given style to all cells in the current selection range.
    * For column/row/all selections, stores styles at the column/row/sheet level
    * instead of iterating every cell.
+   *
+   * `options.defaultKeys` names keys the caller means only as a default for the
+   * cells that have none: anything already rendering through its own value for
+   * such a key keeps it. Everything else in the patch still overrides, as always.
    */
-  async setRangeStyle(style: Partial<CellStyle>): Promise<void> {
+  async setRangeStyle(
+    style: Partial<CellStyle>,
+    options?: { defaultKeys?: Array<keyof CellStyle> },
+  ): Promise<void> {
+    const defaultKeys = options?.defaultKeys;
     this.store.beginBatch();
     try {
       if (this.selectionType === 'column') {
         const range = this.getRangeOrActiveCell();
         for (let c = range[0].c; c <= range[1].c; c++) {
-          const merged = this.mergeStylePatch(this.colStyles.get(c), style);
+          const colStyle = this.colStyles.get(c);
+          const merged = this.mergeStylePatch(
+            colStyle,
+            withoutSetDefaults(style, colStyle, defaultKeys),
+          );
           if (!merged) {
             continue;
           }
@@ -3716,7 +3756,11 @@ export class Sheet {
       if (this.selectionType === 'row') {
         const range = this.getRangeOrActiveCell();
         for (let r = range[0].r; r <= range[1].r; r++) {
-          const merged = this.mergeStylePatch(this.rowStyles.get(r), style);
+          const rowStyle = this.rowStyles.get(r);
+          const merged = this.mergeStylePatch(
+            rowStyle,
+            withoutSetDefaults(style, rowStyle, defaultKeys),
+          );
           if (!merged) {
             continue;
           }
@@ -3727,7 +3771,10 @@ export class Sheet {
       }
 
       if (this.selectionType === 'all') {
-        const merged = this.mergeStylePatch(this.sheetStyle, style);
+        const merged = this.mergeStylePatch(
+          this.sheetStyle,
+          withoutSetDefaults(style, this.sheetStyle, defaultKeys),
+        );
         if (!merged) {
           return;
         }
@@ -3742,12 +3789,64 @@ export class Sheet {
         ? this.ranges
         : [this.getRangeOrActiveCell()];
       for (const range of targets) {
+        // Read before the patch lands: it sits above the sheet/column/row
+        // layers, so a value inherited from one of them has to be pinned onto
+        // the cell to survive a key the caller only meant as a default.
+        const pinned = await this.collectStyleValuesToPin(
+          range,
+          style,
+          defaultKeys,
+        );
         await this.addRangeStylePatch(range, style);
         await this.applyStylePatchToExistingCells(range, style);
+        for (const [sref, keep] of pinned) {
+          await this.setStyle(parseRef(sref), keep);
+        }
       }
     } finally {
       this.store.endBatch();
     }
+  }
+
+  /**
+   * `collectStyleValuesToPin` records, for every populated cell in the range,
+   * the value it already renders each of `defaultKeys` through when that differs
+   * from what the patch carries. Written back after the patch lands, those
+   * values keep a cell's own format from being replaced by one the caller only
+   * meant as a default for the cells that have none.
+   */
+  private async collectStyleValuesToPin(
+    range: Range,
+    patch: Partial<CellStyle>,
+    defaultKeys?: Array<keyof CellStyle>,
+  ): Promise<Map<Sref, Partial<CellStyle>>> {
+    const pinned = new Map<Sref, Partial<CellStyle>>();
+    if (!defaultKeys?.length) {
+      return pinned;
+    }
+
+    const grid = await this.store.getGrid(range);
+    for (const [sref, cell] of grid) {
+      const ref = parseRef(sref);
+      const anchorSref = toSref(this.normalizeRefToAnchor(ref));
+      if (pinned.has(anchorSref)) {
+        continue;
+      }
+
+      const effective = this.resolveEffectiveStyle(ref.r, ref.c, cell.s);
+      const keep: Partial<CellStyle> = {};
+      for (const key of defaultKeys) {
+        const value = effective?.[key];
+        if (value === undefined || value === patch[key]) {
+          continue;
+        }
+        (keep as Record<string, unknown>)[key] = value;
+      }
+      if (Object.keys(keep).length > 0) {
+        pinned.set(anchorSref, keep);
+      }
+    }
+    return pinned;
   }
 
   /**
@@ -4149,11 +4248,12 @@ export class Sheet {
 
   /**
    * `getActiveDecimalPlaces` returns the current decimal places of the active cell.
-   * Returns 2 as default if no decimal places are set.
+   * Returns 2 as default if no decimal places are set, and never a count outside
+   * the range a cell can render at.
    */
   async getActiveDecimalPlaces(): Promise<number> {
     const style = await this.getStyle(this.activeCell);
-    return style?.dp ?? 2;
+    return clampDecimals(style?.dp, 2);
   }
 
   /**
@@ -4166,6 +4266,12 @@ export class Sheet {
    * `explicitDp` tells whether any style layer stores `dp`. Together they let a
    * caller tell "no explicit dp" apart from "dp equal to the inferred one",
    * which is what makes increase/decrease reversible.
+   *
+   * A stored `dp` is reported through `clampDecimals`, so the number a caller
+   * steps from is the one the cell actually renders at. An import or a peer can
+   * store `400` or `NaN`; stepping from the raw value would either waste every
+   * press walking back from 400 or produce a `NaN` target that wedges the
+   * buttons permanently.
    */
   async getActiveDecimalState(): Promise<{
     dp: number;
@@ -4178,13 +4284,22 @@ export class Sheet {
       this.normalizeRefToAnchor(this.activeCell),
     );
     const valueDp = decimalsInValue(cell?.v);
+    const rendersRaw = !style?.nf || style.nf === 'plain';
 
-    // If dp is explicitly set in the style, use it.
+    // If dp is explicitly set in the style, use it — clamped to what the cell
+    // can actually render at, so a hostile or imported `dp` cannot leak into the
+    // arithmetic. Where the clamp has nothing to work with, the fallback is the
+    // decimal count the cell shows without a `dp`.
     if (style?.dp !== undefined) {
-      return { dp: style.dp, nf: style?.nf, valueDp, explicitDp: true };
+      return {
+        dp: clampDecimals(style.dp, rendersRaw ? valueDp : 2),
+        nf: style?.nf,
+        valueDp,
+        explicitDp: true,
+      };
     }
     // For plain format (or no format), infer dp from the stored value.
-    if (!style?.nf || style.nf === 'plain') {
+    if (rendersRaw) {
       return { dp: valueDp, nf: style?.nf, valueDp, explicitDp: false };
     }
     return { dp: 2, nf: style?.nf, valueDp, explicitDp: false };
@@ -4235,7 +4350,14 @@ export class Sheet {
 
     const patch: Partial<CellStyle> = { dp: target };
     if (!nf || nf === 'plain') {
+      // The active cell renders its value raw, so it needs a number format for
+      // the stepped decimals to show at all. That format is a *default* for the
+      // cells that have none: a step is about digits, so a neighbour rendering
+      // through its own `percent`/`currency`/`date` format keeps it rather than
+      // being silently converted to `number` ('50.0%' → '0.5').
       patch.nf = 'number';
+      await this.setRangeStyle(patch, { defaultKeys: ['nf'] });
+      return;
     }
     await this.setRangeStyle(patch);
   }
@@ -4260,7 +4382,10 @@ export class Sheet {
         }
         const ref = parseRef(sref);
         const effective = this.resolveEffectiveStyle(ref.r, ref.c, cell.s);
-        if (renderedDecimals(value, effective) !== decimals) {
+        if (
+          renderedDecimals(value, effective, { currency: effective?.cu }) !==
+          decimals
+        ) {
           return false;
         }
       }

@@ -1,17 +1,21 @@
 # Decimal round trip: make increase/decrease reversible (#845)
 
-Increase decimal places followed by Decrease decimal places must leave a cell
-exactly as it started — including leaving no `dp`/`nf` behind on a cell that had
-none.
+**Outcome as shipped** (narrowed during review from the issue's absolute
+wording; see `docs/design/sheets/sheet-style.md` → "Increase / decrease decimal
+places"): Increase decimal places followed by Decrease decimal places leaves a
+cell exactly as it started — including leaving no `dp`/`nf` behind on a cell that
+had none — **wherever restoring inheritance renders identically**. That covers
+the case the buttons are actually used in: an ungrouped value with no format of
+its own, which is the reported bug.
 
-**Accepted deviation** (recorded during review, see
-`docs/design/sheets/sheet-style.md` → "Increase / decrease decimal places"): the
-outcome holds wherever restoring inheritance renders identically. Two cases keep
-a `{dp, nf: 'number'}` residue instead — a value large enough to be grouped
-(`1234.5`, whose separators live in the `nf` an unset would drop) and an
-`nf: 'number'` the user chose themselves (nothing records provenance). Where
-state restoration and rendering conflict, rendering wins: silently changing what
-a cell displays, or destroying a user-set format, is the worse failure.
+Two cases deliberately fall outside it and keep a `{dp, nf: 'number'}` residue —
+a value large enough to be grouped (`1234.5`, whose separators live in the `nf`
+an unset would drop) and an `nf: 'number'` the user chose themselves (nothing
+records provenance). Where state restoration and rendering conflict, rendering
+wins: silently changing what a cell displays, or destroying a user-set format, is
+the worse failure. The issue's "exactly as it started" is therefore met on the
+reported input and knowingly not met on those two, which is a scope decision, not
+an oversight.
 
 ## The problem
 

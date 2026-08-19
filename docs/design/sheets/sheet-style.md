@@ -214,7 +214,8 @@ inference positively detects a matching type.
 ### Increase / decrease decimal places
 
 `Sheet.changeDecimals(delta)` steps `dp` for the selection and is reversible
-**wherever restoring inheritance renders identically**: equal numbers of
+**wherever restoring inheritance renders identically** — a narrower guarantee
+than "always", chosen deliberately and stated here as the scope: equal numbers of
 increases and decreases leave such a selection exactly as they found it,
 including leaving no `dp`/`nf` on a cell that had none. That covers the case the
 buttons are actually used in — an ungrouped value with no format of its own —
@@ -258,7 +259,14 @@ mean "the value's own precision":
   unsetting a `dp: 0` currency would show more decimals, not fewer.
 
 Otherwise `changeDecimals` writes `dp` explicitly (plus `nf: 'number'` when the
-format is plain, as before). When it does unset and the format is `'number'`,
+active cell's format is plain, as before). That `nf` goes in as a **default**,
+not an override — `setRangeStyle(patch, { defaultKeys: ['nf'] })` — because a
+step is about digits: a selected neighbour rendering through its own
+`percent`/`currency`/`date` format keeps it instead of being converted to
+`number`, which would turn `50.0%` into `0.5`. A format the cell only *inherits*
+(from the sheet, a column or a row) is pinned onto the cell, since the range
+patch the step appends sits above those layers and would otherwise shadow it.
+When it does unset and the format is `'number'`,
 the `nf` goes with the `dp`: `nf: 'number'` renders 2 decimals with no `dp`, so
 leaving it behind would change what is on screen. Any other format keeps its
 `nf` and gives up only the `dp`.
@@ -289,14 +297,26 @@ Consequences worth knowing:
   `dp` and sits at zero, Decrease still writes `dp: 0` so the rest of the
   selection can follow it down; the format stays put, since a clamped step is
   not a reversal of anything.
-- `dp` is bounded at both ends. `Intl.NumberFormat` accepts 0–20 fraction
-  digits and raises a `RangeError` outside that, so Increase stops at
-  `MAX_DECIMAL_PLACES` (20) and `formatValue` clamps whatever it is handed
-  (`clampDecimals`) rather than trusting a stored `dp`. A `dp` can arrive from
-  an `.xlsx` import or a collaborator, and an uncaught throw on a paint path
-  takes down every render of the shared document; `safeFormat` therefore also
-  degrades — locale, then options, then a bare number — instead of rethrowing
-  the same rejected arguments.
+- `dp` is bounded at both ends. `MAX_DECIMAL_PLACES` (20) is the largest
+  fraction-digit count `Intl.NumberFormat` accepts on every engine wafflebase
+  runs on — above it the call is a `RangeError` — so Increase stops there and
+  `formatValue` clamps whatever it is handed (`clampDecimals`) rather than
+  trusting a stored `dp`. A `dp` can arrive from an `.xlsx` import or a
+  collaborator, and an uncaught throw on a paint path takes down every render of
+  the shared document; `safeFormat` therefore also degrades — locale, then
+  options, then a bare number — instead of rethrowing the same rejected
+  arguments.
+- The clamp guards the *step* as well as the render: `getActiveDecimalState`
+  reports a stored `dp` through `clampDecimals`, so the number the buttons step
+  from is the one the cell shows. Otherwise a stored `400` would cost 380
+  presses that change nothing on screen, and a stored `NaN` would step to `NaN`
+  and be written straight back — wedging the control permanently, since every
+  comparison against `NaN` is false.
+- `renderedDecimals` answers "how many digits does this cell show", and has to
+  agree with `formatValue` for the same input. For a `currency` with no stored
+  `dp` that is the currency's own convention rather than a flat 2 — `formatValue`
+  leaves the fraction-digit options off so `Intl` applies it, giving none for
+  `KRW`/`JPY` and three for `KWD`.
 
 ## UI Integration
 
