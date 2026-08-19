@@ -50,15 +50,22 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
   }
 
   /**
-   * Override authenticate to inject a custom `state` parameter when the
-   * request carries a CLI state token (set by AuthController before the
-   * guard runs).
+   * Override authenticate to send the OAuth `state` parameter for the flow
+   * `GitHubAuthGuard` opened (it runs first and puts the token on the request).
+   *
+   * passport-oauth2 sends no `state` unless one is supplied, and the callback
+   * is what validates it — see `GitHubAuthGuard` and
+   * `AuthController.githubAuthCallback`. Both the browser and the CLI login go
+   * through the guard, so both carry a state token; a request that somehow
+   * reaches the strategy without one gets no `state` and is then refused at the
+   * callback rather than silently completing an unprotected login.
    */
   authenticate(req: Request, options?: Record<string, unknown>) {
     const opts = { ...options };
-    const cliState = (req as { __cliStateToken?: string }).__cliStateToken;
-    if (cliState) {
-      opts.state = cliState;
+    const stateToken = (req as { __oauthStateToken?: string })
+      .__oauthStateToken;
+    if (stateToken) {
+      opts.state = stateToken;
     }
     super.authenticate(req, opts);
   }

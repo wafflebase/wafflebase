@@ -8,9 +8,20 @@ import {
   decodeJwtExpiry,
 } from '../config/session.js';
 import type { Session, WorkspaceInfo } from '../config/session.js';
-import { DEFAULT_SERVER } from '../config/config.js';
+import { getConfig, getGlobalOpts } from './root.js';
 
-export function registerLoginCommand(program: Command): void {
+/** Injection points for tests; production uses the defaults. */
+export interface LoginDeps {
+  /** Steps 2–4: mint the nonce, listen, hand the browser the authorize URL. */
+  authorize?: typeof authorizeInBrowser;
+}
+
+export function registerLoginCommand(
+  program: Command,
+  deps: LoginDeps = {},
+): void {
+  const authorize = deps.authorize ?? authorizeInBrowser;
+
   program
     .command('login')
     .description('Log in via GitHub OAuth in the browser')
@@ -20,9 +31,13 @@ export function registerLoginCommand(program: Command): void {
         'the `cliState` echo; the callback is then unbound to this invocation)',
     )
     .action(async function (this: Command) {
-      const parentOpts = this.optsWithGlobals<{ server?: string }>();
       const localOpts = this.opts<{ allowUnboundCallback?: boolean }>();
-      const server = (parentOpts.server ?? DEFAULT_SERVER).replace(/\/$/, '');
+      // Resolve the server the way every other command does — flag > env >
+      // session > profile > default — so `WAFFLEBASE_SERVER` and a configured
+      // profile point `login` at the same backend they point the rest of the
+      // CLI at. Reading `--server` alone would log the user in to the public
+      // default while their next command talked to a self-hosted server.
+      const server = getConfig(getGlobalOpts(this)).server.replace(/\/$/, '');
 
       // 1. Check existing session
       const existing = loadSession();
@@ -36,51 +51,11 @@ export function registerLoginCommand(program: Command): void {
         }
       }
 
-      // 2. Start local HTTP server, bound to a nonce this invocation minted.
-      // The loopback callback is reachable by anything running on the machine
-      // and by any page the browser visits, so without a binding the first
-      // `GET /callback?code=…` to arrive wins — letting someone else's
-      // authorization code be exchanged and saved as this user's session.
-      // The nonce travels to the backend and comes back on the redirect, so
-      // only the browser leg the CLI itself started is accepted.
-      const state = randomBytes(32).toString('base64url');
-      const { startUrl, setAuthorizeUrl, waitForCallback, close, port } =
-        await startCallbackServer(state, {
-          allowUnbound: localOpts.allowUnboundCallback === true,
-        });
-
-      // 3. Hand the browser a nonce-free loopback URL that redirects, once, to
-      // the real authorize URL. The nonce therefore never appears in this
-      // process's argv (`open()` passes its URL as a command-line argument,
-      // which `/proc/<pid>/cmdline` exposes to other local users on Linux) nor
-      // on stderr, which outlives the login in scrollback and CI logs — while
-      // the *printed* URL stays the one that actually works, so the headless
-      // copy-paste path is the same URL the browser is sent to. What remains
-      // is a local process that races the browser to `GET /start`: it is
-      // single-use, so a stolen redirect breaks the login loudly instead of
-      // silently leaking the nonce. Closing that last gap needs the secret to
-      // never leave the CLI — a PKCE-shaped flow where a `POST /auth/cli/start`
-      // registers `sha256(verifier)` and the exchange must present the
-      // verifier — a backend endpoint this change does not add. See
-      // `docs/design/rest-api.md` "CLI Auth Endpoints".
-      setAuthorizeUrl(buildAuthorizeUrl(server, port, state));
-      console.error(`Opening browser: ${startUrl}`);
-      console.error('If the browser does not open, visit the URL above.');
-
-      try {
-        const open = (await import('open')).default;
-        await open(startUrl);
-      } catch {
-        console.error('Could not open a browser automatically.');
-      }
-
-      // 4. Wait for callback
-      let code: string;
-      try {
-        code = await waitForCallback();
-      } finally {
-        close();
-      }
+      // 2-4. Start the loopback listener, send the browser to GitHub, and
+      // wait for the callback it produces.
+      const code = await authorize(server, {
+        allowUnbound: localOpts.allowUnboundCallback === true,
+      });
 
       // 5. Exchange code for tokens
       const exchangeRes = await fetch(`${server}/auth/cli/exchange`, {
@@ -170,6 +145,73 @@ export function registerLoginCommand(program: Command): void {
     });
 }
 
+export interface BrowserFlowOptions {
+  /** Accept a callback that carries no nonce (`--allow-unbound-callback`). */
+  allowUnbound?: boolean;
+  /** Test seam — defaults to the `open` package. */
+  openUrl?: (url: string) => Promise<unknown>;
+  /** Test seam — defaults to stderr. */
+  log?: (message: string) => void;
+}
+
+/**
+ * Mint the nonce that binds this invocation's loopback callback, start the
+ * listener, send the browser to the authorize URL, and resolve with the
+ * authorization code the callback carries.
+ *
+ * The loopback callback is reachable by anything running on the machine and by
+ * any page the browser visits, so without a binding the first
+ * `GET /callback?code=…` to arrive wins — letting someone else's authorization
+ * code be exchanged and saved as this user's session. The nonce travels to the
+ * backend and comes back on the redirect, so only the browser leg this process
+ * started is accepted.
+ *
+ * The authorize URL carries that nonce, and it is the URL that is both printed
+ * and handed to `open()` — so the nonce is visible in this process's argv
+ * (`/proc/<pid>/cmdline` exposes it to other local users on Linux) and in
+ * stderr scrollback. That is the deliberate trade: the printed URL has to be
+ * the one that actually works, which is the headless copy-paste path
+ * `docs/design/cli.md` documents, and the alternative tried here before — a
+ * loopback `GET /start` that 302s to the authorize URL — served the same nonce
+ * over unauthenticated HTTP to *every* process on the machine (and to any page
+ * the browser could be made to fetch it), which is a wider disclosure than
+ * argv, not a narrower one, and broke the login outright when anything else
+ * followed the one-shot link first. The nonce is a binding, not a credential:
+ * learning it only restores the pre-nonce situation. Removing the exposure
+ * needs the secret to never leave the CLI — a PKCE-shaped
+ * `POST /auth/cli/start` that registers `sha256(verifier)` with the flow and
+ * an exchange that must present the verifier, a backend endpoint this change
+ * does not add. See `docs/design/rest-api.md` "CLI Auth Endpoints".
+ */
+export async function authorizeInBrowser(
+  server: string,
+  options: BrowserFlowOptions = {},
+): Promise<string> {
+  const log = options.log ?? ((message: string) => console.error(message));
+  const state = randomBytes(32).toString('base64url');
+  const { waitForCallback, close, port } = await startCallbackServer(state, {
+    allowUnbound: options.allowUnbound,
+    warn: log,
+  });
+  const authorizeUrl = buildAuthorizeUrl(server, port, state);
+
+  log(`Opening browser: ${authorizeUrl}`);
+  log('If the browser does not open, visit the URL above.');
+
+  try {
+    const openUrl = options.openUrl ?? (await import('open')).default;
+    await openUrl(authorizeUrl);
+  } catch {
+    log('Could not open a browser automatically.');
+  }
+
+  try {
+    return await waitForCallback();
+  } finally {
+    close();
+  }
+}
+
 function ask(prompt: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   return new Promise((resolve) => {
@@ -196,10 +238,9 @@ export function stateMatches(
 }
 
 /**
- * The authorize URL the browser is redirected to. `cliState` is the nonce the
- * backend stores with the flow and echoes back on the loopback redirect; it is
- * never printed and never passed to `open()` — see `startCallbackServer`'s
- * `/start` route.
+ * The authorize URL the browser is sent to. `cliState` is the nonce the backend
+ * stores with the flow and echoes back on the loopback redirect — see
+ * `authorizeInBrowser` for why it travels in this URL.
  */
 export function buildAuthorizeUrl(
   server: string,
@@ -218,24 +259,54 @@ export function buildAuthorizeUrl(
  * the version-skew signal — the CLI is published separately from the server it
  * is pointed at (`--server` / `WAFFLEBASE_SERVER`, self-hosting), so the two
  * can disagree.
+ *
+ * It names no opt-out flag on purpose. The branch that selects it is reachable
+ * by any local process and by any page the browser visits, so a message that
+ * told the user to re-run with `--allow-unbound-callback` would be an
+ * attacker-drivable prompt to turn the callback binding off. The flag stays
+ * discoverable in `wafflebase login --help`, where nobody else can put it in
+ * front of the user.
  */
 export const UNBOUND_CALLBACK_MESSAGE =
   "The server completed the login but did not echo this invocation's nonce, " +
   'so the callback cannot be tied to this `wafflebase login`. Upgrade the ' +
-  'server, or re-run with `wafflebase login --allow-unbound-callback` to ' +
-  'accept an unbound callback.';
+  'server to one that echoes `cliState`.';
 
-/** The body served to a `GET /start` that has already been followed once. */
-export const START_CONSUMED_MESSAGE =
-  'This one-time login link has already been opened. Re-run `wafflebase login`.';
+/** Hostnames a loopback listener can legitimately be addressed by. */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+
+/**
+ * Whether a request's `Host` header addresses this loopback listener.
+ *
+ * A hostname under an attacker's control that resolves to `127.0.0.1` (DNS
+ * rebinding) lets a remote page's requests reach this listener while the
+ * browser treats them as same-origin. Such a request carries the attacker's
+ * host, so requiring a loopback literal keeps the listener answering only
+ * callers that addressed it directly. A missing `Host` (HTTP/1.0) is allowed:
+ * a browser always sends one.
+ */
+export function isLoopbackHost(
+  host: string | undefined,
+  port: number,
+): boolean {
+  if (host === undefined) return true;
+  const match = /^(\[[^\]]+\]|[^:]+)(?::(\d+))?$/.exec(
+    host.trim().toLowerCase(),
+  );
+  if (!match || !LOOPBACK_HOSTS.has(match[1])) return false;
+  return match[2] === undefined || Number(match[2]) === port;
+}
 
 export function startCallbackServer(
   expectedState: string,
-  options: { allowUnbound?: boolean; warn?: (message: string) => void } = {},
+  options: {
+    allowUnbound?: boolean;
+    warn?: (message: string) => void;
+    /** Test seam — how long to wait for the callback. Defaults to 30s. */
+    timeoutMs?: number;
+  } = {},
 ): Promise<{
   port: number;
-  startUrl: string;
-  setAuthorizeUrl: (url: string) => void;
   waitForCallback: () => Promise<string>;
   close: () => void;
 }> {
@@ -243,8 +314,7 @@ export function startCallbackServer(
     let settled = false;
     let callbackResolve: (code: string) => void;
     let callbackReject: (err: Error) => void;
-    let authorizeUrl: string | null = null;
-    let startConsumed = false;
+    let boundPort = 0;
     let sawUnboundCallback = false;
     const warn = options.warn ?? ((message: string) => console.error(message));
 
@@ -259,26 +329,22 @@ export function startCallbackServer(
     callbackPromise.catch(() => {});
 
     const srv = createServer((req, res) => {
-      const url = new URL(req.url ?? '/', `http://127.0.0.1`);
-
-      // The nonce-carrying authorize URL is handed to the browser here rather
-      // than through `open()`'s argv, and only once.
-      if (url.pathname === '/start') {
-        if (authorizeUrl === null) {
-          res.writeHead(503);
-          res.end('Login is not ready yet. Re-run `wafflebase login`.');
-          return;
-        }
-        if (startConsumed) {
-          res.writeHead(410);
-          res.end(START_CONSUMED_MESSAGE);
-          return;
-        }
-        startConsumed = true;
-        res.writeHead(302, { Location: authorizeUrl });
-        res.end();
+      if (!isLoopbackHost(req.headers.host, boundPort)) {
+        res.writeHead(400);
+        res.end('Bad host');
         return;
       }
+
+      // The OAuth redirect is a GET navigation; nothing else has business
+      // here, and answering only GET keeps a preflight-free cross-site
+      // POST/HEAD from reaching the callback logic at all.
+      if (req.method !== 'GET') {
+        res.writeHead(405);
+        res.end('Method not allowed');
+        return;
+      }
+
+      const url = new URL(req.url ?? '/', `http://127.0.0.1`);
 
       if (url.pathname !== '/callback') {
         res.writeHead(404);
@@ -370,6 +436,10 @@ export function startCallbackServer(
       }
     });
 
+    // If the only callback that ever arrived carried no nonce, report the
+    // version-skew message instead of the bare timeout: neither message names
+    // a way to weaken the binding, so an attacker who triggers that branch can
+    // change the diagnostic and nothing else.
     const timeout = setTimeout(() => {
       if (!settled) {
         settled = true;
@@ -382,7 +452,7 @@ export function startCallbackServer(
         );
       }
       srv.close();
-    }, 30_000);
+    }, options.timeoutMs ?? 30_000);
 
     // Try to listen on a random port (up to 3 attempts)
     let attempts = 0;
@@ -394,12 +464,9 @@ export function startCallbackServer(
           reject(new Error('Failed to start callback server'));
           return;
         }
+        boundPort = addr.port;
         resolve({
           port: addr.port,
-          startUrl: `http://127.0.0.1:${addr.port}/start`,
-          setAuthorizeUrl: (url: string) => {
-            authorizeUrl = url;
-          },
           waitForCallback: () => callbackPromise,
           close: () => {
             clearTimeout(timeout);

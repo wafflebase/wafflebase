@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request, Response } from 'express';
 import { UserService } from 'src/user/user.service';
@@ -241,20 +241,69 @@ describe('AuthController', () => {
         refreshToken: 'rt',
       });
 
+      const { stateToken } = cliAuthStore.createState('web', 0);
       const req = {
         user: {
           username: 'bob',
           email: 'bob@example.com',
           photo: null,
         },
-        query: {},
+        query: { state: stateToken },
       } as unknown as Request;
       const res = createMockResponse();
 
-      await controller.githubAuthCallback(req as any, res, undefined);
+      await controller.githubAuthCallback(req as any, res, stateToken);
 
       expect(res.redirect).toHaveBeenCalledWith('http://localhost:5173');
       expect(res.cookie).toHaveBeenCalledTimes(2);
+    });
+
+    // A callback with no state, or one this backend never issued, is not a
+    // login it started — completing it would sign the victim's browser into
+    // the attacker's GitHub account (OAuth login CSRF).
+    it.each([
+      ['no state at all', undefined],
+      ['a state token this backend never issued', 'forged-state-token'],
+    ])('refuses a web callback with %s', async (_label, token) => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: token === undefined ? {} : { state: token },
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(req as any, res, token),
+      ).rejects.toThrow(BadRequestException);
+      expect(res.cookie).not.toHaveBeenCalled();
+      expect(res.redirect).not.toHaveBeenCalled();
+    });
+
+    it('refuses a state token that was already consumed', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'at',
+        refreshToken: 'rt',
+      });
+
+      const { stateToken } = cliAuthStore.createState('web', 0);
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: { state: stateToken },
+      } as unknown as Request;
+
+      await controller.githubAuthCallback(
+        req as any,
+        createMockResponse(),
+        stateToken,
+      );
+
+      const replay = createMockResponse();
+      await expect(
+        controller.githubAuthCallback(req as any, replay, stateToken),
+      ).rejects.toThrow(BadRequestException);
+      expect(replay.cookie).not.toHaveBeenCalled();
     });
   });
 

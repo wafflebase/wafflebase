@@ -333,15 +333,20 @@ backend surface is:
 
 - **`GET /auth/github?mode=cli&port=<port>&cliState=<nonce>`** — extends
   the existing endpoint to carry CLI parameters through OAuth `state`. The
-  backend generates a CSRF token (random 32 bytes, TTL 5 minutes, in-memory
-  map) and embeds it in the encoded `state`. `cliState` is a nonce minted by
-  the CLI invocation and stored with the flow. It is accepted only as a single
+  backend opens a flow for **every** login, browser or CLI, and sends its
+  token (random 32 bytes, TTL 5 minutes, in-memory map) as OAuth `state`;
+  the callback consumes it, so a callback that carries no state — or one
+  this backend never issued, or already used — is refused. `cliState` is a
+  nonce minted by the CLI invocation and stored with the flow. It is
+  accepted only as a single
   `[A-Za-z0-9_-]{16,128}` value (a duplicated param counts if both copies
   agree); anything else present is a **400**, not a silent drop — a dropped
   nonce would complete the flow with a redirect the CLI then reports as
   `State mismatch`, hiding the malformed parameter that caused it. Absent is
   still accepted, for a CLI that predates the nonce.
-- **`GET /auth/github/callback`** — when the decoded state has
+- **`GET /auth/github/callback`** — consumes the `state` token first: a
+  callback without one, or with one that is unknown, expired, or already
+  spent, is a **400** for both flows. When the consumed state has
   `mode === 'cli'`, generates a short-lived authorization code (random,
   TTL 60 seconds, same in-memory map), redirects to
   `http://127.0.0.1:<port>/callback?code=<auth-code>&state=<cliState>`.
@@ -374,7 +379,8 @@ exchanged server-to-server.
 | `PUT /content` race with live collaborators (lost work) | The CLI marks the `--replace` path `safety: destructive` and forces confirmation. A future iteration may add an optimistic `lastSeq` check. |
 | Yorkie key prefix for word-processor docs differs from `doc-<id>` | The frontend convention is the source of truth; the backend service is the only adjustment point if it changes. |
 | Open redirect via CLI port parameter | `port` is range-validated; the redirect host is hard-coded to `127.0.0.1`. |
-| OAuth state forgery (CSRF) | Backend generates a random 32-byte CSRF token per OAuth request, stores in a 5-minute in-memory map, and validates on callback. |
+| OAuth login CSRF (an attacker's authorization code completed in the victim's browser) | The backend opens a flow for every login — browser and CLI alike — and sends its random 32-byte token as OAuth `state`; the callback consumes it from the same 5-minute in-memory map and refuses a callback with no state, an unknown one, or one already spent. The browser flow previously sent no `state` at all. |
 | Authorization-code injection into the CLI's loopback listener | The CLI mints a 32-byte `cliState` nonce per `login`, the backend stores it with the flow and echoes it on the loopback redirect, and the listener rejects (without settling) any `GET /callback` whose `state` does not match in constant time. Covers a visited page and any injector that cannot read the CLI process. |
-| Local process reading the nonce from the CLI's argv or stderr | The nonce never appears in either: `login` prints and opens the nonce-free `http://127.0.0.1:<port>/start`, whose single `302` hands the authorize URL to the browser. **Residual:** a local process that races the browser to `/start` — single-use, so it breaks the login visibly rather than leaking silently — and a same-user process can read the session file outright. Closing that needs the secret to never leave the CLI: a `POST /auth/cli/start` registering `sha256(verifier)` with the flow plus a `codeVerifier` required at exchange (PKCE shape). Not implemented. |
-| CLI pointed at a backend that predates the `cliState` echo | The nonce-less callback is refused and reported, but does not end the login — that request is attacker-triggerable, so it must not be an abort (or a nudge toward disabling the binding). Genuine skew, where nothing else arrives, ends with the version-skew message at the 30-second timeout; `wafflebase login --allow-unbound-callback` is the explicit, per-invocation opt-out. |
+| Local process reading the nonce from the CLI's argv or stderr | **Accepted, not mitigated.** The authorize URL carries the nonce and is both printed and passed to `open()`, so it is in `/proc/<pid>/cmdline` and in scrollback. Serving it instead from a loopback `GET /start` was tried and reverted: that endpoint is unauthenticated, so it hands the same nonce to *every* local process (not only those that can read the command line) and to any page the browser can be made to fetch it, and being single-use it let a prefetch or a hostile fetch break the login outright. A same-user process can read the session file regardless. Closing this needs the secret to never leave the CLI: a `POST /auth/cli/start` registering `sha256(verifier)` with the flow plus a `codeVerifier` required at exchange (PKCE shape). Not implemented. |
+| A page the browser visits, or another local process, reaching the CLI's loopback listener | The listener answers only `GET /callback`, only for a `Host` that is a loopback literal on its own port (DNS rebinding otherwise reaches it as same-origin), and settles only on the nonce it minted. |
+| CLI pointed at a backend that predates the `cliState` echo | The nonce-less callback is refused and reported, but does not end the login — that request is attacker-triggerable, so it must not be an abort. Genuine skew, where nothing else arrives, ends with the version-skew message at the 30-second timeout. Neither that message nor the stderr report names `--allow-unbound-callback`: the branch is attacker-triggerable, so a message pointing at the flag that turns the binding off would be an attacker-drivable downgrade prompt. The flag remains the explicit, per-invocation opt-out, documented in `wafflebase login --help`. |

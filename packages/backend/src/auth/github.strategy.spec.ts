@@ -1,4 +1,6 @@
 import { ConfigService } from '@nestjs/config';
+import { Request } from 'express';
+import { Strategy } from 'passport-github2';
 import { GitHubStrategy } from './github.strategy';
 
 function makeStrategy(values: Record<string, string>): GitHubStrategy {
@@ -115,5 +117,32 @@ describe('GitHubStrategy endpoints', () => {
     expect(e.authorize).toBe(DEFAULTS.authorize);
     expect(e.token).toBe(DEFAULTS.token);
     expect(e.profile).toBe(DEFAULTS.profile);
+  });
+});
+
+describe('GitHubStrategy OAuth state', () => {
+  // The token `GitHubAuthGuard` puts on the request is what makes the
+  // callback verifiable. Sending none — as the browser login used to — leaves
+  // that login with no CSRF protection at all.
+  function stateSentFor(req: Request): unknown {
+    const strategy = makeStrategy(BASE);
+    let seen: Record<string, unknown> | undefined;
+    jest
+      .spyOn(Strategy.prototype, 'authenticate')
+      .mockImplementation(function (_req: unknown, options?: unknown) {
+        seen = options as Record<string, unknown>;
+      } as never);
+    strategy.authenticate(req);
+    jest.restoreAllMocks();
+    return seen?.state;
+  }
+
+  it('forwards the flow state token to GitHub', () => {
+    const req = { __oauthStateToken: 'state-token' } as unknown as Request;
+    expect(stateSentFor(req)).toBe('state-token');
+  });
+
+  it('sends no state when the guard opened no flow', () => {
+    expect(stateSentFor({} as Request)).toBeUndefined();
   });
 });

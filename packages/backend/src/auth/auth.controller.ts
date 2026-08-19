@@ -115,30 +115,39 @@ export class AuthController {
       throw new Error('User not found or created');
     }
 
-    // Check if this is a CLI OAuth flow by consuming the state token.
-    if (stateToken) {
-      const state = this.cliAuthStore.consumeState(stateToken);
-      if (state && state.mode === 'cli') {
-        const port = state.port;
-        if (port < 1024 || port > 65535) {
-          throw new BadRequestException('Invalid CLI port');
-        }
-        const code = this.cliAuthStore.createCode(user.id);
-        // Echo the CLI's nonce back so the loopback listener can tell this
-        // callback from an authorization code injected by another local
-        // process or a page the browser visited.
-        const nonce = state.cliState
-          ? `&state=${encodeURIComponent(state.cliState)}`
-          : '';
-        return res.redirect(
-          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${nonce}`,
-        );
-      }
-
-      // State token was provided but invalid/expired — this is a CLI flow
-      // that failed. Return an error instead of falling through to web flow.
+    // Every flow this backend starts carries a state token (see
+    // `GitHubAuthGuard`), and it is consumed here. A callback without one — or
+    // with one this backend never issued, or already used, or expired — is not
+    // a login we started: refusing it is what stops an attacker from having
+    // their own authorization code completed in the victim's browser (OAuth
+    // login CSRF).
+    if (!stateToken) {
       throw new BadRequestException(
-        'CLI login state expired or invalid. Please run `wafflebase login` again.',
+        'Missing OAuth state. Please start the login again.',
+      );
+    }
+
+    const state = this.cliAuthStore.consumeState(stateToken);
+    if (!state) {
+      throw new BadRequestException(
+        'Login state expired or invalid. Please start the login again.',
+      );
+    }
+
+    if (state.mode === 'cli') {
+      const port = state.port;
+      if (port < 1024 || port > 65535) {
+        throw new BadRequestException('Invalid CLI port');
+      }
+      const code = this.cliAuthStore.createCode(user.id);
+      // Echo the CLI's nonce back so the loopback listener can tell this
+      // callback from an authorization code injected by another local
+      // process or a page the browser visited.
+      const nonce = state.cliState
+        ? `&state=${encodeURIComponent(state.cliState)}`
+        : '';
+      return res.redirect(
+        `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${nonce}`,
       );
     }
 

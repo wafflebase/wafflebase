@@ -172,9 +172,8 @@ wafflebase login
   │
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
   ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>
-  ├─ 3. Opens (and prints, for copy-paste in headless environments) the
-  │     nonce-free http://127.0.0.1:<port>/start, which 302s the browser,
-  │     once, to GET /auth/github?mode=cli&port=<port>&cliState=<nonce>
+  ├─ 3. Opens (and prints, for copy-paste in headless environments)
+  │     GET /auth/github?mode=cli&port=<port>&cliState=<nonce>
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
   ├─ 6. Backend detects mode=cli in OAuth state → redirects to
@@ -188,10 +187,14 @@ wafflebase login
   └─ 12. Writes ~/.wafflebase/session.json
 ```
 
-The local server binds to `127.0.0.1` only, serves only `GET /start`
-(once) and `GET /callback`, and shuts down after the callback with a
-30-second timeout. On timeout it prints: "Login timed out. Try again with
-`wafflebase login`."
+The local server binds to `127.0.0.1` only, answers only `GET /callback`
+(any other method is `405`, any other path `404`), and shuts down after
+the callback with a 30-second timeout. On timeout it prints: "Login timed
+out. Try again with `wafflebase login`." A request whose `Host` header is
+not a loopback literal for this port is answered `400 Bad host`: a name
+under an attacker's control that resolves to `127.0.0.1` (DNS rebinding)
+otherwise reaches the listener with the browser treating it as
+same-origin.
 
 Binding to `127.0.0.1` limits *who* can reach the listener to the local
 machine — which still includes every process on it and every page the
@@ -203,24 +206,24 @@ loopback redirect, and a `GET /callback` whose `state` does not match
 not settle the login. Without that, the first `code` to arrive would win,
 and an injected one would be exchanged and saved as the user's session.
 
-The nonce reaches the browser through the listener, not through argv or
-stderr. `login` prints and opens `http://127.0.0.1:<port>/start`, and
-that route answers a single `302` whose `Location` is the authorize URL
-carrying `cliState`; a second `GET /start` is answered `410` and hands
-out nothing. So the URL a headless user copies is the same one `open()`
-is given and the same one that works, while the nonce appears neither in
-`/proc/<pid>/cmdline` (which exposes `open()`'s argument to other users
-on Linux) nor in scrollback and CI logs. What the nonce covers, then, is
-every injector that cannot read the redirect: a page the browser visited
-(the same-origin policy keeps it from reading the `Location` of a
-`no-cors` fetch) and any blind local injector. What remains is a local
-process that races the browser to `GET /start` — single use means it
-steals the nonce only by breaking the login visibly, never silently.
-Closing even that needs the secret to never leave the CLI: a PKCE-shaped
-`POST /auth/cli/start` that registers `sha256(verifier)` and an exchange
-that must present the verifier. That endpoint is not part of this design
-yet; the residual exposure is tracked in the
-[rest-api.md](rest-api.md) risk table.
+The nonce travels in the authorize URL, which is both the URL `login`
+prints and the URL it hands to `open()` — one URL, so the headless
+copy-paste path is the path the browser takes. That puts the nonce in
+this process's argv (`/proc/<pid>/cmdline` exposes `open()`'s argument to
+other users on Linux) and in stderr scrollback, and that is the accepted
+trade. The alternative tried here — printing and opening a nonce-free
+`http://127.0.0.1:<port>/start` that `302`s to the authorize URL — served
+the nonce over unauthenticated HTTP to *every* process on the machine,
+and to any page the browser could be made to fetch it; being single-use
+also meant a prefetch, a reload, or a hostile fetch consumed the one
+redirect and broke the login. That is a wider exposure than argv, not a
+narrower one. What the nonce covers, then, is every injector that cannot
+read the CLI's command line or terminal: a page the browser visited and
+any blind local injector. Closing the rest needs the secret to never
+leave the CLI: a PKCE-shaped `POST /auth/cli/start` that registers
+`sha256(verifier)` and an exchange that must present the verifier. That
+endpoint is not part of this design yet; the residual exposure is tracked
+in the [rest-api.md](rest-api.md) risk table.
 
 A missing `state` is treated separately from a wrong one, because it is
 the version-skew signal rather than an attack: `@wafflebase/cli` is
@@ -228,13 +231,17 @@ published separately from the server it is pointed at (`--server`,
 `WAFFLEBASE_SERVER`, self-hosting), so a backend older than the echo
 redirects without one. Such a callback is answered `400` and reported on
 stderr, but it does **not** end the login: that request is available to
-every local process and visited page, so letting it abort the login (and
-point the user at the flag that turns the binding off) would be a
-downgrade lever. The version-skew message replaces the timeout message
-when the 30 seconds expire having seen nothing else, and
-`wafflebase login --allow-unbound-callback` accepts the nonce-less
-callback outright — the escape hatch for logging in against such a
-server, at the cost of the binding.
+every local process and visited page, so letting it abort the login would
+be a downgrade lever. The version-skew message replaces the timeout
+message when the 30 seconds expire having seen nothing else. Neither
+message names an opt-out flag, for the same reason: the branch that
+selects them is attacker-triggerable, and a message telling the user to
+re-run with the flag that turns the binding off would be an
+attacker-drivable downgrade prompt. `wafflebase login
+--allow-unbound-callback` still accepts the nonce-less callback outright
+— the escape hatch for logging in against such a server, at the cost of
+the binding — and is documented where only the CLI can put it in front of
+the user: `wafflebase login --help`.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and

@@ -6,7 +6,7 @@ import { GitHubAuthGuard, normalizeCliState } from './github-auth.guard';
 type Query = Record<string, unknown>;
 
 function createContext(query: Query) {
-  const req: Query & { __cliStateToken?: string } = { query };
+  const req: Query & { __oauthStateToken?: string } = { query };
   return {
     req,
     context: {
@@ -85,8 +85,8 @@ describe('GitHubAuthGuard', () => {
 
     expect(guard.canActivate(context)).toBe(true);
     expect(createState).toHaveBeenCalledWith('cli', 49152, nonce);
-    expect(typeof req.__cliStateToken).toBe('string');
-    expect(store.consumeState(req.__cliStateToken!)?.cliState).toBe(nonce);
+    expect(typeof req.__oauthStateToken).toBe('string');
+    expect(store.consumeState(req.__oauthStateToken!)?.cliState).toBe(nonce);
   });
 
   it('starts a nonce-less flow when the CLI sent no cliState', () => {
@@ -94,7 +94,7 @@ describe('GitHubAuthGuard', () => {
 
     expect(guard.canActivate(context)).toBe(true);
     expect(createState).toHaveBeenCalledWith('cli', 49152, undefined);
-    expect(store.consumeState(req.__cliStateToken!)?.cliState).toBeUndefined();
+    expect(store.consumeState(req.__oauthStateToken!)?.cliState).toBeUndefined();
   });
 
   it('rejects a malformed cliState instead of dropping it silently', () => {
@@ -106,7 +106,27 @@ describe('GitHubAuthGuard', () => {
 
     expect(() => guard.canActivate(context)).toThrow(BadRequestException);
     expect(createState).not.toHaveBeenCalled();
-    expect(req.__cliStateToken).toBeUndefined();
+    expect(req.__oauthStateToken).toBeUndefined();
+  });
+
+  // Without a state parameter the browser login has no CSRF protection at
+  // all: an attacker's authorization code, replayed into the victim's
+  // browser, completes and hands them a session for the attacker's account.
+  it('starts a state-bearing flow for the browser login too', () => {
+    const { req, context } = createContext({});
+
+    expect(guard.canActivate(context)).toBe(true);
+    expect(createState).toHaveBeenCalledWith('web', 0);
+    expect(typeof req.__oauthStateToken).toBe('string');
+    expect(store.consumeState(req.__oauthStateToken!)?.mode).toBe('web');
+  });
+
+  it('treats an out-of-range CLI port as a browser login, with state', () => {
+    const { req, context } = createContext({ mode: 'cli', port: '80' });
+
+    expect(guard.canActivate(context)).toBe(true);
+    expect(createState).toHaveBeenCalledWith('web', 0);
+    expect(store.consumeState(req.__oauthStateToken!)?.mode).toBe('web');
   });
 
   it('rejects a duplicated cliState whose values disagree', () => {
@@ -120,11 +140,11 @@ describe('GitHubAuthGuard', () => {
     expect(createState).not.toHaveBeenCalled();
   });
 
-  it('leaves the web flow alone, cliState or not', () => {
+  it('ignores cliState outside a CLI flow', () => {
     const { req, context } = createContext({ cliState: 'nope' });
 
     expect(guard.canActivate(context)).toBe(true);
-    expect(createState).not.toHaveBeenCalled();
-    expect(req.__cliStateToken).toBeUndefined();
+    expect(createState).toHaveBeenCalledWith('web', 0);
+    expect(store.consumeState(req.__oauthStateToken!)?.cliState).toBeUndefined();
   });
 });
