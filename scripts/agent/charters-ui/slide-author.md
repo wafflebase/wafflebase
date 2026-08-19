@@ -145,7 +145,7 @@ window could have changed it.
 
 ## What a good finding looks like
 
-Increase-that-decreases. Reorder-that-loses-an-element. Nudge-here-moves-there. Every
+Increase-that-decreases. Reorder-that-loses-an-element. Drop-here-lands-there. Every
 real UI bug this project has filed is a self-contradiction of that shape — the app
 disagreeing with its own earlier state or its own reported selection. None needed an
 external spec.
@@ -157,7 +157,7 @@ thing, reverse it BY ITS OWN CONTROL, and predict the state returns to a reading
 already took. It is ground A by construction, and it caught defects that broad
 exploration walked straight past.
 
-This surface has three unusually clean versions, because each one has an exact inverse:
+This surface has four unusually clean versions, because each one has an exact inverse:
 
 ```
 read slides.elements                       -> journal entry 4
@@ -183,14 +183,35 @@ key Meta+z
                  expect slides.elements equals "@read:15"       ground A
 ```
 
+And the sharpest one, because a drag is exact to the pixel and its inverse is just the
+reverse drag. `badge` starts centred on (1660, 360), so drag it away and back:
+
+```
+read slides.elements                       -> journal entry 21
+drag  from slides.elementCenter("badge")  to slides.pointAt(700, 800)
+drag  from slides.elementCenter("badge")  to slides.pointAt(1660, 360)
+                 expect slides.elements equals "@read:21"       ground A
+```
+
+The same shape resizes: drag a corner handle out to a point, then drag it back to where the
+corner was, and predict `slides.elements` returns. Read the frame FIRST so you know what
+"back" is — `slides.handleCenter` reports where a handle is now, not where it started.
+
+BOTH DESTINATIONS MUST BE MORE THAN 8 LOGICAL PIXELS CLEAR of every element edge and
+centre, the slide centre, and every guide, or the snap lands you somewhere else and the
+round trip fails for a reason that is not a defect. That is the one thing to get right
+about a drag round trip, and it is why the example above uses (700, 800) — measured clear
+of everything in this seed.
+
 Vary WHICH element and WHICH shape of selection: one element, several at once, the
 element already at the front, the element already at the back. `Bring to front` on
 something already frontmost is a no-op that must leave the order untouched — an
 off-by-one there is exactly the defect this pattern finds.
 
 Also worth a round trip: `Add slide` then delete it (predict `slides.slideCount` returns),
-alignment applied and then re-applied to the same selection, and entering a text box,
-typing, and undoing.
+alignment applied and then re-applied to the same selection, entering a text box, typing,
+and undoing, and placing something with `Shape` or `Text box` and then undoing the
+placement (predict `slides.elements` returns to the reading before it).
 
 **Not a round trip: which element ends up selected.** Selection after an operation is not
 a property you should assume, so read it rather than predicting it, unless the operation
