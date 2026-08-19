@@ -82,12 +82,24 @@ jobs:
     permissions:
       contents: read
     outputs:
-      full: ${{ steps.resolve.outputs.full }}
-      heavy: ${{ steps.resolve.outputs.heavy }}
+      # `||` because the resolver may not have run at all; an unset output is the
+      # empty string, which is the only falsy string, so a real `false` from the
+      # resolver still wins over the fallback. See `Fall back to the unscoped suite`.
+      full: ${{ steps.resolve.outputs.full || steps.unresolved.outputs.full }}
+      heavy: ${{ steps.resolve.outputs.heavy || steps.unresolved.outputs.heavy }}
       ci_config: ${{ steps.resolve.outputs.ci_config }}
       areas: ${{ steps.resolve.outputs.areas }}
     steps:
+      # TWO SHORT ATTEMPTS RATHER THAN ONE LONG ONE. Measured across 30 runs, this
+      # checkout takes 13-22s and never more than 57s, while its failures all sit at
+      # the 5-minute job timeout with nothing in between: a stalled `fetch-depth: 0`
+      # of this history does not finish late, it does not finish. So 2 minutes is
+      # ~2x the worst observed success and nowhere near the stall, and a second
+      # attempt clears a transient one without paying for the unscoped suite.
       - uses: actions/checkout@v4
+        id: checkout
+        timeout-minutes: 2
+        continue-on-error: true
         with:
           fetch-depth: 0
           # This job only reads history to compute a diff, so it does not need a
@@ -96,15 +108,56 @@ jobs:
           # writable token lying around.
           persist-credentials: false
 
+      - uses: actions/checkout@v4
+        id: retry
+        if: steps.checkout.outcome != 'success'
+        timeout-minutes: 2
+        continue-on-error: true
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - uses: actions/setup-node@v4
+        if: steps.checkout.outcome == 'success' || steps.retry.outcome == 'success'
         with:
           node-version: 22.x
 
       - name: Resolve changed areas
         id: resolve
+        if: steps.checkout.outcome == 'success' || steps.retry.outcome == 'success'
         run: node ./scripts/changed-areas.mjs
 
+      # NEITHER ATTEMPT LANDED, so there is no repository to diff and no resolution.
+      # This job still SUCCEEDS: nothing is broken, the scope simply is not known,
+      # and a red check for a run that went on to verify everything reads as a
+      # failure that did not happen.
+      #
+      # `heavy` has to be said out loud. The gates below read this output, and an
+      # unset one is indistinguishable from "nothing heavy changed" — which is how
+      # `verify-browser` and `verify-integration`, both REQUIRED checks, would report
+      # green having run nothing. `scripts/test/ci-workflow.test.mjs` pins that.
+      #
+      # `areas` stays unset deliberately: `scripts/verify-self.mjs` reads an empty
+      # resolution as "run every lane", so the unscoped suite falls out of the same
+      # absence rather than out of a second copy of the decision.
+      - name: Fall back to the unscoped suite
+        id: unresolved
+        if: steps.checkout.outcome != 'success' && steps.retry.outcome != 'success'
+        run: |
+          echo "::warning::Could not check out the repository in two attempts, so CI's scope was not resolved. Every lane and both heavy jobs run."
+          {
+            echo "full=true"
+            echo "heavy=true"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## What changed"
+            echo
+            echo "**Full suite.** The checkout did not complete in two attempts, so the"
+            echo "scope was never resolved — every lane and both heavy jobs run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Explain the decision
+        if: steps.resolve.outcome == 'success'
         # On the run itself, and this is the copy that ALWAYS works: it needs no
         # token, so unlike the PR comment it survives a fork PR even if the App
         # credentials are missing. `ci-report.yml` renders the same reasons onto
@@ -153,7 +206,12 @@ jobs:
       # non-hidden path outside the workspace is the better one, and it matches
       # what docker-publish.yml already does with `runner.temp`/digests.
       - name: Save the resolution for the reporter
-        if: github.event_name == 'pull_request'
+        # `always()`: this artifact is the reporter's only input, and the run that
+        # most needs explaining is the one whose resolution failed. Both files come
+        # from the event rather than the repository, so neither needs a checkout —
+        # and an empty `areas.json` is what `ci-report.yml` already treats as
+        # "the resolution could not be read".
+        if: always() && github.event_name == 'pull_request'
         env:
           AREAS: ${{ steps.resolve.outputs.areas }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -164,7 +222,7 @@ jobs:
           printf '%s' "$PR_NUMBER" > "$CONTEXT_DIR/pr-number"
 
       - name: Upload the CI context
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: ci-context
