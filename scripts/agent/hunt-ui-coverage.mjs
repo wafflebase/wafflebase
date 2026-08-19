@@ -77,8 +77,20 @@ export const SELECTION_SHAPES = Object.freeze([
   "element-multi",
 ]);
 
-/** Readers whose value describes the current selection, by surface. */
-const SELECTION_READERS = new Set(["doc.selection", "sheet.selectionRange", "sheet.activeCell"]);
+/**
+ * Readers whose value describes the current selection, by surface.
+ *
+ * A surface missing from here keys EVERY action as `none`, which is the state
+ * `sheet.activeCell` spent a year in and #847 fixed. `selectionShape` learning the array
+ * shape was only half of that: a shape nothing feeds it classifies nothing, so a new
+ * surface has to be listed here as well as understood there.
+ */
+const SELECTION_READERS = new Set([
+  "doc.selection",
+  "sheet.selectionRange",
+  "sheet.activeCell",
+  "slides.selection",
+]);
 
 /**
  * Classify a selection reading. Unknown shapes answer `"none"` rather than throwing:

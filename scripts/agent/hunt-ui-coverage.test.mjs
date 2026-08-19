@@ -43,6 +43,21 @@ test("sheet.activeCell's bare sref is a cell selection, not an absent one", () =
   }
 });
 
+test("a slides selection reading keys coverage by element shape, not as none", () => {
+  // The other half of #847's array branch. `selectionShape` understanding a list is
+  // useless if no reader is wired to feed it one — the surface would key every action
+  // `none`, which is exactly the bug that fix was for.
+  const pick = (ids) => ({ action: { type: "read", reader: "slides.selection" }, ok: true, value: ids });
+  const one = coverageFromJournal([pick(["badge"]), click("Arrange")]);
+  assert.deepEqual(one.shapes, [{ control: "Arrange", shape: "element", roundTripped: false, sha: null }]);
+
+  const many = coverageFromJournal([pick(["badge", "card"]), click("Arrange")]);
+  assert.equal(many.shapes[0].shape, "element-multi", "one element and several are different coverage");
+
+  const empty = coverageFromJournal([pick([]), click("Add slide")]);
+  assert.equal(empty.shapes[0].shape, "none", "nothing selected really is `none`");
+});
+
 test("a list of selected ids is an element selection", () => {
   // Nothing returns this yet — it is the shape a canvas surface reports, where selection
   // is a set of objects rather than a span. Ordered before the object branches because an

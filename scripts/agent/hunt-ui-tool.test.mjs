@@ -75,7 +75,13 @@ test("the reader catalogue matches the bridge registry exactly", () => {
     path.join(REPO_ROOT, "packages", "frontend", "src", "app", "harness", "hunt", "bridge.ts"),
     "utf8",
   );
-  const registered = new Set([...bridge.matchAll(/"((?:doc|sheet)\.[A-Za-z]+)":/g)].map((m) => m[1]));
+  // Namespaces come from UI_SURFACES rather than being spelled out. Hardcoded, this
+  // pattern silently stopped seeing a whole surface the moment one was added: every
+  // `slides.*` reader read as advertised-but-absent, which is the opposite of the drift
+  // this test exists to catch and would have been "fixed" by deleting the catalogue rows.
+  const registered = new Set(
+    [...bridge.matchAll(new RegExp(`"((?:${UI_SURFACES.join("|")})\\.[A-Za-z]+)":`, "g"))].map((m) => m[1]),
+  );
   assert.ok(registered.size > 0, "parsed no readers out of bridge.ts — the pattern has gone stale");
 
   const described = new Set(Object.values(UI_READERS_BY_SURFACE).flat().map(([name]) => name));
