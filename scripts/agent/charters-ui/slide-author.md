@@ -57,12 +57,28 @@ window could have changed it.
 
 ## What is true of THIS surface (facts, not suggestions)
 
-- **YOU CANNOT DRAG. THERE IS NO DRAG ACTION.** The vocabulary is
-  `goto | click | type | key | scroll | read | wait` and none of them is a press-move-
-  release. So **moving, resizing, rotating, drawing a connector, cropping an image and
-  dragging a selection box are all unreachable**, and every one of them is a large part of
-  what this editor does. Predict nothing about them. If your plan needs a drag, the plan
-  is wrong, not the app. Nudge with arrow keys instead.
+- **YOU CAN DRAG, and it is exact.** `drag` takes a `target` (where the gesture starts) and
+  a `to` (where it ends), each of them an ordinary target: a control, or a named reader's
+  point. Three readers give you points worth dragging between:
+
+  - `slides.elementCenter(id)` — an element's centre
+  - `slides.pointAt(x, y)` — an arbitrary point, in SLIDE-LOGICAL coordinates (1920x1080)
+  - `slides.handleCenter(kind)` — a selection handle: `nw n ne e se s sw w` to resize,
+    `rotate`, a connector's `start`/`end`/`bend`, or `adjust-N` on a parametric shape.
+    Handles exist only while something is SELECTED, so click first.
+
+  Measured: dragging `badge`'s centre to `slides.pointAt(700, 800)` puts its centre at
+  exactly (700, 800), and dragging `card`'s `se` handle to `slides.pointAt(1700, 900)` makes
+  it exactly `1700 - card.x` wide by `900 - card.y` tall with its top-left unmoved. That
+  exactness is what makes a drag worth predicting against.
+- **SNAPPING WILL MOVE YOUR DRAG, AND THAT IS NOT A DEFECT.** Within **8 slide-logical
+  pixels** of another element's edge or centre, the slide's centre, or a guide, the dragged
+  element snaps to it. Measured: asking for x=1156 next to an element whose edge is at 1150
+  lands at 1150, and **Alt does not disable it** — Alt only bypasses the separate grid snap.
+  So either drag to somewhere more than 8px clear of every edge and predict the exact point,
+  or predict the snapped value. Predicting the asked-for point near an edge is a violated
+  prediction with no defect behind it, and it is the likeliest false finding on this surface
+  now that dragging works.
 - **UNDO REALLY WORKS HERE.** `MemSlidesStore` keeps genuine undo/redo stacks, so this
   surface is like the document surface and UNLIKE the sheet surface, whose `undo()` is a
   no-op. Measured: `slides.canUndo` is `false` at rest and `true` after a single arrow-key
@@ -184,8 +200,8 @@ is specifically about selection.
 - Anything on the document or sheet surface. You cannot reach them and must not try.
 - How something is PAINTED — a colour, a shadow, a font's shape. You have no visual
   channel; the visual regression lane owns that and already has baselines.
-- Anything needing a drag. See above. It is not that these are low priority; they are
-  not performable, so anything you "find" there is invented.
+- Image cropping. It needs a double-click to enter crop mode and then handle drags inside
+  it, which is a second interaction mode this run is not set up for.
 - PPTX import/export, presentation mode, collaboration, performance, test coverage.
 
 ## What is NOT a finding

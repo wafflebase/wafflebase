@@ -21,6 +21,8 @@ import { createServer } from "vite";
 
 import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
 import { domControls } from "./hunt-ui-dom.mjs";
+// The SAME gesture the driver performs, not a copy of it.
+import { performDrag } from "./hunt-ui-gesture.mjs";
 import { UI_SURFACES } from "../../../scripts/agent/hunt-ui-surfaces.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -285,6 +287,13 @@ const READER_EXPECTATIONS = [
   ["slides", "slides.canUndo", [], (v) => (typeof v === "boolean" ? null : "expected a boolean")],
   ["slides", "slides.elementCenter", ["title"], (v) =>
     v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+  // The slide centre, which is on the canvas at any window size.
+  ["slides", "slides.pointAt", [960, 540], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+  // Needs a selection to exist at all — the loop below clicks an element on this surface for
+  // exactly this reader, the way it clicks B2 for the sheet's selection readers.
+  ["slides", "slides.handleCenter", ["se"], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
 ];
 
 /** Read one reader out of page context. `read` is async, so the promise is returned
@@ -309,6 +318,11 @@ async function checkReaderRegistry(page, baseUrl) {
     // `sheet.activeCell` needs a selection to report; the doc surface needs none.
     if (surface === "sheet") {
       const p = await readReader(page, "sheet.cellCenter", ["B2"]);
+      if (p.ok) await page.mouse.click(p.value.x, p.value.y);
+    }
+    // `slides.handleCenter` needs something selected, because handles only exist then.
+    if (surface === "slides") {
+      const p = await readReader(page, "slides.elementCenter", ["card"]);
       if (p.ok) await page.mouse.click(p.value.x, p.value.y);
     }
     for (const [readerSurface, name, args, check] of READER_EXPECTATIONS) {
@@ -631,6 +645,115 @@ async function checkSlidesTargeting(page, baseUrl) {
     }
   }
 
+  return problems;
+}
+
+/**
+ * The drag action, end to end: aim, press, move, release, and read what moved.
+ *
+ * A POSITIVE CONTROL, not a smoke test. `drag` is the first action added to the vocabulary
+ * since the harness was built, and the failure that matters is not "it throws" — it is "it
+ * runs and moves nothing", which reads to an explorer as a product that ignores the mouse.
+ * So every assertion here is an EXACT coordinate, and a drag that silently did nothing fails
+ * them all.
+ *
+ * THE DESTINATION IS CHOSEN TO BE CLEAR OF SNAPPING. `SNAP_THRESHOLD` is 8 slide-logical px
+ * against element edges, element centres, the slide centre and guides, and Alt does not
+ * disable it (that only bypasses the grid). A destination inside that window lands somewhere
+ * other than asked — correctly — so the point below is measured to sit well outside it. If
+ * the seed's geometry ever moves under this check, it fails loudly rather than quietly
+ * asserting a snapped value.
+ */
+async function checkSlidesDrag(page, baseUrl) {
+  const problems = [];
+  const fresh = async () => {
+    await page.goto(`${baseUrl}/harness/hunt?surface=slides`, { waitUntil: "networkidle" });
+    await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+  };
+  const elements = async () => await readReader(page, "slides.elements", []);
+  const one = async (id) => {
+    const all = await elements();
+    return all.ok ? all.value.find((e) => e.id === id) : null;
+  };
+  const drag = async (from, to) => {
+    const a = await readReader(page, from.reader, from.args);
+    const b = await readReader(page, to.reader, to.args);
+    if (!a.ok) return { ok: false, error: `origin ${from.reader} refused: ${a.error}` };
+    if (!b.ok) return { ok: false, error: `destination ${to.reader} refused: ${b.error}` };
+    await performDrag(page, a.value, b.value);
+    return { ok: true };
+  };
+
+  // --- a plain move lands exactly where it was aimed ---
+  await fresh();
+  const before = await one("badge");
+  if (!before) {
+    problems.push("could not read the seeded `badge` — this check cannot run");
+    return problems;
+  }
+  const moved = await drag(
+    { reader: "slides.elementCenter", args: ["badge"] },
+    { reader: "slides.pointAt", args: [700, 800] },
+  );
+  if (!moved.ok) {
+    problems.push(`dragging badge to a clear point failed: ${String(moved.error).slice(0, 140)}`);
+  } else {
+    const after = await one("badge");
+    const centre = { x: after.x + after.w / 2, y: after.y + after.h / 2 };
+    if (centre.x !== 700 || centre.y !== 800) {
+      problems.push(
+        `a drag to slides.pointAt(700, 800) put badge's centre at (${centre.x}, ${centre.y}) — ` +
+          "either the drag is not landing where it aims, or that destination is now within " +
+          "8 logical px of an alignment edge and is being snapped",
+      );
+    }
+    if (after.w !== before.w || after.h !== before.h) {
+      problems.push(`moving badge also resized it: ${before.w}x${before.h} -> ${after.w}x${after.h}`);
+    }
+  }
+
+  // --- a handle drag resizes by exactly the geometry it was given ---
+  await fresh();
+  const card = await one("card");
+  const centre = await readReader(page, "slides.elementCenter", ["card"]);
+  if (!centre.ok) {
+    problems.push(`could not aim at card: ${centre.error.slice(0, 120)}`);
+    return problems;
+  }
+  await page.mouse.click(centre.value.x, centre.value.y);
+  const resized = await drag(
+    { reader: "slides.handleCenter", args: ["se"] },
+    { reader: "slides.pointAt", args: [1700, 900] },
+  );
+  if (!resized.ok) {
+    problems.push(`dragging card's se handle failed: ${String(resized.error).slice(0, 140)}`);
+  } else {
+    const after = await one("card");
+    // The se handle IS the bottom-right corner, so the new size is the destination minus the
+    // (unmoved) top-left. Anything else means the handle was misidentified or mis-aimed.
+    const wantW = 1700 - card.x;
+    const wantH = 900 - card.y;
+    if (after.w !== wantW || after.h !== wantH) {
+      problems.push(
+        `resizing card by its se handle to (1700, 900) gave ${after.w}x${after.h}, expected ${wantW}x${wantH}`,
+      );
+    }
+    if (after.x !== card.x || after.y !== card.y) {
+      problems.push(`an se resize moved the top-left from (${card.x},${card.y}) to (${after.x},${after.y})`);
+    }
+  }
+
+  // --- both new readers refuse rather than hand back an unusable point ---
+  const off = await readReader(page, "slides.pointAt", [5000, 100]);
+  if (off.ok) problems.push(`slides.pointAt(5000, 100) returned ${JSON.stringify(off.value)} instead of refusing`);
+
+  await fresh();
+  const noHandle = await readReader(page, "slides.handleCenter", ["se"]);
+  if (noHandle.ok) {
+    problems.push("slides.handleCenter(se) answered with nothing selected — there are no handles then");
+  } else if (!/Nothing is selected/.test(noHandle.error)) {
+    problems.push(`slides.handleCenter must say WHY it refused with no selection, got ${noHandle.error.slice(0, 120)}`);
+  }
   return problems;
 }
 
@@ -1490,6 +1613,11 @@ try {
     for (const p of offscreenProblems) failures.push(`off-screen cell: ${p}`);
     if (offscreenProblems.length === 0) {
       console.log("[verify:hunt-oracles] a scrolled-away cell refuses, and a visible one still clicks");
+    }
+    const dragProblems = await checkSlidesDrag(page, baseUrl);
+    for (const p of dragProblems) failures.push(`slides drag: ${p}`);
+    if (dragProblems.length === 0) {
+      console.log("[verify:hunt-oracles] a drag lands exactly where it aims, and a handle drag resizes by its geometry");
     }
     const slidesProblems = await checkSlidesTargeting(page, baseUrl);
     for (const p of slidesProblems) failures.push(`slides surface: ${p}`);

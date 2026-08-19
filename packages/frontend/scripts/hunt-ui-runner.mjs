@@ -56,6 +56,7 @@ const frontendRoot = path.resolve(__dirname, "..");
 
 const HOST = "127.0.0.1";
 import { domControls } from "./hunt-ui-dom.mjs";
+import { performDrag } from "./hunt-ui-gesture.mjs";
 
 const BRIDGE_KEY = "__WB_HUNT__";
 const READY_SELECTOR = "[data-testid='hunt-harness-root'][data-hunt-harness-ready='true']";
@@ -290,6 +291,18 @@ async function runAction(page, action, baseUrl, timeoutMs, fault = null) {
       };
       if (target.kind === "role") await target.locator.click(opts);
       else await page.mouse.click(target.point.x, target.point.y, opts);
+      return { value: null };
+    }
+    case "drag": {
+      const from = await resolveTarget(page, action.target);
+      const to = await resolveTarget(page, action.to);
+      // Both ends may be a role locator or a named reader's point; a locator is reduced to
+      // its own centre, which is what `click` already does to one.
+      const at = async (t) =>
+        t.kind === "point"
+          ? t.point
+          : await t.locator.boundingBox().then((b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 }));
+      await performDrag(page, await at(from), await at(to));
       return { value: null };
     }
     case "type": {

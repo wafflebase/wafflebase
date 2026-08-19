@@ -79,6 +79,16 @@ export const UI_READERS_BY_SURFACE = Object.freeze({
     ["slides.slideCount", "", "how many slides the deck has"],
     ["slides.currentSlideIndex", "", "which slide is showing, 1-based"],
     ["slides.elementCenter", "(id)", "an element's centre point — name it as a click target's `reader` to click that element"],
+    [
+      "slides.pointAt",
+      "(x, y)",
+      "the point at SLIDE-LOGICAL x,y in the 1920x1080 space — name it as a drag's `to` to drag somewhere specific",
+    ],
+    [
+      "slides.handleCenter",
+      "(kind)",
+      "a selection handle's centre: nw/n/ne/e/se/s/sw/w resize, `rotate`, connector `start`/`end`/`bend`, `adjust-N` — drag one to resize or rotate",
+    ],
     ["slides.canUndo", "", "whether an undoable entry exists — TRUE here, unlike the sheet surface"],
   ]),
   sheet: Object.freeze([
@@ -549,7 +559,10 @@ export async function createUiServer(opts = {}) {
                 .enum([surface])
                 .optional()
                 .describe(`For goto: which surface to mount. This run explores "${surface}" and no other.`),
-              target: target.optional().describe("For click, and optionally for scroll: what to act on."),
+              target: target
+                .optional()
+                .describe("For click and drag, and optionally for scroll: what to act on. For drag this is where the gesture STARTS."),
+              to: target.optional().describe("For drag: where the gesture ENDS. Same shape as `target`."),
               button: z.enum(["left", "right", "middle"]).optional().describe("For click: defaults to left."),
               clickCount: z.number().int().optional().describe("For click: 2 for a double-click."),
               text: z.string().optional().describe("For type: the text to type at the current caret."),

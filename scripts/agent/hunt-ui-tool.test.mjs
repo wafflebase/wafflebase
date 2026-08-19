@@ -103,7 +103,14 @@ test("each reader is filed under the surface its namespace names", () => {
 test("every reader carries a one-line meaning, so the description is usable", () => {
   for (const [name, args, meaning] of [...Object.values(UI_READERS_BY_SURFACE).flat(), ...UI_SHARED_READERS]) {
     assert.ok(meaning && meaning.length > 10, `${name} needs a real description`);
-    assert.ok(args === "" || /^\(\w+\)$/.test(args), `${name} arity should be "" or "(name)", got ${args}`);
+    // `(a)` or `(a, b)`, still strictly formatted so a description stays parseable. The
+    // single-argument form was not a rule — it described every reader that existed until
+    // `slides.pointAt` needed two coordinates, which are naturally two arguments rather than
+    // one string to be split.
+    assert.ok(
+      args === "" || /^\(\w+(, \w+)*\)$/.test(args),
+      `${name} arity should be "" or "(a)" or "(a, b)", got ${args}`,
+    );
   }
 });
 
