@@ -331,19 +331,72 @@ The CLI uses three endpoints in addition to the standard
 GitHub OAuth flow. Full design in [cli.md](cli.md) "Login flow"; the
 backend surface is:
 
-- **`GET /auth/github?mode=cli&port=<port>`** — extends the existing
-  endpoint to carry CLI parameters through OAuth `state`. The backend
-  generates a CSRF token (random 32 bytes, TTL 5 minutes, in-memory
-  map) and embeds it in the encoded `state`.
-- **`GET /auth/github/callback`** — when the decoded state has
+- **`GET /auth/github?mode=cli&port=<port>&nonce=<hex>`** — extends the
+  existing endpoint to carry CLI parameters through OAuth `state`. It is
+  unauthenticated and takes the loopback port off the query string, so
+  it is answered first with a **confirmation page**
+  (`CliLoginConfirmMiddleware`, `X-Frame-Options: DENY`): its Continue
+  link carries a one-time secret that also went out as an httpOnly
+  `__Host-wafflebase_cli_confirm` cookie (`__Host-` so a sibling
+  subdomain cannot write one of its own; unprefixed only outside
+  production, where `Secure` is unavailable), and only a matching pair
+  proceeds to GitHub. Without that click, a page the victim visits could navigate
+  them here and have the backend mint a code **for the victim**
+  addressed at a port the attacker chose; the loopback nonce cannot
+  cover that, because the attacker picks the nonce.
+
+  Once confirmed, the backend generates a state token (random 32 bytes,
+  TTL 5 minutes, in-memory map) and forwards it to GitHub as `state`;
+  `mode`, `port` and `nonce` are stored against it, never put in the URL.
+  `nonce` is the CLI's per-attempt secret and is accepted only as
+  `[0-9a-f]{32,128}`, so nothing that could smuggle another query
+  parameter into the loopback redirect gets through. It is optional:
+  omitted (or malformed), the login still completes, but with no
+  binding for the CLI to verify.
+- **`GET /auth/github/callback`** — requires a `state` on **every**
+  path; a callback without one is never a sign-in. It is refused with a
+  redirect to `FRONTEND_URL/login?error=oauth_state`, not a 400: losing
+  the state needs no attacker (the cookie lives ten minutes, and a
+  second login tab overwrites the first tab's), so the refusal has to
+  land the user on a page they can retry from rather than as backend
+  JSON on the backend's own origin. Refusing and returning them
+  somewhere useful are independent — no session is issued either way.
+  See [backend.md](backend.md) for the full callback contract. A browser
+  login carries `web.<sha256(secret)>`, whose secret lives in a
+  short-lived httpOnly `__Host-wafflebase_oauth_state` cookie (double
+  submit,
+  compared in constant time and cleared on use) — no server-side map, so
+  it survives restarts and spans replicas, which is what an in-memory
+  store could not do. Otherwise the state is a CLI token: when the
+  consumed state has
   `mode === 'cli'`, generates a short-lived authorization code (random,
   TTL 60 seconds, same in-memory map), redirects to
-  `http://127.0.0.1:<port>/callback?code=<auth-code>`. `port` must be
-  `1024–65535`; the redirect host is always `127.0.0.1` (hard-coded).
-- **`POST /auth/cli/exchange`** — accepts `{ code }`, looks it up,
-  validates TTL, deletes it (single-use), and returns
-  `{ accessToken, refreshToken }`. No authentication required (the code
-  itself is the proof).
+  `http://127.0.0.1:<port>/callback?code=<auth-code>&state=<nonce>`.
+  `port` must be `1024–65535`; the redirect host is always `127.0.0.1`
+  (hard-coded). The `state` fragment is the CLI's own nonce echoed back
+  and is omitted when the authorization carried none.
+
+  Echoing the nonce is a **backend contract**: the CLI accepts a `code`
+  only from a callback carrying it, so a CLI at this version or later
+  needs a backend at this version or later. Against an older backend
+  the CLI does not hang silently — it reports the refusal ("the
+  redirect carried no `state` … the server is likely older than this
+  CLI") on stderr as it happens and repeats it in the timeout error.
+- **`POST /auth/cli/exchange`** — accepts `{ code, verifier }`, looks the
+  code up, validates TTL, deletes it (single-use on *any* attempt),
+  checks `sha256(verifier)` against the challenge registered when the
+  login started, and returns `{ accessToken, refreshToken }`.
+
+  The `verifier` is required, and it is what keeps the code from being a
+  bearer credential: the code reaches the CLI as a plaintext query string
+  on a `http://127.0.0.1:<port>/callback` navigation, at a port taken off
+  the start URL, so anything that observes that hop would otherwise hold
+  a full unauthenticated path to access **and** refresh JWTs. The
+  verifier is 32 random bytes the CLI keeps in memory and sends only in
+  this POST body; only its SHA-256 travels through the browser
+  (`?challenge=`, PKCE S256). A CLI login that registered no challenge is
+  refused at the callback rather than issued a weaker code, so the pair
+  is a **backend + CLI contract** in both directions.
 - **`POST /auth/refresh`** — body fallback added: if there is no
   `wafflebase_refresh` cookie, the controller reads
   `{ refreshToken }` from the body and returns
@@ -364,4 +417,7 @@ exchanged server-to-server.
 | `PUT /content` race with live collaborators (lost work) | The CLI marks the `--replace` path `safety: destructive` and forces confirmation. A future iteration may add an optimistic `lastSeq` check. |
 | Yorkie key prefix for word-processor docs differs from `doc-<id>` | The frontend convention is the source of truth; the backend service is the only adjustment point if it changes. |
 | Open redirect via CLI port parameter | `port` is range-validated; the redirect host is hard-coded to `127.0.0.1`. |
-| OAuth state forgery (CSRF) | Backend generates a random 32-byte CSRF token per OAuth request, stores in a 5-minute in-memory map, and validates on callback. |
+| OAuth state forgery (CSRF) | Backend generates a random 32-byte state token per OAuth request, stores it in a 5-minute in-memory map, and consumes it on callback (single-use; an unknown or expired token is a 400, never a fall-through to the web flow). |
+| Login CSRF on the CLI loopback callback | The port space is small enough for a page the user visits to scan, so a `code` alone is not trusted: the CLI mints a per-attempt nonce, the backend echoes it as the loopback `state`, and the CLI compares it in constant time. A callback without it is refused, reported, and never ends the wait — the genuine redirect can still arrive. |
+| Login CSRF on the **web** callback | Browser logins carry a double-submit `state`: the secret is a short-lived httpOnly `__Host-wafflebase_oauth_state` cookie (the prefix is what stops a sibling subdomain from tossing a cookie of its own choosing and restoring the attack; unprefixed only outside production, where `Secure` is unavailable), its SHA-256 goes to GitHub as `state`, and the callback accepts only a matching pair (constant-time, single-use). The hash — not the secret — travels through referrers and logs, so a leaked `state` cannot be replayed without the cookie. Being a cookie rather than a store, it survives restarts and spans replicas. A callback with no `state`, a mismatched one, or a repeated `?state=` issues no session and returns the browser to `FRONTEND_URL/login?error=oauth_state` — losing the cookie needs no attacker (it lives ten minutes, and a second login tab overwrites the first tab's), so the refusal has to land on a page the user can retry from rather than as backend JSON on the backend's own origin. |
+| CSRF into a CLI login (`?mode=cli&port=…`) | The endpoint is unauthenticated and the port comes off the query string, so a bare navigation is not enough: the backend answers with a confirmation page and only its Continue link — a one-time secret paired with an httpOnly cookie, framing blocked by `X-Frame-Options: DENY` — starts the OAuth redirect. `GitHubAuthGuard` mints CLI state only for a request the middleware confirmed, so an unwired gate degrades to a browser login instead of failing open. |

@@ -1,14 +1,13 @@
 import { writeFileSync, existsSync } from 'node:fs';
 import type { NoteContent } from '../client/http-client.js';
+import { InvalidFormatError } from '../output/formatter.js';
 
 export const VALID_NOTES_CONTENT_FORMATS = ['json', 'md', 'text'] as const;
 export type NotesContentFormat = (typeof VALID_NOTES_CONTENT_FORMATS)[number];
 
 export function parseNotesContentFormat(value: string): NotesContentFormat {
   if (!VALID_NOTES_CONTENT_FORMATS.includes(value as NotesContentFormat)) {
-    throw new Error(
-      `Invalid --format "${value}". Use one of: ${VALID_NOTES_CONTENT_FORMATS.join(', ')}.`,
-    );
+    throw new InvalidFormatError(value, VALID_NOTES_CONTENT_FORMATS);
   }
   return value as NotesContentFormat;
 }

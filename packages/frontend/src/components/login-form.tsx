@@ -3,12 +3,40 @@ import { cn } from "@/lib/utils";
 import { WbButton } from "@/app/home/primitives/wb-button";
 
 /**
+ * What the backend can send a browser back here with.
+ *
+ * `GET /auth/github/callback` refuses a callback whose OAuth state does
+ * not match the cookie that started the login, and returns the browser
+ * to this page with `?error=`. That is reachable with no attacker at
+ * all — the state cookie expires after ten minutes, and opening a second
+ * login tab replaces the first tab's — so the page has to explain it and
+ * offer the retry rather than leave the button looking untouched.
+ */
+const LOGIN_ERRORS: Record<string, string> = {
+  oauth_state:
+    "That sign-in link expired or was started in another tab. Please try again.",
+};
+
+/** Shown for a code this build does not recognise, so none is silent. */
+const GENERIC_LOGIN_ERROR = "That sign-in could not be completed. Please try again.";
+
+/**
  * Renders the LoginForm component.
  */
 export function LoginForm({
   className,
+  error,
   ...props
-}: React.ComponentPropsWithoutRef<"form">) {
+}: React.ComponentPropsWithoutRef<"form"> & { error?: string | null }) {
+  // `hasOwn`, not a bare index: `error` comes off the query string, and
+  // `?error=constructor` would otherwise pull a function off the
+  // prototype chain and hand it to React as the message.
+  const message = error
+    ? Object.hasOwn(LOGIN_ERRORS, error)
+      ? LOGIN_ERRORS[error]
+      : GENERIC_LOGIN_ERROR
+    : null;
+
   return (
     <form className={cn("flex flex-col gap-7", className)} {...props}>
       <div className="flex flex-col items-center gap-2 text-center">
@@ -22,6 +50,14 @@ export function LoginForm({
           Sign in with your GitHub account to get started.
         </p>
       </div>
+      {message && (
+        <p
+          role="alert"
+          className="text-balance text-center text-[13.5px] leading-[1.5] text-[color:var(--wb-sub)] rounded-lg border border-[color:var(--wb-rule)] px-4 py-3 m-0"
+        >
+          {message}
+        </p>
+      )}
       <WbButton asChild variant="primary" size="lg" className="w-full">
         <Link
           to={`${import.meta.env.VITE_BACKEND_API_URL}/auth/github`}

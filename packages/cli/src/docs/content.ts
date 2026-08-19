@@ -6,6 +6,7 @@ import {
   type Document,
   type PaginatedLayout,
 } from '@wafflebase/docs';
+import { InvalidFormatError } from '../output/formatter.js';
 import { FontkitMeasurer } from './fontkit-measurer.js';
 import { parsePageRange } from './page-range.js';
 import { sliceBlocksByPages, type SliceFormat } from './page-slice.js';
@@ -24,9 +25,7 @@ export const PAGES_FONT_WARNING =
 
 export function parseContentFormat(value: string): ContentFormat {
   if (!VALID_CONTENT_FORMATS.includes(value as ContentFormat)) {
-    throw new Error(
-      `Invalid --format "${value}". Use one of: ${VALID_CONTENT_FORMATS.join(', ')}.`,
-    );
+    throw new InvalidFormatError(value, VALID_CONTENT_FORMATS);
   }
   return value as ContentFormat;
 }
