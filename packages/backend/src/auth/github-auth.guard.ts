@@ -3,6 +3,8 @@ import { AuthGuard } from '@nestjs/passport';
 import type { Response } from 'express';
 import { CliAuthStore } from './cli-auth.store';
 import {
+  cliStateCookieName,
+  cliStateCookieOptions,
   createWebOAuthState,
   oauthStateCookieName,
   oauthStateCookieOptions,
@@ -52,7 +54,11 @@ export function parseCliPort(raw: unknown): number | undefined {
  *   only once `CliLoginConfirmMiddleware` has seen the user click through
  *   the confirmation page; without that flag this degrades to an ordinary
  *   browser login rather than silently minting a code for whoever framed
- *   the request.
+ *   the request. The token is paired with a cookie secret
+ *   (`cliStateCookieName()`) so it is bound to this browser, exactly as
+ *   the browser state is: the confirmation click gates the *mint*, and
+ *   an attacker can perform it in their own browser, so without the
+ *   cookie the resulting state could simply be handed to a victim.
  * - **Browser** — a double-submit cookie pair (see `oauth-state.ts`).
  *   Without it, `/auth/github/callback` would set session cookies for any
  *   code presented to it, which is login CSRF / session fixation.
@@ -70,12 +76,16 @@ export class GitHubAuthGuard extends AuthGuard('github') {
     const port = parseCliPort(req.query?.port);
 
     if (req.query?.mode === 'cli' && port !== undefined && req.__cliConfirmed) {
-      const { stateToken } = this.cliAuthStore.createState(
+      const { stateToken, csrf } = this.cliAuthStore.createState(
         'cli',
         port,
         parseCliNonce(req.query?.nonce),
         parseCliChallenge(req.query?.challenge),
       );
+      // The state token alone is transferable — it goes through GitHub in
+      // a URL. This cookie is what ties it to *this* browser, and the
+      // callback will not consume the state without it.
+      res.cookie(cliStateCookieName(), csrf, cliStateCookieOptions());
       req.__oauthState = stateToken;
     } else {
       const { secret, state } = createWebOAuthState();

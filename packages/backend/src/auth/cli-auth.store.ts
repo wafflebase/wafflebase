@@ -1,9 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
-import { timingSafeEqualStr } from './oauth-state';
+import { hashSecret, timingSafeEqualStr } from './oauth-state';
 
 interface StateEntry {
-  csrf: string;
+  /**
+   * SHA-256 of the secret handed to the browser in the CLI state cookie
+   * (`cliStateCookieName()`), which is what binds this state token to the
+   * browser that started the login. Only the hash is kept: the entry is
+   * the thing an attacker would want to read, and it never holds the
+   * value that satisfies the check.
+   */
+  csrfHash: string;
   mode: string;
   port: number;
   /**
@@ -38,6 +45,11 @@ export class CliAuthStore {
   private states = new Map<string, StateEntry>();
   private codes = new Map<string, CodeEntry>();
 
+  /**
+   * Start a login attempt. The returned `csrf` is the browser's half of
+   * the binding: the caller must put it in the CLI state cookie, because
+   * `consumeState` refuses any state token that arrives without it.
+   */
   createState(
     mode: string,
     port: number,
@@ -47,7 +59,7 @@ export class CliAuthStore {
     const csrf = randomBytes(32).toString('base64url');
     const stateToken = randomBytes(32).toString('base64url');
     this.states.set(stateToken, {
-      csrf,
+      csrfHash: hashSecret(csrf),
       mode,
       port,
       nonce,
@@ -58,11 +70,23 @@ export class CliAuthStore {
     return { stateToken, csrf };
   }
 
+  /**
+   * Redeem a login attempt, which requires the browser that started it.
+   *
+   * `stateToken` travels through GitHub in a URL, so on its own it is
+   * transferable — an attacker who mints one in their own browser can
+   * hand it to a victim and have the callback mint a code for the
+   * victim's account, bound to the attacker's PKCE challenge and posted
+   * to the attacker's loopback port. `csrfSecret` is the cookie half
+   * that makes it non-transferable, and it is mandatory: a missing or
+   * mismatched secret spends the entry and yields nothing, so a stolen
+   * state cannot be probed and never survives an attempt.
+   */
   consumeState(
     stateToken: string,
+    csrfSecret: unknown,
   ):
     | {
-        csrf: string;
         mode: string;
         port: number;
         nonce?: string;
@@ -70,13 +94,17 @@ export class CliAuthStore {
       }
     | undefined {
     const entry = this.states.get(stateToken);
+    this.states.delete(stateToken);
     if (!entry || entry.expiresAt < Date.now()) {
-      this.states.delete(stateToken);
       return undefined;
     }
-    this.states.delete(stateToken);
+    if (typeof csrfSecret !== 'string' || csrfSecret.length === 0) {
+      return undefined;
+    }
+    if (!timingSafeEqualStr(entry.csrfHash, hashSecret(csrfSecret))) {
+      return undefined;
+    }
     return {
-      csrf: entry.csrf,
       mode: entry.mode,
       port: entry.port,
       nonce: entry.nonce,

@@ -61,6 +61,49 @@ export function hostPrefixedCookieName(base: string): string {
   return isSecureCookie() ? `__Host-${base}` : base;
 }
 
+/**
+ * Browser binding for the **CLI** OAuth login.
+ *
+ * The CLI `state` is an opaque `CliAuthStore` token, and an opaque token
+ * is transferable: an attacker can walk their *own* browser through the
+ * confirmation page, read the minted `state` out of the redirect to
+ * GitHub, and hand the victim a plain `github.com/login/oauth/authorize`
+ * URL carrying it. GitHub then returns the victim to our callback, which
+ * would mint a code for the *victim's* account bound to the *attacker's*
+ * PKCE challenge and post it to the attacker's loopback port — with no
+ * confirmation page ever shown to the victim. The confirm cookie does
+ * not close that: it gates the mint, not the redemption, and the
+ * attacker satisfied it in their own browser.
+ *
+ * So the CLI state is bound the same way the web one is: the secret goes
+ * in this cookie, its SHA-256 is kept beside the state entry, and the
+ * callback consumes a state only when the browser presents the matching
+ * secret. A state carried into another browser has no cookie behind it.
+ */
+const CLI_STATE_COOKIE_BASE = 'wafflebase_cli_state';
+
+/** `__Host-` prefixed wherever the browser will honour the prefix. */
+export function cliStateCookieName(): string {
+  return hostPrefixedCookieName(CLI_STATE_COOKIE_BASE);
+}
+
+/** Five minutes: the `CliAuthStore` entry behind it expires then too. */
+const CLI_STATE_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
+
+export function cliStateCookieOptions(): CookieOptions {
+  return {
+    httpOnly: true,
+    secure: isSecureCookie(),
+    // Lax for the same reason the web state cookie is: GitHub sends the
+    // browser back to the callback cross-site, and Strict would withhold
+    // the cookie on exactly the navigation that has to carry it.
+    sameSite: 'lax',
+    // `/`: required for `__Host-`, and nothing but the callback reads it.
+    path: '/',
+    maxAge: CLI_STATE_COOKIE_MAX_AGE_MS,
+  };
+}
+
 /** Marks a `state` as belonging to the web flow, not the CLI store. */
 export const WEB_STATE_PREFIX = 'web.';
 
@@ -125,6 +168,10 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
-function hashSecret(secret: string): string {
+/**
+ * Hash of a cookie-held secret, hex. Shared with `CliAuthStore`, which
+ * keeps this beside its state entry rather than the secret itself.
+ */
+export function hashSecret(secret: string): string {
   return createHash('sha256').update(secret).digest('hex');
 }

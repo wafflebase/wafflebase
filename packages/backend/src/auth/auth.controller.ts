@@ -23,6 +23,8 @@ import { AuthenticatedRequest } from './auth.types';
 import { CliAuthStore } from './cli-auth.store';
 import { GitHubAuthGuard } from './github-auth.guard';
 import {
+  cliStateCookieName,
+  cliStateCookieOptions,
   isWebOAuthState,
   oauthStateCookieName,
   oauthStateCookieOptions,
@@ -163,8 +165,23 @@ export class AuthController {
         return res.redirect(this.loginErrorUrl('oauth_state'));
       }
     } else {
-      // Otherwise it is a CLI state token; consume it.
-      const state = this.cliAuthStore.consumeState(stateToken);
+      // Otherwise it is a CLI state token; consume it. Like the browser
+      // state, it counts only when the browser that started the login
+      // presents the cookie secret minted alongside it — the token
+      // itself travels through GitHub in a URL and is otherwise
+      // transferable, so an attacker could click through the
+      // confirmation page in their own browser, take the state out of
+      // the redirect, and have the victim's callback mint a code for the
+      // victim's account bound to the attacker's challenge and port.
+      // Only the name this build mints is read, for the same reason the
+      // web flow reads only its own (sibling-subdomain cookie tossing).
+      const cliCookieName = cliStateCookieName();
+      const cliCookieSecret = req.cookies?.[cliCookieName];
+      res.clearCookie(cliCookieName, {
+        ...cliStateCookieOptions(),
+        maxAge: undefined,
+      });
+      const state = this.cliAuthStore.consumeState(stateToken, cliCookieSecret);
       if (state && state.mode === 'cli') {
         const port = state.port;
         if (port < 1024 || port > 65535) {
@@ -195,10 +212,12 @@ export class AuthController {
         );
       }
 
-      // State token was provided but invalid/expired — this is a CLI flow
-      // that failed. Return an error instead of falling through to web flow.
+      // State token was provided but invalid, expired, or came from
+      // another browser — this is a CLI flow that failed. Return an error
+      // instead of falling through to web flow.
       throw new BadRequestException(
-        'CLI login state expired or invalid. Please run `wafflebase login` again.',
+        'CLI login state expired, invalid, or completed in a different ' +
+          'browser. Please run `wafflebase login` again.',
       );
     }
 

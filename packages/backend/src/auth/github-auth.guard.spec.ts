@@ -99,6 +99,23 @@ describe('GitHubAuthGuard.canActivate', () => {
     expect(req.__oauthState).toBe('state-token');
   });
 
+  /**
+   * The state token goes through GitHub in a URL, so on its own it is
+   * transferable: an attacker clicks through the confirmation page in
+   * their own browser and hands the victim a bare `authorize` URL
+   * carrying the state. The cookie is what the callback checks it
+   * against, so if it is not minted here the whole binding is gone.
+   */
+  it('binds the CLI state to this browser with a cookie', () => {
+    const { res } = activate({ mode: 'cli', port: '49152' });
+
+    expect(res.cookie).toHaveBeenCalledWith(
+      'wafflebase_cli_state',
+      'csrf',
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax', path: '/' }),
+    );
+  });
+
   it('stores no nonce when the query carries none or a malformed one', () => {
     activate({ mode: 'cli', port: '49152' });
     expect(createState).toHaveBeenCalledWith('cli', 49152, undefined, undefined);

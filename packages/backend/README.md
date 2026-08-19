@@ -392,14 +392,18 @@ stored, so a rejected value costs no upload.
    a double-submit pair for the browser (secret in the
    `__Host-wafflebase_oauth_state` cookie, its SHA-256 sent as
    `web.<hash>`), or
-   a CliAuthStore token for `?mode=cli`
+   a CliAuthStore token for `?mode=cli`, paired with a secret in the
+   `__Host-wafflebase_cli_state` cookie so the CLI state is bound to
+   this browser too
 3. Passport redirects to GitHub OAuth consent screen, carrying `state`
 4. GitHub redirects to GET /auth/github/callback
 5. GitHubStrategy validates profile, calls UserService.findOrCreateUser()
 6. The callback requires `state`: the browser's must match its cookie
-   (cleared on use), a CLI token is consumed and redirected to the
-   loopback port. A stateless or mismatched callback issues no session
-   and returns the browser to FRONTEND_URL/login?error=oauth_state
+   (cleared on use), a CLI token must match its own
+   `__Host-wafflebase_cli_state` cookie before it is consumed and
+   redirected to the loopback port. A stateless or mismatched callback
+   issues no session and returns the browser to
+   FRONTEND_URL/login?error=oauth_state
 7. AuthService signs access and refresh JWTs with { sub, username, email, photo }
 8. Tokens are set as httpOnly cookies (`wafflebase_session`, `wafflebase_refresh`)
 9. Response redirects to FRONTEND_URL

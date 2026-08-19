@@ -115,7 +115,15 @@ imports the full module set listed below.
     through GitHub, referrers and access logs.
   - **CLI** (`?mode=cli&port=…`) — a `CliAuthStore` token, because this
     flow also has to carry the loopback port and the CLI's per-attempt
-    nonce.
+    nonce. It is bound to the browser the same way: the guard mints a
+    secret alongside it into the `__Host-wafflebase_cli_state` cookie and
+    keeps only `sha256(secret)` beside the entry, and the callback
+    consumes the state only against a matching cookie. Without that, the
+    token is transferable — the confirmation click gates the *mint*, and
+    an attacker can perform it in their own browser, lift the `state` out
+    of the redirect to GitHub, and hand the victim a bare `authorize`
+    URL, at which point the callback would mint a code for the victim's
+    account bound to the attacker's challenge and loopback port.
 - `?mode=cli` is unauthenticated and takes the loopback port off the query
   string, so a page the victim visits could otherwise navigate them to it
   and have the backend mint an auth code for the *victim* at a port the
@@ -138,9 +146,12 @@ imports the full module set listed below.
      - Browser `state` must match the `__Host-wafflebase_oauth_state`
        cookie, which is cleared on use. Only that name is read — an
        unprefixed leftover is not accepted in production.
-     - Otherwise it is consumed as a CLI state token, and the callback
-       redirects to `http://127.0.0.1:<port>/callback` echoing the CLI's
-       nonce as `state`.
+     - Otherwise it is consumed as a CLI state token, which likewise
+       requires the `__Host-wafflebase_cli_state` cookie minted with it
+       (cleared on use, single-use, spent even on a mismatch). Only then
+       does the callback redirect to `http://127.0.0.1:<port>/callback`
+       echoing the CLI's nonce as `state`; a state completed in another
+       browser is refused.
   3. Calls `AuthService.createTokens()` to sign access/refresh JWTs.
   4. Sets httpOnly cookies named `wafflebase_session` and
      `wafflebase_refresh`.

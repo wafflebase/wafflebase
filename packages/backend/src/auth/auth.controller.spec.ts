@@ -6,7 +6,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { CliAuthStore, hashCliVerifier } from './cli-auth.store';
 import { JwtStrategy } from './jwt.strategy';
-import { createWebOAuthState } from './oauth-state';
+import { cliStateCookieName, createWebOAuthState } from './oauth-state';
 
 /** The PKCE pair a current CLI registers for a login attempt. */
 const CLI_VERIFIER = 'v'.repeat(43);
@@ -194,7 +194,7 @@ describe('AuthController', () => {
     it('redirects to CLI localhost when state is a valid CLI token', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
 
-      const { stateToken } = cliAuthStore.createState(
+      const { stateToken, csrf } = cliAuthStore.createState(
         'cli',
         9876,
         undefined,
@@ -206,6 +206,7 @@ describe('AuthController', () => {
           email: 'bob@example.com',
           photo: null,
         },
+        cookies: { [cliStateCookieName()]: csrf },
         query: { state: stateToken },
       } as unknown as Request;
       const res = createMockResponse();
@@ -225,7 +226,7 @@ describe('AuthController', () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
 
       const nonce = 'a'.repeat(64);
-      const { stateToken } = cliAuthStore.createState(
+      const { stateToken, csrf } = cliAuthStore.createState(
         'cli',
         9876,
         nonce,
@@ -233,6 +234,7 @@ describe('AuthController', () => {
       );
       const req = {
         user: { username: 'bob', email: 'bob@example.com', photo: null },
+        cookies: { [cliStateCookieName()]: csrf },
         query: { state: stateToken },
       } as unknown as Request;
       const res = createMockResponse();
@@ -249,7 +251,7 @@ describe('AuthController', () => {
     it('omits `state` when the CLI sent no nonce', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
 
-      const { stateToken } = cliAuthStore.createState(
+      const { stateToken, csrf } = cliAuthStore.createState(
         'cli',
         9876,
         undefined,
@@ -257,6 +259,7 @@ describe('AuthController', () => {
       );
       const req = {
         user: { username: 'bob', email: 'bob@example.com', photo: null },
+        cookies: { [cliStateCookieName()]: csrf },
         query: { state: stateToken },
       } as unknown as Request;
       const res = createMockResponse();
@@ -276,9 +279,10 @@ describe('AuthController', () => {
     it('mints no code when the CLI login registered no challenge', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
 
-      const { stateToken } = cliAuthStore.createState('cli', 9876);
+      const { stateToken, csrf } = cliAuthStore.createState('cli', 9876);
       const req = {
         user: { username: 'bob', email: 'bob@example.com', photo: null },
+        cookies: { [cliStateCookieName()]: csrf },
         query: { state: stateToken },
       } as unknown as Request;
       const res = createMockResponse();
@@ -288,6 +292,69 @@ describe('AuthController', () => {
       ).rejects.toThrow(/proof-of-possession challenge/);
       expect(res.redirect).not.toHaveBeenCalled();
       expect(res.cookie).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The confirmation page gates the *mint*, and an attacker can click
+     * through it in their own browser: they take the `state` out of the
+     * redirect to GitHub and hand the victim a bare `authorize` URL
+     * carrying it. Without a browser binding the callback would then mint
+     * a code for the **victim's** account, bound to the attacker's PKCE
+     * challenge and posted to the attacker's loopback port — no
+     * confirmation page ever shown to the victim. The state cookie is
+     * what the attacker cannot put in the victim's browser.
+     */
+    it('mints no code for a CLI state carried into another browser', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      // Attacker's browser starts the login and keeps the cookie secret.
+      const { stateToken } = cliAuthStore.createState(
+        'cli',
+        9876,
+        undefined,
+        CLI_CHALLENGE,
+      );
+      // Victim's browser completes it: same state, no matching cookie.
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        cookies: {},
+        query: { state: stateToken },
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(req as any, res, stateToken),
+      ).rejects.toThrow(/different browser/);
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+
+    it('mints no code when the cookie belongs to a different attempt', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const { stateToken } = cliAuthStore.createState(
+        'cli',
+        9876,
+        undefined,
+        CLI_CHALLENGE,
+      );
+      const other = cliAuthStore.createState(
+        'cli',
+        9876,
+        undefined,
+        CLI_CHALLENGE,
+      );
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        cookies: { [cliStateCookieName()]: other.csrf },
+        query: { state: stateToken },
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(req as any, res, stateToken),
+      ).rejects.toThrow(/different browser/);
+      expect(res.redirect).not.toHaveBeenCalled();
     });
   });
 
