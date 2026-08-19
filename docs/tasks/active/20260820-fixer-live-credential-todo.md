@@ -132,3 +132,40 @@ one slot on purpose, so the pool cannot "fail over" from a dead token to itself.
   proven in production.
 - Reserving a slot exclusively for the fixer. With 2 credentials that halves the
   panel's pool; revisit once more are registered.
+
+## Review findings on #894 — both valid, both fixed
+
+**The gate was INERT as first written.** I guarded and invoked the picker from
+`.trusted/scripts/agent/pick-fix-credential.mjs`. The fix job has no `.trusted`
+directory — that belongs to the review-panel job. This job snapshots trusted main into
+`$RUNNER_TEMP/agent-tools` *before* checking out the branch, and every other script it
+runs uses that path. So the `[ -f ]` guard was always false, the step exited 0, and
+nothing downstream changed: the fixer still got slot zero.
+
+My own wiring test asserted the `.trusted` path and passed, which is the failure mode
+I keep guarding against elsewhere — a path assertion proves nothing unless the path is
+one the job actually creates. The replacement test asserts the staged invocation AND
+that **no fix-job step references `.trusted` at all**, which is the invariant that
+would have caught it. Verified by reverting the path: two tests go red.
+
+**The refusal now requires a self-consistent artifact.** Refusing stalls the PR and
+pages a human; proceeding costs at most one wasted round. So `available: false` is
+reachable only when the artifact agrees with itself: known `v`, an integer `size`
+within bounds, an empty `live`, and a `retired` list of recognised, unique slot names
+whose count equals `size`. Previously `{live: [], size: "banana"}` refused — `Number()`
+gave NaN, NaN !== 0, and a malformed artifact stalled the PR, contradicting this file's
+own stated fail-open rule.
+
+The version check is the widest of these: `v` is the only thing asserting that these
+field names mean what the reader thinks, so an unrecognised version makes `live: []`
+uninterpretable rather than conclusive. A future panel that bumps the format degrades
+to today's behaviour instead of refusing every fixer until the reader catches up. A
+writer/reader mismatch would silently disable the whole feature, so the two literals
+are now pinned against each other by a test.
+
+One honest note on that validation: the `size` sanity check is **outcome-redundant** —
+the retired-count check rejects the same inputs, so its mutation survived at first. It
+is kept because it produces the precise `reason`, which is logged, published as a step
+output, and is the operator's only clue about what went wrong. The reasons are now
+asserted individually, which is what makes the check load-bearing for real behaviour
+rather than decoration.

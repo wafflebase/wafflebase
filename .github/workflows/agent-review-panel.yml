@@ -1694,21 +1694,28 @@ jobs:
       # round had been recorded, so the PR paid a fix round for a session that never
       # started.
       #
-      # TRUSTED copy, and `continue-on-error` with a fail-open default: only an
-      # explicit `available=false` stops the dispatch below. A missing artifact or a
-      # broken picker leaves `available` empty, which reads as "proceed" and is
-      # exactly today's behaviour — this must never be able to block a fixer that
-      # would have worked.
+      # TRUSTED copy from `$RUNNER_TEMP/agent-tools`, which "Stage the trusted agent
+      # scripts" above snapshotted from trusted main BEFORE the branch was checked
+      # out. By this point the workspace holds the UNTRUSTED branch, so
+      # `./scripts/agent` is the branch's own copy and `.trusted/` does not exist in
+      # this job at all — that directory belongs to the review-panel job. Every other
+      # script here runs from the staged path for exactly this reason.
+      #
+      # `continue-on-error` with a fail-open default: only an explicit
+      # `available=false` stops the dispatch below. A missing artifact or a broken
+      # picker leaves `available` empty, which reads as "proceed" and is exactly
+      # today's behaviour — this must never be able to block a fixer that would have
+      # worked.
       - name: Pick a live fixer credential
         id: cred
         if: steps.guard.outputs.proceed == 'true'
         continue-on-error: true
         run: |
-          [ -f .trusted/scripts/agent/pick-fix-credential.mjs ] || {
+          [ -f "$RUNNER_TEMP/agent-tools/pick-fix-credential.mjs" ] || {
             echo "pick-fix-credential.mjs is not on main yet; proceeding as before"
             exit 0
           }
-          node .trusted/scripts/agent/pick-fix-credential.mjs --state /tmp/review-panel-execution
+          node "$RUNNER_TEMP/agent-tools/pick-fix-credential.mjs" --state /tmp/review-panel-execution
 
       # NO LIVE CREDENTIAL — page, and spend nothing.
       #

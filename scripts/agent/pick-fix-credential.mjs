@@ -43,6 +43,9 @@ import path from "node:path";
 import { MAX_SLOTS, TOKEN_ENV } from "./token-pool.mjs";
 
 const STATE_FILE = "review-pool-state.json";
+// Must match what review-panel.mjs stamps. Read as a gate, not decoration — see the
+// version check in `chooseCredential`.
+const POOL_STATE_VERSION = 1;
 
 /**
  * The env-var suffix for a slot name: `CLAUDE_CODE_OAUTH_TOKEN_3` → `"3"`, and the
@@ -70,39 +73,58 @@ export function slotSuffix(name) {
  * than forwarded — an artifact naming `GITHUB_TOKEN` cannot make the fixer read it.
  */
 export function chooseCredential(state) {
-  if (!state || typeof state !== "object") {
-    return { slot: "", available: true, reason: "no-pool-state" };
-  }
+  const proceed = (reason) => ({ slot: "", available: true, reason });
+  if (!state || typeof state !== "object") return proceed("no-pool-state");
+
+  // VERSION FIRST. `v` is the only thing that says these field names mean what this
+  // code thinks they mean, so an unknown version makes every other field
+  // uninterpretable — including `live: []`, which would otherwise read as a drained
+  // pool. A future panel that bumps the format therefore degrades to today's
+  // behaviour instead of refusing every fixer until this file catches up.
+  if (state.v !== POOL_STATE_VERSION) return proceed("pool-state-version");
+
   const live = Array.isArray(state.live) ? state.live : null;
-  if (!live) return { slot: "", available: true, reason: "pool-state-unreadable" };
+  if (!live) return proceed("pool-state-unreadable");
 
   const usable = live.map(slotSuffix).filter((s) => s !== null);
-  if (usable.length === 0) {
-    // Three different states reach here and only ONE of them is evidence that
-    // dispatching would waste a round.
-    //
-    // An unconfigured pool (`size: 0`) means the repo runs on the ambient credential
-    // alone — nothing to fail over to OR away from — so the fixer proceeds as it
-    // always has.
-    if (Number(state.size) === 0) {
-      return { slot: "", available: true, reason: "pool-unconfigured" };
-    }
-    // A live list that is genuinely EMPTY, with slots configured, is the drained
-    // pool: the panel retired every one of them. This is the only fail-closed case.
-    if (live.length === 0) {
-      return { slot: "", available: false, reason: "all-slots-retired" };
-    }
-    // A NON-empty live list none of whose names we recognise is a malformed or
-    // tampered artifact, not a drained pool — nothing here says a credential is
-    // unavailable, only that we cannot tell which. By the rule at the top of this
-    // file that is an "unreadable" state and it fails OPEN: refusing here would
-    // block every fixer on a repo whose artifact shape drifted.
-    return { slot: "", available: true, reason: "unrecognised-slots" };
-  }
   // First live slot in slot order. Not the panel's current slot and not a random
   // one: order is stable, so two jobs reading the same state agree, and a human
   // reading the log can predict what it picked.
-  return { slot: usable[0], available: true, reason: "live-slot" };
+  if (usable.length > 0) return { slot: usable[0], available: true, reason: "live-slot" };
+
+  // ── No usable live slot. Everything below decides whether that is EVIDENCE of a
+  // drained pool or merely an artifact we cannot interpret.
+  //
+  // THE ASYMMETRY THAT DRIVES THIS: refusing costs a stalled PR and a page, while
+  // proceeding costs at most one wasted fix round. So `available: false` is returned
+  // ONLY for an artifact that is internally consistent AND says the pool is spent.
+  // Anything self-contradictory is unreadable, and unreadable proceeds.
+
+  // `size` must be a real, bounded slot count before any conclusion rests on it.
+  // Without this, `{live: [], size: "banana"}` reached the refusal below: `Number()`
+  // gave NaN, NaN !== 0, and a malformed artifact stalled the PR.
+  const size = state.size;
+  if (!Number.isInteger(size) || size < 0 || size > MAX_SLOTS + 1) return proceed("pool-size-unreadable");
+
+  // `size: 0` is a repo with no pool configured, not a spent one. It runs on the
+  // ambient credential and always has.
+  if (size === 0) return proceed("pool-unconfigured");
+
+  // A NON-empty live list none of whose names we recognise is a malformed or tampered
+  // artifact, not a drained pool — nothing here says a credential is unavailable,
+  // only that we cannot tell which.
+  if (live.length > 0) return proceed("unrecognised-slots");
+
+  // `live` is empty and slots are configured. `retired` must corroborate it: every
+  // entry a recognised slot, no duplicates, and exactly as many as the pool holds.
+  // A pool of 2 that reports one retired slot and no live ones has lost a slot
+  // somewhere, and guessing which way is worse than not guessing.
+  const retired = Array.isArray(state.retired) ? state.retired.map(slotSuffix) : null;
+  if (!retired || retired.some((x) => x === null)) return proceed("retired-unreadable");
+  if (new Set(retired).size !== retired.length) return proceed("retired-duplicated");
+  if (retired.length !== size) return proceed("retired-count-mismatch");
+
+  return { slot: "", available: false, reason: "all-slots-retired" };
 }
 
 /** Read the state file from a directory or an explicit path. Never throws. */
