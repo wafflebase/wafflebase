@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import {
   Dialog,
@@ -195,5 +195,51 @@ describe('Popover — controlled mode', () => {
       </Popover>,
     );
     expect(host.querySelector<HTMLElement>('[role="dialog"]')!.style.minWidth).toBe('');
+  });
+});
+
+/**
+ * A ref callback whose identity changes is detached and reattached by React on every
+ * render, and `PopoverTrigger`'s reads layout. MEASURED before memoising: 60 parent
+ * renders produced 60 `getBoundingClientRect()` calls — one per render, per popover.
+ * `App` re-renders on `onHover` while the pointer moves over the frame and holds three
+ * popovers, so that was ~3 forced layout reads per pointer event. Free in jsdom; not in
+ * a browser.
+ *
+ * Pinned as a NUMBER rather than as "is memoised", because the thing that matters is the
+ * layout read, and a future refactor can reintroduce it without touching `useCallback`.
+ */
+describe('the trigger does not re-measure on every parent render', () => {
+  it('reads layout once at mount and not again while the parent re-renders', () => {
+    let rects = 0;
+    const proto = window.HTMLElement.prototype;
+    const orig = proto.getBoundingClientRect;
+    proto.getBoundingClientRect = function () {
+      rects++;
+      return { width: 120, height: 20, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+    };
+    try {
+      let bump: (n: number) => void = () => {};
+      function Parent() {
+        const [n, setN] = useState(0);
+        bump = setN;
+        return (
+          <div data-n={n}>
+            <Popover>
+              <PopoverTrigger>open</PopoverTrigger>
+              <PopoverContent>body</PopoverContent>
+            </Popover>
+          </div>
+        );
+      }
+      render(<Parent />);
+      const afterMount = rects;
+      // Separate act() per update: one render each, the way a pointer-move stream arrives.
+      // Batched into a single act() they collapse to one render and measure nothing.
+      for (let i = 1; i <= 20; i++) act(() => bump(i));
+      expect(rects - afterMount).toBe(0);
+    } finally {
+      proto.getBoundingClientRect = orig;
+    }
   });
 });

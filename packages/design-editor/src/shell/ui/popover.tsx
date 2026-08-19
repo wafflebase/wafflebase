@@ -22,18 +22,7 @@
  * viewport edge can overflow. Both are real limits of this implementation and are
  * written here rather than left for a reader to discover.
  */
-import {
-  cloneElement,
-  createContext,
-  isValidElement,
-  useContext,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
+import { cloneElement, createContext, isValidElement, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { cn } from '../lib/cn.ts';
 
 interface PopoverCtx {
@@ -69,15 +58,35 @@ export function Popover({
 }) {
   const [own, setOwn] = useState(false);
   const open = openProp ?? own;
-  const setOpen = (v: boolean) => {
-    if (openProp === undefined) setOwn(v);
-    onOpenChange?.(v);
-  };
+  const setOpen = useCallback(
+    (v: boolean) => {
+      if (openProp === undefined) setOwn(v);
+      onOpenChange?.(v);
+    },
+    [openProp, onOpenChange],
+  );
   const [triggerWidth, setTriggerWidth] = useState<number | null>(null);
-  const measure = (el: HTMLElement | null) =>
-    setTriggerWidth(el ? Math.round(el.getBoundingClientRect().width) : null);
+  /**
+   * MEMOISED, and the cost of not doing so was measured rather than assumed. A ref
+   * callback whose identity changes is detached and reattached by React on every render,
+   * and this one reads layout: 60 parent renders produced 60 `getBoundingClientRect()`
+   * calls, one per render, per popover. `App` re-renders on `onHover` while the pointer
+   * moves over the frame and holds three popovers, so that is ~3 forced layout reads per
+   * pointer event — free in jsdom, not in a browser.
+   */
+  const measure = useCallback(
+    (el: HTMLElement | null) =>
+      setTriggerWidth(el ? Math.round(el.getBoundingClientRect().width) : null),
+    [],
+  );
   const id = useId();
   const box = useRef<HTMLDivElement | null>(null);
+  // The provider value too: a fresh object re-renders every consumer regardless of the
+  // callbacks above being stable.
+  const ctx = useMemo(
+    () => ({ open, setOpen, id, triggerWidth, measure }),
+    [open, setOpen, id, triggerWidth, measure],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -97,7 +106,7 @@ export function Popover({
   }, [open]);
 
   return (
-    <Ctx.Provider value={{ open, setOpen, id, triggerWidth, measure }}>
+    <Ctx.Provider value={ctx}>
       <div ref={box} className="relative inline-flex">
         {children}
       </div>
