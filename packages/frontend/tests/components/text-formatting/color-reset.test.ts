@@ -41,7 +41,9 @@ function makeEditor(): TextFormattingEditor {
   return {
     focus: vi.fn(),
     getSelectionStyle: vi.fn(() => ({})),
+    getRangeStyleSummary: vi.fn(() => ({})),
     applyStyle: vi.fn(),
+    clearInlineFormatting: vi.fn(),
     applyBlockStyle: vi.fn(),
     getBlockType: vi.fn(() => ({ type: "paragraph" as const })),
     setBlockType: vi.fn(),
