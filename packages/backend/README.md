@@ -64,6 +64,20 @@ GITHUB_USER_EMAIL_URL=                   #   https://<host>/login/oauth/authoriz
                                         # otherwise fetches emails from
                                         # api.github.com and a GHE token fails
                                         # there with "Bad credentials".
+COOKIE_SECURE=                          # Optional. Whether session and login
+                                        # cookies carry `Secure` (and so the
+                                        # `__Host-` prefix). Unset — the normal
+                                        # case — derives it from
+                                        # GITHUB_CALLBACK_URL's scheme, since
+                                        # that is where GitHub redirects the
+                                        # login and so is this server's public
+                                        # scheme; with no callback URL set at
+                                        # all it falls back to
+                                        # NODE_ENV=production. Set it to `true`
+                                        # only when TLS terminates at an edge
+                                        # and the callback URL is `http://`
+                                        # anyway, which would otherwise
+                                        # downgrade the session cookie.
 PORT=3000
 LOG_LEVEL=info                          # Optional, Pino level
 BACKEND_TRUST_PROXY=0                   # Optional, set to 1 behind a proxy
@@ -211,8 +225,8 @@ pnpm --filter @wafflebase/backend exec prisma migrate deploy
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow (always carries an OAuth `state`). CLI mode (`?mode=cli`) requires `port`, `nonce` and `code_challenge`, stops on a consent page naming the loopback port, and is a `400` on a plain-http non-loopback origin |
-| `GET` | `/auth/github/callback` | - | OAuth callback, sets access/refresh cookies, redirects to frontend |
+| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow (mints the OAuth `state`; `?mode=cli` is gated on a confirmation click) |
+| `GET` | `/auth/github/callback` | - | OAuth callback; requires a matching `state`, sets access/refresh cookies, redirects to frontend |
 | `GET` | `/auth/me` | JWT | Get current authenticated user |
 | `POST` | `/auth/refresh` | Refresh cookie | Rotate access/refresh cookies |
 | `POST` | `/auth/logout` | - | Clear session cookies |
@@ -365,6 +379,11 @@ All API key endpoints require JWT authentication.
 
 All v1 endpoints accept both JWT cookies and `Authorization: Bearer wfb_...` API key auth.
 
+Every mutating v1 route (`POST` / `PUT` / `PATCH` / `DELETE`) additionally
+requires the `write` scope from an API-key caller — enforced for the whole
+surface by `ApiKeyWriteScopeGuard`, not per handler. JWT callers are
+unaffected; their authority is workspace membership and document ownership.
+
 #### Documents
 
 | Method | Route | Description |
@@ -418,15 +437,35 @@ stored, so a rejected value costs no upload.
 
 ```
 1. Frontend links to GET /auth/github
-2. Passport redirects to GitHub OAuth consent screen
-3. GitHub redirects to GET /auth/github/callback
-4. GitHubStrategy validates profile, calls UserService.findOrCreateUser()
-5. AuthService signs access and refresh JWTs with { sub, username, email, photo }
-6. Tokens are set as httpOnly cookies (`wafflebase_session`, `wafflebase_refresh`)
-7. Response redirects to FRONTEND_URL
-8. Frontend calls GET /auth/me on subsequent loads to verify session
-9. If access token expires, frontend calls POST /auth/refresh and retries once
+2. GitHubAuthGuard mints an OAuth `state` and attaches it as __oauthState:
+   a double-submit pair for the browser (secret in the
+   `__Host-wafflebase_oauth_state` cookie, its SHA-256 sent as
+   `web.<hash>`), or
+   a CliAuthStore token for `?mode=cli`, paired with a secret in the
+   `__Host-wafflebase_cli_state` cookie so the CLI state is bound to
+   this browser too
+3. Passport redirects to GitHub OAuth consent screen, carrying `state`
+4. GitHub redirects to GET /auth/github/callback
+5. GitHubStrategy validates profile, calls UserService.findOrCreateUser()
+6. The callback requires `state`: the browser's must match its cookie
+   (cleared on use), a CLI token must match its own
+   `__Host-wafflebase_cli_state` cookie before it is consumed and
+   redirected to the loopback port. A stateless or mismatched callback
+   issues no session and returns the browser to
+   FRONTEND_URL/login?error=oauth_state
+7. AuthService signs access and refresh JWTs with { sub, username, email, photo }
+8. Tokens are set as httpOnly cookies (`wafflebase_session`, `wafflebase_refresh`)
+9. Response redirects to FRONTEND_URL
+10. Frontend calls GET /auth/me on subsequent loads to verify session
+11. If access token expires, frontend calls POST /auth/refresh and retries once
 ```
+
+A CLI login (`GET /auth/github?mode=cli&port=…`) is unauthenticated and
+takes its redirect target off the query string, so `CliLoginConfirmMiddleware`
+answers it with a confirmation page first; only the click through it
+(which carries the `__Host-wafflebase_cli_confirm` cookie secret back as
+`?confirm=`) reaches the guard. Design:
+[`docs/design/backend.md`](../../docs/design/backend.md).
 
 ## Database Schema
 
@@ -506,6 +545,10 @@ src/
 │   ├── auth.controller.ts     # OAuth + session endpoints
 │   ├── auth.service.ts        # JWT token creation
 │   ├── github.strategy.ts     # Passport GitHub OAuth2 strategy
+│   ├── github-auth.guard.ts   # Mints the OAuth `state` (web + CLI)
+│   ├── oauth-state.ts         # Browser double-submit state cookie
+│   ├── cli-auth.store.ts      # CLI login state/code store
+│   ├── cli-login-confirm.middleware.ts # Consent gate for ?mode=cli
 │   ├── jwt.strategy.ts        # Passport JWT-from-cookie strategy
 │   └── jwt-auth.guard.ts      # Route guard
 ├── user/
@@ -532,7 +575,8 @@ src/
 │   ├── tabs.controller.ts     # Tab listing via Yorkie
 │   ├── cells.controller.ts    # Cell CRUD via Yorkie
 │   ├── files.controller.ts    # Blob document upload/download (any file)
-│   └── workspace-scope.guard.ts # Workspace access verification
+│   ├── workspace-scope.guard.ts # Workspace access verification
+│   └── api-key-write-scope.guard.ts # `write` scope on mutating routes
 ├── workspace/                 # Workspaces + members + sharing roles
 ├── folder/                    # Workspace folder tree (folder.md / workspace-folders.md)
 ├── share-link/                # URL-based token sharing (sharing.md)

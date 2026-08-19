@@ -1,4 +1,5 @@
 export type { TextFormattingEditor } from "./types";
+export { isStyleOn } from "./style-summary";
 export { TextStyleGroup } from "./text-style-group";
 export { TextFormatGroup } from "./text-format-group";
 export { TextParagraphGroup } from "./text-paragraph-group";

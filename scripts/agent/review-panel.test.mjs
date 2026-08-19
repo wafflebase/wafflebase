@@ -2110,6 +2110,83 @@ test("routeFinding: only ever returns a declared lane", () => {
   assert.ok(LANES.includes(routeFinding({ severity: "major" }, { novelty: { origin: "relocated" } })));
 });
 
+test("routeFinding: a major on code a fix round wrote after the freeze goes to backlog", () => {
+  const OUT = { scope: "out-of-scope", addedBy: "f".repeat(40) };
+  assert.equal(routeFinding({ severity: "major" }, { surface: OUT }), "backlog");
+  assert.ok(LANES.includes(routeFinding({ severity: "major" }, { surface: OUT })));
+});
+
+test("routeFinding: a CRITICAL never demotes on scope, however out of scope it is", () => {
+  // The deliberate carve-out. "This is not what the PR was scoped to fix" is a
+  // scheduling claim, and it stops being worth making when the alternative is
+  // shipping a critical bug.
+  const OUT = { scope: "out-of-scope", addedBy: "f".repeat(40) };
+  assert.equal(routeFinding({ severity: "critical" }, { surface: OUT }), "blocking");
+});
+
+test("routeFinding: an unrecognized severity is a major, so it demotes with them", () => {
+  // `normalizeSeverity` maps anything unknown to `major` (fail-safe). The carve-out
+  // must key off the NORMALIZED value, or a lens emitting "Critical" or "blocker"
+  // would take a path nobody chose — in either direction.
+  const OUT = { scope: "out-of-scope", addedBy: "f".repeat(40) };
+  assert.equal(routeFinding({ severity: "wat" }, { surface: OUT }), "backlog");
+  assert.equal(routeFinding({}, { surface: OUT }), "backlog");
+  // ...but a differently-cased critical is still a critical.
+  assert.equal(routeFinding({ severity: "CRITICAL" }, { surface: OUT }), "blocking");
+  assert.equal(routeFinding({ severity: " critical " }, { surface: OUT }), "blocking");
+});
+
+test("routeFinding: in-scope and unknown scopes keep the finding blocking", () => {
+  // The fail direction, stated as a test. Only an affirmative `out-of-scope`
+  // demotes; everything the gate could not establish keeps gating.
+  for (const scope of ["in-scope", "unknown", undefined, null, "", "OUT-OF-SCOPE"]) {
+    assert.equal(routeFinding({ severity: "major" }, { surface: { scope } }), "blocking", String(scope));
+  }
+  assert.equal(routeFinding({ severity: "major" }, { surface: null }), "blocking");
+  assert.equal(routeFinding({ severity: "major" }, {}), "blocking");
+});
+
+test("routeFinding: a refutation outranks scope, and novelty is reported over scope", () => {
+  const OUT = { scope: "out-of-scope", addedBy: "f".repeat(40) };
+  // A finding describing code that is not there should be dropped outright, not
+  // filed as out-of-scope work that does not exist either.
+  assert.equal(routeFinding({ severity: "major" }, { verdict: DROPPING, surface: OUT }), "discarded");
+  // Both gates demoting is still one backlog entry.
+  assert.equal(
+    routeFinding({ severity: "major" }, { novelty: { origin: "relocated" }, surface: OUT }),
+    "backlog",
+  );
+});
+
+test("annotateFindings: the surface is stamped for every scope, not just demotions", () => {
+  // "The gate ran and kept this finding" must be distinguishable from "the gate
+  // never ran" when reading a check body after the fact.
+  const findings = [
+    { severity: "major", summary: "demoted" },
+    { severity: "major", summary: "kept" },
+    { severity: "critical", summary: "carved out" },
+  ];
+  const surfaces = [
+    { scope: "out-of-scope", addedBy: "f".repeat(40) },
+    { scope: "in-scope", addedBy: "a".repeat(40) },
+    { scope: "out-of-scope", addedBy: "f".repeat(40) },
+  ];
+  const out = annotateFindings(findings, [null, null, null], null, surfaces);
+  assert.deepEqual(out.map((f) => f.lane), ["backlog", "blocking", "blocking"]);
+  assert.deepEqual(out.map((f) => f.surface?.scope), ["out-of-scope", "in-scope", "out-of-scope"]);
+});
+
+test("annotateFindings: no surfaces array at all behaves exactly as before", () => {
+  // The un-wired path: a panel run with the gate off must route identically to
+  // pre-gate behaviour.
+  const findings = [{ severity: "major", summary: "a" }, { severity: "critical", summary: "b" }];
+  for (const surfaces of [null, undefined, [], [null, null]]) {
+    const out = annotateFindings(findings, [null, null], null, surfaces);
+    assert.deepEqual(out.map((f) => f.lane), ["blocking", "blocking"]);
+    for (const f of out) assert.equal("surface" in f, false);
+  }
+});
+
 test("annotateFindings: non-blocking findings are returned untouched, with no lane", () => {
   // minor/nit never reach the gate, so giving them a lane would invent a second
   // way to express what severity already says.

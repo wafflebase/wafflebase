@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { LoginForm } from "@/components/login-form";
 import { WaffleLogo } from "@/app/home/primitives/waffle-logo";
@@ -12,6 +12,8 @@ const GITHUB_URL = "https://github.com/wafflebase/wafflebase";
  * Renders the login page.
  */
 export default function LoginPage() {
+  const [searchParams] = useSearchParams();
+
   useEffect(() => {
     document.title = "Login — Wafflebase";
   }, []);
@@ -44,7 +46,7 @@ export default function LoginPage() {
                 "0 1px 0 rgba(42,30,18,0.04), 0 30px 60px -32px rgba(42,30,18,0.22)",
             }}
           >
-            <LoginForm />
+            <LoginForm error={searchParams.get("error")} />
           </div>
 
           <p className="text-center text-[12.5px] font-code text-[color:var(--wb-sub)] mt-6">

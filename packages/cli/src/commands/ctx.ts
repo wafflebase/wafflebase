@@ -1,18 +1,44 @@
 import { Command } from 'commander';
+import { getGlobalOpts } from './root.js';
+import {
+  output,
+  outputError,
+  parseOutputFormat,
+} from '../output/formatter.js';
 import { loadSession, saveSession } from '../config/session.js';
 import type { WorkspaceInfo } from '../config/session.js';
 import { commandPath, errorEnvelope } from '../output/formatter.js';
 
-export function formatWorkspaceList(
+export interface WorkspaceRow {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+/**
+ * Structured workspace list — the shape `wafflebase schema ctx.list`
+ * has always advertised. The active workspace is flagged by the
+ * `active` field rather than a `*` prefix; `--format table` renders it
+ * as a column for humans.
+ */
+export function buildWorkspaceList(
   workspaces: WorkspaceInfo[],
   activeId: string,
-): string {
-  return workspaces
-    .map((ws) => {
-      const marker = ws.id === activeId ? '*' : ' ';
-      return `${marker} ${ws.id.slice(0, 8)}  ${ws.name}`;
-    })
-    .join('\n');
+): WorkspaceRow[] {
+  return workspaces.map((ws) => ({
+    id: ws.id,
+    name: ws.name,
+    active: ws.id === activeId,
+  }));
+}
+
+/** Thrown when a command needs a session and none is on disk. */
+class NotLoggedInError extends Error {
+  readonly code = 'NOT_LOGGED_IN';
+
+  constructor() {
+    super('Not logged in. Run `wafflebase login`.');
+  }
 }
 
 export function findWorkspace(
@@ -42,15 +68,22 @@ export function registerCtxCommand(program: Command): void {
   ctx
     .command('list')
     .description('List workspaces')
-    .action(() => {
-      const session = loadSession();
-      if (!session) {
-        console.log('Not logged in. Run `wafflebase login`.');
-        return;
+    .action(function (this: Command) {
+      const opts = getGlobalOpts(this);
+      try {
+        const fmt = parseOutputFormat(opts.format);
+        const session = loadSession();
+        // Unlike `status`, this command cannot answer without a
+        // session, so it reports a structured error and exits 1. The
+        // exit code matches `ctx switch`, which still prints prose.
+        if (!session) throw new NotLoggedInError();
+        output(
+          buildWorkspaceList(session.workspaces, session.activeWorkspace),
+          fmt,
+        );
+      } catch (e) {
+        outputError(e);
       }
-      console.log(
-        formatWorkspaceList(session.workspaces, session.activeWorkspace),
-      );
     });
 
   ctx

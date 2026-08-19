@@ -32,6 +32,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readPoolSlots, TOKEN_ENV } from "./token-pool.mjs";
+import { SESSION_LIMIT_RE, redactSecrets } from "./redact.mjs";
 
 export const EXIT = Object.freeze({ ok: 0, auth: 1, quota: 2, tooling: 3 });
 
@@ -42,11 +43,15 @@ export const EXIT = Object.freeze({ ok: 0, auth: 1, quota: 2, tooling: 3 });
 // credential, and an auth error read as quota sends them to wait for a reset
 // that will never help.
 const QUOTA = [
-  /session limit/i,
+  // The same rule the pipeline fails over on, imported rather than restated —
+  // it covers `session`/`usage` plus the other billing periods. A period this
+  // list knows but `SESSION_LIMIT_RE` does not (or the reverse) is a smoke test
+  // that disagrees with the pipeline it exists to pre-flight, which is the one
+  // thing a pre-arm check must never do.
+  SESSION_LIMIT_RE,
   /rate[ _-]?limit/i,
   /\b429\b/,
   /overloaded/i,
-  /usage limit/i,
   /quota/i,
   /capacity/i,
   /too many requests/i,
@@ -83,7 +88,15 @@ export function classifyFailure(message) {
 
 /** The message and exit code for a classified failure. */
 export function describeFailure(kind, detail) {
-  const raw = String(detail ?? "").trim() || "(no detail)";
+  // REDACTED, because this text is printed to a public Actions log and this is the
+  // tool you reach for when a credential is broken — so a malformed secret, whose
+  // value the HTTP client quotes back verbatim, arrives here by design rather than
+  // by accident. GitHub's own log masking is no defence: it is exact-substring, and
+  // it splits registered secrets on whitespace, which is precisely the shape that
+  // leaked. `classifyFailure` runs on the RAW text upstream of this, so scrubbing
+  // cannot change the diagnosis. What survives — "invalid value: <REDACTED>" —
+  // still names the fault exactly.
+  const raw = redactSecrets(String(detail ?? "").trim()) || "(no detail)";
   if (kind === "quota") {
     return {
       code: EXIT.quota,
@@ -147,10 +160,12 @@ async function checkCredential(query, model, authToken) {
       }
     }
   } catch (err) {
-    return { ...describeFailure(classifyFailure(err.message), err.message), detail: err.message };
+    // `detail` is redacted too. Nothing prints it today, but leaving raw upstream
+    // text on the returned object is the trap this whole change exists to remove.
+    return { ...describeFailure(classifyFailure(err.message), err.message), detail: redactSecrets(err.message) };
   }
   if (ok) return { code: EXIT.ok, detail: "" };
-  return { ...describeFailure(classifyFailure(lastSubtype), lastSubtype), detail: lastSubtype };
+  return { ...describeFailure(classifyFailure(lastSubtype), lastSubtype), detail: redactSecrets(lastSubtype) };
 }
 
 /**

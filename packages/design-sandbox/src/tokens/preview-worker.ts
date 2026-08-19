@@ -212,8 +212,22 @@ export function createPreviewWorker(options: PreviewWorkerOptions): PreviewWorke
         try {
           w.child.stdin.write(`${JSON.stringify({ id, files })}\n`);
         } catch (err) {
-          // The child can die between `ensure()` and this write. Settling here rather
-          // than letting the timeout do it turns a 15-second stall into an answer.
+          // A DEAD CHILD DOES NOT REACH HERE, and the comment that said it did was
+          // wrong. Measured against a child that exits before the write, at several
+          // timings: `write()` never throws, and no `'error'` event is emitted even
+          // with a listener attached — the failure surfaces only through the write
+          // callback, as `ERR_STREAM_DESTROYED`, which this call does not pass. So
+          // this catch is unreachable for the case it was written for.
+          //
+          // Nothing is broken by that, which is why it is a comment fix rather than a
+          // code one: `die()` already settles every pending request from
+          // `child.on('exit')`, milliseconds later, so the 15-second stall the old
+          // comment worried about is prevented — just somewhere else. Adding a write
+          // callback here would duplicate `die()`.
+          //
+          // Kept because `write()` CAN throw for reasons unrelated to the child dying
+          // (a `null` stdin if the stdio shape ever changes, a write after `end()`),
+          // and settling beats an unhandled rejection out of a `.then` nobody owns.
           clearTimeout(timer);
           w.pending.delete(id);
           resolve({ ok: false, error: `preview worker write failed: ${String(err)}` });

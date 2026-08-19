@@ -50,13 +50,13 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
   }
 
   /**
-   * Override authenticate to inject the `state` parameter `GitHubAuthGuard`
-   * minted for this authorization request — a store-backed token for a CLI
-   * login, a `w.`-prefixed cookie half for a browser one.
-   *
-   * passport-oauth2 installs a `NullStore` when no `state` option is given,
-   * and its `verify` always succeeds, so a request that reaches GitHub
-   * without this has no CSRF binding at all.
+   * Forward the `state` parameter `GitHubAuthGuard` attached to the
+   * request. Both login paths have one — a `CliAuthStore` token for the
+   * CLI, a double-submit cookie hash for the browser — and the callback
+   * rejects a request that arrives without it, so a login that reached
+   * GitHub stateless would be a login that can never come back. Anything
+   * without the flag is not a login start (no guard ran), so it is left
+   * to passport's own handling rather than given a state here.
    */
   authenticate(req: Request, options?: Record<string, unknown>) {
     const opts = { ...options };

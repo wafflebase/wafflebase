@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { classifyFailure, describeFailure, EXIT, worstExit } from "./auth-smoke.mjs";
+import { redactSecrets } from "./redact.mjs";
 
 // This script had no test suite, and it is the FIRST thing an adopter runs —
 // so its diagnosis is the first thing they read. It reported "auth almost
@@ -27,6 +28,10 @@ test("capacity and quota refusals never read as a credential problem", () => {
     "HTTP 429",
     "overloaded_error: the service is overloaded",
     "You have exceeded your usage limit",
+    // The period this list missed. Left unclassified it fell through to
+    // "unknown" and exited 1, sending an operator to hunt a credential problem
+    // they did not have — the exact misdiagnosis this file's header warns about.
+    "You've hit your weekly limit · resets 11pm (UTC)",
     "quota exceeded for this organization",
     "insufficient capacity, try again later",
   ]) {
@@ -124,4 +129,31 @@ test("importing the module does not run the probe", () => {
   // import above would have fired a live SDK query and called process.exit.
   assert.equal(typeof classifyFailure, "function");
   assert.equal(typeof describeFailure, "function");
+});
+
+test("describeFailure: never echoes a credential into the public Actions log", () => {
+  // This is the tool you run WHEN a credential is broken, so a malformed secret —
+  // whose value the HTTP client quotes back verbatim — reaches it by design. The
+  // repo is public, so its Actions log is public.
+  const token = "sk-ant-oat01-AbCdEf1234567890XyZw QqRrSs9876543210AbCd";
+  const raw = `Header 'Authorization' has invalid value: ${token}`;
+  for (const kind of ["quota", "auth", "unknown"]) {
+    const { text } = describeFailure(kind, raw);
+    for (const fragment of token.split(/\s+/)) {
+      assert.ok(!text.includes(fragment), `${kind} leaked "${fragment}": ${text}`);
+    }
+  }
+  // Scrubbing must not blunt the diagnosis: the fault is still named exactly.
+  assert.match(describeFailure("auth", raw).text, /invalid value: <REDACTED>/);
+});
+
+test("classifyFailure: reads the RAW text, so redaction cannot change the verdict", () => {
+  // Both diagnoses survive scrubbing because `classifyFailure` runs upstream of it
+  // — and because neither signal is credential-shaped, so nothing masks them even
+  // when it does run.
+  const cases = [["You've hit your session limit", "quota"], ["401 unauthorized", "auth"]];
+  for (const [text, kind] of cases) {
+    assert.equal(classifyFailure(text), kind);
+    assert.equal(classifyFailure(redactSecrets(text, { extra: [] })), kind, `redaction changed: ${text}`);
+  }
 });

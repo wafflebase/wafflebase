@@ -19,7 +19,8 @@ users create nested tables directly in the editor.
 - Recursive nesting with no hard depth limit (UI naturally limits via minimum
   cell width of 30 px)
 - Full feature parity inside nested tables: cell merge/split, row/column
-  insert/delete, resize, styling
+  insert/delete, resize, styling (one exception ships today — see
+  [Known gap](#known-gap-inline-styling-does-not-descend))
 - Editor insertion: users can insert a table into a cell via the existing table
   insertion UI
 - Real-time collaboration via Yorkie CRDT synchronization
@@ -30,6 +31,34 @@ users create nested tables directly in the editor.
 - Cross-page splitting of nested rows (rows remain atomic across pages)
 - Repeating column headers on page break (future enhancement)
 - Drag-and-drop of tables between nesting levels
+
+### Known gap: inline styling does not descend
+
+The styling half of the parity Goal above is not met for a *range* toggle
+that sweeps over a nested table. `visitRangeSlices`
+(`packages/docs/src/model/range-slices.ts`) — the single traversal both the
+inline-style write (`Doc.applyInlineStyle`) and the toolbar/keyboard reads
+drive, see
+[docs-font-controls.md](../docs-font-controls.md#the-shared-range-traversal-modelrange-slicests-modelrange-runsts)
+— covers a table caught inside a cross-block selection cell block by cell
+block, and a nested table *is* one of those blocks: `getBlockTextLength` is 0
+for it, so nothing inside it is visited. Selecting across the outer table and
+pressing **Bold** therefore leaves the nested table's text unbolded. Its
+endpoint case has the same shape: a selection *starting* inside a nested cell
+normalizes to the inner table block, which is not a context block, so the
+range is a no-op.
+
+Editing inside a nested cell is unaffected — a selection wholly within one
+nested block, or across blocks of one nested cell, styles normally. Only the
+enclosing-selection case is skipped.
+
+Closing this means making the table case of `visitRangeSlices` recursive (and
+resolving an endpoint to its top-level ancestor table rather than its direct
+parent). Because there is exactly one traversal, that would close it for the
+read and the write in the same change — which is the point of keeping the
+gap symmetric rather than fixing only the read: a read that reported runs the
+write cannot reach is precisely the issue #715 trap (a style that can be
+added but never removed).
 
 ## Proposal Details
 

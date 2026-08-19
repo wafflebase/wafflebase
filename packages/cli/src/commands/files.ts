@@ -1,6 +1,11 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { commandPath, output, outputError } from '../output/formatter.js';
+import {
+  commandPath,
+  output,
+  outputError,
+  parseOutputFormat,
+} from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { runFilesUpload } from '../files/upload.js';
 import { runFilesDownload } from '../files/download.js';
@@ -84,6 +89,7 @@ export function registerFilesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       const local = this.opts<{ type?: string }>();
       try {
+        const fmt = parseOutputFormat(opts.format);
         if (local.type && !BLOB_TYPES.has(local.type)) {
           throw new Error(
             `Invalid --type "${local.type}". Expected file, pdf, or image.`,
@@ -97,7 +103,7 @@ export function registerFilesCommand(program: Command) {
             local.type ? d.type === local.type : BLOB_TYPES.has(d.type ?? ''),
           );
         }
-        output(data, opts.format);
+        output(data, fmt);
       } catch (e) {
         outputError(e, this);
       }
@@ -109,9 +115,10 @@ export function registerFilesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e, this);
       }
@@ -127,9 +134,12 @@ export function registerFilesCommand(program: Command) {
         return;
       }
       try {
+        // Narrowed before the request: a rejected `--format` must not
+        // discard the response of a rename that already happened.
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e, this);
       }
@@ -145,9 +155,10 @@ export function registerFilesCommand(program: Command) {
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e, this);
       }

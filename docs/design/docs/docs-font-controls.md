@@ -209,8 +209,9 @@ and never trips `onStepMixed` — it keeps stepping that resolved default
 through the existing single-value path. Callers wire the mixed case to
 the new `editor.stepSelectionFontSize(delta, clamp)` (see below), which
 does the per-run work: it walks the inline runs intersecting the selection
-(single-block, cross-block, and table cell-range, mirroring
-`getRangeStyleSummary`'s traversal and its style-defaults resolution) and
+through the shared `visitStyledRunsInRange` walk (see *The shared range
+traversal* below) — literally the same traversal and style-defaults resolution
+`getRangeStyleSummary` and the keyboard toggles use — and
 applies `clamp(effectiveSize + delta)` to each run's own sub-range via
 `store.applyStyle`. `clamp` stays a caller-supplied function (`FONT_SIZE_MIN`
 / `FONT_SIZE_MAX` live in the frontend's `font-catalog.ts`, not in the docs
@@ -239,6 +240,34 @@ Per the existing Yorkie store bug fix
 ([20260526-docs-unlink-href]), `applyInlineStyle` already removes
 attributes when their value is explicitly `undefined`, so no Yorkie
 plumbing change is needed.
+
+### Color reset — "cleared" is an absent key, and `''` means unset
+
+The text-color and highlight pickers each carry a **Reset** entry, and it
+follows the same rule as Clear formatting: reset calls `applyStyle` with the
+key mapped to `undefined`, so the attribute is *removed*. It must never write
+`''`. An empty string is not a color — `ctx.fillStyle = ''` is an invalid
+assignment the canvas silently ignores, leaving the run painted in whatever
+the previous pass set (on a selected run, the selection fill). That was the
+visible bug in issue #728.
+
+Documents written before this rule, and decks arriving through PPTX/DOCX
+import or the content `PUT`, still hold the `''`. So the render side treats it
+as unset rather than trying to migrate stored data: every paint-time read of a
+stored color goes through `resolveStoredColor`
+(`packages/docs/src/model/color.ts`), which collapses an empty color to
+`undefined` on *both* sides of the theme resolver and returns `undefined` when
+nothing is paintable, leaving each caller to apply its own fallback —
+`resolveStoredColor(resolve, c) ?? theme.defaultColor`. Collapsing it *before*
+the resolver is what makes a cleared run inherit the deck theme's text color
+on a themed slide instead of the docs near-black default. Both spellings of
+empty count: the bare `''` and the `{ kind: 'srgb', value: '' }` wrapper a
+theme-color migration or PPTX import can produce.
+
+The same convention holds at the export sinks: `toRgbHexColor` maps an empty
+or unusable color to "no color child" rather than an empty OOXML attribute
+value (see [docs-docx-import-export.md](docs-docx-import-export.md) and
+[slides-pptx-export.md](../slides/slides-pptx-export.md)).
 
 ### Editor API additions
 
@@ -285,10 +314,123 @@ stepSelectionFontSize(delta: number, clamp: (n: number) => number): void;
 ```
 
 `getRangeStyleSummary` is implemented by walking the inline runs that
-intersect the selection range — exiting early as 'mixed' once a key
-sees a second distinct value. When there is no selection, it returns
+intersect the selection range — a key with two or more distinct values
+reads as 'mixed'. When there is no selection, it returns
 the style of the inline at the cursor (same as the existing
 `getSelectionStyle`).
+
+### The shared range traversal (`model/range-slices.ts`, `model/range-runs.ts`)
+
+Reading a range's formatting and writing it must agree on *which runs the
+range covers* — a toggle that decides "already bold" from a different set
+of runs than the one it then styles is how issue #715 left a style
+impossible to re-apply. Two copies of the dispatch kept in sync would only
+postpone that; instead there is **one traversal, in the model**, and both
+sides drive it:
+
+```
+                       visitRangeSlices(doc, range, visit)      model/range-slices.ts
+                        (blockId, from, to) per block slice
+                          ↑                            ↑
+     Doc.applyInlineStyle │ (write)            (read) │ visitStyledRunsInRange
+     → store.applyStyle   │                           │ → per-run effective style
+                                                      │   model/range-runs.ts
+                                                      ├── EditorAPI.getRangeStyleSummary
+                                                      ├── stepSelectionFontSize (both editors)
+                                                      ├── TextBoxEditorAPI.getRangeStyleSummary
+                                                      └── TextEditor.isStyleOnInSelection
+```
+
+`visitRangeSlices` answers *which text*; `visitStyledRunsInRange` adds *what
+style* on top of the same slices. Because the write is a visitor over the
+identical traversal, read/write agreement is structural rather than
+maintained. A cell rectangle (`tableCellRange`) is a selection shape of its
+own, so it has a sibling — `visitCellRectangleSlices`, driven by the read and
+by `Doc.applyInlineStyleToCells` (which both editors' `applyStyleToCellRange`
+now delegates to).
+
+The dispatch is: same block → same cell; cross-block inside one cell;
+cross-block at top level with cell endpoints normalized to their parent table
+block. Four consequences are load-bearing:
+
+- **Header/footer cells resolve.** Parentage comes from `doc.blockParentMap`
+  (the merged body + header + footer map), not the body-only
+  `layout.blockParentMap` the pre-#715 summary used, which returned an empty
+  summary for a header-cell selection.
+- **A table caught in a cross-block selection is covered whole.**
+- **An endpoint with no context-block index is a no-op** — an endpoint inside
+  a *nested* table (whose parent table is not itself a context block), or a
+  parentage entry stale since the last layout. The read reported nothing for
+  those ranges while the write indexed `contextBlocks[-1]` and threw a
+  `TypeError`; sharing the traversal makes both sides skip it. Nested table
+  content is therefore neither read nor written — a styling gap recorded in
+  [docs-nested-tables.md](tables/docs-nested-tables.md#known-gap-inline-styling-does-not-descend),
+  and one that a single traversal would close for the read and the write
+  together.
+- **Every run is reported with its effective style** — the block's named
+  style inline defaults (`resolveStyleInline`) layered under the run's
+  explicit style — so a read sees what the renderer paints. A built-in
+  Heading 6 reads as italic even though no run carries the flag. This holds
+  for a collapsed caret as well as a range, in the full editor and the text
+  box alike. Reads layer defaults; *writes* (pending style, style
+  application) keep storing raw runs, so redefining a named style still
+  cascades.
+
+Zero-width runs are skipped: they carry no style and would otherwise make
+every empty block read as 'mixed'.
+
+### The shared caret walk (`model/caret-style.ts`)
+
+A *collapsed caret* is the other half of the same question, and it used to
+be hand-copied into `view/editor.ts`, `view/text-editor.ts` and
+`view/text-box-editor.ts`. The copies drifted, which is how #715 reached the
+text box: its caret read returned the raw run style while its range summary
+reported the effective one, so the toolbar saw "not italic" inside a
+Heading 6 and applying italic was a permanent visual no-op. The walk now
+lives in the model next to the range traversal and every editor delegates:
+
+```
+                  caretInlineStyle(doc, position, withStyleDefaults)
+                  caretStyleDefaults(doc, position)     model/caret-style.ts
+                    ↑                ↑                    ↑
+   editor.ts        │  text-editor.ts│    text-box-editor.ts
+   getSelectionStyleImpl / styleAtCaret   getStyleAtCursor / styleDefaultsAtCursor
+                                          caretStyle(withStyleDefaults)
+```
+
+`withStyleDefaults` is the one axis the callers differ on, and it maps onto
+the read/write split above: **true** to present or to decide (toolbar
+pickers, add-vs-remove), **false** whenever the result is *stored* (pending
+style, format painter), because baking a named-style default into a run
+breaks the lazy cascade when the style is later redefined.
+
+### One write path per editor
+
+`Doc.applyInlineStyle` ignores `range.tableCellRange` by contract: handed a
+rectangle it normalizes the endpoints to the parent *table* block and
+rewrites every cell in the table. Routing that shape to
+`Doc.applyInlineStyleToCells` is therefore the caller's job, and every
+keyboard style command in `view/text-editor.ts` — the B/I/U/S toggles, clear
+formatting (Cmd+\\) and the format painter's apply (Cmd+Alt+V) — goes through
+one private `applyStyleToSelection(range, style)` that does the routing (and
+the matching dirty-marking) once. Clear formatting and the format painter
+previously called `applyInlineStyle` directly and so restyled the whole
+table; `view/editor.ts`'s `applyStyleImpl` is the toolbar's equivalent single
+path.
+
+**The repaint is derived, not restated.** Each write site used to recompute
+the blocks to mark dirty by hand: parent-table lookup for a cell endpoint,
+otherwise `Doc.getBlockIndex(anchor)`…`getBlockIndex(focus)` fed back into
+`doc.document.blocks`. Those indices count within the *context* region (body /
+header / footer) while that array is the body's, so editing a header longer
+than the body dereferenced `undefined.id` and threw — killing the repaint the
+write had just earned. `dirtyBlockIdsForRange(doc, range)`
+(`model/range-slices.ts`) replaces all three copies by folding
+`visitRangeSlices` down to the top-level block that paints each visited slice.
+Repaint therefore covers exactly what was written, for the same structural
+reason the read covers exactly what the write touches — no index arithmetic,
+and no region to get wrong. Cell rectangles keep marking the table block they
+route to.
 
 ### Toolbar layout — body context
 

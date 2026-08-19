@@ -4,8 +4,10 @@ import { getGlobalOpts, getClient, getConfig } from './root.js';
 import {
   backendErrorEnvelope,
   commandPath,
+  InvalidFormatError,
   output,
   outputError,
+  parseOutputFormat,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { parseContentFormat, runDocsContent } from '../docs/content.js';
@@ -40,9 +42,7 @@ type ExportFormat = (typeof VALID_EXPORT_FORMATS)[number];
 function detectExportFormat(file: string, formatFlag?: string): ExportFormat {
   if (formatFlag) {
     if (!VALID_EXPORT_FORMATS.includes(formatFlag as ExportFormat)) {
-      throw new Error(
-        `Invalid --format "${formatFlag}". Use one of: ${VALID_EXPORT_FORMATS.join(', ')}.`,
-      );
+      throw new InvalidFormatError(formatFlag, VALID_EXPORT_FORMATS);
     }
     return formatFlag as ExportFormat;
   }
@@ -76,6 +76,7 @@ export function registerDocsCommand(program: Command) {
       const opts = getGlobalOpts(this);
       const { type: typeStr } = this.opts<{ type?: string }>();
       try {
+        const fmt = parseOutputFormat(opts.format);
         const filterType = parseType(typeStr);
         const res = await getClient(opts).listDocuments();
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -85,7 +86,7 @@ export function registerDocsCommand(program: Command) {
             (d) => (d.type ?? 'sheet') === filterType,
           );
         }
-        output(data, opts.format);
+        output(data, fmt);
       } catch (e) {
         outputError(e, this);
       }
@@ -99,6 +100,7 @@ export function registerDocsCommand(program: Command) {
       const opts = getGlobalOpts(this);
       const { type: typeStr } = this.opts<{ type: string }>();
       try {
+        const fmt = parseOutputFormat(opts.format);
         const type = parseType(typeStr) ?? 'sheet';
         if (opts.dryRun) {
           printDryRun(getConfig(opts), 'POST', '/documents', { title, type });
@@ -106,7 +108,7 @@ export function registerDocsCommand(program: Command) {
         }
         const res = await getClient(opts).createDocument(title, type);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e, this);
       }
@@ -118,9 +120,10 @@ export function registerDocsCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e, this);
       }
@@ -136,9 +139,10 @@ export function registerDocsCommand(program: Command) {
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e, this);
       }
@@ -154,9 +158,10 @@ export function registerDocsCommand(program: Command) {
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e, this);
       }

@@ -21,6 +21,9 @@ import { createServer } from "vite";
 
 import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
 import { domControls } from "./hunt-ui-dom.mjs";
+// The SAME gesture the driver performs, not a copy of it.
+import { performDrag } from "./hunt-ui-gesture.mjs";
+import { UI_SURFACES } from "../../../scripts/agent/hunt-ui-surfaces.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..");
@@ -255,6 +258,42 @@ const READER_EXPECTATIONS = [
     v === null || (v && typeof v === "object" && !Array.isArray(v)) ? null : "expected a style object or null"],
   ["sheet", "sheet.cellCenter", ["B2"], (v) =>
     v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+
+  // --- slides surface, against seedSlides(): slide-1 holds card, badge, title, body ---
+  //
+  // Asserted against the SEED's actual values rather than against a shape. `expected an
+  // array` would pass for an empty one, and an empty element list is exactly what a
+  // broken mount produces — the surface would boot, answer every reader, and report a
+  // slide with nothing on it.
+  ["slides", "slides.elements", [], (v) => {
+    if (!Array.isArray(v)) return "expected an array of elements";
+    const ids = v.map((e) => e.id).join(",");
+    if (ids !== "card,badge,title,body") return `expected the seeded ids in z-order, got ${ids}`;
+    const title = v.find((e) => e.id === "title");
+    if (title?.text !== "Quarterly review") return `title must carry its seeded text, got ${JSON.stringify(title?.text)}`;
+    // SLIDE-LOGICAL, not screen. The seed puts `title` at x=160 in a 1920-wide space; if
+    // this ever reads ~80 the reader has started reporting scaled pixels and every
+    // prediction about position becomes a function of the window size.
+    if (title?.x !== 160 || title?.w !== 1600) return `title must be in slide-logical px, got x=${title?.x} w=${title?.w}`;
+    // A shape holds no text, and must not claim `""` — "cannot hold text" and "is empty"
+    // are different states, which is the whole reason #749 was invisible.
+    const card = v.find((e) => e.id === "card");
+    if ("text" in (card ?? {})) return `a shape with no body must omit text, got ${JSON.stringify(card.text)}`;
+    return null;
+  }],
+  ["slides", "slides.selection", [], (v) => (Array.isArray(v) ? null : "expected an array of selected ids")],
+  ["slides", "slides.slideCount", [], (v) => (v === 2 ? null : "expected the seed's 2 slides")],
+  ["slides", "slides.currentSlideIndex", [], (v) => (v === 1 ? null : "expected to start on slide 1")],
+  ["slides", "slides.canUndo", [], (v) => (typeof v === "boolean" ? null : "expected a boolean")],
+  ["slides", "slides.elementCenter", ["title"], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+  // The slide centre, which is on the canvas at any window size.
+  ["slides", "slides.pointAt", [960, 540], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+  // Needs a selection to exist at all — the loop below clicks an element on this surface for
+  // exactly this reader, the way it clicks B2 for the sheet's selection readers.
+  ["slides", "slides.handleCenter", ["se"], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
 ];
 
 /** Read one reader out of page context. `read` is async, so the promise is returned
@@ -269,12 +308,21 @@ async function checkReaderRegistry(page, baseUrl) {
   const problems = [];
   const seen = new Set();
 
-  for (const surface of ["doc", "sheet"]) {
+  // Every surface the harness can mount, not a list restated here. A surface added
+  // without a row in this loop would skip its whole expectation table silently, and the
+  // completeness assertion at the end of this function would then be the only thing
+  // holding — which reports "no expectation exercises it" rather than "it was never run".
+  for (const surface of UI_SURFACES) {
     await page.goto(`${baseUrl}/harness/hunt?surface=${surface}`, { waitUntil: "networkidle" });
     await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
     // `sheet.activeCell` needs a selection to report; the doc surface needs none.
     if (surface === "sheet") {
       const p = await readReader(page, "sheet.cellCenter", ["B2"]);
+      if (p.ok) await page.mouse.click(p.value.x, p.value.y);
+    }
+    // `slides.handleCenter` needs something selected, because handles only exist then.
+    if (surface === "slides") {
+      const p = await readReader(page, "slides.elementCenter", ["card"]);
       if (p.ok) await page.mouse.click(p.value.x, p.value.y);
     }
     for (const [readerSurface, name, args, check] of READER_EXPECTATIONS) {
@@ -435,6 +483,300 @@ async function checkOffscreenRefusal(page, baseUrl) {
  * worth fixing, not a contract worth freezing, and pinning it would make an
  * improvement look like a regression. The sheet value is reported, not enforced.
  */
+/**
+ * The slides surface, end to end: aim, click, mutate, observe.
+ *
+ * `checkReaderRegistry` proves every slides reader ANSWERS. That is not the same as the
+ * surface being usable, and the gap between those two facts is where this harness can
+ * manufacture a defect rather than find one.
+ *
+ * THE CENTRE-SELECTS-ITSELF ASSERTION IS THE POINT. `slides.elementCenter` aims at an
+ * element's middle and the canvas hit-tests whatever is TOPMOST there, so a seed where one
+ * element covers another's centre makes the reader name one element and select a
+ * different one. The first live probe of this surface did exactly that — `badge` sat over
+ * `card`'s middle, clicking `elementCenter("card")` selected `badge` — and an explorer
+ * meeting that would predict `["card"]`, read `["badge"]`, and propose "clicking an
+ * element selects a different one" as a major defect with a deterministic repro. The seed
+ * was moved; this is what stops it drifting back.
+ */
+async function checkSlidesTargeting(page, baseUrl) {
+  const problems = [];
+  await page.goto(`${baseUrl}/harness/hunt?surface=slides`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+
+  const elements = await readReader(page, "slides.elements", []);
+  if (!elements.ok || !Array.isArray(elements.value) || elements.value.length === 0) {
+    problems.push(`slides.elements gave nothing to aim at (${elements.error ?? JSON.stringify(elements.value)}) — this check cannot run`);
+    return problems;
+  }
+
+  for (const element of elements.value) {
+    const point = await readReader(page, "slides.elementCenter", [element.id]);
+    if (!point.ok) {
+      problems.push(`slides.elementCenter(${element.id}) refused a seeded element: ${point.error.slice(0, 140)}`);
+      continue;
+    }
+    await page.mouse.click(point.value.x, point.value.y);
+    const selection = await readReader(page, "slides.selection", []);
+    const got = JSON.stringify(selection.value);
+    if (got !== JSON.stringify([element.id])) {
+      problems.push(
+        `clicking slides.elementCenter(${element.id}) selected ${got} — the seed must not put any ` +
+          "element's centre under another, or every prediction naming an element is aimed at the wrong one",
+      );
+    }
+  }
+
+  // OPENING A MENU MUST STAY QUIET. Every `dom-invariant` fire/quiet case in this file is
+  // driven on the doc surface, and this persona enables that oracle against a toolbar that
+  // is mostly Radix menus — where a collapsed disclosure's `aria-controls` points at
+  // content that is not rendered yet. Measured before the rule was narrowed: opening
+  // `Arrange` fired three times on Radix's own generated ids, which a live run would have
+  // reported as defects in the product.
+  const arrange = page.getByRole("button", { name: "Arrange" });
+  if ((await arrange.count()) === 0) {
+    problems.push("no `Arrange` control after selecting an element — the toolbar is not reaching its object state, so the menu case cannot run");
+  } else {
+    await arrange.first().click();
+    const fired = await scanDomInvariants(page, HOST_TESTID);
+    if (fired.length > 0) {
+      problems.push(
+        `opening the Arrange menu fired dom-invariant ${JSON.stringify(fired.map((f) => f.rule))} — ` +
+          "a menu of the app's own component library must not read as a defect in the product",
+      );
+    }
+    await page.keyboard.press("Escape");
+  }
+
+  // An id that is not on the slide must refuse AND say what is, so a wrong guess costs one
+  // readable action rather than a click at nothing.
+  const missing = await readReader(page, "slides.elementCenter", ["no-such-element"]);
+  if (missing.ok) {
+    problems.push(`slides.elementCenter("no-such-element") returned ${JSON.stringify(missing.value)} instead of refusing`);
+  } else if (!/Available:/.test(missing.error)) {
+    problems.push(`slides.elementCenter must name the available ids when it refuses, got ${missing.error.slice(0, 140)}`);
+  }
+
+  // A MUTATION THE READERS CAN SEE, and its capability flag. Selecting proves hit-testing;
+  // this proves the surface is live and that `slides.elements` reflects a change rather
+  // than a snapshot taken at mount. Arrow-nudge is the cheapest real mutation available —
+  // no menu to navigate, no toolbar state to reach.
+  const restUndo = await readReader(page, "slides.canUndo", []);
+  if (restUndo.value !== false) {
+    problems.push(`slides.canUndo must be false before anything is edited, got ${JSON.stringify(restUndo.value)}`);
+  }
+  const target = elements.value[0];
+  const before = await readReader(page, "slides.elementCenter", [target.id]);
+  // CHECKED, like every other reader result in this file. Unguarded, a refusal here made
+  // `before.value.x` a TypeError that escaped `checkSlidesTargeting` and aborted the whole
+  // oracle run — turning one surface's problem into no verification at all.
+  if (!before.ok) {
+    problems.push(`slides.elementCenter(${target.id}) refused before the nudge: ${before.error.slice(0, 140)}`);
+    return problems;
+  }
+  await page.mouse.click(before.value.x, before.value.y);
+  await page.keyboard.press("ArrowRight");
+
+  const after = await readReader(page, "slides.elements", []);
+  const moved = after.ok ? after.value.find((e) => e.id === target.id) : null;
+  const originally = elements.value.find((e) => e.id === target.id);
+  if (!moved || moved.x === originally.x) {
+    problems.push(`ArrowRight on ${target.id} did not move it — x stayed ${originally.x}, so the surface is mounted but inert`);
+  }
+  // Nothing ELSE may move. A nudge that shifted the whole slide would pass a
+  // "did it change" assertion while being exactly the defect worth catching.
+  for (const e of after.ok ? after.value : []) {
+    const was = elements.value.find((o) => o.id === e.id);
+    if (was && e.id !== target.id && (e.x !== was.x || e.y !== was.y)) {
+      problems.push(`nudging ${target.id} also moved ${e.id} from (${was.x},${was.y}) to (${e.x},${e.y})`);
+    }
+  }
+  const editedUndo = await readReader(page, "slides.canUndo", []);
+  if (editedUndo.value !== true) {
+    problems.push(
+      `slides.canUndo must be true after an edit, got ${JSON.stringify(editedUndo.value)} — ` +
+        "this surface has real undo stacks, and a caller told otherwise predicts the wrong thing",
+    );
+  }
+  // RUNS LAST, and must. It deliberately leaves the editor pointing at a slide the store
+  // does not have (#883), so anything after it reads a broken surface — placed earlier, it
+  // made the nudge section's `slides.elementCenter` refuse and reported that as a failure.
+  // A REFUSAL MUST READ THE SAME EVERY TIME, or it suppresses findings instead of
+  // explaining them. `uiObservedKey` keys an observation on its value, so a refusal that
+  // embeds a generated id makes every attempt look different, replay calls the candidate
+  // non-deterministic, and the gate drops it. That is not hypothetical: the slides
+  // surface's first run found #883 (undoing `Add slide` leaves the editor on the removed
+  // slide), reproduced it 3 times out of 3 by hand, and the run reported nothing because
+  // this reader's refusal named the slide's uuid.
+  //
+  // THIS CHECK RETIRES ITSELF LOUDLY. It needs the #883 state to exist, so once that is
+  // fixed the reader will answer instead of refusing — and rather than passing on a
+  // precondition that has silently vanished, it fails and says to remove it.
+  // TWO SEPARATE NAVIGATIONS, because that is what replay does. Comparing two reads inside
+  // ONE page load proves nothing: the slide keeps its id for the life of that page, so the
+  // message is trivially identical and the check passes while the bug is present. The id is
+  // regenerated per mount, so only a fresh setup exposes it. (The first version of this
+  // check made exactly that mistake.)
+  const refusals = [];
+  for (const attempt of [0, 1]) {
+    await page.goto(`${baseUrl}/harness/hunt?surface=slides`, { waitUntil: "networkidle" });
+    await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+    const addSlide = page.getByRole("button", { name: "Add slide" });
+    if ((await addSlide.count()) === 0) {
+      problems.push(`no \`Add slide\` control on attempt ${attempt} — the refusal-stability check cannot set up its state`);
+      break;
+    }
+    await addSlide.first().click();
+    await page.keyboard.press("Meta+z");
+    refusals.push(await readReader(page, "slides.elements", []));
+  }
+  if (refusals.length === 2) {
+    if (refusals[0].ok || refusals[1].ok) {
+      problems.push(
+        "slides.elements no longer refuses after undoing `Add slide` — #883 appears fixed, so " +
+          "this refusal-stability check has lost its precondition and should be removed or re-aimed",
+      );
+    } else if (refusals[0].error !== refusals[1].error) {
+      problems.push(
+        "a refused slides reader must read identically across attempts, got " +
+          `${JSON.stringify(refusals[0].error.slice(0, 90))} vs ${JSON.stringify(refusals[1].error.slice(0, 90))} — ` +
+          "a volatile value here makes replay call every candidate non-deterministic",
+      );
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * The drag action, end to end, THROUGH THE REAL RUNNER.
+ *
+ * It opens a live session rather than driving Playwright here, and that is the whole point.
+ * The first version of this check resolved both ends with `readReader` and called
+ * `performDrag` directly — which exercised the gesture and the two new readers while never
+ * once executing the runner's `case "drag"`. Its plan validation, its target resolution and
+ * its locator-to-centre reduction were all untested by the very thing calling itself a
+ * positive control. A lane that skips the branch it is verifying proves only that the parts
+ * it did call work.
+ *
+ * A POSITIVE CONTROL, not a smoke test. The failure that matters is not "it throws" — it is
+ * "it runs and moves nothing", which reads to an explorer as a product ignoring the mouse. So
+ * every assertion is an EXACT coordinate, and a drag that silently did nothing fails them all.
+ *
+ * THE DESTINATION IS CHOSEN CLEAR OF SNAPPING. `SNAP_THRESHOLD` is 8 slide-logical px against
+ * element edges and centres, the slide centre and guides, and Alt does not disable it. A
+ * destination inside that window lands elsewhere — correctly — so the point below is measured
+ * to sit well outside it. If the seed's geometry moves under this check it fails loudly rather
+ * than quietly asserting a snapped value.
+ */
+async function checkSlidesDrag(repoRoot) {
+  const problems = [];
+  const { openUiSession } = await import(`${repoRoot}/scripts/agent/hunt-ui-session.mjs`);
+  let session;
+  try {
+    session = await openUiSession({ repoRoot, fault: null });
+    const act = (action) => session.act(action);
+    // EVERY result is checked. One refusal used to abort the whole oracle run through an
+    // unguarded `.x`, turning one surface's problem into no verification at all.
+    const elements = async (what) => {
+      const r = await act({ type: "read", reader: "slides.elements" });
+      if (!r.ok) {
+        problems.push(`could not read slides.elements ${what}: ${String(r.error).slice(0, 140)}`);
+        return null;
+      }
+      return r.value;
+    };
+    const one = async (id, what) => {
+      const all = await elements(what);
+      if (!all) return null;
+      const found = all.find((e) => e.id === id);
+      if (!found) problems.push(`the seeded \`${id}\` is missing ${what} — this check cannot run`);
+      return found ?? null;
+    };
+
+    if (!(await act({ type: "goto", surface: "slides" })).ok) {
+      problems.push("could not mount the slides surface — this check cannot run");
+      return problems;
+    }
+
+    // --- a plain move lands exactly where it was aimed ---
+    const before = await one("badge", "before the drag");
+    if (!before) return problems;
+    const moved = await act({
+      type: "drag",
+      target: { reader: "slides.elementCenter", args: ["badge"] },
+      to: { reader: "slides.pointAt", args: [700, 800] },
+    });
+    if (!moved.ok) {
+      problems.push(`dragging badge to a clear point failed: ${String(moved.error).slice(0, 140)}`);
+    } else {
+      const after = await one("badge", "after the drag");
+      if (after) {
+        const centre = { x: after.x + after.w / 2, y: after.y + after.h / 2 };
+        if (centre.x !== 700 || centre.y !== 800) {
+          problems.push(
+            `a drag to slides.pointAt(700, 800) put badge's centre at (${centre.x}, ${centre.y}) — ` +
+              "either the drag is not landing where it aims, or that destination is now within " +
+              "8 logical px of an alignment edge and is being snapped",
+          );
+        }
+        if (after.w !== before.w || after.h !== before.h) {
+          problems.push(`moving badge also resized it: ${before.w}x${before.h} -> ${after.w}x${after.h}`);
+        }
+      }
+    }
+
+    // --- a handle drag resizes by exactly the geometry it was given ---
+    if (!(await act({ type: "goto", surface: "slides" })).ok) return problems;
+    const card = await one("card", "before the resize");
+    if (!card) return problems;
+    const picked = await act({ type: "click", target: { reader: "slides.elementCenter", args: ["card"] } });
+    if (!picked.ok) {
+      problems.push(`could not select card: ${String(picked.error).slice(0, 140)}`);
+      return problems;
+    }
+    const resized = await act({
+      type: "drag",
+      target: { reader: "slides.handleCenter", args: ["se"] },
+      to: { reader: "slides.pointAt", args: [1700, 900] },
+    });
+    if (!resized.ok) {
+      problems.push(`dragging card's se handle failed: ${String(resized.error).slice(0, 140)}`);
+    } else {
+      const after = await one("card", "after the resize");
+      if (after) {
+        // The se handle IS the bottom-right corner, so the new size is the destination minus
+        // the (unmoved) top-left. Anything else means the handle was misidentified or mis-aimed.
+        const wantW = 1700 - card.x;
+        const wantH = 900 - card.y;
+        if (after.w !== wantW || after.h !== wantH) {
+          problems.push(`resizing card by its se handle to (1700, 900) gave ${after.w}x${after.h}, expected ${wantW}x${wantH}`);
+        }
+        if (after.x !== card.x || after.y !== card.y) {
+          problems.push(`an se resize moved the top-left from (${card.x},${card.y}) to (${after.x},${after.y})`);
+        }
+      }
+    }
+
+    // --- both new readers refuse rather than hand back an unusable point ---
+    const off = await act({ type: "read", reader: "slides.pointAt", args: [5000, 100] });
+    if (off.ok) problems.push(`slides.pointAt(5000, 100) returned ${JSON.stringify(off.value)} instead of refusing`);
+
+    if (!(await act({ type: "goto", surface: "slides" })).ok) return problems;
+    const noHandle = await act({ type: "read", reader: "slides.handleCenter", args: ["se"] });
+    if (noHandle.ok) {
+      problems.push("slides.handleCenter(se) answered with nothing selected — there are no handles then");
+    } else if (!/Nothing is selected/.test(String(noHandle.error))) {
+      problems.push(`slides.handleCenter must say WHY it refused with no selection, got ${String(noHandle.error).slice(0, 120)}`);
+    }
+  } catch (error) {
+    problems.push(`the drag session failed: ${error.message}`);
+  } finally {
+    await session?.close?.();
+  }
+  return problems;
+}
+
 async function checkUndoCapability(page, baseUrl) {
   const problems = [];
 
@@ -1292,6 +1634,11 @@ try {
     if (offscreenProblems.length === 0) {
       console.log("[verify:hunt-oracles] a scrolled-away cell refuses, and a visible one still clicks");
     }
+    const slidesProblems = await checkSlidesTargeting(page, baseUrl);
+    for (const p of slidesProblems) failures.push(`slides surface: ${p}`);
+    if (slidesProblems.length === 0) {
+      console.log("[verify:hunt-oracles] every slide element's centre selects itself, and a nudge moves only it");
+    }
     const sheetToolbarProblems = await checkSheetToolbar(page, baseUrl);
     for (const p of sheetToolbarProblems) failures.push(`sheet toolbar: ${p}`);
     if (sheetToolbarProblems.length === 0) {
@@ -1330,6 +1677,11 @@ try {
     console.log("[verify:hunt-oracles] a real reader value drives a ground-A prediction to violated, and holds when clean");
   }
 
+  const dragProblems = await checkSlidesDrag(repoRoot);
+  for (const p of dragProblems) failures.push(`slides drag: ${p}`);
+  if (dragProblems.length === 0) {
+    console.log("[verify:hunt-oracles] a drag through the real runner lands exactly where it aims, and a handle drag resizes by its geometry");
+  }
   const serveProblems = await checkSeededFaultInServeMode(repoRoot);
   for (const p of serveProblems) failures.push(`seeded fault (serve mode): ${p}`);
   if (serveProblems.length === 0) {

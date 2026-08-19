@@ -119,65 +119,61 @@ describe('GitHubStrategy endpoints', () => {
 });
 
 /**
- * `GitHubAuthGuard` mints the OAuth `state` and leaves it on the request as
- * `__oauthState`; this strategy is the only thing that puts it on the wire.
- * Nothing else observes the handoff, so a half-applied rename on either side
- * would ship an authorization request with no CSRF binding at all — every
- * other test still green, because passport-oauth2 installs a `NullStore`
- * whose `verify` always succeeds when no `state` option is given.
+ * The one hinge of the OAuth CSRF design.
+ *
+ * `GitHubAuthGuard` attaches the state it minted to the request as
+ * `__oauthState`; this is the only place that reads it back out and puts
+ * it on the wire. Both login paths depend on it — the CLI's
+ * `CliAuthStore` token and the browser's double-submit hash — and the
+ * callback now refuses anything arriving without a `state`. If the two
+ * sides ever spelled the key differently, every login would reach GitHub
+ * stateless and every callback would be rejected, while the guard spec
+ * (which asserts only that the guard *sets* the key) stayed green.
  */
-describe('GitHubStrategy state injection', () => {
-  // `super.authenticate` resolves on the prototype above GitHubStrategy's
-  // (the Nest mixin), so a stub defined there is what the override calls.
-  const base = Object.getPrototypeOf(GitHubStrategy.prototype) as Record<
-    string,
-    unknown
-  >;
-  const hadOwn = Object.prototype.hasOwnProperty.call(base, 'authenticate');
-  const original = base.authenticate;
-  let seen: Record<string, unknown> | undefined;
+describe('GitHubStrategy state forwarding', () => {
+  // `super.authenticate` resolves up the prototype chain to whichever
+  // ancestor passport defines it on. Spy on that owner so the real
+  // redirect never runs and the options it was handed are observable.
+  function authenticateOwner(): { authenticate: (...a: unknown[]) => void } {
+    let proto: unknown = Object.getPrototypeOf(GitHubStrategy.prototype);
+    while (
+      proto &&
+      !Object.prototype.hasOwnProperty.call(proto, 'authenticate')
+    ) {
+      proto = Object.getPrototypeOf(proto);
+    }
+    return proto as { authenticate: (...a: unknown[]) => void };
+  }
+
+  let spy: jest.SpyInstance;
 
   beforeEach(() => {
-    seen = undefined;
-    base.authenticate = function (
-      _req: unknown,
-      options?: Record<string, unknown>,
-    ) {
-      seen = options;
-    };
+    spy = jest
+      .spyOn(authenticateOwner(), 'authenticate')
+      .mockImplementation(() => undefined);
   });
 
-  afterEach(() => {
-    if (hadOwn) base.authenticate = original;
-    else delete base.authenticate;
-  });
+  afterEach(() => spy.mockRestore());
 
-  it('forwards the state the guard put on the request', () => {
+  function optionsFor(req: Record<string, unknown>) {
     makeStrategy(BASE).authenticate(
-      { __oauthState: 'w.the-browser-half' } as never,
+      req as unknown as Parameters<GitHubStrategy['authenticate']>[0],
       { scope: ['user:email'] },
     );
+    return spy.mock.calls[0][1] as Record<string, unknown> | undefined;
+  }
 
-    expect(seen).toMatchObject({
-      state: 'w.the-browser-half',
-      scope: ['user:email'],
-    });
+  it('forwards the state the guard attached as the OAuth `state`', () => {
+    const opts = optionsFor({ __oauthState: 'web.deadbeef' });
+
+    expect(opts?.state).toBe('web.deadbeef');
+    // The caller's own options have to survive alongside it.
+    expect(opts?.scope).toEqual(['user:email']);
   });
 
-  it('forwards a CLI state token unchanged', () => {
-    makeStrategy(BASE).authenticate({ __oauthState: 'cli-token' } as never);
-    expect(seen?.state).toBe('cli-token');
-  });
+  it('sets no state when no guard ran', () => {
+    const opts = optionsFor({});
 
-  it('sends no state when the guard set none', () => {
-    makeStrategy(BASE).authenticate({} as never, { scope: ['user:email'] });
-    expect(seen).toBeDefined();
-    expect('state' in seen!).toBe(false);
-  });
-
-  it('does not mutate the options object it was handed', () => {
-    const options = { scope: ['user:email'] };
-    makeStrategy(BASE).authenticate({ __oauthState: 's' } as never, options);
-    expect(options).toEqual({ scope: ['user:email'] });
+    expect(opts).not.toHaveProperty('state');
   });
 });

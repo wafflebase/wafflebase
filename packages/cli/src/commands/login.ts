@@ -34,7 +34,7 @@ export function registerLoginCommand(program: Command): void {
         }
       }
 
-      // 2. Start local HTTP server
+      // 2. Start local HTTP server, bound to this attempt's two secrets.
       //
       // The callback listener is on 127.0.0.1 but the port is guessable, and
       // any page in the user's browser can navigate to it. Without a binding
@@ -44,20 +44,24 @@ export function registerLoginCommand(program: Command): void {
       // mints a nonce it requires the callback to echo back as `state`, and a
       // PKCE verifier (RFC 7636) that never leaves this process, so even a
       // code lifted off the redirect is not redeemable without it.
-      const nonce = randomBytes(32).toString('base64url');
-      const codeVerifier = randomBytes(32).toString('base64url');
-      const codeChallenge = createHash('sha256')
-        .update(codeVerifier)
-        .digest('base64url');
+      const nonce = createLoginNonce();
+      const { verifier, challenge } = createPkcePair();
       const { port, waitForCallback, close, armLaunch } =
         await startCallbackServer(nonce);
 
-      // 3. Build OAuth URL and open browser
+      // 3. Build OAuth URL and open browser. The backend echoes `nonce`
+      // back as the loopback callback's `state`, which is what lets the
+      // callback server tell our own redirect from a forged one; only the
+      // `challenge` (the verifier's SHA-256) goes out with it.
       const oauthUrl =
         `${server}/auth/github?mode=cli&port=${port}` +
         `&nonce=${encodeURIComponent(nonce)}` +
-        `&code_challenge=${encodeURIComponent(codeChallenge)}`;
+        `&challenge=${encodeURIComponent(challenge)}`;
       console.error('Opening browser for GitHub login...');
+      // The server answers this URL with a confirmation page rather than
+      // going straight to GitHub — a sign-in the user did not start must
+      // not proceed on a bare navigation. Say so, or the wait looks stuck.
+      console.error('Confirm the sign-in in the browser to continue.');
 
       // The browser is handed a loopback URL, never the authorization URL
       // itself: opening a URL spawns a child process with that URL in its
@@ -86,7 +90,7 @@ export function registerLoginCommand(program: Command): void {
       const exchangeRes = await fetch(`${server}/auth/cli/exchange`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, codeVerifier }),
+        body: JSON.stringify({ code, verifier }),
       });
 
       if (!exchangeRes.ok) {
@@ -293,12 +297,42 @@ function ask(prompt: string): Promise<string> {
   });
 }
 
-/** Constant-time compare of two `state` values (never leak by timing). */
-function nonceMatches(expected: string, received: string | null): boolean {
+/** Per-attempt secret bound into the OAuth round trip. */
+export function createLoginNonce(): string {
+  return randomBytes(32).toString('hex');
+}
+
+/**
+ * PKCE S256 pair for one login attempt.
+ *
+ * The `code` the backend hands back travels through the browser and lands
+ * on `http://127.0.0.1:<port>/callback` as a plaintext query string, and
+ * `POST /auth/cli/exchange` trades a code for full access and refresh
+ * JWTs. Binding it to a verifier means observing that hop is not enough:
+ * the redemption also needs a value that never left this process. Only
+ * `challenge` (its SHA-256) goes into the login URL.
+ */
+export function createPkcePair(): { verifier: string; challenge: string } {
+  const verifier = randomBytes(32).toString('base64url');
+  return {
+    verifier,
+    challenge: createHash('sha256').update(verifier).digest('base64url'),
+  };
+}
+
+/**
+ * Constant-time comparison of a callback's `state` against the nonce
+ * this login attempt generated.
+ */
+export function nonceMatches(
+  expected: string,
+  received: string | null,
+): boolean {
   if (!received) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(received);
-  return a.length === b.length && timingSafeEqual(a, b);
+  const a = Buffer.from(expected, 'utf-8');
+  const b = Buffer.from(received, 'utf-8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 /** Path prefix of the single-use redirect that starts the login. */
@@ -350,7 +384,7 @@ const SPENT_LAUNCH_PAGE = `<!DOCTYPE html>
  * seconds was already tight for GitHub alone — a password manager, a 2FA
  * prompt, a tab switched away from — and with a human gate in front of it the
  * CLI was giving up on logins the server still considered live. Five minutes
- * is the server's own budget for one (`STATE_COOKIE_MAX_AGE_MS`, and the
+ * is the server's own budget for one (`CLI_STATE_COOKIE_MAX_AGE_MS`, and the
  * `CliAuthStore` state entry), so the two ends now expire together instead of
  * by an order of magnitude apart; it is also what this command's own headless
  * message has been telling people all along.
@@ -359,8 +393,64 @@ const SPENT_LAUNCH_PAGE = `<!DOCTYPE html>
  */
 export const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
-/** Exported for tests — the nonce gate is the only thing guarding this port. */
-export function startCallbackServer(expectedNonce: string): Promise<{
+/**
+ * Why a callback that reached the loopback server was not accepted.
+ *
+ * Refusing silently is what made the nonce a hard backend contract with
+ * no diagnosis: against a server too old to echo `state`, every genuine
+ * redirect is refused and the login hangs for the full timeout with
+ * nothing to act on. The reason is reported as it happens and repeated
+ * in the timeout error, so the failure names its cause.
+ */
+const REFUSAL = {
+  noState:
+    'the redirect carried no `state`. This CLI sends a per-attempt ' +
+    '`nonce` and requires the server to echo it back, so the server is ' +
+    'likely older than this CLI — update the server, or use a CLI ' +
+    'matching it.',
+  badState:
+    'a callback carried a `state` that does not match this login ' +
+    'attempt, so it did not come from the browser window this command ' +
+    'opened and was ignored.',
+  notGet:
+    'a non-GET request reached the callback. The server redirects the ' +
+    'browser with a plain GET navigation, so this was not it.',
+} as const;
+
+/** The wait's failure message, naming the last refusal when there was one. */
+export function loginTimeoutMessage(refusal?: string): string {
+  const base = 'Login timed out. Try again with `wafflebase login`.';
+  return refusal ? `${base}\nThe last callback was refused: ${refusal}` : base;
+}
+
+/**
+ * Serve the loopback OAuth callback.
+ *
+ * The `code` is only accepted when the request carries back the
+ * per-attempt `nonce` as `state`. Without that binding any web page the
+ * victim visits during the wait window can hit
+ * `http://127.0.0.1:<port>/callback?code=<attacker code>` — the port is
+ * a small scannable space — and the CLI would exchange the attacker's
+ * code, saving a session for the attacker's account (login CSRF /
+ * session fixation). A method other than GET is rejected outright: our
+ * redirect is a top-level GET navigation and never looks like that.
+ *
+ * The nonce is the whole defense, deliberately: an earlier revision also
+ * refused any request carrying an `Origin` header, which a browser,
+ * extension, or proxy can legitimately attach to a cross-origin redirect
+ * chain (`Origin: null` among them). That would refuse the *genuine*
+ * redirect, and because a refusal never settles the wait, the login
+ * would then hang for the whole timeout. A header no attacker is
+ * obliged to send buys nothing the nonce does not already cover.
+ *
+ * A refusal never settles the wait — the genuine redirect may still be
+ * on its way — but it is recorded and surfaced, so a refused login is
+ * diagnosable rather than a silent hang.
+ */
+export function startCallbackServer(
+  nonce: string,
+  options: { timeoutMs?: number } = {},
+): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
@@ -387,10 +477,18 @@ export function startCallbackServer(expectedNonce: string): Promise<{
     let settled = false;
     let launchToken: string | undefined;
     let launchTarget: string | undefined;
-    // A code that arrived carrying no `state` at all is also what a backend
-    // predating the echo looks like, so remember it and say so on timeout
-    // rather than leaving the user with a bare "timed out".
-    let sawUnboundCode = false;
+    let lastRefusal: string | undefined;
+
+    const refuse = (
+      res: import('node:http').ServerResponse,
+      status: number,
+      reason: string,
+    ) => {
+      lastRefusal = reason;
+      console.error(`Refused a login callback: ${reason}`);
+      res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(`Wafflebase CLI refused this callback: ${reason}\n`);
+    };
     let callbackResolve: (code: string) => void;
     let callbackReject: (err: Error) => void;
 
@@ -451,6 +549,11 @@ export function startCallbackServer(expectedNonce: string): Promise<{
         return;
       }
 
+      if (req.method !== 'GET') {
+        refuse(res, 403, REFUSAL.notGet);
+        return;
+      }
+
       const code = url.searchParams.get('code');
       if (!code) {
         res.writeHead(400);
@@ -460,12 +563,14 @@ export function startCallbackServer(expectedNonce: string): Promise<{
 
       // Reject (rather than resolve on) a callback that does not carry this
       // process's nonce: a code from any other flow is not ours to redeem.
-      // The listener stays open so the genuine callback can still arrive.
+      // Never settle the promise here — a forged hit must not end the wait,
+      // so the real redirect can still arrive. `state` missing entirely and
+      // `state` wrong are different failures — the first is an out-of-date
+      // server, the second a callback that is not ours — so they are
+      // reported apart.
       const state = url.searchParams.get('state');
-      if (!nonceMatches(expectedNonce, state)) {
-        if (state === null) sawUnboundCode = true;
-        res.writeHead(400);
-        res.end('Invalid state');
+      if (!nonceMatches(nonce, state)) {
+        refuse(res, 403, state === null ? REFUSAL.noState : REFUSAL.badState);
         return;
       }
 
@@ -514,22 +619,16 @@ export function startCallbackServer(expectedNonce: string): Promise<{
       }
     });
 
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        callbackReject(
-          new Error(
-            sawUnboundCode
-              ? 'Login callback carried no `state`, so it could not be tied ' +
-                'to this login and was refused. The server may predate the ' +
-                'CLI loopback binding — upgrade it, or authenticate with ' +
-                '`--api-key`.'
-              : 'Login timed out. Try again with `wafflebase login`.',
-          ),
-        );
-      }
-      srv.close();
-    }, CALLBACK_TIMEOUT_MS);
+    // Armed only once the server is actually listening, and only there:
+    // the timer bounds the wait for a callback, and there is nothing to
+    // wait for until a browser can reach us. Arming it during setup
+    // instead leaks it out of every path that rejects before the caller
+    // is handed the `close()` that clears it — the timer then holds the
+    // process open for the whole wait and finally rejects
+    // `callbackPromise`, which on those paths nobody is awaiting, so the
+    // command dies on an unhandled rejection minutes after it already
+    // reported the real error.
+    let timeout: ReturnType<typeof setTimeout> | undefined;
 
     // Try to listen on a random port (up to 3 attempts)
     let attempts = 0;
@@ -538,9 +637,17 @@ export function startCallbackServer(expectedNonce: string): Promise<{
       srv.listen(0, '127.0.0.1', () => {
         const addr = srv.address();
         if (!addr || typeof addr === 'string') {
+          srv.close();
           reject(new Error('Failed to start callback server'));
           return;
         }
+        timeout = setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            callbackReject(new Error(loginTimeoutMessage(lastRefusal)));
+          }
+          srv.close();
+        }, options.timeoutMs ?? CALLBACK_TIMEOUT_MS);
         resolve({
           port: addr.port,
           waitForCallback: () => callbackPromise,

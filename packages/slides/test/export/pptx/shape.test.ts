@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shapeToXml, kindToPrst, xfrmXml } from '../../../src/export/pptx/shape.js';
+import { shapeToXml, kindToPrst, xfrmXml, lineXml } from '../../../src/export/pptx/shape.js';
 import type { ShapeElement } from '../../../src/model/element.js';
 
 const frame = { x: 100, y: 200, w: 300, h: 150, rotation: 0 };
@@ -8,6 +8,21 @@ describe('shape', () => {
   it('maps pentagonArrow to homePlate, others identity', () => {
     expect(kindToPrst('pentagonArrow')).toBe('homePlate');
     expect(kindToPrst('rect')).toBe('rect');
+    expect(kindToPrst('flowChartMagneticTape')).toBe('flowChartMagneticTape');
+    expect(kindToPrst('actionButtonHelp')).toBe('actionButtonHelp');
+  });
+  it('falls back to rect for a kind outside the preset allowlist', () => {
+    // `ShapeKind` is type-only: `data.kind` is whatever JSON was persisted,
+    // and the v1 content PUT API lets a caller put an arbitrary string there.
+    // It must never reach the `prst` attribute — closing the attribute would
+    // inject DrawingML into every exported .pptx.
+    const hostile = 'rect"/><a:custGeom><a:pathLst/></a:custGeom><a:x y="' as unknown as Parameters<typeof kindToPrst>[0];
+    expect(kindToPrst(hostile)).toBe('rect');
+    expect(kindToPrst('constructor' as unknown as Parameters<typeof kindToPrst>[0])).toBe('rect');
+    const el: ShapeElement = { id: 's', frame, type: 'shape', data: { kind: hostile } };
+    const xml = shapeToXml(el);
+    expect(xml).toContain('<a:prstGeom prst="rect">');
+    expect(xml).not.toContain('<a:custGeom>');
   });
   it('emits xfrm in EMU', () => {
     const xml = xfrmXml({ ...frame, rotation: Math.PI / 2 });
@@ -128,5 +143,37 @@ describe('shape', () => {
     expect(xml).not.toContain('prst="freeform"');
     // Must not emit custGeom either
     expect(xml).not.toContain('<a:custGeom>');
+  });
+});
+
+describe('DASH_VAL is a closed lookup', () => {
+  it('maps the two known dash kinds', () => {
+    expect(lineXml({ color: '#000000', width: 1, dash: 'dashed' })).toContain('<a:prstDash val="dash"/>');
+    expect(lineXml({ color: '#000000', width: 1, dash: 'dotted' })).toContain('<a:prstDash val="sysDot"/>');
+  });
+
+  it('emits no prstDash for a solid stroke', () => {
+    expect(lineXml({ color: '#000000', width: 1, dash: 'solid' })).not.toContain('prstDash');
+    expect(lineXml({ color: '#000000', width: 1 })).not.toContain('prstDash');
+  });
+
+  it.each(['constructor', 'toString', '__proto__', 'nope'])(
+    'falls back to val="dash" for the inherited/unknown key %s',
+    (dash) => {
+      const xml = lineXml({ color: '#000000', width: 1, dash } as never);
+      expect(xml).toContain('<a:prstDash val="dash"/>');
+      expect(xml).not.toContain('native code');
+      expect(xml).not.toContain('undefined');
+    },
+  );
+
+  it('never lets a hostile dash close the val attribute', () => {
+    const xml = lineXml({
+      color: '#000000',
+      width: 1,
+      dash: 'dash"/><a:custom val="pwned',
+    } as never);
+    expect(xml).toContain('<a:prstDash val="dash"/>');
+    expect(xml).not.toContain('pwned');
   });
 });

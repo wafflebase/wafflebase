@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Length } from 'class-validator';
+import { IsString, Length, Matches } from 'class-validator';
 
 export class CliExchangeDto {
   @IsString()
@@ -6,12 +6,14 @@ export class CliExchangeDto {
   code: string;
 
   /**
-   * PKCE verifier (RFC 7636 §4.1: 43–128 characters). Required when the
-   * login that minted the code carried a `code_challenge`; omitted by CLIs
-   * that predate PKCE.
+   * The PKCE verifier for this login attempt: 43–128 base64url characters
+   * whose SHA-256 was registered as the `challenge` when the login
+   * started. Required — a code with no verifier is a bare bearer token
+   * (see `AuthController.cliExchange`).
    */
-  @IsOptional()
   @IsString()
-  @Length(43, 128)
-  codeVerifier?: string;
+  @Matches(/^[A-Za-z0-9_-]{43,128}$/, {
+    message: 'verifier must be 43-128 base64url characters',
+  })
+  verifier: string;
 }

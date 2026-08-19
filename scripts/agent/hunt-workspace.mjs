@@ -13,11 +13,14 @@
 // document does not come back from a reflog.
 //
 // WHY NOT ASK THE CLI. The obvious design is to run `wafflebase status --format
-// json` and read the resolved workspace, since that is authoritative. It does not
-// work: `status` ignores `--format json` and prints prose ("Not logged in. Run
-// `wafflebase login`."). That is ground-truth defect #9 — one of the things this
-// hunter exists to find — so the one command that would answer the question is the
-// broken one. Verified empirically, not assumed.
+// json` and read the resolved workspace, since that is authoritative. It did not
+// work when this hunter was written: `status` ignored `--format` and printed prose
+// ("Not logged in. Run `wafflebase login`.") — ground-truth defect #9, one of the
+// things this hunter exists to find. Issue #635 fixed that, so `status` now emits
+// `{ loggedIn, workspaceId, … }` as JSON. Resolution stays source-based anyway: the
+// guard must hold for a CLI build older than that fix, and reading the config
+// sources cannot be defeated by a `status` that answers about a *different*
+// resolution order than the command being guarded.
 //
 // So resolution is done from the SOURCES the CLI reads (`config.ts:77-113`: flags >
 // env > session > profile), and where a file cannot be parsed confidently the check

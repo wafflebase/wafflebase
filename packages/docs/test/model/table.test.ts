@@ -325,6 +325,51 @@ describe('Doc table operations', () => {
       expect(p2.inlines[1].text).toBe('cd');
       expect(p2.inlines[1].style.italic).toBeUndefined();
     });
+
+    /**
+     * A block inside a *nested* table maps to the inner table block, which is
+     * not one of the context blocks — so `getBlockIndex` returns -1 for it.
+     * The write used to loop from that -1 and dereference
+     * `contextBlocks[-1].type`, throwing a TypeError, while the summary read
+     * that decides the toggle reported nothing for the same range. Both sides
+     * now share `visitRangeSlices`, so the range is a no-op for both instead
+     * of a silent read plus a crashing write (issue #715 review).
+     */
+    it('does not throw for an endpoint inside a nested table', () => {
+      const doc = Doc.create();
+      const body = doc.document.blocks[0];
+      doc.insertText({ blockId: body.id, offset: 0 }, 'abcd');
+      const outerId = doc.insertTable(1, 1, 1);
+      doc.setBlockParentMap(buildParentMap(doc, outerId));
+
+      const outerCellBlock = getCellBlock(doc, outerId, { rowIndex: 0, colIndex: 0 });
+      const innerTable = doc.insertTableInCell(outerCellBlock.id, 1, 1);
+      const innerCellBlock = innerTable.tableData!.rows[0].cells[0].blocks[0];
+
+      // Parentage as layout builds it: every block maps to its *direct*
+      // parent cell, so the nested block's table is the inner table.
+      const map = buildParentMap(doc, outerId);
+      map.set(innerCellBlock.id, {
+        tableBlockId: innerTable.id,
+        rowIndex: 0,
+        colIndex: 0,
+      });
+      doc.setBlockParentMap(map);
+      doc.insertText({ blockId: innerCellBlock.id, offset: 0 }, 'XY');
+
+      expect(() =>
+        doc.applyInlineStyle(
+          {
+            anchor: { blockId: innerCellBlock.id, offset: 0 },
+            focus: { blockId: body.id, offset: 2 },
+          },
+          { bold: true },
+        ),
+      ).not.toThrow();
+
+      // Nothing was written — the same verdict the summary read reports.
+      expect(doc.getBlock(body.id).inlines[0].style.bold).toBeUndefined();
+    });
   });
 
   describe('setColumnWidth', () => {

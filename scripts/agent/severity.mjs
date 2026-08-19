@@ -203,8 +203,76 @@ function authorSkipsSection(findings) {
  * This module is deliberately not lane-aware: the caller decides what was
  * demoted and passes it in, so the routing vocabulary stays in one place.
  */
+/**
+ * Why was this finding demoted? The two gates make OPPOSITE claims about the same
+ * code — novelty says "this predates the PR", the surface gate says "a fix round
+ * wrote this after the review surface froze" — so they cannot share a heading:
+ * printing an out-of-scope finding under "the code already existed" would be a
+ * false audit line, and the whole point of these sections is that a reader can
+ * check the demotion.
+ *
+ * Novelty is tested FIRST because `routeFinding` tests it first, so this reports
+ * the gate that actually demoted the finding rather than a gate that merely would
+ * have. (In practice the two are mutually exclusive: content predating the base
+ * also predates the freeze, which makes it in-scope.)
+ */
+function demotedBy(f) {
+  // The surface gate claims ONLY what it actually demoted, and novelty is tested
+  // first because `routeFinding` tests it first — so a finding both gates would
+  // demote is reported under the one that really did it.
+  //
+  // Everything else defaults to `relocated`, which is deliberate rather than
+  // sloppy. Before the surface gate existed, novelty was the only demotion reason
+  // and every entry in `demoted` was relocated by construction; callers (and tests)
+  // rely on that and do not all stamp `origin`. Defaulting the other way would
+  // silently re-file existing demotions under a new heading, and defaulting to a
+  // third "reason unknown" bucket would invent a category that production cannot
+  // produce — `routeFinding` demotes for exactly these two reasons.
+  if (f?.novelty?.origin === "relocated") return "relocated";
+  return f?.surface?.scope === "out-of-scope" ? "out-of-scope" : "relocated";
+}
+
 function demotedSection(demoted) {
   const rows = Array.isArray(demoted) ? demoted.filter((f) => f && typeof f === "object") : [];
+  if (rows.length === 0) return "";
+  const by = (kind) => rows.filter((f) => demotedBy(f) === kind);
+  // Every row lands in exactly one section, so nothing can be demoted into silence.
+  return relocatedSection(by("relocated")) + outOfScopeSection(by("out-of-scope"));
+}
+
+/**
+ * Findings on code a FIX ROUND wrote after the review surface froze. See
+ * `review-surface.mjs` for why these stop gating: the loop cannot converge while
+ * every line written to satisfy a finding becomes new reviewable surface that
+ * mints the next one.
+ *
+ * These are NOT dismissed. They are real findings against real code, and the
+ * heading says so — they are simply not this PR's gate to pass, because the PR
+ * was scoped to the original implement diff.
+ */
+function outOfScopeSection(rows) {
+  if (rows.length === 0) return "";
+  const body = rows
+    .map((f) => {
+      const where = f.file ? `\`${f.file}\` — ` : "";
+      const s = f.surface ?? {};
+      // Only claim what a probe established, same rule as the relocated section.
+      const proof = s.addedBy
+        ? `\n  - added by \`${String(s.addedBy).slice(0, 9)}\`, after the review surface froze`
+        : "";
+      return `- ${where}${f.summary ?? "(no summary)"}${proof}`;
+    })
+    .join("\n");
+  return (
+    `\n### Out of scope — added by a later fix round (${rows.length}, not blocking)\n` +
+    "_Confirmed real, and worth fixing. A fix round wrote this code after the " +
+    "review surface froze at the original implement diff, so it does not gate this " +
+    "PR — otherwise every fix would enlarge what the next round must pass._\n" +
+    `${body}\n`
+  );
+}
+
+function relocatedSection(rows) {
   if (rows.length === 0) return "";
   const body = rows
     .map((f) => {

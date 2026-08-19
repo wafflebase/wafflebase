@@ -31,9 +31,34 @@ import type { IntentContext } from './intents.ts';
 import { composeIntents, computeIntent, NO_ADAPTER } from './intents.ts';
 import type { ResolvedOptions } from './options.ts';
 import { maybeRegenerate, TOKEN_KINDS } from './tokens.ts';
+import { readManifest } from './scenes.ts';
+
+/**
+ * This dev server's identity, minted once per process.
+ *
+ * The client persists its staged-edit stack under this value: a matching id on reload
+ * means the same server is still running and the stack still describes the files it was
+ * built against, while a different one means the server restarted and the stack must be
+ * dropped rather than replayed. Without it the client keys on `"unknown"` forever, so a
+ * restart silently restores edits against files that may have moved on.
+ *
+ * `pid` alone is not enough — operating systems reuse pids — so the start time is mixed
+ * in. Both are process-local and neither identifies the machine.
+ */
+const SESSION_ID = `${process.pid}-${Date.now().toString(36)}`;
 
 export interface BridgeDeps {
   options: ResolvedOptions;
+  /**
+   * The JSX analyser, lazily loaded — `extract.mjs` pulls in the TypeScript compiler, and
+   * a consumer who never opens the outline should not pay for it at dev-server start.
+   */
+  loadExtractor: () => Promise<{
+    analyzeFile: (abs: string) => unknown;
+    analyzeNodes: (abs: string) => unknown;
+    analyzeScene: (abs: string, cfg: unknown) => unknown;
+    buildMetadata: (input: { files: unknown[]; scenes?: unknown[] }) => unknown;
+  }>;
   guard: PathGuard;
   tracker: Tracker;
   safelist: Safelist;
@@ -312,6 +337,12 @@ export function bridge(deps: BridgeDeps): Plugin {
               // Absent adapter is a first-class, reportable state: the client greys
               // the token panels rather than offering edits the server refuses.
               tokens: deps.options.tokens ? 'configured' : null,
+              // The drill-in resolver's alias table. Reported here rather than on
+              // its own route because it is config, fixed for the dev server's
+              // lifetime, and `/health` is the one call the client already makes
+              // before it can resolve anything.
+              aliases: deps.options.aliases,
+              session: SESSION_ID,
               fsRevision: deps.tracker.revision(),
               externalChanges: deps.tracker.recentChanges(),
               safelist: deps.safelist.size(),
@@ -325,6 +356,79 @@ export function bridge(deps: BridgeDeps): Plugin {
           // adapter reports is now the project's, and a project with none reports
           // `adapter: null` with empty maps — which is what lets the client grey the
           // panels rather than render an empty editor that refuses every save.
+          /**
+           * The outline's data: every scene in the manifest, analysed into a node tree.
+           *
+           * RE-READ ON EVERY REQUEST, never cached. A `layout-insert` renumbers every
+           * following sibling, so a client holding a pre-write tree fails on all of them
+           * at the next save — which is why `mock-metadata.ts` (908 lines of frozen
+           * output) is the one population-C file §2 says is not moving: the endpoint
+           * replaced it, and the replacement has to be live to be correct.
+           *
+           * A scene whose file fails to analyse is REPORTED, not dropped. Dropping it
+           * yields an outline that is simply missing a scene, which reads as "this
+           * project has fewer scenes" rather than as a parse failure.
+           */
+          if (url === '/metadata' && method === 'GET') {
+            const o = deps.options;
+            const manifest = readManifest(o.scenes);
+            const extractor = await deps.loadExtractor();
+            const files: unknown[] = [];
+            const scenes: unknown[] = [];
+            const failed: { file: string; error: string }[] = [];
+
+            // `resolveSafe`, not a bare join: the manifest is consumer input, so a
+            // scene naming `../../etc/passwd` is refused here rather than analysed.
+            for (const scene of manifest.scenes ?? []) {
+              const r = deps.guard.resolveSafe(scene.file);
+              if ('error' in r) {
+                failed.push({ file: scene.file, error: r.error });
+                continue;
+              }
+              try {
+                // ROOT-RELATIVE `file`, not what the analyser returns. `analyzeScene`
+                // echoes the absolute path it was handed, and the outline compares a
+                // clicked node's `parseStampId(id).file` against it — but the stamper
+                // writes `data-wb-file` root-relative, by its own documented contract.
+                // Left absolute the two never match, so a click in the frame highlights
+                // nothing in the outline: a comparison that silently always fails.
+                const meta = extractor.analyzeScene(r.abs, scene) as { file?: string };
+                scenes.push({ ...meta, file: deps.guard.relOf(r.abs) });
+              } catch (err) {
+                failed.push({ file: scene.file, error: String(err) });
+              }
+            }
+            for (const rel of manifest.components ?? []) {
+              const r = deps.guard.resolveSafe(rel);
+              if ('error' in r) {
+                failed.push({ file: rel, error: r.error });
+                continue;
+              }
+              try {
+                /**
+                 * BOTH analysers, and the outline needs the second one.
+                 *
+                 * `analyzeFile` reports CVA variant tables and off-token values — the
+                 * token half. It produces no node tree, so a component drilled into from
+                 * the outline had `roots: undefined` and rendered as a component with no
+                 * nodes rather than as one nobody analysed. `analyzeNodes` is where the
+                 * tree comes from, and a declared component is exactly the thing a
+                 * drill-in opens.
+                 */
+                const meta = extractor.analyzeFile(r.abs) as Record<string, unknown>;
+                const nodes = extractor.analyzeNodes(r.abs) as Record<string, unknown>;
+                files.push({ ...meta, ...nodes, file: deps.guard.relOf(r.abs) });
+              } catch (err) {
+                failed.push({ file: rel, error: String(err) });
+              }
+            }
+            return json(res, 200, {
+              ok: true,
+              metadata: extractor.buildMetadata({ files, scenes }),
+              failed,
+            });
+          }
+
           if (url === '/tokens' && method === 'GET') {
             const adapter = deps.options.tokens;
             if (!adapter) {

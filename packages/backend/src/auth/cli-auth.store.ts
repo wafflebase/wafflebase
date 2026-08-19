@@ -1,61 +1,43 @@
 import { Injectable } from '@nestjs/common';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { hashSecret, timingSafeEqualStr } from './oauth-state';
 
-/**
- * A CLI login in flight.
- *
- * Every field is required: a state entry that is missing one of them is a
- * login with a binding switched off, and each binding closes an attack the
- * others do not (see the field comments). Making them non-optional is what
- * keeps "the CLI simply did not send it" from silently becoming "this login
- * is unbound".
- */
 interface StateEntry {
   /**
-   * Random value whose twin sits in the `wafflebase_cli_state` cookie set
-   * on the browser that started this login. The callback must present it, so
-   * a `state` minted in the attacker's browser (pointing at a loopback port
-   * the attacker owns) cannot be walked through consent by the victim's.
+   * SHA-256 of the secret handed to the browser in the CLI state cookie
+   * (`cliStateCookieName()`), which is what binds this state token to the
+   * browser that started the login. Only the hash is kept: the entry is
+   * the thing an attacker would want to read, and it never holds the
+   * value that satisfies the check.
    */
-  browserBinding: string;
+  csrfHash: string;
   mode: string;
   port: number;
   /**
-   * Nonce the CLI minted for this login. Echoed back to its localhost
-   * callback as `state` so the CLI can tell its own flow's code from one an
-   * attacker pushed at the guessable callback port (RFC 8252 §8.9).
+   * Nonce the CLI generated for this login attempt. Echoed back on the
+   * loopback redirect as `state` so the CLI's callback server can tell
+   * our redirect from one forged by a web page (login CSRF).
    */
-  nonce: string;
+  nonce?: string;
   /**
-   * PKCE S256 challenge (RFC 7636) the CLI derived from a verifier it never
-   * puts on the wire. Carried onto the authorization code so a code that
-   * leaks out of the loopback redirect is not redeemable by whoever holds it.
+   * PKCE-style challenge: `sha256(verifier)` for a verifier the CLI keeps
+   * in memory and never puts in a URL. Carried from the login start into
+   * the code the callback mints, so the code alone is not enough to
+   * redeem it (see `createCode`).
    */
-  codeChallenge: string;
+  challenge?: string;
   expiresAt: number;
-}
-
-/** The bindings a CLI login must carry; see `StateEntry`. */
-export interface CliStateParams {
-  mode: string;
-  port: number;
-  browserBinding: string;
-  nonce: string;
-  codeChallenge: string;
 }
 
 interface CodeEntry {
   userId: number;
-  /** Copied from the state that minted this code; see `StateEntry`. */
-  codeChallenge?: string;
+  challenge: string;
   expiresAt: number;
 }
 
-/** Constant-time compare of two base64url strings. */
-function secretEquals(a: string, b: string): boolean {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  return left.length === right.length && timingSafeEqual(left, right);
+/** `sha256(verifier)`, base64url — the PKCE S256 transform. */
+export function hashCliVerifier(verifier: string): string {
+  return createHash('sha256').update(verifier).digest('base64url');
 }
 
 @Injectable()
@@ -63,37 +45,92 @@ export class CliAuthStore {
   private states = new Map<string, StateEntry>();
   private codes = new Map<string, CodeEntry>();
 
-  createState(params: CliStateParams): { stateToken: string } {
+  /**
+   * Start a login attempt. The returned `csrf` is the browser's half of
+   * the binding: the caller must put it in the CLI state cookie, because
+   * `consumeState` refuses any state token that arrives without it.
+   */
+  createState(
+    mode: string,
+    port: number,
+    nonce?: string,
+    challenge?: string,
+  ): { stateToken: string; csrf: string } {
+    const csrf = randomBytes(32).toString('base64url');
     const stateToken = randomBytes(32).toString('base64url');
     this.states.set(stateToken, {
-      ...params,
+      csrfHash: hashSecret(csrf),
+      mode,
+      port,
+      nonce,
+      challenge,
       expiresAt: Date.now() + 5 * 60 * 1000,
     });
     this.cleanup();
-    return { stateToken };
+    return { stateToken, csrf };
   }
 
-  consumeState(stateToken: string): CliStateParams | undefined {
+  /**
+   * Redeem a login attempt, which requires the browser that started it.
+   *
+   * `stateToken` travels through GitHub in a URL, so on its own it is
+   * transferable — an attacker who mints one in their own browser can
+   * hand it to a victim and have the callback mint a code for the
+   * victim's account, bound to the attacker's PKCE challenge and posted
+   * to the attacker's loopback port. `csrfSecret` is the cookie half
+   * that makes it non-transferable, and it is mandatory: a missing or
+   * mismatched secret spends the entry and yields nothing, so a stolen
+   * state cannot be probed and never survives an attempt.
+   */
+  consumeState(
+    stateToken: string,
+    csrfSecret: unknown,
+  ):
+    | {
+        mode: string;
+        port: number;
+        nonce?: string;
+        challenge?: string;
+      }
+    | undefined {
     const entry = this.states.get(stateToken);
+    this.states.delete(stateToken);
     if (!entry || entry.expiresAt < Date.now()) {
-      this.states.delete(stateToken);
       return undefined;
     }
-    this.states.delete(stateToken);
+    if (typeof csrfSecret !== 'string' || csrfSecret.length === 0) {
+      return undefined;
+    }
+    if (!timingSafeEqualStr(entry.csrfHash, hashSecret(csrfSecret))) {
+      return undefined;
+    }
     return {
-      browserBinding: entry.browserBinding,
       mode: entry.mode,
       port: entry.port,
       nonce: entry.nonce,
-      codeChallenge: entry.codeChallenge,
+      challenge: entry.challenge,
     };
   }
 
-  createCode(userId: number, codeChallenge?: string): string {
+  /**
+   * Mint an authorization code bound to the login attempt's challenge.
+   *
+   * The code travels to the CLI as plaintext over loopback HTTP — a query
+   * string in a `http://127.0.0.1:<port>/callback` navigation, on a port
+   * taken off the start URL. Anything that can observe that hop (a local
+   * process reading it, a redirect logged by a browser extension or
+   * proxy, shell history) would otherwise hold a full credential: the
+   * code alone used to buy access **and** refresh JWTs from
+   * `POST /auth/cli/exchange`, unauthenticated. Requiring the challenge
+   * makes it a proof-of-possession code instead — only the process that
+   * generated the verifier can redeem it, and the verifier never appears
+   * in any URL.
+   */
+  createCode(userId: number, challenge: string): string {
     const code = randomBytes(32).toString('base64url');
     this.codes.set(code, {
       userId,
-      codeChallenge,
+      challenge,
       expiresAt: Date.now() + 60 * 1000,
     });
     this.cleanup();
@@ -101,40 +138,20 @@ export class CliAuthStore {
   }
 
   /**
-   * Redeem a code once.
-   *
-   * A code minted from a PKCE-bearing login is only redeemable by the client
-   * that started it: the caller must supply the verifier whose S256 hash is
-   * the stored challenge. A mismatch burns the code and is reported as an
-   * ordinary miss, so the endpoint is no oracle for "this code exists".
-   *
-   * A code minted without a challenge (a CLI predating PKCE) stays redeemable
-   * with the code alone — but only from a caller that presents no verifier.
-   * Redeeming a verifier against an unchallenged code is RFC 7636 §4.6's
-   * forbidden case, and refusing it is what stops a downgrade: otherwise an
-   * attacker who starts an unchallenged login at the victim's callback port
-   * and nonce gets the victim's PKCE-capable CLI to spend the attacker's
-   * code, verifier and all, and the terminal ends up logged into the
-   * attacker's account.
+   * Redeem a code, which requires the verifier its challenge was derived
+   * from. The entry is spent on *any* attempt — a mismatched verifier
+   * burns the code rather than leaving it up for another try, so a stolen
+   * code cannot be probed and never survives a redemption.
    */
-  consumeCode(code: string, codeVerifier?: string): number | undefined {
+  consumeCode(code: string, verifier: string): number | undefined {
     const entry = this.codes.get(code);
+    this.codes.delete(code);
     if (!entry || entry.expiresAt < Date.now()) {
-      this.codes.delete(code);
       return undefined;
     }
-    this.codes.delete(code);
-
-    if (!entry.codeChallenge) {
-      return codeVerifier ? undefined : entry.userId;
+    if (!timingSafeEqualStr(entry.challenge, hashCliVerifier(verifier))) {
+      return undefined;
     }
-
-    if (!codeVerifier) return undefined;
-    const digest = createHash('sha256')
-      .update(codeVerifier)
-      .digest('base64url');
-    if (!secretEquals(entry.codeChallenge, digest)) return undefined;
-
     return entry.userId;
   }
 

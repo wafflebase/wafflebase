@@ -57,12 +57,12 @@ describe('login callback server', () => {
       const noState = await fetch(
         `http://127.0.0.1:${port}/callback?code=evil-1`,
       );
-      expect(noState.status).toBe(400);
+      expect(noState.status).toBe(403);
 
       const wrongState = await fetch(
         `http://127.0.0.1:${port}/callback?code=evil-2&state=guessed`,
       );
-      expect(wrongState.status).toBe(400);
+      expect(wrongState.status).toBe(403);
 
       // Same length as `the-nonce`, so this one gets past the length check
       // and has to be refused by the value comparison itself. Without it a
@@ -70,7 +70,7 @@ describe('login callback server', () => {
       const sameLength = await fetch(
         `http://127.0.0.1:${port}/callback?code=evil-3&state=xxx-nonce`,
       );
-      expect(sameLength.status).toBe(400);
+      expect(sameLength.status).toBe(403);
 
       // The listener survives the rejections, so the genuine callback — which
       // may arrive after an attacker's probe — is still accepted.
@@ -240,7 +240,7 @@ async function openedUrl(): Promise<URL> {
 // anything: the backend only sends `state` back when the start URL carried
 // `nonce`, so a dropped or misnamed parameter would leave every real login
 // timing out. This drives the actual command to pin the wire format —
-// `nonce`, and the PKCE `code_challenge` whose verifier the exchange must
+// `nonce`, and the PKCE `challenge` whose verifier the exchange must
 // carry (RFC 7636).
 describe('wafflebase login', () => {
   const sessionPath = join(tmpdir(), `wb-login-test-${process.pid}.json`);
@@ -306,7 +306,7 @@ describe('wafflebase login', () => {
 
     const oauthUrl = await openedUrl();
     const nonce = oauthUrl.searchParams.get('nonce');
-    const challenge = oauthUrl.searchParams.get('code_challenge');
+    const challenge = oauthUrl.searchParams.get('challenge');
     const port = oauthUrl.searchParams.get('port');
     expect(nonce).toBeTruthy();
     expect(challenge).toBeTruthy();
@@ -338,7 +338,7 @@ describe('wafflebase login', () => {
     // what the server saw, so an intercepted code cannot be redeemed alone.
     expect(
       createHash('sha256')
-        .update(exchanged[0].codeVerifier)
+        .update(exchanged[0].verifier)
         .digest('base64url'),
     ).toBe(challenge);
   });

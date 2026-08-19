@@ -33,6 +33,8 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { repoScopedEnv } from "./agent/git-env.mjs";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..");
 
@@ -250,10 +252,18 @@ function baseBranchTip(git, baseRef, verified) {
 }
 
 export function resolveRefs(env = process.env, repoRoot = REPO_ROOT) {
+  // `repoScopedEnv`, not the ambient environment: `cwd` does NOT decide which
+  // repository git reads. An inherited `GIT_DIR` wins over it, and then every
+  // `rev-parse --verify` below answers about that repository instead — so a
+  // sha genuinely absent from this checkout can verify, and the diff that
+  // follows measures a tree nobody is reviewing. Note this is the READ half of
+  // the same hazard the fixtures in scripts/test/changed-areas.test.mjs hit on
+  // the write side; `scripts/agent/git-env.mjs` documents both.
   const git = (args) => {
     try {
       return execFileSync("git", args, {
         cwd: repoRoot,
+        env: repoScopedEnv(repoRoot),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
       }).trim();
@@ -347,8 +357,13 @@ export function changedPaths(refs, repoRoot = REPO_ROOT) {
   const { base, head = "HEAD" } = refs ?? {};
   if (!base || !head) return null;
   try {
+    // Scoped for the same reason as `resolveRefs`: this diff decides which CI
+    // lanes run, and an inherited `GIT_DIR` would silently take it against a
+    // different repository — the failure mode being a green run that tested
+    // the wrong tree.
     const out = execFileSync("git", ["diff", "--name-only", `${base}...${head}`], {
       cwd: repoRoot,
+      env: repoScopedEnv(repoRoot),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     });
