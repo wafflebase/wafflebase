@@ -584,6 +584,53 @@ async function checkSlidesTargeting(page, baseUrl) {
         "this surface has real undo stacks, and a caller told otherwise predicts the wrong thing",
     );
   }
+  // RUNS LAST, and must. It deliberately leaves the editor pointing at a slide the store
+  // does not have (#883), so anything after it reads a broken surface — placed earlier, it
+  // made the nudge section's `slides.elementCenter` refuse and reported that as a failure.
+  // A REFUSAL MUST READ THE SAME EVERY TIME, or it suppresses findings instead of
+  // explaining them. `uiObservedKey` keys an observation on its value, so a refusal that
+  // embeds a generated id makes every attempt look different, replay calls the candidate
+  // non-deterministic, and the gate drops it. That is not hypothetical: the slides
+  // surface's first run found #883 (undoing `Add slide` leaves the editor on the removed
+  // slide), reproduced it 3 times out of 3 by hand, and the run reported nothing because
+  // this reader's refusal named the slide's uuid.
+  //
+  // THIS CHECK RETIRES ITSELF LOUDLY. It needs the #883 state to exist, so once that is
+  // fixed the reader will answer instead of refusing — and rather than passing on a
+  // precondition that has silently vanished, it fails and says to remove it.
+  // TWO SEPARATE NAVIGATIONS, because that is what replay does. Comparing two reads inside
+  // ONE page load proves nothing: the slide keeps its id for the life of that page, so the
+  // message is trivially identical and the check passes while the bug is present. The id is
+  // regenerated per mount, so only a fresh setup exposes it. (The first version of this
+  // check made exactly that mistake.)
+  const refusals = [];
+  for (const attempt of [0, 1]) {
+    await page.goto(`${baseUrl}/harness/hunt?surface=slides`, { waitUntil: "networkidle" });
+    await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+    const addSlide = page.getByRole("button", { name: "Add slide" });
+    if ((await addSlide.count()) === 0) {
+      problems.push(`no \`Add slide\` control on attempt ${attempt} — the refusal-stability check cannot set up its state`);
+      break;
+    }
+    await addSlide.first().click();
+    await page.keyboard.press("Meta+z");
+    refusals.push(await readReader(page, "slides.elements", []));
+  }
+  if (refusals.length === 2) {
+    if (refusals[0].ok || refusals[1].ok) {
+      problems.push(
+        "slides.elements no longer refuses after undoing `Add slide` — #883 appears fixed, so " +
+          "this refusal-stability check has lost its precondition and should be removed or re-aimed",
+      );
+    } else if (refusals[0].error !== refusals[1].error) {
+      problems.push(
+        "a refused slides reader must read identically across attempts, got " +
+          `${JSON.stringify(refusals[0].error.slice(0, 90))} vs ${JSON.stringify(refusals[1].error.slice(0, 90))} — ` +
+          "a volatile value here makes replay call every candidate non-deterministic",
+      );
+    }
+  }
+
   return problems;
 }
 
