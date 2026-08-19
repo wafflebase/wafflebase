@@ -159,6 +159,21 @@ test("checkSurfaceScope refuses another surface's reader, and says which are ava
   assert.match(why, /doc\.fontSizes/, "the refusal lists what IS available");
 });
 
+test("checkSurfaceScope inspects a drag's DESTINATION, not just its origin", () => {
+  // THE FOURTH DOOR. This is the only place the run's assigned surface is enforced by exact
+  // name, and `drag` added a second target field. Checked on the origin alone, `to` is a way
+  // to cite another surface's reader — which is precisely the bound the closed vocabulary
+  // exists to hold.
+  const ok = { type: "drag", target: { reader: "slides.elementCenter", args: ["a"] }, to: { reader: "slides.pointAt", args: [1, 2] } };
+  assert.equal(checkSurfaceScope(ok, "slides"), null);
+
+  const crossed = { type: "drag", target: { reader: "slides.elementCenter", args: ["a"] }, to: { reader: "sheet.cellCenter", args: ["B2"] } };
+  assert.match(String(checkSurfaceScope(crossed, "slides")), /sheet\.cellCenter/, "a destination on another surface must be refused, by name");
+
+  const unknown = { type: "drag", target: { reader: "slides.elementCenter", args: ["a"] }, to: { reader: "slides.nope" } };
+  assert.match(String(checkSurfaceScope(unknown, "slides")), /slides\.nope/, "an unknown destination reader must be refused, by name");
+});
+
 test("checkSurfaceScope refuses an unknown reader by name", () => {
   assert.match(checkSurfaceScope({ type: "read", reader: "doc.nope" }, "doc"), /unknown reader/);
 });

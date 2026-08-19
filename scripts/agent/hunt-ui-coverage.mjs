@@ -159,7 +159,11 @@ function controlOf(action) {
 /** Did this action change the document, as opposed to observing or navigating it? */
 function isMutation(action) {
   const type = action?.type;
-  if (type === "type" || type === "key") return true;
+  // A DRAG CHANGES THE DOCUMENT, so it breaks a run of clicks like typing does. Without this
+  // a drag between two clicks of the same control reads as apply-then-reverse with nothing in
+  // between, and the memory records a round trip that never happened — then steers the next
+  // run away from the reversal it thinks was already tested.
+  if (type === "type" || type === "key" || type === "drag") return true;
   return type === "click" && controlOf(action) !== "";
 }
 

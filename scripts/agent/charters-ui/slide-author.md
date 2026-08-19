@@ -119,12 +119,13 @@ window could have changed it.
   - **`Shape` WORKS, and is the one way you can create an element.** It opens a 136-item
     picker; pick a shape and then a plain CLICK on the slide places it. Predict against
     `slides.elements` growing by exactly one.
-  - **`Text box`, `Insert table` and `Line` cannot be placed.** `Text box` and `Insert table`
-    open nothing and add nothing; `Line` opens a small picker (`Arrow`, `Curved connector`,
-    `Elbow connector`, `Scribble`) and then a click places nothing, because a connector is
-    defined by two dragged endpoints. All three arm a mode you cannot complete without a
-    drag, so a click on them changes NOTHING you can read. That is the missing drag action,
-    not a defect — do not report it, and do not spend a prediction on it.
+  - **`Text box` and `Line` NEED A DRAG, and now work.** They arm a mode a click cannot
+    complete, which is why they used to appear inert. Measured with `drag`: `Text box` then a
+    drag across empty slide space adds a `text` element; `Line` opens a picker (`Arrow`,
+    `Curved connector`, `Elbow connector`, `Scribble`) and a drag then adds a `connector` for
+    `Arrow` and a `shape` for `Scribble`. Drag out the region you want rather than clicking.
+  - **`Insert table` still adds nothing, even with a drag.** Measured: the element count does
+    not move. Predict nothing about it and do not report it.
   - **`Insert image` IS UNWIRED IN THIS HARNESS.** It needs a file picker that is not
     mounted, so its handler is a no-op. Not broken; unwired here only.
 

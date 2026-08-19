@@ -184,7 +184,16 @@ export function checkSurfaceScope(action, surface) {
     [...Object.values(UI_READERS_BY_SURFACE).flat(), ...UI_SHARED_READERS].map(([name]) => name),
   );
 
-  const cited = [action?.type === "read" || action?.type === "wait" ? action.reader : null, action?.target?.reader, action?.expect?.read];
+  // FOUR DOORS A READER NAME CAN COME THROUGH, and `to` is the newest. This is the only
+  // place the run's assigned surface is enforced by exact name, so a door missing from this
+  // list is a door onto another surface's readers — `drag`'s destination would have been
+  // exactly that.
+  const cited = [
+    action?.type === "read" || action?.type === "wait" ? action.reader : null,
+    action?.target?.reader,
+    action?.to?.reader,
+    action?.expect?.read,
+  ];
   for (const reader of cited) {
     if (typeof reader !== "string" || reader === "") continue;
     if (allowed.has(reader)) continue;

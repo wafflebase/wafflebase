@@ -298,10 +298,20 @@ async function runAction(page, action, baseUrl, timeoutMs, fault = null) {
       const to = await resolveTarget(page, action.to);
       // Both ends may be a role locator or a named reader's point; a locator is reduced to
       // its own centre, which is what `click` already does to one.
-      const at = async (t) =>
-        t.kind === "point"
-          ? t.point
-          : await t.locator.boundingBox().then((b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 }));
+      //
+      // WAITS, AND REFUSES A BOX THAT IS NOT THERE. `boundingBox()` answers `null` for an
+      // element that is not rendered, so reading `.x` off it throws a TypeError naming a
+      // property rather than the target that could not be measured — the same opaque failure
+      // `resolveTarget` refuses NaN coordinates to avoid. And the per-action timeout is the
+      // budget every other action honours; without `waitFor` a drag would resolve against
+      // whatever the locator happened to be at that instant instead of waiting for it.
+      const at = async (t) => {
+        if (t.kind === "point") return t.point;
+        await t.locator.waitFor({ state: "visible", timeout: timeoutMs });
+        const box = await t.locator.boundingBox({ timeout: timeoutMs });
+        if (!box) throw new Error("drag target resolved to a locator with no bounding box — it is not rendered");
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      };
       await performDrag(page, await at(from), await at(to));
       return { value: null };
     }

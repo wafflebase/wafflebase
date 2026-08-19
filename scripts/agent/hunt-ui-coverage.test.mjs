@@ -75,6 +75,31 @@ const failedClick = (name) => ({
   error: "locator.click: Timeout 30000ms exceeded",
 });
 
+test("a DRAG between two clicks of a control is not a round trip", () => {
+  // A drag changes the document, so it breaks a run of clicks exactly as typing does. Counted
+  // as a non-mutation, the two Bold clicks read as apply-then-reverse with nothing in between
+  // and the memory records a round trip that never happened — then steers the next run away
+  // from the reversal it believes was already tested.
+  const drag = () => ({
+    action: {
+      type: "drag",
+      target: { reader: "slides.elementCenter", args: ["badge"] },
+      to: { reader: "slides.pointAt", args: [700, 800] },
+    },
+    ok: true,
+  });
+  const spoiled = coverageFromJournal([sel(0, 5), click("Bold"), drag(), click("Bold")]);
+  assert.equal(
+    spoiled.shapes.find((x) => x.control === "Bold")?.roundTripped,
+    false,
+    "something happened between the two clicks, so the second is a fresh application",
+  );
+
+  // The control case: with nothing in between it IS a round trip.
+  const real = coverageFromJournal([sel(0, 5), click("Bold"), click("Bold")]);
+  assert.equal(real.shapes.find((x) => x.control === "Bold")?.roundTripped, true);
+});
+
 test("a click that did not land records no coverage at all", () => {
   // 7 of the 280 clicks across this repository's runs failed, and every one of them was
   // recorded as tried — `Text style`, `Text alignment`, `Heading 2⌘+⌥2`, `Right⌘+⇧R` and
