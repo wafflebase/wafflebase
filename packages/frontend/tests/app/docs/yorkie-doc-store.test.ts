@@ -1,8 +1,8 @@
 import { describe, it, beforeEach, expect } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
-import { generateBlockId, DEFAULT_BLOCK_STYLE, createTableBlock, createTableCell } from '@wafflebase/docs';
-import type { Block, Inline, TableRow, TableCell as TCell } from '@wafflebase/docs';
+import { generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_HEADER_MARGIN_FROM_EDGE, createTableBlock, createTableCell } from '@wafflebase/docs';
+import type { Block, HeaderFooter, Inline, TableRow, TableCell as TCell } from '@wafflebase/docs';
 
 function makeBlock(text: string, style?: Partial<Block['style']>): Block {
   return {
@@ -2075,6 +2075,46 @@ describe('YorkieDocStore', () => {
       expect(result.type).toBe('heading');
       expect(result.headingLevel).toBe(3);
     });
+
+    // Removing the stale type attributes over a path range would span the
+    // block's whole subtree, so retyping a table block would also strip
+    // `listKind`/`listLevel`/`headingLevel` from every block nested in its
+    // cells. The removal must hit the table node alone — read back through a
+    // fresh store to bypass the cache.
+    it('should not strip list/heading attrs from blocks nested in its cells', () => {
+      const tableBlock = createTableBlock(1, 2);
+      const listCellBlock = tableBlock.tableData!.rows[0].cells[0].blocks[0];
+      listCellBlock.type = 'list-item';
+      listCellBlock.listKind = 'ordered';
+      listCellBlock.listLevel = 1;
+      listCellBlock.inlines = [{ text: 'Item', style: {} }];
+      const headingCellBlock = tableBlock.tableData!.rows[0].cells[1].blocks[0];
+      headingCellBlock.type = 'heading';
+      headingCellBlock.headingLevel = 2;
+      headingCellBlock.inlines = [{ text: 'Title', style: {} }];
+      store.setDocument({ blocks: [tableBlock] });
+
+      // Retyping the table block clears headingLevel/listKind/listLevel — the
+      // attributes the nested cell blocks legitimately carry.
+      store.setBlockType(tableBlock.id, 'table');
+
+      const fresh = new YorkieDocStore(doc).getDocument();
+      const cells = fresh.blocks[0].tableData!.rows[0].cells;
+      expect(cells[0].blocks[0].type).toBe('list-item');
+      expect(cells[0].blocks[0].listKind, 'nested listKind should survive').toBe('ordered');
+      expect(cells[0].blocks[0].listLevel, 'nested listLevel should survive').toBe(1);
+      expect(cells[1].blocks[0].type).toBe('heading');
+      expect(cells[1].blocks[0].headingLevel, 'nested headingLevel should survive').toBe(2);
+
+      // A table node's children are its rows: `block.inlines` is always `[]`,
+      // so the "ensure at least one empty inline" branch must not run here.
+      // The reader filters children by type `row`, so a stray inline node
+      // spliced in front of row 0 would be invisible above while shifting
+      // every `[...tablePath, row, cell, …]` path by one.
+      const tableNode = doc.getRoot().content.getRootTreeNode()
+        .children[0] as unknown as { children: Array<{ type: string }> };
+      expect(tableNode.children.map((c) => c.type)).toEqual(['row']);
+    });
   });
 
   describe('applyBlockStyle', () => {
@@ -2135,6 +2175,147 @@ describe('YorkieDocStore', () => {
       expect(doc.blocks[0].tableData!.rows[0].cells[1].style.backgroundColor).toBe(undefined);
       expect(doc.blocks[0].tableData!.rows[1].cells[0].style.backgroundColor).toBe(undefined);
     });
+
+    // Issue #728: "No fill" clears the key by passing it as `undefined`.
+    // styleByPath only merges, so the removal has to reach the Tree node
+    // itself — read it back through a fresh store to bypass the cache.
+    it('should clear the fill in the CRDT when backgroundColor is undefined', () => {
+      const tableBlock = createTableBlock(1, 1);
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellStyle(tableBlock.id, 0, 0, {
+        backgroundColor: '#ff0000',
+        verticalAlign: 'middle',
+      });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: undefined });
+
+      const fresh = new YorkieDocStore(doc).getDocument();
+      const cell = fresh.blocks[0].tableData!.rows[0].cells[0];
+      expect(cell.style.backgroundColor).toBe(undefined);
+      // Untouched keys survive the removal.
+      expect(cell.style.verticalAlign).toBe('middle');
+    });
+
+    // A path range spanning the cell subtree would remove `backgroundColor`
+    // from every element node inside the cell too — the text highlight of
+    // each inline, and every nested-table cell. The removal must hit the
+    // cell node alone.
+    it('should not strip backgroundColor from nodes inside the cell', () => {
+      const tableBlock = createTableBlock(1, 1);
+      const inner = tableBlock.tableData!.rows[0].cells[0].blocks[0];
+      inner.inlines[0].text = 'hello';
+      inner.inlines[0].style = { backgroundColor: '#00ff00' };
+      store.setDocument({ blocks: [tableBlock] });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: '#ff0000' });
+      store.applyCellStyle(tableBlock.id, 0, 0, { backgroundColor: undefined });
+
+      const fresh = new YorkieDocStore(doc).getDocument();
+      const cell = fresh.blocks[0].tableData!.rows[0].cells[0];
+      expect(cell.style.backgroundColor).toBe(undefined);
+      expect(cell.blocks[0].inlines[0].style.backgroundColor).toBe('#00ff00');
+    });
+  });
+
+  // The backend (`packages/backend/src/yorkie/docs-tree.ts`) encodes the same
+  // Yorkie Tree attributes with its own copy of this codec, so the two must
+  // agree on what a partial/absent field looks like on the wire.
+  describe('block style codec', () => {
+    it('should omit absent style fields instead of writing "undefined"', () => {
+      const block = {
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'x', style: {} }],
+        style: {},
+      } as unknown as Block;
+      store.setDocument({ blocks: [block] });
+
+      const attrs = doc.getRoot().content.getRootTreeNode().children[0]
+        .attributes as Record<string, string>;
+      expect(attrs).not.toHaveProperty('lineHeight');
+      expect(attrs).not.toHaveProperty('alignment');
+
+      const style = new YorkieDocStore(doc).getDocument().blocks[0].style;
+      expect(style).toEqual(DEFAULT_BLOCK_STYLE);
+    });
+
+    it('should read a legacy poisoned style as the block defaults', () => {
+      // Documents written by the pre-guard serializer hold the literal
+      // string "undefined"; `Number(...)` of that is NaN and
+      // `normalizeBlockStyle` is a bare spread, so the read has to guard.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      doc.update((root: any) => {
+        root.content = new yorkie.Tree({
+          type: 'doc',
+          children: [
+            {
+              type: 'block',
+              attributes: {
+                id: 'b1',
+                type: 'paragraph',
+                lineHeight: 'undefined',
+                marginTop: 'undefined',
+                marginBottom: 'not-a-number',
+                textIndent: 'Infinity',
+              },
+              children: [
+                { type: 'inline', attributes: {}, children: [{ type: 'text', value: 'x' }] },
+              ],
+            },
+          ],
+        });
+      });
+
+      const style = new YorkieDocStore(doc).getDocument().blocks[0].style;
+      expect(style.lineHeight).toBe(DEFAULT_BLOCK_STYLE.lineHeight);
+      expect(style.marginTop).toBe(DEFAULT_BLOCK_STYLE.marginTop);
+      expect(style.marginBottom).toBe(DEFAULT_BLOCK_STYLE.marginBottom);
+      expect(style.textIndent).toBe(DEFAULT_BLOCK_STYLE.textIndent);
+      for (const value of Object.values(style)) {
+        if (typeof value === 'number') expect(Number.isFinite(value)).toBe(true);
+      }
+    });
+
+    // The renderer that lays out and paints the header runs on *this* copy of
+    // the codec, so the NaN guard has to hold here and not just on the
+    // backend's reader: `Number('undefined')` as a page offset paints nothing.
+    it('should read a legacy poisoned header marginFromEdge as the default', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      doc.update((root: any) => {
+        root.content = new yorkie.Tree({
+          type: 'doc',
+          children: [
+            { type: 'header', attributes: { marginFromEdge: 'undefined' }, children: [] },
+            {
+              type: 'block',
+              attributes: { id: 'b1', type: 'paragraph' },
+              children: [
+                { type: 'inline', attributes: {}, children: [{ type: 'text', value: 'x' }] },
+              ],
+            },
+            { type: 'footer', attributes: { marginFromEdge: 'NaN' }, children: [] },
+          ],
+        });
+      });
+
+      const read = new YorkieDocStore(doc).getDocument();
+      expect(read.header!.marginFromEdge).toBe(DEFAULT_HEADER_MARGIN_FROM_EDGE);
+      expect(read.footer!.marginFromEdge).toBe(DEFAULT_HEADER_MARGIN_FROM_EDGE);
+    });
+
+    it('should omit an absent header marginFromEdge instead of writing "undefined"', () => {
+      store.setDocument({
+        blocks: [makeBlock('body')],
+        header: { blocks: [makeBlock('head')] } as unknown as HeaderFooter,
+      });
+
+      // An empty attribute map reads back as `undefined`, which is exactly
+      // the point: nothing was persisted for the absent field.
+      const headerAttrs = (doc.getRoot().content.getRootTreeNode().children[0]
+        .attributes ?? {}) as Record<string, string>;
+      expect(headerAttrs).not.toHaveProperty('marginFromEdge');
+      expect(
+        new YorkieDocStore(doc).getDocument().header!.marginFromEdge,
+      ).toBe(DEFAULT_HEADER_MARGIN_FROM_EDGE);
+    });
   });
 
   describe('applyCellSpan', () => {
@@ -2184,6 +2365,30 @@ describe('YorkieDocStore', () => {
       store.applyCellSpan(tableBlock.id, 0, 0, { rowSpan: 1 });
       const doc = store.getDocument();
       expect(doc.blocks[0].tableData!.rows[0].cells[0].rowSpan).toBe(undefined);
+    });
+
+    // The span removal is index-scoped to the cell's opening tag rather than
+    // a path range, because a path range spans the cell's whole subtree and
+    // Yorkie would strip `colSpan` from every nested-table cell inside it.
+    // Read back through a fresh store so the assertion sees the CRDT itself
+    // and not the write-through cache.
+    it('should clear colSpan in the CRDT without touching nested cells', () => {
+      const outer = createTableBlock(1, 1);
+      const nested = createTableBlock(1, 1);
+      nested.tableData!.rows[0].cells[0].colSpan = 2;
+      outer.tableData!.rows[0].cells[0].blocks = [nested];
+      store.setDocument({ blocks: [outer] });
+      store.applyCellStyle(outer.id, 0, 0, { backgroundColor: '#ff0000' });
+      store.applyCellSpan(outer.id, 0, 0, { colSpan: 2 });
+      store.applyCellSpan(outer.id, 0, 0, { colSpan: 1 });
+
+      const fresh = new YorkieDocStore(doc).getDocument();
+      const cell = fresh.blocks[0].tableData!.rows[0].cells[0];
+      expect(cell.colSpan).toBe(undefined);
+      // The index-scoped removal takes out the named attributes only — the
+      // cell's other style attributes, and every node inside it, survive.
+      expect(cell.style.backgroundColor).toBe('#ff0000');
+      expect(cell.blocks[0].tableData!.rows[0].cells[0].colSpan).toBe(2);
     });
 
     it('should set colSpan=0 for covered cells', () => {

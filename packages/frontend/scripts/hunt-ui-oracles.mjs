@@ -53,7 +53,22 @@ export const DOM_INVARIANT_SCAN = /* js */ `(hostTestId) => {
     if (count > 1) findings.push({ kind: 'dom-invariant', rule: 'duplicate-id', detail: id + ' x' + count });
   }
 
-  for (const attr of ['aria-labelledby', 'aria-describedby', 'aria-controls']) {
+  // NOTE: this block lives inside a template literal, so it can carry no backticks.
+  //
+  // 'aria-controls' is DELIBERATELY ABSENT from the list below. A disclosure trigger
+  // legitimately points at content that does not exist while it is collapsed -- that is how
+  // Radix renders every dropdown in this app -- so a dangling 'aria-controls' is the normal
+  // state of a closed menu rather than a defect. 'aria-labelledby' and 'aria-describedby'
+  // are different: a missing target there means the control genuinely has no accessible
+  // name or description, which is what this rule exists to catch.
+  //
+  // Measured on all three surfaces: opening 'Text style' on the doc surface fires it once
+  // and keeps firing while the menu is open; opening 'Arrange' on the slides surface fires
+  // it three times over Radix's own generated ids; the sheet surface's border menu does not
+  // fire at all. So this was a live false-positive source on a surface the hunter already
+  // runs, not something the slides surface introduced -- that toolbar is mostly menus, which
+  // only made it loud enough to notice.
+  for (const attr of ['aria-labelledby', 'aria-describedby']) {
     for (const el of document.querySelectorAll('[' + attr + ']')) {
       for (const ref of (el.getAttribute(attr) || '').split(/\\s+/).filter(Boolean)) {
         if (!document.getElementById(ref)) {

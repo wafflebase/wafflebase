@@ -133,6 +133,6 @@ for the index.
 
 ## Design
 
-Full design in [`/docs/design/rest-api-and-cli.md`](../../docs/design/rest-api-and-cli.md)
-and [`/docs/design/docs-cli.md`](../../docs/design/docs-cli.md) (the
+Full design in [`/docs/design/rest-api.md`](../../docs/design/rest-api.md)
+and [`/docs/design/cli.md`](../../docs/design/cli.md) (the
 docs-side `content / export / import` pipeline).

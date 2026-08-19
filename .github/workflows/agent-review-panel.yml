@@ -693,6 +693,36 @@ jobs:
           PR: ${{ steps.pr.outputs.number }}
         run: node .trusted/scripts/agent/fix-report.mjs read "$PR" --out /tmp/fix-reports.json
 
+      # WHERE THE REVIEW SURFACE WAS FROZEN: the head sha at the moment the fix
+      # agent was FIRST dispatched, read out of the `<!-- agent-fix-dispatch -->`
+      # ledger. Findings on lines a later fix round wrote stop gating the merge —
+      # see scripts/agent/review-surface.mjs for the measurement behind that.
+      #
+      # TRUSTED copy, like every other reader here: the ledger is written by
+      # `github-actions[bot]` and `parseFixDispatchComment` refuses any other
+      # author, so a branch cannot move its own freeze point. Running the branch's
+      # copy of this script would hand that decision back to the branch.
+      #
+      # continue-on-error plus a script that always exits 0 with an empty output:
+      # an unresolvable freeze point must degrade to "gate off" — every finding
+      # keeps gating, exactly as before this existed — never to a failed panel. The
+      # empty-string default below is what makes the un-wired case identical.
+      - name: Resolve the frozen review surface
+        id: surface
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          [ -f .trusted/scripts/agent/review-surface.mjs ] || {
+            echo "review-surface.mjs is not on main yet; skipping (gate off)"
+            echo "frozen=" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          node .trusted/scripts/agent/review-surface.mjs resolve "$PR"
+
       # Advisory single-value state: mark the PR "under automated review" while the
       # panel runs. Best-effort; the label is a projection, never a gate. Runs the
       # TRUSTED copy from .trusted (checked out above), not the branch's copy.
@@ -791,6 +821,12 @@ jobs:
           # the Claude token, and repo convention keeps workflow expressions out
           # of shell commands in jobs that hold secrets.
           BASE_SHA: ${{ steps.diff.outputs.base }}
+          # Where the review surface froze — the head when the fixer was first
+          # dispatched. Empty when the resolver found no ledger (round 1, a PR older
+          # than the ledger) or failed outright, and review-panel.mjs reads empty as
+          # "gate off", so an unresolved surface routes every finding exactly as it
+          # did before this existed.
+          FROZEN_SHA: ${{ steps.surface.outputs.frozen }}
           # From the NARROW step, not the scope step: whichever step actually wrote
           # /tmp/pr.diff is the one allowed to say what is in it. When narrowing did
           # not happen both are EMPTY STRINGS, which review-panel.mjs reads as
@@ -838,6 +874,7 @@ jobs:
           --fix-reports /tmp/fix-reports.json
           --base-sha "$BASE_SHA"
           --head-sha "$HEAD_SHA"
+          --frozen-sha "$FROZEN_SHA"
           --review-mode "$REVIEW_MODE"
           --since-sha "$SINCE_SHA"
           --repo "$GITHUB_WORKSPACE"

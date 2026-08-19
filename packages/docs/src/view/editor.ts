@@ -2804,6 +2804,11 @@ export function initialize(
       doc.setBlockType(cursor.position.blockId, type, opts);
       invalidateLayout();
       render();
+      // The caret did not move but the block under it is a different type
+      // now, so the Text style control would keep its old label until some
+      // unrelated action fired the cursor-move callbacks. Same reason every
+      // sibling mutation below notifies. See issue #792.
+      notifyStyleApplied();
     },
     getDocStyles: () => docStore.getDocStyles(),
     setDocStyles(styles: DocStyles) {
@@ -2878,6 +2883,10 @@ export function initialize(
       });
       invalidateLayout();
       render();
+      // Toggling a bullet rewrites the block's type — a Heading 2 becomes a
+      // `list-item`, so the Text style control's label is stale for exactly
+      // the reason `setBlockType` above notifies. See issue #792.
+      notifyStyleApplied();
     },
     indent() {
       const MAX_LIST_LEVEL = 8;
@@ -2898,6 +2907,10 @@ export function initialize(
         }
       });
       render();
+      // `listLevel` / `marginLeft` are read back through `getBlockType()` /
+      // `getBlockStyle()`, so notify for the same reason `toggleList` does
+      // (and as the text-box editor's `indent` already does).
+      notifyStyleApplied();
     },
     outdent() {
       const INDENT_STEP = 36;
@@ -2919,6 +2932,7 @@ export function initialize(
         }
       });
       render();
+      notifyStyleApplied();
     },
     insertLink: (url: string) => {
       if (selection.hasSelection() && selection.range) {

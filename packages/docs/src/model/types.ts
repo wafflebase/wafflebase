@@ -446,6 +446,22 @@ export function inlineStylesEqual(a: InlineStyle, b: InlineStyle): boolean {
   );
 }
 
+/**
+ * Whether an inline is a *structural* kind — an image or a page number —
+ * rather than styled text.
+ *
+ * These carry their payload in the style (`style.image`) while their text
+ * is a single placeholder character, so one inline describes exactly one
+ * object. That makes them unmergeable: concatenating two image inlines
+ * gives a two-character run under a single `style.image`, which cannot
+ * describe two images — the second is lost while the offsets still count
+ * both. Equality is not the test here; two *identical* images (copy an
+ * image, then paste it beside itself) must still stay separate runs.
+ */
+export function isStructuralInline(inline: Inline): boolean {
+  return inline.style.image !== undefined || inline.style.pageNumber === true;
+}
+
 // --- Table types ---
 
 export interface BorderStyle {

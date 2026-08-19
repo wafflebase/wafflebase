@@ -241,6 +241,34 @@ Per the existing Yorkie store bug fix
 attributes when their value is explicitly `undefined`, so no Yorkie
 plumbing change is needed.
 
+### Color reset — "cleared" is an absent key, and `''` means unset
+
+The text-color and highlight pickers each carry a **Reset** entry, and it
+follows the same rule as Clear formatting: reset calls `applyStyle` with the
+key mapped to `undefined`, so the attribute is *removed*. It must never write
+`''`. An empty string is not a color — `ctx.fillStyle = ''` is an invalid
+assignment the canvas silently ignores, leaving the run painted in whatever
+the previous pass set (on a selected run, the selection fill). That was the
+visible bug in issue #728.
+
+Documents written before this rule, and decks arriving through PPTX/DOCX
+import or the content `PUT`, still hold the `''`. So the render side treats it
+as unset rather than trying to migrate stored data: every paint-time read of a
+stored color goes through `resolveStoredColor`
+(`packages/docs/src/model/color.ts`), which collapses an empty color to
+`undefined` on *both* sides of the theme resolver and returns `undefined` when
+nothing is paintable, leaving each caller to apply its own fallback —
+`resolveStoredColor(resolve, c) ?? theme.defaultColor`. Collapsing it *before*
+the resolver is what makes a cleared run inherit the deck theme's text color
+on a themed slide instead of the docs near-black default. Both spellings of
+empty count: the bare `''` and the `{ kind: 'srgb', value: '' }` wrapper a
+theme-color migration or PPTX import can produce.
+
+The same convention holds at the export sinks: `toRgbHexColor` maps an empty
+or unusable color to "no color child" rather than an empty OOXML attribute
+value (see [docs-docx-import-export.md](docs-docx-import-export.md) and
+[slides-pptx-export.md](../slides/slides-pptx-export.md)).
+
 ### Editor API additions
 
 Two additions to the `EditorAPI` surface exposed by

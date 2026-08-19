@@ -32,8 +32,12 @@ wafflebase login --server https://api.example.com
 
 ### Check Status
 
+Prints the auth state as JSON — `loggedIn` tells a script or agent
+whether a login prompt is needed.
+
 ```bash
 wafflebase status
+wafflebase status --format table   # human-readable key/value
 ```
 
 ### Logout
@@ -47,8 +51,11 @@ wafflebase logout
 If you have access to multiple workspaces:
 
 ```bash
-# List workspaces (* = active)
+# List workspaces as [{ id, name, active }]
 wafflebase ctx list
+
+# Human-readable table instead of JSON
+wafflebase ctx list --format table
 
 # Switch active workspace
 wafflebase ctx switch "Team Workspace"
@@ -365,6 +372,9 @@ wafflebase sheets export <doc-id> output.csv --range A1:D100
 
 # Export to stdout (pipe-friendly)
 wafflebase sheets export <doc-id> - --file-format csv | head -20
+
+# Export for re-import: keep formulas as formulas
+wafflebase sheets export <doc-id> output.csv --raw
 ```
 
 | Option | Description | Default |
@@ -372,6 +382,16 @@ wafflebase sheets export <doc-id> - --file-format csv | head -20
 | `--tab <tab-id>` | Source tab | `tab-1` |
 | `--range <range>` | Cell range to export | all data |
 | `--file-format <fmt>` | File format (`csv`, `json`) | auto-detected |
+| `--raw` | CSV only: write cell text verbatim | off |
+
+CSV export prefixes anything a spreadsheet would evaluate (`=`, `+`,
+`-`, `@`, with or without leading whitespace) with `'`, so opening the
+file cannot execute a formula another workspace member put in a cell.
+Plain numbers are untouched. `--raw` turns the guard off, which is what
+you want when the file is going straight back into `sheets import`:
+that command recognizes the `ref,value,formula[,style]` header this
+export writes and re-imports by reference, sending each formula as a
+formula rather than as text.
 
 ## slides (aliases: slide, deck)
 

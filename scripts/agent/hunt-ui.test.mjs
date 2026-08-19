@@ -163,7 +163,9 @@ test("validatePersona fails LOUD on a misconfigured surface", () => {
   // shown, so a typo hands it an empty toolbox and it reports nothing, forever.
   assert.match(validatePersona({ ...PERSONA, surface: "docs" }).join(";"), /not one of/);
   assert.match(validatePersona({ ...PERSONA, surface: undefined }).join(";"), /not one of/);
-  assert.match(validatePersona({ ...PERSONA, surface: "slides" }).join(";"), /not one of/);
+  // NOT "slides": it was the stand-in for "a surface that does not exist" and is now a
+  // real one, which is how a refusal test quietly starts asserting nothing.
+  assert.match(validatePersona({ ...PERSONA, surface: "not-a-surface" }).join(";"), /not one of/);
   assert.deepEqual(validatePersona(PERSONA), []);
 });
 
@@ -437,6 +439,30 @@ const JOURNAL = [
   },
   { action: { type: "type", text: "x" }, oracles: [{ kind: "dom-invariant", rule: "duplicate-id" }] },
 ];
+
+test("uiDefectKey keys a drag on BOTH ends, so two drag defects do not collapse", () => {
+  // Keyed on its origin alone, every defect found by dragging the same element is one key —
+  // and a drag session usually drags the same element repeatedly, so the collision is likely
+  // rather than exotic. The second finding is then dropped as a duplicate with no record.
+  const entry = (to) => [{
+    action: {
+      type: "drag",
+      target: { reader: "slides.elementCenter", args: ["badge"] },
+      to: { reader: to, args: [1, 2] },
+      expect: { read: "slides.elements", op: "equals", ground: "A" },
+    },
+  }];
+  const cand = { failingRef: 0 };
+  const a = uiDefectKey(cand, entry("slides.pointAt"), { personaId: "slide-author" });
+  const b = uiDefectKey(cand, entry("slides.elementCenter"), { personaId: "slide-author" });
+  assert.notEqual(a, b, "different destinations are different defects");
+  // The reader NAME, not its arguments — `target()` has always keyed on the name, so two
+  // drags of different elements through `slides.elementCenter` still share a key. That is a
+  // pre-existing property of every reader-targeted action (two `sheet.cellCenter` clicks
+  // collide the same way) and the fingerprint and ledger catch those on the second pass. What
+  // this test pins is that the DESTINATION participates at all.
+  assert.match(a, /slides\.elementCenter->slides\.pointAt/);
+});
 
 test("uiDefectKey identifies a prediction defect by reader/op/ground, not by prose", () => {
   const key = uiDefectKey({ failingRef: 2 }, JOURNAL, { personaId: "doc-writer" });

@@ -168,6 +168,7 @@ conventions, and how AI coding agents fit in.
 ## Documentation
 
 - [docs/](docs/README.md) — design documents, architecture, and task tracking
+- [scripts/](scripts/README.md) — verification harness, task-doc tooling, agent pipeline, git hooks
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contributor workflow
 - [MAINTAINING.md](MAINTAINING.md) — release and maintenance procedures
 - [CLAUDE.md](CLAUDE.md) — agent instructions for AI-assisted development (also exposed as `AGENTS.md` via symlink)
