@@ -232,4 +232,25 @@ describe('TokenEditorPanel', () => {
     expect(host.textContent).toContain('--font-body');
   });
 
+
+});
+
+/**
+ * The panels are the only place in this package whose text a CONSUMER reads, and one of
+ * them shipped the prototype's namespace and package name in a rendered error — telling
+ * the user to run a filter that does not exist. Routes belong in `BASE`; nothing under
+ * `panels/` may name the old package at all, in copy or in comment.
+ */
+describe('the panels never name the prototype package', () => {
+  it('has no `design-sdk` anywhere under panels/', async () => {
+    // `process.cwd()`, not `import.meta.url`: this file runs under jsdom, where
+    // `import.meta.url` is an http URL and `node:fs` rejects it.
+    const { readdirSync, readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const dir = join(process.cwd(), 'src/shell/panels');
+    const offenders = readdirSync(dir)
+      .filter((f) => f.endsWith('.tsx') || f.endsWith('.ts'))
+      .filter((f) => readFileSync(join(dir, f), 'utf8').includes('design-sdk'));
+    expect(offenders).toEqual([]);
+  });
 });

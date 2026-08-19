@@ -34,8 +34,9 @@ interface ComboboxProps {
 }
 
 /**
- * Searchable / scrollable combobox built on the frontend's Radix Popover — no
- * `cmdk` dependency, keeping `design-sdk` isolated. Type to filter, ↑/↓ to move,
+ * Searchable / scrollable combobox built on the shell's OWN popover (`ui/popover.tsx`,
+ * hand-rolled — this package depends on neither Radix nor wafflebase's frontend), and no
+ * `cmdk` dependency either. Type to filter, ↑/↓ to move,
  * Enter to pick, Esc to close. Used for both the semantic-token pickers and the
  * CVA-axis pickers in the right pane.
  */

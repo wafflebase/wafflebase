@@ -5,8 +5,8 @@ import { cn } from '../lib/cn.ts';
 /**
  * Minimal, dependency-free accordion. One controlled-open section with an
  * animated chevron. We hand-roll it (rather than pull in `@radix-ui/react-accordion`)
- * to keep the design-sdk's zero-new-dependency guarantee — nothing here touches
- * the frontend bundle or its chunk budget.
+ * to keep this package's zero-new-dependency guarantee — the published
+ * `@wafflebase/design-editor` declares no runtime dependency at all.
  */
 export function AccordionSection({
   title,

@@ -10,6 +10,10 @@ import {
   DialogTitle,
 } from '../ui/dialog.tsx';
 import { cn } from '../lib/cn.ts';
+// Interpolated, never written out. This copy tells a consumer which route to look for,
+// and a hand-typed second copy is exactly how it came to name the prototype's namespace
+// — one the shipped plugin has never served. `panels.test.tsx` guards the rule.
+import { BASE } from '../../base.ts';
 import type { ComponentMeta } from '../../types.ts';
 import type { VariantState } from '../../client/edits.ts';
 import {
@@ -363,9 +367,10 @@ export function ReviewApproveModal({
             <div>
               <p className="font-medium">Mutation bridge unreachable.</p>
               <p className="mt-0.5 text-destructive/90">
-                The dev server middleware (<span className="font-code">POST /__design-sdk/mutate</span>) didn't
-                respond. Make sure <span className="font-code">pnpm --filter @wafflebase/design-sdk dev</span> is
-                running, then reopen this dialog. No files were touched.
+                The dev server middleware (<span className="font-code">POST {BASE}/mutate</span>) didn&apos;t
+                respond. Make sure your Vite dev server is running with the{' '}
+                <span className="font-code">designEditor()</span> plugin registered, then reopen this
+                dialog. No files were touched.
               </p>
             </div>
           </div>
