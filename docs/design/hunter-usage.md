@@ -107,11 +107,18 @@ Three personas, each with two briefs — one per surface, which
 A persona names its own surface, so `--surface` narrows what a named charter may run
 rather than selecting something to hunt on its own.
 
-The slides surface has **no drag action**, because the action vocabulary has none
-(`goto | click | type | key | scroll | read | wait`). Toolbar controls, keyboard nudge,
-z-order, alignment, slide operations and text editing are all reachable; move, resize,
-rotate, connector drawing and crop are not. A brief that asks for the second group will
-produce failed actions, not findings.
+The action vocabulary is `goto | click | type | key | scroll | read | wait | drag`. `drag`
+takes a `target` (where the gesture starts) and a `to` (where it ends), each an ordinary
+target — so a destination is a named reader's point, never a raw coordinate. On the slides
+surface that means `slides.pointAt(x, y)` for an arbitrary point in slide-logical
+coordinates, and `slides.handleCenter(kind)` for a resize, rotate, connector or adjustment
+handle.
+
+One measured caveat, because it is the likeliest false finding on that surface: within **8
+slide-logical pixels** of an element edge or centre, the slide centre, or a guide, a dragged
+element **snaps**, and Alt does not disable it (Alt bypasses only the separate grid snap). A
+brief should either drag somewhere well clear of those and predict the exact point, or
+predict the snapped value.
 
 Naming one persona runs its briefs only, which is the normal case:
 

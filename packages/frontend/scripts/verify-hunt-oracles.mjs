@@ -21,6 +21,8 @@ import { createServer } from "vite";
 
 import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
 import { domControls } from "./hunt-ui-dom.mjs";
+// The SAME gesture the driver performs, not a copy of it.
+import { performDrag } from "./hunt-ui-gesture.mjs";
 import { UI_SURFACES } from "../../../scripts/agent/hunt-ui-surfaces.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -285,6 +287,13 @@ const READER_EXPECTATIONS = [
   ["slides", "slides.canUndo", [], (v) => (typeof v === "boolean" ? null : "expected a boolean")],
   ["slides", "slides.elementCenter", ["title"], (v) =>
     v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+  // The slide centre, which is on the canvas at any window size.
+  ["slides", "slides.pointAt", [960, 540], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+  // Needs a selection to exist at all — the loop below clicks an element on this surface for
+  // exactly this reader, the way it clicks B2 for the sheet's selection readers.
+  ["slides", "slides.handleCenter", ["se"], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
 ];
 
 /** Read one reader out of page context. `read` is async, so the promise is returned
@@ -309,6 +318,11 @@ async function checkReaderRegistry(page, baseUrl) {
     // `sheet.activeCell` needs a selection to report; the doc surface needs none.
     if (surface === "sheet") {
       const p = await readReader(page, "sheet.cellCenter", ["B2"]);
+      if (p.ok) await page.mouse.click(p.value.x, p.value.y);
+    }
+    // `slides.handleCenter` needs something selected, because handles only exist then.
+    if (surface === "slides") {
+      const p = await readReader(page, "slides.elementCenter", ["card"]);
       if (p.ok) await page.mouse.click(p.value.x, p.value.y);
     }
     for (const [readerSurface, name, args, check] of READER_EXPECTATIONS) {
@@ -631,6 +645,135 @@ async function checkSlidesTargeting(page, baseUrl) {
     }
   }
 
+  return problems;
+}
+
+/**
+ * The drag action, end to end, THROUGH THE REAL RUNNER.
+ *
+ * It opens a live session rather than driving Playwright here, and that is the whole point.
+ * The first version of this check resolved both ends with `readReader` and called
+ * `performDrag` directly — which exercised the gesture and the two new readers while never
+ * once executing the runner's `case "drag"`. Its plan validation, its target resolution and
+ * its locator-to-centre reduction were all untested by the very thing calling itself a
+ * positive control. A lane that skips the branch it is verifying proves only that the parts
+ * it did call work.
+ *
+ * A POSITIVE CONTROL, not a smoke test. The failure that matters is not "it throws" — it is
+ * "it runs and moves nothing", which reads to an explorer as a product ignoring the mouse. So
+ * every assertion is an EXACT coordinate, and a drag that silently did nothing fails them all.
+ *
+ * THE DESTINATION IS CHOSEN CLEAR OF SNAPPING. `SNAP_THRESHOLD` is 8 slide-logical px against
+ * element edges and centres, the slide centre and guides, and Alt does not disable it. A
+ * destination inside that window lands elsewhere — correctly — so the point below is measured
+ * to sit well outside it. If the seed's geometry moves under this check it fails loudly rather
+ * than quietly asserting a snapped value.
+ */
+async function checkSlidesDrag(repoRoot) {
+  const problems = [];
+  const { openUiSession } = await import(`${repoRoot}/scripts/agent/hunt-ui-session.mjs`);
+  let session;
+  try {
+    session = await openUiSession({ repoRoot, fault: null });
+    const act = (action) => session.act(action);
+    // EVERY result is checked. One refusal used to abort the whole oracle run through an
+    // unguarded `.x`, turning one surface's problem into no verification at all.
+    const elements = async (what) => {
+      const r = await act({ type: "read", reader: "slides.elements" });
+      if (!r.ok) {
+        problems.push(`could not read slides.elements ${what}: ${String(r.error).slice(0, 140)}`);
+        return null;
+      }
+      return r.value;
+    };
+    const one = async (id, what) => {
+      const all = await elements(what);
+      if (!all) return null;
+      const found = all.find((e) => e.id === id);
+      if (!found) problems.push(`the seeded \`${id}\` is missing ${what} — this check cannot run`);
+      return found ?? null;
+    };
+
+    if (!(await act({ type: "goto", surface: "slides" })).ok) {
+      problems.push("could not mount the slides surface — this check cannot run");
+      return problems;
+    }
+
+    // --- a plain move lands exactly where it was aimed ---
+    const before = await one("badge", "before the drag");
+    if (!before) return problems;
+    const moved = await act({
+      type: "drag",
+      target: { reader: "slides.elementCenter", args: ["badge"] },
+      to: { reader: "slides.pointAt", args: [700, 800] },
+    });
+    if (!moved.ok) {
+      problems.push(`dragging badge to a clear point failed: ${String(moved.error).slice(0, 140)}`);
+    } else {
+      const after = await one("badge", "after the drag");
+      if (after) {
+        const centre = { x: after.x + after.w / 2, y: after.y + after.h / 2 };
+        if (centre.x !== 700 || centre.y !== 800) {
+          problems.push(
+            `a drag to slides.pointAt(700, 800) put badge's centre at (${centre.x}, ${centre.y}) — ` +
+              "either the drag is not landing where it aims, or that destination is now within " +
+              "8 logical px of an alignment edge and is being snapped",
+          );
+        }
+        if (after.w !== before.w || after.h !== before.h) {
+          problems.push(`moving badge also resized it: ${before.w}x${before.h} -> ${after.w}x${after.h}`);
+        }
+      }
+    }
+
+    // --- a handle drag resizes by exactly the geometry it was given ---
+    if (!(await act({ type: "goto", surface: "slides" })).ok) return problems;
+    const card = await one("card", "before the resize");
+    if (!card) return problems;
+    const picked = await act({ type: "click", target: { reader: "slides.elementCenter", args: ["card"] } });
+    if (!picked.ok) {
+      problems.push(`could not select card: ${String(picked.error).slice(0, 140)}`);
+      return problems;
+    }
+    const resized = await act({
+      type: "drag",
+      target: { reader: "slides.handleCenter", args: ["se"] },
+      to: { reader: "slides.pointAt", args: [1700, 900] },
+    });
+    if (!resized.ok) {
+      problems.push(`dragging card's se handle failed: ${String(resized.error).slice(0, 140)}`);
+    } else {
+      const after = await one("card", "after the resize");
+      if (after) {
+        // The se handle IS the bottom-right corner, so the new size is the destination minus
+        // the (unmoved) top-left. Anything else means the handle was misidentified or mis-aimed.
+        const wantW = 1700 - card.x;
+        const wantH = 900 - card.y;
+        if (after.w !== wantW || after.h !== wantH) {
+          problems.push(`resizing card by its se handle to (1700, 900) gave ${after.w}x${after.h}, expected ${wantW}x${wantH}`);
+        }
+        if (after.x !== card.x || after.y !== card.y) {
+          problems.push(`an se resize moved the top-left from (${card.x},${card.y}) to (${after.x},${after.y})`);
+        }
+      }
+    }
+
+    // --- both new readers refuse rather than hand back an unusable point ---
+    const off = await act({ type: "read", reader: "slides.pointAt", args: [5000, 100] });
+    if (off.ok) problems.push(`slides.pointAt(5000, 100) returned ${JSON.stringify(off.value)} instead of refusing`);
+
+    if (!(await act({ type: "goto", surface: "slides" })).ok) return problems;
+    const noHandle = await act({ type: "read", reader: "slides.handleCenter", args: ["se"] });
+    if (noHandle.ok) {
+      problems.push("slides.handleCenter(se) answered with nothing selected — there are no handles then");
+    } else if (!/Nothing is selected/.test(String(noHandle.error))) {
+      problems.push(`slides.handleCenter must say WHY it refused with no selection, got ${String(noHandle.error).slice(0, 120)}`);
+    }
+  } catch (error) {
+    problems.push(`the drag session failed: ${error.message}`);
+  } finally {
+    await session?.close?.();
+  }
   return problems;
 }
 
@@ -1534,6 +1677,11 @@ try {
     console.log("[verify:hunt-oracles] a real reader value drives a ground-A prediction to violated, and holds when clean");
   }
 
+  const dragProblems = await checkSlidesDrag(repoRoot);
+  for (const p of dragProblems) failures.push(`slides drag: ${p}`);
+  if (dragProblems.length === 0) {
+    console.log("[verify:hunt-oracles] a drag through the real runner lands exactly where it aims, and a handle drag resizes by its geometry");
+  }
   const serveProblems = await checkSeededFaultInServeMode(repoRoot);
   for (const p of serveProblems) failures.push(`seeded fault (serve mode): ${p}`);
   if (serveProblems.length === 0) {

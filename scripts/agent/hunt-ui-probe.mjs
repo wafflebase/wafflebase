@@ -41,7 +41,7 @@ export const UI_RUNNER_REL = path.join("packages", "frontend", "scripts", "hunt-
  * JavaScript" action and no CSS selector, so a caller's reachable surface is bounded
  * by code in this repository rather than by whatever it can phrase.
  */
-export const UI_ACTION_TYPES = Object.freeze(["goto", "click", "type", "key", "scroll", "read", "wait"]);
+export const UI_ACTION_TYPES = Object.freeze(["goto", "click", "type", "key", "scroll", "read", "wait", "drag"]);
 
 /**
  * Reader namespaces. This is not a duplicate of the reader list — it is the ROUTING
@@ -150,6 +150,17 @@ export function assertSafeActionPlan(plan) {
         break;
       case "key":
         if (typeof action.key !== "string" || action.key === "") bad(`${where} needs a non-empty \`key\``);
+        break;
+      case "drag":
+        // BOTH ENDS GO THROUGH `assertTarget`, which is what keeps the closed vocabulary
+        // closed. A drag is the first action that needs a DESTINATION, and the temptation is
+        // to accept raw coordinates for it — that would hand the caller an arbitrary point on
+        // the page, which is precisely the escape hatch every other action is shaped to avoid.
+        // Instead `to` is a target like any other: a role locator, or a named reader such as
+        // `slides.pointAt` / `slides.elementCenter` / `slides.handleCenter`, all of which are
+        // code in this repository rather than a number in a prompt.
+        assertTarget(action.target, `${where} drag origin`);
+        assertTarget(action.to, `${where} drag destination`);
         break;
       case "scroll":
         if (action.target !== undefined) assertTarget(action.target, where);

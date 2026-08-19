@@ -93,6 +93,39 @@ test("assertSafeActionPlan bounds clickCount", () => {
   assert.throws(() => assertSafeActionPlan(withCount(1.5)), /clickCount must be an integer in 1\.\.3/);
 });
 
+test("assertSafeActionPlan bounds BOTH ends of a drag", () => {
+  // THE CLOSED VOCABULARY IS THE POINT, and `drag` is the first action that needs a
+  // DESTINATION. The tempting shape is raw coordinates for `to`, which would hand the caller
+  // an arbitrary point on the page — the one escape hatch every other action is built to
+  // avoid. So `to` is a target like any other, and both ends go through `assertTarget`.
+  const ok = {
+    actions: [{
+      type: "drag",
+      target: { reader: "slides.elementCenter", args: ["badge"] },
+      to: { reader: "slides.pointAt", args: [700, 800] },
+    }],
+  };
+  assert.equal(assertSafeActionPlan(ok), true);
+  assert.equal(assertSafeActionPlan({ actions: [{ type: "drag", target: { role: "button", name: "a" }, to: { role: "button", name: "b" } }] }), true);
+
+  const bad = (over) => ({ actions: [{ type: "drag", ...over }] });
+  assert.throws(() => assertSafeActionPlan(bad({ to: { reader: "slides.pointAt" } })), /drag origin/, "a missing origin is refused");
+  assert.throws(() => assertSafeActionPlan(bad({ target: { role: "button", name: "a" } })), /drag destination/, "a missing destination is refused");
+
+  // The escape hatch, explicitly: a destination reader outside the namespaces must not
+  // resolve, or `to` becomes a way to reach anything on the page.
+  assert.throws(
+    () => assertSafeActionPlan(bad({ target: { role: "button", name: "a" }, to: { reader: "eval.point" } })),
+    /must start with one of/,
+  );
+  // And the same ambiguity rules as a click target apply to both ends.
+  assert.throws(
+    () => assertSafeActionPlan(bad({ target: { role: "button", name: "a" }, to: { role: "button", reader: "slides.pointAt" } })),
+    /exactly one of/,
+  );
+  assert.throws(() => assertSafeActionPlan(bad({ target: {}, to: { role: "button", name: "b" } })), /exactly one of/);
+});
+
 test("assertSafeActionPlan refuses a goto to an unknown surface", () => {
   // Names the valid surfaces from the shared list rather than a pair spelled out here, so
   // adding one does not silently leave this assertion describing the old vocabulary.
