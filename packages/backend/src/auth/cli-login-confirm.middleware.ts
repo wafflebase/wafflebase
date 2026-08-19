@@ -1,7 +1,11 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import type { CookieOptions, NextFunction, Request, Response } from 'express';
-import { parseCliNonce, parseCliPort } from './github-auth.guard';
+import {
+  parseCliChallenge,
+  parseCliNonce,
+  parseCliPort,
+} from './github-auth.guard';
 import { hostPrefixedCookieName, timingSafeEqualStr } from './oauth-state';
 
 /**
@@ -70,6 +74,7 @@ export class CliLoginConfirmMiddleware implements NestMiddleware {
 
     const port = parseCliPort(req.query?.port);
     const nonce = parseCliNonce(req.query?.nonce);
+    const challenge = parseCliChallenge(req.query?.challenge);
     if (port === undefined) {
       // Not a usable CLI request. The guard ignores it too, so it falls
       // through to an ordinary browser login rather than 404-ing here.
@@ -105,23 +110,30 @@ export class CliLoginConfirmMiddleware implements NestMiddleware {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.status(200).send(renderConfirmPage(port, nonce, secret));
+    res.status(200).send(renderConfirmPage(port, nonce, secret, challenge));
   }
 }
 
 /**
  * Every value interpolated below is already constrained — `port` is an
- * integer, `nonce` is `[0-9a-f]{32,128}`, `secret` is base64url — but
- * they are escaped anyway: the page must stay inert even if a future
- * caller loosens one of those parsers.
+ * integer, `nonce` is `[0-9a-f]{32,128}`, `challenge` is a 43-character
+ * base64url digest, `secret` is base64url — but they are escaped anyway:
+ * the page must stay inert even if a future caller loosens one of those
+ * parsers.
+ *
+ * `challenge` has to survive this hop: the guard reads it off the request
+ * that gets through the gate, and dropping it here would leave every
+ * confirmed CLI login without the binding `cliExchange` requires.
  */
 export function renderConfirmPage(
   port: number,
   nonce: string | undefined,
   secret: string,
+  challenge?: string,
 ): string {
   const params = new URLSearchParams({ mode: 'cli', port: String(port) });
   if (nonce) params.set('nonce', nonce);
+  if (challenge) params.set('challenge', challenge);
   params.set('confirm', secret);
   const href = `/auth/github?${params.toString()}`;
 

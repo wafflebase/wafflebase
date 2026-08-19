@@ -558,9 +558,18 @@ const registry: CommandSchema[] = [
       file: { type: 'string', required: true, description: 'File path or - for stdin' },
       '--tab': { type: 'string', required: false, description: 'Target tab', default: 'tab-1' },
       '--file-format': { type: 'string', required: false, description: 'File format (csv, json)' },
-      '--start': { type: 'string', required: false, description: 'Top-left cell', default: 'A1' },
+      '--start': {
+        type: 'string',
+        required: false,
+        description:
+          "Top-left cell for a positional grid. Ignored when the input's first row is the per-cell header `ref,value,formula[,style]` that `sheets export` writes — those rows carry their own `ref`, so they land where they were exported from. The `mode` field in the response says which of the two ran",
+        default: 'A1',
+      },
     },
-    response: { imported: 'number' },
+    response: {
+      imported: 'number',
+      mode: "'cells' when the input was an exported ref,value,formula table (--start ignored) | 'grid' when it was a positional grid placed at --start",
+    },
     aliases: ['import', 'sheet.import'],
   },
   {

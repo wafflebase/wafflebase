@@ -43,7 +43,11 @@ export function registerSheetsImportCommand(parent: Command) {
     .description('Import CSV/JSON into a tab')
     .option('--tab <tab-id>', 'Target tab', 'tab-1')
     .option('--file-format <fmt>', 'File format (csv, json)')
-    .option('--start <ref>', 'Top-left cell to start import', 'A1')
+    .option(
+      '--start <ref>',
+      'Top-left cell for a positional grid (ignored for an exported ref,value,formula table, whose rows carry their own ref)',
+      'A1',
+    )
     .action(async function (this: Command, docId: string, file: string) {
       const opts = getGlobalOpts(this);
       const localOpts = this.opts<{
@@ -89,11 +93,20 @@ export function registerSheetsImportCommand(parent: Command) {
         // makes the export → import round trip an identity: with
         // `--raw`, a `=SUM(B2:B100)` comes back as that formula rather
         // than as text. Any other CSV is still a positional grid.
+        //
+        // Those rows carry their own `ref`, so `--start` has nothing to
+        // place and does not apply. Which of the two ran is reported as
+        // `mode`: the switch is a header heuristic on the *input*, not
+        // something the caller asked for, so a `--start` that turned out
+        // to be inert has to be visible in the result rather than
+        // silently dropped.
+        const cellTable = isCellTable(rows);
         const { row: startRow, col: startCol } = parseStartRef(localOpts.start);
-        const cells = isCellTable(rows)
+        const cells = cellTable
           ? buildCellMapFromTable(rows)
           : buildCellMap(rows, startRow, startCol);
         const cellCount = Object.keys(cells).length;
+        const mode = cellTable ? 'cells' : 'grid';
 
         if (opts.dryRun) {
           printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}/tabs/${localOpts.tab}/cells`, {
@@ -105,8 +118,8 @@ export function registerSheetsImportCommand(parent: Command) {
         const res = await getClient(opts).batchCells(docId, localOpts.tab, cells);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const result = typeof res.data === 'object' && res.data !== null
-          ? { imported: cellCount, ...res.data as Record<string, unknown> }
-          : { imported: cellCount };
+          ? { imported: cellCount, mode, ...res.data as Record<string, unknown> }
+          : { imported: cellCount, mode };
         output(result, outFmt);
       } catch (e) {
         outputError(e);

@@ -171,9 +171,11 @@ developers; API keys are the path for CI and headless environments.
 wafflebase login
   │
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
-  ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>
-  │     and generates a per-attempt nonce (32 random bytes, hex)
+  ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>,
+  │     generates a per-attempt nonce (32 random bytes, hex) and a PKCE
+  │     verifier (32 random bytes, base64url) it keeps in memory
   ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>&nonce=<nonce>
+  │     &challenge=<sha256(verifier), base64url>
   │     (also prints URL for copy-paste in headless environments)
   ├─ 3b. Backend answers with a confirmation page; the user clicks
   │     Continue (one-time secret + httpOnly cookie) → OAuth starts
@@ -183,7 +185,10 @@ wafflebase login
   │     redirects to http://127.0.0.1:<port>/callback
   │       ?code=<short-lived-code>&state=<nonce>
   ├─ 7. CLI local server receives code, calls POST /auth/cli/exchange
-  │     with { code } → receives { accessToken, refreshToken }
+  │     with { code, verifier } → receives { accessToken, refreshToken }
+  │     (the code alone buys nothing: it arrives over plaintext loopback
+  │      HTTP, so redemption also needs the verifier, which never left
+  │      the CLI process)
   ├─ 8. CLI local server serves success HTML, shuts down
   ├─ 9. CLI calls GET /auth/me (Bearer token) for user info
   ├─ 10. CLI calls GET /workspaces (Bearer token) for workspace list
@@ -363,8 +368,13 @@ wafflebase
   │     │     └── delete <doc-id> <ref>      [--tab]
   │     ├── import <doc-id> <file>
   │     │     [--tab <tab-id>] [--file-format csv|json] [--start <ref>]
+  │     │     (--start places a positional grid; it is ignored for an
+  │     │      exported `ref,value,formula` table, whose rows carry their
+  │     │      own ref. The response's `mode` says which ran: cells|grid)
   │     └── export <doc-id> <file>
   │           [--tab <tab-id>] [--range A1:C10] [--file-format csv|json]
+  │           [--raw]   (CSV: write cell text verbatim, no formula guard,
+  │                      so `sheets import` round-trips formulas)
   │
   ├── slides (aliases: slide, deck)
   │     ├── list                             List slide decks (type: slides)

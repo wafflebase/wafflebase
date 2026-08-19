@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   loadSession,
   saveSession,
@@ -37,7 +37,13 @@ export function registerLoginCommand(program: Command): void {
       // 3. Build OAuth URL and open browser. The backend echoes `nonce`
       // back as the loopback callback's `state`, which is what lets the
       // callback server tell our own redirect from a forged one.
-      const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${nonce}`;
+      //
+      // `challenge` is the PKCE half: the `code` comes back to us over
+      // plaintext loopback HTTP, so it must not be redeemable on its own.
+      // Only the hash goes out; the verifier stays in this process and is
+      // sent once, in the exchange POST body.
+      const { verifier, challenge } = createPkcePair();
+      const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${nonce}&challenge=${challenge}`;
       console.error(`Opening browser: ${oauthUrl}`);
       console.error('If the browser does not open, visit the URL above.');
       // The server answers this URL with a confirmation page rather than
@@ -64,7 +70,7 @@ export function registerLoginCommand(program: Command): void {
       const exchangeRes = await fetch(`${server}/auth/cli/exchange`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, verifier }),
       });
 
       if (!exchangeRes.ok) {
@@ -161,6 +167,24 @@ function ask(prompt: string): Promise<string> {
 /** Per-attempt secret bound into the OAuth round trip. */
 export function createLoginNonce(): string {
   return randomBytes(32).toString('hex');
+}
+
+/**
+ * PKCE S256 pair for one login attempt.
+ *
+ * The `code` the backend hands back travels through the browser and lands
+ * on `http://127.0.0.1:<port>/callback` as a plaintext query string, and
+ * `POST /auth/cli/exchange` trades a code for full access and refresh
+ * JWTs. Binding it to a verifier means observing that hop is not enough:
+ * the redemption also needs a value that never left this process. Only
+ * `challenge` (its SHA-256) goes into the login URL.
+ */
+export function createPkcePair(): { verifier: string; challenge: string } {
+  const verifier = randomBytes(32).toString('base64url');
+  return {
+    verifier,
+    challenge: createHash('sha256').update(verifier).digest('base64url'),
+  };
 }
 
 /**

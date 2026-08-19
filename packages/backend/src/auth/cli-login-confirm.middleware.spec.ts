@@ -64,9 +64,10 @@ describe('CliLoginConfirmMiddleware', () => {
    * the `port` and the callback has nowhere to redirect. Neither shows
    * up as a failure anywhere else, so it is asserted here.
    */
-  it('carries the CLI port and nonce into the Continue link', () => {
+  it('carries the CLI port, nonce and challenge into the Continue link', () => {
     const nonce = 'a'.repeat(64);
-    const { res } = run({ mode: 'cli', port: '49152', nonce });
+    const challenge = 'c'.repeat(43);
+    const { res } = run({ mode: 'cli', port: '49152', nonce, challenge });
 
     const [html] = res.send.mock.calls[0] as [string];
     // The href is HTML-escaped in the attribute (`&` → `&amp;`); read
@@ -81,6 +82,9 @@ describe('CliLoginConfirmMiddleware', () => {
     expect(params.get('mode')).toBe('cli');
     expect(params.get('port')).toBe('49152');
     expect(params.get('nonce')).toBe(nonce);
+    // Dropped here, the guard registers no PKCE challenge and the
+    // callback refuses to mint a code at all.
+    expect(params.get('challenge')).toBe(challenge);
   });
 
   it('proceeds when the confirm param matches the cookie', () => {

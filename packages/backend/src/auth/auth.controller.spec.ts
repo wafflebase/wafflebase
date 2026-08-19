@@ -4,9 +4,13 @@ import { Request, Response } from 'express';
 import { UserService } from 'src/user/user.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { CliAuthStore } from './cli-auth.store';
+import { CliAuthStore, hashCliVerifier } from './cli-auth.store';
 import { JwtStrategy } from './jwt.strategy';
 import { createWebOAuthState } from './oauth-state';
+
+/** The PKCE pair a current CLI registers for a login attempt. */
+const CLI_VERIFIER = 'v'.repeat(43);
+const CLI_CHALLENGE = hashCliVerifier(CLI_VERIFIER);
 
 function createMockResponse() {
   return {
@@ -190,7 +194,12 @@ describe('AuthController', () => {
     it('redirects to CLI localhost when state is a valid CLI token', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
 
-      const { stateToken } = cliAuthStore.createState('cli', 9876);
+      const { stateToken } = cliAuthStore.createState(
+        'cli',
+        9876,
+        undefined,
+        CLI_CHALLENGE,
+      );
       const req = {
         user: {
           username: 'bob',
@@ -216,7 +225,12 @@ describe('AuthController', () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
 
       const nonce = 'a'.repeat(64);
-      const { stateToken } = cliAuthStore.createState('cli', 9876, nonce);
+      const { stateToken } = cliAuthStore.createState(
+        'cli',
+        9876,
+        nonce,
+        CLI_CHALLENGE,
+      );
       const req = {
         user: { username: 'bob', email: 'bob@example.com', photo: null },
         query: { state: stateToken },
@@ -235,7 +249,12 @@ describe('AuthController', () => {
     it('omits `state` when the CLI sent no nonce', async () => {
       (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
 
-      const { stateToken } = cliAuthStore.createState('cli', 9876);
+      const { stateToken } = cliAuthStore.createState(
+        'cli',
+        9876,
+        undefined,
+        CLI_CHALLENGE,
+      );
       const req = {
         user: { username: 'bob', email: 'bob@example.com', photo: null },
         query: { state: stateToken },
@@ -248,6 +267,28 @@ describe('AuthController', () => {
       expect(url).not.toContain('state=');
     });
 
+    /**
+     * A code with nothing bound to it is a bearer credential, and it
+     * travels to the CLI as plaintext in a loopback URL. Rather than mint
+     * a weaker one for a CLI that registered no PKCE challenge, the
+     * callback refuses and says why.
+     */
+    it('mints no code when the CLI login registered no challenge', async () => {
+      (userService.findOrCreateUser as jest.Mock).mockResolvedValue(mockUser);
+
+      const { stateToken } = cliAuthStore.createState('cli', 9876);
+      const req = {
+        user: { username: 'bob', email: 'bob@example.com', photo: null },
+        query: { state: stateToken },
+      } as unknown as Request;
+      const res = createMockResponse();
+
+      await expect(
+        controller.githubAuthCallback(req as any, res, stateToken),
+      ).rejects.toThrow(/proof-of-possession challenge/);
+      expect(res.redirect).not.toHaveBeenCalled();
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
   });
 
   /**
@@ -435,15 +476,18 @@ describe('AuthController', () => {
       photo: null,
     };
 
-    it('returns tokens for a valid code', async () => {
-      const code = cliAuthStore.createCode(42);
+    it('returns tokens for a valid code and its verifier', async () => {
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE);
       (userService.user as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({
         accessToken: 'access-tok',
         refreshToken: 'refresh-tok',
       });
 
-      const result = await controller.cliExchange({ code });
+      const result = await controller.cliExchange({
+        code,
+        verifier: CLI_VERIFIER,
+      });
 
       expect(result).toEqual({
         accessToken: 'access-tok',
@@ -454,12 +498,27 @@ describe('AuthController', () => {
 
     it('rejects an invalid code with 401', async () => {
       await expect(
-        controller.cliExchange({ code: 'bad-code' }),
+        controller.cliExchange({ code: 'bad-code', verifier: CLI_VERIFIER }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
+    /**
+     * The code arrives at the CLI over plaintext loopback HTTP, so it is
+     * not a credential by itself: without the verifier its challenge was
+     * derived from, it buys no session.
+     */
+    it('rejects a valid code presented without its verifier', async () => {
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE);
+      (userService.user as jest.Mock).mockResolvedValue(mockUser);
+
+      await expect(
+        controller.cliExchange({ code, verifier: 'w'.repeat(43) }),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(authService.createTokens).not.toHaveBeenCalled();
+    });
+
     it('rejects the same code on second use', async () => {
-      const code = cliAuthStore.createCode(42);
+      const code = cliAuthStore.createCode(42, CLI_CHALLENGE);
       (userService.user as jest.Mock).mockResolvedValue(mockUser);
       (authService.createTokens as jest.Mock).mockReturnValue({
         accessToken: 'at',
@@ -467,12 +526,12 @@ describe('AuthController', () => {
       });
 
       // First use succeeds
-      await controller.cliExchange({ code });
+      await controller.cliExchange({ code, verifier: CLI_VERIFIER });
 
       // Second use fails (code consumed)
-      await expect(controller.cliExchange({ code })).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        controller.cliExchange({ code, verifier: CLI_VERIFIER }),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 });

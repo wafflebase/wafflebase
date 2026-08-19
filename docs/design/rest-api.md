@@ -382,10 +382,21 @@ backend surface is:
   the CLI does not hang silently — it reports the refusal ("the
   redirect carried no `state` … the server is likely older than this
   CLI") on stderr as it happens and repeats it in the timeout error.
-- **`POST /auth/cli/exchange`** — accepts `{ code }`, looks it up,
-  validates TTL, deletes it (single-use), and returns
-  `{ accessToken, refreshToken }`. No authentication required (the code
-  itself is the proof).
+- **`POST /auth/cli/exchange`** — accepts `{ code, verifier }`, looks the
+  code up, validates TTL, deletes it (single-use on *any* attempt),
+  checks `sha256(verifier)` against the challenge registered when the
+  login started, and returns `{ accessToken, refreshToken }`.
+
+  The `verifier` is required, and it is what keeps the code from being a
+  bearer credential: the code reaches the CLI as a plaintext query string
+  on a `http://127.0.0.1:<port>/callback` navigation, at a port taken off
+  the start URL, so anything that observes that hop would otherwise hold
+  a full unauthenticated path to access **and** refresh JWTs. The
+  verifier is 32 random bytes the CLI keeps in memory and sends only in
+  this POST body; only its SHA-256 travels through the browser
+  (`?challenge=`, PKCE S256). A CLI login that registered no challenge is
+  refused at the callback rather than issued a weaker code, so the pair
+  is a **backend + CLI contract** in both directions.
 - **`POST /auth/refresh`** — body fallback added: if there is no
   `wafflebase_refresh` cookie, the controller reads
   `{ refreshToken }` from the body and returns

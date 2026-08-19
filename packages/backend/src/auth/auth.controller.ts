@@ -170,7 +170,19 @@ export class AuthController {
         if (port < 1024 || port > 65535) {
           throw new BadRequestException('Invalid CLI port');
         }
-        const code = this.cliAuthStore.createCode(user.id);
+        // No challenge, no code. The code is delivered as plaintext in a
+        // loopback URL, so on its own it is a bearer credential worth a
+        // full session; the challenge is what makes redeeming it require
+        // the verifier only the CLI process holds. A CLI that did not
+        // send one is older than this server, and is told so rather than
+        // handed a weaker credential.
+        if (!state.challenge) {
+          throw new BadRequestException(
+            'CLI login is missing its proof-of-possession challenge. ' +
+              'Update the wafflebase CLI and run `wafflebase login` again.',
+          );
+        }
+        const code = this.cliAuthStore.createCode(user.id, state.challenge);
         // Echo the CLI's per-attempt nonce back as `state`: the CLI's
         // loopback callback server only accepts a `code` that carries it,
         // which is what stops a web page from feeding the CLI a code for
@@ -197,11 +209,22 @@ export class AuthController {
     return res.redirect(this.configService.get('FRONTEND_URL')!);
   }
 
+  /**
+   * Redeem a CLI authorization code for a session.
+   *
+   * The code is not sufficient on its own: it arrives at the CLI over
+   * plaintext loopback HTTP, at a port taken off the login URL's query
+   * string, so treating it as a bearer credential would mean anything
+   * that observed that hop could mint access **and** refresh JWTs here
+   * with no authentication at all. The caller must also present the
+   * `verifier` whose SHA-256 it bound at login time (PKCE S256) — a value
+   * that lives only in the CLI process and never appears in a URL.
+   */
   @Post('cli/exchange')
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async cliExchange(@Body() body: CliExchangeDto) {
-    const userId = this.cliAuthStore.consumeCode(body.code);
+    const userId = this.cliAuthStore.consumeCode(body.code, body.verifier);
     if (userId === undefined) {
       throw new UnauthorizedException('Invalid or expired code');
     }

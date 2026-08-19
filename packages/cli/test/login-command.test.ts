@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createProgram } from '../src/commands/root.js';
 import { registerLoginCommand } from '../src/commands/login.js';
+import { createHash } from 'node:crypto';
 
 /**
  * The loopback callback has to be driven with the *real* fetch: the test
@@ -158,7 +159,19 @@ describe('login command wiring', () => {
     expect(Number(seen?.searchParams.get('port'))).toBeGreaterThan(0);
 
     // Reaching the exchange at all proves the callback was accepted.
-    expect(exchangeBodies).toEqual([{ code: 'granted-code' }]);
+    expect(exchangeBodies).toHaveLength(1);
+    expect(exchangeBodies[0].code).toBe('granted-code');
+
+    // The PKCE half: the code is redeemed with a verifier whose SHA-256
+    // is the `challenge` the OAuth URL registered, and the verifier
+    // itself never appeared in that URL. Without this the code alone
+    // would buy a full session off a plaintext loopback hop.
+    const verifier = String(exchangeBodies[0].verifier);
+    expect(verifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(seen?.searchParams.get('challenge')).toBe(
+      createHash('sha256').update(verifier).digest('base64url'),
+    );
+    expect(seen?.search).not.toContain(verifier);
     expect(savedSessions).toHaveLength(1);
     expect(savedSessions[0]).toMatchObject({
       server: SERVER,
@@ -192,6 +205,6 @@ describe('login command wiring', () => {
     await runLogin();
 
     // The attacker's code never reached the exchange.
-    expect(exchangeBodies).toEqual([{ code: 'granted-code' }]);
+    expect(exchangeBodies.map((b) => b.code)).toEqual(['granted-code']);
   });
 });

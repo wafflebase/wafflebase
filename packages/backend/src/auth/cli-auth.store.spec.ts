@@ -1,4 +1,7 @@
-import { CliAuthStore } from './cli-auth.store';
+import { CliAuthStore, hashCliVerifier } from './cli-auth.store';
+
+const VERIFIER = 'v'.repeat(43);
+const CHALLENGE = hashCliVerifier(VERIFIER);
 
 describe('CliAuthStore', () => {
   let store: CliAuthStore;
@@ -35,6 +38,11 @@ describe('CliAuthStore', () => {
       expect(result).toEqual({ csrf, mode: 'browser', port: 9876 });
     });
 
+    it('round-trips the PKCE challenge so the code can be bound to it', () => {
+      const { stateToken } = store.createState('cli', 9876, undefined, CHALLENGE);
+      expect(store.consumeState(stateToken)?.challenge).toBe(CHALLENGE);
+    });
+
     it('round-trips the CLI nonce so the callback can echo it', () => {
       const nonce = 'f'.repeat(32);
       const { stateToken } = store.createState('cli', 9876, nonce);
@@ -61,39 +69,55 @@ describe('CliAuthStore', () => {
 
   describe('createCode', () => {
     it('returns a non-empty code string', () => {
-      const code = store.createCode(42);
+      const code = store.createCode(42, CHALLENGE);
       expect(typeof code).toBe('string');
       expect(code.length).toBeGreaterThan(0);
     });
 
     it('returns unique codes on each call', () => {
-      const a = store.createCode(42);
-      const b = store.createCode(42);
+      const a = store.createCode(42, CHALLENGE);
+      const b = store.createCode(42, CHALLENGE);
       expect(a).not.toBe(b);
     });
   });
 
   describe('consumeCode', () => {
     it('returns userId for a valid code', () => {
-      const code = store.createCode(42);
-      expect(store.consumeCode(code)).toBe(42);
+      const code = store.createCode(42, CHALLENGE);
+      expect(store.consumeCode(code, VERIFIER)).toBe(42);
     });
 
     it('is single-use: second call returns undefined', () => {
-      const code = store.createCode(42);
-      store.consumeCode(code);
-      expect(store.consumeCode(code)).toBeUndefined();
+      const code = store.createCode(42, CHALLENGE);
+      store.consumeCode(code, VERIFIER);
+      expect(store.consumeCode(code, VERIFIER)).toBeUndefined();
     });
 
     it('returns undefined for unknown code', () => {
-      expect(store.consumeCode('nonexistent')).toBeUndefined();
+      expect(store.consumeCode('nonexistent', VERIFIER)).toBeUndefined();
+    });
+
+    /**
+     * The code reaches the CLI as plaintext in a loopback URL, so it must
+     * not be redeemable on its own. Only the holder of the verifier the
+     * challenge was derived from gets a session.
+     */
+    it('returns undefined when the verifier does not match the challenge', () => {
+      const code = store.createCode(42, CHALLENGE);
+      expect(store.consumeCode(code, 'w'.repeat(43))).toBeUndefined();
+    });
+
+    it('burns the code on a mismatched verifier, so it cannot be probed', () => {
+      const code = store.createCode(42, CHALLENGE);
+      store.consumeCode(code, 'w'.repeat(43));
+      expect(store.consumeCode(code, VERIFIER)).toBeUndefined();
     });
 
     it('returns undefined for expired code entry', () => {
-      const code = store.createCode(42);
+      const code = store.createCode(42, CHALLENGE);
       // Simulate time past the 60-second TTL
       jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 90 * 1000);
-      expect(store.consumeCode(code)).toBeUndefined();
+      expect(store.consumeCode(code, VERIFIER)).toBeUndefined();
     });
   });
 
@@ -110,12 +134,12 @@ describe('CliAuthStore', () => {
     });
 
     it('removes expired code entries on createCode', () => {
-      const code = store.createCode(42);
+      const code = store.createCode(42, CHALLENGE);
       const futureNow = Date.now() + 90 * 1000;
       jest.spyOn(Date, 'now').mockReturnValue(futureNow);
       // Creating a new code triggers cleanup
-      store.createCode(99);
-      expect(store.consumeCode(code)).toBeUndefined();
+      store.createCode(99, CHALLENGE);
+      expect(store.consumeCode(code, VERIFIER)).toBeUndefined();
     });
   });
 });

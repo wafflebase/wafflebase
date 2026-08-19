@@ -183,8 +183,16 @@ imports the full module set listed below.
 
 **`POST /auth/cli/exchange`**
 - Guard: none (public — one-time CLI auth code)
-- Body: `{ code }`. Exchanges a one-time code minted during the CLI OAuth flow
-  for `{ accessToken, refreshToken }`. Rate-limited to 10 req/60s/IP.
+- Body: `{ code, verifier }`. Exchanges a one-time code minted during the CLI
+  OAuth flow for `{ accessToken, refreshToken }`. Rate-limited to 10 req/60s/IP.
+- The `verifier` is **required**: the code travels to the CLI as plaintext in a
+  loopback redirect URL, so on its own it would be a bearer credential worth a
+  full session. `CliAuthStore.createCode` binds it to the login attempt's
+  `sha256(verifier)` challenge (PKCE S256, registered at
+  `GET /auth/github?...&challenge=`), and `consumeCode` spends the entry on any
+  attempt and releases the user id only on a constant-time challenge match. A
+  CLI login carrying no challenge is refused at the callback — no unbound code
+  is ever minted.
 
 #### Documents (`/documents`)
 

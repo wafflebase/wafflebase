@@ -18,6 +18,19 @@ export function parseCliNonce(raw: unknown): string | undefined {
   return /^[0-9a-f]{32,128}$/.test(raw) ? raw : undefined;
 }
 
+/**
+ * Accept only a base64url SHA-256 digest, which is exactly 43 characters.
+ * This is the PKCE-style `challenge` half of the CLI login: the hash of a
+ * verifier the CLI keeps in memory, redeemed at
+ * `POST /auth/cli/exchange`. It is not a secret — it travels in the start
+ * URL and through the confirmation page — but it is interpolated into
+ * that page's link, so the vocabulary stays closed.
+ */
+export function parseCliChallenge(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  return /^[A-Za-z0-9_-]{43}$/.test(raw) ? raw : undefined;
+}
+
 /** The loopback port, or `undefined` when it is not a usable one. */
 export function parseCliPort(raw: unknown): number | undefined {
   if (raw === undefined || raw === null || raw === '') return undefined;
@@ -31,9 +44,11 @@ export function parseCliPort(raw: unknown): number | undefined {
  * `GitHubStrategy.authenticate()` forwards to GitHub. Every login gets
  * one — there is no stateless path:
  *
- * - **CLI** (`?mode=cli&port=<port>&nonce=<hex>`) — a token from
- *   `CliAuthStore` carrying the port and the CLI's nonce, so the callback
- *   can redirect the code to the loopback server (see `login.ts`). Minted
+ * - **CLI** (`?mode=cli&port=<port>&nonce=<hex>&challenge=<s256>`) — a
+ *   token from `CliAuthStore` carrying the port, the CLI's nonce and its
+ *   PKCE challenge, so the callback can redirect the code to the loopback
+ *   server and bind it to the verifier only that CLI process holds (see
+ *   `login.ts`). Minted
  *   only once `CliLoginConfirmMiddleware` has seen the user click through
  *   the confirmation page; without that flag this degrades to an ordinary
  *   browser login rather than silently minting a code for whoever framed
@@ -59,6 +74,7 @@ export class GitHubAuthGuard extends AuthGuard('github') {
         'cli',
         port,
         parseCliNonce(req.query?.nonce),
+        parseCliChallenge(req.query?.challenge),
       );
       req.__oauthState = stateToken;
     } else {

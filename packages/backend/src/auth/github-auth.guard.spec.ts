@@ -1,5 +1,9 @@
 import { CanActivate, ExecutionContext } from '@nestjs/common';
-import { GitHubAuthGuard, parseCliNonce } from './github-auth.guard';
+import {
+  GitHubAuthGuard,
+  parseCliChallenge,
+  parseCliNonce,
+} from './github-auth.guard';
 import { CliAuthStore } from './cli-auth.store';
 
 describe('parseCliNonce', () => {
@@ -21,6 +25,23 @@ describe('parseCliNonce', () => {
     expect(parseCliNonce(undefined)).toBeUndefined();
     expect(parseCliNonce(['f'.repeat(32)])).toBeUndefined();
     expect(parseCliNonce(42)).toBeUndefined();
+  });
+});
+
+describe('parseCliChallenge', () => {
+  it('accepts a 43-character base64url digest', () => {
+    const challenge = 'c'.repeat(43);
+    expect(parseCliChallenge(challenge)).toBe(challenge);
+    expect(parseCliChallenge('-_' + 'a'.repeat(41))).toBe('-_' + 'a'.repeat(41));
+  });
+
+  it('rejects anything outside the base64url digest vocabulary', () => {
+    expect(parseCliChallenge('c'.repeat(42))).toBeUndefined();
+    expect(parseCliChallenge('c'.repeat(44))).toBeUndefined();
+    expect(parseCliChallenge('c'.repeat(42) + '&')).toBeUndefined();
+    expect(parseCliChallenge('c'.repeat(42) + '=')).toBeUndefined();
+    expect(parseCliChallenge(undefined)).toBeUndefined();
+    expect(parseCliChallenge(['c'.repeat(43)])).toBeUndefined();
   });
 });
 
@@ -63,22 +84,38 @@ describe('GitHubAuthGuard.canActivate', () => {
     return { req, res, result };
   }
 
-  it('binds the request nonce into the stored state', () => {
+  it('binds the request nonce and challenge into the stored state', () => {
     const nonce = 'a'.repeat(64);
-    const { req, result } = activate({ mode: 'cli', port: '49152', nonce });
+    const challenge = 'c'.repeat(43);
+    const { req, result } = activate({
+      mode: 'cli',
+      port: '49152',
+      nonce,
+      challenge,
+    });
 
     expect(result).toBe(true);
-    expect(createState).toHaveBeenCalledWith('cli', 49152, nonce);
+    expect(createState).toHaveBeenCalledWith('cli', 49152, nonce, challenge);
     expect(req.__oauthState).toBe('state-token');
   });
 
   it('stores no nonce when the query carries none or a malformed one', () => {
     activate({ mode: 'cli', port: '49152' });
-    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined);
+    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined, undefined);
 
     createState.mockClear();
     activate({ mode: 'cli', port: '49152', nonce: 'not-hex&code=evil' });
-    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined);
+    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined, undefined);
+  });
+
+  /**
+   * A malformed challenge must not degrade into an *unbound* code: the
+   * state stores none, and the callback refuses rather than minting a
+   * bearer-only code.
+   */
+  it('stores no challenge when the query carries a malformed one', () => {
+    activate({ mode: 'cli', port: '49152', challenge: 'short' });
+    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined, undefined);
   });
 
   it('mints no CLI state for an out-of-range port', () => {
