@@ -148,6 +148,69 @@ test("findingLocation: a citation naming a DIFFERENT file yields no line", () =>
   );
 });
 
+test("findingLocation: scans PAST a foreign citation to a matching one", () => {
+  // The behaviour change. Lenses habitually open their evidence with the call site
+  // or the contract being violated and cite the finding's own file second, so
+  // reading only the first citation threw the location away. Measured on the 44
+  // blocking findings banked across the open agent PRs: 24 carried a citation
+  // naming their own file, only 7 had it FIRST — 17 findings unlocatable purely
+  // because of citation order, which left both provenance gates unable to judge
+  // them.
+  assert.deepEqual(
+    findingLocation({
+      file: "packages/backend/src/auth/auth.controller.ts",
+      evidence:
+        "`CliAuthStore.createState` sets expiresAt (cli-auth.store.ts:39) and " +
+        "`githubAuthCallback` now throws for every expired state " +
+        "(auth.controller.ts:130-135).",
+    }),
+    { file: "packages/backend/src/auth/auth.controller.ts", line: 130 },
+  );
+});
+
+test("findingLocation: takes the FIRST matching citation, not the last", () => {
+  // The earliest mention of the filed file is likeliest to be the primary claim;
+  // later ones tend to be context. Pinned so a refactor cannot quietly switch to
+  // `findLast` and move every gate's probe target.
+  assert.deepEqual(
+    findingLocation({ file: "a/b.mjs", evidence: "other.mjs:7 then a/b.mjs:44 then a/b.mjs:900" }),
+    { file: "a/b.mjs", line: 44 },
+  );
+});
+
+test("findingLocation: scanning does NOT weaken the same-file rule", () => {
+  // The rule that made this function safe is unchanged — only its search scope
+  // moved. A finding whose evidence cites many files, none of them its own, still
+  // gets no line, because a foreign file's offset locates nothing here.
+  assert.deepEqual(
+    findingLocation({ file: "a/b.mjs", evidence: "x.mjs:1, y.ts:2, z/w.tsx:3 all disagree" }),
+    { file: "a/b.mjs", line: null },
+  );
+  // And path-shape tolerance still applies to the match it finds mid-scan.
+  assert.deepEqual(
+    findingLocation({ file: "pkg/a/b.mjs", evidence: "first other.mjs:7, then ./a/b.mjs:44" }),
+    { file: "pkg/a/b.mjs", line: 44 },
+  );
+});
+
+test("findingLocation: an explicit line still wins over any citation", () => {
+  // Unchanged precedence: scanning must not promote a citation over what the lens
+  // actually stated.
+  assert.deepEqual(
+    findingLocation({ file: "a/b.mjs", line: 12, evidence: "other.mjs:7 then a/b.mjs:44" }),
+    { file: "a/b.mjs", line: 12 },
+  );
+});
+
+test("findingLocation: a `:0` citation does not shadow a real one later", () => {
+  // `parseCitations` drops unlocatable tokens, so a malformed citation cannot
+  // consume the slot and blank the line.
+  assert.deepEqual(
+    findingLocation({ file: "a/b.mjs", evidence: "a/b.mjs:0 is wrong, a/b.mjs:44 is the guard" }),
+    { file: "a/b.mjs", line: 44 },
+  );
+});
+
 test("findingLocation: with no file at all, the citation is taken whole", () => {
   assert.deepEqual(
     findingLocation({ evidence: "broken at x/y.mjs:9" }),

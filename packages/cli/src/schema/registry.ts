@@ -45,7 +45,7 @@ const registry: CommandSchema[] = [
     safety: 'write',
     parameters: {
       '--server': { type: 'string', required: false, description: 'Server URL', default: 'https://api.wafflebase.io' },
-      '--allow-unbound-callback': { type: 'boolean', required: false, description: 'Accept a login callback that carries no nonce (server predates nonce-bound CLI login); downgrades the binding that stops a local page from completing this login' },
+      '--allow-unbound-callback': { type: 'boolean', required: false, description: 'Accept a login callback that carries no state (server predates nonce-bound CLI login); downgrades the binding that stops a local page from completing this login' },
     },
     response: { user: 'string', workspace: 'string' },
   },
@@ -61,7 +61,17 @@ const registry: CommandSchema[] = [
     description: 'Show current auth state',
     safety: 'read-only',
     parameters: {},
-    response: { user: 'string', server: 'string', workspace: 'string', session: 'string' },
+    response: {
+      loggedIn: 'boolean',
+      message: 'string (logged out only)',
+      user: 'string',
+      email: 'string',
+      server: 'string',
+      workspaceId: 'string',
+      workspaceName: 'string | null',
+      session: "'valid' | 'expired'",
+      expiresAt: 'string',
+    },
   },
   {
     name: 'ctx.list',
@@ -549,9 +559,18 @@ const registry: CommandSchema[] = [
       file: { type: 'string', required: true, description: 'File path or - for stdin' },
       '--tab': { type: 'string', required: false, description: 'Target tab', default: 'tab-1' },
       '--file-format': { type: 'string', required: false, description: 'File format (csv, json)' },
-      '--start': { type: 'string', required: false, description: 'Top-left cell', default: 'A1' },
+      '--start': {
+        type: 'string',
+        required: false,
+        description:
+          "Top-left cell for a positional grid. Ignored when the input's first row is the per-cell header `ref,value,formula[,style]` that `sheets export` writes — those rows carry their own `ref`, so they land where they were exported from. The `mode` field in the response says which of the two ran",
+        default: 'A1',
+      },
     },
-    response: { imported: 'number' },
+    response: {
+      imported: 'number',
+      mode: "'cells' when the input was an exported ref,value,formula table (--start ignored) | 'grid' when it was a positional grid placed at --start",
+    },
     aliases: ['import', 'sheet.import'],
   },
   {
@@ -564,6 +583,13 @@ const registry: CommandSchema[] = [
       '--tab': { type: 'string', required: false, description: 'Source tab', default: 'tab-1' },
       '--range': { type: 'string', required: false, description: 'Cell range (e.g. A1:D100)' },
       '--file-format': { type: 'string', required: false, description: 'File format (csv, json)' },
+      '--raw': {
+        type: 'boolean',
+        required: false,
+        description:
+          'CSV only: write cell text verbatim, without the leading-quote formula guard, so `sheets import` round-trips formulas',
+        default: 'false',
+      },
     },
     response: { type: 'string', description: 'Formatted cell data' },
     aliases: ['export', 'sheet.export'],

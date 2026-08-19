@@ -50,11 +50,13 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
   }
 
   /**
-   * Override authenticate to forward the `state` `GitHubAuthGuard` minted
-   * for this request — a cookie-bound random value for a web login, a CLI
-   * state token for `?mode=cli`. passport-oauth2 is given no state store
-   * of its own (that would need express-session, which this backend does
-   * not run), so the guard mints and the callback verifies.
+   * Forward the `state` parameter `GitHubAuthGuard` attached to the
+   * request. Both login paths have one — a `CliAuthStore` token for the
+   * CLI, a double-submit cookie hash for the browser — and the callback
+   * rejects a request that arrives without it, so a login that reached
+   * GitHub stateless would be a login that can never come back. Anything
+   * without the flag is not a login start (no guard ran), so it is left
+   * to passport's own handling rather than given a state here.
    */
   authenticate(req: Request, options?: Record<string, unknown>) {
     const opts = { ...options };

@@ -20,24 +20,31 @@ import { escapeXmlAttr } from './xml.js';
  *   main-point, section-title-description, caption, big-number
  *                      → no exact OOXML token; use 'blank' so a re-import
  *                        still produces a valid layout rather than crashing.
+ *
+ * A `Map`, not an object literal: `layout.id` is persisted JSON — custom
+ * layouts carry arbitrary ids and the content PUT API lets a caller store any
+ * string — and an object lookup consults the prototype chain, so an id of
+ * `constructor` / `toString` would resolve to an inherited `Object.prototype`
+ * member, survive the `?? 'blank'` fallback and be stringified into the
+ * `type` attribute. `Map.get` only ever returns an own entry.
  */
-const BUILT_IN_TO_TYPE: Record<string, string> = {
-  'title-slide': 'title',
-  'section-header': 'secHead',
-  'title-body': 'obj',
-  'title-two-columns': 'twoColTx',
-  'title-only': 'titleOnly',
-  'one-column-text': 'body',
-  'blank': 'blank',
+const BUILT_IN_TO_TYPE = new Map<string, string>([
+  ['title-slide', 'title'],
+  ['section-header', 'secHead'],
+  ['title-body', 'obj'],
+  ['title-two-columns', 'twoColTx'],
+  ['title-only', 'titleOnly'],
+  ['one-column-text', 'body'],
+  ['blank', 'blank'],
   // Wafflebase-specific layouts with no exact OOXML equivalent — use the
   // closest approximation so the importer still produces a valid result:
   //   main-point, caption, big-number → 'blank'
   //   section-title-description       → 'obj' (title+body is the closest match)
-  'main-point': 'blank',
-  'section-title-description': 'obj',
-  'caption': 'blank',
-  'big-number': 'blank',
-};
+  ['main-point', 'blank'],
+  ['section-title-description', 'obj'],
+  ['caption', 'blank'],
+  ['big-number', 'blank'],
+]);
 
 /**
  * Serialize a `Layout` to `ppt/slideLayouts/slideLayoutN.xml` content.
@@ -50,7 +57,7 @@ const BUILT_IN_TO_TYPE: Record<string, string> = {
  * import time, not from the XML.
  */
 export function layoutToXml(layout: Layout, index: number): string {
-  const ooxmlType = BUILT_IN_TO_TYPE[layout.id] ?? 'blank';
+  const ooxmlType = BUILT_IN_TO_TYPE.get(layout.id) ?? 'blank';
   const nameAttr = escapeXmlAttr(layout.name ?? `Layout${index}`);
 
   return (

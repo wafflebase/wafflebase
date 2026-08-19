@@ -1,6 +1,4 @@
 import { ConfigService } from '@nestjs/config';
-import { Request } from 'express';
-import { Strategy } from 'passport-github2';
 import { GitHubStrategy } from './github.strategy';
 
 function makeStrategy(values: Record<string, string>): GitHubStrategy {
@@ -121,64 +119,61 @@ describe('GitHubStrategy endpoints', () => {
 });
 
 /**
- * `req.__oauthState` → `opts.state` is the single wire that carries the
- * CSRF binding to GitHub: `GitHubAuthGuard` mints the value and mirrors it
- * into a cookie, and this override is the only thing that puts it on the
- * authorization request. Drop it (or misspell the property) and the guard
- * still sets its cookie, the callback still compares — against a `state`
- * GitHub was never given, so *every* login breaks; worse, an override that
- * silently sends nothing would have to be caught here, because no other
- * test looks at what reaches passport.
+ * The one hinge of the OAuth CSRF design.
+ *
+ * `GitHubAuthGuard` attaches the state it minted to the request as
+ * `__oauthState`; this is the only place that reads it back out and puts
+ * it on the wire. Both login paths depend on it — the CLI's
+ * `CliAuthStore` token and the browser's double-submit hash — and the
+ * callback now refuses anything arriving without a `state`. If the two
+ * sides ever spelled the key differently, every login would reach GitHub
+ * stateless and every callback would be rejected, while the guard spec
+ * (which asserts only that the guard *sets* the key) stayed green.
  */
-describe('GitHubStrategy state hand-off', () => {
-  let authenticate: jest.SpyInstance;
+describe('GitHubStrategy state forwarding', () => {
+  // `super.authenticate` resolves up the prototype chain to whichever
+  // ancestor passport defines it on. Spy on that owner so the real
+  // redirect never runs and the options it was handed are observable.
+  function authenticateOwner(): { authenticate: (...a: unknown[]) => void } {
+    let proto: unknown = Object.getPrototypeOf(GitHubStrategy.prototype);
+    while (
+      proto &&
+      !Object.prototype.hasOwnProperty.call(proto, 'authenticate')
+    ) {
+      proto = Object.getPrototypeOf(proto);
+    }
+    return proto as { authenticate: (...a: unknown[]) => void };
+  }
+
+  let spy: jest.SpyInstance;
 
   beforeEach(() => {
-    // passport-github2's `Strategy` inherits `authenticate` from
-    // OAuth2Strategy; an own property here shadows it for `super`.
-    authenticate = jest
-      .spyOn(
-        Strategy.prototype as unknown as {
-          authenticate: (req: Request, options?: unknown) => void;
-        },
-        'authenticate',
-      )
+    spy = jest
+      .spyOn(authenticateOwner(), 'authenticate')
       .mockImplementation(() => undefined);
   });
 
-  afterEach(() => {
-    authenticate.mockRestore();
-  });
+  afterEach(() => spy.mockRestore());
 
-  function optionsFor(req: Request, options?: Record<string, unknown>) {
-    makeStrategy(BASE).authenticate(req, options);
-    expect(authenticate).toHaveBeenCalledTimes(1);
-    return authenticate.mock.calls[0][1] as Record<string, unknown>;
+  function optionsFor(req: Record<string, unknown>) {
+    makeStrategy(BASE).authenticate(
+      req as unknown as Parameters<GitHubStrategy['authenticate']>[0],
+      { scope: ['user:email'] },
+    );
+    return spy.mock.calls[0][1] as Record<string, unknown> | undefined;
   }
 
-  it('forwards the state the guard minted for this request', () => {
-    const opts = optionsFor({ __oauthState: 'guard-state' } as unknown as
-      Request);
+  it('forwards the state the guard attached as the OAuth `state`', () => {
+    const opts = optionsFor({ __oauthState: 'web.deadbeef' });
 
-    expect(opts.state).toBe('guard-state');
+    expect(opts?.state).toBe('web.deadbeef');
+    // The caller's own options have to survive alongside it.
+    expect(opts?.scope).toEqual(['user:email']);
   });
 
-  it('keeps the caller options and does not mutate them', () => {
-    const options = { scope: ['user:email'] };
-    const opts = optionsFor(
-      { __oauthState: 'guard-state' } as unknown as Request,
-      options,
-    );
+  it('sets no state when no guard ran', () => {
+    const opts = optionsFor({});
 
-    expect(opts).toMatchObject({ state: 'guard-state', scope: ['user:email'] });
-    expect(options).toEqual({ scope: ['user:email'] });
-  });
-
-  it('sends no state when the guard minted none', () => {
-    // A request that never went through the guard must not invent a
-    // `state`: passport would then send one the callback cannot match.
-    const opts = optionsFor({} as unknown as Request);
-
-    expect(opts.state).toBeUndefined();
+    expect(opts).not.toHaveProperty('state');
   });
 });

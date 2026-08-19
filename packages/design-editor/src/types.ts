@@ -76,6 +76,16 @@ export interface FileMeta {
   module: string;
   components: ComponentMeta[];
   orphanCva: string[];
+  /**
+   * The JSX node tree, present when the file was analysed for the outline as well as for
+   * its variant tables. `analyzeFile` alone does not produce one — `analyzeNodes` does,
+   * and `GET /metadata` merges both for every declared component, because a drill-in
+   * target with no tree renders as a component with no nodes.
+   */
+  roots?: Record<string, SceneNodeMeta>;
+  imports?: { module: string; named: string[]; default?: string }[];
+  /** Names two JSX-returning functions both claim; unaddressable, so omitted from `roots`. */
+  ambiguous?: string[];
 }
 
 // ---------------------------------------------------------------------------

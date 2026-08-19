@@ -172,17 +172,23 @@ wafflebase login
   │
   ├─ 1. If already logged in → prompt "Logged in as X. Continue? [Y/n]"
   ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>,
-  │     bound to a fresh 32-byte nonce it generates
+  │     generates a per-attempt nonce (32 random bytes, hex) and a PKCE
+  │     verifier (32 random bytes, base64url) it keeps in memory
   ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>&nonce=<nonce>
+  │     &challenge=<sha256(verifier), base64url>
   │     (also prints URL for copy-paste in headless environments)
+  ├─ 3b. Backend answers with a confirmation page; the user clicks
+  │     Continue (one-time secret + httpOnly cookie) → OAuth starts
   ├─ 4. GitHub OAuth consent screen (existing flow)
   ├─ 5. GitHub redirects to GET /auth/github/callback
   ├─ 6. Backend detects mode=cli in OAuth state →
-  │     redirects to
-  │     http://127.0.0.1:<port>/callback?code=<short-lived-code>&nonce=<nonce>
-  ├─ 7. CLI local server accepts only a callback echoing that nonce,
-  │     then calls POST /auth/cli/exchange
-  │     with { code } → receives { accessToken, refreshToken }
+  │     redirects to http://127.0.0.1:<port>/callback
+  │       ?code=<short-lived-code>&state=<nonce>
+  ├─ 7. CLI local server receives code, calls POST /auth/cli/exchange
+  │     with { code, verifier } → receives { accessToken, refreshToken }
+  │     (the code alone buys nothing: it arrives over plaintext loopback
+  │      HTTP, so redemption also needs the verifier, which never left
+  │      the CLI process)
   ├─ 8. CLI local server serves success HTML, shuts down
   ├─ 9. CLI calls GET /auth/me (Bearer token) for user info
   ├─ 10. CLI calls GET /workspaces (Bearer token) for workspace list
@@ -191,23 +197,67 @@ wafflebase login
 ```
 
 The local server binds to `127.0.0.1` only, accepts only `GET
-/callback`, and shuts down once a callback carrying the expected nonce
-arrives, with a 30-second timeout. Anything else — an unrelated local
-request, or a page that guessed the port — gets `403` and neither
-completes nor cancels the pending login (see "Nonce-bound login
-callback" in §8.1). On timeout it prints: "Login timed out. Try again
-with `wafflebase login`."
+/callback`, and shuts down after a single request with a three-minute
+timeout — the browser leg now includes a confirmation click (step 3b)
+and, on a cold browser, a full GitHub sign-in, and the wait still ends
+inside the backend's five-minute state TTL. On timeout it prints:
+"Login timed out. Try again with `wafflebase login`."
 
-A callback that carries **no** nonce is what an older backend redirects
-with — and equally what a hostile local page would send, which is why it
-is refused by default and why it changes nothing the CLI reports: the
-timeout message is the same either way. Because published CLIs and
-self-hosted backends upgrade on their own schedules, `wafflebase login
---allow-unbound-callback` accepts it anyway — an explicit, warned
-downgrade for that case, never a silent fallback and never something an
-unauthenticated request can talk an operator into (see "Nonce-bound
-login callback" in §8.1). A *mismatched* nonce stays refused under the
-flag: only an attacker sends one.
+The callback is bound to the login attempt by the nonce: the CLI
+accepts a `code` only when the request carries that nonce back as
+`state` (compared in constant time), and refuses anything that is not a
+plain `GET`. Without the binding, any page the user happens to visit
+during the wait can hit
+`http://127.0.0.1:<port>/callback?code=…` — the port space is small
+enough to scan — and make the CLI exchange a code minted for the
+attacker's account, silently writing a session for the wrong user
+(login CSRF / session fixation). A forged hit is answered `403` and
+does *not* end the wait, so the real redirect can still land. The nonce
+round trip is a backend contract: the loopback redirect echoes it, so a
+CLI at this version or later needs a backend at this version or later.
+
+The nonce is the whole defense, deliberately. An earlier revision also
+refused any request carrying an `Origin` header; a browser, extension
+or proxy can attach one (`Origin: null` among them) to the cross-origin
+redirect chain that *is* the genuine callback, and because a refusal
+never ends the wait, refusing on it would hang the login for the full
+timeout. A header no attacker is obliged to send adds nothing the nonce
+does not already cover.
+
+Because a refusal never ends the wait, it must not be silent either —
+otherwise a CLI pointed at an older backend refuses its own genuine
+redirect and hangs for the full timeout with nothing to act on.
+Every refusal names its cause on stderr as it happens, answers the
+browser tab with the same sentence, and is repeated in the timeout
+error, distinguishing the three cases: no `state` at all (the server
+does not echo the nonce — most likely older than the CLI), a `state`
+that does not match (a callback that is not ours), and a non-GET
+request. What no refusal ever does is *prescribe the downgrade below*:
+that listener is reachable by exactly the adversary the nonce exists to
+stop, so advice it can trigger is attacker-settable.
+
+Because published CLIs and self-hosted backends upgrade on their own
+schedules, `wafflebase login --allow-unbound-callback` accepts a
+`state`-less callback anyway, so a current CLI can still log into a
+server that has not deployed the echo. It is an explicit, warned
+downgrade — never a silent fallback — and it covers only the
+`state`-*absent* case; a *mismatched* `state` stays `403` under the
+flag, since only an attacker sends one. It is documented in `wafflebase
+login --help` and the CLI README, places an attacker has no say over
+(see "Nonce-bound login callback" in §8.1).
+
+The browser leg is gated on a click. `GET /auth/github?mode=cli&port=…`
+is unauthenticated and takes the loopback port off the query string, so
+on a bare navigation it would mint an auth code **for whoever is signed
+in to the browser** and post it to a port the caller chose — a page the
+victim visits can start that, and the loopback nonce cannot help,
+because the attacker picked the nonce. The backend therefore answers a
+CLI login with a confirmation page (`X-Frame-Options: DENY`) whose
+Continue link carries a one-time secret that also went out as an
+httpOnly cookie; only a matching pair starts the OAuth redirect. An
+attacker can navigate the victim to that page, but cannot read the
+secret out of the victim's response, and a secret minted against their
+own cookie will not match the victim's.
 
 Tokens are NOT passed as URL query parameters. The short-lived
 authorization code is exchanged server-to-server in step 7. CSRF and
@@ -288,7 +338,7 @@ wafflebase
   ├── schema [<command>]                     Describe command parameters and response shape
   │
   ├── ctx
-  │     ├── list                             List workspaces (* = active)
+  │     ├── list                             List workspaces (`active: true` marks the current one)
   │     └── switch <name|id>                 Switch active workspace
   │
   ├── api-keys (alias: api-key)
@@ -330,8 +380,13 @@ wafflebase
   │     │     └── delete <doc-id> <ref>      [--tab]
   │     ├── import <doc-id> <file>
   │     │     [--tab <tab-id>] [--file-format csv|json] [--start <ref>]
+  │     │     (--start places a positional grid; it is ignored for an
+  │     │      exported `ref,value,formula` table, whose rows carry their
+  │     │      own ref. The response's `mode` says which ran: cells|grid)
   │     └── export <doc-id> <file>
   │           [--tab <tab-id>] [--range A1:C10] [--file-format csv|json]
+  │           [--raw]   (CSV: write cell text verbatim, no formula guard,
+  │                      so `sheets import` round-trips formulas)
   │
   ├── slides (aliases: slide, deck)
   │     ├── list                             List slide decks (type: slides)
@@ -536,8 +591,13 @@ wafflebase schema sheets.cells.get         # show parameters and response shape
 wafflebase schema docs.content
 wafflebase schema cell.get                 # alias → resolves to sheets.cells.get
 
+# Auth state (JSON by default; agents branch on `loggedIn`)
+wafflebase status
+wafflebase status --format table            # human-readable key/value
+
 # Context switching
-wafflebase ctx list                        # list workspaces (* = active)
+wafflebase ctx list                        # [{ id, name, active }]
+wafflebase ctx list --format table         # human-readable table
 wafflebase ctx switch "Team Workspace"
 
 # API key management
@@ -819,7 +879,9 @@ and no envelope.
 
 Exit codes: `0` success, `1` user error (bad input, not found),
 `2` system error (network, auth, server fault). Agents can branch on the
-exit code without parsing the error body.
+exit code without parsing the error body. A missing *local* session is
+the caller's to fix rather than the environment's, so `NOT_LOGGED_IN`
+exits `1`.
 
 The class is decided where the failure is raised, not sniffed out of the
 message text at the output site — `packages/cli/src/errors.ts` holds the
@@ -866,8 +928,83 @@ An unparseable URL is the one `fetch` rejection that is *not* a system
 error: nothing was ever unreachable, the caller's `--server` was wrong.
 It is separated out before the request and exits `1` (`INVALID_URL`).
 
-`--quiet` suppresses the body but not the exit code — scripts branching on
-`$?` are the reason the contract exists.
+`--quiet` gates progress notices only. Neither the result body nor the
+error envelope is suppressed by it — a non-zero exit with no bytes on
+either stream tells the caller nothing — and neither is the exit code,
+which is what scripts branching on `$?` actually read.
+
+Every command that renders a *structured result* routes it through
+`output()`, including the session commands `status` and `ctx list`,
+which used to print English sentences and ignore `--format`. (Commands
+that only acknowledge an action — `login`, `logout`, `ctx switch` —
+still print a prose line, and the file writers — `sheets export`,
+`docs`/`slides`/`notes` `export` — write their body straight to the
+file or stdout, since it is a document, not a command result.)
+
+Four commands are still gaps rather than exceptions:
+`docs`/`slides`/`notes` `import` and `files upload` emit a real command
+result (`{ id, replaced }`, `{ id, title }`, or the uploaded document)
+but serialize it with a bare `JSON.stringify` and never read `--format`,
+so `docs import --format table` still prints JSON. All four render
+through their own injected IO seam — `ImportIO`, and `upload.ts`'s
+`io.stdout`, the seams that make the stdin/TTY/confirm branches
+testable — rather than through the global formatter, so routing them is
+a change to that seam, not a call-site swap, and is left to its own
+change. Until then the sentence above holds for every command *except*
+those four.
+
+`status` reports the answer to "am I logged in?" as data
+and still exits `0` when there is no session:
+
+```json
+{ "loggedIn": false, "message": "Not logged in. Run `wafflebase login`." }
+```
+
+`ctx list` cannot answer without a session, so it emits the standard
+error body with `"code": "NOT_LOGGED_IN"` and exits `1`.
+
+An unsupported `--format` value is rejected with
+`"code": "INVALID_FORMAT"` rather than ignored. Validation is
+per-command because `docs`/`slides`/`notes` `content` and `export`
+deliberately reuse the same global `--format` flag for their own
+vocabularies (`md`, `text`, `pdf`, `docx`, `pptx`) — those commands
+check against their own list but raise the same `InvalidFormatError`, so
+`INVALID_FORMAT` means "bad `--format`" everywhere and the message names
+the values that command accepts. A format that cannot be *inferred*
+(`docs export out.txt` with no `--format`) is a different failure and
+stays a plain `ERROR`.
+
+Every CSV the CLI writes neutralizes spreadsheet formula prefixes: a
+value starting with `=`, `+`, `-`, or `@` is emitted with a leading `'`
+so it lands as text, since every value in the output is server-supplied
+and another workspace member can set it. The decision is made on the
+value an importer will *see*, not on the raw bytes — leading whitespace
+(space, tab, CR, U+00A0, BOM) is skipped before the test, because
+importers that trim on the way in (LibreOffice's "Trim spaces", and
+several CSV-to-sheet tools) would otherwise evaluate ` =HYPERLINK(…)`
+as a formula the neutralizer had waved through. Plain signed numbers
+(`-3`, `+1.5e6`), padding and all, are left alone. Any value carrying a
+comma, quote, or control character is quoted — `\r` included, or a bare
+CR would end the record early in importers that honour it and start the
+next one with a formula the neutralizer never inspected.
+
+`sheets export <doc> out.csv` is the CSV most likely to be *opened* in a
+spreadsheet app, so it neutralizes too. Its one caller that must not is
+the round-trip pipeline (`packages/cli/skills/recipe-csv-pipeline.md`),
+where an exported `=SUM(B2:B100)` has to re-import as that formula and
+not as the text `'=SUM(B2:B100)` — that asks for `--raw` explicitly.
+The other half of that round trip lives in `sheets import`: it detects
+the `ref,value,formula[,style]` header this export writes and imports
+**by reference** (not as a positional grid, which would land the word
+`ref` in A1), sending a cell's `formula` as `formula` and any other
+`=`-leading text likewise — the batch API stores `f` and `v` in
+different fields, so a formula sent as a value is never evaluated.
+Opting out is the caller saying they trust the sheet, which is not a
+thing the default may assume. `formatCsv` still takes an explicit
+`neutralizeFormulas` flag rather than defaulting, so the answer stays a
+per-call decision instead of one silently inherited by the next caller
+added. Quoting is shared: it is CSV correctness, and a parser unquotes
+it on the way back in.
 
 ##### Export image fetching
 
@@ -983,84 +1120,97 @@ this is what puts the question in front of them.
 
 `wafflebase login` listens on `http://127.0.0.1:<port>/callback`, which
 any local process — or any web page that guesses the port — can reach. So
-the code alone does not complete a login: the CLI generates a nonce, ships
-it as `?nonce=` on the `/auth/github` URL, the backend stores it in the
-CLI state and echoes it on the loopback redirect, and the CLI accepts only
-a callback whose nonce matches (constant-time compare). Mismatched
-requests get `403` and are ignored — they can neither complete nor cancel
-the pending login, so a hostile page cannot fix the CLI onto its own
-account.
+the code alone does not complete a login: the CLI generates a nonce,
+ships it as `?nonce=` on the `/auth/github` URL, the backend stores it in
+the CLI state and echoes it back as `state` on the loopback redirect, and
+the CLI accepts only a callback whose `state` matches (constant-time
+compare). Mismatched requests get `403` and are ignored — they can
+neither complete nor cancel the pending login, so a hostile page cannot
+fix the CLI onto its own account. §3.1 describes the round trip and the
+`--allow-unbound-callback` opt-out for a server that predates the echo.
 
 The binding is enforced on the **CLI** side, which is where it works: a
-callback that arrives without the expected nonce is refused, and the
-login then times out with the same message as any other timeout.
+callback that arrives without the expected `state` is refused, and the
+login then times out — with the refusal's cause named, but never with
+advice to turn the binding off (see below).
 
-The **backend** half of the same question — did this browser start this
-login at all? — is answered by `GitHubAuthGuard`. `/auth/github` refuses
-a request whose `Sec-Fetch-Site` says another site navigated the browser
-into it (`none` / `same-origin` / `same-site`, or a client that sends no
-such header, are served). Without that, a hostile page could start a
-`?mode=cli` round trip in the victim's browser with a loopback port of
-its choosing, and a code minted from the victim's GitHub session would
-be delivered there. The cookies cannot cover this case: the navigation
-that carries the attack is the same navigation that would set them.
+The **backend** halves of the same question — did this browser start
+this login, and can this code be redeemed by anyone who merely saw it? —
+are answered by `GitHubAuthGuard`, `CliLoginConfirmMiddleware` and the
+PKCE pair:
 
-Both flows then mirror their `state` into a short-lived cookie —
-`wafflebase_oauth_state` for the web login, `wafflebase_cli_oauth_state`
-for the CLI one, each `__Host-` prefixed wherever the deployment serves
-`Secure` cookies — and the callback accepts only a `state` matching the
-cookie for its flow, compared in constant time and spent whatever the
-outcome. One name per flow so a pending CLI login and a pending web
-login in one browser cannot clobber each other. For the CLI that means
-a state token seen elsewhere (a shared terminal, a CI log) cannot be
-replayed into a victim's browser; the server-side `CliAuthStore` entry
-still carries the port and nonce, which a cookie cannot deliver to a
-loopback listener.
+- `/auth/github` refuses a request whose `Sec-Fetch-Site` says another
+  site navigated the browser into it (`none` / `same-origin` /
+  `same-site`, or a client that sends no such header, are served).
+  Without that, a hostile page could start a `?mode=cli` round trip in
+  the victim's browser with a loopback port of its choosing, and a code
+  minted from the victim's GitHub session would be delivered there. The
+  cookies cannot cover this case: the navigation that carries the attack
+  is the same navigation that would set them.
+- A `?mode=cli` login is then gated on a click through
+  `CliLoginConfirmMiddleware`'s confirmation page, whose Continue link
+  carries a one-time secret that also went out as an httpOnly cookie.
+- The `state` of both flows is bound to the browser that started the
+  login. The web flow uses a double-submit pair: a random secret in the
+  `__Host-wafflebase_oauth_state` cookie, its SHA-256 to GitHub as
+  `web.<hash>` — no server-side map, so it survives restarts and works
+  across replicas. The CLI flow keeps its server-side `CliAuthStore`
+  entry (a cookie cannot deliver the port, nonce and challenge to a
+  loopback listener) and pairs it with a secret in the
+  `__Host-wafflebase_cli_state` cookie, of which only `sha256(secret)`
+  is stored. Both are cleared on use and spent whatever the outcome, so
+  a state token seen elsewhere — a shared terminal, a CI log — cannot be
+  replayed into a victim's browser. The `__Host-` prefix is what stops a
+  sibling subdomain from writing either cookie; outside production,
+  where the browser will not honour it without `Secure`, the names are
+  unprefixed.
+- The code the CLI receives is a **proof-of-possession** credential, not
+  a bearer one. `login` generates a PKCE verifier, sends only
+  `sha256(verifier)` as `?challenge=`, and `POST /auth/cli/exchange`
+  redeems the code with `{ code, verifier }`. The code travels over a
+  plaintext loopback hop, so on its own it must not buy a session; the
+  verifier never leaves the CLI process. A CLI that sends no challenge
+  is refused with a message telling it to update, rather than handed a
+  weaker credential.
 
 **The printed OAuth URL is a credential while the login is pending.**
 The nonce travels in it, and in the browser's argv, so anything that
 captures the CLI's stderr — a shared terminal, an agent transcript, a CI
 log — captures the nonce too. What it does *not* leak is remote access:
 the callback is `127.0.0.1`, so completing the fixation also requires
-reaching the victim machine's loopback within the listener's 30-second
-lifetime, i.e. already running code there. The URL is printed regardless
-because it is the only fallback when the browser fails to open (`open()`
+reaching the victim machine's loopback within the listener's lifetime,
+i.e. already running code there. The URL is printed regardless because
+it is the only fallback when the browser fails to open (`open()`
 resolves when the child process spawns, not when a browser appears), so
 the CLI says so on the line beneath it rather than printing it silently.
 
-The timeout message is deliberately invariant. An earlier version named
-the likely cause ("the server predates nonce-bound CLI login") and
-pointed at `--allow-unbound-callback` whenever a nonce-less callback had
-arrived — but that listener is reachable by exactly the adversary the
-nonce exists to stop, so the diagnostic was attacker-settable. A hostile
-page could send one nonce-less `/callback?code=<its own code>`, and the
-CLI would then blame the server and prescribe the one flag that turns
-the binding off; taking that advice completes a login fixation, since
-the replayed callback carries the attacker's code and the victim ends up
-holding a session for the attacker's account. A failure diagnostic must
-not be steerable by an unauthenticated request, so the cause is no
-longer inferred from it.
+The timeout message names the last refusal but never prescribes the
+downgrade. An earlier version pointed at `--allow-unbound-callback`
+whenever a `state`-less callback had arrived — but that listener is
+reachable by exactly the adversary the nonce exists to stop, so the
+diagnostic was attacker-settable. A hostile page could send one
+`state`-less `/callback?code=<its own code>`, and the CLI would then
+prescribe the one flag that turns the binding off; taking that advice
+completes a login fixation, since the replayed callback carries the
+attacker's code and the victim ends up holding a session for the
+attacker's account. So the refusal reports *what happened* — no `state`,
+a `state` that does not match, a non-GET request — and, for the
+`state`-less case, that the server is likely older than the CLI and
+should be updated. The flag itself is discoverable only through
+`wafflebase login --help` and the CLI README, places an attacker has no
+say over.
 
-`wafflebase login --allow-unbound-callback` remains the opt-out that
-accepts a nonce-less callback so a current CLI can still log into a
-server that has not deployed the echo, documented in `wafflebase login
---help` and the CLI README — places an attacker has no say over. The
-flag warns on stderr and covers only the nonce-*absent* case; a
-mismatched nonce is still `403`.
-
-`GitHubAuthGuard` rejects a *malformed* nonce (anything but
-`[A-Za-z0-9_-]{16,128}`, including a repeated query parameter) with a
-`400`, but still serves a request that carries **no** nonce, logging a
-warning. That is a deliberate compatibility window, not an oversight:
-`@wafflebase/cli` is published to npm, so users run whatever version
-they installed, and 400-ing a nonce-less request would break every
-released CLI the moment a server deploys. It would also buy nothing —
-an attacker minting a code for a loopback port they control simply
-supplies a nonce of their own, so requiring one server-side only
-guarantees the redirect carries something for a *current* CLI to
-compare against, which a current CLI already gets by always sending one.
-When published CLIs older than nonce-bound login are out of support, the
-guard can turn the warning into a `400`.
+`GitHubAuthGuard` validates both CLI parameters as closed vocabularies
+before they are stored: a nonce must be `[0-9a-f]{32,128}` and a
+challenge exactly 43 base64url characters (the length of a SHA-256
+digest). Anything else — including a repeated query parameter, which
+arrives as an array — is dropped rather than stored, because both values
+are interpolated into a redirect or into the confirmation page's link
+and must have no room to smuggle a query parameter. A dropped nonce is
+served anyway (the redirect then simply carries no `state`, and an older
+CLI never asked for one), but a dropped *challenge* is refused at the
+callback: minting a code with no challenge would hand back a bearer
+credential, which is the thing the challenge exists to prevent.
 
 #### 8.2 Dry-Run
 
@@ -1306,6 +1456,9 @@ is the agent interface. This approach has key advantages:
 
 | Case                                                | Exit | Code                | Message                                                            |
 | --------------------------------------------------- | ---- | ------------------- | ------------------------------------------------------------------ |
+| Unsupported `--format` value (any command)          | 1    | INVALID_FORMAT      | "Invalid --format \"<input>\". Use one of: <that command's list>." |
+| `ctx list` without a session (`ctx switch` still prints prose — out of scope for #635) | 1 | NOT_LOGGED_IN | "Not logged in. Run `wafflebase login`."          |
+| Malformed `--data` / stdin JSON (`sheets cells batch`) | 1  | ERROR               | "Invalid JSON cell data in --data: <parser message>"               |
 | `docs.content` on sheet document                    | 1    | TYPE_MISMATCH       | "Use `sheets cells get` for spreadsheet documents"                 |
 | `sheets.cells.get` on doc                           | 1    | TYPE_MISMATCH       | "Use `docs content` for document files"                            |
 | Malformed `--pages`                                 | 1    | INVALID_RANGE       | "Invalid page range: <input>"                                      |

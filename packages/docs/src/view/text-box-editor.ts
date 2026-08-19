@@ -34,6 +34,8 @@ import { MemDocStore } from '../store/memory.js';
 import { CanvasTextMeasurer } from './canvas-measurer.js';
 import { createPendingStyle } from './pending-style.js';
 import { findLinkRunAt } from './link-run.js';
+import { visitStyledRunsInRange } from '../model/range-runs.js';
+import { caretInlineStyle } from '../model/caret-style.js';
 import {
   computeLayout,
   type ComposingContext,
@@ -828,6 +830,29 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
   };
 
   /**
+   * Read the inline style at the caret through the one shared caret walk
+   * (`model/caret-style.ts`) — the same one `view/editor.ts` and
+   * `view/text-editor.ts` drive, so there is no copy here to drift.
+   *
+   * With `withStyleDefaults`, the block's named-style inline defaults are
+   * layered underneath the explicit run style, so a read reports what the
+   * renderer actually paints — a Heading 6 run with no explicit `italic` still
+   * reads as italic. Without it — the default — the raw run style is returned,
+   * so pending-style capture never bakes a style default into a stored run
+   * (which would break the lazy cascade when the named style is later
+   * redefined).
+   *
+   * Reading raw style here while `getRangeStyleSummary`'s range branch reports
+   * the effective one left a caret in a styled block with the #715
+   * disagreement: the toolbar saw "not italic" and applied italic — a
+   * permanent visual no-op — while the keyboard, which layers the same
+   * defaults, correctly removed it. A hand-copied walk is what let the two
+   * sides diverge in the first place.
+   */
+  const caretStyle = (withStyleDefaults: boolean): Partial<InlineStyle> =>
+    caretInlineStyle(doc, cursor.position, withStyleDefaults);
+
+  /**
    * Step the font size of every inline run intersecting the current
    * selection by `delta`, relative to each run's own effective size —
    * not a single absolute value. See the full-document equivalent in
@@ -842,29 +867,17 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     clamp: (n: number) => number,
   ): void => {
     if (!selection.hasSelection() || !selection.range) {
-      // Mirrors `getSelectionStyle` above: the run at the caret, or the
-      // last run when the caret sits past the final inline.
-      const findCaretStyle = (): Partial<InlineStyle> => {
-        const block = doc.findBlock(cursor.position.blockId);
-        if (!block) return {};
-        let pos = 0;
-        for (const inline of block.inlines) {
-          const inlineEnd = pos + inline.text.length;
-          if (cursor.position.offset <= inlineEnd) return inline.style;
-          pos = inlineEnd;
-        }
-        const last = block.inlines[block.inlines.length - 1];
-        return last ? last.style : {};
-      };
       // `applyStyleImpl` no-ops without a selection, so stage the stepped
       // size on the pending style instead (the next typed run picks it up,
       // matching the full docs editor). Merge any prior pending first so
       // repeated ± clicks accumulate rather than re-reading the base run.
-      const base = {
-        ...findCaretStyle(),
-        ...(pending.has() ? pending.get()! : {}),
-      };
-      const current = base.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
+      // `base` stays raw — it is *stored* as the pending style.
+      const staged = pending.has() ? pending.get()! : {};
+      const base = { ...caretStyle(false), ...staged };
+      // The value being stepped is the one the user sees, so the size is
+      // read from the effective style (named-style defaults layered in).
+      const effective = { ...caretStyle(true), ...staged };
+      const current = effective.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
       const next = clamp(current + delta);
       if (!Number.isFinite(next) || next === current) return;
       pending.set({ ...base, fontSize: next }, cursor.position);
@@ -876,45 +889,14 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     const range = selection.range;
     const runs: Array<{ blockId: string; from: number; to: number; size: number }> = [];
 
-    const collectRunsInBlock = (blockId: string, from: number, to: number): void => {
-      const block = doc.findBlock(blockId);
-      if (!block) return;
-      let pos = 0;
-      for (const inline of block.inlines) {
-        const inlineEnd = pos + inline.text.length;
-        if (inlineEnd > from && pos < to && inline.text.length > 0) {
-          const size = inline.style.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
-          runs.push({
-            blockId,
-            from: Math.max(pos, from),
-            to: Math.min(inlineEnd, to),
-            size,
-          });
-        }
-        pos = inlineEnd;
-        if (pos >= to) break;
-      }
-    };
-
-    const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
-    const focusIdx = doc.getBlockIndex(range.focus.blockId);
-    if (anchorIdx >= 0 && focusIdx >= 0) {
-      const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
-        (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
-        ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
-        : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
-      for (let i = startIdx; i <= endIdx; i++) {
-        const block = doc.document.blocks[i];
-        const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
-        const from = i === startIdx ? startOff : 0;
-        const to = i === endIdx ? endOff : blockLen;
-        if (from < to) collectRunsInBlock(block.id, from, to);
-      }
-    } else if (range.anchor.blockId === range.focus.blockId) {
-      const a = range.anchor.offset;
-      const b = range.focus.offset;
-      collectRunsInBlock(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
-    }
+    // The same shared walk `getRangeStyleSummary` reads through, so the runs
+    // stepped are the runs the size picker reports — each at its *effective*
+    // size, so stepping a Heading run with no explicit size starts from the
+    // size the named style paints rather than the 11pt fallback.
+    visitStyledRunsInRange(doc, range, (effective, _inline, block, from, to) => {
+      const size = effective.fontSize ?? DEFAULT_INLINE_STYLE.fontSize ?? 11;
+      runs.push({ blockId: block.id, from, to, size });
+    });
 
     const changed = runs
       .map((run) => ({ run, next: clamp(run.size + delta) }))
@@ -996,47 +978,29 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
     // ── Formatting surface ────────────────────────────────────────────────────
 
     getSelectionStyle(): Partial<InlineStyle> {
-      const block = doc.findBlock(cursor.position.blockId);
-      if (!block) return {};
       // A collapsed caret may carry a staged pending style (e.g. a font
       // size stepped via `stepSelectionFontSize`); surface it so the
-      // toolbar reflects it before the next run is typed.
+      // toolbar reflects it before the next run is typed. This is a pure
+      // read, so the named-style defaults are layered in (see `caretStyle`).
       const staged = pending.has() ? pending.get()! : {};
-      let pos = 0;
-      for (const inline of block.inlines) {
-        const inlineEnd = pos + inline.text.length;
-        if (cursor.position.offset <= inlineEnd) {
-          return { ...inline.style, ...staged };
-        }
-        pos = inlineEnd;
-      }
-      const last = block.inlines[block.inlines.length - 1];
-      return last ? { ...last.style, ...staged } : { ...staged };
+      return { ...caretStyle(true), ...staged };
     },
 
     getRangeStyleSummary: () => {
       type Summary = ReturnType<TextBoxEditorAPI['getRangeStyleSummary']>;
 
       // No range — fall back to the cursor-position style (same shape as
-      // getSelectionStyle). Text-boxes have no tables, so a flat block
-      // lookup is enough.
+      // getSelectionStyle), with the block's named-style inline defaults
+      // layered in, exactly as the range branch below reports each run. Left
+      // raw, a caret in a block whose named style supplies italic read as
+      // "not italic" and the toolbar's Italic toggle applied italic — a
+      // permanent visual no-op, and the opposite verdict from the keyboard
+      // (issue #715). Merge any staged pending style so a collapsed-caret
+      // font-size step (see `stepSelectionFontSize`) shows immediately in the
+      // toolbar, mirroring the full docs editor's summary.
       if (!selection.hasSelection() || !selection.range) {
-        const block = doc.findBlock(cursor.position.blockId);
-        if (!block) return {};
-        // Merge any staged pending style so a collapsed-caret font-size
-        // step (see `stepSelectionFontSize`) shows immediately in the
-        // toolbar, mirroring the full docs editor's summary.
         const staged = pending.has() ? pending.get()! : {};
-        let pos = 0;
-        for (const inline of block.inlines) {
-          const inlineEnd = pos + inline.text.length;
-          if (cursor.position.offset <= inlineEnd) {
-            return { ...inline.style, ...staged } as Summary;
-          }
-          pos = inlineEnd;
-        }
-        const last = block.inlines[block.inlines.length - 1];
-        return (last ? { ...last.style, ...staged } : { ...staged }) as Summary;
+        return { ...caretStyle(true), ...staged } as Summary;
       }
 
       const range = selection.range;
@@ -1064,51 +1028,24 @@ export function initializeTextBox(opts: TextBoxEditorOptions): TextBoxEditorAPI 
         return `prim:${String(value)}`;
       };
 
-      const visitInlinesInBlock = (
-        blockId: string, from: number, to: number,
-      ): void => {
-        const block = doc.findBlock(blockId);
-        if (!block) return;
-        let pos = 0;
-        for (const inline of block.inlines) {
-          const inlineEnd = pos + inline.text.length;
-          if (inlineEnd > from && pos < to && inline.text.length > 0) {
-            for (const key of KEYS) {
-              const raw = (inline.style as Record<string, unknown>)[key];
-              const token = tokenize(raw);
-              if (!seen[key].has(token)) {
-                seen[key].add(token);
-                rawByToken[key].set(token, raw);
-              }
-            }
+      // The one shared walk (`visitStyledRunsInRange`) the docs editor's
+      // summary and the keyboard toggles (`TextEditor.isStyleOnInSelection`)
+      // use, so a text box — docs text boxes and the Slides shape / text-box
+      // / table-cell editors built on this factory — reads the same runs,
+      // with the same named-style inline defaults layered under each run,
+      // that a toggle would restyle. Reading raw `inline.style` here let the
+      // toolbar answer "not italic" for a run whose named style paints it
+      // italic while the keyboard answered "italic" (issue #715).
+      visitStyledRunsInRange(doc, range, (effective) => {
+        for (const key of KEYS) {
+          const raw = (effective as Record<string, unknown>)[key];
+          const token = tokenize(raw);
+          if (!seen[key].has(token)) {
+            seen[key].add(token);
+            rawByToken[key].set(token, raw);
           }
-          pos = inlineEnd;
-          if (pos >= to) break;
         }
-      };
-
-      const anchorIdx = doc.getBlockIndex(range.anchor.blockId);
-      const focusIdx = doc.getBlockIndex(range.focus.blockId);
-      if (anchorIdx >= 0 && focusIdx >= 0) {
-        const [startIdx, startOff, endIdx, endOff] = anchorIdx < focusIdx ||
-          (anchorIdx === focusIdx && range.anchor.offset <= range.focus.offset)
-          ? [anchorIdx, range.anchor.offset, focusIdx, range.focus.offset]
-          : [focusIdx, range.focus.offset, anchorIdx, range.anchor.offset];
-
-        for (let i = startIdx; i <= endIdx; i++) {
-          const block = doc.document.blocks[i];
-          const blockLen = block.inlines.reduce((s, n) => s + n.text.length, 0);
-          const from = i === startIdx ? startOff : 0;
-          const to = i === endIdx ? endOff : blockLen;
-          if (from < to) visitInlinesInBlock(block.id, from, to);
-        }
-      } else if (range.anchor.blockId === range.focus.blockId) {
-        // Single-block fallback (defensive: getBlockIndex can fall
-        // through if the text-box's document is mid-mutation).
-        const a = range.anchor.offset;
-        const b = range.focus.offset;
-        visitInlinesInBlock(range.anchor.blockId, Math.min(a, b), Math.max(a, b));
-      }
+      });
 
       const result: Record<string, unknown> = {};
       for (const key of KEYS) {

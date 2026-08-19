@@ -23,29 +23,18 @@ import { AuthenticatedRequest } from './auth.types';
 import { CliAuthStore } from './cli-auth.store';
 import { GitHubAuthGuard } from './github-auth.guard';
 import {
-  OAuthFlow,
-  baseCookieOptions,
+  cliStateCookieName,
+  cliStateCookieOptions,
+  isWebOAuthState,
   oauthStateCookieName,
   oauthStateCookieOptions,
-} from './cookies';
-import { timingSafeEqual } from 'node:crypto';
+  webOAuthStateMatches,
+} from './oauth-state';
 
 const ACCESS_COOKIE_NAME = 'wafflebase_session';
 const REFRESH_COOKIE_NAME = 'wafflebase_refresh';
 const DEFAULT_ACCESS_COOKIE_MAX_AGE_MS = 60 * 60 * 1000;
 const DEFAULT_REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-
-/**
- * Compare two secrets without leaking their common prefix through timing.
- * `timingSafeEqual` throws on a length mismatch, so the lengths are
- * compared first — that much is public, and the values here are
- * fixed-length anyway.
- */
-function timingSafeEqualString(a: string, b: string): boolean {
-  const left = Buffer.from(a, 'utf8');
-  const right = Buffer.from(b, 'utf8');
-  return left.length === right.length && timingSafeEqual(left, right);
-}
 
 @Controller('auth')
 export class AuthController {
@@ -105,11 +94,11 @@ export class AuthController {
     @Query('port') port: string | undefined,
     @Req() req: Request,
   ) {
-    // NOTE(hackerwins): Redirect to GitHub for authentication. The guard
-    // mints the `state` (`req.__oauthState`) and handles the redirect —
-    // a random value for the web flow, a CLI state token for `?mode=cli`
-    // — and mirrors either into that flow's own cookie. Both are
-    // verified against the cookie in the callback below.
+    // NOTE(hackerwins): Redirect to GitHub for authentication.
+    // The guard attaches the OAuth `state` (via __oauthState) and handles
+    // the redirect. A CLI login (`?mode=cli`) is answered by
+    // CliLoginConfirmMiddleware with a confirmation page first, and only
+    // reaches the guard once the user has clicked through it.
     void mode;
     void port;
     void req;
@@ -123,19 +112,6 @@ export class AuthController {
     @Res() res: Response,
     @Query('state') stateToken: string | undefined,
   ) {
-    // Which flow this is, decided BEFORE a user is touched: a callback
-    // that cannot prove it belongs to a login this backend started must
-    // not create an account as a side effect of being rejected.
-    const cliState = stateToken
-      ? this.cliAuthStore.consumeState(stateToken)
-      : undefined;
-    this.consumeOAuthState(
-      req,
-      res,
-      stateToken,
-      cliState?.mode === 'cli' ? 'cli' : 'web',
-    );
-
     const githubUser = req.user;
 
     const user = await this.userService.findOrCreateUser({
@@ -149,35 +125,125 @@ export class AuthController {
       throw new Error('User not found or created');
     }
 
-    if (cliState?.mode === 'cli') {
-      const port = cliState.port;
-      if (port < 1024 || port > 65535) {
-        throw new BadRequestException('Invalid CLI port');
+    // No `state` at all is never a login this server started: the guard
+    // attaches one to every path, CLI and browser alike. Accepting a
+    // stateless callback is login CSRF — an attacker replays a code they
+    // obtained through the victim's browser and the victim ends up in
+    // the attacker's account (session fixation).
+    //
+    // The refusal is a redirect back to the sign-in page, not a thrown
+    // 400. This is reachable without any attacker — the state cookie
+    // lives ten minutes, which a first-time sign-up with 2FA can
+    // outlast, and a second login tab overwrites the first tab's cookie
+    // — and a raw Nest error page on the *backend* origin leaves the
+    // user staring at JSON with no way back. Refusing and returning them
+    // somewhere they can retry are independent: no session is issued on
+    // either path.
+    //
+    // A repeated `?state=` arrives as an array, which is likewise not a
+    // login we started; it is normalized away here so it cannot reach
+    // the string checks below as a 500.
+    if (typeof stateToken !== 'string' || !stateToken) {
+      return res.redirect(this.loginErrorUrl('oauth_state'));
+    }
+
+    if (isWebOAuthState(stateToken)) {
+      // Browser flow: the state is the hash of a secret that only this
+      // browser holds, in an httpOnly cookie. A code replayed with a
+      // stolen or guessed `state` cannot bring the cookie with it.
+      // Only the name the guard would mint *now* is read: in production
+      // that is the `__Host-` prefixed one, and honouring an unprefixed
+      // leftover would re-admit the sibling-subdomain cookie-tossing the
+      // prefix exists to block (see `oauth-state.ts`).
+      const cookieName = oauthStateCookieName();
+      const cookieSecret = req.cookies?.[cookieName];
+      res.clearCookie(cookieName, {
+        ...oauthStateCookieOptions(),
+        maxAge: undefined,
+      });
+      if (!webOAuthStateMatches(stateToken, cookieSecret)) {
+        return res.redirect(this.loginErrorUrl('oauth_state'));
       }
-      const code = this.cliAuthStore.createCode(user.id);
-      // Echo the CLI's nonce so it can tell this callback from one
-      // injected by another local process or a web page that guessed
-      // the port (see `packages/cli/src/commands/login.ts`).
-      const nonceParam = cliState.nonce
-        ? `&nonce=${encodeURIComponent(cliState.nonce)}`
-        : '';
-      return res.redirect(
-        `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${nonceParam}`,
+    } else {
+      // Otherwise it is a CLI state token; consume it. Like the browser
+      // state, it counts only when the browser that started the login
+      // presents the cookie secret minted alongside it — the token
+      // itself travels through GitHub in a URL and is otherwise
+      // transferable, so an attacker could click through the
+      // confirmation page in their own browser, take the state out of
+      // the redirect, and have the victim's callback mint a code for the
+      // victim's account bound to the attacker's challenge and port.
+      // Only the name this build mints is read, for the same reason the
+      // web flow reads only its own (sibling-subdomain cookie tossing).
+      const cliCookieName = cliStateCookieName();
+      const cliCookieSecret = req.cookies?.[cliCookieName];
+      res.clearCookie(cliCookieName, {
+        ...cliStateCookieOptions(),
+        maxAge: undefined,
+      });
+      const state = this.cliAuthStore.consumeState(stateToken, cliCookieSecret);
+      if (state && state.mode === 'cli') {
+        const port = state.port;
+        if (port < 1024 || port > 65535) {
+          throw new BadRequestException('Invalid CLI port');
+        }
+        // No challenge, no code. The code is delivered as plaintext in a
+        // loopback URL, so on its own it is a bearer credential worth a
+        // full session; the challenge is what makes redeeming it require
+        // the verifier only the CLI process holds. A CLI that did not
+        // send one is older than this server, and is told so rather than
+        // handed a weaker credential.
+        if (!state.challenge) {
+          throw new BadRequestException(
+            'CLI login is missing its proof-of-possession challenge. ' +
+              'Update the wafflebase CLI and run `wafflebase login` again.',
+          );
+        }
+        const code = this.cliAuthStore.createCode(user.id, state.challenge);
+        // Echo the CLI's per-attempt nonce back as `state`: the CLI's
+        // loopback callback server only accepts a `code` that carries it,
+        // which is what stops a web page from feeding the CLI a code for
+        // someone else's account (login CSRF).
+        const stateParam = state.nonce
+          ? `&state=${encodeURIComponent(state.nonce)}`
+          : '';
+        return res.redirect(
+          `http://127.0.0.1:${port}/callback?code=${encodeURIComponent(code)}${stateParam}`,
+        );
+      }
+
+      // State token was provided but invalid, expired, or came from
+      // another browser — this is a CLI flow that failed. Return an error
+      // instead of falling through to web flow.
+      throw new BadRequestException(
+        'CLI login state expired, invalid, or completed in a different ' +
+          'browser. Please run `wafflebase login` again.',
       );
     }
 
-    // Web flow: set cookies and redirect to frontend.
+    // Default web flow: set cookies and redirect to frontend.
     const tokens = this.authService.createTokens(user);
     this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
 
     return res.redirect(this.configService.get('FRONTEND_URL')!);
   }
 
+  /**
+   * Redeem a CLI authorization code for a session.
+   *
+   * The code is not sufficient on its own: it arrives at the CLI over
+   * plaintext loopback HTTP, at a port taken off the login URL's query
+   * string, so treating it as a bearer credential would mean anything
+   * that observed that hop could mint access **and** refresh JWTs here
+   * with no authentication at all. The caller must also present the
+   * `verifier` whose SHA-256 it bound at login time (PKCE S256) — a value
+   * that lives only in the CLI process and never appears in a URL.
+   */
   @Post('cli/exchange')
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async cliExchange(@Body() body: CliExchangeDto) {
-    const userId = this.cliAuthStore.consumeCode(body.code);
+    const userId = this.cliAuthStore.consumeCode(body.code, body.verifier);
     if (userId === undefined) {
       throw new UnauthorizedException('Invalid or expired code');
     }
@@ -241,42 +307,17 @@ export class AuthController {
   }
 
   /**
-   * Spend the flow's OAuth `state`, refusing a callback that is not the
-   * one this browser started.
+   * Where a browser login goes when it cannot be completed.
    *
-   * Without it the callback accepts any `?code=` presented to it: an
-   * attacker mints a code against their own GitHub account, gets the
-   * victim's browser to load the callback with it, and the victim is
-   * silently seated inside the attacker's account (OAuth login CSRF /
-   * session fixation) — everything they then write goes to the attacker.
-   * The CLI flow is bound the same way, one cookie per flow, so a state
-   * token seen elsewhere cannot be replayed into a victim's browser.
-   *
-   * The cookie is cleared whatever the outcome, so a state that has been
-   * presented once cannot be replayed. A callback carrying no `state` at
-   * all lands here too and is refused: after this change every login
-   * this backend starts carries one, so its absence means the request
-   * did not come from one (or predates a deploy, which costs one retry).
+   * The sign-in page reads `?error=` and says so, which is the whole
+   * point of not throwing: the failure is reported on a page the user
+   * can retry from, on the frontend origin, rather than as backend JSON.
+   * The code is a fixed identifier, never upstream text.
    */
-  private consumeOAuthState(
-    req: Request,
-    res: Response,
-    stateToken: string | undefined,
-    flow: OAuthFlow,
-  ) {
-    const name = oauthStateCookieName(flow);
-    const cookie: unknown = req.cookies?.[name];
-    res.clearCookie(name, oauthStateCookieOptions());
-
-    if (
-      !stateToken ||
-      typeof cookie !== 'string' ||
-      !timingSafeEqualString(cookie, stateToken)
-    ) {
-      throw new BadRequestException(
-        'Login state expired or invalid. Please start the login again (run `wafflebase login` again for the CLI).',
-      );
-    }
+  private loginErrorUrl(code: string): string {
+    const frontend = (this.configService.get<string>('FRONTEND_URL') ?? '')
+      .replace(/\/+$/, '');
+    return `${frontend}/login?error=${encodeURIComponent(code)}`;
   }
 
   private clearAuthCookies(res: Response) {
@@ -322,9 +363,11 @@ export class AuthController {
   }
 
   private baseCookieOptions(): CookieOptions {
-    // Shared with `GitHubAuthGuard`'s OAuth state cookie — one definition,
-    // so the state cookie can never drift into weaker attributes than the
-    // session it protects.
-    return baseCookieOptions();
+    // SameSite=Lax for CSRF defense; assumes frontend + backend share eTLD+1.
+    return {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+    };
   }
 }

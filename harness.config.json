@@ -90,8 +90,8 @@
         },
         {
           "pattern": "^vendor-yorkie-",
-          "maxKb": 760,
-          "reason": "Yorkie CRDT SDK vendor chunk (@yorkie-js/sdk + @yorkie-js/react), the real-time collaboration engine loaded on every collaborative document route. Crossed the 710 kB global cap (~742 kB) with the 0.7.8 → 0.7.13 SDK upgrade, which added the treelist RGATreeList structure, identity-preserving Text undo/redo, the disableGC attach path, and PeekChannel read-only support. It is a third-party dependency with no practical in-app code-split, so it gets its own targeted cap slightly above the measured size rather than loosening the global per-chunk budget for unrelated app chunks."
+          "maxKb": 780,
+          "reason": "Yorkie CRDT SDK vendor chunk (@yorkie-js/sdk + @yorkie-js/react), the real-time collaboration engine loaded on every collaborative document route. Crossed the 710 kB global cap (~742 kB) with the 0.7.8 → 0.7.13 SDK upgrade, which added the treelist RGATreeList structure, identity-preserving Text undo/redo, the disableGC attach path, and PeekChannel read-only support. Raised 760 → 780 kB for the 0.7.16 bump (measured ~764 kB), which carries the duplicate-TreeNodeID fix on both the editing/undo side and the snapshot-rebuild side. It is a third-party dependency with no practical in-app code-split, so it gets its own targeted cap slightly above the measured size rather than loosening the global per-chunk budget for unrelated app chunks."
         }
       ]
     }

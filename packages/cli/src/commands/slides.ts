@@ -1,7 +1,12 @@
 import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  InvalidFormatError,
+  output,
+  outputError,
+  parseOutputFormat,
+} from '../output/formatter.js';
 import { exitCodeForStatus, httpError } from '../errors.js';
 import { printDryRun } from '../client/dry-run.js';
 import { runSlidesImport } from '../slides/import.js';
@@ -38,6 +43,7 @@ export function registerSlidesCommand(program: Command) {
     .action(async function (this: Command) {
       const opts = getGlobalOpts(this);
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).listDocuments();
         if (!res.ok) throw httpError(res.status);
         let data = res.data as unknown;
@@ -46,7 +52,7 @@ export function registerSlidesCommand(program: Command) {
             (d) => d.type === 'slides',
           );
         }
-        output(data, opts.format);
+        output(data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -58,6 +64,7 @@ export function registerSlidesCommand(program: Command) {
     .action(async function (this: Command, title: string) {
       const opts = getGlobalOpts(this);
       try {
+        const fmt = parseOutputFormat(opts.format);
         if (opts.dryRun) {
           printDryRun(getConfig(opts), 'POST', '/documents', {
             title,
@@ -67,7 +74,7 @@ export function registerSlidesCommand(program: Command) {
         }
         const res = await getClient(opts).createDocument(title, 'slides');
         if (!res.ok) throw httpError(res.status);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -79,9 +86,10 @@ export function registerSlidesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) throw httpError(res.status);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -97,9 +105,10 @@ export function registerSlidesCommand(program: Command) {
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
         if (!res.ok) throw httpError(res.status);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -115,9 +124,10 @@ export function registerSlidesCommand(program: Command) {
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
         if (!res.ok) throw httpError(res.status);
-        output(res.data, opts.format);
+        output(res.data, fmt);
       } catch (e) {
         outputError(e);
       }
@@ -193,7 +203,7 @@ export function registerSlidesCommand(program: Command) {
         // export-only `pptx` value, so a direct comparison is a tsc error.
         const fmt: string | undefined =
           formatSource === 'cli' ? opts.format : undefined;
-        if (fmt && fmt !== 'pptx') throw new Error(`Invalid --format "${fmt}". Only "pptx" is supported.`);
+        if (fmt && fmt !== 'pptx') throw new InvalidFormatError(fmt, ['pptx']);
         if (!fmt && extname(file).toLowerCase() !== '.pptx') {
           throw new Error(`Cannot infer format from "${file}". Use a .pptx extension or --format pptx.`);
         }

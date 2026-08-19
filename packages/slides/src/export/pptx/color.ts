@@ -1,5 +1,5 @@
+import { toRgbHexColor } from '@wafflebase/docs';
 import { representativeColor, type ColorRole, type Fill, type GradientFill, type ThemeColor } from '../../model/theme';
-import { escapeXmlAttr } from './xml.js';
 
 export const ROLE_TO_SCHEME: Record<ColorRole, string> = {
   text: 'tx1',
@@ -16,23 +16,65 @@ export const ROLE_TO_SCHEME: Record<ColorRole, string> = {
   visitedHyperlink: 'folHlink',
 };
 
+/**
+ * The lookup form of {@link ROLE_TO_SCHEME}.
+ *
+ * `ThemeColor.role` is a closed 12-value union to TypeScript, but the model
+ * holds whatever the importer or the content PUT API stored, so at runtime the
+ * key is untrusted. A bare `ROLE_TO_SCHEME[role]` reaches the prototype chain
+ * (`role: 'constructor'` stringifies the `Object` constructor straight into the
+ * attribute) and yields `undefined` — i.e. `val="undefined"` — for anything
+ * else. A `Map` has no prototype keys, which is what makes the emitted
+ * `val` genuinely closed rather than closed-by-convention.
+ */
+const SCHEME_BY_ROLE = new Map<string, string>(Object.entries(ROLE_TO_SCHEME));
+
 export function colorFromStringOrTheme(c: ThemeColor | string): ThemeColor {
   return typeof c === 'string' ? { kind: 'srgb', value: c } : c;
 }
 
+/**
+ * A color modifier (`<a:lumMod>`, `<a:tint>`, `<a:alpha>`, …) carries
+ * `ST_Percentage` — a number, never free text. The model holds whatever the
+ * importer or the content PUT API stored, so coerce here rather than escape:
+ * a non-numeric value has no valid rendering, and dropping the modifier
+ * leaves the base color intact. This is what keeps the attributes in this
+ * file injection-free now that the hex `val` is normalized instead of
+ * escaped — every attribute this function emits is either `[0-9A-F]{6}`, a
+ * value out of the closed {@link SCHEME_BY_ROLE} map, or a finite number.
+ */
+function modifierXml(tag: string, value: number | undefined): string {
+  if (value === undefined) return '';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '';
+  return `<a:${tag} val="${n}"/>`;
+}
+
 export function colorChildXml(c: ThemeColor): string {
   const mods: string[] = [];
-  if ('lumMod' in c && c.lumMod !== undefined) mods.push(`<a:lumMod val="${c.lumMod}"/>`);
-  if ('lumOff' in c && c.lumOff !== undefined) mods.push(`<a:lumOff val="${c.lumOff}"/>`);
-  if ('tint' in c && c.tint !== undefined) mods.push(`<a:tint val="${c.tint}"/>`);
-  if ('shade' in c && c.shade !== undefined) mods.push(`<a:shade val="${c.shade}"/>`);
-  if (c.alpha !== undefined) mods.push(`<a:alpha val="${c.alpha}"/>`);
+  if ('lumMod' in c) mods.push(modifierXml('lumMod', c.lumMod));
+  if ('lumOff' in c) mods.push(modifierXml('lumOff', c.lumOff));
+  if ('tint' in c) mods.push(modifierXml('tint', c.tint));
+  if ('shade' in c) mods.push(modifierXml('shade', c.shade));
+  mods.push(modifierXml('alpha', c.alpha));
   const inner = mods.join('');
   if (c.kind === 'role') {
-    const val = ROLE_TO_SCHEME[c.role];
+    const val = SCHEME_BY_ROLE.get(c.role);
+    // Unknown role → black, matching `storedColorToThemeColor` in `text.ts`,
+    // rather than a schema-invalid `val="undefined"`.
+    if (val === undefined) {
+      return inner ? `<a:srgbClr val="000000">${inner}</a:srgbClr>` : `<a:srgbClr val="000000"/>`;
+    }
     return inner ? `<a:schemeClr val="${val}">${inner}</a:schemeClr>` : `<a:schemeClr val="${val}"/>`;
   }
-  const hex = escapeXmlAttr(c.value.replace(/^#/, '').toUpperCase());
+  // `<a:srgbClr val>` is `ST_HexColorRGB` — exactly six hex digits. The model
+  // holds whatever string reached it (import, HTML paste's `rgb(255, 0, 0)`,
+  // the legacy `''` reset of issue #728), so normalize through the shared
+  // converter every OOXML color sink uses. Callers that can omit the color
+  // (`text.ts`) already drop it before getting here; this is the backstop for
+  // the sinks that must emit *some* color — shape/gradient/background fills —
+  // where black matches the "unknown role" fallback below.
+  const hex = toRgbHexColor(c.value) ?? '000000';
   return inner ? `<a:srgbClr val="${hex}">${inner}</a:srgbClr>` : `<a:srgbClr val="${hex}"/>`;
 }
 

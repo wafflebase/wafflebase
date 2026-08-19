@@ -12,6 +12,7 @@ import {
   type SlidesDocument,
   type TextBody,
 } from '@wafflebase/slides/node';
+import { InvalidFormatError } from '../output/formatter.js';
 
 export const VALID_SLIDES_CONTENT_FORMATS = ['json', 'md', 'text'] as const;
 export type SlidesContentFormat = (typeof VALID_SLIDES_CONTENT_FORMATS)[number];
@@ -22,9 +23,7 @@ export const SLIDES_LOSSY_NOTICE =
 
 export function parseSlidesContentFormat(value: string): SlidesContentFormat {
   if (!VALID_SLIDES_CONTENT_FORMATS.includes(value as SlidesContentFormat)) {
-    throw new Error(
-      `Invalid --format "${value}". Use one of: ${VALID_SLIDES_CONTENT_FORMATS.join(', ')}.`,
-    );
+    throw new InvalidFormatError(value, VALID_SLIDES_CONTENT_FORMATS);
   }
   return value as SlidesContentFormat;
 }

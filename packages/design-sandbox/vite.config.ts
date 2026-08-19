@@ -31,11 +31,14 @@
  * dependency, whose babel tree moves 39 lines of `pnpm-lock.yaml` that have nothing to do
  * with a token adapter.
  *
- * WHAT DOES WORK TODAY: `pnpm dev` here serves the bridge at `/__design-editor/api/*`, so
- * the token pipeline is reachable end to end — `GET /tokens`, `POST /preview-tokens`,
- * `/mutate`, `/commit`. `scripts/verify-tokens.mjs` drives exactly that. The shell UI at
- * `/__design-editor/` 404s until PRs 10-12 build it, which the plugin reports as a missing
- * `dist/shell` rather than a crash.
+ * WHAT WORKS TODAY: `pnpm dev` here serves the bridge and, since 11b, the shell UI at
+ * `/__design-editor/`. The scene list, the outline over our own `packages/frontend`
+ * files, and the token pipeline (`GET /tokens`, `POST /preview-tokens`, `/mutate`,
+ * `/commit` — driven by `scripts/verify-tokens.mjs`) all work.
+ *
+ * WHAT DOES NOT: the frame. Every scene is still `deferred`, so its loader table is empty
+ * and it reports `no scene "<id>" in the scene manifest`. Un-deferring needs the rows
+ * above plus `providers.tsx` and `fixtures/**` — PR 11c, which changes only this package.
  */
 
 import path from 'node:path';

@@ -24,11 +24,13 @@ Two paths, in priority order:
    `WAFFLEBASE_API_KEY`, or set `api-key:` in `~/.wafflebase/config.yaml`.
 2. **OAuth session** — `wafflebase login` opens a browser, completes
    GitHub OAuth, and writes a JWT session to `~/.wafflebase/session.json`.
-   The login callback is bound to a nonce, so a server that predates that
-   binding never completes one; against such a server (a self-hosted
-   backend that has not upgraded yet) pass
-   `wafflebase login --allow-unbound-callback` to accept its nonce-less
-   callback anyway.
+   The login callback is bound to a per-attempt nonce, which the backend
+   echoes back as the callback's `state`, so a server that predates that
+   echo never completes one; against such a server (a self-hosted backend
+   that has not upgraded yet) pass
+   `wafflebase login --allow-unbound-callback` to accept its `state`-less
+   callback anyway. It warns on stderr, and a *mismatched* `state` stays
+   refused under the flag.
 
 Always pair API keys with a workspace ID:
 
@@ -146,6 +148,6 @@ for the index.
 
 ## Design
 
-Full design in [`/docs/design/rest-api-and-cli.md`](../../docs/design/rest-api-and-cli.md)
-and [`/docs/design/docs-cli.md`](../../docs/design/docs-cli.md) (the
+Full design in [`/docs/design/rest-api.md`](../../docs/design/rest-api.md)
+and [`/docs/design/cli.md`](../../docs/design/cli.md) (the
 docs-side `content / export / import` pipeline).

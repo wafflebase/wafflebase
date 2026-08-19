@@ -1,3 +1,4 @@
+import { toRgbHexColor } from '@wafflebase/docs';
 import type { Theme } from '../../model/theme.js';
 import { escapeXmlAttr } from './xml.js';
 
@@ -58,11 +59,22 @@ const FMT_SCHEME =
   '</a:fmtScheme>';
 
 /**
- * Normalize a stored hex color to the 6-digit uppercase form OOXML expects.
- * Stored values may or may not have a leading `#`.
+ * Normalize a stored theme color to the 6-digit uppercase form OOXML expects
+ * for `<a:srgbClr val>` (`ST_HexColorRGB`).
+ *
+ * `Theme.colors[role]` is typed as a string but holds whatever JSON was
+ * persisted — the content PUT API lets an authenticated caller store an
+ * arbitrary string there — so stripping `#` and upper-casing is not enough:
+ * the value could close the attribute and inject its own DrawingML into any
+ * `.pptx` a victim later exports. Route it through the same
+ * {@link toRgbHexColor} normalizer every other OOXML color sink uses
+ * (`export/pptx/color.ts`, docs' `w:color`/`w:shd`), which provably returns
+ * only `/^[0-9A-F]{6}$/` or `undefined`. A value it cannot express degrades to
+ * black — matching `colorChildXml`'s backstop — because a `<a:clrScheme>` slot
+ * is mandatory and cannot simply be dropped.
  */
 function toSrgbHex(hex: string): string {
-  return hex.replace(/^#/, '').toUpperCase();
+  return toRgbHexColor(hex) ?? '000000';
 }
 
 /**
@@ -80,7 +92,9 @@ export function themeToXml(theme: Theme, index: number): string {
   const schemeName = escapeXmlAttr(theme.name ?? `Theme${index}`);
 
   const colorSlots = CLR_SLOTS.map(([slot, role]) => {
-    const hex = escapeXmlAttr(toSrgbHex(theme.colors[role]));
+    // `toSrgbHex` returns only `[0-9A-F]{6}`, so the value is injection-free by
+    // construction rather than by escaping.
+    const hex = toSrgbHex(theme.colors[role]);
     return `<a:${slot}><a:srgbClr val="${hex}"/></a:${slot}>`;
   }).join('');
 

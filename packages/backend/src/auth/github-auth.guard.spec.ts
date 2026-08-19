@@ -1,261 +1,226 @@
-import { BadRequestException, ExecutionContext } from '@nestjs/common';
-import { GitHubAuthGuard } from './github-auth.guard';
+import { CanActivate, ExecutionContext } from '@nestjs/common';
+import {
+  GitHubAuthGuard,
+  parseCliChallenge,
+  parseCliNonce,
+} from './github-auth.guard';
 import { CliAuthStore } from './cli-auth.store';
 
+describe('parseCliNonce', () => {
+  it('accepts a hex nonce of a sane length', () => {
+    const nonce = 'a1b2c3d4'.repeat(8); // 64 chars
+    expect(parseCliNonce(nonce)).toBe(nonce);
+    expect(parseCliNonce('f'.repeat(32))).toBe('f'.repeat(32));
+  });
+
+  it('rejects anything that could smuggle a query param into the redirect', () => {
+    expect(parseCliNonce('f'.repeat(32) + '&code=evil')).toBeUndefined();
+    expect(parseCliNonce('../callback')).toBeUndefined();
+    expect(parseCliNonce('F'.repeat(32))).toBeUndefined(); // uppercase
+    expect(parseCliNonce('f'.repeat(31))).toBeUndefined(); // too short
+    expect(parseCliNonce('f'.repeat(129))).toBeUndefined(); // too long
+  });
+
+  it('rejects non-string input', () => {
+    expect(parseCliNonce(undefined)).toBeUndefined();
+    expect(parseCliNonce(['f'.repeat(32)])).toBeUndefined();
+    expect(parseCliNonce(42)).toBeUndefined();
+  });
+});
+
+describe('parseCliChallenge', () => {
+  it('accepts a 43-character base64url digest', () => {
+    const challenge = 'c'.repeat(43);
+    expect(parseCliChallenge(challenge)).toBe(challenge);
+    expect(parseCliChallenge('-_' + 'a'.repeat(41))).toBe('-_' + 'a'.repeat(41));
+  });
+
+  it('rejects anything outside the base64url digest vocabulary', () => {
+    expect(parseCliChallenge('c'.repeat(42))).toBeUndefined();
+    expect(parseCliChallenge('c'.repeat(44))).toBeUndefined();
+    expect(parseCliChallenge('c'.repeat(42) + '&')).toBeUndefined();
+    expect(parseCliChallenge('c'.repeat(42) + '=')).toBeUndefined();
+    expect(parseCliChallenge(undefined)).toBeUndefined();
+    expect(parseCliChallenge(['c'.repeat(43)])).toBeUndefined();
+  });
+});
+
 /**
- * The guard is what decides whether a CLI login code will ever be minted
- * and shipped to a loopback port, so all three cases matter: a
- * well-formed request must carry its nonce into the stored state, a
- * malformed one must create no state at all, and an *absent* one must
- * still be served — published CLIs older than nonce-bound login send no
- * nonce, and the binding that protects a login is the CLI-side check.
+ * The CSRF binding runs query param -> stored state -> loopback
+ * `state`, and this guard is its entry point. Testing `parseCliNonce`
+ * alone leaves the wiring unpinned: read the nonce from the wrong query
+ * key, or drop the argument, and every other test in the chain still
+ * passes, because they hand `createState` a nonce directly.
  */
-describe('GitHubAuthGuard', () => {
-  let store: CliAuthStore;
-  let guard: GitHubAuthGuard;
-  let superCanActivate: jest.SpyInstance;
+describe('GitHubAuthGuard.canActivate', () => {
+  const createState = jest
+    .fn()
+    .mockReturnValue({ stateToken: 'state-token', csrf: 'csrf' });
+  const store = { createState } as unknown as CliAuthStore;
 
-  const VALID_NONCE = 'a'.repeat(43);
+  // `super.canActivate()` would run the real passport strategy.
+  const passportProto = Object.getPrototypeOf(
+    GitHubAuthGuard.prototype,
+  ) as CanActivate;
+  let superSpy: jest.SpyInstance;
 
-  function contextFor(
+  beforeEach(() => {
+    createState.mockClear();
+    superSpy = jest.spyOn(passportProto, 'canActivate').mockReturnValue(true);
+  });
+
+  afterEach(() => superSpy.mockRestore());
+
+  function activate(
     query: Record<string, unknown>,
-    headers: Record<string, string> = {},
-  ): {
-    context: ExecutionContext;
-    req: Record<string, unknown>;
-    res: { cookie: jest.Mock };
-  } {
-    const req: Record<string, unknown> = { query, headers };
+    extra: Record<string, unknown> = { __cliConfirmed: true },
+  ) {
+    const req: Record<string, unknown> = { query, ...extra };
     const res = { cookie: jest.fn() };
     const context = {
       switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
     } as unknown as ExecutionContext;
-    return { context, req, res };
+    const result = new GitHubAuthGuard(store).canActivate(context);
+    return { req, res, result };
   }
 
-  beforeEach(() => {
-    store = new CliAuthStore();
-    guard = new GitHubAuthGuard(store);
-    // Stop the call from reaching passport's GitHub strategy; we only
-    // care about what the guard did to the request before delegating.
-    superCanActivate = jest
-      .spyOn(
-        Object.getPrototypeOf(GitHubAuthGuard.prototype) as {
-          canActivate: (c: ExecutionContext) => boolean;
-        },
-        'canActivate',
-      )
-      .mockReturnValue(true);
-  });
-
-  afterEach(() => {
-    superCanActivate.mockRestore();
-  });
-
-  it('stores the nonce with the CLI state and delegates', () => {
-    const { context, req } = contextFor({
+  it('binds the request nonce and challenge into the stored state', () => {
+    const nonce = 'a'.repeat(64);
+    const challenge = 'c'.repeat(43);
+    const { req, result } = activate({
       mode: 'cli',
-      port: '54321',
-      nonce: VALID_NONCE,
+      port: '49152',
+      nonce,
+      challenge,
     });
 
-    expect(guard.canActivate(context)).toBe(true);
-    expect(superCanActivate).toHaveBeenCalled();
-
-    const stateToken = req.__oauthState as string;
-    expect(typeof stateToken).toBe('string');
-    expect(store.consumeState(stateToken)).toEqual({
-      csrf: expect.any(String) as string,
-      mode: 'cli',
-      port: 54321,
-      nonce: VALID_NONCE,
-    });
-  });
-
-  it('still serves a nonce-less CLI login, without a nonce in the state', () => {
-    // `@wafflebase/cli` is published, so released versions that predate
-    // nonce-bound login keep working: they get the same nonce-less
-    // redirect they get today, which their own callback accepts. The
-    // current CLI always sends a nonce, so it is unaffected.
-    const { context, req } = contextFor({ mode: 'cli', port: '54321' });
-
-    expect(guard.canActivate(context)).toBe(true);
-    expect(superCanActivate).toHaveBeenCalled();
-
-    const stateToken = req.__oauthState as string;
-    expect(store.consumeState(stateToken)).toEqual({
-      csrf: expect.any(String) as string,
-      mode: 'cli',
-      port: 54321,
-      nonce: undefined,
-    });
-  });
-
-  it.each([
-    ['too short', 'short'],
-    ['too long', 'a'.repeat(129)],
-    ['non-URL-safe characters', `${'a'.repeat(20)}<script>`],
-  ])('rejects a nonce that is %s', (_label, nonce) => {
-    const { context, req } = contextFor({ mode: 'cli', port: '54321', nonce });
-
-    expect(() => guard.canActivate(context)).toThrow(BadRequestException);
-    expect(req.__oauthState).toBeUndefined();
-  });
-
-  it('rejects a repeated nonce param (array) rather than coercing it', () => {
-    const { context } = contextFor({
-      mode: 'cli',
-      port: '54321',
-      nonce: [VALID_NONCE, VALID_NONCE],
-    });
-
-    expect(() => guard.canActivate(context)).toThrow(BadRequestException);
-  });
-
-  it.each([
-    ['a privileged port', '80'],
-    ['an out-of-range port', '70000'],
-    ['a non-numeric port', 'abc'],
-    ['no port at all', undefined],
-  ])('rejects CLI mode with %s', (_label, port) => {
-    const { context, req } = contextFor({
-      mode: 'cli',
-      port,
-      nonce: VALID_NONCE,
-    });
-
-    expect(() => guard.canActivate(context)).toThrow(BadRequestException);
-    expect(req.__oauthState).toBeUndefined();
-  });
-
-  it('binds the ordinary web flow to a cookie-mirrored state', () => {
-    // passport-oauth2 given no state store installs a `NullStore` that
-    // verifies everything, so the web login had no CSRF binding at all:
-    // an attacker's `?code=` loaded in the victim's browser minted a
-    // session for the attacker's account. The state is minted here and
-    // checked against this cookie in the callback.
-    const { context, req, res } = contextFor({});
-
-    expect(guard.canActivate(context)).toBe(true);
-
-    const state = req.__oauthState as string;
-    expect(state).toMatch(/^[A-Za-z0-9_-]{40,}$/);
-    expect(res.cookie).toHaveBeenCalledWith(
-      'wafflebase_oauth_state',
-      state,
-      expect.objectContaining({
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 5 * 60 * 1000,
-      }),
-    );
-  });
-
-  it.each([
-    ['web', {}, '__Host-wafflebase_oauth_state'],
-    [
-      'CLI',
-      { mode: 'cli', port: '54321', nonce: VALID_NONCE },
-      '__Host-wafflebase_cli_oauth_state',
-    ],
-  ])('host-locks the %s state cookie in production', (_label, query, name) => {
-    // Without `__Host-`, a cookie is scoped to the registrable domain:
-    // anything that can write one there (a sibling subdomain, a MITM on a
-    // plain-http sibling) can fix the state to a value it knows and walk
-    // through the binding. The prefix makes the browser refuse that write.
-    const previous = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
-      const { context, res } = contextFor(query);
-      expect(guard.canActivate(context)).toBe(true);
-      expect(res.cookie).toHaveBeenCalledWith(
-        name,
-        expect.any(String),
-        expect.objectContaining({ secure: true, path: '/', httpOnly: true }),
-      );
-    } finally {
-      process.env.NODE_ENV = previous;
-    }
-  });
-
-  it('mints a fresh web state per request', () => {
-    const first = contextFor({});
-    const second = contextFor({});
-
-    guard.canActivate(first.context);
-    guard.canActivate(second.context);
-
-    expect(first.req.__oauthState).not.toEqual(second.req.__oauthState);
-  });
-
-  it('mirrors the CLI state into its own cookie, not the web one', () => {
-    // The CLI login is browser-bound too: the callback runs in the same
-    // browser that started it, so a state token seen elsewhere (a shared
-    // terminal, a CI log) cannot be replayed into a victim's browser. A
-    // separate name so a pending web login and a pending CLI login in one
-    // browser cannot clobber each other.
-    const { context, req, res } = contextFor({
-      mode: 'cli',
-      port: '54321',
-      nonce: VALID_NONCE,
-    });
-
-    expect(guard.canActivate(context)).toBe(true);
-    expect(res.cookie).toHaveBeenCalledWith(
-      'wafflebase_cli_oauth_state',
-      req.__oauthState as string,
-      expect.objectContaining({ httpOnly: true, path: '/' }),
-    );
-    expect(res.cookie).toHaveBeenCalledTimes(1);
+    expect(result).toBe(true);
+    expect(createState).toHaveBeenCalledWith('cli', 49152, nonce, challenge);
+    expect(req.__oauthState).toBe('state-token');
   });
 
   /**
-   * The cookies bind the *callback* to the browser. They cannot bind the
-   * *start*: the navigation that carries a login-CSRF is the same
-   * navigation that sets the cookie. Refusing a cross-site-initiated
-   * start is what stops a hostile page from making the victim's browser
-   * mint a code for an attacker-chosen loopback port.
+   * The state token goes through GitHub in a URL, so on its own it is
+   * transferable: an attacker clicks through the confirmation page in
+   * their own browser and hands the victim a bare `authorize` URL
+   * carrying the state. The cookie is what the callback checks it
+   * against, so if it is not minted here the whole binding is gone.
+   */
+  it('binds the CLI state to this browser with a cookie', () => {
+    const { res } = activate({ mode: 'cli', port: '49152' });
+
+    expect(res.cookie).toHaveBeenCalledWith(
+      'wafflebase_cli_state',
+      'csrf',
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax', path: '/' }),
+    );
+  });
+
+  it('stores no nonce when the query carries none or a malformed one', () => {
+    activate({ mode: 'cli', port: '49152' });
+    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined, undefined);
+
+    createState.mockClear();
+    activate({ mode: 'cli', port: '49152', nonce: 'not-hex&code=evil' });
+    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined, undefined);
+  });
+
+  /**
+   * A malformed challenge must not degrade into an *unbound* code: the
+   * state stores none, and the callback refuses rather than minting a
+   * bearer-only code.
+   */
+  it('stores no challenge when the query carries a malformed one', () => {
+    activate({ mode: 'cli', port: '49152', challenge: 'short' });
+    expect(createState).toHaveBeenCalledWith('cli', 49152, undefined, undefined);
+  });
+
+  it('mints no CLI state for an out-of-range port', () => {
+    activate({ mode: 'cli', port: '80' });
+    activate({ mode: 'cli', port: 'not-a-port' });
+    expect(createState).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The confirmation page is the only thing standing between
+   * `?mode=cli&port=<attacker's>` and an auth code minted for whoever
+   * navigated the victim here. If that gate is ever unwired, the guard
+   * must not mint the CLI state anyway — it degrades to a browser login.
+   */
+  it('mints no CLI state for an unconfirmed CLI request', () => {
+    const { req } = activate({ mode: 'cli', port: '49152' }, {});
+
+    expect(createState).not.toHaveBeenCalled();
+    expect(req.__oauthState).toMatch(/^web\./);
+  });
+
+  /**
+   * A browser login with no `state` is login CSRF: the callback would
+   * set session cookies for any code presented to it.
+   */
+  it('mints a cookie-bound state for a browser login', () => {
+    const { req, res } = activate({}, {});
+
+    expect(createState).not.toHaveBeenCalled();
+    expect(req.__oauthState).toMatch(/^web\.[0-9a-f]{64}$/);
+    expect(res.cookie).toHaveBeenCalledWith(
+      'wafflebase_oauth_state',
+      expect.any(String),
+      expect.objectContaining({ httpOnly: true, sameSite: 'lax' }),
+    );
+    // The state is the *hash*; the secret never leaves the cookie.
+    const [, secret] = (res.cookie as jest.Mock).mock.calls[0] as [
+      string,
+      string,
+    ];
+    expect(req.__oauthState).not.toContain(secret);
+  });
+
+  /**
+   * Neither state mechanism covers a login a hostile *page* navigated the
+   * victim's browser into: the navigation that carries the attack is also
+   * the one that mints the state and sets its cookie. `Sec-Fetch-Site` is
+   * what tells the two apart, and only the browser can set it.
    */
   describe('cross-site initiation', () => {
-    it.each([
-      ['a CLI login', { mode: 'cli', port: '54321', nonce: VALID_NONCE }],
-      ['a web login', {}],
-    ])('refuses %s started by another site', (_label, query) => {
-      const { context, req, res } = contextFor(query, {
-        'sec-fetch-site': 'cross-site',
-      });
-
-      expect(() => guard.canActivate(context)).toThrow(BadRequestException);
-      expect(req.__oauthState).toBeUndefined();
-      // No cookie either: a refused start must not disturb a login that
-      // is already in flight in this browser.
-      expect(res.cookie).not.toHaveBeenCalled();
-      expect(superCanActivate).not.toHaveBeenCalled();
+    it('refuses a login navigated in from another site', () => {
+      expect(() =>
+        activate(
+          { mode: 'cli', port: '49152' },
+          { __cliConfirmed: true, headers: { 'sec-fetch-site': 'cross-site' } },
+        ),
+      ).toThrow(/Start the login from Wafflebase/);
+      expect(createState).not.toHaveBeenCalled();
     });
 
-    it.each([
-      ['opened by the CLI itself', 'none'],
-      ['clicked inside the app', 'same-origin'],
-      ['clicked on a sibling host of the app', 'same-site'],
-    ])('serves a login %s', (_label, site) => {
-      const { context, req } = contextFor(
-        { mode: 'cli', port: '54321', nonce: VALID_NONCE },
-        { 'sec-fetch-site': site },
-      );
-
-      expect(guard.canActivate(context)).toBe(true);
-      expect(typeof req.__oauthState).toBe('string');
+    it('refuses a cross-site-initiated browser login too', () => {
+      expect(() =>
+        activate({}, { headers: { 'sec-fetch-site': 'cross-site' } }),
+      ).toThrow(/Start the login from Wafflebase/);
     });
 
-    it('serves a client that sends no Sec-Fetch-Site at all', () => {
-      // Not the attack shape: the attack needs the victim's browser and
-      // its GitHub session, and every browser that can be steered
-      // cross-site sends the header.
-      const { context, req } = contextFor({});
+    it.each(['none', 'same-origin', 'same-site'])(
+      'allows a login started %s',
+      (site) => {
+        // `none` is the CLI's shape (the OS opener), `same-origin` the
+        // confirmation-page click, `same-site` a click inside the app.
+        const { result } = activate(
+          { mode: 'cli', port: '49152' },
+          { __cliConfirmed: true, headers: { 'sec-fetch-site': site } },
+        );
+        expect(result).toBe(true);
+        expect(createState).toHaveBeenCalled();
+      },
+    );
 
-      expect(guard.canActivate(context)).toBe(true);
-      expect(typeof req.__oauthState).toBe('string');
+    /**
+     * A client that sends no `Sec-Fetch-Site` at all is not the attack
+     * shape — the attack needs the victim's browser, and every browser
+     * that can be steered cross-site sends this header.
+     */
+    it('allows a request that sends no Sec-Fetch-Site', () => {
+      const { result } = activate({ mode: 'cli', port: '49152' });
+      expect(result).toBe(true);
     });
   });
 });
