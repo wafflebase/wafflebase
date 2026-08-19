@@ -51,3 +51,22 @@ export function coveredCentres(frames: readonly SeedFrame[] = SEED_FRAMES): Arra
   }
   return out;
 }
+
+/** The canvas rect a click point must land inside, as `getBoundingClientRect` reports it. */
+export type CanvasRect = { left: number; top: number; right: number; bottom: number };
+
+/**
+ * Is this click point off the visible slide?
+ *
+ * PURE, AND SEPARATE FROM THE READER, so the refusal branch of `slides.elementCenter` is
+ * testable without a browser. It had no test at any level when it shipped: the oracle lane
+ * covers the unknown-id refusal, but getting an element's CENTRE outside the canvas needs
+ * it moved off-slide, and with no drag action that is hundreds of arrow presses. A guard
+ * nothing exercises is a guard nobody knows is inverted.
+ *
+ * Edge-inclusive, matching `covers` above: a point exactly on the boundary is still on the
+ * canvas and still clickable.
+ */
+export function isOffSlide(point: { x: number; y: number }, rect: CanvasRect): boolean {
+  return point.x < rect.left || point.x > rect.right || point.y < rect.top || point.y > rect.bottom;
+}

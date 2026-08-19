@@ -33,6 +33,10 @@ import { formatValue, parseRef, toSref, type MemStore, type Spreadsheet } from "
 // keeps the scale a single fact rather than two that can disagree.
 import type { Element, MemSlidesStore, SlidesEditor } from "@wafflebase/slides";
 
+// The bounds predicate lives beside the seed geometry so both are unit-testable without a
+// browser. See `isOffSlide` for why this branch was unreachable from the oracle lane.
+import { isOffSlide } from "./slides-seed";
+
 export const HUNT_BRIDGE_KEY = "__WB_HUNT__";
 
 export type HuntSurface = "sheet" | "doc" | "slides";
@@ -65,11 +69,21 @@ export type SlidesHandle = {
  * differently, and a reader whose value depends on the viewport cannot support a
  * round-trip prediction at all.
  *
- * `text` is the element's plain text, joined the same way `doc.text` joins a document, so
- * that typing into a text box is observable without a second reader. Absent on elements
- * that hold no text rather than reported as `""`, because "this shape cannot hold text"
- * and "this box is empty" are different states and #749's whole lesson is that collapsing
- * those is how residue hides.
+ * `text` is the element's plain text, joined the same way `doc.text` joins a document.
+ *
+ * IT SHOWS COMMITTED TEXT ONLY, and that is a property of the engine rather than of this
+ * reader. The slides text editor is a docs editor mounted in the overlay, and it writes
+ * back to the store on BLUR — measured: type `XX` into the title and this still reports
+ * `"Quarterly review"`; press Escape and it still does, because Escape CANCELS; click
+ * another element and it reports `"XXQuarterly review"`. So a prediction about typing has
+ * to put a commit between the keystrokes and the read, and a prediction that types and
+ * then undoes without committing is asserting against something that never happened.
+ * An earlier version of this comment claimed typing was observable directly, and the brief
+ * built on it would have produced exactly that empty round trip.
+ *
+ * Absent on elements that hold no text rather than reported as `""`, because "this shape
+ * cannot hold text" and "this box is empty" are different states and #749's whole lesson
+ * is that collapsing those is how residue hides.
  *
  * GROUP CHILDREN ARE NOT FLATTENED IN. A group's children live in group-local
  * coordinates, so reporting them beside slide-level elements would put two different
@@ -513,7 +527,7 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
       // canvas; clicking there selects nothing and reports no error, so the caller sees a
       // click that "did not work" and cannot tell that from a broken app. The first sheet
       // run proposed exactly that as a major defect.
-      if (x < origin.left || x > origin.right || y < origin.top || y > origin.bottom) {
+      if (isOffSlide({ x, y }, origin)) {
         refuse(
           `slides.elementCenter(${id}) is off-slide at (${x}, ${y}) — its centre lies outside the visible ` +
             `canvas (${Math.round(origin.left)},${Math.round(origin.top)})-(${Math.round(origin.right)},${Math.round(origin.bottom)}). ` +

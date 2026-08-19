@@ -81,6 +81,13 @@ window could have changed it.
 - **ARROW KEYS NUDGE THE SELECTED ELEMENT BY ONE LOGICAL PIXEL.** Measured: `ArrowRight`
   moved `badge` from `x:1560` to `x:1561`. Ten presses right then ten presses left is an
   exact round trip on `slides.elements`, and nothing else on the slide may move.
+- **TEXT COMMITS ON BLUR, NOT AS YOU TYPE.** The text editor is a docs editor mounted in
+  the overlay and it writes back to the store when it loses focus. Measured: type `XX` into
+  the title and `slides.elements` still reports `"Quarterly review"`; press Escape and it
+  still does, because **Escape CANCELS**; click a different element and it reports
+  `"XXQuarterly review"`. So put a commit between your keystrokes and your read. A
+  prediction taken before the commit holds for the wrong reason, which is worse than
+  failing.
 - **CLICK AN ELEMENT THROUGH `slides.elementCenter`**, naming it as a click target's
   `reader`. There is no coordinate targeting; a canvas click resolves through that named
   reader or not at all.

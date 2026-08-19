@@ -513,6 +513,27 @@ async function checkSlidesTargeting(page, baseUrl) {
     }
   }
 
+  // OPENING A MENU MUST STAY QUIET. Every `dom-invariant` fire/quiet case in this file is
+  // driven on the doc surface, and this persona enables that oracle against a toolbar that
+  // is mostly Radix menus — where a collapsed disclosure's `aria-controls` points at
+  // content that is not rendered yet. Measured before the rule was narrowed: opening
+  // `Arrange` fired three times on Radix's own generated ids, which a live run would have
+  // reported as defects in the product.
+  const arrange = page.getByRole("button", { name: "Arrange" });
+  if ((await arrange.count()) === 0) {
+    problems.push("no `Arrange` control after selecting an element — the toolbar is not reaching its object state, so the menu case cannot run");
+  } else {
+    await arrange.first().click();
+    const fired = await scanDomInvariants(page, HOST_TESTID);
+    if (fired.length > 0) {
+      problems.push(
+        `opening the Arrange menu fired dom-invariant ${JSON.stringify(fired.map((f) => f.rule))} — ` +
+          "a menu of the app's own component library must not read as a defect in the product",
+      );
+    }
+    await page.keyboard.press("Escape");
+  }
+
   // An id that is not on the slide must refuse AND say what is, so a wrong guess costs one
   // readable action rather than a click at nothing.
   const missing = await readReader(page, "slides.elementCenter", ["no-such-element"]);
@@ -532,6 +553,13 @@ async function checkSlidesTargeting(page, baseUrl) {
   }
   const target = elements.value[0];
   const before = await readReader(page, "slides.elementCenter", [target.id]);
+  // CHECKED, like every other reader result in this file. Unguarded, a refusal here made
+  // `before.value.x` a TypeError that escaped `checkSlidesTargeting` and aborted the whole
+  // oracle run — turning one surface's problem into no verification at all.
+  if (!before.ok) {
+    problems.push(`slides.elementCenter(${target.id}) refused before the nudge: ${before.error.slice(0, 140)}`);
+    return problems;
+  }
   await page.mouse.click(before.value.x, before.value.y);
   await page.keyboard.press("ArrowRight");
 

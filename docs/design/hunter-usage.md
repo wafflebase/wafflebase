@@ -95,20 +95,19 @@ node scripts/agent/hunt-ui.mjs replay --plan <file.json> [--attempts N]
 node scripts/agent/hunt-ui.mjs report --out <dir>
 ```
 
-Two personas, each with two briefs:
+Three personas, each with two briefs — one per surface, which
+`hunt-ui.test.mjs` enforces: a surface nobody explores makes its reader list dead weight.
 
 | persona | surface | briefs |
 |---|---|---|
 | `doc-writer` | `doc` | `body-and-styles`, `structure-and-links` |
 | `sheet-author` | `sheet` | `values-and-formulas`, `navigation-and-selection` |
+| `slide-author` | `slides` | `arrange-and-order`, `content-and-undo` |
 
-The `slides` surface mounts and answers readers, but **has no persona yet**, so nothing
-hunts it. `--surface slides` on its own therefore explores nothing — a persona names its
-own surface, and the surface is what the persona is pointed at rather than a target you can
-select. Adding one is the next step; until then the surface exists for the oracle lane and
-for `hunt-ui.mjs replay`.
+A persona names its own surface, so `--surface` narrows what a named charter may run
+rather than selecting something to hunt on its own.
 
-The slides surface also has **no drag action**, because the action vocabulary has none
+The slides surface has **no drag action**, because the action vocabulary has none
 (`goto | click | type | key | scroll | read | wait`). Toolbar controls, keyboard nudge,
 z-order, alignment, slide operations and text editing are all reachable; move, resize,
 rotate, connector drawing and crop are not. A brief that asks for the second group will

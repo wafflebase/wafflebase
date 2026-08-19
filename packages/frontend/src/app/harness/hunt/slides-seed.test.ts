@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { centreOf, covers, coveredCentres, SEED_FRAMES } from "./slides-seed";
+import { centreOf, covers, coveredCentres, isOffSlide, SEED_FRAMES } from "./slides-seed";
 
 describe("the slides harness seed", () => {
   it("puts no element's centre under another element", () => {
@@ -56,5 +56,38 @@ describe("the slides harness seed", () => {
       { id: "badge", coveredBy: "card" },
     ]);
     expect(covers(broken[1], centreOf(broken[0]))).toBe(true);
+  });
+});
+
+describe("the off-slide refusal predicate", () => {
+  // A 960x540 canvas at (320, 83) — the harness's real geometry under the runner's
+  // 1600x1200 viewport, measured rather than invented.
+  const rect = { left: 320, top: 83, right: 1280, bottom: 623 };
+
+  it("accepts a point on the canvas", () => {
+    expect(isOffSlide({ x: 800, y: 300 }, rect)).toBe(false);
+  });
+
+  it("accepts the exact edges, which are still clickable", () => {
+    // Edge-inclusive, matching `covers`. An off-by-one here would refuse a legitimate
+    // click on an element flush against the slide boundary.
+    for (const p of [
+      { x: 320, y: 83 }, { x: 1280, y: 623 }, { x: 320, y: 623 }, { x: 1280, y: 83 },
+    ]) expect(isOffSlide(p, rect), JSON.stringify(p)).toBe(false);
+  });
+
+  it("refuses a point past each edge independently", () => {
+    // Each of the four terms, separately — an OR whose branches are only tested together
+    // passes with three of them deleted.
+    expect(isOffSlide({ x: 319, y: 300 }, rect), "left").toBe(true);
+    expect(isOffSlide({ x: 1281, y: 300 }, rect), "right").toBe(true);
+    expect(isOffSlide({ x: 800, y: 82 }, rect), "above").toBe(true);
+    expect(isOffSlide({ x: 800, y: 624 }, rect), "below").toBe(true);
+  });
+
+  it("refuses the negative coordinates a scrolled-away element produces", () => {
+    // The shape that made this guard necessary on the sheet surface: a finite, entirely
+    // plausible point that lands on nothing and selects nothing.
+    expect(isOffSlide({ x: 630, y: -764 }, rect)).toBe(true);
   });
 });
