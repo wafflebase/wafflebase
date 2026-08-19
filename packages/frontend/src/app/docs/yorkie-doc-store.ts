@@ -1870,8 +1870,15 @@ export class YorkieDocStore implements DocStore {
 
     // Step 5: Apply style via styleByPath to each inline in the range.
     // styleByPath only merges, so keys explicitly cleared to `undefined`
-    // (e.g. removeLink → { href: undefined }) must also be removed via
-    // removeStyleByPath; otherwise the old attribute survives on the node.
+    // (e.g. removeLink → { href: undefined }, and since issue #749 every
+    // B/I/U/S toggle-off) must also be removed via removeStyleByPath;
+    // otherwise the old attribute survives on the node.
+    //
+    // Undo of that remove is load-bearing now that it sits on the hottest
+    // editing path: Yorkie's TreeStyleOperation builds the reverse of a
+    // remove from the attributes it displaced, so Cmd+Z restores the flag.
+    // Guarded by 'applyStyle clearing a key → undo → key restored' in
+    // tests/app/docs/yorkie-doc-store.test.ts.
     const styleAttrs = serializeInlineStyle(style as InlineStyle);
     const removeAttrs = removedInlineStyleAttrs(style);
     for (let i = startIdx; i < endIdx; i++) {

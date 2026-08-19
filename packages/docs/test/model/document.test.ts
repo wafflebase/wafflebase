@@ -350,20 +350,17 @@ describe('Doc', () => {
       // turn it off — clearing the key would be a visual no-op.
       doc.setBlockType(blockId, 'heading', { headingLevel: 6 });
 
+      // One write carrying both a style-supplied key (italic) and a key the
+      // style does not supply (bold): the first keeps its explicit `false`,
+      // the second is cleared — the mixed branch of `styleOffAsClear`.
       doc.applyInlineStyle(
         { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
-        { italic: false },
+        { italic: false, bold: false },
       );
 
       const cd = doc.document.blocks[0].inlines.find((i) => i.text === 'cd');
       expect(cd?.style.italic).toBe(false);
-      // A key the style does not supply is still cleared in the same write.
-      doc.applyInlineStyle(
-        { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
-        { bold: false },
-      );
-      const after = doc.document.blocks[0].inlines.find((i) => i.text === 'cd');
-      expect('bold' in (after?.style ?? {})).toBe(false);
+      expect('bold' in (cd?.style ?? {})).toBe(false);
     });
   });
 

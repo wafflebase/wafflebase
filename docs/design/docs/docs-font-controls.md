@@ -241,6 +241,47 @@ Per the existing Yorkie store bug fix
 attributes when their value is explicitly `undefined`, so no Yorkie
 plumbing change is needed.
 
+### Storage invariant: a boolean turned off is *cleared*, not stored as `false`
+
+Clearing is not only how "Clear formatting" expresses itself — since
+issue #749 it is how **every** boolean toggle-off is stored. The
+invariant, which holds across the docs engine, the slides text-box
+editor (which drives the same `Doc`), and the Yorkie store:
+
+> A boolean inline key the user turns off is removed from the run's
+> style. The one exception is a key the block's named style supplies
+> truthy (Heading 6 is italic), where an explicit `false` is the
+> override that makes the toggle visible.
+
+A stored `false` is a dead flag. `inlineStylesEqual` compares strictly,
+so `false !== undefined` and `normalizeInlines` can never re-merge the
+run with the identical-looking neighbour it was split from — bold-then-
+unbold left the paragraph permanently fragmented. It also pins the run
+against a later redefinition of the block's named style, the same
+lazy-cascade hazard `getSelectionStyleImpl` documents.
+
+Three pieces implement it, none of which any caller has to know about:
+
+- `Doc.applyInlineStyle` / `applyInlineStyleToCells` demote a boolean
+  `false` to `undefined` (`styleOffAsClear`), consulting
+  `resolveStyleInline` for the named-style exception. Every toggle
+  caller — the keyboard `toggleStyle`, both docs toolbars, the slides
+  text box, the pending-inline-style flush — funnels through these two,
+  so the demotion happens once.
+- `store/block-helpers.applyInlineStyle` merges a patch such that **a
+  key set to `undefined` deletes the key** rather than storing a
+  phantom `undefined` entry. This is the merge semantic
+  `CLEAR_INLINE_STYLE` and the toggle-off path share.
+- `YorkieDocStore` already turned an `undefined` key into
+  `removeStyleByPath` (see above), so the CRDT attribute is dropped
+  too. Undo is unaffected: Yorkie's `TreeStyleOperation` builds the
+  reverse of a remove from the attributes it displaced.
+
+Out of scope: `false` flags already stored by older builds are left
+alone — they resolve identically and are cleared the next time the user
+toggles that key. Non-boolean keys (colors, font size) are untouched;
+only `CLEAR_INLINE_STYLE` clears those.
+
 ### Editor API additions
 
 Two additions to the `EditorAPI` surface exposed by
