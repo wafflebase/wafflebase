@@ -36,6 +36,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
+import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +45,15 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG = path.resolve(HERE, '..');
 const PROJECT = path.join(PKG, 'fixtures/consumer');
 const PORT = Number(process.env.PORT ?? 5210);
+/**
+ * NOTHING IS WRITTEN unless `--write` is passed — the same contract as `verify-consumer`.
+ * With it, the review modal's Approve is pressed for real, then `/undo` restores the file
+ * and the bytes are compared. Without it the run stops at the diff, which is where the
+ * useful evidence already is.
+ */
+const WRITE = process.argv.includes('--write');
+/** The fixture file a class edit on the dashboard scene lands in. */
+const SCENE_SRC = 'app/pages/dashboard.tsx';
 const SCENE = 'dashboard';
 
 let failures = 0;
@@ -400,9 +410,58 @@ async function main() {
             /flex-col/.test(text),
             JSON.stringify(text.slice(0, 120)),
           );
-          await page.keyboard.press('Escape');
-          await page.waitForTimeout(400);
-          check('Escape closes it without writing', !(await page.$('[role="dialog"][aria-modal="true"]')));
+          if (WRITE) {
+            /*
+             * THE ONE THING NO OTHER LANE CAN SHOW: that pressing Approve changes the
+             * consumer's source. Everything upstream of here is a dry run, so a mistake in
+             * the commit path — a wrong file, an intent that composes but writes nothing —
+             * survives every other check in this repository.
+             */
+            const abs = path.join(PROJECT, SCENE_SRC);
+            const before = await fs.readFile(abs, 'utf8');
+            const approve = (await page.$$('[role="dialog"] button')).at(-1);
+            await approve?.click();
+            await page.waitForTimeout(3000);
+            const after = await fs.readFile(abs, 'utf8');
+            check(
+              'Approve writes the class into the consumer’s source',
+              after !== before && after.includes('flex-col'),
+              after === before ? 'the file is unchanged' : 'changed',
+            );
+            check('and the modal closed itself', !(await page.$('[role="dialog"][aria-modal="true"]')));
+
+            // Restore through the bridge's own transaction log, not by rewriting the file:
+            // that is the path a user takes, so a broken undo fails HERE rather than leaving
+            // the fixture dirty for the next run to discover.
+            const undone = await (
+              await fetch(`http://127.0.0.1:${PORT}/__design-editor/api/undo`, { method: 'POST' })
+            ).json();
+            check('undo answers ok', undone.ok === true, undone.error);
+            check('and the file is byte-identical again', (await fs.readFile(abs, 'utf8')) === before);
+
+            // `PathGuard.backup` writes `${file}.bak` beside the source; the design doc's
+            // Risks section names that and prescribes a cache directory instead. Unimplemented,
+            // so this cleans up and reports rather than pretending it did not happen.
+            const bak = `${abs}.bak`;
+            let left = false;
+            try {
+              await fs.unlink(bak);
+              console.log(`       removed ${SCENE_SRC}.bak (see the Risks section)`);
+            } catch {
+              try {
+                await fs.access(bak);
+                left = true;
+              } catch {
+                /* never created, or already gone */
+              }
+            }
+            check('no backup was left in the fixture', !left, `${SCENE_SRC}.bak`);
+          } else {
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(400);
+            check('Escape closes it without writing', !(await page.$('[role="dialog"][aria-modal="true"]')));
+            console.log('       (skipping the real Approve — pass --write to include it)');
+          }
         }
 
         // Leave nothing staged: the viewport checks below remount the frame, and a dirty

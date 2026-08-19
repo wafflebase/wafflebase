@@ -319,10 +319,13 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
    * arrives: the persisted id may name a scene this project no longer has, and the
    * first render has no manifest at all.
    */
+  const mountable = useMemo(() => scenes.filter((s) => !s.deferred), [scenes]);
   useEffect(() => {
     if (!scenes.length) return;
-    setSceneId((cur) => (scenes.some((s) => s.id === cur) ? cur : scenes[0].id));
-  }, [scenes]);
+    // MOUNTABLE only. A deferred scene has no loader, so defaulting to one opens a frame
+    // whose single possible outcome is `no scene "<id>" in the scene manifest`.
+    setSceneId((cur) => (mountable.some((s) => s.id === cur) ? cur : (mountable[0]?.id ?? '')));
+  }, [scenes, mountable]);
   const activeScene = scenes.find((s) => s.id === sceneId);
 
   /**
@@ -884,17 +887,38 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 <ul className="flex flex-col gap-0.5">
                   {scenes.map((s) => (
                     <li key={s.id}>
+                      {/*
+                        A DEFERRED scene is shown and disabled, not hidden and not clickable.
+                        Hiding it would make a scene the project declares look undeclared;
+                        offering it opens a frame that can only report a manifest error. The
+                        title says which of the two states this is.
+                      */}
                       <button
                         type="button"
+                        disabled={!!s.deferred}
+                        title={
+                          s.deferred
+                            ? 'Declared but not mountable yet — it needs something the frame does not have (providers, a mocked store)'
+                            : (s.route ?? s.file)
+                        }
                         onClick={() => setSceneId(s.id)}
                         className={cn(
                           'w-full rounded-sm px-2 py-1.5 text-left text-xs transition-colors',
-                          s.id === sceneId
-                            ? 'bg-wb-accent/15 text-wb-accent'
-                            : 'text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg',
+                          s.deferred
+                            ? 'cursor-not-allowed text-wb-muted opacity-45'
+                            : s.id === sceneId
+                              ? 'bg-wb-accent/15 text-wb-accent'
+                              : 'text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg',
                         )}
                       >
-                        <span className="block truncate">{s.label}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="truncate">{s.label}</span>
+                          {s.deferred && (
+                            <span className="shrink-0 rounded-full bg-wb-border px-1.5 text-[9px]">
+                              not ready
+                            </span>
+                          )}
+                        </span>
                         <span className="block truncate font-mono text-[10px] opacity-60">
                           {s.route ?? s.file}
                         </span>

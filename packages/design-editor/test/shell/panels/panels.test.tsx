@@ -189,17 +189,47 @@ describe('TokenEditorPanel', () => {
     expect(without.textContent).not.toContain('--primary');
   });
 
-  it('names variables with the adapter’s prefix', () => {
+  it('shows the variable name ONLY when the pipeline emits it', () => {
+    // `radius.base` is emitted as the bare `--radius`, and `sm`/`md` are not emitted at all —
+    // nothing in the payload maps a source member to its property, so the prefix name
+    // `--radius-base` was a claim the panel could not support. Now an unverified row shows
+    // its source path, which `toTokenIntent` proves is the real address.
     const host = render(
       <TokenEditorPanel
         {...props({
           ok: true,
           adapter: 'configured',
-          families: [family({ family: 'typo', label: 'Font', cssVarPrefix: '--wb-font-', themeVarPrefix: '--font-' })],
+          families: [family({ family: 'radius', label: 'Radius', cssVarPrefix: '--radius-', themeVarPrefix: '--radius-' })],
+          vars: { light: { '--radius': '0.3rem' }, dark: {} },
+          bindings: {
+            themed: { light: {}, dark: {} },
+            refs: [],
+            leaves: { radius: { base: '0.3rem', sm: 'calc(0.3rem - 4px)' } },
+          },
+        })}
+      />,
+    );
+    expect(host.textContent).not.toContain('--radius-base');
+    expect(host.textContent).not.toContain('--radius-sm');
+    // Both rows fall back to their source path.
+    expect(host.textContent).toContain('radius.base');
+    expect(host.textContent).toContain('radius.sm');
+  });
+
+  it('shows the name when the prefix rule DOES describe the emission', () => {
+    // `typo` is the family where the contract holds: `--font-` + `body` is what lands.
+    const host = render(
+      <TokenEditorPanel
+        {...props({
+          ok: true,
+          adapter: 'configured',
+          families: [family({ family: 'typo', label: 'Font', cssVarPrefix: '--font-', themeVarPrefix: '--font-' })],
+          vars: { light: { '--font-body': 'Inter' }, dark: {} },
           bindings: { themed: { light: {}, dark: {} }, refs: [], leaves: { typo: { body: 'Inter' } } },
         })}
       />,
     );
-    expect(host.textContent).toContain('--wb-font-body');
+    expect(host.textContent).toContain('--font-body');
   });
+
 });

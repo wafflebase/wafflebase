@@ -106,7 +106,15 @@ export interface TokensResult extends BridgeResult {
   adapter?: 'configured' | null;
   reason?: string;
   sources?: string[];
-  vars?: TokenVars;
+  /**
+   * PER THEME, as `TokenTree.vars` is — `/tokens` spreads the adapter's tree straight onto
+   * the response. Typed as a flat `TokenVars` this read as `Record<string, string>` whose
+   * only keys were `light` and `dark`, so every lookup of a variable name missed silently.
+   *
+   * `light` is the base (`:root`) and `dark` the override: a property absent from `dark`
+   * INHERITS rather than being empty, which is what a reader must render.
+   */
+  vars?: { light: TokenVars; dark: TokenVars };
   utilities?: string[];
   families?: TokenFamilyMeta[];
   bindings?: TokenBindings;

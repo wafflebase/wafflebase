@@ -185,6 +185,22 @@ export function TokenEditorPanel({
     () => new Set(introspection?.utilities ?? []),
     [introspection],
   );
+  /**
+   * The custom properties the pipeline ACTUALLY emits, per theme.
+   *
+   * A row's contract name is `cssVarPrefix + key`, and for two of wafflebase's four families
+   * that is exactly what lands (`--accent`, `--font-body`). For `radius` it is not:
+   * `build-css.ts` writes `radius.base` as the bare `--radius` and emits none of the other
+   * four steps at all — they exist only in source, which is what `bindings.leaves` is for by
+   * its own doc ("only families whose source members are not all emitted need an entry").
+   *
+   * Nothing in the payload maps a source member to its emitted property, so the prefix name
+   * cannot be verified and must not be shown as fact. This set is what CAN be verified.
+   */
+  const emitted = useMemo(
+    () => new Set(Object.keys(introspection?.vars?.[theme] ?? {})),
+    [introspection, theme],
+  );
 
   // --- Catalogs, derived from source so created tokens appear automatically. ---
   const colorRoles = useMemo(() => {
@@ -345,7 +361,23 @@ export function TokenEditorPanel({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate text-xs font-medium">{t.label}</span>
-            <span className="font-code text-[10px] text-muted-foreground">--{t.cssVar}</span>
+            {/*
+              The variable name only when the pipeline confirms it; otherwise the SOURCE
+              PATH, which is always true and is what the edit actually addresses
+              (`toTokenIntent` sends `family`/`constName`/`path`, never a variable name).
+              Showing the unverified prefix name printed `--radius-base` for a token emitted
+              as `--radius`, and named `--radius-sm` for four that are not emitted at all.
+            */}
+            {emitted.has(`--${t.cssVar}`) ? (
+              <span className="font-code text-[10px] text-wb-muted">--{t.cssVar}</span>
+            ) : (
+              <span
+                className="font-code text-[10px] text-wb-muted opacity-70"
+                title="Source-only: this member is not emitted as a CSS custom property"
+              >
+                {t.constName}.{t.path.join('.')}
+              </span>
+            )}
             {changed && <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-medium text-primary">edited</span>}
             {written && <WrittenBadge />}
             {unmapped(t) && <NoUtilityBadge themeVar={t.themeVar} />}
