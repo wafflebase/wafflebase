@@ -4,7 +4,12 @@
 
 #881 froze the review surface so a finding on fixer-written code stops gating. It
 works, but it can only judge a finding it can **place** — and measured against the
-44 blocking findings banked on the nine open draft agent PRs, it could place 7.
+44 blocking findings banked on the open draft agent PRs, it could place 7.
+
+**The cohort, stated precisely:** 9 open draft agent PRs. **8** carried banked
+blocking findings, totalling the 44 measured here. #695 is excluded because it has
+none to measure — its latest round came back genuinely clean, all six lenses
+returning `[]`. (#810 is not in the set: it has since been promoted out of draft.)
 The other 37 came back `unknown`, which keeps them blocking, so the gate was inert
 against 84% of the backlog and a bare `@claude rerun` would have bought a 9%
 reduction.
@@ -37,10 +42,17 @@ judgement as well as the surface gate.
 
 ## The fix
 
-- `scripts/agent/citation.mjs` — new `parseCitations` returning EVERY citation in
-  order; `parseCitation` keeps its exact contract (first match) for the grounding
-  checks, which only need one. Both share a `pieces` helper that now trims leading
-  characters that cannot begin a path.
+- `scripts/agent/citation.mjs` — new `parseCitations` returning every **valid,
+  normalized** citation in source order. Not "every citation": a token whose line
+  number locates nothing (`a.mjs:0`) is dropped rather than returned, and each path is
+  normalized by the shared `pieces` helper, so every element of the array is a usable
+  location. `parseCitation` keeps its exact existing contract — the first match — for
+  the grounding checks, which only ever need one.
+- The `pieces` helper now trims **prose wrappers** off the front of a path. This is a
+  denylist of punctuation (`( [ { < " ' \` *` and typographic quotes), NOT an allowlist
+  of legal path starts: an allowlist strips whatever it was not told about, which
+  silently corrupts real filenames — `+page.svelte:12` became `page.svelte`, which
+  matches nothing, reproducing the very bug the trim exists to fix.
 - `scripts/agent/novelty.mjs::findingLocation` — scan for the first citation that
   AGREES on the file instead of testing only `cited[0]`.
 

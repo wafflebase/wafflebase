@@ -109,23 +109,49 @@ test("parseCitation: strips punctuation the pattern swallowed off the front", ()
   // paren or a backtick. `(auth.controller.ts:130` parsed as the file
   // `(auth.controller.ts`, which no path comparison can match, so the finding
   // silently lost its location and both provenance gates answered `unknown`.
-  for (const [text, file] of [
-    ["(auth.controller.ts:130-135)", "auth.controller.ts"],
-    ["`a/b.mjs:44`", "a/b.mjs"],
-    ["[a/b.mjs:44]", "a/b.mjs"],
-    ['"x.ts:7"', "x.ts"],
-    ["{y.tsx:2}", "y.tsx"],
-    ["<z.ts:3>", "z.ts"],
+  // Each case pins the WHOLE result. The first version of this test asserted
+  // `{ file, line: parseCitation(text).line }` — comparing `line` against itself,
+  // which is vacuous: any regression returning a wrong-but-positive line passed.
+  for (const [text, expected] of [
+    ["(auth.controller.ts:130-135)", { file: "auth.controller.ts", line: 130 }],
+    ["`a/b.mjs:44`", { file: "a/b.mjs", line: 44 }],
+    ["[a/b.mjs:44]", { file: "a/b.mjs", line: 44 }],
+    ['"x.ts:7"', { file: "x.ts", line: 7 }],
+    ["{y.tsx:2}", { file: "y.tsx", line: 2 }],
+    ["<z.ts:3>", { file: "z.ts", line: 3 }],
+    ["*emphasised.ts:8*", { file: "emphasised.ts", line: 8 }],
+    ["((double.ts:2", { file: "double.ts", line: 2 }],
+    ["`(mixed.ts:11", { file: "mixed.ts", line: 11 }],
   ]) {
-    assert.deepEqual(parseCitation(text), { file, line: parseCitation(text).line }, text);
-    assert.equal(parseCitation(text).file, file, text);
+    assert.deepEqual(parseCitation(text), expected, text);
   }
 });
 
+test("parseCitation: an unfamiliar leading character is NOT stripped from a filename", () => {
+  // The trim is a DENYLIST of prose wrappers, not an allowlist of legal path starts.
+  // An allowlist strips whatever it was not told about, which silently corrupts real
+  // filenames — `+page.svelte` is SvelteKit's routing convention, and turning it into
+  // `page.svelte` reproduces the exact matching failure this trim exists to fix.
+  for (const [text, expected] of [
+    ["+page.svelte:12", { file: "+page.svelte", line: 12 }],
+    ["+layout.ts:3", { file: "+layout.ts", line: 3 }],
+    ["+generated.ts:9", { file: "+generated.ts", line: 9 }],
+    ["$special.ts:4", { file: "$special.ts", line: 4 }],
+    ["_private.ts:3", { file: "_private.ts", line: 3 }],
+    ["-weird.ts:3", { file: "-weird.ts", line: 3 }],
+    ["~home.ts:2", { file: "~home.ts", line: 2 }],
+    ["@scope/pkg.ts:9", { file: "@scope/pkg.ts", line: 9 }],
+    ["./a/b.mjs:44", { file: "./a/b.mjs", line: 44 }],
+  ]) {
+    assert.deepEqual(parseCitation(text), expected, text);
+  }
+  // ...and a wrapper around one of those is still removed, without eating the name.
+  assert.deepEqual(parseCitation("(+page.svelte:12)"), { file: "+page.svelte", line: 12 });
+  assert.deepEqual(parseCitation("`$special.ts:4`"), { file: "$special.ts", line: 4 });
+});
+
 test("parseCitation: a legitimate leading `./` or `-` or `_` is NOT stripped", () => {
-  // The trim is an allowlist of what may BEGIN a path, so relative and
-  // dash/underscore-leading paths survive intact. `samePath` relies on `./` being
-  // preserved to normalise it itself.
+  // `samePath` relies on `./` being preserved so it can normalise it itself.
   assert.deepEqual(parseCitation("./a/b.mjs:44"), { file: "./a/b.mjs", line: 44 });
   assert.deepEqual(parseCitation("_private.ts:3"), { file: "_private.ts", line: 3 });
   assert.deepEqual(parseCitation("-weird.ts:3"), { file: "-weird.ts", line: 3 });

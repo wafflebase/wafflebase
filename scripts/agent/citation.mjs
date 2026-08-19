@@ -38,16 +38,28 @@ export function parseCitation(text) {
   return pieces(m[0]);
 }
 
-// Characters a path may BEGIN with. `CITATION`'s leading `[^\s:]+` is deliberately
-// permissive about what a path looks like, which means it also swallows whatever
-// punctuation abuts the citation — and lens evidence cites in prose, so that is
-// usually a `(` or a backtick. `(auth.controller.ts:130` parsed as the file
-// `(auth.controller.ts`, which no path comparison could ever match, so the finding
-// silently lost its location. Trimming here rather than tightening `CITATION` keeps
-// the shared "what counts as evidence" predicate untouched: its other importers only
-// ask `.test()` (does this cite anything at all), and narrowing it could turn a
+// Prose wrappers to strip off the FRONT of a matched citation. `CITATION`'s leading
+// `[^\s:]+` is deliberately permissive about what a path looks like, which means it
+// also swallows whatever punctuation abuts the citation — and lens evidence cites in
+// prose, so that is usually a `(` or a backtick. `(auth.controller.ts:130` parsed as
+// the file `(auth.controller.ts`, which no path comparison could ever match, so the
+// finding silently lost its location. Trimming here rather than tightening `CITATION`
+// keeps the shared "what counts as evidence" predicate untouched: its other importers
+// only ask `.test()` (does this cite anything at all), and narrowing it could turn a
 // grounded verdict ungrounded.
-const PATH_START = /^[^A-Za-z0-9._/@~-]+/;
+//
+// A DENYLIST of wrapper characters, not an allowlist of legal path starts. The
+// allowlist this replaced (`[^A-Za-z0-9._/@~-]+`) was the wrong shape: it stripped
+// anything it had not been told about, so a legitimate filename opening with a
+// character outside that set was silently corrupted — `+page.svelte:12` became
+// `page.svelte`, which matches nothing, reproducing the exact bug this trim exists to
+// fix. SvelteKit's `+page`/`+layout` convention makes that a real filename, not a
+// hypothetical. Enumerating the punctuation instead means the trim can only ever
+// remove something that is genuinely prose, and an unfamiliar filename passes through
+// untouched. Includes `*` for markdown emphasis and the typographic quotes docs pick
+// up from editors; deliberately excludes `_` and `-`, which legitimately begin
+// filenames.
+const PATH_START = /^[([{<"'`*‘’“”]+/;
 
 /** `{file, line}` from one already-matched `path.ext:line` token, or null. */
 function pieces(token) {
