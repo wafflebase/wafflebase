@@ -57,6 +57,51 @@ test("each persona's briefs are DIFFERENT, which is the whole point of briefs", 
   }
 });
 
+test("the sheet rubric names EVERY control the harness leaves unwired", () => {
+  // A CLAIM WITH AN EXPIRY DATE, GIVEN A CLOCK. The rubric has to list the controls whose
+  // handlers this harness does not supply, because a click on one is swallowed and looks
+  // exactly like a broken control. It said FOUR and there were FIVE: `Paint format` reaches
+  // the toolbar through `onTogglePaintFormat?.()` like the other four, but looks like
+  // ordinary cell formatting rather than a panel, so it was missed. A live run then proposed
+  // "Paint format copies nothing" and spent two verifier sessions on it.
+  //
+  // Pinned against the toolbar's OPTIONAL CALLBACK PROPS, which is what "unwired here"
+  // actually means: the harness mounts `<FormattingToolbar spreadsheet={...} />` and passes
+  // none of them. A sixth prop added to the toolbar fails this test until the rubric says so.
+  const toolbar = readFileSync(
+    path.join(HERE, "..", "..", "packages", "frontend", "src", "components", "formatting-toolbar.tsx"),
+    "utf8",
+  );
+  const optional = [...toolbar.matchAll(/^\s+(on[A-Z]\w*)\?:/gm)].map((m) => m[1]);
+  assert.ok(optional.length > 0, "parsed no optional props out of formatting-toolbar.tsx — the pattern has gone stale");
+
+  const rubric = loadPersonas(CHARTERS_UI).find((p) => p.id === "sheet-author").rubric;
+  const labels = {
+    onInsertChart: "Insert chart",
+    onInsertImage: "Insert image",
+    onOpenDataValidation: "Data validation",
+    onOpenConditionalFormat: "Conditional formatting",
+    onTogglePaintFormat: "Paint format",
+  };
+  const unmapped = optional.filter((prop) => !(prop in labels));
+  assert.deepEqual(unmapped, [], `new optional toolbar prop(s) with no known control label: ${unmapped.join(", ")}`);
+
+  // SCOPED TO THE LIST, not the whole document. Matching anywhere in the rubric let a
+  // control be dropped from the list while surviving in a sentence elsewhere — mutation
+  // testing caught exactly that, defeated by a second mention this file itself added.
+  const from = rubric.indexOf("TOOLBAR BUTTONS DO NOTHING HERE");
+  assert.ok(from > 0, "could not find the unwired-controls bullet in the sheet rubric");
+  const next = rubric.indexOf("\n- **", from);
+  const bullet = rubric.slice(from, next > 0 ? next : undefined);
+  for (const prop of optional) {
+    assert.match(bullet, new RegExp(`\`${labels[prop]}\``), `the unwired-controls bullet must name \`${labels[prop]}\``);
+  }
+  // And the COUNT, so the prose cannot drift away from the list beside it.
+  const spelled = { 4: "FOUR", 5: "FIVE", 6: "SIX", 7: "SEVEN" }[optional.length];
+  assert.ok(spelled, `no spelled-out count for ${optional.length} unwired controls`);
+  assert.match(rubric, new RegExp(`${spelled} TOOLBAR BUTTONS`), `the rubric must say ${spelled}, matching the ${optional.length} optional props`);
+});
+
 test("each rubric injects its OWN surface's constraints and not the other's", () => {
   const byId = Object.fromEntries(loadPersonas(CHARTERS_UI).map((p) => [p.id, p]));
 
