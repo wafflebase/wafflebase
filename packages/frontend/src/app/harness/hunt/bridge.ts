@@ -189,6 +189,17 @@ function requireSlides(state: BridgeState): SlidesHandle {
   return state.slides;
 }
 
+function asNumber(args: unknown[], i: number, reader: string): number {
+  const v = args[i];
+  // `Number.isFinite`, not `typeof === "number"`: `typeof NaN === "number"`, and a NaN
+  // coordinate resolves to a finite-looking point that clicks nothing. Same reasoning as
+  // the finite check in `resolveTarget`.
+  if (typeof v !== "number" || !Number.isFinite(v)) {
+    refuse(`${reader} needs a finite number at position ${i}, got ${JSON.stringify(v)}`);
+  }
+  return v;
+}
+
 function asString(args: unknown[], i: number, reader: string): string {
   const v = args[i];
   if (typeof v !== "string" || v === "") {
@@ -521,6 +532,81 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
      * ROTATION IS IGNORED ON PURPOSE: rotation is around the frame centre, so the centre
      * is the one point on an element that rotation cannot move.
      */
+    /**
+     * Viewport coordinates of an arbitrary point on the slide, named in SLIDE-LOGICAL
+     * coordinates — the 1920x1080 space the model stores.
+     *
+     * THE DESTINATION VOCABULARY A DRAG NEEDS. Every other target is a control or an
+     * element's centre, so "move this 200px right" was inexpressible: there was nowhere to
+     * drag TO. This is the smallest addition that fixes that, and it is deliberately not a
+     * screen-pixel escape hatch — slide-logical keeps a plan meaning the same thing at any
+     * window size, which is the whole reason the harness pins its canvas to half of
+     * 1920x1080.
+     *
+     * Refuses off-slide for the reason `slides.elementCenter` does: a point outside the
+     * canvas is finite, clickable-looking, and lands on nothing.
+     */
+    "slides.pointAt": (args) => {
+      const x = asNumber(args, 0, "slides.pointAt");
+      const y = asNumber(args, 1, "slides.pointAt");
+      const handle = requireSlides(state);
+      const canvas = handle.host.querySelector("canvas");
+      if (!canvas) refuse("slides.pointAt has no slide canvas to measure against — is the editor mounted?");
+      const origin = canvas.getBoundingClientRect();
+      const scale = origin.width / handle.slideWidth;
+      const point = { x: Math.round(origin.left + x * scale), y: Math.round(origin.top + y * scale) };
+      if (isOffSlide(point, origin)) {
+        refuse(
+          `slides.pointAt(${x}, ${y}) is off-slide — a slide is ${handle.slideWidth} wide in these ` +
+            "coordinates, so that point is outside it. Clicking or dragging there would land on " +
+            "nothing, which is NOT a defect.",
+        );
+      }
+      return point;
+    },
+
+    /**
+     * Viewport coordinates of a selection handle's centre, by kind.
+     *
+     * Read from the handle's OWN `getBoundingClientRect`, not from its `style.left`/`top`.
+     * Those are the top-LEFT corner (`left = cx - HANDLE_SIZE / 2`), so treating them as the
+     * centre aims half a handle off — close enough to work inside the hit tolerance, which is
+     * exactly the kind of nearly-right that fails once on a small handle and looks like a
+     * product bug. The rect is also correct regardless of what the CSS does next.
+     *
+     * Handles exist only while something is selected, and which ones exist depends on WHAT is
+     * selected — a connector has `start`/`end`/`bend`, a parametric shape has `adjust-N`, a
+     * plain element has the eight resize handles plus `rotate`. So the refusal lists what is
+     * actually there rather than the theoretical set.
+     */
+    "slides.handleCenter": (args) => {
+      const kind = asString(args, 0, "slides.handleCenter");
+      const handle = requireSlides(state);
+      const nodes = [...handle.host.querySelectorAll<HTMLElement>("[data-handle]")];
+      const found = nodes.find((n) => n.dataset.handle === kind);
+      if (!found) {
+        const available = nodes.map((n) => n.dataset.handle).join(", ");
+        refuse(
+          `slides.handleCenter(${JSON.stringify(kind)}) — no such handle. ` +
+            (available
+              ? `Available: ${available}.`
+              : "Nothing is selected, so there are no handles; click an element first."),
+        );
+      }
+      const rect = found.getBoundingClientRect();
+      const point = { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+      const canvas = handle.host.querySelector("canvas");
+      if (!canvas) refuse(`slides.handleCenter(${kind}) has no slide canvas to measure against`);
+      if (isOffSlide(point, canvas.getBoundingClientRect())) {
+        refuse(
+          `slides.handleCenter(${kind}) is off-slide at (${point.x}, ${point.y}) — the handle sits ` +
+            "outside the visible canvas, which happens when its element is flush against the slide " +
+            "edge. Move the element inward, or use a handle on the other side.",
+        );
+      }
+      return point;
+    },
+
     "slides.elementCenter": (args) => {
       const id = asString(args, 0, "slides.elementCenter");
       const handle = requireSlides(state);
