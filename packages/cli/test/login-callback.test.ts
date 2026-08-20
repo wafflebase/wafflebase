@@ -165,10 +165,20 @@ describe('login callback server', () => {
   });
 });
 
-// `open()` resolves when the child is *spawned*, so a missing opener binary
-// (headless CI, a container without xdg-open) surfaces later as an `error`
-// event on that child — which, with no listener, takes the whole CLI down
-// mid-login. The listener is the only reason this helper exists.
+// `open()` resolves when the child is *spawned*, and the two failures that
+// reach this helper are absorbed by two different guards — which is why both
+// are asserted here rather than one standing in for the other:
+//
+// - A missing opener binary fails the spawn itself. `open` attaches
+//   `once('error', reject)` in the same synchronous turn as `spawn()` (open v11
+//   `index.js`: spawn at :255, listener at :301, no `await` between them), so
+//   the `nextTick`-scheduled error is emitted into *that* listener and arrives
+//   as a rejection. The `try` is what handles it — a listener attached after
+//   `await` could not, since the tick queue drains before our microtask.
+// - An error *after* a successful spawn lands on an emitter `open` has already
+//   removed its own handler from (`subprocess.off('error', reject)` on
+//   `'spawn'`), and an unhandled `error` event takes the CLI down mid-login.
+//   The post-`await` listener is for that one, and only that one.
 describe('openBrowser', () => {
   afterEach(() => {
     openMock.mockClear();
