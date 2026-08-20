@@ -354,6 +354,18 @@ export function ReviewApproveModal({
    */
   const unmatched = useMemo(() => diffs.filter((d) => !d.located && !d.error && d.ref), [diffs]);
   const anyMissing = unmatched.length > 0;
+  /**
+   * What BLOCKS approval, as distinct from what the banner can offer to discard.
+   *
+   * `/commit` is all-or-nothing — "a 409 means nothing was written", per the client contract
+   * — so a single unlocatable intent takes every valid edit down with it. The banner said
+   * those edits "will be skipped", which is the one thing that cannot happen. Approving was
+   * therefore a guaranteed no-op that read as a save.
+   *
+   * No `d.ref` test here, unlike `unmatched`: a row the UI cannot offer to discard still
+   * refuses the batch, so it must still disable the button.
+   */
+  const blockedByUnmatched = useMemo(() => diffs.some((d) => !d.located && !d.error), [diffs]);
   const card = cards[index];
 
   const approve = async () => {
@@ -606,10 +618,10 @@ export function ReviewApproveModal({
           <div className="flex items-start gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400">
             <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
             <div className="min-w-0">
-              <p>Some edits no longer match the code and will be skipped.</p>
+              <p>Some edits no longer match the code. Discard or re-make them before approving.</p>
               <p className="mt-0.5 text-[11px]">
-                Usually this means the file was changed outside the sandbox. A skipped edit stays staged, so the editor
-                will keep reporting unsaved changes until you re-make it or discard it.
+                Usually this means the file was changed outside the sandbox. Writing is all-or-nothing, so these cannot
+                be skipped — while one is staged, approving would refuse the whole batch and write nothing.
               </p>
               <button
                 onClick={() => onDiscard(unmatched.map((d) => d.ref!))}
@@ -631,11 +643,18 @@ export function ReviewApproveModal({
           </button>
           <button
             onClick={approve}
-            disabled={applying || loading || plan.length === 0 || bridgeDown}
+            disabled={applying || loading || plan.length === 0 || bridgeDown || blockedByUnmatched}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
           >
             {applying ? <Loader2 className="size-3.5 animate-spin" /> : <ShieldCheck className="size-3.5" />}
-            {applying ? 'Writing…' : bridgeDown ? 'Bridge offline' : 'Approve & Write'}
+            {applying
+              ? 'Writing…'
+              : bridgeDown
+                ? 'Bridge offline'
+                : // Says WHY it is disabled: a greyed button with no reason reads as a bug.
+                  blockedByUnmatched
+                  ? 'Resolve unmatched edits'
+                  : 'Approve & Write'}
           </button>
         </DialogFooter>
       </DialogContent>

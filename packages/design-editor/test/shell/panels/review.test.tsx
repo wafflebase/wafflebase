@@ -176,6 +176,42 @@ const commitBridge = (commit: () => Promise<unknown>) =>
     commit,
   }) as unknown as BridgeClient;
 
+/**
+ * `/commit` is all-or-nothing — "a 409 means nothing was written" — so one intent the server
+ * cannot locate takes every valid edit down with it. The banner used to say those edits
+ * "will be skipped", which is the one outcome the batch cannot produce, and Approve stayed
+ * enabled: a guaranteed no-op that read as a save.
+ */
+describe('ReviewApproveModal — an unlocatable edit blocks approval', () => {
+  const unlocatable = () =>
+    ({
+      mutate: async () => ({ ok: false, status: 409, error: 'the text this edit expects is gone' }),
+      commit: async () => ({ ok: true, status: 200, results: [] }),
+    }) as unknown as BridgeClient;
+
+  const approveButton = () =>
+    [...document.querySelectorAll('button')].find((b) => /Approve|Resolve unmatched/i.test(b.textContent ?? ''));
+
+  it('disables Approve, and says why, when a dry run cannot locate an edit', async () => {
+    render(<ReviewApproveModal {...props({ plan: PLAN, bridge: unlocatable() })} />);
+    await settle();
+
+    const btn = approveButton()!;
+    expect(btn.hasAttribute('disabled')).toBe(true);
+    expect(btn.textContent).toContain('Resolve unmatched edits');
+    expect(document.body.textContent).not.toContain('will be skipped');
+  });
+
+  it('leaves Approve enabled when every edit locates', async () => {
+    render(<ReviewApproveModal {...props({ plan: PLAN, bridge: commitBridge(async () => ({ ok: true, status: 200, results: [] })) })} />);
+    await settle();
+
+    const btn = approveButton()!;
+    expect(btn.hasAttribute('disabled')).toBe(false);
+    expect(btn.textContent).toContain('Approve & Write');
+  });
+});
+
 describe('ReviewApproveModal — a refused commit is not a dead bridge', () => {
   it('a 409 refusal reports the refusal, not "restart your dev server"', async () => {
     const notify = vi.fn();
