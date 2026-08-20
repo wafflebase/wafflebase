@@ -117,9 +117,14 @@ WAFFLEBASE_STARROCKS_DSN=               # Optional, StarRocks DSN
 `GITHUB_CALLBACK_URL`'s scheme is read as the deployment's public scheme: it
 decides whether the login cookies are `Secure` (and so `__Host-`-prefixed), and
 with it whether `wafflebase login` is available at all. CLI sign-in answers
-`400 Command-line sign-in requires an https server` on a plain-http origin that
-is not loopback, because its consent gate is a cookie that anything on such an
-origin can plant. Serve over https (or keep it on `localhost`) to use it.
+`400 Command-line sign-in requires an https server` unless it can see that its
+consent cookie is trustworthy — an `https://` callback URL (or
+`COOKIE_SECURE=true`), or a loopback one. A plain-http non-loopback origin is
+refused because anything on such an origin can plant that cookie, and so is a
+deployment that configures **no** callback URL at all: GitHub falls back to the
+URL registered on the OAuth app, so the scheme is real but invisible here, and
+guessing "secure" would be guessing in the unsafe direction. Serve over https
+(or keep it on `localhost`) to use it.
 
 ### Yorkie auth webhook (per-document access control)
 

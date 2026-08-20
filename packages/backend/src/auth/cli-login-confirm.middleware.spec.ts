@@ -16,6 +16,29 @@ import {
 describe('CliLoginConfirmMiddleware', () => {
   const middleware = new CliLoginConfirmMiddleware();
 
+  // The middleware shows nothing at all where the confirm cookie is
+  // plantable (`cliLoginAvailable`), and that now needs positive evidence of
+  // a trustworthy origin rather than merely the absence of a cleartext one.
+  // Loopback is that evidence, and it is where the flow is actually run;
+  // pinning it also keeps a developer's own `.env` out of the verdict.
+  const originalEnv = {
+    GITHUB_CALLBACK_URL: process.env.GITHUB_CALLBACK_URL,
+    COOKIE_SECURE: process.env.COOKIE_SECURE,
+  };
+
+  beforeEach(() => {
+    process.env.GITHUB_CALLBACK_URL =
+      'http://localhost:3000/auth/github/callback';
+    delete process.env.COOKIE_SECURE;
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
   function run(
     query: Record<string, unknown>,
     cookies: Record<string, string> = {},

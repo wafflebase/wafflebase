@@ -129,6 +129,10 @@ control that stops anything else on the origin from writing them. Because
 answers `400 Command-line sign-in requires an https server` on a plain-http
 deployment that is not `localhost`; the browser login still works there, but
 it, and the token the CLI would have received, are travelling in the clear.
+Leaving `GITHUB_CALLBACK_URL` unset is refused the same way: GitHub then uses
+the callback URL registered on the OAuth app, so the deployment works but its
+scheme is invisible to the backend, and it will not assume the safe answer.
+Set the variable (or `COOKIE_SECURE=true` behind a TLS-terminating proxy).
 
 If you terminate TLS at a proxy and still hand the backend an `http://`
 callback URL, that same rule reads your https origin as cleartext and drops

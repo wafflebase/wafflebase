@@ -150,13 +150,22 @@ imports the full module set listed below.
   subdomain can plant `wafflebase_cli_confirm` and click itself through. So
   `?mode=cli` is refused there outright — `400 Command-line sign-in requires
   an https server` (`cliLoginAvailable()`), and the middleware shows no
-  confirmation page rather than one that proves nothing. "There" means
-  positive evidence of a cleartext non-loopback origin: `COOKIE_SECURE`
-  first, then `GITHUB_CALLBACK_URL`'s scheme, with loopback hosts (a secure
-  context in the browser, and how the flow is developed) and an install that
-  configures no callback URL at all both exempt. The browser login stays
-  available, since its failure mode is a refused login rather than a stolen
-  one and refusing it would leave such a deployment with no way in.
+  confirmation page rather than one that proves nothing. The predicate asks
+  for positive evidence that the cookie can be *trusted*, not for evidence
+  that it cannot: `useSecureCookies()` (`COOKIE_SECURE` first, then
+  `GITHUB_CALLBACK_URL`'s scheme, then `NODE_ENV`), or a loopback callback
+  host — a secure context in the browser, and how the flow is developed.
+  Everything else is refused, including an install that configures **no**
+  callback URL: passport passes `callbackURL: undefined` and GitHub falls
+  back to the URL registered on the OAuth app, so that is a working
+  deployment whose scheme the backend cannot see, and exempting it turned the
+  gate off on exactly the cleartext origin it exists for. Such an install
+  says which it is with `GITHUB_CALLBACK_URL` or `COOKIE_SECURE=true`; with
+  `NODE_ENV=production` it is already answered, since the cookie then really
+  does go out `Secure` and a cleartext origin makes the browser drop it —
+  failing the gate closed. The browser login stays available, since its
+  failure mode is a refused login rather than a stolen one and refusing it
+  would leave such a deployment with no way in.
 - The same predicate names the downgrade the other way round: a
   `NODE_ENV=production` install whose origin reads as cleartext non-loopback
   is issuing **session** cookies without `Secure`, and the guard logs one

@@ -62,16 +62,23 @@ function callbackHost(): string | undefined {
  * double-submit pair whose failure mode is a refused login, not a stolen one,
  * and refusing it would leave the deployment with no way in.
  *
- * The refusal needs *positive* evidence of a cleartext non-loopback origin,
- * which is why an install that configures no callback URL at all is not
- * refused: there is no origin to read, GitHub's OAuth flow cannot complete
- * without one anyway, and guessing "insecure" from an absent variable would
- * break every unit-level and CI run of the flow rather than any real
- * deployment.
+ * The test is *positive evidence that the cookie can be trusted* — the cookie
+ * is `Secure` (and so `__Host-`-prefixed), or the origin is loopback, which the
+ * browser treats as a secure context anyway. Anything else is refused,
+ * deliberately including an install that configures **no** `GITHUB_CALLBACK_URL`
+ * at all: `github.strategy.ts` passes an undefined `callbackURL` and GitHub
+ * then falls back to the URL registered on the OAuth app, so that install is a
+ * working deployment whose scheme this process cannot see, and exempting it
+ * turned the gate off on exactly the cleartext origin it exists for. Such an
+ * install still gets a CLI login by saying which it is — `GITHUB_CALLBACK_URL`
+ * (whose https scheme answers this), or `COOKIE_SECURE=true`. A
+ * `NODE_ENV=production` install with no callback URL is already answered:
+ * `useSecureCookies()` reads it as https, so the confirm cookie really does go
+ * out `Secure`, and if the origin turns out to be cleartext the browser
+ * discards the cookie and the gate fails closed rather than open.
  */
 export function cliLoginAvailable(): boolean {
-  if (useSecureCookies() || loopbackCallback()) return true;
-  return callbackHost() === undefined;
+  return useSecureCookies() || loopbackCallback();
 }
 
 /**
@@ -232,8 +239,9 @@ export class GitHubAuthGuard extends AuthGuard('github') {
   private assertCliLoginAvailable() {
     if (cliLoginAvailable()) return;
     this.logger.warn(
-      'Refused a CLI login: this origin is plain http and not loopback, ' +
-        'so the consent cookie cannot be Secure.',
+      'Refused a CLI login: nothing says this origin is secure (no https ' +
+        'GITHUB_CALLBACK_URL, no COOKIE_SECURE=true, not loopback), so the ' +
+        'consent cookie cannot be trusted.',
     );
     throw new BadRequestException(
       'Command-line sign-in requires an https server. Serve Wafflebase ' +
