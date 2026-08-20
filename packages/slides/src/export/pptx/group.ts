@@ -114,5 +114,12 @@ export function groupToXml(el: GroupElement, ctx: ElementXmlCtx): string {
 
   const children = data.children.map((c) => elementToXml(c, ctx)).join('');
 
+  // Every child serialized away (dropped images, Phase-2 charts). A
+  // `<p:grpSp>` with no shape children is not valid OOXML — PowerPoint
+  // rejects the part rather than ignoring the empty group. Drop the group
+  // itself, the same way its children were dropped; a group that carries
+  // nothing renders nothing.
+  if (!children) return '';
+
   return `<p:grpSp>${nv}<p:grpSpPr>${xfrm}</p:grpSpPr>${children}</p:grpSp>`;
 }
