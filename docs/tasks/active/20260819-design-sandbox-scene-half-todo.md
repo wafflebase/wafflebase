@@ -124,12 +124,12 @@ files no row names, which is why this ledger is per-file rather than per-PR.
 | `sandbox/PreviewPane.tsx` | 204 | **DROPPED** (12a) — its renderer map cannot be derived from source |
 | `sandbox/registry.tsx` | 49 | **DROPPED** (12a) — hand-written per component; the scene frame is the preview |
 | `sandbox/AgentPopover.tsx` | 164 | **DROPPED** (12a) — the Phase 4 agent pipeline was withdrawn |
-| `scenes/providers.tsx` | 212 | **11c** (this PR) — dom mocks only; `*-store` mocks in 12 |
-| `scenes/fixtures/{documents,workspace,datasources,auth}.ts` | 286 | **11c** (this PR) |
-| `scenes/fixtures/canvas.ts` | 91 | **12b** |
-| `scenes/canvas/yorkie-offline.tsx` | 315 | **12b** |
-| `scenes/canvas/seed-{sheets,docs,notes}.ts` | 240 | **12b** |
-| `scripts/{smoke-scene,smoke-canvas,smoke-layout}.ts` | 730 | superseded by `verify-consumer` (54) + `verify-frame` (34) |
+| `scenes/providers.tsx` | 212 | **11c — landed**; the canvas `*-store` mocks became 12b's shim |
+| `scenes/fixtures/{documents,workspace,datasources,auth}.ts` | 286 | **11c — landed** |
+| `scenes/fixtures/canvas.ts` | 91 | **12b — landed** |
+| `scenes/canvas/yorkie-offline.tsx` | 315 | **12b — landed** |
+| `scenes/canvas/seed-{sheets,docs,notes}.ts` | 240 | **12b — landed** |
+| `scripts/{smoke-scene,smoke-canvas,smoke-layout}.ts` | 730 | superseded by `verify-consumer` (54) + `verify-frame` (37, 41 with `--write`) + `verify-scenes` (27) |
 | `scripts/verify-bridge.mjs` | 311 | superseded by `verify-consumer` |
 | `scripts/crawl-frame-graph.mjs` | 103 | superseded — frame graph is `?wbFrame=` per-module now |
 | `scripts/poke-scene-preview.mjs` | 98 | superseded by `verify-frame` |
@@ -140,6 +140,11 @@ files no row names, which is why this ledger is per-file rather than per-PR.
 | `sandbox.css` | 45 | superseded by `shell/shell.css` |
 
 The remaining 19 files landed under their own names.
+
+**The ledger is closed as of 12b.** Every one of the 57 prototype `.ts/.tsx/.mjs` files is
+landed, dropped as a recorded decision, or superseded by something that does the same job —
+nothing is unaccounted for. Deleting `packages/design-sdk` is now a separate, reviewable step
+rather than a leap of faith.
 
 ## Canvas scenes — corrected findings
 
@@ -157,12 +162,16 @@ pixels the engine paints inside `<canvas>` are outside the picker, and those wer
 class-editor target. An earlier note in this file claimed canvas was outside the editing
 model; that was wrong and is corrected here.
 
-**What actually blocks them is store mocking.** `document-detail.tsx:1` imports
-`{ DocumentProvider, useDocument }` from `@yorkie-js/react`, so the scene needs a live
-document. `yorkie-offline.tsx` (315) + `seed-*.ts` (240) are the prototype's unfinished
-attempt: its own manifest called these scenes "listed for shape, not function", showing a
-mount error rather than the editor. So canvas is **unfinished work, not out-of-scope work**,
-and the risk is unmeasured — nobody has mounted one.
+**What blocked them was store mocking, and 12b unblocked it.** `document-detail.tsx:1`
+imports `{ DocumentProvider, useDocument }` from `@yorkie-js/react`, so the scene needs a live
+document. `yorkie-offline.tsx` + `seed-*.ts` were the prototype's unfinished attempt — its own
+manifest called these scenes "listed for shape, not function", showing a mount error rather
+than the editor. Finished in 12b: four of the five render their fixture content against a real
+but DETACHED document. The risk is no longer unmeasured; `pdf-viewer` stays deferred because it
+needs the file's bytes at a blob URL.
 
-**No plugin work.** Everything canvas needs is `design-sandbox` (store providers + seeds),
-so 12 inherits 11c's "the plugin does not change" constraint for this half.
+**Almost no plugin work — one exception, found in review.** Everything canvas needs is
+`design-sandbox` (store providers + seeds). The exception is not a consumer requirement but a
+gap in the guard itself: `installFetchGuard` wraps `fetch` only, so the app shell's
+`/api/notifications/stream` left the frame as an `EventSource` and reached the real backend,
+against the guard's own stated contract. Fixed in `design-editor`, where the defect is.

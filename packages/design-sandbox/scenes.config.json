@@ -34,29 +34,28 @@
     "`ws-fixture` id so `useParams()` resolves to exactly what the workspace fixtures are",
     "keyed under.",
     "",
-    "THE SIX DOM SCENES ARE LIVE; ONLY THE CANVAS SCENES ARE STILL `deferred`, and each",
-    "says why below. `deferred` keeps the entry and its reasoning while generating no",
-    "loader. A loader whose target cannot mount is not free even if never clicked: the",
-    "specifier is statically analysable, so Vite's dependency scanner crawls it at",
-    "startup. The canvas flags come off when PR 12 supplies the mocked document store",
-    "each of them is waiting for; `pdf-viewer` stays deferred permanently, for the",
-    "separate reason given below.",
+    "TEN OF THE ELEVEN SCENES ARE LIVE. Only `pdf-viewer` is still `deferred`, for the",
+    "permanent reason given below. `deferred` keeps an entry and its reasoning while",
+    "generating no loader: a loader whose target cannot mount is not free even if never",
+    "clicked, because the specifier is statically analysable and Vite's dependency scanner",
+    "crawls it at startup.",
     "",
     "DOM scenes wait on `providers.tsx` alone. Rendered with no providers they are a bare",
     "component with no router, and every param-gated query in them silently disables",
     "itself.",
     "",
-    "CANVAS scenes additionally wait on the offline Yorkie provider. They mount the REAL",
-    "Sheets/Docs/Slides/Notes engines against a Document that is real but DETACHED \u2014 never",
-    "attached to a live Yorkie connection \u2014 which needs a dev-server-wide redirect of every",
-    "`@yorkie-js/react` import to a shim, plus seed content per docKey. `sheet-editor`",
+    "CANVAS scenes additionally needed the offline Yorkie provider, which now ships. They",
+    "mount the REAL Sheets/Docs/Slides/Notes engines against a Document that is real but",
+    "DETACHED \u2014 never attached to a live Yorkie connection \u2014 via a dev-server-wide redirect",
+    "of every `@yorkie-js/react` import to `yorkie-offline.tsx`, plus seed content per",
+    "docKey. `sheet-editor`",
     "points at `document-detail.tsx` (the page that owns the `DocumentProvider`), not",
     "`sheet-view.tsx` (a child that needs one from its parent and a `tabId` prop neither",
     "this manifest nor a bare mount can supply).",
     "",
     "`pdf-viewer` is deferred for a second, permanent reason: a binary PDF fixture, the",
     "pdf.js worker and the `cmaps`/`standard_fonts` middleware are real weight for a scene",
-    "that exercises almost no design-system surface. It stays deferred after PRs 10-12."
+    "that exercises almost no design-system surface. It stayed deferred through PRs 10-12."
   ],
   "components": [
     "packages/frontend/src/components/ui/button.tsx",
@@ -215,8 +214,7 @@
       "viewports": [
         "desktop"
       ],
-      "readOnly": true,
-      "deferred": true
+      "readOnly": true
     },
     {
       "id": "docs-editor",
@@ -240,8 +238,7 @@
       "viewports": [
         "desktop"
       ],
-      "readOnly": true,
-      "deferred": true
+      "readOnly": true
     },
     {
       "id": "slides-editor",
@@ -265,8 +262,7 @@
       "viewports": [
         "desktop"
       ],
-      "readOnly": true,
-      "deferred": true
+      "readOnly": true
     },
     {
       "id": "notes-editor",
@@ -290,8 +286,7 @@
       "viewports": [
         "desktop"
       ],
-      "readOnly": true,
-      "deferred": true
+      "readOnly": true
     },
     {
       "id": "pdf-viewer",

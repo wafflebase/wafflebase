@@ -64,12 +64,11 @@
      */
     "paths": {
       "react-router-dom": ["../frontend/node_modules/react-router-dom"],
+      "@yorkie-js/sdk": ["../frontend/node_modules/@yorkie-js/sdk"],
+      "@yorkie-js/react": ["../frontend/node_modules/@yorkie-js/react"],
+      "@yorkie-js/react/__wb-real": ["../frontend/node_modules/@yorkie-js/react"],
       "@tanstack/react-query": ["../frontend/node_modules/@tanstack/react-query"],
-      "@wafflebase/sheets": ["../sheets/src"],
-      "@wafflebase/docs": ["../docs/src"],
-      "@wafflebase/notes": ["../notes/src"],
-      "@wafflebase/slides": ["../slides/src"],
-      "@wafflebase/board": ["../board/src"]
+
     }
   },
   /*
