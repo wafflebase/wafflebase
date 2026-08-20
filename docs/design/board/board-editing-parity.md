@@ -410,3 +410,17 @@ packages/frontend/src/app/board/
   `docs/src/view/text-box-editor.ts` wires blur → `cancelComposition()` →
   `onCommit`, so by the time it would run the session has already
   committed and the IME composition is gone.
+- The board toolbar does **not** release focus back to the canvas after a
+  control is used, so board inherits issue #882: once a toolbar `<button>`
+  is focused, `isEditableTarget()` makes the document-level `keydown`
+  handler skip every selection shortcut until the canvas is clicked again.
+  Slides fixes this with the opt-in `useCanvasFocusRelease()` hook
+  (`docs/design/slides/slides-keyboard-shortcuts.md`, "Toolbar focus
+  release"), and board could mark its `<Toolbar>` with
+  `data-canvas-toolbar` to inherit it — but that would also change what the
+  *next* `Space` does. The board `BUTTON` branch in
+  `packages/frontend/src/app/board/is-editable-target.ts` exists so `Space`
+  on a focused toggle re-activates the toggle rather than entering pan
+  mode; with focus dropped to the body, `Space` would enter pan mode
+  instead. Adopting the hook on board therefore means deciding that
+  trade-off (or keeping toggles out of the release), which is deferred.

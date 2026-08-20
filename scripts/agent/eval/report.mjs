@@ -32,11 +32,23 @@
 // 🔴 IT READS NUMBERS AND NEVER COMPUTES ONE. Every figure below is a field of a
 // scorer's payload. The exceptions are arithmetic the report is explicitly for —
 // the min/max of three replicate values (decision 33: a summary statistic is not a
-// distribution, so report `n` and a range beside every central figure) and the
-// severity-stratified count ratio between the arms (§3.1's volume comparison) — and
-// both are computed by helpers imported from the scorers that own them rather than
-// re-derived here. If a number is wanted that no scorer emits, the answer is a
-// scorer, not a line in this file.
+// distribution, so report `n` and a range beside every central figure), the
+// severity-stratified count ratio between the arms (§3.1's volume comparison), and
+// §2's two DIRECTIONAL RATES — and the first two are computed by helpers imported
+// from the scorers that own them rather than re-derived here. If a number is wanted
+// that no scorer emits, the answer is a scorer, not a line in this file.
+//
+// ⟳ THE THIRD EXCEPTION IS A PRESENTATION FIX, NOT A NEW METRIC. §2 led with a
+// Jaccard, and that figure is arithmetically right and rhetorically wrong: the union
+// is dominated by classes only the panel raised, so a low intersection-over-union
+// reads as "the two reviewers barely agree" when what happened is that the panel
+// matched a substantial share of what CodeRabbit raised AND raised a hundred-odd
+// things besides. The same counts, stated directionally, say so. Both rates are
+// `both / (both + <the other arm>_only)` over fields §2 already prints in its own
+// table, and both carry their `n`. This is NOT the constant #828 declined: that one
+// was hand-measured by another tool and would have frozen while the data moved.
+// #828's actual rule — every printed figure must be derivable from the payload in
+// front of it — is what makes these two admissible and that one not.
 //
 // FOUR STATES, NOT TWO, AND A BLANK CELL IS NONE OF THEM. Lesson 6 is that absent
 // has more than one cause and pooling them is a scoring bug. In a rendered report
@@ -62,6 +74,7 @@ import { fileURLToPath } from "node:url";
 import { KNOWN } from "../severity.mjs";
 import { parseArgs } from "../gh-checks.mjs";
 import { repeated, spread } from "./reliability.mjs";
+import { LABEL_AVAILABILITY, LABEL_SOURCES } from "./pair-labels.mjs";
 import { SCORE_SCOPES, byConfigSegment } from "./store.mjs";
 
 const refuse = (msg) => {
@@ -433,6 +446,252 @@ export function volumeFigures(perReplicate) {
 }
 
 /**
+ * WHY A REPLICATE HAS NO ADJUDICATED BAND — five causes, five sentences, and NONE of
+ * them is "the labels moved nothing".
+ *
+ * 🔴 THE DISTINCTION THIS EXISTS FOR IS `none-for-replicate` AGAINST
+ * `resolved-nothing`. On the pilot, two of the three replicates have no adjudicated
+ * pair at all and one has 43, and the two unadjudicated ones print a band identical to
+ * their unlabelled one. If all three rendered the same cell shape a reader would
+ * conclude that all three were adjudicated and two of them simply did not move — which
+ * is lesson 6 (absence has more than one cause) at the row level, and it is the same
+ * mistake as reading an arm's silence as a zero. So an unadjudicated replicate renders
+ * as `not computed` WITH ITS CAUSE, and a replicate whose labels genuinely moved
+ * nothing renders as a present figure, because that is a measurement.
+ *
+ * ALL FIVE ARE `not-computed` AND NONE IS `not-measurable`, deliberately: every one of
+ * them is closed by adjudicating pairs. Nothing here is structurally unavailable, which
+ * is exactly what separates this section from §3's one-armed reliability and §4's
+ * cross-arm cell.
+ *
+ * The two states missing from this map are `resolved` and `resolved-nothing`, and both
+ * carry a figure rather than a cause. `pair-labels.mjs` owns the vocabulary; the pin
+ * below breaks the import if it grows a sixth silent state.
+ */
+export const LABEL_CAUSE = Object.freeze({
+  "not-supplied": "the complementarity score was produced with no label store at all, so nothing was offered to this replicate",
+  "no-store": "no pair labels are filed for this corpus version — nobody has adjudicated it",
+  "store-empty": "the label directory exists and holds no usable record",
+  "none-for-replicate": "labels exist for this corpus, but none names this replicate and none of their keys is in its undecided queue — nobody has looked here",
+  "none-matched": "labels DO name this replicate and not one key matches a live undecided pair — every one moved or was promoted. A drift signal, not an absence of evidence",
+});
+
+/** A score file written before `complementarity.mjs` read labels at all. Distinct from
+ *  `not-supplied`, which is a scorer that COULD have been handed a store and was not. */
+const SCORE_PREDATES_LABELS = "this complementarity score carries no `labels` block — it predates the pair-label reader, so no band here has been adjudicated";
+
+// The two vocabularies below decide what §2's labelled rows MEAN, so they are checked
+// against the module that owns them at import time rather than copied. A seventh
+// availability state added upstream with no sentence here would otherwise render as an
+// empty cause, which is the blank cell this file exists to prevent.
+pin(
+  `LABEL_AVAILABILITY is ${JSON.stringify(LABEL_AVAILABILITY)}, expected every state to be either a figure or a stated cause`,
+  LABEL_AVAILABILITY.every((a) => a === "resolved" || a === "resolved-nothing" || Object.hasOwn(LABEL_CAUSE, a)) &&
+    Object.keys(LABEL_CAUSE).every((a) => LABEL_AVAILABILITY.includes(a)),
+);
+// GOLD FIRST IS LOAD-BEARING, not cosmetic. The scorer names the most trusted tier
+// present as the headline, and §2 marks the band PROVISIONAL whenever that tier is not
+// `gold` — a rule that inverts silently if the scale is ever reordered.
+pin(`LABEL_SOURCES is ${JSON.stringify(LABEL_SOURCES)}, expected a trust-ordered scale with gold first`, LABEL_SOURCES.length >= 2 && LABEL_SOURCES[0] === "gold");
+
+/**
+ * A DIRECTIONAL rate — *"of everything THIS arm raised, how much did the other arm
+ * raise too?"* — as a `{k, n, ratio}` proportion, so the count and the rate stay in one
+ * cell exactly as §3's gate agreement does.
+ *
+ * 🔴 ITS DENOMINATOR IS ONE ARM'S OWN CLASSES, WHICH IS THE ENTIRE POINT. The Jaccard's
+ * denominator is the union, and on this data the union is mostly panel-only classes —
+ * so the Jaccard falls when the panel says MORE, which is not disagreement. A
+ * directional rate divides by the arm being described, so "the panel matched 40% of
+ * what CodeRabbit raised" and "CodeRabbit matched 8% of what the panel raised" are two
+ * true sentences about one dataset and neither is dragged by the other arm's volume.
+ *
+ * `n > 0` is not assumed: an arm that raised nothing has no rate, and `null` is the
+ * honest ratio there — `0/0 → 0.000` reads as a measurement of perfect disagreement.
+ */
+function directionalRate(k, n, unit) {
+  return figure({ k, n, ratio: n > 0 ? k / n : null }, n, unit);
+}
+
+/**
+ * Both directional rates for one basis, plus the Jaccard they qualify.
+ *
+ * `classes = both + panel_only + coderabbit_only` is the identity every count here
+ * rests on, so each arm's own class count is one subtraction: the panel's is
+ * `classes − coderabbit_only` and CodeRabbit's is `classes − panel_only`. Written that
+ * way rather than as `both + x_only` because the adjudicated basis states `classes` and
+ * `both` and leaves the two `_only` splits to be derived from one of them.
+ */
+function ratesFor({ both, classes, coderabbitOnly, jaccard, ceiling }) {
+  return {
+    coderabbit: directionalRate(both, both + coderabbitOnly, "CodeRabbit defect classes"),
+    panel: directionalRate(both, classes - coderabbitOnly, "panel defect classes"),
+    // 🔴 THE JACCARD TRAVELS AS A BAND HERE TOO, and the first draft of this table
+    // printed the point alone in a column labelled "Jaccard". `report.test.mjs` has
+    // asserted since #805 that no code path prints the overlap point without its
+    // ceiling, and it caught this: the point is a LOWER BOUND, so a lone `3.5%` in a
+    // lead table is the exact figure this section spends four paragraphs qualifying.
+    // Demoting it below the two rates does not make it safe to print unqualified.
+    jaccard: { low: jaccard, high: ceiling },
+  };
+}
+
+/**
+ * The same two rates on the ADJUDICATED counts, when a replicate has them.
+ *
+ * The resolved band states `both` and `classes`; the per-arm split needs
+ * `coderabbit_only` after resolution, which is one subtraction of two stated fields —
+ * a CodeRabbit-only class that resolves `same` becomes a shared class, and nothing else
+ * moves it. It holds when two CodeRabbit classes resolve into ONE panel class too: the
+ * pair leaves `coderabbit_only` twice and arrives in `both` once, which is exactly what
+ * `after.both` already counts (`resolveClasses` adds the count of distinct newly-shared
+ * PANEL classes, not the count of resolved CodeRabbit ones — the two are different
+ * numbers and conflating them is that module's stated likeliest bug).
+ */
+function adjudicatedRates(overlap, headline) {
+  const after = headline?.band?.after;
+  if (!after || !Number.isFinite(after.both) || !Number.isFinite(after.classes)) return null;
+  const crOnlyAfter = (overlap.coderabbit_only ?? 0) - (headline.resolution?.coderabbit_only_resolved_same ?? 0);
+  return ratesFor({ both: after.both, classes: after.classes, coderabbitOnly: crOnlyAfter, jaccard: after.jaccard, ceiling: after.jaccard_upper_bound });
+}
+
+/**
+ * One tier's resolved band as a cell, or the reason there is not one.
+ *
+ * `n` IS THE CLASS COUNT AT THE FLOOR AND THE UNIT IS DEFECT CLASSES — the same pair
+ * the unlabelled band beside it carries, because the two are meant to be compared and a
+ * band quoted at a different denominator from the one above it is decision 28's failure
+ * inside a single row. The provenance — how many pairs were adjudicated out of how
+ * large a queue — is a separate sentence with its own `n`, never folded into this one.
+ */
+function labelBandCell(tier, availability) {
+  if (availability === "resolved" || availability === "resolved-nothing") {
+    const after = tier?.band?.after ?? {};
+    return figure({ low: after.jaccard, high: after.jaccard_upper_bound }, after.classes ?? 0, "defect classes");
+  }
+  return notComputed(LABEL_CAUSE[availability] ?? `the score reports label availability ${JSON.stringify(availability ?? null)}, which this renderer has no sentence for`);
+}
+
+/** One tier's row: the band, what moved it, and whether the ceiling moved. Every field
+ *  is read; the only thing decided here is which of the two shapes the cell takes. */
+function tierRow(tierName, tier, availability) {
+  const res = tier?.resolution ?? {};
+  const lab = tier?.labels ?? {};
+  return {
+    tier: tierName,
+    availability,
+    band: labelBandCell(tier, availability),
+    applied: lab.applied ?? 0,
+    in_tier: lab.in_tier ?? 0,
+    via: lab.via ?? {},
+    unmatched: Array.isArray(lab.unmatched) ? lab.unmatched.length : 0,
+    cross_replicate: lab.cross_replicate ?? 0,
+    resolved_same: res.coderabbit_only_resolved_same ?? 0,
+    finished_apart: res.coderabbit_only_finished_apart ?? 0,
+    still_undecided: res.coderabbit_only_still_undecided ?? 0,
+    newly_shared: res.panel_classes_newly_shared ?? 0,
+    on_already_shared: res.labels_on_already_shared_class ?? 0,
+    fanout: Array.isArray(res.fanout) ? res.fanout.length : 0,
+    floor_moved: tier?.band?.floor_moved === true,
+    // READ, NEVER INFERRED FROM TWO PERCENTAGES. `ceiling_moved` is a field precisely
+    // because a renderer diffing `before.jaccard_upper_bound` against `after`'s would
+    // agree with the scorer right up to the rounding that hides a real move.
+    ceiling_moved: tier?.band?.ceiling_moved === true,
+  };
+}
+
+/**
+ * One replicate's label block, as rows. The headline tier first, then every other tier
+ * the store holds — SEPARATELY, never averaged, and never joined across replicates.
+ */
+function labelFiguresFor(labels) {
+  if (!labels || typeof labels !== "object") {
+    return { availability: "absent", tier: null, headline: null, other_tiers: [], band: notComputed(SCORE_PREDATES_LABELS) };
+  }
+  const headline = tierRow(labels.tier, labels.headline, labels.availability);
+  // ONE ROW PER TIER PRESENT, in trust order rather than in object-key order, so two
+  // renders of one dataset are byte-identical. A tier the store does not hold gets no
+  // row: it is a fact about the store, and `by_tier` already omits it.
+  const others = LABEL_SOURCES.filter((t) => t !== labels.tier && labels.by_tier && Object.hasOwn(labels.by_tier, t)).map((t) =>
+    tierRow(t, labels.by_tier[t], labels.by_tier[t]?.availability),
+  );
+  return {
+    availability: labels.availability ?? null,
+    tier: labels.tier ?? null,
+    headline,
+    other_tiers: others,
+    band: headline.band,
+    unlabelled: labels.unlabelled ?? null,
+  };
+}
+
+/**
+ * WHAT IS IN THE LABEL STORE — read once, because the scorer reads it once.
+ *
+ * Every replicate's payload carries the same census: `complementarity.mjs` reads the
+ * `labels/` tree once per run and hands the same records to each replicate. So taking
+ * it from the first replicate that has one is not a choice of replicate — but "not a
+ * choice" is exactly the kind of claim that stops being true silently, so the counts
+ * are compared across replicates and a disagreement is reported rather than resolved.
+ */
+function labelStoreOf(reps) {
+  const blocks = reps.map((r) => r.labels).filter((l) => l && typeof l === "object" && l.census);
+  if (blocks.length === 0) return null;
+  const first = blocks[0];
+  const c = first.census ?? {};
+  return {
+    present: first.store?.present === true,
+    n: c.n ?? 0,
+    by_source: c.by_source ?? {},
+    // 🔴 TWO COUNTS THAT ARE NOT THE SAME FACT. `keys_moved` is a pair whose ADDRESS
+    // changed when a finding's text was re-parsed — the verdict is untouched and the
+    // label still applies through its alternate key. `needs_readjudication` is a
+    // VERDICT its annotator flagged as doubted. An earlier draft of this section
+    // attached the second caption to the first count, which would tell a reader that
+    // six judgements are doubted when none are.
+    keys_moved: c.keys_moved ?? 0,
+    needs_readjudication: c.needs_readjudication ?? 0,
+    superseded: c.superseded ?? 0,
+    unreadable: Array.isArray(first.store?.unreadable) ? first.store.unreadable.length : 0,
+    invalid: Array.isArray(first.store?.invalid) ? first.store.invalid.length : 0,
+    // A payload assembled from two scoring runs would carry two censuses. It cannot
+    // happen through the CLI, which is why it is worth a line rather than a comment.
+    //
+    // 🔴 IT FINGERPRINTS EVERY FIELD THIS OBJECT HANDS THE RENDERER, not the three it
+    // started with. The warning's own words are "the counts above describe only the
+    // first", so it has to cover every count that comes from `blocks[0]` — and §2
+    // quotes `by_source` and `superseded`, and §6 quotes `by_source` again, all of
+    // which were outside the old fingerprint. A guard that watches three of seven
+    // fields is the shape lesson 7 is about: it stands in one door and the room has
+    // three. `unreadable` and `invalid` are store-level rather than census fields and
+    // are included for the same reason — they are printed from the same first block.
+    census_disagrees: new Set(blocks.map(censusFingerprint)).size > 1,
+  };
+}
+
+/**
+ * Everything `labelStoreOf` reads out of ONE label block, as a comparable string.
+ *
+ * `by_source` is an object, so its entries are sorted before serialising: two censuses
+ * with the same counts in a different key order are the same census, and a fingerprint
+ * that said otherwise would raise a disagreement warning on a payload that has none.
+ * `pairLabelCensus` already sorts, so this only matters for a hand-assembled payload —
+ * which is exactly the input this guard exists for.
+ */
+function censusFingerprint(block) {
+  const c = block.census ?? {};
+  return JSON.stringify([
+    c.n ?? 0,
+    Object.entries(c.by_source ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+    c.keys_moved ?? 0,
+    c.needs_readjudication ?? 0,
+    c.superseded ?? 0,
+    Array.isArray(block.store?.unreadable) ? block.store.unreadable.length : 0,
+    Array.isArray(block.store?.invalid) ? block.store.invalid.length : 0,
+  ]);
+}
+
+/**
  * Overlap, AS A BAND. From one `complementarity-v1` payload holding a
  * `per_replicate` array.
  *
@@ -454,6 +713,19 @@ export function volumeFigures(perReplicate) {
  * When pair labels exist this becomes a point estimate. Until then it must not look
  * like one, so the point, the ceiling and the saturation note are one cell and there
  * is no code path that prints the point alone.
+ *
+ * 🔴 AND WHEN THEY DO EXIST, THE LABELLED BAND IS BESIDE THE UNLABELLED ONE AND NEVER
+ * INSTEAD OF IT. `overlap.jaccard` and `unresolved.jaccard_upper_bound` keep the
+ * meanings they had before labels were read, so the two are comparable in one place —
+ * which is the only way a reader can see how much of the movement is adjudication and
+ * how much is arithmetic.
+ *
+ * 🔴 PER REPLICATE, NEVER POOLED. There is no cross-replicate labelled figure below,
+ * and that is a rule rather than an omission: a verdict resolves a pair inside ONE
+ * draw, the three draws do not share the text their pairs are keyed on, and the scorer
+ * deliberately carries no labels on its `union` / `intersection` views — only
+ * `per_replicate` reaches this function at all. A pooled "labelled band" would be a
+ * fourth number with no population behind it.
  */
 export function complementarityFigures(payload) {
   if (!payload) {
@@ -481,6 +753,15 @@ export function complementarityFigures(payload) {
       coderabbit_with_candidate: u.coderabbit_classes_with_a_panel_candidate ?? null,
       // The band is the PAIR. There is no accessor for the point on its own.
       band: figure({ low: o.jaccard, high: u.jaccard_upper_bound }, o.classes ?? 0, "defect classes"),
+      // THIS replicate's labels, from THIS replicate's block. Nothing here reads
+      // another replicate's row, which is what makes "never pooled" a property of the
+      // code rather than a promise in a comment.
+      labels: labelFiguresFor(r.labels),
+      // The two directional rates, on both bases. Per replicate, like everything else
+      // in this function — a rate pooled over three draws would divide one replicate's
+      // shared count by another's class count.
+      rates: ratesFor({ both: o.both ?? 0, classes: o.classes ?? 0, coderabbitOnly: o.coderabbit_only ?? 0, jaccard: o.jaccard, ceiling: u.jaccard_upper_bound }),
+      rates_adjudicated: r.labels?.headline ? adjudicatedRates(o, r.labels.headline) : null,
     };
   });
   const points = bands.map((b) => b.point).filter((v) => Number.isFinite(v));
@@ -497,6 +778,17 @@ export function complementarityFigures(payload) {
     all_saturated: bands.length > 0 && bands.every((b) => b.saturated),
     saturated_count: bands.filter((b) => b.saturated).length,
     severity_flip: bands.map((b, i) => ({ label: b.label, ...severityAgreementOf(reps[i]) })),
+    // A description of the label STORE, which is one object per scoring run — not a
+    // band, and deliberately the only label figure here that is not per replicate.
+    label_store: labelStoreOf(reps),
+    // How many replicates carry an adjudicated band at all. Counted rather than
+    // pooled: it qualifies the section's own headline ("1 of 3"), and there is no
+    // arithmetic anywhere below that spans two replicates' verdicts.
+    replicates_adjudicated: bands.filter((b) => b.labels.band.availability === "present").length,
+    // The per-finding undecided-pair counts #829 added, PRESENT OR NOT — the fact §2's
+    // ceiling-budget sentence turns on. They are per class; their total is not a field,
+    // and this module does not sum arrays it was handed.
+    per_finding_pair_counts: reps.some((r) => Array.isArray(r?.labels?.headline?.resolution?.still_undecided)),
   };
 }
 
@@ -817,6 +1109,17 @@ export function segmentationFigures(payload) {
   }
   const cells = (Array.isArray(payload.cells) ? payload.cells : []).map((c) => ({
     segment: c.segment ?? "(unnamed)",
+    // THE CUBE'S THREE COORDINATES, carried beside the flat label instead of being
+    // dropped. `segmentLabel` in the scorer says outright that flattening loses the
+    // grouping and that the components travel separately for exactly this reason —
+    // and for two releases nothing read them, so §5 rendered 149 stringly-typed keys
+    // and made a reader parse `metric=…/…=…/arm=…` by eye to rebuild a grid that was
+    // already in memory. `null` when the payload predates them: an unplaceable cell
+    // is still rendered (see `ungrouped` below), never dropped.
+    metric: typeof c.metric === "string" ? c.metric : null,
+    axis: typeof c.axis === "string" ? c.axis : null,
+    bucket: typeof c.bucket === "string" ? c.bucket : null,
+    arm: typeof c.arm === "string" ? c.arm : null,
     // A cell the scorer withheld renders as withheld, with the numbers that decided
     // it. A cell it measured renders as measured, INCLUDING a measured zero.
     cell: c.suppressed === true ? suppressed(c.n, c.min_n) : figure(c.value, c.n, c.unit),
@@ -830,12 +1133,55 @@ export function segmentationFigures(payload) {
   const axes = (Array.isArray(payload.axes) ? payload.axes : []).map((a) => ({
     id: a.id ?? "(unnamed)",
     status: a.status ?? "unstated",
+    // WHICH ARMS THE AXIS EXISTS FOR, read off the payload's own declaration. Three
+    // of the pilot's seven axes are one-armed by construction — `novelty` reads a
+    // field only the panel's records carry, `coderabbit_category` and `window` read
+    // fields only CodeRabbit's do — so their empty column is a structural absence
+    // and NOT a withheld cell. Rendering the two as one symbol would say "too thin
+    // to report" about a measurement that was never available to make.
+    arms: Array.isArray(a.arms) ? [...a.arms] : [],
+    // What the axis COUNTS — `finding` or `item`. Read only to tell the pairs the
+    // scorer refused on a unit mismatch from the ones it refused on their meaning;
+    // see `pairs` below.
+    unit: typeof a.unit === "string" ? a.unit : null,
     cell: a.status === "computed" ? null : notComputed(a.reason ?? `the scorer reported this axis as ${JSON.stringify(a.status ?? null)} and gave no reason`),
+  }));
+  const metrics = (Array.isArray(payload.metrics) ? payload.metrics : []).map((m) => ({
+    id: m.id ?? "(unnamed)",
+    spec: typeof m.spec === "string" ? m.spec : null,
+    currency: typeof m.currency === "string" ? m.currency : null,
+  }));
+  // 🔴 A PAIR THE SCORER NEVER COMPUTED IS WHY A GRID HAS NO ROWS FOR AN AXIS, and
+  // nothing rendered it, so a reader of `nit_ratio` could not tell whether severity
+  // was missing because it was thin, because it was refused, or because somebody
+  // forgot. Two of the pilot's twelve refusals are statements about the metric —
+  // the nit ratio is a function of severity, and the novelty annotation only touches
+  // blockers — and they are rendered with the scorer's own reason.
+  //
+  // The other ten are ONE fact repeated: a metric counted in pull requests cut by an
+  // axis that cuts findings shares a single denominator across every bucket. They are
+  // counted, not listed. The split is STRUCTURAL — the metric's `currency` against the
+  // axis's `unit`, both stated in the payload — rather than a match on the reason text,
+  // so a refusal with a new reason falls into the listed group and is read, not hidden.
+  const axisUnit = new Map(axes.map((a) => [a.id, a.unit]));
+  const currency = new Map(metrics.map((m) => [m.id, m.currency]));
+  const allPairs = (Array.isArray(payload.pairs_not_computed) ? payload.pairs_not_computed : []).map((p) => ({
+    metric: p.metric ?? "(unnamed)",
+    axis: p.axis ?? "(unnamed)",
+    cell: notComputed(p.reason ?? "the scorer refused this metric/axis pair and gave no reason"),
+    unitMismatch: currency.get(p.metric) === "item" && axisUnit.get(p.axis) === "finding",
   }));
   return {
     availability: "present",
     cells,
     axes,
+    // Each metric's own one-line spec, verbatim from the payload. §5 leads every grid
+    // with it rather than with an authored gloss, so the sentence above a number and
+    // the definition the scorer computed it from cannot drift apart.
+    metrics,
+    pairsRefused: allPairs.filter((p) => !p.unitMismatch),
+    pairsUnitMismatch: allPairs.filter((p) => p.unitMismatch).length,
+    ...groupSegmentation(cells),
     min_n: payload.min_n ?? null,
     min_n_source: payload.min_n_source ?? null,
     // The split, so §5 states what the grid actually did rather than what decision 12
@@ -843,6 +1189,77 @@ export function segmentationFigures(payload) {
     reported: cells.filter((c) => c.cell.availability === "present").length,
     withheld: cells.filter((c) => c.cell.availability === "suppressed").length,
   };
+}
+
+/**
+ * The flat cell list, regrouped into the cube it came from: one grid per metric,
+ * one row per axis bucket, one column per arm.
+ *
+ * 🔴 IT REGROUPS AND COUNTS. IT COMPUTES NOTHING. Every value, `n`, unit and
+ * suppression verdict below is the scorer's, untouched; the only arithmetic is
+ * `length` over cells whose state the scorer already decided, which is the same
+ * arithmetic `reported`/`withheld` above have always done. A total, a mean or a rank
+ * that the payload does not state belongs in the scorer, where it would be tested
+ * against the records it summarises — decision 12's invariant is that this file
+ * prints only what it was given, and that invariant is the reason §5's numbers can
+ * be quoted at all.
+ *
+ * ORDER COMES FROM THE PAYLOAD, by first appearance — metrics, then buckets, then
+ * arms. Sorting here would be this file inventing a ranking, and it would also break
+ * the byte-identical re-render property the moment a locale-sensitive comparator got
+ * involved. The scorer emits axis by axis and bucket by bucket, so first-appearance
+ * order is its grouping, preserved.
+ *
+ * A ROW WHOSE EVERY ARM IS WITHHELD IS NOT A ROW. It is counted and its label named
+ * in `withheldRows`, which is the whole point: 73 of 149 cells carried no value, and
+ * at one row each they were 73 of §5's 163 lines. A count naming the buckets they
+ * fell on is exactly as honest — a withheld cell still publishes no number — and it
+ * is the difference between a section that is read and one that is scrolled past.
+ */
+function groupSegmentation(cells) {
+  // Cells the payload could not place. Kept, listed, and never silently dropped: a
+  // payload written before the coordinates existed still renders every cell it has,
+  // as the flat list it is, under a heading that says why.
+  const placeable = (c) => c.metric !== null && c.arm !== null && c.axis !== null && c.bucket !== null;
+  const ungrouped = cells.filter((c) => !placeable(c));
+  const placed = cells.filter(placeable);
+  const armOrder = [...new Set(placed.map((c) => c.arm))];
+  const grids = [];
+  for (const metric of new Set(placed.map((c) => c.metric))) {
+    const mine = placed.filter((c) => c.metric === metric);
+    const rows = [];
+    for (const label of new Set(mine.map((c) => `${c.axis}=${c.bucket}`))) {
+      const inRow = mine.filter((c) => `${c.axis}=${c.bucket}` === label);
+      rows.push({
+        label,
+        axis: inRow[0].axis,
+        bucket: inRow[0].bucket,
+        // `null` for an arm with no cell at all — a one-armed axis — which is a
+        // different fact from a withheld one and renders as a different symbol.
+        cells: Object.fromEntries(armOrder.map((arm) => [arm, inRow.find((c) => c.arm === arm)?.cell ?? null])),
+      });
+    }
+    // A row EARNS its place by holding at least one measurement. One that does not is
+    // 100% withheld, and a table row is an expensive way to say nothing twice.
+    const present = (r) => Object.values(r.cells).filter((c) => c !== null && c.availability === "present");
+    const held = (r) => Object.values(r.cells).filter((c) => c !== null);
+    grids.push({
+      metric,
+      arms: armOrder.filter((arm) => mine.some((c) => c.arm === arm)),
+      rows: rows.filter((r) => present(r).length > 0),
+      // Named, not just counted, so a reader can see WHICH buckets the corpus is too
+      // thin for — that list is the argument for a bigger corpus and it is lost if
+      // the rows are dropped silently.
+      withheldRows: rows.filter((r) => present(r).length === 0).map((r) => r.label),
+      // A two-arm row with both arms reported is the only kind of row §5 can compare,
+      // and §4's deliverable is a comparison. Counted over the rows in the table below
+      // it, so the sentence and the grid can never disagree — the segmentation
+      // scorer's own `comparisons` array says 22 across this payload and so does this.
+      comparable: rows.filter((r) => held(r).length > 1 && present(r).length === held(r).length).length,
+      twoArm: rows.filter((r) => held(r).length > 1).length,
+    });
+  }
+  return { grids, ungrouped };
 }
 
 /** The `SECTIONS` row for a key, refusing an unknown one so a typo cannot produce a
@@ -1089,6 +1506,7 @@ function renderComplementarity(c) {
     out.push(renderCell(notComputed(c.reason)), "");
     return out;
   }
+  out.push(...renderDirectionalRates(c));
   out.push(
     "**The point estimate is a lower bound and the ceiling is saturated, so this is an interval and cannot",
     "honestly be reported as a value.** The matcher never merges an ambiguous pair: it becomes a *link* and",
@@ -1117,6 +1535,29 @@ function renderComplementarity(c) {
       "ceiling means the matcher cannot currently separate *\"CodeRabbit caught something we missed\"* from *\"we said",
       "the same thing in different words\"*, and that is a property of the two arms rather than a threshold to tune.",
       "",
+      // 🔴 WHERE THE CEILING COMES FROM, which is not the matcher and is worth one
+      // sentence because this project has puzzled over the figure for a week. When the
+      // ceiling is saturated every CodeRabbit class merges in the limit, so the bound
+      // collapses to CodeRabbit's class count over the panel's — an exact identity on a
+      // saturated replicate, and it reproduces every ceiling in the table above.
+      //
+      // ⟳ AND IT IS CHECKED BEFORE IT IS CLAIMED, because the sentence says "exactly".
+      // It printed the FRACTION from the two class counts and the PERCENTAGE from
+      // `unresolved.jaccard_upper_bound`, and nothing made the two agree: on a payload
+      // whose saturation flag is true but whose counts no longer reproduce its ceiling
+      // it rendered `leaves 30/288 = 20.4%`, where 30/288 is 10.4% — a false identity,
+      // asserted, in a section built on every figure being derivable from the payload
+      // in front of it. `saturated` is a field this renderer cannot verify, so the
+      // arithmetic is verified instead, at the precision the page prints.
+      ...(ceilingIdentityHolds(worst)
+        ? [
+            `**And the ceiling is a property of the two counts rather than of the matcher.** \`${worst.label}\` has`,
+            `${worst.rates.coderabbit.n} CodeRabbit class(es) against the panel's ${worst.rates.panel.n}, so even a perfect match on every one of them`,
+            `leaves ${worst.rates.coderabbit.n}/${worst.rates.panel.n} = ${pct(worst.ceiling)} — which is exactly the ceiling on that row. It is arithmetic about how`,
+            "much each arm said, and no amount of adjudication moves it.",
+            "",
+          ]
+        : []),
       `The queue is ${worst.maybe_links} undecided pairs on \`${worst.label}\`, of which **${worst.strong_maybe_links} score ≥ ${worst.triage_threshold}**. Those two`,
       "numbers buy different ends of the band, and the cheap one buys the end that is already tight:",
       "",
@@ -1129,9 +1570,31 @@ function renderComplementarity(c) {
       "",
       "🔴 **So the honest cost is hundreds of decisions, not tens** — the two bounds have different budgets and only",
       "the floor's is small. The exact ceiling budget is smaller than the whole queue, because pairs owned by a",
-      "finding that is already shared cannot move either bound; that deduction needs a per-finding pair count this",
-      "scorer does not emit, so it is not stated here as a number.",
-      "**Until those labels exist, this row must not be read as a point estimate.**",
+      // ⟳ THE SECOND HALF OF THIS SENTENCE STOPPED BEING TRUE. The scorer now emits a
+      // per-finding pair count — one row per CodeRabbit-only class, under each tier's
+      // `resolution.{resolved,finished_apart,still_undecided}[].pairs` — so the
+      // deduction it calls underivable is derivable. What is still missing is a TOTAL,
+      // and this module adds up nothing it was not handed: a sum over a payload array
+      // is a number the renderer computed, which the invariant at the top of this file
+      // forbids and which is why the figure was declined twice already. So the sentence
+      // names the field and still refuses the number.
+      ...(c.per_finding_pair_counts
+        ? [
+            "finding that is already shared cannot move either bound. The per-finding pair counts that settle it are",
+            "now in the score — one row per CodeRabbit-only class under `labels.…resolution.*[].pairs` — but their TOTAL",
+            "is not, and this renderer computes no number it was not handed, so the exact budget is still not stated here.",
+          ]
+        : [
+            "finding that is already shared cannot move either bound; that deduction needs a per-finding pair count this",
+            "scorer does not emit, so it is not stated here as a number.",
+          ]),
+      // The old closing line said "until those labels exist". On the pilot they now
+      // exist for one replicate of three, so it would be false on the page — and the
+      // table above is still the UNLABELLED band, which is the part a reader must not
+      // lose while being told that adjudication has started.
+      c.replicates_adjudicated > 0
+        ? `**Labels now exist for ${c.replicates_adjudicated} of ${c.bands.length} replicate(s) — the adjudicated band is below, and this table's is still the unlabelled one.**`
+        : "**Until those labels exist, this row must not be read as a point estimate.**",
       "",
     );
   }
@@ -1144,6 +1607,370 @@ function renderComplementarity(c) {
     "**n is far too small for a claim, and that is the finding.**",
     "",
   );
+  out.push(...renderAdjudicatedBand(c));
+  return out;
+}
+
+/**
+ * Does `CodeRabbit classes ÷ panel classes` actually equal the ceiling this row prints?
+ *
+ * AT PRINT PRECISION, deliberately, because that is the claim being made. The sentence
+ * this guards says the quotient is *exactly* the ceiling, and a reader checks that
+ * against the two numbers on the page — so the comparison is between what would be
+ * printed, not between two full-precision floats that differ in the fifteenth decimal.
+ * Both sides go through `pct`, which is also what renders them.
+ *
+ * When it does not hold, the sentence is omitted rather than softened. It is an
+ * explanation of a figure that is already on the page with its own band, not a figure
+ * in its own right — so dropping it removes an assertion and hides nothing, whereas
+ * printing "approximately" would keep a claim this renderer cannot support.
+ */
+function ceilingIdentityHolds(worst) {
+  const cr = worst?.rates?.coderabbit?.n;
+  const panel = worst?.rates?.panel?.n;
+  if (!Number.isFinite(cr) || !Number.isFinite(panel) || panel <= 0) return false;
+  return pct(cr / panel) === pct(worst.ceiling);
+}
+
+/**
+ * §2's LEAD, and the Jaccard is not it.
+ *
+ * 🔴 THE INTERSECTION-OVER-UNION FIGURE IS ARITHMETICALLY RIGHT AND RHETORICALLY WRONG,
+ * which is a defect in a report whose whole job is to be read correctly. Its
+ * denominator is the union, and on this data the union is mostly classes only the panel
+ * raised — so the number falls when our arm says MORE, and a reader meets `3.5%` and
+ * concludes the two reviewers barely agree. What actually happened is on the same three
+ * counts: the panel raised a large share of what CodeRabbit raised, and raised many
+ * things besides. Both directional rates say that; the Jaccard cannot.
+ *
+ * SO THE TWO RATES LEAD AND THE JACCARD SITS BESIDE THEM, LABELLED. It is not dropped —
+ * it is the set-theoretic figure the spec asks for and it is what the band below is
+ * built from — but it is no longer the first number a reader meets, and it is never
+ * printed without the word "union" nearby.
+ *
+ * EACH ROW STATES ITS BASIS. A replicate with adjudicated pairs gets a second row
+ * rather than a silently upgraded first one: the unadjudicated rate stays on the page
+ * beside it, and no replicate that nobody adjudicated can be mistaken for one that was.
+ */
+function renderDirectionalRates(c) {
+  const rate = (cell) => renderValue(cell, (p) => `${p.k} of ${p.n}${p.ratio === null ? "" : ` — **${pct(p.ratio)}**`}`);
+  const out = [
+    "**Read the two directional rates before the Jaccard.** They are the same three counts stated three ways,",
+    "and only the last is dragged by our own volume: the union is mostly classes CodeRabbit never raised, so",
+    "a low intersection-over-union says more about how much MORE the panel reports than about how much the two",
+    "arms agree. Each rate divides by the arm it describes, so neither moves when the other arm gets louder.",
+    "",
+    "| replicate | basis | CodeRabbit classes the panel also raised | panel classes CodeRabbit also raised | Jaccard (intersection ÷ union) |",
+    "|---|---|---|---|---|",
+  ];
+  for (const b of c.bands) {
+    // The unadjudicated basis, always — including for a replicate that also has an
+    // adjudicated one. Two rows, never one row that quietly became the other.
+    out.push(`| \`${b.label}\` | unadjudicated | ${rate(b.rates.coderabbit)} | ${rate(b.rates.panel)} | ${band(b.rates.jaccard)} |`);
+    if (b.rates_adjudicated && b.labels.band.availability === "present") {
+      out.push(
+        `| \`${b.label}\` | ${b.labels.headline.applied} \`${b.labels.headline.tier}\` label(s) applied | ${rate(b.rates_adjudicated.coderabbit)} | ${rate(b.rates_adjudicated.panel)} | ${band(b.rates_adjudicated.jaccard)} |`,
+      );
+    }
+  }
+  out.push(
+    "",
+    "**All three columns describe one dataset**, and the two rates keep a denominator the Jaccard does not: each",
+    "arm's own class count. Resolving an undecided pair raises a rate's numerator and leaves its denominator",
+    "alone, while it moves the union in both directions at once — which is why the band below needs a ceiling",
+    "and these two do not.",
+    "",
+  );
+  return out;
+}
+
+/**
+ * §2's adjudicated band — the first figure in this report that is genuinely PARTIAL
+ * rather than absent, and the reason it needs its own subsection.
+ *
+ * 🔴 THE NUMBER AND WHAT IT RESTS ON GO IN THE SAME BREATH. A floor that moves from
+ * 3.5% to 7.3% on human judgements is real, and it is also a few dozen decisions out of
+ * a queue of hundreds, on one replicate of three, with a ceiling that structurally
+ * cannot move yet. A subsection that printed the moved floor cleanly and left the rest
+ * to §6 would be the most misleading paragraph in this document — and unlike every
+ * other absence here, this one is not absent enough to protect itself.
+ *
+ * FOUR THINGS ARE THEREFORE NEVER SEPARATED FROM THE BAND:
+ *   the TIER          a `silver` band is an AI read-through pending human confirmation
+ *                     and ANNOTATION-GUIDE §6 says do not treat it as the ceiling, so
+ *                     the tier is a column and not a footnote.
+ *   the CAUSE         a replicate nobody adjudicated says so, in words, and does not
+ *                     share a cell shape with one whose labels moved nothing.
+ *   `ceiling_moved`   rendered as the fact it is, with its reason, in both directions.
+ *   the DENOMINATOR   how many pairs were adjudicated out of how large a queue, on how
+ *                     many replicates of how many.
+ */
+function renderAdjudicatedBand(c) {
+  const store = c.label_store;
+  const bands = c.bands;
+  // Nothing to render for a score file written before labels were read. Said in one
+  // line rather than omitted: a missing subsection and an unadjudicated corpus are the
+  // same blank space and different facts.
+  if (!store) {
+    return [
+      "### The adjudicated band",
+      "",
+      `${renderCell(bands[0]?.labels?.band ?? notComputed(SCORE_PREDATES_LABELS))}`,
+      "",
+      "So every band above is the unlabelled one, and the two states a labelled band distinguishes — *nobody",
+      "adjudicated this replicate* and *the labels moved nothing* — cannot be told apart from this score file.",
+      "",
+    ];
+  }
+  const out = [
+    "### The adjudicated band",
+    "",
+    "**A pair label resolves one undecided pair; it does not re-partition the panel's own classes.** The band in",
+    "the table above stays exactly as it was — this one sits beside it, never instead of it, so the movement that",
+    "is adjudication can be told from the movement that is arithmetic.",
+    "",
+    "🔴 **It is per replicate and never pooled.** A verdict settles a pair inside one draw, the three draws do not",
+    "share the text their pairs are keyed on, and the `union` and `intersection` views deliberately carry no",
+    "labels at all. There is no row below that spans two replicates.",
+    "",
+    `| replicate | tier | unlabelled band | adjudicated band | what the labels did |`,
+    "|---|---|---|---|---|",
+  ];
+  for (const b of bands) {
+    const h = b.labels.headline;
+    out.push(
+      `| \`${b.label}\` | ${b.labels.tier ? `\`${b.labels.tier}\`` : "—"} | ${band(b.band.value)} | ${renderValue(h.band, (v) => `**${band(v)}** (n=${h.band.n} ${h.band.unit})`)} | ${didWhat(h)} |`,
+    );
+  }
+  out.push("");
+  // WHAT EACH MOVED BAND RESTS ON, per replicate, with both denominators: the pairs
+  // adjudicated against the size of that replicate's own queue, and the replicate
+  // against the number of draws. The section's whole credibility is this line.
+  const adjudicated = bands.filter((b) => b.labels.band.availability === "present");
+  if (adjudicated.length > 0) {
+    out.push(`**What each band above rests on** — the number and its denominators, in one place:`, "");
+    for (const b of adjudicated) {
+      const h = b.labels.headline;
+      out.push(
+        `- \`${b.label}\`: **${h.applied} of ${h.in_tier} \`${h.tier}\` label(s)** applied against an undecided queue of`,
+        `  **${b.maybe_links} pair(s)**, on **1 replicate of ${bands.length}**.` +
+          // Each of these is a real caveat on the same number, and each is omitted when
+          // it is zero rather than printed as "0 of them" — a zero here is the absence
+          // of a caveat, not a measurement being withheld.
+          (h.via["pair_key_at_801"] ? ` ${h.via["pair_key_at_801"]} matched only through the alternate key vintage.` : "") +
+          (h.on_already_shared ? ` ${h.on_already_shared} sit on a class both arms already claim, and are counted nowhere.` : ""),
+        ...(h.fanout
+          ? [`  ${h.fanout} resolved class(es) name more than one panel partner: the CodeRabbit class leaves the denominator once,`,
+             "  and the panel's own classes stay apart — a label resolves a pair and does not merge two panel findings."]
+          : []),
+      );
+    }
+    out.push("");
+  }
+  out.push(...renderCeilingMoved(adjudicated, bands.length));
+  out.push(...renderTrustTier(c, store));
+  out.push(...renderLabelProvenance(bands, store));
+  return out;
+}
+
+/** What a tier's labels did to a replicate, as one cell. A `resolved-nothing` row says
+ *  so IN THOSE WORDS: it is a measurement, and the sentence that makes it one. */
+function didWhat(row) {
+  // A verdict adjudicated on ANOTHER draw of the same corpus, applied here because the
+  // pair key is derived from the two findings' text rather than from the run. Sound,
+  // and worth saying: a reader counting adjudications on this replicate would otherwise
+  // credit it with work done on a different one.
+  const elsewhere = row.cross_replicate > 0 ? `, ${row.cross_replicate} of them adjudicated on another draw` : "";
+  if (row.availability === "resolved") {
+    return `${row.applied} of ${row.in_tier} \`${row.tier}\` label(s) applied${elsewhere} — ${row.resolved_same} CodeRabbit-only class(es) resolved \`same\`, ${row.finished_apart} finished apart, ${row.still_undecided} still undecided`;
+  }
+  if (row.availability === "resolved-nothing") {
+    return `${row.applied} of ${row.in_tier} \`${row.tier}\` label(s) applied${elsewhere} and **no class changed state** — the band is unmoved, and that is measured rather than unlooked-at`;
+  }
+  return `${row.applied} of ${row.in_tier} ${row.tier ? `\`${row.tier}\` ` : ""}label(s) applied`;
+}
+
+/**
+ * S5, ON THE PAGE. `ceiling_moved` is the single most misread thing in this subsystem
+ * and this is where a reader meets it, so it is rendered as a fact with its reason in
+ * BOTH directions — never as a blank, and never as a silence that reads like a
+ * shortfall.
+ *
+ * A `same` verdict adds to the ceiling's numerator exactly what it removes from its
+ * denominator, so only a CodeRabbit finding with EVERY one of its pairs decided moves
+ * the ceiling. On a partial label set that is the correct outcome rather than a
+ * limitation — and a ceiling that DOES move is the flattering direction, so it is
+ * flagged rather than celebrated.
+ */
+function renderCeilingMoved(adjudicated, total) {
+  if (adjudicated.length === 0) return [];
+  const out = [];
+  for (const b of adjudicated) {
+    const h = b.labels.headline;
+    if (h.ceiling_moved) {
+      out.push(
+        `🔴 **The ceiling MOVED on \`${b.label}\` (\`${h.tier}\`): ${h.finished_apart} CodeRabbit-only class(es) had every one of their pairs decided.**`,
+        "A moved ceiling narrows the band in the direction that flatters this project, so it is the one number here to",
+        `check hardest: it is sound only if every pair of each of those ${h.finished_apart} classes was genuinely decided, and`,
+        `\`insufficient-basis\` is not a decision. ${h.still_undecided} class(es) remain undecided on this replicate.`,
+        "",
+      );
+    } else {
+      out.push(
+        `**On \`${b.label}\` the floor moved and the ceiling did not, and that is the arithmetic rather than a shortfall.**`,
+        "A `same` verdict adds to the ceiling's numerator exactly what it removes from its denominator, so only a",
+        `CodeRabbit finding with EVERY one of its pairs decided can move it — and ${h.finished_apart} of \`${b.label}\`'s ${b.coderabbit_only} have that`,
+        `today, with ${h.still_undecided} still undecided. \`ceiling_moved\` is a field of the score, not two percentages a reader is`,
+        "left to diff.",
+        "",
+      );
+    }
+  }
+  if (adjudicated.length < total) {
+    out.push(
+      `**${total - adjudicated.length} of the ${total} replicate(s) above carry no adjudicated band at all**, and their row says which of the`,
+      "five causes applies. An unadjudicated replicate is not a replicate where the labels found nothing — nobody",
+      "has looked at it — and pooling those two would be this report's own lesson one level down.",
+      "",
+    );
+  }
+  return out;
+}
+
+/**
+ * THE TRUST TIER, ON THE FIGURE. `ANNOTATION-GUIDE.md` §6: a `silver` label is an AI
+ * read-through or a merge of noisy signals *pending human confirmation* — "usable but
+ * imperfect; do not treat as the ceiling". So a band moved by one is provisional, and a
+ * reader must be able to see that without opening the score file.
+ *
+ * The scorer names the most trusted tier present as the headline and resolves every
+ * other tier separately; there is no pooled band and no way to express one. Both facts
+ * are rendered, because a table of two tiers with no sentence between them invites
+ * exactly the average that cannot be computed.
+ */
+function renderTrustTier(c, store) {
+  const out = [];
+  const sources = Object.entries(store.by_source);
+  const headline = c.bands[0]?.labels?.tier ?? null;
+  out.push(
+    `**Trust tier, on the figure rather than in a footnote.** The store holds ${store.n} pair record(s)` +
+      (sources.length ? ` — ${sources.map(([t, n]) => `${n} \`${t}\``).join(" · ")}` : "") + ".",
+    `Each tier is resolved separately and **never pooled**: there is no band above computed over two tiers, and the`,
+    "scorer has no argument that would express one.",
+    "",
+  );
+  if (headline !== null && headline !== LABEL_SOURCES[0]) {
+    out.push(
+      `🔴 **The band above is \`${headline}\`'s, not \`${LABEL_SOURCES[0]}\`'s — so it is PROVISIONAL.** The store holds no`,
+      `\`${LABEL_SOURCES[0]}\` record for this corpus, and ANNOTATION-GUIDE §6 says of a weaker tier: *"usable but imperfect;`,
+      'do not treat as the ceiling."* Read every figure in this subsection as pending human confirmation.',
+      "",
+    );
+  }
+  // Every other tier the store holds, resolved separately — never bold, never joined to
+  // the band above, and carrying `ceiling_moved` because a weaker tier that narrows the
+  // band is precisely the row a reader would otherwise quote.
+  const others = c.bands.flatMap((b) => b.labels.other_tiers.map((t) => ({ label: b.label, row: t })));
+  if (others.length > 0) {
+    out.push(
+      `**Other tiers, resolved separately and quoted nowhere above.** A \`silver\` label is an AI read-through pending`,
+      'human confirmation and a `distant` one is inferred without per-item reading; §6 of the guide says *"do not treat',
+      'as the ceiling."* No row below is this report\'s band.',
+      "",
+      "| replicate | tier | adjudicated band | ceiling moved | what the labels did |",
+      "|---|---|---|---|---|",
+    );
+    for (const { label, row } of others) {
+      // `ceiling moved` is a fact about a band, so a row with no band gets an em-dash
+      // rather than a `no`. "The ceiling did not move" and "there is no band here to
+      // move" are the same word and different facts — the distinction this whole
+      // subsection is built on, one column to the right.
+      const moved = row.band.availability !== "present" ? "—" : row.ceiling_moved ? `🔴 yes — ${row.finished_apart} class(es) finished apart` : "no";
+      out.push(
+        `| \`${label}\` | \`${row.tier}\` | ${renderValue(row.band, (v) => `${band(v)} (n=${row.band.n} ${row.band.unit})`)} | ${moved} | ${didWhat(row)} |`,
+      );
+    }
+    out.push("");
+    // 🔴 THE ROW A READER WOULD OTHERWISE QUOTE. A weaker tier has more labels, so it
+    // finishes more classes, so its band is TIGHTER — and a tighter interval is what
+    // everyone here wants. Said out loud, because the table above cannot say it: the
+    // provisional row being the narrower one is the flattering direction, and the tier
+    // is the only thing standing between it and the headline.
+    if (others.some((o) => o.row.ceiling_moved)) {
+      out.push(
+        "🔴 **A weaker tier can produce a TIGHTER band, and tightness is not confidence.** Above, the provisional tier's",
+        "ceiling moves where the headline tier's does not — more labels finish more classes — so the narrower interval",
+        "is the one that has NOT been confirmed by a human. That is the flattering direction, which is why the tier is",
+        "a column here and not a note at the bottom.",
+        "",
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * The two provenance counts, AS TWO SENTENCES.
+ *
+ * 🔴 `keys_moved` AND `needs_readjudication` ARE DIFFERENT FACTS AND AN EARLIER DRAFT
+ * CONFLATED THEM. A moved key means a finding's text was re-parsed, so the PAIR'S
+ * ADDRESS changed — the verdict is untouched and the label still applies through its
+ * alternate key. `needs_readjudication` is a VERDICT flagged as doubted, and it is the
+ * one that would qualify a band. On the pilot the first is 6 and the second is 0: a
+ * reader told that six judgements are doubted, when none are, is worse informed than one
+ * told nothing. Neither caption may ever carry the other's count.
+ */
+function renderLabelProvenance(bands, store) {
+  const out = [
+    "**Two provenance counts that are not the same fact, and neither may be read as the other:**",
+    "",
+    `- **${store.keys_moved} of ${store.n} record(s) carry a pair key that MOVED.** A finding's text was re-parsed, so the pair's`,
+    "  *address* changed. The verdict is untouched, and such a label still applies through its alternate key vintage.",
+    `- **${store.needs_readjudication} of ${store.n} record(s) are flagged for re-adjudication.** That is a doubt about a VERDICT, and it is the`,
+    "  count that would qualify a band. It is not the count above, and the two must never be captioned interchangeably.",
+    "",
+  ];
+  if (store.superseded > 0) {
+    out.push(
+      `${store.superseded} record(s) carry a superseded earlier verdict, kept rather than overwritten so two published agreement`,
+      "numbers against two label vintages stay checkable.",
+      "",
+    );
+  }
+  // Dropped label files, as a measured count. A label this store could not read can
+  // only WIDEN a band, so zero is worth printing beside the bands it did not widen.
+  out.push(
+    `The store was read with **${store.unreadable} unreadable file(s)** and **${store.invalid} refused by the record validator**; a dropped label`,
+    "can only widen a band, never narrow one.",
+    "",
+  );
+  // A label matching no live pair has two causes the queue cannot separate, so it is
+  // reported per replicate rather than summed into one drift number.
+  //
+  // 🔴 ONLY WHERE IT IS AN ANOMALY, and `complementarity.mjs` makes the same exclusion
+  // for the same reason. On a replicate nobody adjudicated, "every label matches
+  // nothing here" IS `none-for-replicate` rather than a finding about it — so printing
+  // it would put an identical warning on the two replicates that are behaving exactly
+  // as expected, which is how the one real drift signal gets lost in a list of three.
+  // The first draft of this function did precisely that: `45 label(s) match no
+  // undecided pair` under both unadjudicated rows, beside a `2` that means something.
+  for (const b of bands) {
+    const h = b.labels.headline;
+    if (!h || h.unmatched === 0 || h.band.availability !== "present") continue;
+    out.push(
+      `⚠ **${h.unmatched} \`${h.tier}\` label(s) match no undecided pair on \`${b.label}\`.** Either the key moved again, or the matcher`,
+      "has since promoted that pair to a match and its class is already shared. Reported rather than dropped, because",
+      "the queue alone cannot separate the two.",
+      "",
+    );
+  }
+  if (store.census_disagrees) {
+    out.push(
+      "🔴 **The replicates report different label censuses**, so this score file was assembled from more than one read of",
+      "the label store and the counts above describe only the first. Re-score in one run before quoting them.",
+      "",
+    );
+  }
   return out;
 }
 
@@ -1318,7 +2145,55 @@ function renderCostLatency(cl) {
   return out.flat().filter((line, i, all) => line !== "" || all[i - 1] !== "");
 }
 
-/** §5 — segmentation. Absent today; blank by design when it lands. */
+/**
+ * A generated sentence, folded to the width the report's authored prose is written
+ * at, so the raw markdown stays readable beside it.
+ *
+ * ONLY FOR PROSE, never for a table row — a fold inside a `|`-delimited line would
+ * break the table.
+ *
+ * 🔴 IT NEVER BREAKS INSIDE A CODE SPAN, and that is not a nicety: this section's
+ * bucket names contain spaces, CodeRabbit's verbatim taxonomy included, so a naive
+ * space split folded `` `coderabbit_category=data integrity & integration` `` across
+ * two lines and markdown then rendered the backticks as literal characters in the
+ * published report. Backtick parity is tracked and a break is only taken outside a
+ * span; an over-long span simply overhangs, which is the harmless failure.
+ *
+ * Pure and width-driven, so it cannot make two renders of one dataset differ.
+ */
+function wrapProse(text, width = 115) {
+  const out = [];
+  let line = "";
+  let open = false;
+  for (const word of text.split(" ")) {
+    const closes = (word.match(/`/g) ?? []).length % 2 === 1;
+    if (line === "") line = word;
+    else if (open || line.length + 1 + word.length <= width) line += ` ${word}`;
+    else {
+      out.push(line);
+      line = word;
+    }
+    if (closes) open = !open;
+  }
+  if (line !== "") out.push(line);
+  return out;
+}
+
+/**
+ * §5 — segmentation. Absent today; a grid per metric when it lands.
+ *
+ * 🔴 THE DEFECT THIS SHAPE FIXES. The first version pushed `sg.cells` into one table
+ * and produced 149 consecutive rows, two columns, 73 of them carrying no value, rows
+ * up to 231 characters — 163 lines, 34% of the report. The cube is metric × bucket ×
+ * arm and it was emitted as a one-dimensional list of composite keys, so a reader had
+ * to parse `metric=…/…=…/arm=…` by eye 149 times to rebuild the grid the payload
+ * already carried. An honest number nobody reads has already failed, and this section
+ * is quoted anyway.
+ *
+ * ARMS ARE COLUMNS, which is the part that makes the section do its job: §4's
+ * deliverable is "where each arm wins", and panel and CodeRabbit were previously
+ * dozens of rows apart on the same bucket.
+ */
 function renderSegmentation(sg) {
   const out = ["## 5. Where each arm wins, by segment", ""];
   if (sg.availability !== "present") {
@@ -1333,14 +2208,35 @@ function renderSegmentation(sg) {
     );
     return out;
   }
+  out.push(
+    "§1's metrics again, cut by segment: the question here is not who scores higher overall but **where** each arm",
+    "does. A cell moves when an arm's behaviour changes inside that bucket — or when the bucket simply collects more",
+    "findings, which is why every cell carries its own `n`. What no cell can tell you is *why*: these are slices of",
+    "one set of replays, not a controlled comparison, so a difference along an axis is a description of this corpus",
+    "and never an attribution to it.",
+    "",
+  );
   // WHAT THE GRID ACTUALLY DID, above it, because decision 12 predicted a blank grid
   // and half of this one reports. The prediction was true per pull request only.
   out.push(
     `**${sg.reported} of ${sg.cells.length} cells report; ${sg.withheld} are withheld** for a denominator below` +
       ` min-n${sg.min_n === null ? "" : ` = ${sg.min_n}`}${sg.min_n_source ? ` (${sg.min_n_source})` : ""}.`,
     "A withheld cell carries the `n` that failed and no value, so it cannot be read as a measured zero.",
-    "",
   );
+  // The sentence about withholding is only true while something is withheld. A grid
+  // with none would otherwise print "0 rows saying nothing is what made this section
+  // unread", which is the caption-contradicts-its-grid failure that `suppressed()`
+  // refuses a defaulted `min_n` to prevent, one paragraph up.
+  if (sg.withheld > 0) {
+    out.push(
+      ...wrapProse(
+        "Where a whole segment is withheld on every arm it is **counted and named below its grid rather than given a row of its " +
+          // The count is `sg.withheld`, not a literal.
+          `own** — a count withholds exactly as much as a row does, and ${sg.withheld} rows saying nothing is what made this section unread.`,
+      ),
+    );
+  }
+  out.push("");
   // Axes that produced no column at all, each with the scorer's own reason. An axis
   // nobody can build is a different fact from a bucket that came out thin, and only
   // one of the two appears in the table below.
@@ -1350,14 +2246,105 @@ function renderSegmentation(sg) {
     for (const a of absentAxes) out.push(`| \`${a.id}\` | ${renderCell(a.cell)} |`);
     out.push("");
   }
-  out.push("| segment | figure |", "|---|---|");
-  // `num` is passed HERE and the default is left alone. §5 is the first table whose
-  // values pass through `renderCell` rather than being formatted by its caller, so it
-  // is the first place the raw `String(v)` default shows — it printed a real cell as
-  // `0.6944444444444444`. Changing the default instead would reformat CodeRabbit's
-  // measured `critical` zero as `0.000`, which reads as a precision this data does not
-  // have, and would redden the test that pins a bare `0`.
-  for (const c of sg.cells) out.push(`| \`${c.segment}\` | ${renderCell(c.cell, num)} |`);
+  // Why a grid below has no rows for an axis at all. A refused pair is a third kind of
+  // absence — not thin, not unbuildable, but meaningless as posed — and it was the one
+  // §5 never printed.
+  if (sg.pairsRefused.length > 0) {
+    out.push(`Metric × axis pairs the scorer refused, by construction rather than for a thin denominator:`, "", "| pair | why |", "|---|---|");
+    for (const p of sg.pairsRefused) out.push(`| \`${p.metric}\` × \`${p.axis}\` | ${renderCell(p.cell)} |`);
+    out.push("");
+  }
+  if (sg.pairsUnitMismatch > 0) {
+    out.push(
+      ...wrapProse(
+        `A further ${sg.pairsUnitMismatch} pair(s) are not listed because they are one fact repeated: a metric counted in pull requests, cut by an axis ` +
+          "that cuts findings, gives every bucket the same denominator — a numerator filter rather than a segment (§4.1).",
+      ),
+      "",
+    );
+  }
+  // The one-armed axes, named once. Their empty column is `—` in every grid below and
+  // that symbol has to mean something specific, or a reader reads it as a thin cell.
+  const oneArmed = sg.axes.filter((a) => a.status === "computed" && a.arms.length === 1);
+  if (oneArmed.length > 0) {
+    out.push(
+      ...wrapProse(
+        `\`—\` marks an axis the scorer declares for one arm only — ${oneArmed.map((a) => `\`${a.id}\` (${a.arms.join(", ")})`).join(" · ")} — because the field it cuts on ` +
+          "exists in that arm's records and nowhere else. It is not a withheld cell: there is no measurement to withhold, and a bigger corpus would not produce one.",
+      ),
+      "",
+    );
+  }
+  for (const g of sg.grids) out.push(...renderSegmentationGrid(g, sg.metrics));
+  // Cells the payload gave no coordinates for. Never dropped — a payload that predates
+  // the grouping fields renders as the flat list it is, and says so.
+  if (sg.ungrouped.length > 0) {
+    out.push(
+      `**${sg.ungrouped.length} cell(s) carry no metric/axis/bucket/arm and cannot be placed in a grid**, so they are listed as the`,
+      "scorer emitted them. That is a payload from before those fields existed, not a measurement problem.",
+      "",
+      "| segment | figure |",
+      "|---|---|",
+    );
+    for (const c of sg.ungrouped) out.push(`| \`${c.segment}\` | ${renderCell(c.cell, num)} |`);
+    out.push("");
+  }
+  return out;
+}
+
+/**
+ * One metric's grid: buckets down, arms across.
+ *
+ * THE UNIT IS HOISTED INTO THE COLUMN HEADER, and only when every reported cell in
+ * that column agrees on it. That is the `renderValue`/`unitOf` contract — drop the
+ * `(n= unit)` suffix only where the unit is rendered adjacently — and it is what
+ * keeps a row readable: the panel's unit string is `findings with a stated severity;
+ * median of 3 replicates`, which repeated in every cell of every row is most of the
+ * 231-character width this section had. A column whose cells disagree keeps the unit
+ * in each cell, because a header that averaged two units would be the one thing
+ * `figure()` refuses to allow.
+ */
+function renderSegmentationGrid(g, metrics) {
+  const spec = metrics.find((m) => m.id === g.metric)?.spec ?? null;
+  const out = [`### \`${g.metric}\`${spec === null ? "" : ` — ${spec}`}`, ""];
+  // A metric whose every segment is withheld gets a sentence, not an empty table with
+  // a header. The rows are still named, so "which buckets" is answerable.
+  if (g.rows.length === 0) {
+    out.push(
+      ...wrapProse(`**No cell cleared min-n.** All ${g.withheldRows.length} segment(s) are withheld on every arm: ${g.withheldRows.map((r) => `\`${r}\``).join(" · ")}.`),
+      "",
+    );
+    return out;
+  }
+  const unitOfColumn = (arm) => {
+    const units = new Set(g.rows.map((r) => r.cells[arm]).filter((c) => c !== null && c.availability === "present").map((c) => c.unit));
+    return units.size === 1 ? [...units][0] : null;
+  };
+  const units = Object.fromEntries(g.arms.map((arm) => [arm, unitOfColumn(arm)]));
+  out.push(
+    ...wrapProse(`Both arms report on **${g.comparable} of the ${g.twoArm}** segments this metric cuts on both arms — those rows, and only those, are a comparison.`),
+    "",
+    `| segment | ${g.arms.map((arm) => `${arm}${units[arm] === null ? "" : ` · ${units[arm]}`}`).join(" | ")} |`,
+    `|---|${g.arms.map(() => "---").join("|")}|`,
+  );
+  for (const r of g.rows) {
+    // `num` is passed HERE and the default is left alone. §5 is the first table whose
+    // values pass through `renderCell`/`renderValue` rather than being formatted by
+    // its caller, so it is the first place the raw `String(v)` default shows — it
+    // printed a real cell as `0.6944444444444444`. Changing the default instead would
+    // reformat CodeRabbit's measured `critical` zero as `0.000`, which reads as a
+    // precision this data does not have, and would redden the test that pins a bare `0`.
+    const cells = g.arms.map((arm) => {
+      const c = r.cells[arm];
+      if (c === null) return "—";
+      if (c.availability !== "present") return renderCell(c, num);
+      return units[arm] === null ? renderCell(c, num) : `${renderValue(c, num)} · n=${c.n}`;
+    });
+    out.push(`| \`${r.label}\` | ${cells.join(" | ")} |`);
+  }
+  if (g.withheldRows.length > 0) {
+    out.push("", ...wrapProse(`Withheld on every arm and not given rows — ${g.withheldRows.length} segment(s): ${g.withheldRows.map((r) => `\`${r}\``).join(" · ")}.`));
+  }
   out.push("");
   return out;
 }
@@ -1374,8 +2361,15 @@ function renderLimits(r) {
   const out = [
     "## 6. Limits — what bounds each figure above",
     "",
-    "**No adjudicated labels exist.** No precision, recall or correctness figure appears anywhere above. This",
-    "is the limit that subsumes the rest: every number here describes behaviour, not quality.",
+    // ⟳ THIS LIMIT'S PREMISE WENT FALSE WHILE ITS CONSEQUENCE STAYED TRUE, which is the
+    // most dangerous shape a hardcoded sentence can have. It read "No adjudicated
+    // labels exist" unconditionally; 357 adjudicated PAIR labels now exist and §2
+    // renders a band from them. The conclusion is untouched — there is still no
+    // precision figure — but for a reason the old sentence could not state, and an
+    // assertion that cannot fail when it becomes wrong is exactly what lesson 1 is
+    // about. So it is derived from the label census the complementarity payload
+    // carries, and the two kinds of label are named apart.
+    ...labelsLimit(s),
     "",
     "**The spec asked for a radar chart and there is not one.** A radar implies every axis is a comparable",
     "per-arm quantity, and on this data at most one of four is. Reliability is one-armed; cost has no per-review",
@@ -1421,6 +2415,43 @@ function renderLimits(r) {
     "",
   );
   return out;
+}
+
+/**
+ * §6's FIRST limit, and the one that subsumes the rest — derived, because its premise
+ * moved.
+ *
+ * 🔴 TWO KINDS OF LABEL, AND ONLY ONE OF THEM MAKES A PRECISION FIGURE. A **pair**
+ * label answers *"are these two findings the same defect?"* and is what §2's band rests
+ * on. A **validity** label answers *"is this finding real?"* and is what precision,
+ * recall and correctness need. The store now holds hundreds of the first and none of
+ * the second for this corpus, so the conclusion this limit has always stated survives
+ * intact while the sentence that used to justify it — *"no adjudicated labels exist"* —
+ * is now false on its face.
+ *
+ * That is the failure mode this project keeps re-learning: the old line was an
+ * assertion with no input, so it could not go red when the world moved under it. This
+ * one reads the census the payload carries, so a store with validity labels in it would
+ * change what §6 says rather than leaving §6 confidently wrong.
+ */
+function labelsLimit(s) {
+  const store = s.complementarity.availability === "present" ? s.complementarity.label_store : null;
+  if (!store || store.n === 0) {
+    return [
+      "**No adjudicated labels exist.** No precision, recall or correctness figure appears anywhere above. This",
+      "is the limit that subsumes the rest: every number here describes behaviour, not quality.",
+    ];
+  }
+  const sources = Object.entries(store.by_source);
+  return [
+    `**${store.n} adjudicated PAIR label(s) exist${sources.length ? ` (${sources.map(([t, n]) => `${n} \`${t}\``).join(" · ")})` : ""}, and no validity label does.** Those are`,
+    "different questions and only the second bounds this report: a pair label answers *\"are these two findings the",
+    "same defect?\"*, which is what §2's adjudicated band rests on, while precision, recall and correctness need",
+    "*\"is this finding real?\"* — and nobody has judged that for a single finding here. **So there is still no",
+    "precision, recall or correctness figure anywhere above**, and every number in this report describes behaviour",
+    "rather than quality. The limit is unchanged; the reason for it is now narrower, and adjudicating pairs does",
+    "not shrink it.",
+  ];
 }
 
 /**

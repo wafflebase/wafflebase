@@ -305,9 +305,13 @@ reached a public PR as a diff appearing to delete every file in the repo.
 - **`.github/workflows/ci.yml` itself is read-only** (`permissions: contents: read`). Every write to
   a pull request happens in `.github/workflows/ci-report.yml`; see
   [Reporting onto a fork PR](#reporting-onto-a-fork-pr).
-- On PRs, `.github/workflows/ci-report.yml` posts one verification comment
-  covering `verify-self`, `verify-browser`, `verify-integration` and the per-lane
-  detail, and applies `ci-config-changed` when the mapping was touched.
+- On PRs, `.github/workflows/ci-report.yml` posts one comment reporting CI's
+  **scope** — which heavy jobs were skipped and why, which changed file forced
+  the full suite, how many lanes were filtered — and applies `ci-config-changed`
+  when the mapping was touched. It deliberately does not repeat pass/fail: the
+  PR's own checks list already shows that, and `scripts/agent/mark-ready.mjs`
+  reads the Actions API rather than this comment precisely because a comment is
+  author-writable.
 - CI triggers on `push` to `main`, `pull_request` targeting `main`, and
   `merge_group` (see below).
 
@@ -340,6 +344,18 @@ pull-request code, runs no `pnpm`, and executes nothing from the triggering run.
 It reads two artifacts as *data* and calls the API. Adding a checkout of
 `head_sha` or a build step there would hand the token to the fork.
 
+**The invariant that follows from it:** reads run in their own
+`actions/github-script` step on the ambient token, writes in a second step on the
+App token — never both in one step. `github-script` binds exactly one client per
+step, and because there is no checkout there is no `node_modules`, so a second
+client cannot be built inside a step body: `require('@actions/github')` throws
+`Cannot find module` before the first API call. #831 did exactly that, and since a
+`workflow_run` workflow cannot fail its own pull request, it silently cost every
+PR both the comment and the `ci-config-changed` label until the split.
+`scripts/test/ci-workflow.test.mjs` holds both halves — inline scripts may
+`require` only Node builtins, and the read endpoints never appear in the
+App-token step.
+
 Consequences worth knowing:
 
 - The resolution and the PR number travel in a `ci-context` artifact, because
@@ -348,11 +364,26 @@ Consequences worth knowing:
 - Artifact contents are attacker-controlled (lane names come from the PR's own
   `scripts/verify-self.mjs`, reasons embed its diff paths). They are only interpolated
   into markdown, never executed, but are still collapsed for `|`, backticks,
-  angle brackets and newlines so a crafted name cannot forge table rows or
-  smuggle HTML, and length-capped so it cannot flood the comment.
+  angle brackets and newlines so a crafted name cannot smuggle HTML or forge the
+  `<!-- harness-verification -->` marker under the bot's identity, and
+  length-capped so it cannot flood the comment. The lane counts take the same
+  risk through a different door and so are coerced to numbers rather than
+  collapsed: a count that is not a number is a `.harness-reports/` summary written
+  to smuggle markup, and the line is dropped.
 - Heavy-job outcomes are read from the run's job list rather than a second
   artifact, so *skipped* is distinguishable from *never wrote a file*. That is
-  also what collapses the old two-phase "⏳ pending…" comment into one.
+  also what collapses the old two-phase "⏳ pending…" comment into one. What it
+  reads is the **gate-marker step**, not the job's conclusion: `ci.yml` gates the
+  steps and never the job, because a job-level `if:` renames the check run away
+  from the required context — so a heavy job that did nothing still concludes
+  `success`, and believing the job would report every reduced run as a full one.
+- The comment reports CI's **scope** — what was skipped, which changed file forced
+  the whole suite, how many lanes were filtered — and not pass/fail, which the
+  PR's checks list already shows. Its heading is always what the run did; the
+  gating-file list is recomputed independently and can only ever be a reason
+  appended to that. Nothing machine-reads the comment:
+  `scripts/agent/mark-ready.mjs` takes the run conclusion from the Actions API,
+  because a comment is author-writable.
 - Without the App configured the reporter degrades to the ambient token, which
   still works for same-repo PRs. The `changes` job's **run summary** needs no
   token at all, so it remains the copy that always survives.
@@ -571,13 +602,29 @@ some unrelated merge the branch happens to end on.
 | --- | --- | --- |
 | `full` | whether filtering happens at all | `true` disables selection entirely: every `verify:self` lane runs. Set by a `push` to `main`, a `ciConfig` change, and every fail-safe route |
 | `packages` | which lanes run **when `full` is false** | reverse-dependency closure of the changed workspace packages |
-| `heavy` | `verify-browser`, `verify-integration`, the coverage steps | **any** workspace package changed |
+| `heavy` | `verify-browser`, `verify-integration`, the coverage steps | **any** workspace package changed — or the scope was never resolved, below |
 
 `full` and `packages` are separate because they answer different questions —
 "is selection on?" and "select what?" — and conflating them is how a fail-safe
 turns into a no-op: a resolution with `full: false` and no usable `packages`
 selects *nothing*, which is why `resolve()` validates the shape of a handed-off
 resolution rather than trusting that it parsed.
+
+**A job that cannot resolve anything still succeeds.** `What changed` clones at
+full depth, and that checkout occasionally stalls: measured across 30 runs it takes
+13–22s and never more than 57s, while every failure sits at the job timeout with
+nothing in between — a stalled clone of this history does not finish late, it does
+not finish. So it gets two short attempts instead of one long one, and if neither
+lands the job reports success having set `full` and `heavy` itself. Nothing is
+broken on that path; the scope is simply unknown, and a red check on a run that
+went on to measure everything reads as a failure that did not happen.
+
+Succeeding is what makes that explicit `heavy` load-bearing. The gates downstream
+read `needs.changes.result != 'success' || needs.changes.outputs.heavy == 'true'`,
+so a job that succeeds with `heavy` unset satisfies neither term — and
+`verify-browser` and `verify-integration` are required checks, which would then
+report green having run nothing. That is the no-op failure mode above wearing a
+different hat, and `scripts/test/ci-workflow.test.mjs` is what holds it shut.
 
 The closure is derived from each `packages/*/package.json`, so it cannot go stale
 when someone adds a dependency — the dependency *is* the mapping. The two heavy

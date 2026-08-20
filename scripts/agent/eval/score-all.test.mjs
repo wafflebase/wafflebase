@@ -609,6 +609,138 @@ test("summarise states what was filed and which capabilities were measured", () 
   assert.match(text, /reports\/x\.md/);
 });
 
+// --- the paths that reach a child -------------------------------------------
+
+/**
+ * A full pass with NO network and NO scorers: a spy that records every argv and
+ * emulates the only two children with side effects.
+ *
+ * `--help` answers with a usage line carrying the capability flag, a scorer answers with a
+ * payload, and `--persist` / the render actually WRITE through the store — so the driver's
+ * own round-trip check (`getScore`) and its final `existsSync` sweep both run for real
+ * against a temp store. That is what makes this a test of the orchestration rather than of
+ * a mock.
+ */
+function fullPassSpy(store, { configHash, corpusVersion }) {
+  const calls = [];
+  const run = (args) => {
+    calls.push(args);
+    const at = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
+    if (args.includes("--help")) {
+      return { status: 0, stdout: `usage: x ${CAPABILITIES[0].flag} [--json]`, stderr: "" };
+    }
+    if (args.includes("--persist")) {
+      store.putScore(
+        { scorerId: at("--scorer-id"), scope: at("--scope"), runId: at("--run-id"), configHash: at("--config-hash"), corpusVersion: at("--corpus-version") },
+        JSON.parse(readFileSync(at("--from"), "utf8")),
+      );
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    if (args[0].endsWith("report.mjs")) {
+      store.putReport(comparisonIdFor({ configHash, corpusVersion }), "# rendered\n");
+      return { status: 0, stdout: "", stderr: "" };
+    }
+    // The payload has to MATCH the step, because `validateScore` refuses a payload that
+    // names itself one scorer while being filed under another — it caught this fixture
+    // returning a cost-latency payload for volume-mix, which is the store guarding exactly
+    // the mix-up it was built for. Only `cost-latency.mjs` needs a shaped payload here (the
+    // driver asserts its latency); for the rest an empty object is a valid score, since
+    // `scorer_id` is optional in the payload and required at the call.
+    const body = args[0].endsWith("cost-latency.mjs") ? costLatencyPayload(MEASURED) : {};
+    return { status: 0, stdout: JSON.stringify(body), stderr: "" };
+  };
+  return { calls, run };
+}
+
+test("a RELATIVE --root is resolved before it reaches a child, which runs in a different cwd", async () => {
+  // 🔴 THE LANE'S FIRST LIVE FAILURE, 2026-08-17, and the reason this test exists at all:
+  // all 40 tests above passed while the scheduled tick refused every corpus item on a store
+  // that was sitting right there.
+  //
+  // This driver runs in one directory and its children in ANOTHER — `scorerArgs` builds a
+  // relative module path, so `doRun` sets `cwd` to `scripts/agent` to resolve it, and that
+  // cwd silently reparents every other relative path in the same argv. The workflow passes
+  // `--root .eval-store` from the repository root, so the driver found the corpus and every
+  // scorer looked for it under `scripts/agent/`.
+  //
+  // Nothing above could see it: the orchestrator tests inject `run`, so no argv ever met a
+  // real cwd, and every end-to-end run was driven with an ABSOLUTE scratchpad path. So this
+  // asserts the property directly — what a child is HANDED, not what the driver resolves
+  // for itself.
+  const parent = mkdtempSync(path.join(tmpdir(), "score-all-relroot-"));
+  const cwd = process.cwd();
+  try {
+    const store = new EvalStore(path.join(parent, "store"));
+    store.putCorpusManifest(CORPUS_VERSION, { items: [{ id: "pr-415" }, { id: "pr-524" }] });
+    for (const id of RUNS) store.putRun(id, { runJson: { run_id: id } });
+    const spy = fullPassSpy(store, { configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION });
+
+    // The cwd is what the bug turns on, so the test has to own it. Restored in `finally`.
+    process.chdir(parent);
+    const result = await scoreAll({
+      root: "store", // RELATIVE, exactly as the workflow passes it
+      corpusVersion: CORPUS_VERSION,
+      configHash: CONFIG_HASH,
+      runIds: RUNS,
+      out: "payloads", // relative too: `--from` reaches a child the same way
+      run: spy.run,
+      probe: () => "x-ratelimit-limit: 5000\nx-ratelimit-remaining: 5000\nx-ratelimit-reset: 1786606948\n",
+      env: { GH_REPO: "wafflebase/wafflebase" },
+      log: () => {},
+    });
+
+    // The pass COMPLETED, so the argv below are a whole run's worth rather than whatever
+    // was recorded before an early throw.
+    assert.equal(result.filed.length, RUNS.length + 4);
+    assert.ok(spy.calls.length >= 12, `expected a full pass of calls, got ${spy.calls.length}`);
+
+    // Every path handed to a child is absolute. This is the assertion; everything above is
+    // scaffolding to reach it.
+    let checkedRoot = 0;
+    let checkedFrom = 0;
+    for (const args of spy.calls) {
+      for (const [flag, count] of [["--root", () => checkedRoot++], ["--from", () => checkedFrom++]]) {
+        const i = args.indexOf(flag);
+        if (i < 0) continue;
+        const value = args[i + 1];
+        assert.ok(path.isAbsolute(value), `${args[0]} was handed a relative ${flag} (${JSON.stringify(value)}) — it runs in a different cwd and would resolve it somewhere else`);
+        count();
+      }
+    }
+    // Both flags were actually exercised, so neither assertion passed by never running.
+    assert.ok(checkedRoot >= 8, `--root should reach every child, saw ${checkedRoot}`);
+    assert.ok(checkedFrom >= 7, `--from should reach every persist, saw ${checkedFrom}`);
+  } finally {
+    process.chdir(cwd);
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("the corpus refusal names the RESOLVED directory, not just the corpus version", () => {
+  // The live failure said `corpus version "2026-08-10-pilot-reviewed" does not exist under
+  // this root` and named no path — so it read as "the corpus was re-frozen and this
+  // schedule points at a retired version", which is a real thing that will happen one day
+  // and is exactly what the comment above SCHEDULED_CORPUS_VERSION warns about. A message
+  // that confidently accuses the wrong suspect costs more than no message.
+  const parent = mkdtempSync(path.join(tmpdir(), "score-all-refusal-"));
+  const cwd = process.cwd();
+  try {
+    process.chdir(parent);
+    return assert.rejects(
+      () => scoreAll({ root: "no-such-store", corpusVersion: CORPUS_VERSION, configHash: CONFIG_HASH, runIds: RUNS, run: spy().run, probe: () => "", env: { GH_REPO: "a/b" }, log: () => {} }),
+      (e) => {
+        assert.match(e.message, /does not exist under/);
+        assert.ok(e.message.includes(path.join(parent, "no-such-store")), `the refusal must name the resolved directory, got: ${e.message}`);
+        assert.match(e.message, /resolved from "no-such-store"/, "and the argument it came from, so a relative path is visibly relative");
+        return true;
+      },
+    );
+  } finally {
+    process.chdir(cwd);
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 // --- the workflow -----------------------------------------------------------
 
 test("the scoring workflow has NO write scope on THIS repository", () => {

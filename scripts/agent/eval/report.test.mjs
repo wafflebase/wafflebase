@@ -16,6 +16,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   AVAILABILITY,
+  LABEL_CAUSE,
   PRODUCTION_LATENCY_PAIR,
   SELF_REVIEW_ITEMS,
   SCORER_IDS,
@@ -392,11 +393,19 @@ test("there is no code path that prints the overlap point without its ceiling", 
   }
   const rendered = renderReport(FULL());
   // Every rendered percentage that is a lower bound appears on a row that also shows
-  // its ceiling. Checked structurally: the table's `band` column is present on every
-  // data row of section 2.
+  // its ceiling. Checked structurally: a `band` column is present on every data row of
+  // section 2.
+  //
+  // ⟳ SIX ROWS SINCE §2 GAINED ITS DIRECTIONAL-RATE TABLE, and this assertion is why
+  // that table's last column holds a band rather than a point. Its first draft printed
+  // a bare `3.5%` under a `Jaccard` header — demoted beneath the two rates, but still
+  // the lower bound of an interval, printed alone, in the first table of the section.
+  // The bold is only on the band table's copy; the invariant is the ceiling, not the
+  // emphasis.
   const rows = rendered.split("\n").filter((l) => /^\| `pilot-01__k\d` \|/.test(l));
-  assert.equal(rows.length, 3);
-  for (const row of rows) assert.match(row, /\*\*\[\d+\.\d%, \d+\.\d%\]\*\*/);
+  assert.equal(rows.length, 6);
+  for (const row of rows) assert.match(row, /\[\d+\.\d%, \d+\.\d%\]/);
+  assert.equal(rows.filter((r) => /\*\*\[\d+\.\d%, \d+\.\d%\]\*\*/.test(r)).length, 3);
   assert.equal(complementarityFigures(null).availability, "not-computed");
   assert.equal(complementarityFigures({ per_replicate: [] }).availability, "not-computed");
 });
@@ -858,13 +867,14 @@ test("a segmentation value is formatted, not stringified — the fmt parameter i
   // correctly. This one is `25/36`, which is what a real `k/n` looks like.
   const built = segmentationFigures({
     min_n: 5,
-    axes: [{ id: "severity", status: "computed" }],
-    cells: [{ segment: "metric=in_diff_rate/severity=major/arm=panel", suppressed: false, value: 25 / 36, n: 36, unit: "findings" }],
+    axes: [{ id: "severity", status: "computed", arms: ["panel", "coderabbit"] }],
+    metrics: [{ id: "in_diff_rate", spec: "§3.1 — scope discipline: share of findings anchored inside a changed region" }],
+    cells: [{ segment: "metric=in_diff_rate/severity=major/arm=panel", metric: "in_diff_rate", axis: "severity", bucket: "major", arm: "panel", suppressed: false, value: 25 / 36, n: 36, unit: "findings" }],
   });
   // The cell itself still holds the full-precision value — formatting is the renderer's
   // job, not the extractor's.
   assert.equal(built.cells[0].cell.value, 25 / 36);
-  assert.match(renderReport(withSegmentation(built)), /\| `metric=in_diff_rate\/severity=major\/arm=panel` \| 0\.694 \(n=36 findings\) \|/);
+  assert.match(renderReport(withSegmentation(built)), /\| `severity=major` \| 0\.694 · n=36 \|/);
   assert.doesNotMatch(renderReport(withSegmentation(built)), /0\.6944444/);
 
   // 🔴 AND THE DEFAULT IS UNCHANGED, which is the other half of the instruction: a
@@ -963,6 +973,232 @@ test("a suppressed segmentation cell says what it failed, and an unbuilt one say
   assert.equal(renderCell(built.cells[1].cell), "0 (n=6 findings)");
   // "We measured nothing here" and "we measured zero here" are two different cells.
   assert.notEqual(renderCell(built.cells[0].cell), renderCell(built.cells[1].cell));
+});
+
+// --- §5's grid ---------------------------------------------------------------
+//
+// A `segmentation-v1` payload shaped like the real one: the cube's three coordinates
+// travel beside the flat label, so the renderer can rebuild the grid instead of
+// printing the label. The numbers are the pilot's own, off
+// `scores/by-config/…__2026-08-10-pilot-reviewed/segmentation-v1.json`, because the
+// thing under test is a LAYOUT over real proportions — CodeRabbit's cells are exactly
+// 1.000 and the panel's are not, and a fixture of round invented numbers would hide
+// that the two arms now sit on one line where that is finally visible.
+
+/**
+ * The document with its line folds removed, for asserting a SENTENCE the renderer
+ * wraps to the report's prose width. Where the fold lands is a property of how long
+ * a payload's bucket names happen to be, not of anything under test, so pinning it
+ * would make an unrelated fixture edit redden a layout test. Table rows are asserted
+ * against the raw document, where the line break is structural.
+ */
+const unwrapped = (md) => md.replace(/\n/g, " ");
+
+/** One cell in the scorer's own shape, label included, so a test asserting the grid
+ *  cannot pass on a payload the scorer would never emit. */
+const segCell = (metric, axis, bucket, arm, rest) => ({
+  segment: `metric=${metric}/${axis}=${bucket}/arm=${arm}`,
+  metric,
+  axis,
+  bucket,
+  arm,
+  min_n: 5,
+  ...rest,
+});
+
+const PANEL_UNIT = "findings; median of 3 replicates";
+const CODERABBIT_UNIT = "findings; single observation";
+
+const SEGMENTATION = () => ({
+  min_n: 5,
+  min_n_source: "spec §4.1 default",
+  axes: [
+    { id: "severity", unit: "finding", status: "computed", arms: ["panel", "coderabbit"] },
+    { id: "novelty", unit: "finding", status: "computed", arms: ["panel"] },
+    { id: "defect_type", unit: "finding", status: "not-computed", arms: [], reason: "defect type is assigned at adjudication and no adjudicated labels exist" },
+  ],
+  metrics: [
+    { id: "localization_rate", currency: "finding", spec: "§3.1 — share of findings citing a file and line that resolves against the frozen diff" },
+    { id: "findings_per_pr", currency: "item", spec: "§3.1 — findings per pull request" },
+  ],
+  pairs_not_computed: [
+    // Refused for what the pair MEANS — rendered, with the scorer's reason.
+    { metric: "localization_rate", axis: "novelty", reason: "the novelty annotation is stamped ONLY on critical/major findings" },
+    // Refused for a unit mismatch — one fact repeated across the per-PR metrics.
+    { metric: "findings_per_pr", axis: "novelty", reason: "findings_per_pr is counted in PRs and novelty cuts findings, so every bucket would share one denominator" },
+  ],
+  cells: [
+    // severity: one bucket both arms report, one where only the panel does, one
+    // withheld on both.
+    segCell("localization_rate", "severity", "minor", "panel", { suppressed: false, value: 70 / 89, n: 89, unit: PANEL_UNIT }),
+    segCell("localization_rate", "severity", "minor", "coderabbit", { suppressed: false, value: 1, n: 13, unit: CODERABBIT_UNIT }),
+    segCell("localization_rate", "severity", "major", "panel", { suppressed: false, value: 25 / 32, n: 32, unit: PANEL_UNIT }),
+    segCell("localization_rate", "severity", "major", "coderabbit", { suppressed: true, n: 3 }),
+    segCell("localization_rate", "severity", "critical", "panel", { suppressed: true, n: 0 }),
+    segCell("localization_rate", "severity", "critical", "coderabbit", { suppressed: true, n: 0 }),
+    // A one-armed axis: `novelty` reads a field only the panel's records carry.
+    segCell("localization_rate", "novelty", "pre-existing", "panel", { suppressed: false, value: 5 / 13, n: 13, unit: PANEL_UNIT }),
+    // A metric counted in PRs, withheld everywhere on a 7-item corpus.
+    segCell("findings_per_pr", "severity", "minor", "panel", { suppressed: true, n: 4 }),
+    segCell("findings_per_pr", "severity", "minor", "coderabbit", { suppressed: true, n: 4 }),
+  ],
+});
+
+test("🔴 §5 is a grid per metric with the ARMS AS COLUMNS, not a list of composite keys", () => {
+  // 🔴 THE DEFECT. `renderSegmentation` did `for (const c of sg.cells)` over a flat
+  // array and emitted the cube — metric × bucket × arm — as 149 one-dimensional
+  // `metric=…/…=…/arm=…` keys, two columns, 163 lines, 34% of the report. The grouping
+  // was in the payload the whole time: `segmentLabel`'s own comment says the three
+  // components travel beside the flat label precisely so a consumer can regroup them.
+  const md = renderReport(withSegmentation(segmentationFigures(SEGMENTATION())));
+  assert.match(unwrapped(md), /### `localization_rate` — §3\.1 — share of findings citing a file and line/);
+  // The arms are COLUMNS. This is the assertion a future reflattening has to break.
+  assert.match(md, /\| segment \| panel · findings; median of 3 replicates \| coderabbit · findings; single observation \|/);
+  // …and therefore both arms sit on ONE line, which is the entire purpose of §5 and
+  // was impossible when they were dozens of rows apart.
+  assert.match(md, /\| `severity=minor` \| 0\.787 · n=89 \| 1\.000 · n=13 \|/);
+  // The composite key is GONE from the page. A renderer that fell back to the flat
+  // list would still satisfy every assertion above about content; only this one says
+  // the shape changed.
+  assert.doesNotMatch(md, /metric=localization_rate\/severity=minor\/arm=panel/);
+});
+
+test("🔴 §5's withheld cells still publish no value — in place beside a reported arm, or as a named count", () => {
+  // 🔴 The honesty invariant survives the reshape, and it is the one thing that must.
+  // A withheld cell carries the `n` that failed and NO value, so it cannot be read as
+  // a measured zero; the change is that it no longer costs a row of its own.
+  const md = renderReport(withSegmentation(segmentationFigures(SEGMENTATION())));
+  // ONE arm withheld: the row survives for the arm that reported, and the withheld
+  // arm says so in place — no number, and nothing that could be mistaken for one.
+  assert.match(md, /\| `severity=major` \| 0\.781 · n=32 \| \*\*suppressed\*\*: n=3 < 5 \|/);
+  // EVERY arm withheld: no row at all, and the segment is still named.
+  assert.doesNotMatch(md, /\| `severity=critical` \|/);
+  assert.match(unwrapped(md), /Withheld on every arm and not given rows — 1 segment\(s\): `severity=critical`\./);
+  // The count in the caption is the payload's, not a literal: 5 of 9 cells here.
+  assert.match(unwrapped(md), /\*\*4 of 9 cells report; 5 are withheld\*\* for a denominator below min-n = 5 \(spec §4\.1 default\)/);
+  assert.match(unwrapped(md), /5 rows saying nothing is what made this section unread/);
+});
+
+test("a metric with no reporting cell gets a sentence naming its segments, not an empty table", () => {
+  // `findings_per_pr` is counted in PULL REQUESTS, and the fattest per-PR denominator
+  // on a 7-item corpus is 4 — so it withholds everywhere while the per-finding metrics
+  // beside it report. An empty table with a header would be the blank grid decision 12
+  // warned about; the sentence says which segments and why nothing is there.
+  const md = renderReport(withSegmentation(segmentationFigures(SEGMENTATION())));
+  assert.match(unwrapped(md), /### `findings_per_pr` — §3\.1 — findings per pull request {2}\*\*No cell cleared min-n\.\*\* All 1 segment\(s\) are withheld on every arm: `severity=minor`\./);
+  // No table header for a metric with no rows.
+  const grid = md.slice(md.indexOf("### `findings_per_pr`"));
+  assert.doesNotMatch(grid.slice(0, grid.indexOf("\n### ") === -1 ? undefined : grid.indexOf("\n### ")), /\| segment \|/);
+});
+
+test("a one-armed axis renders as `—`, which is not the same symbol as a withheld cell", () => {
+  // 🔴 Three of the pilot's seven axes are one-armed BY CONSTRUCTION: `novelty` reads
+  // a field only the panel's records carry, `coderabbit_category` and `window` only
+  // CodeRabbit's. "No measurement exists to make" and "the denominator was too thin"
+  // are different facts, and a bigger corpus closes exactly one of them — so they must
+  // not share a symbol. The axis's own declared `arms` is what says which is which.
+  const md = renderReport(withSegmentation(segmentationFigures(SEGMENTATION())));
+  assert.match(md, /\| `novelty=pre-existing` \| 0\.385 · n=13 \| — \|/);
+  assert.match(unwrapped(md), /`—` marks an axis the scorer declares for one arm only — `novelty` \(panel\)/);
+  assert.match(unwrapped(md), /It is not a withheld cell: there is no measurement to withhold/);
+  // And the withheld cells in the same grid still say "suppressed", not "—".
+  assert.doesNotMatch(md, /\| `severity=major` \| 0\.781 · n=32 \| — \|/);
+});
+
+test("the unit is hoisted into a column header only while that column agrees on it", () => {
+  // 🔴 `renderValue` may drop the `(n= unit)` suffix ONLY where the unit is rendered
+  // adjacently — that is its own docstring's condition, and the column header is what
+  // discharges it here. A column whose reported cells disagree has no one unit to
+  // hoist, so every cell keeps its own; a header that picked one of two would be the
+  // unitless figure `figure()` refuses to construct in the first place.
+  const payload = SEGMENTATION();
+  payload.cells.push(segCell("localization_rate", "severity", "nit", "panel", { suppressed: false, value: 0.5, n: 8, unit: "defect classes; median of 3 replicates" }));
+  const md = renderReport(withSegmentation(segmentationFigures(payload)));
+  assert.doesNotMatch(md, /\| segment \| panel · findings; median of 3 replicates \|/);
+  assert.match(md, /\| `severity=minor` \| 0\.787 \(n=89 findings; median of 3 replicates\) \|/);
+  assert.match(md, /\| `severity=nit` \| 0\.500 \(n=8 defect classes; median of 3 replicates\) \|/);
+});
+
+test("the comparable count is of the rows in the grid below it, so the two cannot disagree", () => {
+  // §4's deliverable is a COMPARISON, and with per-arm suppression a two-arm segment
+  // with both arms reported is strictly rarer than either arm clearing alone. The
+  // count leads the grid because a reader should not have to scan for it — and it is
+  // counted over the rendered rows rather than read from the payload's `comparisons`,
+  // so a row the renderer drops can never be counted as one a reader can see.
+  const built = segmentationFigures(SEGMENTATION());
+  const grid = built.grids.find((g) => g.metric === "localization_rate");
+  assert.equal(grid.comparable, 1); // severity=minor
+  assert.equal(grid.twoArm, 3); // minor, major, critical
+  const md = renderReport(withSegmentation(built));
+  assert.match(unwrapped(md), /Both arms report on \*\*1 of the 3\*\* segments this metric cuts on both arms/);
+});
+
+test("a cell the payload gave no coordinates for is still rendered, as the flat list it is", () => {
+  // FAIL DIRECTION. The grouping fields are the scorer's, and a payload written before
+  // them — or by a future scorer that omits one — cannot be placed in a grid. It is
+  // listed and labelled rather than dropped: this whole module's argument is that a
+  // silent omission is the one unrecoverable failure, and "the renderer could not
+  // place these" is a fact a reader can act on.
+  const md = renderReport(
+    withSegmentation(
+      segmentationFigures({
+        min_n: 5,
+        cells: [{ segment: "metric=in_diff_rate/severity=major/arm=panel", suppressed: false, value: 25 / 36, n: 36, unit: "findings" }],
+      }),
+    ),
+  );
+  assert.match(unwrapped(md), /\*\*1 cell\(s\) carry no metric\/axis\/bucket\/arm and cannot be placed in a grid\*\*/);
+  assert.match(md, /\| `metric=in_diff_rate\/severity=major\/arm=panel` \| 0\.694 \(n=36 findings\) \|/);
+});
+
+test("a refused metric × axis pair is rendered with its reason; a unit mismatch is only counted", () => {
+  // 🔴 A grid with no rows for an axis has THREE possible causes — thin, unbuildable,
+  // or refused as posed — and §5 rendered only the first two, so a reader of
+  // `nit_ratio` could not tell a refusal from an oversight. The pilot's twelve
+  // refusals are two statements about a metric and ten repetitions of one unit
+  // mismatch, and printing all twelve verbatim would re-import the noise this section
+  // is being rescued from.
+  //
+  // The split is STRUCTURAL — the metric's `currency` against the axis's `unit`, both
+  // stated in the payload — and not a match on the reason text, so a refusal with a
+  // reason nobody has seen before lands in the rendered group rather than the counted
+  // one. That is the safe direction: an unfamiliar refusal gets read.
+  const built = segmentationFigures(SEGMENTATION());
+  assert.deepEqual(built.pairsRefused.map((p) => `${p.metric}×${p.axis}`), ["localization_rate×novelty"]);
+  assert.equal(built.pairsUnitMismatch, 1);
+  const md = renderReport(withSegmentation(built));
+  assert.match(md, /\| `localization_rate` × `novelty` \| \*\*not computed\*\* — the novelty annotation is stamped ONLY on critical\/major findings \|/);
+  assert.doesNotMatch(md, /\| `findings_per_pr` × `novelty` \|/);
+  assert.match(unwrapped(md), /A further 1 pair\(s\) are not listed because they are one fact repeated: a metric counted in pull requests/);
+});
+
+test("a wrapped list never breaks inside a code span, because bucket names contain spaces", () => {
+  // 🔴 CodeRabbit's taxonomy is used VERBATIM — `data integrity & integration` — so a
+  // withheld-segment list folded on spaces alone split a backticked identifier across
+  // two lines, and markdown then rendered the backticks as literal characters. Every
+  // line §5 emits carries an even number of backticks.
+  const payload = SEGMENTATION();
+  for (const bucket of ["data integrity & integration", "performance & scalability", "security & privacy", "stability & availability"]) {
+    payload.cells.push(segCell("localization_rate", "coderabbit_category", bucket, "coderabbit", { suppressed: true, n: 1 }));
+  }
+  const md = renderReport(withSegmentation(segmentationFigures(payload)));
+  for (const line of md.split("\n")) {
+    assert.equal((line.match(/`/g) ?? []).length % 2, 0, `unbalanced backticks after wrapping: ${line}`);
+  }
+  // AND THE FOLD HAPPENS AT ALL. Five withheld segments named on one line is 300-odd
+  // characters, which is the shape §5 is being rescued from; a wrap that never fires
+  // is not a wrap. Table rows are excluded — a fold inside one would break the table,
+  // so those are left long on purpose.
+  const section = md.slice(md.indexOf("## 5."), md.indexOf("## 6."));
+  const prose = section.split("\n").filter((l) => !l.startsWith("|"));
+  const listStart = prose.findIndex((l) => l.startsWith("Withheld on every arm"));
+  assert.ok(listStart >= 0, "the withheld list should be on the page");
+  // The sentence ends in a full stop, so a list that fits on one line ends there. This
+  // one does not: five segments named, three of them CodeRabbit's verbatim categories.
+  assert.ok(!prose[listStart].endsWith("."), "the withheld list should be folded across more than one line, not left as one long line");
+  // The overhang allowance is for a code span too long to break — `wrapProse` will not
+  // split one — not for an unwrapped sentence.
+  for (const line of prose) assert.ok(line.length <= 160, `§5 emitted an unwrapped prose line of ${line.length} chars: ${line}`);
 });
 
 // --- the whole document -----------------------------------------------------
@@ -1200,4 +1436,625 @@ test("the overlap band's wording follows the number of bands it actually has", (
   assert.doesNotMatch(markdown, /contains all 3/);
   // At K=3 it still says all three.
   assert.match(renderReport(FULL()), /contains all 3\./);
+});
+
+// --- §2's adjudicated band, from the `labels` block --------------------------
+//
+// THE NUMBERS BELOW ARE THE REAL ONES, read out of the eval store on 2026-08-13 with
+// 357 pair records filed — 45 `gold` (a human read both texts) and 312 `silver` (a
+// model did, pending human confirmation). They are real for the reason the volume
+// fixture's are: the whole hazard in this section is a band that narrows more than the
+// evidence justifies, and invented round numbers would let an arithmetic that leans one
+// way pass unnoticed. Specifically, k2's floor moves 6/171 → 12/165 while its ceiling
+// stays at 30/147, and the two unadjudicated replicates' bands are IDENTICAL before and
+// after — which is the case that must not render like a measurement.
+
+/** One band, from the four counts that make it — the same shape `pair-labels.mjs`
+ *  produces, so a fixture cannot express a floor and a ceiling that disagree. */
+const labelBand = (both, classes, ceilBoth, ceilClasses) => ({
+  both,
+  classes,
+  jaccard: both / classes,
+  both_upper_bound: ceilBoth,
+  classes_at_ceiling: ceilClasses,
+  jaccard_upper_bound: ceilBoth / ceilClasses,
+});
+
+/**
+ * One tier's resolution of one replicate.
+ *
+ * `floorMoved` and `ceilingMoved` are passed rather than derived, deliberately: the
+ * scorer emits them as fields precisely so a renderer cannot diff two percentages and
+ * agree with itself, and a fixture that computed them could not tell the two apart.
+ */
+function tierBlock({ tier, availability, applied, inTier, via = {}, unmatched = 0, crossReplicate = 0, res = {}, before, after, floorMoved, ceilingMoved }) {
+  return {
+    tier,
+    availability,
+    labels: {
+      supplied: 357,
+      in_tier: inTier,
+      applied,
+      via,
+      cross_replicate: crossReplicate,
+      unmatched: Array.from({ length: unmatched }, (_, i) => ({ pair_key: `deadbeef000${i}`, reason: "no undecided cross-arm pair in this replicate carries any of the label's keys" })),
+    },
+    resolution: {
+      coderabbit_only_resolved_same: res.same ?? 0,
+      coderabbit_only_finished_apart: res.apart ?? 0,
+      coderabbit_only_still_undecided: res.undecided ?? 0,
+      panel_classes_newly_shared: res.newly ?? 0,
+      labels_on_already_shared_class: res.onShared ?? 0,
+      fanout: Array.from({ length: res.fanout ?? 0 }, (_, i) => ({ coderabbit_class: `D-fanout-${i}` })),
+      resolved: [],
+      finished_apart: [],
+      // THE PER-FINDING PAIR COUNTS, one row per still-undecided CodeRabbit class —
+      // k2's real 18. Their total is 263, and §2 must not print it.
+      still_undecided: (res.pairsPerClass ?? []).map((pairs, i) => ({ coderabbit_class: `D-undecided-${i}`, pairs })),
+    },
+    band: { before, after, floor_moved: floorMoved, ceiling_moved: ceilingMoved },
+  };
+}
+
+const CENSUS = {
+  n: 357,
+  by_source: { gold: 45, silver: 312 },
+  // 🔴 SIX AND ZERO, and they are different facts. Six pair KEYS moved when a finding's
+  // text was re-parsed; ZERO verdicts are flagged for re-adjudication.
+  keys_moved: 6,
+  needs_readjudication: 0,
+  superseded: 12,
+};
+
+const UNADJUDICATED = (n) => ({ tier: "gold", availability: "none-for-replicate", applied: 0, inTier: n, unmatched: n, res: { undecided: 22 }, floorMoved: false, ceilingMoved: false });
+
+function labelsFor({ availability, gold, silver, before }) {
+  return {
+    availability,
+    tier: "gold",
+    headline: gold,
+    by_tier: { gold, silver },
+    store: { present: true, dir: "labels/2026-08-10-pilot-reviewed/pairs", n: 357, unreadable: [], invalid: [] },
+    census: CENSUS,
+    unlabelled: before,
+  };
+}
+
+const K1_BAND = labelBand(8, 164, 30, 142);
+const K2_BAND = labelBand(6, 171, 30, 147);
+const K3_BAND = labelBand(3, 166, 30, 139);
+
+/** The pilot's three replicates with their real label blocks: k2 adjudicated, k1 and k3
+ *  not — and k3's `silver` tier the one case of "labels applied, nothing moved". */
+const LABELLED = {
+  per_replicate: [
+    {
+      stats: { label: "pilot-01__k1" },
+      overlap: { classes: 164, both: 8, panel_only: 134, coderabbit_only: 22, jaccard: 8 / 164 },
+      unresolved: { jaccard_upper_bound: 30 / 142, saturated: true, maybe_links: 409, strong_maybe_links: 15, triage_threshold: 0.7, coderabbit_classes_with_a_panel_candidate: 22 },
+      severity: { shared_classes: 8, stated: { n: 8, panel_more_severe: 6, coderabbit_more_severe: 0 } },
+      labels: labelsFor({
+        availability: "none-for-replicate",
+        before: K1_BAND,
+        gold: tierBlock({ ...UNADJUDICATED(45), before: K1_BAND, after: K1_BAND }),
+        silver: tierBlock({ ...UNADJUDICATED(312), tier: "silver", before: K1_BAND, after: K1_BAND }),
+      }),
+    },
+    {
+      stats: { label: "pilot-01__k2" },
+      overlap: { classes: 171, both: 6, panel_only: 141, coderabbit_only: 24, jaccard: 6 / 171 },
+      unresolved: { jaccard_upper_bound: 30 / 147, saturated: true, maybe_links: 418, strong_maybe_links: 21, triage_threshold: 0.7, coderabbit_classes_with_a_panel_candidate: 24 },
+      severity: { shared_classes: 6, stated: { n: 6, panel_more_severe: 4, coderabbit_more_severe: 0 } },
+      labels: labelsFor({
+        availability: "resolved",
+        before: K2_BAND,
+        gold: tierBlock({
+          tier: "gold",
+          availability: "resolved",
+          applied: 43,
+          inTier: 45,
+          via: { pair_key: 38, pair_key_at_801: 5 },
+          unmatched: 2,
+          res: { same: 6, apart: 0, undecided: 18, newly: 6, onShared: 4, fanout: 3, pairsPerClass: [20, 19, 15, 8, 17, 18, 21, 3, 23, 19, 25, 19, 5, 8, 10, 20, 9, 4] },
+          before: K2_BAND,
+          after: labelBand(12, 165, 30, 147),
+          floorMoved: true,
+          ceilingMoved: false,
+        }),
+        // The silver tier's ceiling DOES move — 8 CodeRabbit classes had every pair
+        // decided — so the provisional band is the tighter one. That is the row a
+        // reader would quote, and the reason the tier is a column.
+        silver: tierBlock({
+          tier: "silver",
+          availability: "resolved",
+          applied: 312,
+          inTier: 312,
+          via: { pair_key: 312 },
+          res: { same: 3, apart: 8, undecided: 13, newly: 3 },
+          before: K2_BAND,
+          after: labelBand(9, 168, 22, 155),
+          floorMoved: true,
+          ceilingMoved: true,
+        }),
+      }),
+    },
+    {
+      stats: { label: "pilot-01__k3" },
+      overlap: { classes: 166, both: 3, panel_only: 136, coderabbit_only: 27, jaccard: 3 / 166 },
+      unresolved: { jaccard_upper_bound: 30 / 139, saturated: true, maybe_links: 378, strong_maybe_links: 19, triage_threshold: 0.7, coderabbit_classes_with_a_panel_candidate: 27 },
+      severity: { shared_classes: 3, stated: { n: 3, panel_more_severe: 2, coderabbit_more_severe: 1 } },
+      labels: labelsFor({
+        availability: "none-for-replicate",
+        before: K3_BAND,
+        gold: tierBlock({ ...UNADJUDICATED(45), res: { undecided: 27 }, before: K3_BAND, after: K3_BAND }),
+        // 🔴 THE CASE THE WHOLE SUBSECTION EXISTS FOR: labels applied, nothing moved.
+        // Its band is identical to the unlabelled one, exactly like k1's — and it is a
+        // measurement where k1's is an absence.
+        silver: tierBlock({
+          tier: "silver",
+          availability: "resolved-nothing",
+          applied: 4,
+          inTier: 312,
+          via: { pair_key: 4 },
+          unmatched: 308,
+          crossReplicate: 4,
+          res: { undecided: 27 },
+          before: K3_BAND,
+          after: K3_BAND,
+          floorMoved: false,
+          ceilingMoved: false,
+        }),
+      }),
+    },
+  ],
+};
+
+const LABELLED_FULL = (payload = LABELLED) =>
+  renderReport(
+    buildReport({
+      configHash: CONFIG_HASH,
+      corpusVersion: CORPUS_VERSION,
+      panelSha: PANEL_SHA,
+      runIds: RUNS,
+      corpusItemIds: RELIABILITY.items,
+      scores: { volume: VOLUME, complementarity: payload, reliability: RELIABILITY },
+    }),
+  );
+
+const LABELLED_REPORT = (payload = LABELLED) => section(LABELLED_FULL(payload), "2");
+
+/** The same payload with one field changed, without mutating the shared fixture. */
+function withLabelField(runIndex, tier, mutate) {
+  const reps = LABELLED.per_replicate.map((r, i) => {
+    if (i !== runIndex) return r;
+    const t = structuredClone(r.labels.by_tier[tier]);
+    mutate(t);
+    const by_tier = { ...r.labels.by_tier, [tier]: t };
+    return { ...r, labels: { ...r.labels, by_tier, ...(tier === "gold" ? { headline: t, availability: t.availability } : {}) } };
+  });
+  return { per_replicate: reps };
+}
+
+test("every label-availability state is a figure or a stated cause, and none is blank", () => {
+  // The vocabulary is `pair-labels.mjs`'s, checked at import time; this asserts the
+  // consequence a reader sees. Five states are causes, two are figures, and the two
+  // sets do not overlap.
+  assert.deepEqual(Object.keys(LABEL_CAUSE).sort(), ["no-store", "none-for-replicate", "none-matched", "not-supplied", "store-empty"]);
+  for (const [state, reason] of Object.entries(LABEL_CAUSE)) {
+    assert.equal(renderCell(notComputed(reason)).startsWith("**not computed** — "), true, `${state} must render as words`);
+    assert.equal(reason.trim().length > 30, true, `${state}'s cause must be a sentence, not a label`);
+  }
+  // No two states may share a sentence — a shared one is the pooled cell in prose form.
+  assert.equal(new Set(Object.values(LABEL_CAUSE)).size, Object.keys(LABEL_CAUSE).length);
+});
+
+test("🔴 an unadjudicated replicate does not render like one whose labels moved nothing", () => {
+  const md = LABELLED_REPORT();
+  const k1 = md.split("\n").find((l) => l.startsWith("| `pilot-01__k1` | `gold`"));
+  const k3silver = md.split("\n").find((l) => l.startsWith("| `pilot-01__k3` | `silver`"));
+  // k1: NOBODY LOOKED. It has no band at all, and the cell says which of the five
+  // causes applies.
+  assert.match(k1, /\*\*not computed\*\* — labels exist for this corpus, but none names this replicate/);
+  assert.match(k1, /nobody has looked here/);
+  assert.equal(/\[\d+\.\d%, \d+\.\d%\] \(n=/.test(k1), false, "an unadjudicated replicate must not carry an adjudicated band");
+  // k3 silver: LOOKED, AND NOTHING MOVED. It has a band — a measurement — and says so.
+  assert.match(k3silver, /\[1\.8%, 21\.6%\] \(n=166 defect classes\)/);
+  assert.match(k3silver, /4 of 312 `silver` label\(s\) applied.*\*\*no class changed state\*\*/);
+  assert.match(k3silver, /measured rather than unlooked-at/);
+  // And it says where those four verdicts were made: k3's own queue holds none of them,
+  // and a reader counting adjudications here would otherwise credit k3 with k2's work.
+  assert.match(k3silver, /4 of them adjudicated on another draw/);
+  // And the two never share a sentence.
+  assert.equal(k3silver.includes("nobody has looked here"), false);
+  assert.match(md, /2 of the 3 replicate\(s\) above carry no adjudicated band at all/);
+});
+
+test("the adjudicated band is rendered BESIDE the unlabelled one, never instead of it", () => {
+  const md = LABELLED_REPORT();
+  const k2 = md.split("\n").find((l) => l.startsWith("| `pilot-01__k2` | `gold`"));
+  // 6/171 = 3.5% unlabelled, 12/165 = 7.3% adjudicated, and the ceiling is 30/147 =
+  // 20.4% in both. All three on one row, so the movement is visible without a diff.
+  assert.match(k2, /\| \[3\.5%, 20\.4%\] \| \*\*\[7\.3%, 20\.4%\]\*\* \(n=165 defect classes\)/);
+  // The unlabelled table above is untouched by labels: its k2 row still reads 3.5%.
+  assert.match(md, /\| `pilot-01__k2` \| 171 \| 6 \| 141 \| 24 \| 3\.5% \| 20\.4% \| \*\*\[3\.5%, 20\.4%\]\*\* \|/);
+  // What it rests on, with BOTH denominators, in the same subsection.
+  assert.match(md, /\*\*43 of 45 `gold` label\(s\)\*\* applied against an undecided queue of\n {2}\*\*418 pair\(s\)\*\*, on \*\*1 replicate of 3\*\*/);
+  assert.match(md, /5 matched only through the alternate key vintage/);
+  assert.match(md, /4 sit on a class both arms already claim/);
+  assert.match(md, /3 resolved class\(es\) name more than one panel partner/);
+  // The table above stops claiming that no labels exist, and counts the replicates it
+  // has rather than implying all three.
+  assert.match(md, /\*\*Labels now exist for 1 of 3 replicate\(s\) — the adjudicated band is below/);
+  assert.equal(md.includes("Until those labels exist"), false);
+});
+
+test("the label store's own dropped-file counts and superseded verdicts are stated, including at zero", () => {
+  const md = LABELLED_REPORT();
+  // A dropped label can only WIDEN a band, so a measured zero here is worth the line:
+  // "we read every record" and "nobody counted" are the same blank otherwise.
+  assert.match(md, /\*\*0 unreadable file\(s\)\*\* and \*\*0 refused by the record validator\*\*/);
+  assert.match(md, /12 record\(s\) carry a superseded earlier verdict/);
+  const broken = {
+    per_replicate: LABELLED.per_replicate.map((r) => ({
+      ...r,
+      labels: { ...r.labels, store: { ...r.labels.store, unreadable: [{ file: "a.json", reason: "unexpected end of JSON input" }], invalid: [{ file: "b.json", reason: "verdict must be one of same | different | insufficient-basis" }] } },
+    })),
+  };
+  assert.match(LABELLED_REPORT(broken), /\*\*1 unreadable file\(s\)\*\* and \*\*1 refused by the record validator\*\*/);
+});
+
+test("a score assembled from two reads of the label store says so rather than quoting the first", () => {
+  // Impossible through the CLI, which reads the store once per run — and that is the
+  // claim, so it is checked rather than commented. The census is taken from the first
+  // replicate that has one; a disagreement means that shortcut is no longer sound.
+  const mixed = {
+    per_replicate: LABELLED.per_replicate.map((r, i) => (i === 2 ? { ...r, labels: { ...r.labels, census: { ...CENSUS, n: 400, keys_moved: 9 } } } : r)),
+  };
+  const rendered = LABELLED_REPORT(mixed);
+  assert.match(rendered, /🔴 \*\*The replicates report different label censuses\*\*/);
+  // And the counts printed are the FIRST read's, which is what the warning says they
+  // are — a renderer quoting the last would contradict its own caveat.
+  assert.match(rendered, /\*\*6 of 357 record\(s\) carry a pair key that MOVED\.\*\*/);
+  assert.equal(rendered.includes("9 of 400"), false);
+  assert.equal(LABELLED_REPORT().includes("different label censuses"), false);
+  // 🔴 EVERY FIELD THIS SUMMARY HANDS THE RENDERER IS FINGERPRINTED, not the three the
+  // guard started with. `by_source` and `superseded` are printed from the first block
+  // too — `by_source` in §2's tier sentence AND in §6's limit — so a disagreement in
+  // either has to raise the same warning. It did not, which left the warning's own
+  // words ("the counts above describe only the first") true of four fields and silent
+  // about three.
+  const only = (i, census) => ({ per_replicate: LABELLED.per_replicate.map((r, j) => (j === i ? { ...r, labels: { ...r.labels, census } } : r)) });
+  assert.match(LABELLED_REPORT(only(1, { ...CENSUS, by_source: { gold: 44, silver: 313 } })), /different label censuses/);
+  assert.match(LABELLED_REPORT(only(1, { ...CENSUS, superseded: 11 })), /different label censuses/);
+  // A different KEY ORDER in `by_source` is the same census, and must not trip it.
+  assert.equal(LABELLED_REPORT(only(1, { ...CENSUS, by_source: { silver: 312, gold: 45 } })).includes("different label censuses"), false);
+  // And the store-level counts printed from the same first block are covered too.
+  const store2 = { per_replicate: LABELLED.per_replicate.map((r, j) => (j === 1 ? { ...r, labels: { ...r.labels, store: { ...r.labels.store, invalid: [{ file: "x.json", reason: "bad verdict" }] } } } : r)) };
+  assert.match(LABELLED_REPORT(store2), /different label censuses/);
+});
+
+test("🔴 ceiling_moved is READ, and rendered as a fact with its reason in both directions", () => {
+  const unmoved = LABELLED_REPORT();
+  assert.match(unmoved, /On `pilot-01__k2` the floor moved and the ceiling did not, and that is the arithmetic rather than a shortfall/);
+  assert.match(unmoved, /0 of `pilot-01__k2`'s 24 have that\ntoday, with 18 still undecided/);
+  assert.match(unmoved, /`ceiling_moved` is a field of the score, not two percentages a reader is/);
+  // THE FIELD, NOT A DIFF OF TWO PERCENTAGES. Flipping only the flag — with the two
+  // bands left identical — must flip the sentence, which a renderer comparing
+  // `before.jaccard_upper_bound` against `after`'s would not do.
+  const flagged = LABELLED_REPORT(withLabelField(1, "gold", (t) => { t.band.ceiling_moved = true; t.resolution.coderabbit_only_finished_apart = 2; }));
+  assert.match(flagged, /🔴 \*\*The ceiling MOVED on `pilot-01__k2` \(`gold`\): 2 CodeRabbit-only class\(es\) had every one of their pairs decided\.\*\*/);
+  assert.match(flagged, /narrows the band in the direction that flatters this project/);
+  assert.equal(flagged.includes("the floor moved and the ceiling did not"), false);
+});
+
+test("🔴 the trust tier is on the figure, and a silver-moved band is visibly provisional", () => {
+  const md = LABELLED_REPORT();
+  // The tier is a COLUMN of the band table, not a footnote.
+  assert.match(md, /\| replicate \| tier \| unlabelled band \| adjudicated band \| what the labels did \|/);
+  assert.match(md, /The store holds 357 pair record\(s\) — 45 `gold` · 312 `silver`\./);
+  assert.match(md, /Each tier is resolved separately and \*\*never pooled\*\*/);
+  // Silver is rendered, unbold, under a heading that refuses it as the band — and its
+  // moved ceiling is flagged, because the provisional row is the TIGHTER one.
+  assert.match(md, /No row below is this report's band/);
+  assert.match(md, /\| `pilot-01__k2` \| `silver` \| \[5\.4%, 14\.2%\] \(n=168 defect classes\) \| 🔴 yes — 8 class\(es\) finished apart \|/);
+  assert.match(md, /A weaker tier can produce a TIGHTER band, and tightness is not confidence/);
+  assert.equal(md.includes("**[5.4%, 14.2%]**"), false, "a provisional band must never be bolded like the headline one");
+  // The tightness warning is about a weaker tier that FINISHED classes the headline
+  // tier did not. With no such tier it is not said, because then it is not true.
+  assert.equal(LABELLED_REPORT(withLabelField(1, "silver", (t) => { t.band.ceiling_moved = false; })).includes("tightness is not confidence"), false);
+  // And the headline band is NOT called provisional when the headline tier is `gold`.
+  assert.equal(md.includes("so it is PROVISIONAL"), false);
+  // A row with no band gets an em-dash rather than a "no": "the ceiling did not move"
+  // and "there is no band here to move" are different facts.
+  assert.match(md, /\| `pilot-01__k1` \| `silver` \| \*\*not computed\*\* — .* \| — \|/);
+  // AND WHEN THE HEADLINE TIER ITSELF IS NOT GOLD, the band above is provisional too.
+  const noGold = {
+    per_replicate: LABELLED.per_replicate.map((r) => {
+      const silver = r.labels.by_tier.silver;
+      return { ...r, labels: { ...r.labels, tier: "silver", headline: silver, availability: silver.availability, by_tier: { silver } } };
+    }),
+  };
+  const silverHeadline = LABELLED_REPORT(noGold);
+  assert.match(silverHeadline, /🔴 \*\*The band above is `silver`'s, not `gold`'s — so it is PROVISIONAL\.\*\*/);
+  assert.match(silverHeadline, /do not treat as the ceiling/);
+});
+
+test("🔴 keys_moved and needs_readjudication are two sentences, and neither caption may carry the other's count", () => {
+  const md = LABELLED_REPORT();
+  // 6 keys MOVED (an address changed); 0 verdicts are DOUBTED. An earlier draft
+  // attached the second caption to the first count, which tells a reader that six
+  // judgements are doubted when none are.
+  assert.match(md, /\*\*6 of 357 record\(s\) carry a pair key that MOVED\.\*\*/);
+  assert.match(md, /\*\*0 of 357 record\(s\) are flagged for re-adjudication\.\*\*/);
+  assert.equal(/6 of 357 record\(s\) are flagged for re-adjudication/.test(md), false, "the re-adjudication caption must never carry the moved-key count");
+  // SWAPPING THE TWO PAYLOAD FIELDS SWAPS THE TWO SENTENCES. A renderer reading one
+  // field for both captions passes the assertions above and fails here.
+  const swapped = {
+    per_replicate: LABELLED.per_replicate.map((r) => ({ ...r, labels: { ...r.labels, census: { ...CENSUS, keys_moved: 0, needs_readjudication: 6 } } })),
+  };
+  const other = LABELLED_REPORT(swapped);
+  assert.match(other, /\*\*0 of 357 record\(s\) carry a pair key that MOVED\.\*\*/);
+  assert.match(other, /\*\*6 of 357 record\(s\) are flagged for re-adjudication\.\*\*/);
+  // The captions themselves never move: each names what its own count is about.
+  assert.match(md, /the pair's\n {2}\*address\* changed\. The verdict is untouched/);
+  assert.match(md, /That is a doubt about a VERDICT/);
+});
+
+test("🔴 no labelled figure spans two replicates, and the aggregate views carry none", () => {
+  const c = complementarityFigures(LABELLED);
+  // Every labelled band belongs to exactly one replicate's own payload block.
+  assert.equal(c.bands.length, 3);
+  assert.equal(c.replicates_adjudicated, 1);
+  for (const [i, b] of c.bands.entries()) {
+    const own = LABELLED.per_replicate[i].labels.headline.band.after;
+    if (b.labels.band.availability !== "present") continue;
+    assert.deepEqual(b.labels.band.value, { low: own.jaccard, high: own.jaccard_upper_bound });
+  }
+  // EVERY ROW CARRIES ITS OWN REPLICATE'S NUMBERS. The three differ in both columns —
+  // 4.9/3.5/1.8 unlabelled and 0/43/0 labels applied — so a row rendered from another
+  // replicate's block cannot coincide with the right answer.
+  const md = LABELLED_REPORT();
+  const rowOf = (label) => md.split("\n").find((l) => l.startsWith(`| \`${label}\` | \`gold\``));
+  assert.match(rowOf("pilot-01__k1"), /\| \[4\.9%, 21\.1%\] \|.*\| 0 of 45 `gold` label\(s\) applied \|/);
+  assert.match(rowOf("pilot-01__k2"), /\| \[3\.5%, 20\.4%\] \| \*\*\[7\.3%, 20\.4%\]\*\*.*\| 43 of 45 `gold` label\(s\) applied —/);
+  assert.match(rowOf("pilot-01__k3"), /\| \[1\.8%, 21\.6%\] \|.*\| 0 of 45 `gold` label\(s\) applied \|/);
+  // Moving ONE replicate's adjudicated band changes ONE row. If anything pooled the
+  // three, k1's and k3's rows would move too.
+  const before = LABELLED_REPORT().split("\n");
+  const after = LABELLED_REPORT(withLabelField(1, "gold", (t) => { t.band.after = labelBand(30, 165, 30, 147); })).split("\n");
+  const changed = before.filter((l, i) => l !== after[i]);
+  assert.equal(changed.every((l) => l.includes("pilot-01__k2") || l.includes("18.2%")), true, `only k2's rows may move, got:\n${changed.join("\n")}`);
+  assert.equal(changed.some((l) => l.includes("pilot-01__k1") || l.includes("pilot-01__k3")), false);
+  // The scorer's `union` and `intersection` views live outside `per_replicate` and
+  // carry no labels by construction; attaching them changes not one byte here.
+  const withViews = { ...LABELLED, union: { overlap: { jaccard: 0.5 } }, intersection: { overlap: { jaccard: 0.9 } } };
+  assert.equal(LABELLED_REPORT(withViews), LABELLED_REPORT());
+});
+
+test("§2 names the per-finding pair count and still refuses to total it", () => {
+  const md = LABELLED_REPORT();
+  // The count #829 added exists, so the sentence that called it underivable is gone.
+  assert.match(md, /The per-finding pair counts that settle it are\nnow in the score/);
+  assert.match(md, /their TOTAL\nis not, and this renderer computes no number it was not handed/);
+  assert.equal(md.includes("scorer does not emit"), false, "the field exists now; the old sentence would be false on the page");
+  // AND THE TOTAL IS NOT PRINTED. 263 is the sum of k2's 18 per-class counts, and a
+  // renderer that reduced the array would put it on the page.
+  const total = LABELLED.per_replicate[1].labels.headline.resolution.still_undecided.reduce((a, x) => a + x.pairs, 0);
+  assert.equal(total, 263);
+  assert.equal(md.includes(String(total)), false, "the renderer must not sum an array it was handed");
+  // A payload with no such counts keeps the original wording, so a store filed before
+  // the pair-label reader still renders a true sentence.
+  assert.match(section(renderReport(FULL()), "2"), /needs a per-finding pair count this\nscorer does not emit/);
+});
+
+test("a score file that predates pair labels says so, rather than rendering a band", () => {
+  const md = section(renderReport(FULL()), "2");
+  assert.match(md, /### The adjudicated band/);
+  assert.match(md, /\*\*not computed\*\* — this complementarity score carries no `labels` block/);
+  assert.match(md, /cannot be told apart from this score file/);
+  // No band table, no tier table, no census sentences — there is nothing to say them
+  // about, and inventing a zero census would be the blank cell one level down.
+  assert.equal(md.includes("carry a pair key that MOVED"), false);
+  assert.equal(md.includes("| replicate | tier |"), false);
+  // The unlabelled band is untouched: this section still renders exactly as it did.
+  assert.match(md, /Until those labels exist, this row must not be read as a point estimate/);
+});
+
+test("the drift warning is raised only where it is an anomaly, not on every unadjudicated replicate", () => {
+  const md = LABELLED_REPORT();
+  // k2 resolved 43 labels and 2 matched nothing — a real drift signal, worth a line.
+  assert.match(md, /⚠ \*\*2 `gold` label\(s\) match no undecided pair on `pilot-01__k2`\.\*\*/);
+  // k1 and k3 have 45 unmatched EACH, and there it is the definition of
+  // `none-for-replicate` rather than a finding about it. Three identical warnings would
+  // bury the one that means something.
+  assert.equal(md.includes("match no undecided pair on `pilot-01__k1`"), false);
+  assert.equal(md.includes("match no undecided pair on `pilot-01__k3`"), false);
+  assert.equal((md.match(/match no undecided pair on/g) ?? []).length, 1);
+});
+
+test("🔴 §2 leads with the two directional rates, and the Jaccard sits beneath them, labelled", () => {
+  const md = LABELLED_REPORT();
+  // ORDER IS THE ARGUMENT HERE. The rates table must come before the band table, or a
+  // reader still meets the intersection-over-union figure first.
+  assert.equal(md.indexOf("CodeRabbit classes the panel also raised") < md.indexOf("| replicate | classes | both |"), true);
+  assert.match(md, /Read the two directional rates before the Jaccard/);
+  assert.match(md, /Jaccard \(intersection ÷ union\)/);
+  // k2, unadjudicated: 6 shared of CodeRabbit's 30 classes and of the panel's 147.
+  assert.match(md, /\| `pilot-01__k2` \| unadjudicated \| 6 of 30 — \*\*20\.0%\*\* \| 6 of 147 — \*\*4\.1%\*\* \| \[3\.5%, 20\.4%\] \|/);
+  assert.match(md, /\| `pilot-01__k1` \| unadjudicated \| 8 of 30 — \*\*26\.7%\*\* \| 8 of 142 — \*\*5\.6%\*\* \| \[4\.9%, 21\.1%\] \|/);
+  assert.match(md, /\| `pilot-01__k3` \| unadjudicated \| 3 of 30 — \*\*10\.0%\*\* \| 3 of 139 — \*\*2\.2%\*\* \| \[1\.8%, 21\.6%\] \|/);
+  // Each rate carries its n and its unit — `figure` refuses without both.
+  const c = complementarityFigures(LABELLED);
+  assert.equal(c.bands[1].rates.coderabbit.n, 30);
+  assert.equal(c.bands[1].rates.coderabbit.unit, "CodeRabbit defect classes");
+  assert.equal(c.bands[1].rates.panel.n, 147);
+  assert.equal(c.bands[1].rates.panel.unit, "panel defect classes");
+});
+
+test("the adjudicated rates get their OWN row and never replace the unadjudicated one", () => {
+  const md = LABELLED_REPORT();
+  const rows = md.split("\n").filter((l) => /^\| `pilot-01__k\d` \| (unadjudicated|\d+ `)/.test(l));
+  // Four rows for three replicates: k2 twice, once per basis.
+  assert.equal(rows.length, 4);
+  assert.equal(rows.filter((l) => l.includes("pilot-01__k2")).length, 2);
+  assert.match(md, /\| `pilot-01__k2` \| 43 `gold` label\(s\) applied \| 12 of 30 — \*\*40\.0%\*\* \| 12 of 147 — \*\*8\.2%\*\* \| \[7\.3%, 20\.4%\] \|/);
+  // The unadjudicated row stays: the movement 6 → 12 is the thing adjudication bought,
+  // and a single upgraded row would hide it.
+  assert.match(md, /\| `pilot-01__k2` \| unadjudicated \| 6 of 30/);
+  // A replicate nobody adjudicated gets exactly one row, so it cannot be read as one
+  // whose labels did nothing.
+  assert.equal(rows.filter((l) => l.includes("pilot-01__k1")).length, 1);
+});
+
+test("🔴 a directional rate divides by the arm it describes, so the other arm's volume cannot move it", () => {
+  // THE WHOLE ARGUMENT FOR THE RATES, as a measurement. Double the panel-only classes —
+  // our arm says twice as much and agrees on exactly as much — and the Jaccard falls
+  // while the CodeRabbit-side rate does not move at all.
+  const louder = {
+    per_replicate: [{
+      ...LABELLED.per_replicate[1],
+      overlap: { classes: 171 + 141, both: 6, panel_only: 141 * 2, coderabbit_only: 24, jaccard: 6 / (171 + 141) },
+      labels: undefined,
+    }],
+  };
+  const c = complementarityFigures(louder);
+  assert.deepEqual(c.bands[0].rates.coderabbit.value, { k: 6, n: 30, ratio: 6 / 30 });
+  assert.equal(c.bands[0].rates.panel.value.n, 288);
+  const md = LABELLED_REPORT(louder);
+  assert.match(md, /\| `pilot-01__k2` \| unadjudicated \| 6 of 30 — \*\*20\.0%\*\* \| 6 of 288 — \*\*2\.1%\*\* \| \[1\.9%, 20\.4%\] \|/);
+  // Same shared count, same CodeRabbit rate, a Jaccard nearly halved.
+  assert.equal(complementarityFigures(LABELLED).bands[1].rates.coderabbit.value.ratio, c.bands[0].rates.coderabbit.value.ratio);
+  // 🔴 AND THE CEILING IDENTITY IS OMITTED HERE, because on this payload it is false.
+  // The fixture keeps k2's `unresolved` while doubling its panel-only classes, so the
+  // saturation flag still says `true` while the counts imply 30/288 = 10.4% against a
+  // stated ceiling of 20.4%. The sentence claims the quotient is *exactly* the ceiling,
+  // so it renders only when it is: this used to print `leaves 30/288 = 20.4%`, a false
+  // identity built from a fraction and a percentage that were never compared.
+  assert.equal(md.includes("the ceiling is a property of the two counts"), false);
+  assert.equal(md.includes("30/288"), false);
+  // The saturation block it lives in is still rendered — only the identity is dropped.
+  assert.match(md, /The ceiling is SATURATED on all 1 replicates/);
+});
+
+test("🔴 the ceiling is stated as a property of the two arms' counts, not of the matcher", () => {
+  const md = LABELLED_REPORT();
+  // 30 CodeRabbit classes over the panel's 142 IS k1's ceiling, exactly — the identity
+  // holds on any saturated replicate, and it retires a figure this project read as a
+  // matcher limitation.
+  assert.match(md, /the ceiling is a property of the two counts rather than of the matcher/);
+  assert.match(md, /`pilot-01__k1` has\n30 CodeRabbit class\(es\) against the panel's 142/);
+  assert.match(md, /leaves 30\/142 = 21\.1% — which is exactly the ceiling on that row/);
+  assert.match(md, /no amount of adjudication moves it/);
+  // 🔴 THE CHECK IS AT PRINT PRECISION, and this is the case that says why. A stored
+  // ceiling of `0.211` and a quotient of `30/142 = 0.21126…` are different floats and
+  // the same printed figure — so a full-precision comparison would drop a sentence
+  // whose own two numbers agree on the page. A score file that has been through a
+  // rounding serialiser is exactly that payload, and the identity is still true of it.
+  const rounded = {
+    per_replicate: [{
+      ...LABELLED.per_replicate[0],
+      unresolved: { ...LABELLED.per_replicate[0].unresolved, jaccard_upper_bound: 0.211 },
+      labels: undefined,
+    }],
+  };
+  const md2 = LABELLED_REPORT(rounded);
+  assert.match(md2, /leaves 30\/142 = 21\.1% — which is exactly the ceiling on that row/);
+});
+
+test("an arm that raised nothing has no rate, rather than a rate of zero", () => {
+  const silent = {
+    per_replicate: [{
+      ...LABELLED.per_replicate[1],
+      overlap: { classes: 141, both: 0, panel_only: 141, coderabbit_only: 0, jaccard: 0 },
+      unresolved: { ...LABELLED.per_replicate[1].unresolved, saturated: false },
+      labels: undefined,
+    }],
+  };
+  const c = complementarityFigures(silent);
+  // 0/0 is not 0.000. A rate with no denominator is `null`, and the cell prints the
+  // counts without a percentage rather than a confident zero-agreement figure.
+  assert.equal(c.bands[0].rates.coderabbit.value.ratio, null);
+  assert.equal(c.bands[0].rates.coderabbit.n, 0);
+  const md = LABELLED_REPORT(silent);
+  assert.match(md, /\| `pilot-01__k2` \| unadjudicated \| 0 of 0 \| 0 of 141 — \*\*0\.0%\*\* \| \[0\.0%, 20\.4%\] \|/);
+  assert.equal(md.includes("0 of 0 — **0.0%**"), false, "an arm that raised nothing must not be given a rate");
+});
+
+test("the adjudicated denominators hold when two CodeRabbit classes resolve into one panel class", () => {
+  // The case the derivation is least obviously right for. Before: both 6, panel-only
+  // 10, CodeRabbit-only 4 — so 16 panel classes and 10 CodeRabbit ones. Two CodeRabbit
+  // classes then resolve into ONE panel class: `resolveClasses` adds one to `both`
+  // (distinct newly-shared PANEL classes) and removes two from the union.
+  const merged = {
+    per_replicate: [{
+      stats: { label: "merge" },
+      overlap: { classes: 20, both: 6, panel_only: 10, coderabbit_only: 4, jaccard: 6 / 20 },
+      unresolved: { jaccard_upper_bound: 8 / 18, saturated: false, maybe_links: 9, strong_maybe_links: 2, triage_threshold: 0.7, coderabbit_classes_with_a_panel_candidate: 2 },
+      severity: { shared_classes: 6, stated: { n: 6, panel_more_severe: 1, coderabbit_more_severe: 0 } },
+      labels: labelsFor({
+        availability: "resolved",
+        before: labelBand(6, 20, 8, 18),
+        gold: tierBlock({ tier: "gold", availability: "resolved", applied: 2, inTier: 2, res: { same: 2, undecided: 2, newly: 1 }, before: labelBand(6, 20, 8, 18), after: labelBand(7, 18, 9, 16), floorMoved: true, ceilingMoved: true }),
+        silver: tierBlock({ tier: "silver", availability: "none-for-replicate", applied: 0, inTier: 0, before: labelBand(6, 20, 8, 18), after: labelBand(6, 20, 8, 18), floorMoved: false, ceilingMoved: false }),
+      }),
+    }],
+  };
+  const b = complementarityFigures(merged).bands[0];
+  // CodeRabbit had 10 classes and now has 9 — two of them became one shared class. The
+  // panel still has 16. Both are one subtraction from fields the payload states.
+  assert.deepEqual(b.rates.coderabbit.value, { k: 6, n: 10, ratio: 6 / 10 });
+  assert.deepEqual(b.rates.panel.value, { k: 6, n: 16, ratio: 6 / 16 });
+  assert.deepEqual(b.rates_adjudicated.coderabbit.value, { k: 7, n: 9, ratio: 7 / 9 });
+  assert.deepEqual(b.rates_adjudicated.panel.value, { k: 7, n: 16, ratio: 7 / 16 });
+});
+
+test("the tier table follows the frozen trust order, not the payload's key order", () => {
+  // Two non-headline tiers, DECLARED WORST-FIRST in the payload. A renderer iterating
+  // `by_tier`'s keys would print `distant` above `silver` — the reverse of their trust
+  // — and, worse, would reorder itself whenever the scorer's own key order changed,
+  // which is the byte-identical re-render property going quietly.
+  const rep = LABELLED.per_replicate[1];
+  const distant = { ...rep.labels.by_tier.silver, tier: "distant", availability: "resolved-nothing", labels: { ...rep.labels.by_tier.silver.labels, applied: 1, in_tier: 9 }, band: { before: K2_BAND, after: K2_BAND, floor_moved: false, ceiling_moved: false } };
+  const reordered = {
+    per_replicate: [{ ...rep, labels: { ...rep.labels, by_tier: { distant, silver: rep.labels.by_tier.silver, gold: rep.labels.by_tier.gold } } }],
+  };
+  const md = LABELLED_REPORT(reordered);
+  const rows = md.split("\n").filter((l) => /^\| `pilot-01__k2` \| `(silver|distant)`/.test(l));
+  assert.deepEqual(rows.map((l) => l.split("|")[2].trim()), ["`silver`", "`distant`"]);
+  assert.equal(LABELLED_REPORT(reordered), md);
+});
+
+test("🔴 §6's first limit is DERIVED, so its premise cannot go false while its conclusion stays true", () => {
+  // THE DEFECT THIS REPLACES was a hardcoded "No adjudicated labels exist." — an
+  // assertion with no input, which could not go red when 357 pair labels landed. The
+  // conclusion it drew is still correct, and for a reason the old sentence could not
+  // state: a PAIR label and a VALIDITY label answer different questions.
+  const limits = section(LABELLED_FULL(), "6");
+  assert.match(limits, /\*\*357 adjudicated PAIR label\(s\) exist \(45 `gold` · 312 `silver`\), and no validity label does\.\*\*/);
+  assert.match(limits, /are these two findings the\nsame defect\?/);
+  assert.match(limits, /is this finding real\?/);
+  // 🔴 WHICH KIND OF LABEL BOUNDS THE REPORT, and it is the one that does not exist.
+  // Reverse this clause and the section says the labels it HAS are what precision
+  // needs — the exact false conclusion the old hardcoded sentence protected against by
+  // accident, and the reason this limit is worth deriving rather than deleting.
+  assert.match(limits, /only the second bounds this report/);
+  assert.equal(limits.includes("only the FIRST bounds this report"), false);
+  assert.match(limits, /\*\*So there is still no\nprecision, recall or correctness figure anywhere above\*\*/);
+  assert.match(limits, /adjudicating pairs does\nnot shrink it/);
+  // The old unconditioned sentence is gone from a report whose store holds labels.
+  assert.equal(limits.includes("**No adjudicated labels exist.**"), false);
+  // AND IT STILL SAYS THE OLD THING WHEN THE OLD THING IS TRUE. A store with no pair
+  // label renders the original sentence, so this is a derivation and not a rewrite.
+  const none = section(renderReport(FULL()), "6");
+  assert.match(none, /\*\*No adjudicated labels exist\.\*\* No precision, recall or correctness figure appears anywhere above/);
+  assert.equal(none.includes("adjudicated PAIR label(s) exist"), false);
+});
+
+test("a labelled report still re-renders byte-identically", () => {
+  // The property #828's own test asserts, re-checked with the label block attached:
+  // every new line is derived from payload fields, and the tier tables iterate a frozen
+  // trust order rather than object-key order.
+  assert.equal(LABELLED_REPORT(), LABELLED_REPORT());
+  const twice = [LABELLED, LABELLED].map((p) => LABELLED_REPORT(p));
+  assert.equal(twice[0], twice[1]);
 });

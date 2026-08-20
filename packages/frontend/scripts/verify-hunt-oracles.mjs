@@ -294,6 +294,34 @@ const READER_EXPECTATIONS = [
   // exactly this reader, the way it clicks B2 for the sheet's selection readers.
   ["slides", "slides.handleCenter", ["se"], (v) =>
     v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+
+  // --- board surface, against seedBoardElements(): note, card, label, idea on one plane ---
+  ["board", "board.elements", [], (v) => {
+    if (!Array.isArray(v)) return "expected an array of elements";
+    const ids = v.map((e) => e.id).join(",");
+    if (ids !== "note,card,label,idea") return `expected the seeded ids in z-order, got ${ids}`;
+    const label = v.find((e) => e.id === "label");
+    if (label?.text !== "Retro board") return `label must carry its seeded text, got ${JSON.stringify(label?.text)}`;
+    // WORLD coordinates, not screen. The seed puts `note` at x=60; if this ever reads ~380 the
+    // reader has started reporting viewport pixels and every position prediction becomes a
+    // function of where the view happens to be scrolled.
+    const note = v.find((e) => e.id === "note");
+    if (note?.x !== 60 || note?.w !== 200) return `note must be in world px, got x=${note?.x} w=${note?.w}`;
+    return null;
+  }],
+  ["board", "board.selection", [], (v) => (Array.isArray(v) ? null : "expected an array of selected ids")],
+  ["board", "board.elementCount", [], (v) => (v === 4 ? null : "expected the seed's 4 elements")],
+  // PINNED, and the whole determinism story rests on it: a board has no rect, so identical
+  // runs need an identical starting view.
+  ["board", "board.viewport", [], (v) =>
+    v && v.panX === 0 && v.panY === 0 && v.zoom === 1 ? null : `expected the pinned starting view, got ${JSON.stringify(v)}`],
+  ["board", "board.pointAt", [100, 100], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+  ["board", "board.elementCenter", ["card"], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+  ["board", "board.handleCenter", ["se"], (v) =>
+    v && Number.isFinite(v.x) && Number.isFinite(v.y) ? null : "expected a finite point"],
+  ["board", "board.canUndo", [], (v) => (typeof v === "boolean" ? null : "expected a boolean")],
 ];
 
 /** Read one reader out of page context. `read` is async, so the promise is returned
@@ -323,6 +351,11 @@ async function checkReaderRegistry(page, baseUrl) {
     // `slides.handleCenter` needs something selected, because handles only exist then.
     if (surface === "slides") {
       const p = await readReader(page, "slides.elementCenter", ["card"]);
+      if (p.ok) await page.mouse.click(p.value.x, p.value.y);
+    }
+    // Same for the board's handle reader.
+    if (surface === "board") {
+      const p = await readReader(page, "board.elementCenter", ["card"]);
       if (p.ok) await page.mouse.click(p.value.x, p.value.y);
     }
     for (const [readerSurface, name, args, check] of READER_EXPECTATIONS) {
@@ -771,6 +804,155 @@ async function checkSlidesDrag(repoRoot) {
     }
   } catch (error) {
     problems.push(`the drag session failed: ${error.message}`);
+  } finally {
+    await session?.close?.();
+  }
+  return problems;
+}
+
+/**
+ * The board's viewport, which is the one thing it does not share with slides.
+ *
+ * A slide's transform is a constant; a board's is state the user moves, and every point
+ * reader goes through it. So the properties worth pinning are the ones that only exist here:
+ * an off-screen point REFUSES, scrolling makes the same point reachable, and world
+ * coordinates do NOT move when the window does.
+ *
+ * That last one is the load-bearing invariant. If a scroll changed `board.elements`, every
+ * position prediction on this surface would be a function of where the view happened to be,
+ * and the surface would be unpredictable rather than merely awkward.
+ */
+async function checkBoardViewport(page, baseUrl) {
+  const problems = [];
+  await page.goto(`${baseUrl}/harness/hunt?surface=board`, { waitUntil: "networkidle" });
+  await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
+
+  const before = await readReader(page, "board.elements", []);
+  if (!before.ok) {
+    problems.push(`board.elements refused at rest: ${before.error.slice(0, 140)}`);
+    return problems;
+  }
+
+  // A point far below the pinned view must refuse rather than hand back a clickable-looking
+  // coordinate — the same discipline as a scrolled-away cell on the sheet surface.
+  const far = await readReader(page, "board.pointAt", [700, 1200]);
+  if (far.ok) {
+    problems.push(`board.pointAt(700, 1200) returned ${JSON.stringify(far.value)} instead of refusing — it is below the pinned view`);
+  } else if (!/off-screen/.test(far.error)) {
+    problems.push(`the refusal must say the point is off-screen, got ${far.error.slice(0, 120)}`);
+  }
+
+  // Scrolling must make it reachable, because that is exactly what the refusal tells the
+  // caller to do. An instruction the harness cannot honour is worse than no instruction.
+  const anchorPoint = await readReader(page, "board.elementCenter", ["card"]);
+  if (!anchorPoint.ok) {
+    problems.push(`could not aim at card to scroll: ${anchorPoint.error.slice(0, 120)}`);
+    return problems;
+  }
+  await page.mouse.move(anchorPoint.value.x, anchorPoint.value.y);
+  await page.mouse.wheel(0, 900);
+
+  const view = await readReader(page, "board.viewport", []);
+  if (!view.ok || view.value.panY === 0) {
+    problems.push(`scrolling did not pan the view, got ${JSON.stringify(view.value)} — the off-screen refusal's advice to scroll would be false`);
+  }
+  const reachable = await readReader(page, "board.pointAt", [700, 1200]);
+  if (!reachable.ok) {
+    problems.push(`board.pointAt(700, 1200) still refuses after scrolling to it: ${reachable.error.slice(0, 120)}`);
+  }
+
+  // WORLD COORDINATES DO NOT MOVE WITH THE WINDOW.
+  const after = await readReader(page, "board.elements", []);
+  if (!after.ok) {
+    problems.push(`board.elements refused after scrolling: ${after.error.slice(0, 140)}`);
+  } else if (JSON.stringify(after.value) !== JSON.stringify(before.value)) {
+    problems.push(
+      "scrolling changed board.elements — world coordinates must be independent of the view, " +
+        `got ${JSON.stringify(after.value).slice(0, 120)}`,
+    );
+  }
+  return problems;
+}
+
+/**
+ * The board's aiming and dragging, which the charter makes measured claims about.
+ *
+ * The slides surface has `checkSlidesTargeting` and `checkSlidesDrag` for exactly these
+ * properties, and the board charter asserts the same two — that an element's centre selects
+ * ITSELF, and that a drag lands where it aims — without anything checking them. A charter
+ * claim nothing verifies is the failure mode this project keeps paying for.
+ *
+ * Driven through a real session so the runner's own `drag` branch executes, for the reason
+ * `checkSlidesDrag` is: a check that resolves points itself and calls the gesture directly
+ * never runs the dispatch it claims to verify.
+ */
+async function checkBoardTargeting(repoRoot) {
+  const problems = [];
+  const { openUiSession } = await import(`${repoRoot}/scripts/agent/hunt-ui-session.mjs`);
+  let session;
+  try {
+    session = await openUiSession({ repoRoot, fault: null });
+    const act = (action) => session.act(action);
+    const elements = async (what) => {
+      const r = await act({ type: "read", reader: "board.elements" });
+      if (!r.ok) {
+        problems.push(`could not read board.elements ${what}: ${String(r.error).slice(0, 140)}`);
+        return null;
+      }
+      return r.value;
+    };
+
+    if (!(await act({ type: "goto", surface: "board" })).ok) {
+      problems.push("could not mount the board surface — this check cannot run");
+      return problems;
+    }
+
+    // EVERY CENTRE SELECTS ITSELF. The seed's geometry rule is unit-tested; this is the half
+    // that needs a browser, because it depends on hit-testing agreeing with the arithmetic.
+    const seeded = await elements("before aiming");
+    if (!seeded) return problems;
+    for (const element of seeded) {
+      const clicked = await act({ type: "click", target: { reader: "board.elementCenter", args: [element.id] } });
+      if (!clicked.ok) {
+        problems.push(`clicking ${element.id}'s centre failed: ${String(clicked.error).slice(0, 140)}`);
+        continue;
+      }
+      const sel = await act({ type: "read", reader: "board.selection" });
+      if (JSON.stringify(sel.value) !== JSON.stringify([element.id])) {
+        problems.push(
+          `clicking board.elementCenter(${element.id}) selected ${JSON.stringify(sel.value)} — no element's ` +
+            "centre may sit under another, or every prediction naming an element aims at the wrong one",
+        );
+      }
+    }
+
+    // A DRAG LANDS EXACTLY WHERE IT AIMS. The destination is clear of the other seeded
+    // elements, so neither the 8-px element snap nor the grid snap (off by default) applies.
+    const before = seeded.find((e) => e.id === "note");
+    const moved = await act({
+      type: "drag",
+      target: { reader: "board.elementCenter", args: ["note"] },
+      to: { reader: "board.pointAt", args: [700, 460] },
+    });
+    if (!moved.ok) {
+      problems.push(`dragging note failed: ${String(moved.error).slice(0, 140)}`);
+    } else {
+      const after = (await elements("after the drag"))?.find((e) => e.id === "note");
+      if (after) {
+        const centre = { x: after.x + after.w / 2, y: after.y + after.h / 2 };
+        if (centre.x !== 700 || centre.y !== 460) {
+          problems.push(
+            `a drag to board.pointAt(700, 460) put note's centre at (${centre.x}, ${centre.y}) — either the ` +
+              "drag is not landing where it aims, or that destination is now within snapping range of something",
+          );
+        }
+        if (after.w !== before.w || after.h !== before.h) {
+          problems.push(`moving note also resized it: ${before.w}x${before.h} -> ${after.w}x${after.h}`);
+        }
+      }
+    }
+  } catch (error) {
+    problems.push(`the board session failed: ${error.message}`);
   } finally {
     await session?.close?.();
   }
@@ -1634,6 +1816,11 @@ try {
     if (offscreenProblems.length === 0) {
       console.log("[verify:hunt-oracles] a scrolled-away cell refuses, and a visible one still clicks");
     }
+    const boardProblems = await checkBoardViewport(page, baseUrl);
+    for (const p of boardProblems) failures.push(`board viewport: ${p}`);
+    if (boardProblems.length === 0) {
+      console.log("[verify:hunt-oracles] a board point refuses off-screen, scrolling reaches it, and world coords hold still");
+    }
     const slidesProblems = await checkSlidesTargeting(page, baseUrl);
     for (const p of slidesProblems) failures.push(`slides surface: ${p}`);
     if (slidesProblems.length === 0) {
@@ -1677,6 +1864,11 @@ try {
     console.log("[verify:hunt-oracles] a real reader value drives a ground-A prediction to violated, and holds when clean");
   }
 
+  const boardTargetProblems = await checkBoardTargeting(repoRoot);
+  for (const p of boardTargetProblems) failures.push(`board targeting: ${p}`);
+  if (boardTargetProblems.length === 0) {
+    console.log("[verify:hunt-oracles] every board element's centre selects itself, and a drag lands exactly where it aims");
+  }
   const dragProblems = await checkSlidesDrag(repoRoot);
   for (const p of dragProblems) failures.push(`slides drag: ${p}`);
   if (dragProblems.length === 0) {

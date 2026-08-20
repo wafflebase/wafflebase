@@ -54,7 +54,7 @@ specifier. Line-anchored now, and the clause may not span a `;`.
 
 ## Done when
 
-- [ ] no alias or scene path compiled into browser code
-- [ ] the boundary guard covers `src/scenes/` too
-- [ ] the fixture consumer declares a real alias and the gate asserts it
-- [ ] §6 gains the alias row; §8 records the three-way split
+- [x] no alias or scene path compiled into browser code
+- [x] the boundary guard covers `src/scenes/` too
+- [x] the fixture consumer declares a real alias and the gate asserts it
+- [x] §6 gains the alias row; §8 records the three-way split

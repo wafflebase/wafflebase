@@ -128,7 +128,7 @@ packages/core/
     tokens/               → @wafflebase/core/tokens     (palette, semantic, radius, typography, contrast)
       index.ts palette.ts semantic.ts radius.ts typography.ts contrast.ts
     geometry/index.ts     → @wafflebase/core/geometry     (Point/Rect/Size, bbox, hit-test)
-    url/index.ts          → @wafflebase/core/url           (SAFE_PROTOCOLS, isSafeUrl)  [shipped]
+    url/index.ts          → @wafflebase/core/url           (SAFE_PROTOCOLS, isSafeUrl, seg)  [shipped]
     canvas/index.ts       → @wafflebase/core/canvas        (DPR ctx setup, drawRoundedRect, offscreen)
     ooxml/
       index.ts            → @wafflebase/core/ooxml         (zip · xml · rels · units · escape)

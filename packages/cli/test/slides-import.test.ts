@@ -198,7 +198,7 @@ describe('runSlidesImport (new deck)', () => {
     expect(body.error.code).toBe('INVALID_PPTX');
   });
 
-  it('exits 1 when create fails and skips PUT', async () => {
+  it('exits 2 when create fails with a server fault, and skips PUT', async () => {
     const cap = captureIO({ bytes: BYTES, isTTY: true });
     const client = makeClient({ createOk: false });
     const result = await runSlidesImport(
@@ -206,13 +206,13 @@ describe('runSlidesImport (new deck)', () => {
       client,
       cap.io,
     );
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(2);
     expect(client.putCalls).toEqual([]);
     const errBody = JSON.parse(cap.stderrLines[0]);
     expect(errBody.error.code).toBe('CREATE_FAILED');
   });
 
-  it('exits 1 when create returns no id', async () => {
+  it('exits 2 when create returns no id — the server contradicted itself', async () => {
     const cap = captureIO({ bytes: BYTES, isTTY: true });
     const client: ClientCapture = {
       createCalls: [],
@@ -233,13 +233,13 @@ describe('runSlidesImport (new deck)', () => {
       client,
       cap.io,
     );
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(2);
     expect(client.putCalls).toEqual([]);
     const errBody = JSON.parse(cap.stderrLines[0]);
     expect(errBody.error.code).toBe('INVALID_RESPONSE');
   });
 
-  it('exits 1 when PUT fails', async () => {
+  it('exits 2 when PUT fails with a server fault', async () => {
     const cap = captureIO({ bytes: BYTES, isTTY: true });
     const client = makeClient({ putOk: false });
     const result = await runSlidesImport(
@@ -247,7 +247,7 @@ describe('runSlidesImport (new deck)', () => {
       client,
       cap.io,
     );
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(2);
     const errBody = JSON.parse(cap.stderrLines[0]);
     expect(errBody.error.code).toBe('PUT_FAILED');
   });

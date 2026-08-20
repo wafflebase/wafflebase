@@ -1,5 +1,6 @@
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
+import { seg } from "./url";
 
 export type ShareLink = {
   id: string;
@@ -57,7 +58,7 @@ export async function createShareLink(
   expiration: string | null
 ): Promise<ShareLink> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${documentId}/share-links`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(documentId)}/share-links`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -75,7 +76,7 @@ export async function getShareLinks(
   documentId: string
 ): Promise<ShareLinksResponse> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${documentId}/share-links`
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(documentId)}/share-links`
   );
   await assertOk(response, "Failed to fetch share links");
   return response.json();
@@ -86,7 +87,7 @@ export async function getShareLinks(
  */
 export async function deleteShareLink(id: string): Promise<void> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/share-links/${id}`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/share-links/${seg(id)}`,
     { method: "DELETE" }
   );
   await assertOk(response, "Failed to delete share link");
@@ -99,7 +100,7 @@ export async function resolveShareLink(
   token: string
 ): Promise<ResolvedShareLink> {
   const response = await fetch(
-    `${import.meta.env.VITE_BACKEND_API_URL}/share-links/${token}/resolve`
+    `${import.meta.env.VITE_BACKEND_API_URL}/share-links/${seg(token)}/resolve`
   );
   await assertOk(response, "Invalid share link", {
     statusMessages: {

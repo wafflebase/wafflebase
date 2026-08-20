@@ -44,7 +44,8 @@ import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
 // drift. They did drift once: this file promised the protocol treated markers as
 // unevaluable and the protocol had never heard of them. Importing across the boundary
 // is safe and cheap — the module is pure, and its transitive chain is guarded (~9ms).
-import { boundValue } from "../../../scripts/agent/hunt-ui-expect.mjs";
+import { boundValue, unsettledValue } from "../../../scripts/agent/hunt-ui-expect.mjs";
+import { readSettled } from "../../../scripts/agent/hunt-ui-settle.mjs";
 // One definition of a valid fault id, shared with the two agent-side boundaries.
 // All node builtins behind it (~15ms), and this file already reaches across for
 // `boundValue` for the same reason: a duplicated rule is a rule that drifts.
@@ -149,36 +150,6 @@ function assertReaderName(name) {
   if (typeof name !== "string" || !READER_PREFIXES.some((p) => name.startsWith(p))) {
     throw new Error(`reader ${JSON.stringify(name)} must start with one of ${READER_PREFIXES.join(", ")}`);
   }
-}
-
-/**
- * Read a value once the UI has stopped changing.
- *
- * A single fixed sleep was the only settling window, and a prediction read is not a
- * display concern — a stale value read a few milliseconds early becomes `violated`,
- * which becomes an eligible candidate. Because the prediction is deliberately bundled
- * with its action (so the caller cannot look before committing), the caller has no way
- * to insert a wait of its own, so the settling has to happen here.
- *
- * Two consecutive equal reads is the signal, not a longer sleep: it returns as soon as
- * the value is stable rather than always paying the worst case, and it does not
- * silently pass a value that is still moving when the deadline expires — the caller
- * gets the last read either way, but a still-moving value will then diverge across
- * replay attempts and be dropped as non-deterministic, which is the correct outcome.
- */
-async function readSettled(page, name, args, deadlineMs) {
-  const deadline = Date.now() + deadlineMs;
-  let previous = await readValue(page, name, args);
-  let serialized = JSON.stringify(previous ?? null);
-  while (Date.now() < deadline) {
-    await page.waitForTimeout(25);
-    const next = await readValue(page, name, args);
-    const nextSerialized = JSON.stringify(next ?? null);
-    if (nextSerialized === serialized) return next;
-    previous = next;
-    serialized = nextSerialized;
-  }
-  return previous;
 }
 
 async function readValue(page, name, args) {
@@ -419,7 +390,19 @@ async function observeAction(page, action, { baseUrl, timeoutMs, oracles, index,
       let actualError = null;
       if (action.expect && typeof action.expect.read === "string") {
         try {
-          actual = await readSettled(page, action.expect.read, action.expect.args ?? [], timeoutMs);
+          // Prediction-blind by construction: `readSettled` is handed a reader, never
+          // the expectation. A settle that could see `expect` would wait for the
+          // predicted value to appear and report `held` for everything.
+          const settle = await readSettled({
+            read: () => readValue(page, action.expect.read, action.expect.args ?? []),
+            sleep: (ms) => page.waitForTimeout(ms),
+            now: () => Date.now(),
+            deadlineMs: timeoutMs,
+          });
+          // A value still in motion at the deadline is NOT reported as the reading.
+          // Handing it over as if it were settled is how a correct prediction became
+          // `violated`; the marker scores `unevaluable` instead.
+          actual = settle.settled ? settle.value : unsettledValue();
         } catch (err) {
           // A failed prediction read is not a failed action, and must not be
           // reported as one — the action may well have succeeded. It leaves `actual`

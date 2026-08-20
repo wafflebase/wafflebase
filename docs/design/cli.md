@@ -84,7 +84,15 @@ files.
   monorepo).
 - **CLI framework**: [commander](https://github.com/tj/commander.js)
   (lightweight, subcommand support).
-- **HTTP client**: built-in `fetch` (Node.js 18+).
+- **HTTP client**: [undici](https://github.com/nodejs/undici) — a direct
+  dependency rather than the runtime's built-in `fetch`. The export image
+  gate pins each request to the addresses it approved by handing the
+  request an undici `Agent`, and only the matching implementation is
+  guaranteed to honor a userland dispatcher (see §_Export image
+  fetching_). Requiring undici's own version is what makes the pin a
+  property of the CLI instead of of whatever `fetch` the host runtime
+  ships; it also sets the floor in `engines.node` (`>=20.18.1`, undici
+  7's own minimum).
 - **Output formats**: JSON (default), table (`--format table`), CSV
   (`--format csv`), YAML (`--format yaml`).
 - **Config file format**: [yaml](https://www.npmjs.com/package/yaml).
@@ -263,7 +271,19 @@ browser tab with the same sentence, and is repeated in the timeout
 error, distinguishing the three cases: no `state` at all (the server
 does not echo the nonce — most likely older than the CLI), a `state`
 that does not match (a callback that is not ours), and a non-GET
-request.
+request. What no refusal ever does is *prescribe the downgrade below*:
+that listener is reachable by exactly the adversary the nonce exists to
+stop, so advice it can trigger is attacker-settable.
+
+Because published CLIs and self-hosted backends upgrade on their own
+schedules, `wafflebase login --allow-unbound-callback` accepts a
+`state`-less callback anyway, so a current CLI can still log into a
+server that has not deployed the echo. It is an explicit, warned
+downgrade — never a silent fallback — and it covers only the
+`state`-*absent* case; a *mismatched* `state` stays `403` under the
+flag, since only an attacker sends one. It is documented in `wafflebase
+login --help` and the CLI README, places an attacker has no say over
+(see "Nonce-bound login callback" in §8.1).
 
 The browser leg is gated on a click. `GET /auth/github?mode=cli&port=…`
 is unauthenticated and takes the loopback port off the query string, so
@@ -328,6 +348,10 @@ When the CLI authenticates a request, it checks sources in this order:
 1. `--workspace` flag or `WAFFLEBASE_WORKSPACE` env.
 2. Session → `activeWorkspace`.
 3. Config profile → `workspace`.
+
+A resolved workspace id is interpolated into the request path like any
+other id, so it goes through the same one-segment encoding — and the same
+refusal of a `.` / `..` id — described in §10.
 
 #### 3.4 Token refresh
 
@@ -763,6 +787,8 @@ packages/cli/
   src/
     bin.ts               Entry point (#!/usr/bin/env node); delegates to cli.ts
     cli.ts               buildProgram() + runCli() (parseAsync + error envelope)
+    errors.ts            Failure classification: SystemError, httpError,
+                         fetchOrThrow, exitCodeFor(Status), redactUrl
     commands/
       root.ts            Root program, global flags, config loading
       login.ts           login (browser OAuth)
@@ -804,9 +830,10 @@ packages/cli/
       upload.ts          runFilesUpload orchestrator (size caps, MIME, parse hint)
       download.ts        runFilesDownload orchestrator + download-target resolution
     client/
-      http-client.ts     REST API v1 wrapper (built-in fetch)
+      http-client.ts     REST API v1 wrapper (undici fetch via fetchOrThrow)
       content-disposition.ts  Filename parser for binary responses
       dry-run.ts         Dry-run request printer
+      url.ts             seg() — one-segment id encoding, shared by both builders
     config/
       config.ts          Config file + env + flag resolution
       session.ts         Session file read/write + token refresh
@@ -895,10 +922,60 @@ have already written their body, so they pass through with their exit code
 and no envelope.
 
 Exit codes: `0` success, `1` user error (bad input, not found),
-`2` system error (network, or an auth *request* the server rejected).
-Agents can branch on the exit code without parsing the error body. A
-missing local session is user error, not a system error, so
-`NOT_LOGGED_IN` exits `1`.
+`2` system error (network, auth, server fault). Agents can branch on the
+exit code without parsing the error body. A missing *local* session is
+the caller's to fix rather than the environment's, so `NOT_LOGGED_IN`
+exits `1`.
+
+The class is decided where the failure is raised, not sniffed out of the
+message text at the output site — `packages/cli/src/errors.ts` holds the
+whole contract:
+
+| Failure | `error.code` | Exit |
+| --- | --- | --- |
+| `fetch` never reached an HTTP server (DNS, refused, TLS) | `NETWORK_ERROR` | `2` |
+| HTTP 401 / 403 | `AUTH_ERROR` | `2` |
+| HTTP 5xx | `SERVER_ERROR` | `2` |
+| A 2xx the CLI cannot use (no `id` on create, a bodyless download) | `INVALID_RESPONSE` / `HTTP_ERROR` | `2` |
+| HTTP 400 / 404 / 409, bad flags, type mismatch | command-specific or `ERROR` | `1` |
+
+`SystemError` carries both the `code` that lands in the JSON body and the
+`exitCode` that `outputError` applies, so the two can never drift. Every
+`fetch` in the CLI goes through `fetchOrThrow` — the one exception is the
+image fetcher's `rawRequest`, which drops to undici's low-level `request`
+to read a hop the fetch layer opaque-filtered and raises the same
+`SystemError('NETWORK_ERROR')` by hand — and the status decides the
+class at every non-OK response: `throw httpError(status)` where the CLI
+writes the message, and `process.exitCode = exitCodeForStatus(status)` on
+the `content`/`export` paths that instead print the backend's own error
+envelope verbatim. That second path matters because a `401`
+`SESSION_EXPIRED` body is JSON — printing it must not make an expired
+session look like bad user input.
+
+`login` prints prose instead of the JSON envelope but reads the same
+table: `fetchLoginSession` classifies the exchange / `me` / `workspaces`
+responses through `exitCodeForStatus`, so a stale callback code (`400`)
+exits `1` while a rejected token or a broken server exits `2`. Anything
+not in the contract keeps its stack trace rather than being flattened to
+one line.
+
+Error messages carry a redacted URL (`redactUrl`): userinfo from
+`--server`/`WAFFLEBASE_SERVER` and presigned query strings from image
+URLs never reach stderr or CI logs; scheme, host and path do. The
+underlying transport error is scrubbed the same way before it is quoted
+— undici echoes the request URL verbatim for some failures, which would
+otherwise put back exactly what was just removed. Userinfo is stripped
+textually rather than through the URL parser's `username` setter, which
+is a no-op for the opaque-path form a scheme-less `--server` produces.
+
+An unparseable URL is the one `fetch` rejection that is *not* a system
+error: nothing was ever unreachable, the caller's `--server` was wrong.
+It is separated out before the request and exits `1` (`INVALID_URL`).
+
+`--quiet` gates progress notices only. Neither the result body nor the
+error envelope is suppressed by it — a non-zero exit with no bytes on
+either stream tells the caller nothing — and neither is the exit code,
+which is what scripts branching on `$?` actually read.
 
 Every command that renders a *structured result* routes it through
 `output()`, including the session commands `status` and `ctx list`,
@@ -972,6 +1049,212 @@ thing the default may assume. `formatCsv` still takes an explicit
 per-call decision instead of one silently inherited by the next caller
 added. Quoting is shared: it is CSV correctness, and a parser unquotes
 it on the way back in.
+
+##### Export image fetching
+
+Exports (`docs export`, `slides export`) dereference the image `src`
+values found in the document, which are attacker-influenced — anyone who
+can edit or share a document picks them. `assertFetchableImageUrl` gates
+every one before it is requested, and again on every redirect hop
+(redirects are followed by hand, `redirect: 'manual'`, so an allowed host
+cannot bounce the CLI onto an internal one):
+
+- only `http:`, `https:` and `data:` are dereferenced, so `file:` cannot
+  read local files into the exported artifact;
+- address *literals* are checked against loopback / RFC1918 / CGNAT /
+  link-local / unique-local, in every spelling — `::ffff:127.0.0.1` and
+  `::ffff:7f00:1` are expanded to the same eight words rather than
+  matched as text;
+- host *names* are only checked against `localhost`, `.localhost`,
+  `.internal` and `.local` (a name is not an address: `fc2.com` is a
+  public site, not `fc00::/7`), and are then resolved, so a record
+  pointing at `169.254.169.254` is refused as well;
+- the configured **server** is the one internal destination still
+  allowed, because `--server http://localhost:3000` is the normal dev
+  setup and self-hosted documents store absolute internal URLs. The
+  frontend persists image `src` values absolute, so a dev document says
+  `http://localhost:3000/...` while the CLI may be pointed at
+  `--server http://127.0.0.1:3000`; comparing origin strings would
+  refuse those documents' own images. Three ways to be the server, on
+  the same port: the **same name**; **loopback under either spelling**
+  (`localhost` / `127.0.0.1` / `::1` / `[::1]` name one listener, and
+  the equivalence is between the *names*, so `localhost` answering only
+  `::1` still admits the `127.0.0.1` spelling); or an **address
+  literal** that is one of the server's resolved addresses.
+
+  A name that is not the server's name is never the server, however it
+  resolves. Matching purely on the resolved address — which this did at
+  first — hands the document author a name of their own pointed at the
+  API server's address on its port, and with it any path there under an
+  attacker-chosen `Host`, including a co-located virtual host. An
+  address literal keeps the resolved-identity comparison because a
+  literal designates one machine and no resolver can steer it.
+
+  Another port on the same host is not covered — the exemption is the
+  API server, not the machine.
+
+A blocked `src` fails the export with `IMAGE_URL_BLOCKED` (exit `1` — the
+document is wrong, not the environment). A name that cannot be resolved
+fails **closed**, as `NETWORK_ERROR` (exit `2`): the gate and the fetch
+resolve independently, so allowing an unresolvable name would let a host
+whose nameserver stalls the gate's lookup and answers the connect-time
+one with `127.0.0.1` straight through.
+
+The verdict is per **address**, not per URL: the configured server's own
+addresses are exempt, every other address the host answers with is
+judged on its merits, and the request is then **pinned** to the
+addresses that passed. Pinning is what makes the gate hold across the
+two independent lookups — the CLI depends on `undici` directly and hands
+each request an `Agent` whose `connect.lookup` returns the approved
+answers, so a rebinding nameserver that answers the gate publicly and
+the connect with `169.254.169.254` never gets a connection. It is also
+why an address the gate rejected can be dropped rather than failing the
+whole URL: it is unreachable either way.
+
+**Egress proxies.** A CLI has no API through which an operator can
+install a dispatcher, so the conventional environment variables
+(`http_proxy` / `https_proxy` / `all_proxy`, honoring `no_proxy`, either
+letter case) *are* the proxy configuration surface. When one applies to
+a hop, that hop is dispatched through a `ProxyAgent`. The gate itself is
+unchanged — a `src` that resolves to an internal address is refused
+before any request is made, proxied or not.
+
+The `Agent`-level pin cannot be combined with a proxy: it works by
+overriding the connector's resolver, and the only name a proxied
+connector resolves is the proxy's own. Dropping it there would not be
+free — the proxy would resolve the image host itself, and its answer is
+not the one the gate approved, so a ~0s-TTL nameserver could answer the
+gate publicly and the proxy privately and reach an address the gate
+refused (the *proxy's* network rather than the CLI's).
+
+So the pin travels with the request instead of being abandoned. The
+hop's URL is rewritten to an address the gate approved and *that* is
+what the proxy is asked for (`CONNECT 192.0.2.10:443`, or an
+absolute-form `GET http://192.0.2.10/…`), while the identity of the
+request stays the host the document named: `Host:` for the HTTP request,
+and the TLS `servername` (`ProxyAgent`'s `requestTls`) for SNI and
+certificate validation. The proxy resolves nothing, so it has no second,
+divergent answer to act on. Two consequences: the hop goes out through
+undici's low-level `request` rather than `fetch`, because WHATWG `fetch`
+forbids setting `Host` and sending the address as the host name would
+break every virtual-hosted CDN; and the rewrite applies only to a
+name — a `src` that already names an address literal is passed through
+unchanged, since it is already the approved address.
+
+The one case where the pin cannot be carried is a proxy that
+allow-lists names and refuses `CONNECT` to an address literal. That hop
+retries by name, once, and the whole run stops trying the address form
+(the proxy has answered that question). This is a property of the
+environment rather than of the document, so it is not
+attacker-triggerable, and the alternative — failing the export outright
+on exactly the machines that can only egress through such a proxy — is
+the worse trade. The residual risk after a fallback is the one described
+above: the proxy resolves the name, and a rebinding nameserver could
+hand it an address the gate refused.
+
+A fallback is not silent. The first hop that gives the pin up writes one
+line to stderr saying so and why, naming the hop that triggered it;
+every later hop in the same export is silent, because a document with
+fifty images states the fact once. A pinned proxied fetch says nothing,
+because nothing was given up. The person who set `https_proxy` is the
+only one who can judge whether that proxy's resolver is trustworthy, and
+this is what puts the question in front of them.
+
+##### Nonce-bound login callback
+
+`wafflebase login` listens on `http://127.0.0.1:<port>/callback`, which
+any local process — or any web page that guesses the port — can reach. So
+the code alone does not complete a login: the CLI generates a nonce,
+ships it as `?nonce=` on the `/auth/github` URL, the backend stores it in
+the CLI state and echoes it back as `state` on the loopback redirect, and
+the CLI accepts only a callback whose `state` matches (constant-time
+compare). Mismatched requests get `403` and are ignored — they can
+neither complete nor cancel the pending login, so a hostile page cannot
+fix the CLI onto its own account. §3.1 describes the round trip and the
+`--allow-unbound-callback` opt-out for a server that predates the echo.
+
+The binding is enforced on the **CLI** side, which is where it works: a
+callback that arrives without the expected `state` is refused, and the
+login then times out — with the refusal's cause named, but never with
+advice to turn the binding off (see below).
+
+The **backend** halves of the same question — did this browser start
+this login, and can this code be redeemed by anyone who merely saw it? —
+are answered by `GitHubAuthGuard`, `CliLoginConfirmMiddleware` and the
+PKCE pair:
+
+- `/auth/github?mode=cli` refuses a request whose `Sec-Fetch-Site` says
+  another site navigated the browser into it (`none` / `same-origin` /
+  `same-site`, or a client that sends no such header, are served).
+  Without that, a hostile page could start a `?mode=cli` round trip in
+  the victim's browser with a loopback port of its choosing, and a code
+  minted from the victim's GitHub session would be delivered there. The
+  cookies cannot cover this case: the navigation that carries the attack
+  is the same navigation that would set them. The check is scoped to the
+  CLI branch — a browser login is legitimately cross-site whenever the
+  frontend and `VITE_BACKEND_API_URL` do not share a site, and it has no
+  loopback delivery to protect.
+- A `?mode=cli` login is then gated on a click through
+  `CliLoginConfirmMiddleware`'s confirmation page, whose Continue link
+  carries a one-time secret that also went out as an httpOnly cookie.
+- The `state` of both flows is bound to the browser that started the
+  login. The web flow uses a double-submit pair: a random secret in the
+  `__Host-wafflebase_oauth_state` cookie, its SHA-256 to GitHub as
+  `web.<hash>` — no server-side map, so it survives restarts and works
+  across replicas. The CLI flow keeps its server-side `CliAuthStore`
+  entry (a cookie cannot deliver the port, nonce and challenge to a
+  loopback listener) and pairs it with a secret in the
+  `__Host-wafflebase_cli_state` cookie, of which only `sha256(secret)`
+  is stored. Both are cleared on use and spent whatever the outcome, so
+  a state token seen elsewhere — a shared terminal, a CI log — cannot be
+  replayed into a victim's browser. The `__Host-` prefix is what stops a
+  sibling subdomain from writing either cookie; outside production,
+  where the browser will not honour it without `Secure`, the names are
+  unprefixed.
+- The code the CLI receives is a **proof-of-possession** credential, not
+  a bearer one. `login` generates a PKCE verifier, sends only
+  `sha256(verifier)` as `?challenge=`, and `POST /auth/cli/exchange`
+  redeems the code with `{ code, verifier }`. The code travels over a
+  plaintext loopback hop, so on its own it must not buy a session; the
+  verifier never leaves the CLI process. A CLI that sends no challenge
+  is refused with a message telling it to update, rather than handed a
+  weaker credential.
+
+**The OAuth URL is a credential while the login is pending**, which is
+why it reaches neither argv nor a log — see "The authorization URL never
+reaches argv or a log" above for the launch-token indirection and the
+`0600` `login-url.txt` fallback. What it does *not* leak, even when it is
+read, is remote access: the callback is `127.0.0.1`, so completing the
+fixation also requires reaching the victim machine's loopback within the
+listener's lifetime, i.e. already running code there.
+
+The timeout message names the last refusal but never prescribes the
+downgrade. An earlier version pointed at `--allow-unbound-callback`
+whenever a `state`-less callback had arrived — but that listener is
+reachable by exactly the adversary the nonce exists to stop, so the
+diagnostic was attacker-settable. A hostile page could send one
+`state`-less `/callback?code=<its own code>`, and the CLI would then
+prescribe the one flag that turns the binding off; taking that advice
+completes a login fixation, since the replayed callback carries the
+attacker's code and the victim ends up holding a session for the
+attacker's account. So the refusal reports *what happened* — no `state`,
+a `state` that does not match, a non-GET request — and, for the
+`state`-less case, that the server is likely older than the CLI and
+should be updated. The flag itself is discoverable only through
+`wafflebase login --help` and the CLI README, places an attacker has no
+say over.
+
+`GitHubAuthGuard` validates both CLI parameters as closed vocabularies
+before they are stored: a nonce must be `[0-9a-f]{32,128}` and a
+challenge exactly 43 base64url characters (the length of a SHA-256
+digest). Anything else — including a repeated query parameter, which
+arrives as an array — is dropped rather than stored, because both values
+are interpolated into a redirect or into the confirmation page's link
+and must have no room to smuggle a query parameter. A dropped nonce is
+served anyway (the redirect then simply carries no `state`, and an older
+CLI never asked for one), but a dropped *challenge* is refused at the
+callback: minting a code with no challenge would hand back a bearer
+credential, which is the thing the challenge exists to prevent.
 
 #### 8.2 Dry-Run
 
@@ -1212,16 +1495,20 @@ is the agent interface. This approach has key advantages:
   either stream leaves the caller with nothing to act on. Only progress
   notices are display output; the envelope is the machine-readable
   failure signal, and stderr already survives stdout redirection.
-  Every emitter builds it through `errorEnvelope` /
-  `backendErrorEnvelope` in `packages/cli/src/output/formatter.ts`
-  (`outputError` included), so "one line, attributed" holds on the paths
-  that never throw either: the import/upload/download orchestrators, the
-  backend-error passthroughs on `docs`/`notes`/`slides` content and export,
-  `schema`'s lookup miss, and the two session commands `login` and
-  `ctx switch` — the prose they used to print was the first thing an agent
-  hit and the one thing it could not parse. Their *prompts* and success
-  notices stay prose: those go to a human at a terminal, and only failures
-  are the machine-readable signal.
+  Every emitter builds it in `packages/cli/src/output/formatter.ts` —
+  `outputError` for the throwing commands, `forwardUpstreamError` for a
+  backend body that already *is* the envelope, and `errorEnvelope` /
+  `upstreamErrorJson` for the paths that never throw — so "one line,
+  attributed" holds on those too: the import/upload/download
+  orchestrators, the backend-error passthroughs on `docs`/`notes`/`slides`
+  content and export, `schema`'s lookup miss, and `ctx switch`. The prose
+  they used to print was the first thing an agent hit and the one thing it
+  could not parse. Their *prompts* and success notices stay prose: those go
+  to a human at a terminal, and only failures are the machine-readable
+  signal. `login` is the deliberate exception — it is an interactive,
+  browser-driven flow whose failures are read by the person at the
+  terminal, so it reports prose and carries the contract in its exit code
+  instead (§10).
   A backend error body keeps its `code` and any extra context — agents
   branch on it — but never its `command`: attribution is the CLI's
   statement about which command *it* ran, so a server cannot forge it. A
@@ -1229,13 +1516,17 @@ is the agent interface. This approach has key advantages:
   a `message[]` of validation errors) is read off the top level too, which
   is where Nest's default `{statusCode, message, error}` puts it, so
   converting these paths to the envelope never costs the server's reason.
+  What it *can* put on stderr is bounded, since it is upstream-controlled
+  content: `code` is capped at 80 characters, `message` at 500, an HTML
+  document in `message` is dropped for `HTTP <status>`, and sibling fields
+  go once the whole body passes 4,000 bytes.
 
 ### 10. Error Matrix
 
 | Case                                                | Exit | Code                | Message                                                            |
 | --------------------------------------------------- | ---- | ------------------- | ------------------------------------------------------------------ |
 | Unsupported `--format` value (any command)          | 1    | INVALID_FORMAT      | "Invalid --format \"<input>\". Use one of: <that command's list>." |
-| `ctx list` without a session (`ctx switch` still prints prose — out of scope for #635) | 1 | NOT_LOGGED_IN | "Not logged in. Run `wafflebase login`."          |
+| `ctx list` / `ctx switch` without a session         | 1    | NOT_LOGGED_IN       | "Not logged in. Run `wafflebase login`."                           |
 | Malformed `--data` / stdin JSON (`sheets cells batch`) | 1  | ERROR               | "Invalid JSON cell data in --data: <parser message>"               |
 | `docs.content` on sheet document                    | 1    | TYPE_MISMATCH       | "Use `sheets cells get` for spreadsheet documents"                 |
 | `sheets.cells.get` on doc                           | 1    | TYPE_MISMATCH       | "Use `docs content` for document files"                            |
@@ -1247,15 +1538,146 @@ is the agent interface. This approach has key advantages:
 | `--replace --dry-run` without `--yes`               | 0    | —                   | (no prompt, no gate — a preview writes nothing)                     |
 | Output file already exists                          | 1    | FILE_EXISTS         | "Refusing to overwrite <file>; pass --force"                       |
 | `--out` / `<file>` directory missing                | 1    | PATH_NOT_FOUND      | (system message)                                                   |
-| Backend 401/403                                     | 2    | UNAUTHORIZED        | "Authentication failed. Run `wafflebase login`"                    |
-| Backend 5xx or network                              | 2    | SYSTEM              | (original message preserved)                                       |
-| Backend 4xx with no more specific code              | 1    | HTTP_ERROR          | (backend's own message, else "HTTP <status>")                       |
-| `login`: exchange / `me` / `workspaces` rejected    | 1/2  | (status-derived)    | (backend's own message, else the step that failed)                  |
-| `ctx switch` with no session / unknown workspace    | 1    | UNAUTHORIZED / NOT_FOUND | "Not logged in. Run `wafflebase login`." / "Workspace not found: <q>" |
+| Backend 401, JWT session could not be refreshed     | 2    | SESSION_EXPIRED     | "Session expired. Run `wafflebase login`."                         |
+| Backend error body *is* the envelope                | by status | (forwarded, bounded) | (the upstream's own code — e.g. SESSION_EXPIRED, TYPE_MISMATCH) |
+| Backend error body is not the envelope              | by status | HTTP_ERROR (AUTH_ERROR on 401/403, SERVER_ERROR on 5xx) | "HTTP <status>" (+ ": <upstream message>" when the body had one) |
+| Backend 401/403                                     | 2    | AUTH_ERROR          | "Authentication failed. Run `wafflebase login`."                   |
+| Backend 5xx                                         | 2    | SERVER_ERROR        | caller's message, else "HTTP <status>"                             |
+| Server unreachable (DNS, refused, TLS)              | 2    | NETWORK_ERROR       | "Request to <url> failed: <cause>" (URL + cause redacted)          |
+| Workspace / document / tab / cell id is `.` or `..` | 1    | ERROR               | "Invalid path segment: \"..\"" (refused before any request is sent) |
+| Unparseable `--server` / image URL                  | 1    | INVALID_URL         | "Invalid URL \"<url>\". Check --server / WAFFLEBASE_SERVER."       |
+| Image `src` the CLI refuses to dereference          | 1    | IMAGE_URL_BLOCKED   | "Refusing to fetch …"                                              |
+| Create returned 2xx with no `id`                    | 2    | INVALID_RESPONSE    | "Server did not return an id"                                      |
+| Download returned 2xx with no bytes                 | 2    | HTTP_ERROR          | "HTTP <status> carried no file content for document <id>"          |
+| `ctx switch` with no session / unknown workspace    | 1    | NOT_LOGGED_IN / NOT_FOUND | "Not logged in. Run `wafflebase login`." / "Workspace not found: <q>" |
 | `schema` for an unknown command                     | 1    | NOT_FOUND           | "Unknown command: <name>"                                          |
+| `login`: exchange / `me` / `workspaces` rejected    | 1/2  | (prose, status-derived exit) | "Token exchange failed (HTTP <status>). …"                 |
 | Yorkie attach failure                               | 2    | YORKIE_ERROR        | "Failed to attach to document <id>"                                |
 | DOCX parse failure                                  | 1    | INVALID_DOCX        | (DocxImporter message)                                             |
-| Fontkit font load failure                           | 2    | FONT_LOAD_ERROR     | (after fallback exhausted)                                         |
+| Font CDN unreachable (DNS, refused, TLS)            | 2    | NETWORK_ERROR       | "Request to <url> failed: <cause>"                                 |
+| Font download 401/403                               | 2    | AUTH_ERROR          | "Font download failed: <status> …"                                 |
+| Font download 5xx                                   | 2    | SERVER_ERROR        | "Font download failed: <status> …"                                 |
+| Font download 4xx (e.g. a 404 font URL)             | 1    | —                   | "Font download failed: <status> …"                                 |
+
+There is deliberately no `UNAUTHORIZED` code: an auth failure is just a
+backend response like any other. It reports `SESSION_EXPIRED` (the client's
+own synthesized envelope, the one case the CLI knows is an auth failure) or
+`AUTH_ERROR` — a single classifier for every command, so the code an agent
+branches on never depends on which subcommand it ran.
+
+**Every `!res.ok` goes through one guard.** `forwardUpstreamError`
+(`packages/cli/src/output/formatter.ts`) is the whole non-OK branch for
+commands that print through `outputError`, and `upstreamErrorJson` is its
+twin for the import/upload/download paths that report through an injected
+`io.stderr` and a returned exit code. Both apply the same rule — a body that
+*is* the documented envelope is forwarded (bounded, see below), anything else
+becomes the `HTTP_ERROR` / `AUTH_ERROR` / `SERVER_ERROR` envelope carrying
+the upstream's own wording — and both take the exit class from the status
+(`exitCodeForStatus`), so a `401 SESSION_EXPIRED` body does not read as a
+user error just because it happens to be JSON. Before that, the `!res.ok`
+branch was written out at each call site: six of them forwarded a real
+envelope and the rest threw `new Error("HTTP <status>")`, which flattened
+the client's own `SESSION_EXPIRED` to `{code: "ERROR"}` depending only on
+which subcommand the agent happened to run.
+
+**Ids are one path segment each.** Every id the client interpolates into a
+request URL — the workspace, a document id, a tab id, a cell reference —
+comes from argv, a config file, or a document an agent generated, and
+`fetch` resolves `.` / `..` per the WHATWG URL rules. So each id is
+percent-encoded (`seg()`, `packages/cli/src/client/url.ts`), which pins it
+to the segment it was meant to fill: an id of
+`../../../../workspaces/w/api-keys/k` is sent as a literal (escaped)
+document id and 404s, instead of walking the request out of the
+`/api/v1/workspaces/<ws>` base and issuing the command's own method, with
+the session's bearer token, against an endpoint it never named.
+
+Encoding cannot pin `.` and `..` themselves — `encodeURIComponent` leaves a
+dot untouched and the URL parser resolves those two segments however they
+are spelled — so they are the one id the client refuses outright. No real
+id is ever a dot segment, so this is the matrix's `ERROR` row above: a
+plain throw before the request is built (nothing reaches the network), and
+therefore the classifier's default code rather than a code of its own.
+Every other id, however strange, is encoded and sent.
+
+Both rules cover `--dry-run` (§8.2), not just the request path: the preview
+is a second URL builder (`printDryRun`, `packages/cli/src/client/dry-run.ts`),
+and a preview that skipped the encoding would print a walked-out URL as "the
+request that would be sent" — the one output an agent is most likely to copy
+and run. The commands encode with the same `seg()` when they assemble a
+previewed path, the printer encodes the workspace, and it re-checks the
+assembled path for a dot segment, since after encoding there cannot be one.
+
+The same reasoning applies wherever else an id or a name chooses something
+outside the process:
+
+- **A downloaded file lands on a name, not a path.** `files download` writes
+  to the caller's `out` when they gave one — they typed a path, so a path is
+  what they meant. Everything else is a *name*: both the server's
+  `Content-Disposition` filename (derived from a document title) and the
+  document id from argv are reduced with `basename` and refused if they are
+  `.`, `..` or empty, falling back to `download` in the CWD
+  (`packages/cli/src/files/download.ts`).
+- **An image `src` in a document cannot aim an export at the local network.**
+  `docs export` / `slides export` fetch every image inline from the operator's
+  machine, and the `src` is content someone else may have written — so the
+  fetcher gates every URL and every redirect hop, and pins each request to the
+  addresses that gate approved. That guard is specified in full under
+  §_Export image fetching_ above; it is the same rule as this section's,
+  applied to a URL the document chose rather than an id the caller typed.
+  A refusal is **not** fatal to the export — *for the CLI*. The exporters
+  (`collectAndEmbedImages`, `DocxExporter.collectImages`, `exportPptx`) each
+  take an `onImageError` reporter, and supplying it is what turns a per-image
+  failure from fatal into a drop: the failed `src` is reported and that one
+  image is left out (the DOCX run is omitted rather than left pointing at a
+  relationship that was never written, and the PPTX element is skipped the way
+  an unserializable chart already is). Every CLI export path passes
+  `reportSkippedImage`, which prints one bounded, redacted line on stderr. One
+  image the user cannot fix must not cost them the export they asked for —
+  which is also what keeps a document full of URLs from an origin this install
+  cannot reach exportable.
+  The tolerance is opt-in precisely because those exporters are shared with
+  the browser, which passes no reporter and keeps the old loud failure: there
+  no SSRF guard makes a refusal ordinary, the export UI reports a thrown
+  error, and a `console.warn` nobody reads would hand the user a silently
+  incomplete download. The canonical write-up of that contract lives with the
+  exporters, in
+  [`docs/docs-pdf-export.md`](docs/docs-pdf-export.md#surviving-a-failed-image-onimageerror).
+  One caveat worth stating plainly: the `catch` spans the decode and embed
+  calls as well as the fetch, so for a caller that opted in, undecodable bytes
+  are dropped as quietly as a refused host.
+
+The rule is not CLI-only. The frontend talks to the same API with the user's
+session, and interpolates route-param ids the same way, so it carries the same
+primitive — literally the same one: `seg()` lives in `@wafflebase/core/url`
+alongside `isSafeUrl`, the existing home for shared URL-safety rules, and both
+`packages/cli/src/client/url.ts` and `packages/frontend/src/api/url.ts`
+re-export it from there rather than keeping a second copy that can drift. It is
+applied to **every**
+browser API module that interpolates one — documents, workspaces, folders,
+share links, datasources, files, analytics, Miro import and the sheet image
+upload. A partially applied guard would be worse than none, because it reads
+as covered: ids reach these modules from `useParams`, so a crafted link like
+`/workspaces/..%2F..%2Fauth%2Flogout/settings` is enough (react-router
+percent-decodes route params before handing them over). `url.test.ts` drives
+one call per id-bearing route and asserts the normalized pathname still names
+the route that was asked for.
+
+**Forwarding is bounded, not byte-for-byte.** On the "body *is* the envelope"
+row the `code` is the upstream's own — that is the contract, and it is never
+rewritten or reclassified. The text around it is not echoed unchanged,
+because a forwarded body is upstream-controlled content printed straight
+into an agent's stderr, and the non-envelope path already refuses to quote a
+stack trace or an HTML page. The same bounds therefore apply on the envelope
+path (`safeEnvelope`, `packages/cli/src/output/formatter.ts`):
+
+| Field                       | Bound                                                              |
+| --------------------------- | ------------------------------------------------------------------ |
+| `error.code`                | truncated at 80 characters — a code is an identifier, not prose     |
+| `error.message`             | trimmed, truncated at 500 characters with a trailing `…`            |
+| `error.message` that is HTML | replaced by `HTTP <status>` — a document is not a message           |
+| sibling fields (`command`, request ids) | kept while the serialized body stays under 4,000 bytes; past that only `{code, message}` survives |
+
+An `error.message` is a display string, not a payload to parse.
 
 ### 11. Design Principles
 

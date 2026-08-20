@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { NoteContent } from '../client/http-client.js';
-import { backendErrorEnvelope, errorEnvelope } from '../output/formatter.js';
+import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
+import { errorEnvelope, upstreamErrorJson } from '../output/formatter.js';
+import { seg } from '../client/url.js';
 
 /**
  * Minimal HTTP surface `runNotesImport` needs from the CLI's `HttpClient`.
@@ -153,7 +155,7 @@ export async function runNotesImport(
         JSON.stringify(
           {
             method: 'PUT',
-            path: `/documents/${replace}/content`,
+            path: `/documents/${seg(replace)}/content`,
             body: { content },
           },
           null,
@@ -164,14 +166,8 @@ export async function runNotesImport(
     }
     const res = await client.putNoteContent(replace, { content });
     if (!res.ok) {
-      io.stderr(
-        backendErrorEnvelope(
-          res.data,
-          { code: 'HTTP_ERROR', message: `HTTP ${res.status}` },
-          command,
-        ),
-      );
-      return { exitCode: 1 };
+      io.stderr(upstreamErrorJson(res, command));
+      return { exitCode: exitCodeForStatus(res.status) };
     }
     io.stdout(JSON.stringify({ id: replace, replaced: true }, null, 2));
     return { exitCode: 0 };
@@ -197,33 +193,24 @@ export async function runNotesImport(
 
   const created = await client.createDocument(inferredTitle, 'note');
   if (!created.ok) {
-    io.stderr(
-      backendErrorEnvelope(
-        created.data,
-        { code: 'HTTP_ERROR', message: `HTTP ${created.status}` },
-        command,
-      ),
-    );
-    return { exitCode: 1 };
+    io.stderr(upstreamErrorJson(created, command));
+    return { exitCode: exitCodeForStatus(created.status) };
   }
   const newId = (created.data as { id?: string } | null)?.id;
   if (!newId) {
     io.stderr(
       errorEnvelope('INVALID_RESPONSE', 'Server did not return an id', command),
     );
-    return { exitCode: 1 };
+    // A 2xx that omitted the id is the server contradicting itself —
+    // nothing the caller can retype, so it exits with the system class
+    // like every other server fault.
+    return { exitCode: EXIT_SYSTEM_ERROR };
   }
 
   const put = await client.putNoteContent(newId, { content });
   if (!put.ok) {
-    io.stderr(
-      backendErrorEnvelope(
-        put.data,
-        { code: 'HTTP_ERROR', message: `HTTP ${put.status}` },
-        command,
-      ),
-    );
-    return { exitCode: 1 };
+    io.stderr(upstreamErrorJson(put, command));
+    return { exitCode: exitCodeForStatus(put.status) };
   }
 
   io.stdout(JSON.stringify({ id: newId, title: inferredTitle }, null, 2));

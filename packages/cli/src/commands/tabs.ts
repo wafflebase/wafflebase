@@ -4,8 +4,10 @@ import {
   output,
   outputError,
   parseOutputFormat,
+  forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 
 export function registerTabsCommand(parent: Command) {
   const tab = parent.command('tabs').alias('tab').description('Manage tabs');
@@ -18,7 +20,7 @@ export function registerTabsCommand(parent: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).listTabs(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
         outputError(e, this);
@@ -47,7 +49,12 @@ export function registerTabsCommand(parent: Command) {
       if (name !== undefined) body.name = name;
 
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'POST', `/documents/${docId}/tabs`, body);
+        printDryRun(
+          getConfig(opts),
+          'POST',
+          `/documents/${seg(docId)}/tabs`,
+          body,
+        );
         return;
       }
       try {
@@ -55,7 +62,7 @@ export function registerTabsCommand(parent: Command) {
         // discard the response of a tab that already exists server-side.
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).createTab(docId, body);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
         outputError(e, this);
@@ -74,15 +81,18 @@ export function registerTabsCommand(parent: Command) {
       const opts = getGlobalOpts(this);
 
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}/tabs/${tabId}`, {
-          name,
-        });
+        printDryRun(
+          getConfig(opts),
+          'PATCH',
+          `/documents/${seg(docId)}/tabs/${seg(tabId)}`,
+          { name },
+        );
         return;
       }
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).renameTab(docId, tabId, name);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
         outputError(e, this);

@@ -15,11 +15,12 @@ Fixes #
 
 ## Verification
 
-CI automatically posts a verification summary comment on this PR with
-per-lane results for both `verify:self` and `verify:integration`.
+Pass/fail is in this PR's own checks list. The comment CI posts reports
+**scope** instead: which heavy jobs were skipped, and which changed file
+forced the whole suite.
 
-- [ ] verify:self — CI comment shows ✅
-- [ ] verify:integration — CI comment shows ✅ (or explicit skip reason below)
+- [ ] verify-self — green in the checks list
+- [ ] verify-integration — green in the checks list (or explicit skip reason below)
 
 Skip reason (if applicable):
 

@@ -54,6 +54,22 @@ export interface DesignEditorOptions {
   /** Providers module wrapping every mounted scene. Resolved against `root`. */
   providers?: string;
   /**
+   * A module default-exporting `(sceneConfig) => FixtureTable` — the URL-keyed responses
+   * the frame answers `fetch` with.
+   *
+   * SEPARATE FROM `providers` because of ORDERING, not taste. The guard has to be
+   * installed before any scene module is imported: real API modules read their base URL
+   * at module scope and real pages fire queries on mount, so a guard installed after the
+   * import has already lost the race — and an escaped request reaches the consumer's
+   * actual backend from a frame whose whole premise is that it does not. `providers` is
+   * loaded lazily with the scene, so it cannot carry this.
+   *
+   * The manifest's `fixtures` / `mocks` / `shell` fields are the ARGUMENT; resolving a
+   * name like `"documents/list"` to data is the consumer's job, because the data is
+   * theirs. Absent, the frame mocks nothing and every request misses loudly.
+   */
+  fixtures?: string;
+  /**
    * Trees that are resolved and served but never re-queried per frame side.
    *
    * Generalises the prototype's `ENGINE_SRC_ROOTS`, which named wafflebase's four
@@ -73,6 +89,7 @@ export interface ResolvedOptions {
   root: string;
   scenes: string | null;
   providers: string | null;
+  fixtures: string | null;
   opaqueRoots: string[];
   tokens: TokenAdapter | null;
   /**
@@ -114,6 +131,7 @@ export function resolveOptions(
     root,
     scenes: absolutise(root, options?.scenes),
     providers: absolutise(root, options?.providers),
+    fixtures: absolutise(root, options?.fixtures),
     // Normalised and absolute so `isOpaque` can compare prefixes without
     // re-resolving per module id — this is consulted on every module load.
     opaqueRoots: (options?.opaqueRoots ?? []).map((r) =>

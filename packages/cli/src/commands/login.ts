@@ -11,167 +11,81 @@ import {
 } from '../config/session.js';
 import type { Session, WorkspaceInfo } from '../config/session.js';
 import { DEFAULT_SERVER, getConfigPath } from '../config/config.js';
-import { backendErrorEnvelope, commandPath } from '../output/formatter.js';
+import {
+  EXIT_USER_ERROR,
+  SystemError,
+  UserError,
+  exitCodeFor,
+  exitCodeForStatus,
+  fetchOrThrow,
+} from '../errors.js';
+
+/**
+ * A login failure worth reporting as prose. The exit code comes from the
+ * same `exitCodeForStatus` table the API commands use, so a stale CLI
+ * code (400) stays a user error while a rejected token or a broken
+ * server (401/403/5xx) reports a system error.
+ */
+export class LoginError extends Error {
+  constructor(
+    readonly exitCode: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'LoginError';
+  }
+}
+
+function loginHttpError(status: number, message: string): LoginError {
+  return new LoginError(exitCodeForStatus(status), message);
+}
+
+/**
+ * Exit code for a thrown login failure, or `null` when the throw is not
+ * part of the contract (a bug, a local filesystem fault) and should keep
+ * its stack trace instead of being flattened to one prose line.
+ */
+export function classifyLoginFailure(error: unknown): number | null {
+  if (
+    error instanceof LoginError ||
+    error instanceof SystemError ||
+    // `fetchOrThrow` raises `UserError('INVALID_URL')` for an
+    // unparseable `--server`; without this it escapes `login` as an
+    // unhandled rejection instead of the documented one-line message.
+    error instanceof UserError
+  ) {
+    return exitCodeFor(error);
+  }
+  return null;
+}
 
 export function registerLoginCommand(program: Command): void {
   program
     .command('login')
     .description('Log in via GitHub OAuth in the browser')
+    // Escape hatch for a server older than nonce-bound login. Published
+    // CLIs and self-hosted backends upgrade independently, so a new CLI
+    // must not be unable to log into an old server at all — but the
+    // downgrade is the operator's explicit choice, never a silent
+    // fallback, because the nonce is what stops a local web page from
+    // fixing this CLI onto an attacker's account.
+    .option(
+      '--allow-unbound-callback',
+      'accept a login callback that carries no state (server predates nonce-bound CLI login)',
+    )
     .action(async function (this: Command) {
-      const parentOpts = this.optsWithGlobals<{ server?: string }>();
-      const server = (parentOpts.server ?? DEFAULT_SERVER).replace(/\/$/, '');
-      const name = commandPath(this);
-
-      // 1. Check existing session
-      const existing = loadSession();
-      if (existing) {
-        const answer = await ask(
-          `Logged in as ${existing.user.username}. Continue? [Y/n] `,
-        );
-        if (answer.toLowerCase() === 'n') {
-          console.log('Cancelled.');
-          return;
-        }
-      }
-
-      // 2. Start local HTTP server, bound to this attempt's two secrets.
-      //
-      // The callback listener is on 127.0.0.1 but the port is guessable, and
-      // any page in the user's browser can navigate to it. Without a binding
-      // check the CLI would exchange whatever `code` arrived first — an
-      // attacker's code included, which silently logs the terminal into the
-      // attacker's account (RFC 8252 §8.9). Two bindings close that: the CLI
-      // mints a nonce it requires the callback to echo back as `state`, and a
-      // PKCE verifier (RFC 7636) that never leaves this process, so even a
-      // code lifted off the redirect is not redeemable without it.
-      const nonce = createLoginNonce();
-      const { verifier, challenge } = createPkcePair();
-      const { port, waitForCallback, close, armLaunch } =
-        await startCallbackServer(nonce);
-
-      // 3. Build OAuth URL and open browser. The backend echoes `nonce`
-      // back as the loopback callback's `state`, which is what lets the
-      // callback server tell our own redirect from a forged one; only the
-      // `challenge` (the verifier's SHA-256) goes out with it.
-      const oauthUrl =
-        `${server}/auth/github?mode=cli&port=${port}` +
-        `&nonce=${encodeURIComponent(nonce)}` +
-        `&challenge=${encodeURIComponent(challenge)}`;
-      console.error('Opening browser for GitHub login...');
-      // The server answers this URL with a confirmation page rather than
-      // going straight to GitHub — a sign-in the user did not start must
-      // not proceed on a bare navigation. Say so, or the wait looks stuck.
-      console.error('Confirm the sign-in in the browser to continue.');
-
-      // The browser is handed a loopback URL, never the authorization URL
-      // itself: opening a URL spawns a child process with that URL in its
-      // argv, and on a shared host any local user can read `/proc/<pid>/
-      // cmdline` or `ps`. That would leak this login's nonce *and* PKCE
-      // challenge — the two bindings the rest of this flow rests on — to
-      // exactly the attacker those bindings exist to stop. The loopback URL
-      // gives away nothing: its token is single-use, and spending it is
-      // visible, since the genuine browser then lands on the "already used"
-      // page instead of GitHub, which names the remedy.
-      await openBrowser(armLaunch(oauthUrl));
-      const urlFile = announceLoginUrl(oauthUrl);
-
-      // 4. Wait for callback
-      let code: string;
+      // `login` prints prose rather than the JSON error body, but it
+      // honors the same exit contract: a server that was never reached
+      // is a system error, bad input from the caller is not. Anything
+      // unclassified is a bug and keeps its stack trace, as before.
       try {
-        code = await waitForCallback();
-      } finally {
-        close();
-        // The URL is spent either way: it is one login's secrets, not a
-        // bookmark. Leaving it on disk past the flow is a stale credential.
-        if (urlFile) rmSync(urlFile, { force: true });
+        await runLogin(this.optsWithGlobals<LoginOptions>());
+      } catch (e) {
+        const exitCode = classifyLoginFailure(e);
+        if (exitCode === null) throw e;
+        console.error((e as Error).message);
+        process.exit(exitCode);
       }
-
-      // 5. Exchange code for tokens
-      const exchangeRes = await fetch(`${server}/auth/cli/exchange`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, verifier }),
-      });
-
-      if (!exchangeRes.ok) {
-        return await failFromBackend(
-          exchangeRes,
-          name,
-          'Token exchange failed. Try again with `wafflebase login`.',
-        );
-      }
-
-      const tokens = (await exchangeRes.json()) as {
-        accessToken: string;
-        refreshToken: string;
-      };
-
-      // 6. Get user info
-      const meRes = await fetch(`${server}/auth/me`, {
-        headers: { Authorization: `Bearer ${tokens.accessToken}` },
-      });
-
-      if (!meRes.ok) {
-        return await failFromBackend(meRes, name, 'Failed to fetch user info.');
-      }
-
-      const user = (await meRes.json()) as {
-        id: number;
-        username: string;
-        email: string;
-        photo: string | null;
-      };
-
-      // 7. Get workspace list
-      const wsRes = await fetch(`${server}/workspaces`, {
-        headers: { Authorization: `Bearer ${tokens.accessToken}` },
-      });
-
-      if (!wsRes.ok) {
-        return await failFromBackend(
-          wsRes,
-          name,
-          `Failed to fetch workspaces (HTTP ${wsRes.status}).`,
-        );
-      }
-
-      const workspaces = (await wsRes.json()) as WorkspaceInfo[];
-
-      // 8. Select workspace
-      let activeWorkspace = '';
-      if (workspaces.length === 0) {
-        console.log('No workspaces found.');
-      } else if (workspaces.length === 1) {
-        activeWorkspace = workspaces[0].id;
-        console.log(`Workspace: ${workspaces[0].name}`);
-      } else {
-        console.log('Select a workspace:');
-        workspaces.forEach((ws, i) => {
-          console.log(`  ${i + 1}. ${ws.name} (${ws.id.slice(0, 8)})`);
-        });
-        const choice = await ask('Enter number: ');
-        const idx = parseInt(choice, 10) - 1;
-        if (idx >= 0 && idx < workspaces.length) {
-          activeWorkspace = workspaces[idx].id;
-        } else {
-          activeWorkspace = workspaces[0].id;
-          console.log(`Invalid choice, using ${workspaces[0].name}.`);
-        }
-      }
-
-      // 9. Save session
-      const session: Session = {
-        server,
-        user,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresAt: decodeJwtExpiry(tokens.accessToken),
-        activeWorkspace,
-        workspaces,
-      };
-
-      saveSession(session);
-      console.log(`Logged in as ${user.username}.`);
     });
 }
 
@@ -246,45 +160,242 @@ function announceLoginUrl(url: string): string | undefined {
   }
 }
 
-/**
- * The Error Matrix code for a backend status (docs/design/cli.md §10).
- *
- * Coding every failure `UNAUTHORIZED` told an agent to re-run `login` when
- * the backend was simply down: a 500 from `/workspaces` is a system failure,
- * not a rejected credential, and the two are retried differently.
- */
-function codeForStatus(status: number): string {
-  if (status === 401 || status === 403) return 'UNAUTHORIZED';
-  if (status >= 500) return 'SYSTEM';
-  return 'HTTP_ERROR';
+interface LoginSession {
+  tokens: { accessToken: string; refreshToken: string };
+  user: {
+    id: number;
+    username: string;
+    email: string;
+    photo: string | null;
+  };
+  workspaces: WorkspaceInfo[];
 }
 
 /**
- * Report a backend failure as the standard one-line error envelope and exit.
+ * Trade the callback code for a session: tokens, then the user, then the
+ * workspace list. Split out of `runLogin` (which owns the browser and
+ * the local callback server) so the exit contract of the three HTTP
+ * steps is testable with a stubbed `fetch`.
  *
- * `login` used to print prose here. It is the first command an agent runs, so
- * a failure it cannot parse is the worst place to break the convention
- * (docs/design/cli.md §9); the backend's own reason is preserved when the
- * response carries one.
- *
- * Returns `never`, but every call site still `return`s it: TypeScript does not
- * treat an awaited `Promise<never>` as a terminator, so without the `return`
- * the code after it stays reachable and would re-read a consumed body if
- * `process.exit` were ever stubbed or intercepted.
+ * `verifier` is the PKCE half of the exchange: the code arrived over a
+ * plaintext loopback hop, so redeeming it also requires a value that
+ * never left this process (see `createPkcePair`).
  */
-async function failFromBackend(
-  res: { status: number; json: () => Promise<unknown> },
-  command: string,
-  fallbackMessage: string,
-): Promise<never> {
-  const body = await res.json().catch(() => null);
-  const code = codeForStatus(res.status);
-  console.error(
-    backendErrorEnvelope(body, { code, message: fallbackMessage }, command),
+export async function fetchLoginSession(
+  server: string,
+  code: string,
+  verifier: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<LoginSession> {
+  const exchangeRes = await fetchOrThrow(
+    `${server}/auth/cli/exchange`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, verifier }),
+    },
+    fetchImpl,
   );
-  // Auth and system failures are the Error Matrix's exit-2 rows; every other
-  // status is an ordinary command failure.
-  return process.exit(code === 'HTTP_ERROR' ? 1 : 2);
+
+  if (!exchangeRes.ok) {
+    throw loginHttpError(
+      exchangeRes.status,
+      `Token exchange failed (HTTP ${exchangeRes.status}). Try again with \`wafflebase login\`.`,
+    );
+  }
+
+  const tokens = (await exchangeRes.json()) as {
+    accessToken: string;
+    refreshToken: string;
+  };
+
+  const meRes = await fetchOrThrow(
+    `${server}/auth/me`,
+    { headers: { Authorization: `Bearer ${tokens.accessToken}` } },
+    fetchImpl,
+  );
+
+  if (!meRes.ok) {
+    throw loginHttpError(
+      meRes.status,
+      `Failed to fetch user info (HTTP ${meRes.status}).`,
+    );
+  }
+
+  const user = (await meRes.json()) as LoginSession['user'];
+
+  const wsRes = await fetchOrThrow(
+    `${server}/workspaces`,
+    { headers: { Authorization: `Bearer ${tokens.accessToken}` } },
+    fetchImpl,
+  );
+
+  if (!wsRes.ok) {
+    throw loginHttpError(
+      wsRes.status,
+      `Failed to fetch workspaces (HTTP ${wsRes.status}). Try again with \`wafflebase login\`.`,
+    );
+  }
+
+  const workspaces = (await wsRes.json()) as WorkspaceInfo[];
+  return { tokens, user, workspaces };
+}
+
+/** The flags `runLogin` reads, resolved from the command line. */
+export interface LoginOptions {
+  server?: string;
+  allowUnboundCallback?: boolean;
+}
+
+/**
+ * Everything `runLogin` reaches outside its own process step: the
+ * session file, the local callback listener, the browser, and the three
+ * HTTP calls. Injectable so the flow itself — that a fresh nonce is
+ * generated, handed to the listener *and* carried in the OAuth URL, that
+ * the PKCE verifier never leaves the process, and that
+ * `--allow-unbound-callback` actually reaches the listener — can be
+ * driven in a test without an OAuth round trip. Every one of those is a
+ * security-relevant wire that would otherwise be verified only by
+ * reading the code.
+ */
+export interface LoginDeps {
+  loadSession: typeof loadSession;
+  saveSession: typeof saveSession;
+  startCallbackServer: typeof startCallbackServer;
+  fetchLoginSession: typeof fetchLoginSession;
+  openBrowser: (url: string) => Promise<void>;
+}
+
+const defaultLoginDeps: LoginDeps = {
+  loadSession,
+  saveSession,
+  startCallbackServer,
+  fetchLoginSession,
+  openBrowser,
+};
+
+export async function runLogin(
+  options: LoginOptions,
+  overrides: Partial<LoginDeps> = {},
+): Promise<void> {
+  const deps = { ...defaultLoginDeps, ...overrides };
+  const server = (options.server ?? DEFAULT_SERVER).replace(/\/$/, '');
+
+  // 1. Check existing session
+  const existing = deps.loadSession();
+  if (existing) {
+    const answer = await ask(
+      `Logged in as ${existing.user.username}. Continue? [Y/n] `,
+    );
+    if (answer.toLowerCase() === 'n') {
+      console.log('Cancelled.');
+      return;
+    }
+  }
+
+  // 2. Start the local HTTP server, bound to a nonce generated here.
+  // The callback listener is reachable by anything on the machine (and
+  // by any web page that guesses the port), so the code alone must not
+  // be enough: otherwise a hostile page can hand us *its* code and fix
+  // this CLI onto the attacker's account. The nonce rides through the
+  // OAuth round trip, comes back as the callback's `state`, and only a
+  // callback echoing it is accepted.
+  const nonce = createLoginNonce();
+  if (options.allowUnboundCallback) {
+    console.error(
+      'Warning: --allow-unbound-callback accepts a callback that carries no state. Any local process that reaches the callback port can complete this login.',
+    );
+  }
+  const { port, waitForCallback, close, armLaunch } =
+    await deps.startCallbackServer(nonce, {
+      allowUnbound: options.allowUnboundCallback === true,
+    });
+
+  // 3. Build OAuth URL and open browser. The backend echoes `nonce`
+  // back as the loopback callback's `state`, which is what lets the
+  // callback server tell our own redirect from a forged one.
+  //
+  // `challenge` is the PKCE half: the `code` comes back to us over
+  // plaintext loopback HTTP, so it must not be redeemable on its own.
+  // Only the hash goes out; the verifier stays in this process and is
+  // sent once, in the exchange POST body.
+  //
+  // The URL carries the nonce *and* the challenge, so while this login is
+  // pending it is a credential: anyone who can both read it and reach this
+  // machine's callback port can complete the login as themselves and leave
+  // this CLI holding *their* session. It is therefore never handed to the
+  // browser directly — opening a URL spawns a child process with that URL
+  // in its argv, which any local user can read (`ps`,
+  // `/proc/<pid>/cmdline`) on exactly the shared host these bindings exist
+  // for. `armLaunch` parks it behind a single-use loopback redirect and the
+  // opener gets that instead.
+  const { verifier, challenge } = createPkcePair();
+  const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${encodeURIComponent(nonce)}&challenge=${encodeURIComponent(challenge)}`;
+  console.error('Opening browser for GitHub login...');
+  // The server answers this URL with a confirmation page rather than
+  // going straight to GitHub — a sign-in the user did not start must
+  // not proceed on a bare navigation. Say so, or the wait looks stuck.
+  console.error('Confirm the sign-in in the browser to continue.');
+
+  await deps.openBrowser(armLaunch(oauthUrl));
+  // `open()` resolving is not evidence a browser appeared — it only means
+  // the child was spawned — so the URL is announced either way, through
+  // whichever channel is safe for the stderr it would land on.
+  const urlFile = announceLoginUrl(oauthUrl);
+
+  // 4. Wait for callback
+  let code: string;
+  try {
+    code = await waitForCallback();
+  } finally {
+    close();
+    // The URL is spent either way: it is one login's secrets, not a
+    // bookmark. Leaving it on disk past the flow is a stale credential.
+    if (urlFile) rmSync(urlFile, { force: true });
+  }
+
+  // 5-7. Exchange the code for tokens, then read the user and workspaces.
+  const { tokens, user, workspaces } = await deps.fetchLoginSession(
+    server,
+    code,
+    verifier,
+  );
+
+  // 8. Select workspace
+  let activeWorkspace = '';
+  if (workspaces.length === 0) {
+    console.log('No workspaces found.');
+  } else if (workspaces.length === 1) {
+    activeWorkspace = workspaces[0].id;
+    console.log(`Workspace: ${workspaces[0].name}`);
+  } else {
+    console.log('Select a workspace:');
+    workspaces.forEach((ws, i) => {
+      console.log(`  ${i + 1}. ${ws.name} (${ws.id.slice(0, 8)})`);
+    });
+    const choice = await ask('Enter number: ');
+    const idx = parseInt(choice, 10) - 1;
+    if (idx >= 0 && idx < workspaces.length) {
+      activeWorkspace = workspaces[idx].id;
+    } else {
+      activeWorkspace = workspaces[0].id;
+      console.log(`Invalid choice, using ${workspaces[0].name}.`);
+    }
+  }
+
+  // 9. Save session
+  const session: Session = {
+    server,
+    user,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    expiresAt: decodeJwtExpiry(tokens.accessToken),
+    activeWorkspace,
+    workspaces,
+  };
+
+  deps.saveSession(session);
+  console.log(`Logged in as ${user.username}.`);
 }
 
 function ask(prompt: string): Promise<string> {
@@ -401,6 +512,16 @@ export const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
  * redirect is refused and the login hangs for the full timeout with
  * nothing to act on. The reason is reported as it happens and repeated
  * in the timeout error, so the failure names its cause.
+ *
+ * What the reasons deliberately never do is *prescribe the downgrade*.
+ * The listener is reachable by any local process and by any page that
+ * guesses the port — the exact adversary the state binding exists to
+ * stop — so a nonce-less hit is attacker-settable. Telling the operator
+ * to re-run with `--allow-unbound-callback` because of one would
+ * complete a login fixation: the replayed callback carries the
+ * attacker's code, and the victim's session ends up as the attacker's
+ * account. The escape hatch stays discoverable only where an attacker
+ * has no say — `wafflebase login --help` and the README.
  */
 const REFUSAL = {
   noState:
@@ -421,6 +542,20 @@ const REFUSAL = {
 export function loginTimeoutMessage(refusal?: string): string {
   const base = 'Login timed out. Try again with `wafflebase login`.';
   return refusal ? `${base}\nThe last callback was refused: ${refusal}` : base;
+}
+
+export interface CallbackServerOptions {
+  /**
+   * Accept a callback that carries **no** `state` at all — the shape an
+   * older backend redirects with. Off by default; `wafflebase login
+   * --allow-unbound-callback` turns it on for someone who knowingly
+   * points a current CLI at a server that predates the echo. A
+   * *mismatched* `state` is refused either way, since only an attacker
+   * sends one.
+   */
+  allowUnbound?: boolean;
+  /** How long to wait for the callback. A seam for tests. */
+  timeoutMs?: number;
 }
 
 /**
@@ -445,11 +580,15 @@ export function loginTimeoutMessage(refusal?: string): string {
  *
  * A refusal never settles the wait — the genuine redirect may still be
  * on its way — but it is recorded and surfaced, so a refused login is
- * diagnosable rather than a silent hang.
+ * diagnosable rather than a silent five-minute hang.
+ *
+ * Exported so the binding can be driven directly in tests: it is the
+ * security core of the login flow, not an implementation detail of
+ * `runLogin`.
  */
 export function startCallbackServer(
   nonce: string,
-  options: { timeoutMs?: number } = {},
+  options: CallbackServerOptions = {},
 ): Promise<{
   port: number;
   waitForCallback: () => Promise<string>;
@@ -473,6 +612,7 @@ export function startCallbackServer(
    */
   armLaunch: (authorizationUrl: string) => string;
 }> {
+  const allowUnbound = options.allowUnbound === true;
   return new Promise((resolve, reject) => {
     let settled = false;
     let launchToken: string | undefined;
@@ -569,7 +709,20 @@ export function startCallbackServer(
       // server, the second a callback that is not ours — so they are
       // reported apart.
       const state = url.searchParams.get('state');
-      if (!nonceMatches(nonce, state)) {
+      if (state === null && allowUnbound) {
+        // The one case the downgrade flag can wave through: a server
+        // that predates the echo redirects with no `state` at all. A
+        // hostile local page sends the same shape, which is exactly why
+        // this needs the operator's explicit opt-in.
+        console.error(
+          'Accepting a callback with no login state (--allow-unbound-callback).',
+        );
+      } else if (!nonceMatches(nonce, state)) {
+        // Never settle the promise here: a forged hit must not end the
+        // wait, so the real redirect can still arrive. `state` missing
+        // entirely and `state` wrong are different failures — the first
+        // is an out-of-date server, the second a callback that is not
+        // ours — so they are reported apart.
         refuse(res, 403, state === null ? REFUSAL.noState : REFUSAL.badState);
         return;
       }
@@ -644,7 +797,11 @@ export function startCallbackServer(
         timeout = setTimeout(() => {
           if (!settled) {
             settled = true;
-            callbackReject(new Error(loginTimeoutMessage(lastRefusal)));
+            // A timeout is the caller's to retry, not a fault of the
+            // environment, so it exits `1` like any other user error.
+            callbackReject(
+              new LoginError(EXIT_USER_ERROR, loginTimeoutMessage(lastRefusal)),
+            );
           }
           srv.close();
         }, options.timeoutMs ?? CALLBACK_TIMEOUT_MS);

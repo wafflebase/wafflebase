@@ -348,7 +348,7 @@ describe('wafflebase login', () => {
   // rejected exchange through `failFromBackend`: one line, attributed to the
   // command, carrying the backend's own reason — and it must stop there
   // rather than fall through into `exchangeRes.json()`.
-  it('reports a rejected exchange as the one-line error envelope', async () => {
+  it('reports a rejected exchange as prose with the auth exit code', async () => {
     process.env.WAFFLEBASE_SESSION = sessionPath;
 
     const program = new Command();
@@ -412,22 +412,20 @@ describe('wafflebase login', () => {
     // Stopped at the failure: no second call, and nothing was saved.
     expect(exchanges).toBe(1);
 
-    const envelopes = notices.filter((n) => n.startsWith('{'));
-    expect(envelopes).toHaveLength(1);
-    expect(envelopes[0]).not.toContain('\n');
-    expect(JSON.parse(envelopes[0])).toEqual({
-      error: {
-        code: 'UNAUTHORIZED',
-        message: 'Invalid or expired code',
-        command: 'login',
-      },
-    });
+    // `login` reports prose, not the JSON envelope: it is an interactive,
+    // browser-driven flow whose failures are read by the person at the
+    // terminal. The machine-readable half of the contract is the exit code
+    // asserted above (docs/design/cli.md §9).
+    expect(notices).toContain(
+      'Token exchange failed (HTTP 401). Try again with `wafflebase login`.',
+    );
+    expect(notices.filter((n) => n.startsWith('{'))).toHaveLength(0);
   });
 
-  // Coding a server fault `UNAUTHORIZED` told the agent to re-run `login`
-  // when the credential it just minted was fine — the Error Matrix
-  // (docs/design/cli.md §10) puts a 5xx under SYSTEM instead.
-  it('codes a backend 5xx as SYSTEM, not as an auth failure', async () => {
+  // Coding a server fault as an auth failure told the agent to re-run
+  // `login` when the credential it just minted was fine. A 5xx exits 2 as
+  // a system fault, and says so (docs/design/cli.md §10).
+  it('codes a backend 5xx as a system fault, not an auth failure', async () => {
     process.env.WAFFLEBASE_SESSION = sessionPath;
 
     const program = new Command();
@@ -485,14 +483,9 @@ describe('wafflebase login', () => {
     expect((await settled)?.message).toBe('exit:2');
     expect(exit).toHaveBeenCalledWith(2);
 
-    const envelopes = notices.filter((n) => n.startsWith('{'));
-    expect(envelopes).toHaveLength(1);
-    expect(JSON.parse(envelopes[0])).toEqual({
-      error: {
-        code: 'SYSTEM',
-        message: 'Failed to fetch workspaces (HTTP 502).',
-        command: 'login',
-      },
-    });
+    expect(notices).toContain(
+      'Failed to fetch workspaces (HTTP 502). Try again with `wafflebase login`.',
+    );
+    expect(notices.filter((n) => n.startsWith('{'))).toHaveLength(0);
   });
 });

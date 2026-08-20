@@ -94,8 +94,13 @@ export function registerCtxCommand(program: Command): void {
       const session = loadSession();
       if (!session) {
         console.error(
+          // `NOT_LOGGED_IN`, not `UNAUTHORIZED`: `ctx list` already reports
+          // this exact condition under that code, and there is deliberately
+          // no `UNAUTHORIZED` in the matrix (docs/design/cli.md §10). The
+          // code an agent branches on must not depend on which `ctx`
+          // subcommand it happened to run.
           errorEnvelope(
-            'UNAUTHORIZED',
+            'NOT_LOGGED_IN',
             'Not logged in. Run `wafflebase login`.',
             name,
           ),

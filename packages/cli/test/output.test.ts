@@ -5,16 +5,17 @@ import { formatTable } from '../src/output/table.js';
 import { formatCsv } from '../src/output/csv.js';
 import { formatYaml } from '../src/output/yaml.js';
 import {
-  backendErrorEnvelope,
   commandPath,
   errorEnvelope,
   format,
   output,
   outputError,
   parseOutputFormat,
+  upstreamErrorJson,
   InvalidFormatError,
   type OutputFormat,
 } from '../src/output/formatter.js';
+import { SystemError, httpError } from '../src/errors.js';
 import { InvalidDocxError } from '../src/docs/docx-import.js';
 import { buildProgram, runCli } from '../src/cli.js';
 import { createProgram } from '../src/commands/root.js';
@@ -325,13 +326,32 @@ describe('outputError', () => {
 
     expect(getEmittedBody().error.command).toBe('docs.content');
   });
+
+  it('exits 2 for a system error', () => {
+    outputError(new SystemError('NETWORK_ERROR', 'fetch failed'));
+    const body = getEmittedBody();
+    expect(body.error.code).toBe('NETWORK_ERROR');
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('exits 2 for an auth failure surfaced by httpError', () => {
+    outputError(httpError(401));
+    expect(getEmittedBody().error.code).toBe('AUTH_ERROR');
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('still exits 1 for a 404, which is a user error', () => {
+    outputError(httpError(404));
+    expect(getEmittedBody().error.code).toBe('ERROR');
+    expect(process.exitCode).toBe(1);
+  });
 });
 
-// #661 follow-up: `outputError` is not the only emitter. The import /
-// upload / download orchestrators own their own IO seam and exit code, and
-// `schema` reports a miss without throwing — they all have to produce the
-// same one-line, attributed envelope, so they share these builders.
-describe('errorEnvelope / backendErrorEnvelope', () => {
+// #661: `outputError` is not the only emitter. The import / upload /
+// download orchestrators own their own IO seam and exit code, and `schema`
+// reports a miss without throwing — they all have to produce the same
+// one-line, attributed envelope, so they share these builders.
+describe('errorEnvelope', () => {
   it('emits one line carrying the command', () => {
     const line = errorEnvelope('CONFIRMATION_REQ', 'Pass --yes.', 'docs.import');
     expect(line).not.toContain('\n');
@@ -349,11 +369,20 @@ describe('errorEnvelope / backendErrorEnvelope', () => {
       'command',
     );
   });
+});
 
+// The orchestrators' shared emitter. It answers the same question
+// `forwardUpstreamError` does for the throwing commands, so the two must
+// agree line for line — attribution included.
+describe('upstreamErrorJson', () => {
   it('keeps a backend `code` and extra context so agents can branch on it', () => {
-    const line = backendErrorEnvelope(
-      { error: { code: 'TYPE_MISMATCH', message: 'not a doc', type: 'sheet' } },
-      { code: 'HTTP_ERROR', message: 'HTTP 400' },
+    const line = upstreamErrorJson(
+      {
+        status: 400,
+        data: {
+          error: { code: 'TYPE_MISMATCH', message: 'not a doc', type: 'sheet' },
+        },
+      },
       'docs.content',
     );
     expect(line).not.toContain('\n');
@@ -367,31 +396,35 @@ describe('errorEnvelope / backendErrorEnvelope', () => {
     });
   });
 
-  it('falls back to the caller code/message for a bodyless failure', () => {
-    expect(
-      JSON.parse(
-        backendErrorEnvelope(null, { code: 'HTTP_ERROR', message: 'HTTP 500' }),
-      ),
-    ).toEqual({ error: { code: 'HTTP_ERROR', message: 'HTTP 500' } });
+  it('falls back to a status-derived code for a bodyless failure', () => {
+    expect(JSON.parse(upstreamErrorJson({ status: 500, data: null }))).toEqual({
+      error: { code: 'SERVER_ERROR', message: 'HTTP 500' },
+    });
   });
 
   // The backend has no global exception filter, so most failures arrive in
   // Nest's default shape — the reason at the top level, `error` a bare
-  // reason phrase. These paths used to print the body verbatim, so reading
-  // only a nested `error.message` would silently drop the server's text.
+  // reason phrase. These paths used to print the body verbatim, so dropping
+  // the top-level `message` would silently lose the server's text.
   it("keeps the server's message from Nest's default error shape", () => {
     expect(
       JSON.parse(
-        backendErrorEnvelope(
-          { statusCode: 404, message: 'Document not found', error: 'Not Found' },
-          { code: 'HTTP_ERROR', message: 'HTTP 404' },
+        upstreamErrorJson(
+          {
+            status: 404,
+            data: {
+              statusCode: 404,
+              message: 'Document not found',
+              error: 'Not Found',
+            },
+          },
           'docs.content',
         ),
       ),
     ).toEqual({
       error: {
         code: 'HTTP_ERROR',
-        message: 'Document not found',
+        message: 'HTTP 404: Document not found',
         command: 'docs.content',
       },
     });
@@ -400,47 +433,44 @@ describe('errorEnvelope / backendErrorEnvelope', () => {
   it('joins a validation `message` array instead of dropping it', () => {
     expect(
       JSON.parse(
-        backendErrorEnvelope(
-          {
+        upstreamErrorJson({
+          status: 400,
+          data: {
             statusCode: 400,
             message: ['title must be a string', 'title should not be empty'],
             error: 'Bad Request',
           },
-          { code: 'HTTP_ERROR', message: 'HTTP 400' },
-        ),
+        }),
       ).error.message,
-    ).toBe('title must be a string; title should not be empty');
+    ).toBe('HTTP 400: title must be a string; title should not be empty');
   });
 
-  it('falls back to a bare `error` string when there is no message', () => {
+  // A rejected credential reads the same here as it does from `httpError()`:
+  // the message an agent sees must not depend on which throw site reported it.
+  it('names an auth failure a 403 body left unexplained', () => {
     expect(
       JSON.parse(
-        backendErrorEnvelope(
-          { statusCode: 403, error: 'Forbidden' },
-          { code: 'HTTP_ERROR', message: 'HTTP 403' },
-        ),
-      ).error.message,
-    ).toBe('Forbidden');
+        upstreamErrorJson({ status: 403, data: { statusCode: 403 } }),
+      ).error,
+    ).toEqual({
+      code: 'AUTH_ERROR',
+      message: 'Authentication failed. Run `wafflebase login`.',
+    });
   });
 
   // Attribution is the CLI's own statement about which command it ran. A
   // server that echoes a `command` must not be able to relabel the failure.
   it('never lets the server dictate `command`', () => {
-    const forged = { error: { code: 'X', message: 'y', command: 'sheets.wipe' } };
-    expect(
-      JSON.parse(
-        backendErrorEnvelope(
-          forged,
-          { code: 'HTTP_ERROR', message: 'HTTP 400' },
-          'docs.content',
-        ),
-      ).error.command,
-    ).toBe('docs.content');
-    expect(
-      JSON.parse(
-        backendErrorEnvelope(forged, { code: 'HTTP_ERROR', message: 'HTTP 400' }),
-      ).error,
-    ).not.toHaveProperty('command');
+    const forged = {
+      status: 400,
+      data: { error: { code: 'X', message: 'y', command: 'sheets.wipe' } },
+    };
+    expect(JSON.parse(upstreamErrorJson(forged, 'docs.content')).error.command).toBe(
+      'docs.content',
+    );
+    expect(JSON.parse(upstreamErrorJson(forged)).error).not.toHaveProperty(
+      'command',
+    );
   });
 });
 
@@ -572,7 +602,10 @@ describe('--quiet does not suppress the body or the error envelope', () => {
     expect(String(stdoutSpy.mock.calls[0]?.[0])).toBe('id,title\ndoc-1,Doc');
   });
 
-  it('prints the error envelope on stderr and exits 1 under --quiet', async () => {
+  it('prints the error envelope on stderr and fails under --quiet', async () => {
+    // `--quiet` gates neither the envelope nor the classification: a 5xx
+    // is a server fault, so it exits 2 with `SERVER_ERROR` here exactly
+    // as it would without the flag.
     stubFetch(500, null);
     await run('docs', 'get', 'doc-1', '--quiet');
     expect(stdoutSpy).not.toHaveBeenCalled();
@@ -583,11 +616,11 @@ describe('--quiet does not suppress the body or the error envelope', () => {
       error: { code: string; message: string; command?: string };
     };
     expect(body.error).toEqual({
-      code: 'ERROR',
+      code: 'SERVER_ERROR',
       message: 'HTTP 500',
       command: 'docs.get',
     });
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
   // #661: an agent driving several calls needs to know *which* one failed.

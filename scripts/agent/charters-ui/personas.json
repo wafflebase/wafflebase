@@ -47,6 +47,52 @@
     "verifierMaxTurns": 50
   },
   {
+    "id": "board-author",
+    "title": "Board author",
+    "surface": "board",
+    "model": "claude-opus-5",
+    "oracles": [
+      "prediction",
+      "crash",
+      "dom-invariant"
+    ],
+    "briefs": [
+      {
+        "id": "arrange-and-view",
+        "task": "Arrange things on the plane and move the view around, and keep the two straight \u2014 they are different coordinate systems and confusing them is the main way to waste a run here. FIRST read `dom.controls`, then click an element and READ IT AGAIN: the toolbar morphs from 7 controls to 12, and `Arrange`, `Border color`, `Border dash`, `Border weight` and `Fill color` only exist once something is selected. Read `board.viewport` early so you know where the window is. THE ROUND TRIPS ARE THE POINT, and a drag has an exact inverse: read `board.elements`, drag an element to a `board.pointAt(x, y)` well clear of everything, drag it back to where it came from, and predict `board.elements` EQUALS the first reading. Do the same with a `se` handle via `board.handleCenter` \u2014 out and back. Then the z-order pair, `Cmd+ArrowUp` then `Cmd+ArrowDown`, on ONE element and on SEVERAL, predicting the array returns to its earlier reading. MIND BOTH SNAPS: within 8 world pixels of another element's edge or centre the drag snaps, and the `Grid` menu has its own snap toggle. Either drag well clear and predict the exact point, or predict the snapped value. SCROLLING IS NOT AN EDIT. A plain `scroll` pans the view, so `board.viewport` changes while `board.elements` must NOT \u2014 world coordinates do not move when the window does, and predicting that they hold across a scroll is a good ground-A check. Expect `board.pointAt` and `board.elementCenter` to REFUSE for anything off-screen; that is the normal state of an unbounded plane, so scroll toward it and try again rather than reporting it."
+      },
+      {
+        "id": "content-and-undo",
+        "task": "Change what the board CONTAINS and use undo as the reversing control \u2014 it genuinely works here. Read `board.canUndo` first and confirm it is false, then make one edit and confirm it turned true. Place things with the two controls that work: `Shape` (pick one from the picker, then DRAG out a region) and `Text box` (also drag). Measured, a click alone places nothing \u2014 these need the drag. Predict `board.elementCount` grows by exactly one, then undo and predict it returns. TYPING TAKES THREE STEPS: select, press `Enter` to enter text-edit mode, type, then commit by clicking a DIFFERENT element. Skip the `Enter` and the keystrokes go to the canvas as shortcuts and nothing lands \u2014 which reads exactly like a failed commit, so get the sequence right before believing a violation. A freshly dragged-out `Text box` is already in edit mode. Escape CANCELS. Round-trip the text: read `board.elements`, type, commit, confirm it changed, undo, and predict the first reading comes back exactly. The `Grid` menu and its snap checkbox are REAL state here, so round-trip those too: change the mode and change it back, and predict nothing about the elements moved. Do NOT spend actions on `Sticky note` or `Sticky note color` \u2014 they are unwired in this harness and adding nothing is not a defect."
+      }
+    ],
+    "codeScope": [
+      "packages/board/src/**",
+      "packages/slides/src/**",
+      "packages/frontend/src/app/board/**"
+    ],
+    "docsScope": [
+      "docs/design/board/board.md",
+      "docs/design/board/board-whiteboard-elements.md",
+      "docs/design/board/board-editing-parity.md"
+    ],
+    "minCitations": 1,
+    "verifiers": 2,
+    "maxVerified": 4,
+    "maxCandidates": 8,
+    "reportableSeverities": [
+      "critical",
+      "major"
+    ],
+    "actionBudget": {
+      "maxActions": 50,
+      "perActionTimeoutMs": 30000,
+      "totalTimeoutMs": 900000
+    },
+    "explorerMaxTurns": 70,
+    "verifierMaxTurns": 50
+  },
+  {
     "id": "slide-author",
     "title": "Slide author",
     "surface": "slides",

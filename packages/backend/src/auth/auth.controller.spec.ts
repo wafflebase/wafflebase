@@ -481,9 +481,24 @@ describe('AuthController', () => {
 
   describe('cookie SameSite policy', () => {
     const originalNodeEnv = process.env.NODE_ENV;
+    const originalCallbackUrl = process.env.GITHUB_CALLBACK_URL;
+
+    // `useSecureCookies()` reads `GITHUB_CALLBACK_URL` first and only falls
+    // back to `NODE_ENV` when none is configured, so these cases have to
+    // clear it. Otherwise a developer's own `packages/backend/.env` (whose
+    // callback URL is `http://localhost:3000/...`) decides the assertion
+    // and the suite passes in CI while failing on their machine.
+    beforeEach(() => {
+      delete process.env.GITHUB_CALLBACK_URL;
+    });
 
     afterEach(() => {
       process.env.NODE_ENV = originalNodeEnv;
+      if (originalCallbackUrl === undefined) {
+        delete process.env.GITHUB_CALLBACK_URL;
+      } else {
+        process.env.GITHUB_CALLBACK_URL = originalCallbackUrl;
+      }
     });
 
     it('sets SameSite=Lax with secure=true in production', async () => {

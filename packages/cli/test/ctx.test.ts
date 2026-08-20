@@ -123,7 +123,10 @@ describe('ctx switch failures', () => {
     return errs;
   }
 
-  it('reports a missing session as an UNAUTHORIZED envelope', async () => {
+  // Same code `ctx list` reports for the same condition — the matrix has
+  // no `UNAUTHORIZED` (docs/design/cli.md §10), and the code an agent
+  // branches on must not depend on which `ctx` subcommand it ran.
+  it('reports a missing session as a NOT_LOGGED_IN envelope', async () => {
     process.env.WAFFLEBASE_SESSION = sessionPath;
 
     const errs = await runSwitch('anything');
@@ -132,7 +135,7 @@ describe('ctx switch failures', () => {
     expect(errs[0]).not.toContain('\n');
     expect(JSON.parse(errs[0])).toEqual({
       error: {
-        code: 'UNAUTHORIZED',
+        code: 'NOT_LOGGED_IN',
         message: 'Not logged in. Run `wafflebase login`.',
         command: 'ctx.switch',
       },
