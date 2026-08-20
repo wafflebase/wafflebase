@@ -118,6 +118,16 @@ pin(`SCORE_SCOPES is ${JSON.stringify(SCORE_SCOPES)}, expected the store's two s
  * supplied at the call and `validateScore` only checks that a payload which does
  * carry them agrees. Back-filling them into three merged modules is not this PR's
  * business.
+ *
+ * ⟳ `validity-v1` IS THE ONE ENTRY WHOSE SECTION IS EXPECTED TO CARRY NO FIGURE, and
+ * that is why it belongs here rather than waiting for labels. `validity.mjs` merged
+ * (#905) and was wired into nothing, so precision — the metric this whole benchmark is
+ * eventually for — appeared on the page only as prose in the limits. An absent section
+ * reads *"we never considered precision"*; a declared one reads *"precision is measured
+ * here, and the judgement has not been made"*. Those are different facts about the same
+ * empty store, and the four-state vocabulary below exists precisely to tell them apart.
+ * It is LAST because the order is the argument (see `renderReport`): measured first,
+ * bounded second, unavailable third.
  */
 export const SECTIONS = Object.freeze([
   { key: "volume", scorer_id: "volume-mix-v1", scope: "per-run", title: "Volume and severity mix" },
@@ -125,6 +135,7 @@ export const SECTIONS = Object.freeze([
   { key: "reliability", scorer_id: "reliability-v1", scope: "cross-run", title: "Reliability of our panel" },
   { key: "cost_latency", scorer_id: "cost-latency-v1", scope: "cross-run", title: "Cost and latency" },
   { key: "segmentation", scorer_id: "segmentation-v1", scope: "cross-run", title: "Where each arm wins, by segment" },
+  { key: "validity", scorer_id: "validity-v1", scope: "cross-run", title: "Is any of it true" },
 ]);
 
 /** Every scorer id this module knows, so a `--scorer-id` typo is refused at the
@@ -660,7 +671,7 @@ function labelStoreOf(reps) {
     // 🔴 IT FINGERPRINTS EVERY FIELD THIS OBJECT HANDS THE RENDERER, not the three it
     // started with. The warning's own words are "the counts above describe only the
     // first", so it has to cover every count that comes from `blocks[0]` — and §2
-    // quotes `by_source` and `superseded`, and §6 quotes `by_source` again, all of
+    // quotes `by_source` and `superseded`, and §7 quotes `by_source` again, all of
     // which were outside the old fingerprint. A guard that watches three of seven
     // fields is the shape lesson 7 is about: it stands in one door and the room has
     // three. `unreadable` and `invalid` are store-level rather than census fields and
@@ -1262,12 +1273,425 @@ function groupSegmentation(cells) {
   return { grids, ungrouped };
 }
 
+/**
+ * Which of a validity payload's four cell lists a metric's cells live in, and the
+ * field each list spells its availability in.
+ *
+ * 🔴 THE THREE SHAPES ARE NOT ONE SHAPE, and a single adapter over them would be
+ * wrong in the flattering direction. `precisionCell` carries `value` and
+ * `availability`; `relativeRecallBand` carries `low`/`high` and NO `value` at all —
+ * deliberately, because a point estimate is the one thing that metric may not publish
+ * while the cross-arm overlap is unresolved; and `fpProfile` carries a `false_findings`
+ * COUNT that is printed at any size plus a `share_availability` for the proportion
+ * beside it. Reading `.availability` across all three would leave every profile group
+ * unlabelled, which `renderCell` refuses — so the accessor is per list and named here.
+ */
+const VALIDITY_CELL_LISTS = Object.freeze([
+  { metrics: ["precision", "severity_weighted_precision"], key: "cells", availability: (c) => c.availability },
+  { metrics: ["relative_recall"], key: "relative_recall", availability: (c) => c.availability },
+  { metrics: ["fp_profile"], key: "fp_profile", availability: (c) => c.share_availability },
+]);
+
+/**
+ * Precision and its neighbours — and on today's store every figure in it is an
+ * ABSENCE, which is the deliverable rather than a shortfall.
+ *
+ * 🔴 WHY A SECTION WITH NO NUMBER IN IT IS WORTH RENDERING. `validity.mjs` merged
+ * (#905) and was wired into nothing, so the only place precision appeared was a
+ * sentence in the limits. A reader cannot tell prose in a footer from a metric nobody
+ * thought of. Rendered as CELLS, in the same four-state vocabulary as every other
+ * figure, `precision` reads *"this is measured here and the judgement has not been
+ * made"* — and the two rows beneath it read *"this cannot be measured here at all"*.
+ * Those are three different facts (a figure, a pending judgement, a permanent refusal)
+ * and this section's whole job is to keep them apart.
+ *
+ * 🔴 `not-computed` AND `not-measurable` ARE NOT INTERCHANGEABLE, and this renderer
+ * REFUSES rather than translating one into the other. `absolute_recall` and
+ * `miss_profile` need defects found outside both arms — `true_defects[]`, from a human
+ * review or a revert — which a corpus built out of what two reviewers said cannot
+ * contain. No amount of adjudication produces them. A payload that declared either as
+ * merely uncomputed would be telling a reader to wait for labels that can never
+ * arrive, so the guard below is a refusal and not a coercion: the scorer's own
+ * `computable: false` declaration is what makes the cell, and a disagreement between
+ * the declaration and the availability stops the render.
+ *
+ * IT READS AND NEVER COMPUTES. Every cell state, every reason and every unit is a
+ * field of the payload; the only arithmetic is counting how many cells are in which
+ * state, which is exactly what `segmentationFigures` already does for §5's grid.
+ */
+export function validityFigures(payload) {
+  if (!payload) {
+    return {
+      availability: "not-computed",
+      reason: `no ${sectionFor("validity").scorer_id} score is filed for this comparability key — nobody ran the validity scorer against this store`,
+      metrics: [],
+      refusals: [],
+      arms: [],
+      cells: [],
+      bands: [],
+      profile: [],
+    };
+  }
+  const declared = Array.isArray(payload.metrics) ? payload.metrics : [];
+  if (declared.length === 0) {
+    // A payload that declares no metric cannot say which ones it refused, and the
+    // refusals are half of what this section is for. `not-computed` over a score file
+    // that is sitting there would be the wrong sentence, so the reason says which.
+    return {
+      availability: "not-computed",
+      reason: "the validity score carries no `metrics` block, so it does not declare which figures it computes and which it refuses — and the refusals are half of this section",
+      metrics: [],
+      refusals: [],
+      arms: [],
+      cells: [],
+      bands: [],
+      profile: [],
+    };
+  }
+  const labelTotal = Number.isFinite(payload.labels?.total) ? payload.labels.total : null;
+  const readings = Number.isFinite(payload.labels?.census?.readings) ? payload.labels.census.readings : null;
+  const listOf = (id) => VALIDITY_CELL_LISTS.find((l) => l.metrics.includes(id)) ?? null;
+  const cellsOf = (id) => {
+    const list = listOf(id);
+    if (!list) return null;
+    const all = Array.isArray(payload[list.key]) ? payload[list.key] : [];
+    // The precision lists carry two metrics in one array, so they are filtered by the
+    // metric they name; the other two ARE the metric's list and carry no `metric` key.
+    const mine = list.metrics.length > 1 ? all.filter((c) => c.metric === id) : all;
+    const census = Object.fromEntries(AVAILABILITY.map((a) => [a, mine.filter((c) => list.availability(c) === a).length]));
+    return { rows: mine, census, n: mine.length, list: list.key };
+  };
+
+  const metrics = declared.map((m) => {
+    // A REFUSED metric, and the refusal is the scorer's declaration made load-bearing.
+    if (m.computable === false) {
+      if (m.availability !== "not-measurable") {
+        refuse(
+          `the validity score declares ${JSON.stringify(m.id)} as not computable and gives it availability ${JSON.stringify(m.availability ?? null)} — ` +
+            "a metric this corpus cannot answer at all must render `not-measurable`, because `not-computed` tells a reader to wait for a judgement " +
+            "that can never be made. The two states are the whole vocabulary and this renderer will not translate one into the other",
+        );
+      }
+      if (typeof m.reason !== "string" || m.reason.trim() === "") {
+        refuse(`the validity score refuses ${JSON.stringify(m.id)} permanently and gives no reason — an unexplained permanent refusal cannot be told from a scorer nobody ran`);
+      }
+      return { id: m.id, computable: false, unit: null, spec: m.spec ?? null, cells: null, cell: notMeasurable(m.reason) };
+    }
+    const got = cellsOf(m.id);
+    if (got === null) {
+      // A metric the payload declares computable and this renderer has no list for is a
+      // new metric, not an empty one — said rather than dropped, which is the failure
+      // §5's axis table exists to prevent one level down.
+      return {
+        id: m.id,
+        computable: true,
+        unit: m.unit ?? null,
+        spec: m.spec ?? null,
+        cells: null,
+        cell: notComputed(`the validity score declares ${m.id} as computable and this renderer knows no cell list for it — it is newer than this section, so its figures are not on the page`),
+      };
+    }
+    if (got.n === 0) {
+      return {
+        id: m.id,
+        computable: true,
+        unit: m.unit ?? null,
+        spec: m.spec ?? null,
+        cells: got,
+        // THE FACT THE PAYLOAD STATES, AND NOTHING MORE — the label census, which is
+        // what decides whether a cell could exist. Deliberately not "…is a ratio over
+        // labels": `fp_profile` is a grouping rather than a ratio, so one sentence
+        // covering all four had to be about the labels and not about the arithmetic.
+        // The census itself is printed once above the table rather than repeated into
+        // every row, which is what made these cells 250 characters wide on the first
+        // pass — note 2's complaint about §5, reproduced in a table of six rows.
+        cell: notComputed(`no ${m.id} cell exists: ${labelTotal === null ? "the payload states no label count" : `${labelTotal} finding label(s) exist on this corpus version`}, so nothing falls in one`),
+      };
+    }
+    return { id: m.id, computable: true, unit: m.unit ?? null, spec: m.spec ?? null, cells: got, cell: null };
+  });
+
+  return {
+    availability: "present",
+    min_n: payload.min_n ?? null,
+    min_n_source: payload.min_n_source ?? null,
+    labels: {
+      total: labelTotal,
+      readings,
+      unreadable: Number.isFinite(payload.labels?.unreadable_count) ? payload.labels.unreadable_count : null,
+      tiers: payload.labels?.census?.label_source ?? null,
+    },
+    metrics,
+    // Kept beside the metric rows rather than folded into them: `what_would_change_it`
+    // is the only field that tells a reader whether to wait, and it exists on the
+    // refusal row alone.
+    refusals: (Array.isArray(payload.refusals) ? payload.refusals : []).map((r) => ({
+      metric: r.metric,
+      permanent: r.permanent === true,
+      what_would_change_it: r.what_would_change_it ?? null,
+    })),
+    // The claim populations, because they are what makes a zero denominator readable:
+    // `pending` says another judgement could still land here and `exhausted` says none
+    // ever can. Rendered per arm, from the payload's own census.
+    arms: (Array.isArray(payload.arms) ? payload.arms : []).map((a) => ({
+      arm: a.arm,
+      labels: Number.isFinite(a.labels) ? a.labels : null,
+      claims_supplied: a.claims_supplied === true,
+      distinct_claims: a.claims?.distinct_finding_keys ?? null,
+      unlabelled_claims: a.unlabelled_claims ?? null,
+      claim_population: a.claim_population ?? null,
+      joined: a.join?.counts?.joined ?? null,
+      unmatched: a.join?.counts?.unmatched ?? null,
+    })),
+    // The three detail lists, as cells. Each keeps its own shape: a band is not a
+    // value and a false-finding count is not a proportion.
+    cells: (metrics.find((m) => m.id === "precision")?.cells?.rows ?? [])
+      .concat(metrics.find((m) => m.id === "severity_weighted_precision")?.cells?.rows ?? [])
+      .map((c) => ({ segment: c.segment ?? "(unnamed)", cell: validityCell(c, unitFor(declared, c.metric)) })),
+    bands: (metrics.find((m) => m.id === "relative_recall")?.cells?.rows ?? []).map((c) => ({
+      segment: c.segment ?? "(unnamed)",
+      // BOTH bounds or neither. `low`/`high` are the only figures on a present band and
+      // there is no `value` to fall back on, so an absent band renders as words.
+      band: c.availability === "present" ? { low: c.low, high: c.high, union_low: c.union_low, union_high: c.union_high, n: c.labelled_findings } : null,
+      cell: c.availability === "present" ? null : validityCell(c, unitFor(declared, "relative_recall")),
+    })),
+    profile: (metrics.find((m) => m.id === "fp_profile")?.cells?.rows ?? []).map((g) => ({
+      arm: g.arm,
+      axis: g.axis,
+      bucket: String(g.bucket),
+      // The COUNT is printed at any size — it is the qualitative content of a profile
+      // and withholding it would delete the profile itself. The SHARE beside it is a
+      // proportion and follows min-n.
+      false_findings: g.false_findings,
+      share:
+        g.share_availability === "present"
+          ? figure(g.false_share, g.labelled_findings, unitFor(declared, "fp_profile"))
+          : g.share_availability === "suppressed"
+            ? suppressed(g.labelled_findings, g.min_n)
+            : validityCell({ ...g, availability: g.share_availability }, unitFor(declared, "fp_profile")),
+    })),
+    completeness: payload.completeness ?? null,
+  };
+}
+
+/** A metric's declared unit, off the payload's own `metrics` block. Refused rather than
+ *  defaulted: `figure` needs a unit and a literal here would caption a scorer's figure
+ *  with a word the scorer never used. */
+function unitFor(declared, id) {
+  const row = declared.find((m) => m.id === id);
+  if (!row || typeof row.unit !== "string" || row.unit.trim() === "") {
+    refuse(`the validity score declares no unit for ${JSON.stringify(id)}, so its figures cannot be captioned — decision 28: a unitless figure is ambiguous between two true answers`);
+  }
+  return row.unit;
+}
+
+/**
+ * One `precisionCell`-shaped cell as one of this renderer's four, and the `n` is
+ * `labelled_findings` in every state.
+ *
+ * `labelled_findings` AND NEVER `readings`, deliberately: the denominator of a
+ * precision figure is one judgement per claim, and `readings` counts the times an
+ * adjudicator actually read something — 428 labels written from 245 readings and 428
+ * written from 428 are different datasets, and only the first number belongs under the
+ * ratio. Both are in the payload and the section prints both; this one is the one the
+ * figure divides by.
+ */
+function validityCell(cell, unit) {
+  const availability = cell?.availability ?? null;
+  if (!AVAILABILITY.includes(availability)) {
+    refuse(`a validity cell must carry one of ${AVAILABILITY.join(" | ")}, got ${JSON.stringify(availability)} for segment ${JSON.stringify(cell?.segment ?? null)} — an unlabelled cell is a blank cell`);
+  }
+  switch (availability) {
+    case "present":
+      return figure(cell.value, cell.labelled_findings, unit);
+    case "suppressed":
+      return suppressed(cell.labelled_findings, cell.min_n);
+    case "not-measurable":
+      return notMeasurable(cell.reason ?? "the validity score refused this cell and gave no reason");
+    default:
+      return notComputed(cell.reason ?? "the validity score built no figure for this cell and gave no reason");
+  }
+}
+
 /** The `SECTIONS` row for a key, refusing an unknown one so a typo cannot produce a
  *  section with no scorer behind it. */
 export function sectionFor(key) {
   const s = SECTIONS.find((x) => x.key === key);
   if (!s) refuse(`unknown report section ${JSON.stringify(key)} — known: ${SECTIONS.map((x) => x.key).join(", ")}`);
   return s;
+}
+
+// --- who the reviewer was ----------------------------------------------------
+
+/** A stated absence, so a table cell is never blank and agreement is never computed
+ *  over `undefined`. Two snapshots that both omit `effort` AGREE about it, and that is
+ *  a different fact from two that disagree — which a bare `undefined` cannot express. */
+const NOT_STATED = "not stated";
+const stated = (v) => (v === undefined || v === null || v === "" ? NOT_STATED : String(v));
+
+/**
+ * The per-lens fields the header prints, and each is BEHAVIOUR rather than provenance.
+ *
+ * All four are inside `config_hash` (`HASHED_LENS_FIELDS` in `config-hash.mjs`), which
+ * is the test of whether a field belongs on this table: if changing it does not change
+ * the hash it does not change the reviewer, and printing it would invite a reader to
+ * attribute a difference to it. `rubric_sha256` is hashed too and is deliberately NOT
+ * here — it is 64 characters of digest per row for a fact the `config_hash` beneath the
+ * table already carries.
+ */
+const LENS_COLUMNS = Object.freeze([
+  { key: "model", title: "model", code: true },
+  { key: "samples", title: "samples", code: false },
+  { key: "effort", title: "effort", code: true },
+  { key: "gating", title: "gating", code: false },
+]);
+
+/**
+ * WHO PRODUCED THESE NUMBERS, in words a reader can act on.
+ *
+ * 🔴 THE DEFECT THIS FIXES. The header used to name the reviewer as two hashes and
+ * nothing else — `panel_sha 46da673d…` and `sha256:1c7853de…` — and a reader who cannot
+ * tell which reviewer produced a number cannot use the number. The pilot's figures
+ * describe one particular panel, and `review-panel.mjs` and `lenses/` move most weeks;
+ * with only a digest on the page the report silently invites comparison against a panel
+ * that no longer exists. The hashes stay, because they are the join key and somebody
+ * will need them — they stop being the only thing there.
+ *
+ * 🟢 NOTHING HERE IS COMPUTED OR FETCHED. Every field is already in the store:
+ * `runs/<id>/config.snapshot.json` holds `config_id`, `target`, `sdk_version`,
+ * `config_hash_version` and `lenses[]` with a model on each, and `run.json` holds
+ * `panel_sha` and `panel_sha_source`. `report.mjs` already reads a run envelope to
+ * cross-check the panel sha, and `store.getRun` returns the snapshot beside it, so this
+ * needs no new accessor and no new file format.
+ *
+ * 🔴 A DISAGREEMENT IS REPORTED, NEVER RESOLVED. Three replicates carry three
+ * snapshots, and nothing in the store forces them to match: a config edited between two
+ * legs would leave one lens on a different model, and printing the first replicate's
+ * answer would describe a reviewer that produced one third of the data. So every axis is
+ * compared across replicates and a disagreement becomes a line on the page naming what
+ * each leg said. Agreement is stated once, because "we checked and they match" and
+ * "nobody checked" are the distinction this whole module is built around.
+ *
+ * ⚠ `captured_at` IS NOT AN AXIS. The pilot's three snapshots differ in it — they were
+ * frozen 19 hours apart — and they describe the same reviewer, which is exactly why
+ * `config-hash.mjs` classifies it as cosmetic. Comparing whole snapshot bytes would
+ * report a disagreement on every real store; the axes below are the ones that change
+ * what a lens does.
+ */
+export function reviewerFigures(runs = []) {
+  const list = Array.isArray(runs) ? runs : [];
+  if (list.length === 0) {
+    return {
+      availability: "not-computed",
+      reason: "no run envelope was supplied to this render, so the lens set, the models and the SDK version behind these figures are unknown — the two hashes above are all that identifies the reviewer",
+      replicates: [],
+      lenses: [],
+      disagreements: [],
+      snapshots_missing: [],
+    };
+  }
+  // A run whose snapshot is absent is NAMED, not skipped. `store.getRun` degrades a
+  // missing `config.snapshot.json` to `null` — a run written before its snapshot
+  // landed — and a replicate silently dropped here would leave the header describing a
+  // lens set that two of three legs never confirmed.
+  const withSnapshot = list.filter((r) => r.configSnapshot);
+  const snapshotsMissing = list.filter((r) => !r.configSnapshot).map((r) => r.run_id ?? "(unnamed run)");
+  if (withSnapshot.length === 0) {
+    return {
+      availability: "not-computed",
+      reason: `none of the ${list.length} replicate(s) carries a config snapshot (${snapshotsMissing.join(", ")}), so the lens set and the models behind these figures are unknown`,
+      replicates: list.map((r) => ({ run_id: r.run_id ?? null })),
+      lenses: [],
+      disagreements: [],
+      snapshots_missing: snapshotsMissing,
+    };
+  }
+
+  /** One axis of the reviewer's identity, as a string per replicate. A lens set is one
+   *  axis and not six: a reader needs to know THAT the panels differ before they need to
+   *  know which lens moved, and the per-lens table below carries the detail. */
+  const lensSignature = (snap) =>
+    (Array.isArray(snap.lenses) ? snap.lenses : [])
+      .map((l) => `${stated(l.id)}=${LENS_COLUMNS.map((c) => stated(l[c.key])).join("/")}`)
+      .join(" · ");
+  const axes = [
+    // `config_hash` FIRST, because it is the authority the others are read against. It
+    // is the configuration's identity by construction (decision 13), and the CLI already
+    // refuses to render a run whose hash is not the one being reported on.
+    { field: "config_hash", of: (r) => stated(r.configSnapshot.config_hash) },
+    { field: "config_id", of: (r) => stated(r.configSnapshot.config_id) },
+    { field: "target", of: (r) => stated(r.configSnapshot.target) },
+    { field: "sdk_version", of: (r) => stated(r.configSnapshot.sdk_version) },
+    { field: "config_hash_version", of: (r) => stated(r.configSnapshot.config_hash_version) },
+    { field: "lens set", of: (r) => lensSignature(r.configSnapshot) },
+    { field: "panel_sha", of: (r) => stated(r.runJson?.panel_sha) },
+    { field: "panel_sha_source", of: (r) => stated(r.runJson?.panel_sha_source) },
+  ];
+  const disagreements = [];
+  const agreed = {};
+  for (const axis of axes) {
+    const values = withSnapshot.map((r) => ({ run_id: r.run_id ?? null, value: axis.of(r) }));
+    const distinct = [...new Set(values.map((v) => v.value))];
+    if (distinct.length === 1) agreed[axis.field] = distinct[0];
+    else disagreements.push({ field: axis.field, values });
+  }
+
+  /**
+   * 🔴 `config_hash` OUTRANKS THE LENS SIGNATURE, and without this the renderer could
+   * contradict something this very file has already proved.
+   *
+   * `lensSignature` compares the snapshot's RAW fields. `config_hash` compares their
+   * CANONICAL form — `config-hash.mjs` normalises an omitted `effort` to the panel's
+   * default before hashing, and an omitted `samples` through `sampleCountFor`. So a
+   * snapshot that omits `effort` and one that states the default explicitly hash
+   * IDENTICALLY (measured) and signature DIFFERENTLY. The pilot has exactly that shape:
+   * `security` omits `effort` where every other lens states one.
+   *
+   * On that input the old code printed *"these are not replicates of one reviewer"* and
+   * blanked the lens table — over legs whose `config_hash` is identical, which is the
+   * definition of one reviewer on the configuration axis, and which the render path has
+   * already refused to proceed without. A guard that fires on data the file elsewhere
+   * calls fine is worse than no guard: it teaches a reader to discount it.
+   *
+   * So a lens difference under an agreeing hash is demoted to what it is — two snapshots
+   * recording one configuration differently — and the table still renders. A difference
+   * under a DISAGREEING hash is a real reviewer change and keeps the full refusal.
+   */
+  const hashAgrees = agreed.config_hash !== undefined && agreed.config_hash !== NOT_STATED;
+  const cosmetic = [];
+  for (let i = disagreements.length - 1; i >= 0; i--) {
+    if (disagreements[i].field === "lens set" && hashAgrees) cosmetic.push(...disagreements.splice(i, 1));
+  }
+
+  const first = withSnapshot[0].configSnapshot;
+  const panelSha = agreed.panel_sha && agreed.panel_sha !== NOT_STATED ? agreed.panel_sha : null;
+  return {
+    availability: "present",
+    replicates: withSnapshot.map((r) => ({ run_id: r.run_id ?? null })),
+    // Only the axes that AGREE get a single value. A field in `disagreements` is absent
+    // from here on purpose, so a renderer cannot print one replicate's answer for it.
+    agreed,
+    disagreements,
+    // A lens difference the `config_hash` says is not a reviewer difference. Reported,
+    // never dropped — two snapshots recording one configuration differently is worth a
+    // reader knowing, and it is a different sentence from "not one reviewer".
+    cosmetic_differences: cosmetic,
+    snapshots_missing: snapshotsMissing,
+    // The short sha is a PREFIX of the full one printed beside it, never a substitute:
+    // seven characters are what a reader can compare against `git log` and forty are
+    // what a machine joins on.
+    panel_sha: panelSha === null ? null : { full: panelSha, short: panelSha.slice(0, 7), source: agreed.panel_sha_source ?? NOT_STATED },
+    // The lens table is the FIRST replicate's only when the lens set agreed; when it did
+    // not, `disagreements` carries every leg's signature and this stays empty rather
+    // than showing one of them as though it were the reviewer.
+    lenses:
+      agreed["lens set"] === undefined && cosmetic.length === 0
+        ? []
+        : (Array.isArray(first.lenses) ? first.lenses : []).map((l) => ({
+            id: stated(l.id),
+            ...Object.fromEntries(LENS_COLUMNS.map((c) => [c.key, stated(l[c.key])])),
+          })),
+  };
 }
 
 // --- assembling -------------------------------------------------------------
@@ -1281,8 +1705,14 @@ export function sectionFor(key) {
  * dataset differ in bytes, so a re-render could not be diffed against its
  * predecessor to show that nothing moved. The report is identified by its
  * comparability key, which is a stronger statement than a timestamp.
+ *
+ * `runs` is the RUN ENVELOPES, one per replicate, exactly as `store.getRun` returns
+ * them plus the id — and it is optional because it is provenance rather than identity.
+ * `panelSha` is still required: a report that cannot name its reviewer is refused. A
+ * render given no envelopes says so where the lens table would have been, which is the
+ * declared-absence rule this module applies to every other missing input.
  */
-export function buildReport({ configHash, corpusVersion, panelSha = null, runIds = [], corpusItemIds = [], scores = {} } = {}) {
+export function buildReport({ configHash, corpusVersion, panelSha = null, runIds = [], corpusItemIds = [], runs = [], scores = {} } = {}) {
   const comparisonId = comparisonIdFor({ configHash, corpusVersion });
   if (typeof panelSha !== "string" || panelSha.trim() === "") {
     refuse(
@@ -1294,6 +1724,10 @@ export function buildReport({ configHash, corpusVersion, panelSha = null, runIds
     schema_version: SCHEMA_VERSION,
     comparison_id: comparisonId,
     reviewer: { config_hash: configHash, panel_sha: panelSha },
+    // The same reviewer, in words: which lenses ran, on which model, under which SDK.
+    // Beside `reviewer` rather than inside it, because that pair is the POOLING KEY and
+    // nothing may be added to it without changing what may be compared with what.
+    reviewer_detail: reviewerFigures(runs),
     corpus_version: corpusVersion,
     corpus_item_ids: [...corpusItemIds],
     run_ids: [...runIds],
@@ -1303,6 +1737,7 @@ export function buildReport({ configHash, corpusVersion, panelSha = null, runIds
       reliability: reliabilityFigures(scores.reliability),
       cost_latency: costLatencyFigures(scores.cost_latency),
       segmentation: segmentationFigures(scores.segmentation),
+      validity: validityFigures(scores.validity),
     },
   };
 }
@@ -1371,15 +1806,107 @@ export function renderReport(result) {
   out.push(`| corpus | \`${r.corpus_version}\` — ${r.corpus_item_ids.join(", ") || "(none)"} |`);
   out.push(`| replicates | ${r.run_ids.length ? r.run_ids.map((x) => `\`${x}\``).join(" · ") : "(none)"} |`);
   out.push("");
-  out.push(...renderWhatThisIsNot());
+  out.push(...renderReviewer(r));
+  out.push(...renderWhatThisIsNot(r));
   out.push(...renderCaveats(r));
   out.push(...renderVolume(s.volume));
   out.push(...renderComplementarity(s.complementarity));
   out.push(...renderReliability(s.reliability));
   out.push(...renderCostLatency(s.cost_latency));
   out.push(...renderSegmentation(s.segmentation));
+  out.push(...renderValidity(s.validity));
   out.push(...renderLimits(r));
   return out.join("\n") + "\n";
+}
+
+/**
+ * The reviewer, in words — and it goes with the header table rather than in a section,
+ * because it is identity and not a finding.
+ *
+ * The two hashes above are the join key and they stay. What they cannot do is tell a
+ * reader whether the panel these figures describe is the panel running today: a digest
+ * has no ordering, so `46da673…` beside a newer `config_hash` says only "different",
+ * never "older" or "in which respect". The lens set, the model per lens and the SDK
+ * version are what a reader compares against the panel in front of them.
+ */
+function renderReviewer(r) {
+  const d = r.reviewer_detail;
+  const out = ["### The reviewer these figures describe", ""];
+  if (d.availability !== "present") {
+    out.push(renderCell(notComputed(d.reason)), "");
+    return out;
+  }
+  const agreed = d.agreed ?? {};
+  const say = (field) => (agreed[field] === undefined ? "**disagrees across replicates — see below**" : `\`${agreed[field]}\``);
+  out.push("| what | value |", "|---|---|");
+  out.push(`| config | ${say("config_id")} — ${d.lenses.length ? `${d.lenses.length} ${d.lenses.length === 1 ? "lens" : "lenses"}` : "lens set disagrees across replicates"}, hashed by ${say("config_hash_version")} |`);
+  out.push(`| replay target | ${say("target")} |`);
+  out.push(`| Agent SDK | ${say("sdk_version")} |`);
+  out.push(
+    d.panel_sha
+      ? `| panel code | \`${d.panel_sha.short}\` (full \`${d.panel_sha.full}\`, recorded from ${say("panel_sha_source")}) |`
+      : "| panel code | **disagrees across replicates — see below** |",
+  );
+  out.push("");
+  if (d.lenses.length > 0) {
+    out.push(`| lens | ${LENS_COLUMNS.map((c) => c.title).join(" | ")} |`, `|---|${LENS_COLUMNS.map(() => "---").join("|")}|`);
+    for (const l of d.lenses) {
+      out.push(`| \`${l.id}\` | ${LENS_COLUMNS.map((c) => (c.code ? `\`${l[c.key]}\`` : l[c.key])).join(" | ")} |`);
+    }
+    out.push("");
+  }
+  // 🔴 REPORTED, NEVER RESOLVED. Printing the first replicate's answer for a field the
+  // legs disagree on would describe a reviewer that produced part of the data.
+  if (d.disagreements.length > 0) {
+    out.push(
+      `🔴 **${d.disagreements.length} axis(es) of the reviewer's identity DISAGREE across the replicates below**, so these are not`,
+      "replicates of one reviewer and no figure in this report may be read as a property of either.",
+      "",
+      "| axis | what each replicate says |",
+      "|---|---|",
+    );
+    for (const dis of d.disagreements) {
+      out.push(`| \`${dis.field}\` | ${dis.values.map((v) => `\`${v.run_id}\` → ${v.value}`).join(" · ")} |`);
+    }
+    out.push("");
+  } else {
+    // Said once, because "we checked and they match" and "nobody checked" are the same
+    // silence otherwise.
+    const n = d.replicates.length;
+    out.push(
+      `All ${n} ${n === 1 ? "replicate names" : "replicates name"} the same lens set, the same model on every lens, the same \`config_id\``,
+      "and the same SDK version, so the figures below are draws from one reviewer.",
+      "",
+    );
+  }
+  // A difference `config_hash` says is not a reviewer difference. It gets a ⚠ and not a
+  // 🔴, and the lens table above still renders — see `reviewerFigures`. Stated rather
+  // than dropped, because a reader diffing two snapshots by eye will find it and should
+  // not have to work out for themselves that it does not matter.
+  if ((d.cosmetic_differences ?? []).length > 0) {
+    out.push(
+      `⚠ **The replicates record this configuration differently in ${d.cosmetic_differences.length} place(s), and \`config_hash\` is identical**`,
+      "across all of them — so they are one reviewer and the table above is theirs. `config_hash` compares the",
+      "canonical form of every lens field (an omitted `effort` normalises to the panel's default before hashing);",
+      "the table prints what each snapshot literally recorded, which is why the two can differ without disagreeing.",
+      "",
+    );
+  }
+  if (d.snapshots_missing.length > 0) {
+    const n = d.snapshots_missing.length;
+    out.push(
+      `⚠ **${n} ${n === 1 ? "replicate carries" : "replicates carry"} no config snapshot** (${d.snapshots_missing.join(", ")}), so the table above is`,
+      "confirmed by the others alone and those legs are unverified rather than agreeing.",
+      "",
+    );
+  }
+  out.push(
+    "**These figures describe that panel and not the one running today.** `review-panel.mjs` and the lens rubrics move",
+    "most weeks, and nothing in a replayed score can see a later change — so a comparison against a newer panel is a",
+    "comparison between two reviewers, whichever way it comes out.",
+    "",
+  );
+  return out;
 }
 
 /**
@@ -1390,14 +1917,37 @@ export function renderReport(result) {
  * human has judged whether a single finding is real. Saying so after four tables
  * would be a disclaimer; saying it before them is the frame the tables are read in.
  */
-function renderWhatThisIsNot() {
+function renderWhatThisIsNot(r) {
+  // 🔴 DERIVED, BECAUSE §6 CAN FALSIFY IT. This paragraph asserted that no precision
+  // figure appears anywhere in the document, with no input — and it sits above every
+  // number, which makes it the worst place in the report for a claim that cannot go red.
+  // §6 renders a precision figure as soon as validity labels exist, so the frame asks
+  // the section rather than telling the reader about it. Same correction `labelsLimit`
+  // already needed for the pair-label census, in the one paragraph a reader cannot skip.
+  const quality = qualityFigures(r.sections.validity);
+  if (quality.any) {
+    return [
+      "## What this measures, and what it does not",
+      "",
+      `**Almost every figure in this report is about *how much*, *how consistently* and *how cheaply* — never *how`,
+      `well*.** The exception is §6, which carries ${quality.n} quality figure(s) over ${quality.labels === null ? "the" : quality.labels} adjudicated finding label(s); read them`,
+      "against the denominator §6 prints beside each one, and against the metrics it declares there and has not",
+      "measured. Everywhere else, a bigger number means a reviewer said more, not that it was right more often.",
+      "",
+      "So this is still not a scoreboard. Where a quantity is unavailable the report says which of three things is",
+      "true — nobody computed it, it cannot be computed on this data, or it was measured and withheld for a",
+      "thin denominator — because those are different facts and a blank cell would pool them.",
+      "",
+    ];
+  }
   return [
     "## What this measures, and what it does not",
     "",
     "**No human has judged whether a single finding in this report is real.** Every figure below is about",
     "*how much*, *how consistently* and *how cheaply* — never *how well*. There is no precision figure, no",
     "recall figure and no correctness figure anywhere in this document, because producing one requires",
-    "adjudicated labels and none exist yet.",
+    "adjudicated labels and none exist yet. §6 says so metric by metric rather than leaving it to this",
+    "paragraph, because a declared absence can be checked and a paragraph cannot.",
     "",
     "So this is not a scoreboard. Where a quantity is unavailable the report says which of three things is",
     "true — nobody computed it, it cannot be computed on this data, or it was measured and withheld for a",
@@ -1474,6 +2024,17 @@ function renderVolume(v) {
     );
   }
   out.push(
+    // ⟳ THE EXPLANATION, BEFORE THE NUMBERS. §2 and §4 already carry their reasoning
+    // inline — "read the two directional rates before the Jaccard", "the two figures
+    // time different things" — and it works. §1 stated its figures and trusted a reader
+    // to know why a count matters, which is how "4.7x more findings" gets quoted as a
+    // result. What the metric is, what moves it and what it cannot say, in two
+    // sentences: no glossary, no coaching, and no hedge added around a figure that
+    // already carries its own qualification.
+    "**This section counts findings and nothing else.** It moves when a reviewer raises more or fewer claims, or",
+    "labels them differently — never when it is more often right, which no figure in this section can see. So a",
+    "higher count is a larger claim on a reader's attention, not a better review.",
+    "",
     "**A bare volume ratio would be the most misleading line in this report**, so there is not one: the two",
     "arms' severity mixes are different populations, and the ratio is given per stratum with the counts that",
     "make it.",
@@ -1692,7 +2253,7 @@ function renderDirectionalRates(c) {
  * 3.5% to 7.3% on human judgements is real, and it is also a few dozen decisions out of
  * a queue of hundreds, on one replicate of three, with a ceiling that structurally
  * cannot move yet. A subsection that printed the moved floor cleanly and left the rest
- * to §6 would be the most misleading paragraph in this document — and unlike every
+ * to §7 would be the most misleading paragraph in this document — and unlike every
  * other absence here, this one is not absent enough to protect itself.
  *
  * FOUR THINGS ARE THEREFORE NEVER SEPARATED FROM THE BAND:
@@ -1982,6 +2543,13 @@ function renderReliability(rl) {
     return out;
   }
   out.push(
+    // ⟳ THE EXPLANATION, BEFORE THE NUMBERS — same reason as §1's. This section's two
+    // headline figures point opposite ways, and a reader who does not know what
+    // reproducibility is a property OF reads the disagreement as a defect count.
+    "**This section asks whether the same reviewer, run again on the same diff, says the same thing.** It moves",
+    "with anything that changes sampling — a model, a sample count, a reasoning effort — and it is silent on",
+    "correctness: three replicates that agreed perfectly could agree on three findings that are all wrong.",
+    "",
     `**This section is one-armed and cannot be made otherwise.** CodeRabbit: ${renderCell(rl.coderabbit)}`,
     "",
     "**The two headline figures point opposite ways and belong together.**",
@@ -2350,6 +2918,130 @@ function renderSegmentationGrid(g, metrics) {
 }
 
 /**
+ * §6 — precision, and the two questions this corpus cannot answer.
+ *
+ * 🔴 IT IS EXPECTED TO CARRY NO FIGURE AND IT IS STILL THE MOST IMPORTANT SECTION HERE,
+ * because it is the only one about whether the findings are TRUE. Everything above
+ * measures how much, how consistently and how cheaply. This measures how well, it needs
+ * a judgement nobody has made, and rendering that as cells rather than as prose is what
+ * separates *"precision is measured here and the labels do not exist"* from *"precision
+ * never came up"*.
+ *
+ * THE ORDER INSIDE IT: what would close each absence, then the absences, then what can
+ * never close. A reader who stops after the table has still seen that two of the six
+ * rows are permanent.
+ */
+function renderValidity(v) {
+  const out = ["## 6. Is any of it true — precision, and two questions this corpus cannot answer", ""];
+  if (v.availability !== "present") {
+    out.push(
+      renderCell(notComputed(v.reason)),
+      "",
+      "**This is the absence that matters most, and it is the first kind — nobody computed it.** Precision needs a",
+      "judgement about each finding, the scorer that turns those judgements into a ratio exists, and no score file",
+      "is filed here.",
+      "",
+    );
+    return out;
+  }
+  out.push(
+    "**This section asks whether a finding is real**, which is the one question the rest of the report cannot",
+    "reach: volume, agreement and cost are all properties of what a reviewer *said*. What moves a precision",
+    "figure is adjudication — somebody reading the diff and the claim and writing down a verdict — so an",
+    "unlabelled store produces no figure here however many times the panel is replayed.",
+    "",
+    // BOTH LEVELS WHEN THERE ARE ANY, and only then. `readings` is on the page because
+    // 428 labels written from 245 readings and 428 written from 428 are different
+    // datasets and only one of the two numbers can say which a reader is holding — but
+    // "0 labels over 0 readings" states that twice, so the second level appears once
+    // there is something for it to qualify.
+    `The store holds **${v.labels.total === null ? "an unstated number of" : v.labels.total} finding label(s)** for this corpus version` +
+      `${v.labels.readings === null || !v.labels.total ? "" : `, written from ${v.labels.readings} reading(s) — a judgement count and a reading count are not the same denominator`}` +
+      `${v.labels.unreadable ? `, and ${v.labels.unreadable} label file(s) could not be read` : ""}.`,
+    "",
+    "| metric | status | unit |",
+    "|---|---|---|",
+  );
+  for (const m of v.metrics) {
+    // A metric WITH cells points at the grid below rather than pooling four cell states
+    // into one; a metric with none renders the absence, which is every row today. Both
+    // are words, and neither is a blank — the same rule §5's grid follows.
+    const status = m.cell
+      ? renderCell(m.cell, num)
+      : `${m.cells.n} cell(s) below — ${AVAILABILITY.map((a) => `${m.cells.census[a]} ${a}`).join(", ")}`;
+    out.push(`| \`${m.id}\` | ${status} | ${m.unit ?? "—"} |`);
+  }
+  out.push("");
+  const permanent = v.refusals.filter((x) => x.permanent);
+  if (permanent.length > 0) {
+    // 🔴 NAMED, NEVER POSITIONED. This read "the last 2 rows", which is true of the
+    // order the scorer happens to declare its metrics in and would quietly point at the
+    // wrong rows the day that order changed — a caption that cannot go red when it
+    // becomes wrong, which is lesson 1's exact shape.
+    out.push(
+      `🔴 **${permanent.map((x) => `\`${x.metric}\``).join(" and ")} ${permanent.length === 1 ? "is" : "are"} \`not measurable\` PERMANENTLY, and that is a result rather than a gap.**`,
+      "Each needs a defect found outside both arms — a human review or a revert proving something neither reviewer",
+      "raised — and a corpus assembled from what two reviewers said cannot contain what they both missed.",
+      `Adjudicating every finding in this store would not move ${permanent.length === 1 ? "that row" : "either row"}.`,
+      "",
+    );
+    for (const x of permanent) {
+      if (x.what_would_change_it) out.push(`- \`${x.metric}\` — what would change it: ${x.what_would_change_it}`);
+    }
+    out.push("");
+  }
+  if (v.arms.length > 0) {
+    out.push(
+      "**Per arm, what a label could still be written about.** `pending` means another judgement can land in a cell",
+      "that is empty today; `exhausted` means none can, and an empty cell under it is final.",
+      "",
+      "| arm | labels | distinct claims | unlabelled | claim population |",
+      "|---|---|---|---|---|",
+    );
+    for (const a of v.arms) {
+      out.push(
+        `| \`${a.arm}\` | ${a.labels ?? "not stated"} | ${a.claims_supplied ? (a.distinct_claims ?? "not stated") : "claim population not supplied"} |` +
+          ` ${a.unlabelled_claims ?? "not stated"} | \`${a.claim_population ?? "not stated"}\` |`,
+      );
+    }
+    out.push("");
+  }
+  if (v.cells.length > 0) {
+    out.push(`| segment | figure${v.min_n === null ? "" : ` (min-n = ${v.min_n}${v.min_n_source ? `, ${v.min_n_source}` : ""})`} |`, "|---|---|");
+    for (const c of v.cells) out.push(`| \`${c.segment}\` | ${renderCell(c.cell, num)} |`);
+    out.push("");
+  }
+  if (v.bands.length > 0) {
+    // BOTH BOUNDS OR NEITHER. A relative-recall cell has no `value` on purpose: the
+    // cross-arm union's overlap is unresolved, so a point estimate would inherit a
+    // width it does not print. Same rule as §2's band.
+    out.push("| segment | relative recall (band) | union |", "|---|---|---|");
+    for (const b of v.bands) {
+      out.push(
+        b.band
+          ? `| \`${b.segment}\` | **${band({ low: b.band.low, high: b.band.high })}** (n=${b.band.n} labelled findings) | ${b.band.union_low}–${b.band.union_high} confirmed |`
+          : `| \`${b.segment}\` | ${renderCell(b.cell, num)} | no union |`,
+      );
+    }
+    out.push("");
+  }
+  if (v.profile.length > 0) {
+    // The COUNT at any size, the SHARE under min-n. A profile is qualitative — "its
+    // false positives are all nits" is a different verdict from "all criticals" — and
+    // withholding the count would delete the profile rather than protect it.
+    out.push("| arm | axis | bucket | false findings | share |", "|---|---|---|---|---|");
+    for (const g of v.profile) out.push(`| \`${g.arm}\` | \`${g.axis}\` | \`${g.bucket}\` | ${g.false_findings} | ${renderCell(g.share, num)} |`);
+    out.push("");
+  }
+  if (v.completeness && Array.isArray(v.completeness.reasons) && v.completeness.reasons.length > 0) {
+    out.push(`**The scorer reports itself \`${v.completeness.verdict}\`**, for these reasons:`, "");
+    for (const reason of v.completeness.reasons) out.push(`- ${reason}`);
+    out.push("");
+  }
+  return out;
+}
+
+/**
  * The limits, and there are more of them than there are numbers above.
  *
  * Not a footer of disclaimers: each of these bounds a specific figure in a specific
@@ -2359,7 +3051,7 @@ function renderSegmentationGrid(g, metrics) {
 function renderLimits(r) {
   const s = r.sections;
   const out = [
-    "## 6. Limits — what bounds each figure above",
+    "## 7. Limits — what bounds each figure above",
     "",
     // ⟳ THIS LIMIT'S PREMISE WENT FALSE WHILE ITS CONSEQUENCE STAYED TRUE, which is the
     // most dangerous shape a hardcoded sentence can have. It read "No adjudicated
@@ -2418,7 +3110,7 @@ function renderLimits(r) {
 }
 
 /**
- * §6's FIRST limit, and the one that subsumes the rest — derived, because its premise
+ * §7's FIRST limit, and the one that subsumes the rest — derived, because its premise
  * moved.
  *
  * 🔴 TWO KINDS OF LABEL, AND ONLY ONE OF THEM MAKES A PRECISION FIGURE. A **pair**
@@ -2432,10 +3124,29 @@ function renderLimits(r) {
  * That is the failure mode this project keeps re-learning: the old line was an
  * assertion with no input, so it could not go red when the world moved under it. This
  * one reads the census the payload carries, so a store with validity labels in it would
- * change what §6 says rather than leaving §6 confidently wrong.
+ * change what §7 says rather than leaving §7 confidently wrong.
  */
 function labelsLimit(s) {
   const store = s.complementarity.availability === "present" ? s.complementarity.label_store : null;
+  const quality = qualityFigures(s.validity);
+  // 🔴 THE SAME DEFECT THIS FUNCTION WAS WRITTEN TO FIX, ONE METRIC LATER. It was
+  // created because *"No adjudicated labels exist."* was an assertion with no input, so
+  // it could not go red when 357 pair labels landed — and it was then derived from the
+  // PAIR census while still concluding, in its own words, that no validity label exists
+  // and no precision figure appears above. §6 renders a precision figure the moment
+  // validity labels do exist, so this function had a second premise it could not see:
+  // it read one payload and made a claim about another. Both halves are now derived from
+  // the section that would falsify them.
+  if (quality.any) {
+    return [
+      `**${quality.n} quality figure(s) appear in §6**, over ${quality.labels === null ? "the" : quality.labels} finding label(s) an adjudicator has written — so the`,
+      "sentence this limit carried for the whole life of this report, that no precision figure appears anywhere, is",
+      "no longer true and is not printed. What remains true is narrower and still bounds every one of them: they",
+      "rest on the labels that exist, §6 names which of its metrics are measured and which are not yet judged, and",
+      `${store && store.n > 0 ? `the ${store.n} adjudicated PAIR label(s) are a different question` : "a pair label is a different question"} — *"are these two findings the same defect?"* rather than *"is this`,
+      "finding real?\"* — so they add nothing to a precision denominator.",
+    ];
+  }
   if (!store || store.n === 0) {
     return [
       "**No adjudicated labels exist.** No precision, recall or correctness figure appears anywhere above. This",
@@ -2452,6 +3163,36 @@ function labelsLimit(s) {
     "rather than quality. The limit is unchanged; the reason for it is now narrower, and adjudicating pairs does",
     "not shrink it.",
   ];
+}
+
+/**
+ * Does §6 put a QUALITY figure on the page — and if so, how many and over how many
+ * labels?
+ *
+ * 🔴 THE ONE INPUT TWO HARDCODED CLAIMS NEVER HAD. The frame above the first table and
+ * the first limit below the last one both stated, as literals, that no precision figure
+ * appears in this document. That was true for as long as nothing rendered one, which is
+ * exactly the shape this module keeps having to correct: a sentence that cannot go red
+ * when its premise moves is a falsehood waiting to publish, and §6 is the section that
+ * moves it. So both now ask this function instead of asserting.
+ *
+ * IT COUNTS STATES AND COMPUTES NOTHING, the same arithmetic `segmentationFigures`'
+ * `reported`/`withheld` and §6's own census already do. A `present` cell in any of §6's
+ * three lists is a quality figure; a `suppressed` one is not, because a withheld cell
+ * publishes no number and the claim is about what a reader can quote.
+ */
+export function qualityFigures(validity) {
+  if (!validity || validity.availability !== "present") return { any: false, n: 0, labels: null };
+  const list = (v) => (Array.isArray(v) ? v : []);
+  // COUNTED PER LIST, with each list's own present-shape named, because §6's three lists
+  // do not share one. A single predicate OR-ing all three reads the same today and
+  // would silently count a band as a precision cell the moment either shape moved —
+  // the same reason `VALIDITY_CELL_LISTS` names an accessor per list.
+  const cells = list(validity.cells).filter((c) => c.cell?.availability === "present").length;
+  const bands = list(validity.bands).filter((b) => b.band !== null && b.band !== undefined).length;
+  const shares = list(validity.profile).filter((g) => g.share?.availability === "present").length;
+  const n = cells + bands + shares;
+  return { any: n > 0, n, cells, bands, shares, labels: Number.isFinite(validity.labels?.total) ? validity.labels.total : null };
 }
 
 /**
@@ -2616,12 +3357,20 @@ async function main() {
   // than resolved: two answers to "who reviewed this" is exactly the state decision
   // 13 says must not be pooled.
   const stated = new Set();
+  // The ENVELOPES THEMSELVES ARE KEPT, not only the sha off them. `getRun` already
+  // returns `{runJson, configSnapshot}` in one read, and the snapshot is where the lens
+  // set, the model on each lens and the SDK version live — so the header's readable
+  // provenance costs no extra read and no new accessor. `reviewerFigures` compares them
+  // across replicates; nothing here resolves a disagreement, which is why all of them
+  // travel rather than the first.
+  const runs = [];
   for (const runId of runIds) {
     const run = store.getRun(runId);
     if (!run) {
       console.error(`run ${JSON.stringify(runId)} does not exist under this root`);
       process.exit(1);
     }
+    runs.push({ run_id: runId, runJson: run.runJson, configSnapshot: run.configSnapshot });
     if (typeof run.runJson?.panel_sha === "string" && run.runJson.panel_sha.trim() !== "") stated.add(run.runJson.panel_sha);
     if (run.runJson?.config_hash && run.runJson.config_hash !== args["config-hash"]) {
       console.error(`run ${runId} was produced under config_hash ${run.runJson.config_hash}, not ${args["config-hash"]} — refusing to pool two reviewers (decision 13)`);
@@ -2665,6 +3414,7 @@ async function main() {
     panelSha: [...stated][0] ?? null,
     runIds,
     corpusItemIds: corpus.map((it) => it.id),
+    runs,
     scores,
   });
   const markdown = renderReport(result);

@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-// Run the five merged scorers and the renderer over one stored comparison, as one
+// Run the six merged scorers and the renderer over one stored comparison, as one
 // command.
 //
 // WHY THIS IS A MODULE AND NOT SIX STEPS IN A YAML FILE. The sequence itself is not
-// interesting — five CLIs and a renderer, in order, with each payload filed through
+// interesting — six CLIs and a renderer, in order, with each payload filed through
 // `report.mjs --persist`. What is interesting is everything AROUND it, and none of it
 // can live in a workflow's `run:` block:
 //
-//   * The five scorers disagree about how to name a replicate. `volume-mix.mjs` takes
+//   * The six scorers disagree about how to name a replicate. `volume-mix.mjs` takes
 //     `--run` and scores ONE, `complementarity.mjs` / `reliability.mjs` /
 //     `segmentation.mjs` take a repeatable `--run-id`, and `cost-latency.mjs` takes a
 //     comma-separated `--runs` because `runs/` is never globbed (decision 6). A lane
-//     input is one string; translating it five ways is exactly the kind of fan-out that
+//     input is one string; translating it six ways is exactly the kind of fan-out that
 //     rots when it is copied into shell.
 //   * Every degradation available here is SILENT, and the whole value of the lane is the
 //     assertions that make it loud (see `DEGRADATION_MARKERS`, `CAPABILITIES`,
@@ -30,8 +30,8 @@
 // than the laptop did is worse than no lane, because the number it files is believed and
 // nothing on the page says it is short. So this driver refuses on any doubt — an
 // unanswered endpoint, a missing capability flag, an emptied latency figure, an API
-// budget that cannot cover the run — and files nothing rather than filing four scores
-// out of five.
+// budget that cannot cover the run — and files nothing rather than filing five scores
+// out of six.
 //
 // IT SPENDS NOTHING. No model call, no worktree, no clone: the scorers read stored JSON
 // plus read-only GitHub API. MEASURED rather than assumed — see the task doc — a full
@@ -72,7 +72,7 @@ function isNumber(value) {
 }
 
 /**
- * The six steps, as DATA rather than as six copies of a spawn.
+ * The seven steps, as DATA rather than as seven copies of a spawn.
  *
  * `scorer_id` and `scope` are the keys `report.mjs --persist` files under, and they are
  * taken from `report.mjs`'s own `SECTIONS` vocabulary rather than restated: a typo here
@@ -82,6 +82,20 @@ function isNumber(value) {
  *
  * `per_replicate` is the one structural difference between them: `volume-mix.mjs` scores
  * ONE replicate and does not aggregate, so it runs K times and files K per-run scores.
+ *
+ * 🔴 `validity.mjs` READS THE API, and the value below is measured rather than assumed.
+ * Its own usage text says it "reads only; writes nothing, spawns nothing, adjudicates
+ * nothing and costs nothing" — which is about MONEY — and the same sentence goes on to
+ * say the CodeRabbit arm makes read-only GitHub calls. It rebuilds that arm's claim
+ * population through `adapters/coderabbit.mjs`'s `corpusRecords`, which is
+ * `fetchCodeRabbitPr` once per item, five endpoints each. So it is a cross-run API
+ * reader exactly like `complementarity` and `segmentation`, and `estimateApiCalls`
+ * counts it. Written `false` here it would understate the pass by `items x 5` calls, and
+ * the whole point of the preflight is that it refuses BEFORE a partial read files a
+ * score nobody can tell is short.
+ *
+ * `partial_exit` is `validity.mjs`'s alone and it is not a loosening of this driver's
+ * refuse-on-doubt rule — see `assertPartialIsDeclared`.
  */
 export const STEPS = Object.freeze([
   { key: "volume", module: "volume-mix.mjs", scorer_id: "volume-mix-v1", scope: "per-run", per_replicate: true, reads_api: true },
@@ -89,6 +103,7 @@ export const STEPS = Object.freeze([
   { key: "reliability", module: "reliability.mjs", scorer_id: "reliability-v1", scope: "cross-run", per_replicate: false, reads_api: false },
   { key: "cost_latency", module: "cost-latency.mjs", scorer_id: "cost-latency-v1", scope: "cross-run", per_replicate: false, reads_api: false },
   { key: "segmentation", module: "segmentation.mjs", scorer_id: "segmentation-v1", scope: "cross-run", per_replicate: false, reads_api: true },
+  { key: "validity", module: "validity.mjs", scorer_id: "validity-v1", scope: "cross-run", per_replicate: false, reads_api: true, partial_exit: 1 },
 ]);
 
 /**
@@ -208,24 +223,44 @@ export const CALLS_PER_ITEM_READ = 5;
 export const BUDGET_HEADROOM = 1.5;
 
 /**
+ * How many of the steps above read the API, split by how often they do it. DERIVED from
+ * `STEPS` rather than written down.
+ *
+ * 🔴 THE `+ 2` USED TO BE A LITERAL AND A SIXTH READER MADE IT WRONG. The model was
+ * `replicates + 2` — the per-replicate reader once per replicate, plus the two cross-run
+ * readers — and adding `validity.mjs` (a third cross-run reader) left the preflight
+ * asking for 175 calls on a pass that spends 210. That error is in the FLATTERING
+ * direction: the budget clears, the pass starts, and it meets the limit part way through,
+ * which is the one outcome this whole preflight exists to prevent — a partial CodeRabbit
+ * arm reads exactly like a clean review. Two expressions of one fact is how the second
+ * one drifts, so there is now one: `reads_api` is the declaration and this is the model.
+ */
+export const API_READERS = Object.freeze({
+  per_replicate: STEPS.filter((s) => s.reads_api && s.per_replicate).length,
+  cross_run: STEPS.filter((s) => s.reads_api && !s.per_replicate).length,
+});
+
+/**
  * How many core API calls one pass costs.
  *
- * `replicates + 2`: `volume-mix.mjs` reads the arm once PER REPLICATE, and
- * `complementarity.mjs` and `segmentation.mjs` read it once each.
- * `reliability.mjs` and `cost-latency.mjs` read no API at all — they work off stored
- * envelopes — which is why they are not in the count.
+ * `k * per_replicate + cross_run`: a per-replicate reader reads the arm once per
+ * replicate and a cross-run reader reads it once. `reliability.mjs` and
+ * `cost-latency.mjs` read no API at all — they work off stored envelopes — which is why
+ * they are not in the count.
  *
  * ⚠ This is a RESOURCE model and not a benchmark figure. Nothing about the numbers the
  * lane reports is pinned anywhere in this file; a lane that asserted an overlap
  * percentage would fail the day the benchmark improved. An API cost is the opposite: it
- * has to be a number, and it was measured — 175 calls for the 7-item pilot at K=3 on
- * 2026-08-13, which is exactly 7 * (3 + 2) * 5.
+ * has to be a number, and it was measured — **175 calls** for the 7-item pilot at K=3 on
+ * 2026-08-13, which is exactly `7 * (3 * 1 + 2) * 5` for the FIVE-step pass that existed
+ * then. The same pilot now costs `7 * (3 * 1 + 3) * 5` = **210**, because validity is a
+ * third cross-run reader. The measurement is not stale — the pass grew.
  */
 export function estimateApiCalls({ items, replicates }) {
   const n = Number(items);
   const k = Number(replicates);
   if (!Number.isFinite(n) || n < 0 || !Number.isFinite(k) || k < 0) refuse(`estimateApiCalls needs a finite item and replicate count, got ${JSON.stringify({ items, replicates })}`);
-  return n * (k + 2) * CALLS_PER_ITEM_READ;
+  return n * (k * API_READERS.per_replicate + API_READERS.cross_run) * CALLS_PER_ITEM_READ;
 }
 
 /**
@@ -386,6 +421,56 @@ export function assertPanelLatency(payload) {
   return { items: items.length, timed };
 }
 
+/**
+ * A step's non-zero exit that is an ANSWER rather than a failure, and the obligation
+ * that keeps it from becoming a swallowed error.
+ *
+ * 🔴 WHY ONE STEP NEEDS THIS AND THE OTHER FIVE DO NOT. `validity.mjs` exits 1 whenever
+ * its own `completeness.verdict` is `partial`, and on a store nobody has adjudicated
+ * that is its CORRECT answer, permanently — every precision cell is `not-computed` with
+ * a reason, which is the figure the report is meant to carry. The other scorers exit
+ * non-zero only when something went wrong. So wiring validity in under the plain
+ * exit-code rule would refuse every pass over today's store: the lane would file six
+ * scores and then abort on the one whose honest output is an absence.
+ *
+ * 🔴 IT IS NOT A LOOSENING OF THE REFUSE-ON-DOUBT RULE, and the obligation is what makes
+ * that true. The exit is accepted only if the payload PARSES and says `partial` in its
+ * own words. Three things still refuse: any other non-zero code, exit `partial_exit`
+ * over a payload that claims `complete` (the code and the payload disagree about what
+ * happened, and one of them is wrong), and a payload that carries no completeness
+ * verdict at all (a scorer whose shape moved out from under this check — lesson 7, where
+ * the check's input stops arriving). Same shape as `assertCapability`: an outcome is
+ * allowed to be either state, and each state carries a requirement that fails loudly.
+ *
+ * ⚠ AND IT IS LOGGED, WITH THE SCORER'S OWN REASONS. A tolerated failure that printed
+ * nothing would be indistinguishable from a clean pass in a job log, which is the shape
+ * of every silent degradation this file exists to catch.
+ */
+export function assertPartialIsDeclared(step, { status, payload, label, log = console.error }) {
+  if (status === 0) return { state: "complete" };
+  if (!Number.isFinite(step.partial_exit) || status !== step.partial_exit) {
+    refuse(`${label} exited ${status}. Nothing was filed`);
+  }
+  const verdict = payload?.completeness?.verdict ?? null;
+  if (verdict === null) {
+    refuse(
+      `${label} exited ${status}, which this driver treats as its declared partial state, and its payload carries no ` +
+        `completeness.verdict to confirm it (keys: ${Object.keys(payload ?? {}).join(", ") || "none"}). The exit code is then the ` +
+        `only evidence of what happened and it cannot be told from a crash, so nothing was filed`,
+    );
+  }
+  if (verdict !== "partial") {
+    refuse(
+      `${label} exited ${status} and its payload reports completeness.verdict=${JSON.stringify(verdict)} — the exit code says ` +
+        `partial and the payload says otherwise, so one of the two is wrong and nothing downstream can tell which. Nothing was filed`,
+    );
+  }
+  const reasons = Array.isArray(payload?.completeness?.reasons) ? payload.completeness.reasons : [];
+  log(`score-all: ${label} is PARTIAL by its own verdict (exit ${status}), which is its declared state and not a failure — filing it:`);
+  for (const reason of reasons) log(`score-all:   ! ${reason}`);
+  return { state: "partial", reasons: reasons.length };
+}
+
 /** Does the scorer this capability belongs to accept its flag? Read from its own usage. */
 export function probeCapability(cap, usageText) {
   return String(usageText ?? "").includes(cap.flag);
@@ -477,8 +562,8 @@ export function writtenPaths({ configHash, corpusVersion, runIds }) {
 // --- argument fan-out -------------------------------------------------------
 
 /**
- * One scorer's argv. This is the fan-out the five CLIs' differing conventions force, and
- * the reason it is one function with a test rather than five shell lines.
+ * One scorer's argv. This is the fan-out the six CLIs' differing conventions force, and
+ * the reason it is one function with a test rather than six shell lines.
  */
 export function scorerArgs(step, { root, corpusVersion, runIds, capabilityFlags = [] }) {
   const args = [path.join("eval", step.module), "--root", root, "--corpus-version", corpusVersion];
@@ -607,6 +692,10 @@ export async function scoreAll({
 
   const capabilities = [];
   const filed = [];
+  // Which scorers filed a payload that calls ITSELF partial. Carried into the result and
+  // the summary rather than only into the log: a lane whose report says "not computed"
+  // in a section should be able to point at the step that said so.
+  const partial = [];
   for (const step of STEPS) {
     // The capability probe, before the step it belongs to: the flag has to be in the
     // argv, and whether it is supported changes what the payload must then contain.
@@ -623,16 +712,23 @@ export async function scoreAll({
       const payloadFile = path.join(outDir, step.per_replicate ? `${step.key}-${leg[0]}.json` : `${step.key}.json`);
       log(`score-all: ${label}`);
       const r = doRun(scorerArgs(step, { root, corpusVersion, runIds: leg, capabilityFlags: flags }));
-      // The exit code FIRST, then the log lines. Both are refusals, and a step that
-      // exited non-zero has already said why.
-      if (r.status !== 0) refuse(`${label} exited ${r.status}. Nothing was filed`);
+      // 🔴 THE EXIT CODE IS STILL CHECKED FIRST, AND FOR EVERY STEP. The only change is
+      // that a step declaring `partial_exit` has TWO acceptable codes instead of one —
+      // and the second is then checked HARDER rather than more loosely, because it must
+      // be confirmed by the payload's own completeness verdict a few lines down. An
+      // exit of 2 (bad flags) or 137 (killed) refuses here as it always did, before
+      // anything is parsed and before anything is filed.
+      const tolerated = Number.isFinite(step.partial_exit) ? step.partial_exit : null;
+      if (r.status !== 0 && r.status !== tolerated) refuse(`${label} exited ${r.status}. Nothing was filed`);
       assertNoDegradation(r.stderr, { label, rateLimit: () => parseRateLimit(probe()) });
       let payload;
       try {
         payload = JSON.parse(r.stdout);
       } catch (e) {
-        refuse(`${label} exited 0 but its --json output does not parse (${e.message}) — ${r.stdout.length} byte(s) on stdout`);
+        refuse(`${label} exited ${r.status} and its --json output does not parse (${e.message}) — ${r.stdout.length} byte(s) on stdout`);
       }
+      const completeness = assertPartialIsDeclared(step, { status: r.status, payload, label, log });
+      if (completeness.state === "partial") partial.push(step.scorer_id);
       writeFileSync(payloadFile, JSON.stringify(payload, null, 2) + "\n");
 
       if (step.key === "cost_latency") assertPanelLatency(payload);
@@ -667,6 +763,7 @@ export async function scoreAll({
     run_ids: ids,
     corpus_items: corpus.length,
     filed,
+    partial,
     capabilities,
     api_budget: budget,
     written_paths: paths,
@@ -688,6 +785,10 @@ export function summarise(result) {
     `  replicates   ${result.run_ids.join(" · ")}`,
     `  corpus items ${result.corpus_items}`,
     `  filed        ${result.filed.length} score(s): ${result.filed.join(" · ")}`,
+    // ON THE SUMMARY LINE, not only in the log above it. A score that calls itself
+    // partial is filed on purpose — its absences are the figure — but a summary that did
+    // not name it would let a reader take the whole pass as complete.
+    `  partial      ${(result.partial ?? []).length ? `${result.partial.join(" · ")} — filed, and each says why in its own payload` : "none"}`,
     `  capabilities ${caps}`,
     `  report       ${result.report_path}`,
   ].join("\n");
@@ -699,7 +800,7 @@ const USAGE =
   "usage: score-all.mjs --root <eval-data-root> --corpus-version <v> --config-hash <sha256:...>\n" +
   "                    --runs <id,id,id> [--out <dir>] [--emit-dir <dir>] [--json]\n" +
   "\n" +
-  "Runs the five merged scorers over one stored comparison, files each payload through\n" +
+  "Runs the six merged scorers over one stored comparison, files each payload through\n" +
   "report.mjs --persist, and renders the report. Reads the store and read-only GitHub\n" +
   "API; spawns no model, builds no worktree and costs nothing.\n" +
   "\n" +
