@@ -198,3 +198,26 @@
   promised "with the original name in `Host`" — the one claim in it a user
   could act on and be wrong. Fixing behaviour and leaving the prose is
   half a fix; the docs lens caught what five code-reading lenses did not.
+
+## After the merge with #648
+
+- The image-fetcher entries above are the reasoning, not the shipped code.
+  #648 built its own gate for the same problem and merged first, so this
+  branch's version was dropped in the merge (see the todo file). Every
+  conclusion here still held up — they were reached twice, independently —
+  but `assertResolvedHostIsPublic`, `pinnedUrls` and
+  `WAFFLEBASE_IMAGE_HOSTS` are names from a file that no longer exists.
+- Two agents solving the same brief in parallel branches converge on the
+  same design and conflict in 22 files. The cost is not the resolution — it
+  is that the weaker of two good implementations has to be thrown away
+  after it was fully reviewed. What would have caught it earlier is
+  noticing that "classify the exit code" and "validate the error envelope"
+  both rewrite every `!res.ok` site, and that one of them had already
+  reached `main`.
+- A conflict between two versions of the same rule is not a text merge.
+  Taking either side wholesale would have shipped a regression: this
+  branch's side would have reverted `main`'s address pinning, `main`'s
+  would have re-scattered the `!res.ok` branch across every command. The
+  resolution has to be per-rule — keep the better structure, fold in the
+  other's semantics — which means reading both implementations before
+  touching a single conflict marker.
