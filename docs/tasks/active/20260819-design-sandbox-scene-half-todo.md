@@ -162,12 +162,16 @@ pixels the engine paints inside `<canvas>` are outside the picker, and those wer
 class-editor target. An earlier note in this file claimed canvas was outside the editing
 model; that was wrong and is corrected here.
 
-**What actually blocks them is store mocking.** `document-detail.tsx:1` imports
-`{ DocumentProvider, useDocument }` from `@yorkie-js/react`, so the scene needs a live
-document. `yorkie-offline.tsx` (315) + `seed-*.ts` (240) are the prototype's unfinished
-attempt: its own manifest called these scenes "listed for shape, not function", showing a
-mount error rather than the editor. So canvas is **unfinished work, not out-of-scope work**,
-and the risk is unmeasured — nobody has mounted one.
+**What blocked them was store mocking, and 12b unblocked it.** `document-detail.tsx:1`
+imports `{ DocumentProvider, useDocument }` from `@yorkie-js/react`, so the scene needs a live
+document. `yorkie-offline.tsx` + `seed-*.ts` were the prototype's unfinished attempt — its own
+manifest called these scenes "listed for shape, not function", showing a mount error rather
+than the editor. Finished in 12b: four of the five render their fixture content against a real
+but DETACHED document. The risk is no longer unmeasured; `pdf-viewer` stays deferred because it
+needs the file's bytes at a blob URL.
 
-**No plugin work.** Everything canvas needs is `design-sandbox` (store providers + seeds),
-so 12 inherits 11c's "the plugin does not change" constraint for this half.
+**Almost no plugin work — one exception, found in review.** Everything canvas needs is
+`design-sandbox` (store providers + seeds). The exception is not a consumer requirement but a
+gap in the guard itself: `installFetchGuard` wraps `fetch` only, so the app shell's
+`/api/notifications/stream` left the frame as an `EventSource` and reached the real backend,
+against the guard's own stated contract. Fixed in `design-editor`, where the defect is.

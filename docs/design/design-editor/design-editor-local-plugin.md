@@ -705,7 +705,7 @@ produce one. `kind: 'canvas'` was and remains a grouping label — nothing branc
 What made it work is `yorkie-offline.tsx`: `@yorkie-js/react` is redirected module-wide to a
 shim that constructs a real but DETACHED `Document`. A document never attached to a `Client` is
 fully functional — re-probed against the installed `@yorkie-js/sdk@0.7.16`, not inherited from
-the prototype's 0.7.13 measurement — so only the react binding needed replacing. The shim
+the prototype's 0.7.13 measurement — so only the React binding needed replacing. The shim
 re-exports the real package and shadows `Tree`/`Text`/`Counter` from the SDK realm, because
 `@yorkie-js/react` bundles its own 824 KB SDK copy and a CRDT value from the wrong realm is
 silently flattened into a plain object rather than rejected. Findings, including a Yorkie proxy

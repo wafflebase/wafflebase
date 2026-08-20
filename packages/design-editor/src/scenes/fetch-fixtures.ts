@@ -88,6 +88,63 @@ function keyOf(input: RequestInfo | URL): { path: string; full: string } {
 }
 
 let installed = false;
+let eventSourceInstalled = false;
+
+/**
+ * `EventSource` is a SECOND way out of the frame, and it does not go through `fetch`.
+ *
+ * The guard above promises that "requests are never allowed to leave the frame", and every
+ * scene mounting the real app shell broke that promise: the notification bell opens
+ * `/api/notifications/stream`, which is an `EventSource`, so it bypassed the wrapper entirely
+ * and reached the real backend. It was written off as one harmless console error per scene —
+ * but a promise with an exception nobody can see is worse than no promise, and the browser
+ * gate could not fail on it because the gate looks for the guard's own `unmocked` message.
+ *
+ * Refused rather than answered from fixtures: a stream has no fixture shape (the table maps a
+ * URL to one JSON body), and no scene reads what the stream carries. The constructor reports
+ * through the same `onMiss` path as `fetch`, so the failure is named the same way, then
+ * behaves as a stream that immediately errors — which is what the app already handles when
+ * the backend is down.
+ */
+function installEventSourceGuard(): void {
+  if (eventSourceInstalled || typeof window.EventSource !== 'function') return;
+  eventSourceInstalled = true;
+
+  const Real = window.EventSource;
+  class GuardedEventSource extends EventTarget {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    static readonly CLOSED = 2;
+    readonly CONNECTING = 0;
+    readonly OPEN = 1;
+    readonly CLOSED = 2;
+    readonly url: string;
+    readonly withCredentials = false;
+    readyState = 2;
+    onopen: ((e: Event) => void) | null = null;
+    onmessage: ((e: MessageEvent) => void) | null = null;
+    onerror: ((e: Event) => void) | null = null;
+
+    constructor(url: string | URL) {
+      super();
+      this.url = String(url);
+      activeOnMiss(this.url, 'EVENTSOURCE');
+      // Asynchronously, so a caller that assigns `onerror` after `new` still sees it.
+      queueMicrotask(() => {
+        const e = new Event('error');
+        this.onerror?.(e);
+        this.dispatchEvent(e);
+      });
+    }
+
+    close(): void {
+      this.readyState = 2;
+    }
+  }
+  // Kept reachable for a consumer that legitimately needs the real one back.
+  (GuardedEventSource as unknown as { real: typeof Real }).real = Real;
+  window.EventSource = GuardedEventSource as unknown as typeof Real;
+}
 
 /**
  * Replace `window.fetch` for the lifetime of the frame. Idempotent, because a
@@ -103,6 +160,7 @@ export function installFetchGuard(opts: FetchGuardOptions): void {
   installed = true;
   activeFixtures = opts.fixtures;
   activeOnMiss = opts.onMiss;
+  installEventSourceGuard();
 
   const real = window.fetch.bind(window);
 

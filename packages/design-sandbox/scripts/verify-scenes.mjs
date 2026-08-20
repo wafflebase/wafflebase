@@ -172,7 +172,10 @@ async function waitForSettled(page) {
     last = t;
     await page.waitForTimeout(2000);
   }
-  return last || null;
+  // NULL, not the last value seen. Returning it made "never settled" indistinguishable from
+  // "settled", and both callers treat a string as a settled read — so a scene still churning
+  // at the deadline would have been measured mid-change and could pass.
+  return null;
 }
 
 async function main() {
@@ -216,7 +219,10 @@ async function main() {
       // A mount error PAINTS, so "it rendered" is not the check — stamped nodes are.
       check(
         `${s.id} renders and is stampable`,
-        stamped > 0 && !/mount error/i.test(text ?? '') && !/Loading\.\.\./.test(text ?? ''),
+        // BOTH placeholder spellings. The canvas titles render ASCII `Loading...`, but the
+        // shell's notification list renders the Unicode `Loading…`, and only the first was
+        // rejected — so a shell stuck mid-load could pass with stamped nodes.
+        stamped > 0 && !/mount error/i.test(text ?? '') && !/Loading(\.\.\.|…)/.test(text ?? ''),
         `${stamped} nodes · ${JSON.stringify((text ?? '(empty)').slice(0, 70))}`,
       );
       // An unmocked request is the failure the fixture table exists to prevent, and it is
