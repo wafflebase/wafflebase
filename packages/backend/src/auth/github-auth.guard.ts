@@ -39,10 +39,27 @@ export function parseCliChallenge(raw: unknown): string | undefined {
 }
 
 /**
- * `Sec-Fetch-Site` values a login may legitimately arrive with. See
- * `GitHubAuthGuard.assertBrowserInitiated`.
+ * `Sec-Fetch-Site` values a CLI login may legitimately arrive with. See
+ * `GitHubAuthGuard.assertCliStartNotCrossSite`.
  */
 const ALLOWED_FETCH_SITES = new Set(['none', 'same-origin', 'same-site']);
+
+/**
+ * The browser's `Sec-Fetch-Site` verdict, lowercased, or `undefined` when
+ * the request carries nothing readable.
+ *
+ * Only a browser sets this header, so a value arriving twice (express
+ * hands those back as an array) or folded into one comma-joined string by
+ * a proxy is an artefact of the hop, not an attack: the first token is
+ * taken rather than the whole thing being failed as an unknown value. An
+ * empty value is treated as absent for the same reason.
+ */
+export function parseFetchSite(raw: unknown): string | undefined {
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof first !== 'string') return undefined;
+  const value = first.split(',')[0].trim().toLowerCase();
+  return value === '' ? undefined : value;
+}
 
 /** The loopback port, or `undefined` when it is not a usable one. */
 export function parseCliPort(raw: unknown): number | undefined {
@@ -74,11 +91,11 @@ export function parseCliPort(raw: unknown): number | undefined {
  *   Without it, `/auth/github/callback` would set session cookies for any
  *   code presented to it, which is login CSRF / session fixation.
  *
- * Ahead of either, a login another *site* navigated the browser into is
- * refused outright (`assertBrowserInitiated`). Neither state mechanism
- * covers that on its own — the navigation carrying the attack is also
- * the navigation that mints the state and sets its cookie — so the
- * cheapest place to stop it is before a login is started at all.
+ * Ahead of the CLI branch only, a `?mode=cli` start another *site*
+ * navigated the browser into is refused outright
+ * (`assertCliStartNotCrossSite`). Neither state mechanism covers that on
+ * its own — the navigation carrying the attack is also the navigation
+ * that mints the state and sets its cookie.
  */
 @Injectable()
 export class GitHubAuthGuard extends AuthGuard('github') {
@@ -92,10 +109,11 @@ export class GitHubAuthGuard extends AuthGuard('github') {
     const http = context.switchToHttp();
     const req = http.getRequest();
     const res = http.getResponse<Response>();
-    this.assertBrowserInitiated(req);
+    const isCliStart = req.query?.mode === 'cli';
+    if (isCliStart) this.assertCliStartNotCrossSite(req);
     const port = parseCliPort(req.query?.port);
 
-    if (req.query?.mode === 'cli' && port !== undefined && req.__cliConfirmed) {
+    if (isCliStart && port !== undefined && req.__cliConfirmed) {
       const { stateToken, csrf } = this.cliAuthStore.createState(
         'cli',
         port,
@@ -117,23 +135,32 @@ export class GitHubAuthGuard extends AuthGuard('github') {
   }
 
   /**
-   * Refuse a login another site navigated the browser into.
+   * Refuse a `?mode=cli` start another site navigated the browser into.
    *
-   * How a login may legitimately be started, as the browser reports it:
+   * How a CLI login may legitimately be started, as the browser reports
+   * it:
    *
    * - `none` — typed, bookmarked, or opened by another program. This is
-   *   the CLI's shape: `wafflebase login` hands the URL to the OS opener.
-   * - `same-origin` / `same-site` — a click inside the app, or the click
-   *   through `CliLoginConfirmMiddleware`'s confirmation page, which is
-   *   served from this origin. `SameSite=Lax` already assumes frontend
-   *   and backend share eTLD+1, so a login that is genuinely cross-site
-   *   cannot complete anyway.
+   *   the CLI's own shape: `wafflebase login` hands the URL to the OS
+   *   opener.
+   * - `same-origin` / `same-site` — the click through
+   *   `CliLoginConfirmMiddleware`'s confirmation page, which this
+   *   backend served itself.
    *
    * `cross-site` is refused: that is a hostile page navigating the
-   * victim's browser into a login it chose the parameters of, which for
-   * `?mode=cli` means a code minted from the victim's GitHub session
-   * being delivered to an attacker-chosen loopback port, and for the web
-   * flow means clobbering an in-flight login's state cookie.
+   * victim's browser into a CLI login it chose the parameters of, so a
+   * code minted from the victim's GitHub session would be delivered to
+   * an attacker-chosen loopback port.
+   *
+   * **Only the CLI branch is checked.** A browser login is routinely
+   * cross-site by construction — the login link lives on the frontend
+   * origin and points at `VITE_BACKEND_API_URL`, which need not share a
+   * site with it — so refusing `cross-site` here would 400 every sign-in
+   * on such a deployment. Nothing is lost by allowing it: the web flow's
+   * double-submit `state` cookie is set and read on the *backend's* own
+   * origin, so it neither depends on the frontend's site nor can be
+   * completed by an attacker whose browser holds the other half. The
+   * loopback delivery the CLI branch guards has no such equivalent.
    *
    * A missing `Sec-Fetch-Site` is allowed: it means a client that does
    * not send the header at all, which is not the attack shape — the
@@ -141,13 +168,12 @@ export class GitHubAuthGuard extends AuthGuard('github') {
    * session, and every browser that can be steered cross-site also sends
    * this.
    */
-  private assertBrowserInitiated(req: Request) {
-    const site = req.headers?.['sec-fetch-site'];
-    if (site === undefined) return;
-    const value = Array.isArray(site) ? site[0] : site;
+  private assertCliStartNotCrossSite(req: Request) {
+    const value = parseFetchSite(req.headers?.['sec-fetch-site']);
+    if (value === undefined) return;
     if (ALLOWED_FETCH_SITES.has(value)) return;
     this.logger.warn(
-      `Refused a cross-site-initiated login (Sec-Fetch-Site: ${value}).`,
+      `Refused a cross-site-initiated CLI login (Sec-Fetch-Site: ${value}).`,
     );
     throw new BadRequestException(
       'Start the login from Wafflebase itself (or run `wafflebase login`).',

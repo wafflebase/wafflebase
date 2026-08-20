@@ -1139,14 +1139,17 @@ this login, and can this code be redeemed by anyone who merely saw it? —
 are answered by `GitHubAuthGuard`, `CliLoginConfirmMiddleware` and the
 PKCE pair:
 
-- `/auth/github` refuses a request whose `Sec-Fetch-Site` says another
-  site navigated the browser into it (`none` / `same-origin` /
+- `/auth/github?mode=cli` refuses a request whose `Sec-Fetch-Site` says
+  another site navigated the browser into it (`none` / `same-origin` /
   `same-site`, or a client that sends no such header, are served).
   Without that, a hostile page could start a `?mode=cli` round trip in
   the victim's browser with a loopback port of its choosing, and a code
   minted from the victim's GitHub session would be delivered there. The
   cookies cannot cover this case: the navigation that carries the attack
-  is the same navigation that would set them.
+  is the same navigation that would set them. The check is scoped to the
+  CLI branch — a browser login is legitimately cross-site whenever the
+  frontend and `VITE_BACKEND_API_URL` do not share a site, and it has no
+  loopback delivery to protect.
 - A `?mode=cli` login is then gated on a click through
   `CliLoginConfirmMiddleware`'s confirmation page, whose Continue link
   carries a one-time secret that also went out as an httpOnly cookie.

@@ -237,6 +237,19 @@ it was protecting is not deferred, it is deleted.
   carries a login-CSRF is the same navigation that sets the cookie. Two
   controls, two questions: the cookie for "is this the same browser?",
   `Sec-Fetch-Site` for "did anyone else send that browser here?".
+- **Scope a `Sec-Fetch-Site` refusal to the flow that needs it.** The
+  first version refused `cross-site` on *every* `/auth/github` start,
+  which would have `400`-ed the ordinary browser sign-in on any
+  deployment whose frontend does not share a site with
+  `VITE_BACKEND_API_URL` — and that is the shape the login button has
+  (`<Link to={VITE_BACKEND_API_URL}/auth/github>`), so the control broke
+  the product rather than an attack. The check earns its keep only on
+  `?mode=cli`, where the payoff is a code delivered to an
+  attacker-chosen loopback port; the web flow's double-submit cookie is
+  set and read on the backend's own origin and needs no help.
+  Generalisation: a header-shaped control is a claim about which
+  *origins* legitimately reach an endpoint — enumerate them per flow,
+  not per route.
 - **A cookie name is not a scope.** `wafflebase_oauth_state` was one
   name for a control that has two flows, so a second `/auth/github`
   navigation clobbered a pending login's state, and a plain (unprefixed)

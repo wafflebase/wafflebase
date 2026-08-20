@@ -3,6 +3,7 @@ import {
   GitHubAuthGuard,
   parseCliChallenge,
   parseCliNonce,
+  parseFetchSite,
 } from './github-auth.guard';
 import { CliAuthStore } from './cli-auth.store';
 
@@ -177,13 +178,14 @@ describe('GitHubAuthGuard.canActivate', () => {
   });
 
   /**
-   * Neither state mechanism covers a login a hostile *page* navigated the
-   * victim's browser into: the navigation that carries the attack is also
-   * the one that mints the state and sets its cookie. `Sec-Fetch-Site` is
-   * what tells the two apart, and only the browser can set it.
+   * Neither state mechanism covers a CLI login a hostile *page* navigated
+   * the victim's browser into: the navigation that carries the attack is
+   * also the one that mints the state and sets its cookie.
+   * `Sec-Fetch-Site` is what tells the two apart, and only the browser
+   * can set it.
    */
   describe('cross-site initiation', () => {
-    it('refuses a login navigated in from another site', () => {
+    it('refuses a CLI login navigated in from another site', () => {
       expect(() =>
         activate(
           { mode: 'cli', port: '49152' },
@@ -193,17 +195,35 @@ describe('GitHubAuthGuard.canActivate', () => {
       expect(createState).not.toHaveBeenCalled();
     });
 
-    it('refuses a cross-site-initiated browser login too', () => {
-      expect(() =>
-        activate({}, { headers: { 'sec-fetch-site': 'cross-site' } }),
-      ).toThrow(/Start the login from Wafflebase/);
+    /**
+     * The web login link lives on the frontend origin and points at
+     * `VITE_BACKEND_API_URL`, which need not share a site with it. That
+     * navigation is `cross-site` on such a deployment, and refusing it
+     * would 400 every sign-in. The double-submit state cookie is set and
+     * read on the backend's own origin, so it covers this flow on its
+     * own.
+     */
+    it('serves a cross-site-initiated browser login', () => {
+      const { req, res, result } = activate(
+        {},
+        { headers: { 'sec-fetch-site': 'cross-site' } },
+      );
+
+      expect(result).toBe(true);
+      expect(req.__oauthState).toMatch(/^web\.[0-9a-f]{64}$/);
+      expect(res.cookie).toHaveBeenCalledWith(
+        'wafflebase_oauth_state',
+        expect.any(String),
+        expect.objectContaining({ httpOnly: true }),
+      );
     });
 
     it.each(['none', 'same-origin', 'same-site'])(
-      'allows a login started %s',
+      'allows a CLI login started %s',
       (site) => {
         // `none` is the CLI's shape (the OS opener), `same-origin` the
-        // confirmation-page click, `same-site` a click inside the app.
+        // confirmation-page click, `same-site` the same click on a
+        // sibling host.
         const { result } = activate(
           { mode: 'cli', port: '49152' },
           { __cliConfirmed: true, headers: { 'sec-fetch-site': site } },
@@ -222,5 +242,58 @@ describe('GitHubAuthGuard.canActivate', () => {
       const { result } = activate({ mode: 'cli', port: '49152' });
       expect(result).toBe(true);
     });
+
+    /**
+     * Only a browser sets this header, so a duplicated or empty value is
+     * a hop artefact rather than an attack — reading it as an unknown
+     * value would refuse a legitimate CLI login.
+     */
+    it('reads a duplicated or empty Sec-Fetch-Site as its first token', () => {
+      for (const header of [
+        ['same-origin', 'same-origin'],
+        'same-origin, same-origin',
+        'Same-Origin',
+        '',
+        '   ',
+      ]) {
+        createState.mockClear();
+        const { result } = activate(
+          { mode: 'cli', port: '49152' },
+          { __cliConfirmed: true, headers: { 'sec-fetch-site': header } },
+        );
+        expect(result).toBe(true);
+        expect(createState).toHaveBeenCalled();
+      }
+    });
+
+    it('still refuses a duplicated cross-site header', () => {
+      expect(() =>
+        activate(
+          { mode: 'cli', port: '49152' },
+          {
+            __cliConfirmed: true,
+            headers: { 'sec-fetch-site': 'cross-site, same-origin' },
+          },
+        ),
+      ).toThrow(/Start the login from Wafflebase/);
+    });
+  });
+});
+
+describe('parseFetchSite', () => {
+  it('normalises what a proxy or express may hand back', () => {
+    expect(parseFetchSite('same-origin')).toBe('same-origin');
+    expect(parseFetchSite('Same-Origin')).toBe('same-origin');
+    expect(parseFetchSite(' cross-site ')).toBe('cross-site');
+    expect(parseFetchSite('none, none')).toBe('none');
+    expect(parseFetchSite(['same-site', 'none'])).toBe('same-site');
+  });
+
+  it('treats an absent or empty value as no verdict', () => {
+    expect(parseFetchSite(undefined)).toBeUndefined();
+    expect(parseFetchSite('')).toBeUndefined();
+    expect(parseFetchSite('  ')).toBeUndefined();
+    expect(parseFetchSite([])).toBeUndefined();
+    expect(parseFetchSite(42)).toBeUndefined();
   });
 });
