@@ -126,16 +126,28 @@ export function createPathGuard(root: string, opaqueRoots: string[] = []): PathG
      * many edits followed. Overwriting it on every write would make it track the
      * previous edit instead — which the undo stack already does, better.
      *
-     * KNOWN PROBLEM, carried over deliberately: this lands `foo.tsx.bak` beside
-     * the consumer's source, where our `.gitignore` cannot reach it. Wafflebase's
-     * own tree already carries stray `.bak` files as evidence. The fix
-     * (`node_modules/.cache/`) is listed in §Risks and is not in 8a, because
-     * moving it changes the restore path too and belongs with the transaction
-     * work rather than hidden in a path helper.
+     * UNDER `node_modules/.cache/`, NOT beside the source. It used to land
+     * `foo.tsx.bak` next to the consumer's file, where our `.gitignore` cannot
+     * reach it — a tool that writes stray files into someone else's repository
+     * and leaves them for `git status` to find. The relative path is mirrored
+     * under the cache directory so two files with the same basename cannot
+     * collide.
+     *
+     * Nothing reads this back: restore runs through the transaction log, and this
+     * is the copy a human reaches for when that is not enough. That is also why
+     * moving it was safe — the earlier note here claimed the restore path
+     * depended on it, and no code ever did.
+     *
+     * `resolveSafe` forbids writes into `node_modules` because a dependency's
+     * source is not the consumer's to edit. This is the deliberate exception: it
+     * is OUR cache, keyed under our own name, and never a file the editor edits.
      */
     async backup(abs: string): Promise<string> {
-      const bak = `${abs}.bak`;
-      if (!fs.existsSync(bak)) await fsp.copyFile(abs, bak);
+      const bak = path.join(root, 'node_modules', '.cache', 'wafflebase-design-editor', `${relOf(abs)}.bak`);
+      if (!fs.existsSync(bak)) {
+        await fsp.mkdir(path.dirname(bak), { recursive: true });
+        await fsp.copyFile(abs, bak);
+      }
       return bak;
     },
   };

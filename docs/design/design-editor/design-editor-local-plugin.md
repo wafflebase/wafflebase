@@ -526,12 +526,14 @@ guarantee. The correct prefix comes from each emitter's own body (`m.` for
 `src.typography.` for `rootOnlyBlock`), not from the token's name; the prototype
 was right for two of four, by luck of the destructuring.
 
-⚠ **A live risk got fresh evidence.** The Risks section below prescribes moving
-`.bak` backups into `node_modules/.cache/wafflebase-design-editor/`. That is still
-unimplemented — `PathGuard.backup` writes `${file}.bak` beside the source — and
-8c's `verify-tokens.mjs --write` demonstrated it by littering three untracked files
-into `packages/core` and `packages/frontend` on every run. The script cleans up
-after itself; the fix belongs in `paths.ts` and is not the sandbox's to make.
+⚠ **A live risk got fresh evidence, and is now closed.** The Risks section below
+prescribes moving `.bak` backups into `node_modules/.cache/wafflebase-design-editor/`.
+8c's `verify-tokens.mjs --write` demonstrated why, by littering three untracked files
+into `packages/core` and `packages/frontend` on every run. `PathGuard.backup` writes
+there now, mirroring the file's root-relative path so equal basenames cannot collide.
+The earlier note here claimed the move was blocked on the transaction work because it
+"changes the restore path too" — it does not: restore runs through the transaction log
+and nothing ever read the `.bak` back.
 
 ### 7. What this replaces
 
@@ -1081,12 +1083,13 @@ project in week 1, before the agent loop. Treat >1 hour as a redesign trigger fo
 the configuration surface, not as documentation debt.
 
 **We write to a stranger's working tree.** `resolveSafe` + `.bak` backups are the
-right shape but were built for our own repo — and the backups land in the
-consumer's source directories, where our `.gitignore` entry cannot reach.
-Wafflebase's own tree already carries stray `.bak` files as evidence.
-*Mitigation:* backups move to `node_modules/.cache/wafflebase-design-editor/`;
-refuse every write resolving outside `options.root`; record the HEAD sha in each
-transaction so "undo" is meaningful against a moving tree.
+right shape but were built for our own repo. *Mitigations:* backups now land in
+`node_modules/.cache/wafflebase-design-editor/` rather than beside the consumer's
+source, where our `.gitignore` could not reach them — both browser gates assert that
+nothing is written next to the file **and** that the cached copy exists, because the
+first check alone goes vacuous once the location moves. Every write resolving outside
+`options.root` is refused. Still open: recording the HEAD sha in each transaction, so
+"undo" is meaningful against a moving tree.
 
 **The model key leaks into the frame.** *Mitigation:* env-only, dev-server-side,
 proxied through the bridge; never serialized into any client bundle, never

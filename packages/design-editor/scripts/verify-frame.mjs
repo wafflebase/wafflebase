@@ -440,23 +440,38 @@ async function main() {
               check('and the file is byte-identical again', (await fs.readFile(abs, 'utf8')) === before);
 
               /*
-               * OBSERVED BEFORE IT IS CLEANED UP. This used to `unlink` first and set `left`
-               * only if the unlink FAILED — so the check passed exactly when a backup had been
-               * left, as long as deleting it worked. It asserted the cleanup, not the finding.
+               * BOTH HALVES, because the first alone goes vacuous. Backups moved into
+               * `node_modules/.cache/`, so "nothing beside the source" is now true by
+               * construction — asserting only that would pass even if backups stopped being
+               * written at all. The second check is the one with content.
+               *
+               * Observed before cleanup, too: this used to `unlink` first and report a
+               * leftover only if the DELETE failed, so it passed exactly when one had been
+               * left behind.
                */
-              const bak = `${abs}.bak`;
-              let left = false;
+              let beside = false;
               try {
-                await fs.access(bak);
-                left = true;
+                await fs.access(`${abs}.bak`);
+                beside = true;
               } catch {
-                /* never created */
+                /* correct: nothing beside the source */
               }
-              check('no backup was left in the fixture', !left, `${SCENE_SRC}.bak`);
-              if (left) {
-                await fs.unlink(bak).catch(() => {});
-                console.log(`       removed ${SCENE_SRC}.bak (see the Risks section)`);
+              check('no backup beside the consumer’s source', !beside, `${SCENE_SRC}.bak`);
+
+              const cached = path.join(
+                PROJECT,
+                'node_modules/.cache/wafflebase-design-editor',
+                `${SCENE_SRC}.bak`,
+              );
+              let inCache = false;
+              try {
+                await fs.access(cached);
+                inCache = true;
+              } catch {
+                /* the escape hatch was never written */
               }
+              check('and one WAS written into node_modules/.cache', inCache, cached);
+              if (inCache) await fs.unlink(cached).catch(() => {});
             } finally {
               /*
                * In `finally`, not after the undo check: anything above can throw — a missing

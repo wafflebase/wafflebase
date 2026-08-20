@@ -553,18 +553,28 @@ async function main() {
                    * `PathGuard.backup` writes `${file}.bak` beside the source; the design doc's
                    * Risks section names that and prescribes a cache directory instead.
                    */
-                  let left = false;
+                  let beside = false;
                   try {
                     await fs.access(`${abs}.bak`);
-                    left = true;
+                    beside = true;
                   } catch {
-                    /* never created */
+                    /* correct: nothing beside the source */
                   }
-                  check('no backup was left in packages/frontend', !left, `${rel}.bak`);
-                  if (left) {
-                    await fs.unlink(`${abs}.bak`).catch(() => {});
-                    console.log(`       removed ${rel}.bak (see the Risks section)`);
+                  check('no backup beside wafflebase’s source', !beside, `${rel}.bak`);
+
+                  // The second half carries the content now: with backups under the cache
+                  // directory, "nothing beside the source" is true even if the escape hatch
+                  // stopped being written at all.
+                  const cached = path.join(ROOT, 'node_modules/.cache/wafflebase-design-editor', `${rel}.bak`);
+                  let inCache = false;
+                  try {
+                    await fs.access(cached);
+                    inCache = true;
+                  } catch {
+                    /* never written */
                   }
+                  check('and one WAS written into node_modules/.cache', inCache, cached);
+                  if (inCache) await fs.unlink(cached).catch(() => {});
                 } finally {
                   /*
                    * PRODUCT SOURCE, not a fixture. A failed undo — or anything above throwing

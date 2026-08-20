@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -151,7 +151,44 @@ describe('backup', () => {
       await g.backup(abs);
 
       expect(readFileSync(bak, 'utf8')).toBe('ORIGINAL');
-      expect(bak).toBe(`${abs}.bak`);
+    })();
+  });
+
+  it('writes into node_modules/.cache, never beside the consumer’s source', () => {
+    // The whole point of the location: a `.bak` next to the file lands in someone else's
+    // repository, where our `.gitignore` cannot reach it and `git status` reports it as
+    // theirs. `resolveSafe` forbids writes into `node_modules` for exactly the opposite
+    // reason — that is the consumer's dependency tree — so this exception is deliberate and
+    // keyed under our own name.
+    const g = createPathGuard(dir);
+    const abs = path.join(dir, 'nested', 'b.tsx');
+    mkdirSync(path.dirname(abs), { recursive: true });
+    writeFileSync(abs, 'ORIGINAL', 'utf8');
+
+    return (async () => {
+      const bak = await g.backup(abs);
+      expect(existsSync(`${abs}.bak`)).toBe(false);
+      expect(bak).toBe(
+        path.join(dir, 'node_modules/.cache/wafflebase-design-editor/nested/b.tsx.bak'),
+      );
+      expect(readFileSync(bak, 'utf8')).toBe('ORIGINAL');
+    })();
+  });
+
+  it('mirrors the relative path, so equal basenames do not collide', () => {
+    const g = createPathGuard(dir);
+    const one = path.join(dir, 'x', 'same.tsx');
+    const two = path.join(dir, 'y', 'same.tsx');
+    for (const [f, body] of [[one, 'ONE'], [two, 'TWO']] as const) {
+      mkdirSync(path.dirname(f), { recursive: true });
+      writeFileSync(f, body, 'utf8');
+    }
+    return (async () => {
+      const a = await g.backup(one);
+      const b = await g.backup(two);
+      expect(a).not.toBe(b);
+      expect(readFileSync(a, 'utf8')).toBe('ONE');
+      expect(readFileSync(b, 'utf8')).toBe('TWO');
     })();
   });
 });
