@@ -21,7 +21,7 @@
  *   - deferred scenes             → `no scene "<id>" in the scene manifest`
  * All four are silent in every other lane.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
@@ -188,8 +188,39 @@ async function waitForSettled(page) {
   return null;
 }
 
+/**
+ * `@wafflebase/core` IS BUILT OUTPUT, and this gate loads it.
+ *
+ * Unlike `verify:frame` and `verify:consumer`, which run against `fixtures/consumer` — a
+ * project that does not depend on core — the scenes mount wafflebase's own frontend, whose
+ * `index.css` and modules resolve `@wafflebase/core/*` through the exports map to
+ * `packages/core/dist`. Nothing here rebuilt it, so a `dist` older than `src` was served
+ * silently: every scene failed with `does not provide an export named …`, which reads as a
+ * broken scene rather than as a stale artefact. That cost an hour finding it once.
+ *
+ * Same mtime comparison `buildShellIfStale` uses in `verify:frame`, and for the same reason —
+ * a gate that rebuilds only when its artefact is MISSING serves stale bytes forever.
+ */
+function buildCoreIfStale() {
+  const core = path.join(ROOT, 'packages/core');
+  const dist = path.join(core, 'dist');
+  const newest = (dir) => {
+    let m = 0;
+    for (const e of fsSync.readdirSync(dir, { withFileTypes: true, recursive: true })) {
+      if (!e.isFile()) continue;
+      m = Math.max(m, fsSync.statSync(path.join(e.parentPath ?? e.path, e.name)).mtimeMs);
+    }
+    return m;
+  };
+  if (fsSync.existsSync(dist) && newest(path.join(core, 'src')) <= newest(dist)) return;
+  console.log('building @wafflebase/core (dist missing or older than src/)');
+  const r = spawnSync('pnpm', ['--filter', '@wafflebase/core', 'build'], { cwd: ROOT, stdio: 'inherit' });
+  if (r.status !== 0) throw new Error('core build failed');
+}
+
 async function main() {
   await buildShellIfStale();
+  buildCoreIfStale();
   const { child, log } = await boot();
   let browser;
   try {
@@ -523,6 +554,11 @@ async function main() {
               if (check('the review names which file it will write', !!rel, rel)) {
                 const abs = path.join(ROOT, rel);
                 const before = await fs.readFile(abs, 'utf8');
+                // Cleared before the write — see the same note in verify-frame.mjs: a leftover
+                // cached backup makes `PathGuard.backup` skip, and the presence check below
+                // would then pass on a file this run never created.
+                const cached = path.join(ROOT, 'node_modules/.cache/wafflebase-design-editor', `${rel}.bak`);
+                await fs.rm(cached, { force: true });
                 try {
                   const approve = (await page.$$('[role="dialog"] button')).at(-1);
                   await approve?.click();
@@ -553,17 +589,30 @@ async function main() {
                    * `PathGuard.backup` writes `${file}.bak` beside the source; the design doc's
                    * Risks section names that and prescribes a cache directory instead.
                    */
-                  let left = false;
+                  let beside = false;
                   try {
                     await fs.access(`${abs}.bak`);
-                    left = true;
+                    beside = true;
                   } catch {
-                    /* never created */
+                    /* correct: nothing beside the source */
                   }
-                  check('no backup was left in packages/frontend', !left, `${rel}.bak`);
-                  if (left) {
-                    await fs.unlink(`${abs}.bak`).catch(() => {});
-                    console.log(`       removed ${rel}.bak (see the Risks section)`);
+                  check('no backup beside wafflebase’s source', !beside, `${rel}.bak`);
+
+                  // The second half carries the content now: with backups under the cache
+                  // directory, "nothing beside the source" is true even if the escape hatch
+                  // stopped being written at all.
+                  let inCache = false;
+                  try {
+                    await fs.access(cached);
+                    inCache = true;
+                  } catch {
+                    /* never written */
+                  }
+                  check('and one WAS written into node_modules/.cache', inCache, cached);
+                  try {
+                    await fs.rm(cached, { force: true });
+                  } catch (err) {
+                    check('and the cached backup could be cleaned up', false, String(err));
                   }
                 } finally {
                   /*
