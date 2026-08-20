@@ -867,13 +867,14 @@ test("a segmentation value is formatted, not stringified — the fmt parameter i
   // correctly. This one is `25/36`, which is what a real `k/n` looks like.
   const built = segmentationFigures({
     min_n: 5,
-    axes: [{ id: "severity", status: "computed" }],
-    cells: [{ segment: "metric=in_diff_rate/severity=major/arm=panel", suppressed: false, value: 25 / 36, n: 36, unit: "findings" }],
+    axes: [{ id: "severity", status: "computed", arms: ["panel", "coderabbit"] }],
+    metrics: [{ id: "in_diff_rate", spec: "§3.1 — scope discipline: share of findings anchored inside a changed region" }],
+    cells: [{ segment: "metric=in_diff_rate/severity=major/arm=panel", metric: "in_diff_rate", axis: "severity", bucket: "major", arm: "panel", suppressed: false, value: 25 / 36, n: 36, unit: "findings" }],
   });
   // The cell itself still holds the full-precision value — formatting is the renderer's
   // job, not the extractor's.
   assert.equal(built.cells[0].cell.value, 25 / 36);
-  assert.match(renderReport(withSegmentation(built)), /\| `metric=in_diff_rate\/severity=major\/arm=panel` \| 0\.694 \(n=36 findings\) \|/);
+  assert.match(renderReport(withSegmentation(built)), /\| `severity=major` \| 0\.694 · n=36 \|/);
   assert.doesNotMatch(renderReport(withSegmentation(built)), /0\.6944444/);
 
   // 🔴 AND THE DEFAULT IS UNCHANGED, which is the other half of the instruction: a
@@ -972,6 +973,232 @@ test("a suppressed segmentation cell says what it failed, and an unbuilt one say
   assert.equal(renderCell(built.cells[1].cell), "0 (n=6 findings)");
   // "We measured nothing here" and "we measured zero here" are two different cells.
   assert.notEqual(renderCell(built.cells[0].cell), renderCell(built.cells[1].cell));
+});
+
+// --- §5's grid ---------------------------------------------------------------
+//
+// A `segmentation-v1` payload shaped like the real one: the cube's three coordinates
+// travel beside the flat label, so the renderer can rebuild the grid instead of
+// printing the label. The numbers are the pilot's own, off
+// `scores/by-config/…__2026-08-10-pilot-reviewed/segmentation-v1.json`, because the
+// thing under test is a LAYOUT over real proportions — CodeRabbit's cells are exactly
+// 1.000 and the panel's are not, and a fixture of round invented numbers would hide
+// that the two arms now sit on one line where that is finally visible.
+
+/**
+ * The document with its line folds removed, for asserting a SENTENCE the renderer
+ * wraps to the report's prose width. Where the fold lands is a property of how long
+ * a payload's bucket names happen to be, not of anything under test, so pinning it
+ * would make an unrelated fixture edit redden a layout test. Table rows are asserted
+ * against the raw document, where the line break is structural.
+ */
+const unwrapped = (md) => md.replace(/\n/g, " ");
+
+/** One cell in the scorer's own shape, label included, so a test asserting the grid
+ *  cannot pass on a payload the scorer would never emit. */
+const segCell = (metric, axis, bucket, arm, rest) => ({
+  segment: `metric=${metric}/${axis}=${bucket}/arm=${arm}`,
+  metric,
+  axis,
+  bucket,
+  arm,
+  min_n: 5,
+  ...rest,
+});
+
+const PANEL_UNIT = "findings; median of 3 replicates";
+const CODERABBIT_UNIT = "findings; single observation";
+
+const SEGMENTATION = () => ({
+  min_n: 5,
+  min_n_source: "spec §4.1 default",
+  axes: [
+    { id: "severity", unit: "finding", status: "computed", arms: ["panel", "coderabbit"] },
+    { id: "novelty", unit: "finding", status: "computed", arms: ["panel"] },
+    { id: "defect_type", unit: "finding", status: "not-computed", arms: [], reason: "defect type is assigned at adjudication and no adjudicated labels exist" },
+  ],
+  metrics: [
+    { id: "localization_rate", currency: "finding", spec: "§3.1 — share of findings citing a file and line that resolves against the frozen diff" },
+    { id: "findings_per_pr", currency: "item", spec: "§3.1 — findings per pull request" },
+  ],
+  pairs_not_computed: [
+    // Refused for what the pair MEANS — rendered, with the scorer's reason.
+    { metric: "localization_rate", axis: "novelty", reason: "the novelty annotation is stamped ONLY on critical/major findings" },
+    // Refused for a unit mismatch — one fact repeated across the per-PR metrics.
+    { metric: "findings_per_pr", axis: "novelty", reason: "findings_per_pr is counted in PRs and novelty cuts findings, so every bucket would share one denominator" },
+  ],
+  cells: [
+    // severity: one bucket both arms report, one where only the panel does, one
+    // withheld on both.
+    segCell("localization_rate", "severity", "minor", "panel", { suppressed: false, value: 70 / 89, n: 89, unit: PANEL_UNIT }),
+    segCell("localization_rate", "severity", "minor", "coderabbit", { suppressed: false, value: 1, n: 13, unit: CODERABBIT_UNIT }),
+    segCell("localization_rate", "severity", "major", "panel", { suppressed: false, value: 25 / 32, n: 32, unit: PANEL_UNIT }),
+    segCell("localization_rate", "severity", "major", "coderabbit", { suppressed: true, n: 3 }),
+    segCell("localization_rate", "severity", "critical", "panel", { suppressed: true, n: 0 }),
+    segCell("localization_rate", "severity", "critical", "coderabbit", { suppressed: true, n: 0 }),
+    // A one-armed axis: `novelty` reads a field only the panel's records carry.
+    segCell("localization_rate", "novelty", "pre-existing", "panel", { suppressed: false, value: 5 / 13, n: 13, unit: PANEL_UNIT }),
+    // A metric counted in PRs, withheld everywhere on a 7-item corpus.
+    segCell("findings_per_pr", "severity", "minor", "panel", { suppressed: true, n: 4 }),
+    segCell("findings_per_pr", "severity", "minor", "coderabbit", { suppressed: true, n: 4 }),
+  ],
+});
+
+test("🔴 §5 is a grid per metric with the ARMS AS COLUMNS, not a list of composite keys", () => {
+  // 🔴 THE DEFECT. `renderSegmentation` did `for (const c of sg.cells)` over a flat
+  // array and emitted the cube — metric × bucket × arm — as 149 one-dimensional
+  // `metric=…/…=…/arm=…` keys, two columns, 163 lines, 34% of the report. The grouping
+  // was in the payload the whole time: `segmentLabel`'s own comment says the three
+  // components travel beside the flat label precisely so a consumer can regroup them.
+  const md = renderReport(withSegmentation(segmentationFigures(SEGMENTATION())));
+  assert.match(unwrapped(md), /### `localization_rate` — §3\.1 — share of findings citing a file and line/);
+  // The arms are COLUMNS. This is the assertion a future reflattening has to break.
+  assert.match(md, /\| segment \| panel · findings; median of 3 replicates \| coderabbit · findings; single observation \|/);
+  // …and therefore both arms sit on ONE line, which is the entire purpose of §5 and
+  // was impossible when they were dozens of rows apart.
+  assert.match(md, /\| `severity=minor` \| 0\.787 · n=89 \| 1\.000 · n=13 \|/);
+  // The composite key is GONE from the page. A renderer that fell back to the flat
+  // list would still satisfy every assertion above about content; only this one says
+  // the shape changed.
+  assert.doesNotMatch(md, /metric=localization_rate\/severity=minor\/arm=panel/);
+});
+
+test("🔴 §5's withheld cells still publish no value — in place beside a reported arm, or as a named count", () => {
+  // 🔴 The honesty invariant survives the reshape, and it is the one thing that must.
+  // A withheld cell carries the `n` that failed and NO value, so it cannot be read as
+  // a measured zero; the change is that it no longer costs a row of its own.
+  const md = renderReport(withSegmentation(segmentationFigures(SEGMENTATION())));
+  // ONE arm withheld: the row survives for the arm that reported, and the withheld
+  // arm says so in place — no number, and nothing that could be mistaken for one.
+  assert.match(md, /\| `severity=major` \| 0\.781 · n=32 \| \*\*suppressed\*\*: n=3 < 5 \|/);
+  // EVERY arm withheld: no row at all, and the segment is still named.
+  assert.doesNotMatch(md, /\| `severity=critical` \|/);
+  assert.match(unwrapped(md), /Withheld on every arm and not given rows — 1 segment\(s\): `severity=critical`\./);
+  // The count in the caption is the payload's, not a literal: 5 of 9 cells here.
+  assert.match(unwrapped(md), /\*\*4 of 9 cells report; 5 are withheld\*\* for a denominator below min-n = 5 \(spec §4\.1 default\)/);
+  assert.match(unwrapped(md), /5 rows saying nothing is what made this section unread/);
+});
+
+test("a metric with no reporting cell gets a sentence naming its segments, not an empty table", () => {
+  // `findings_per_pr` is counted in PULL REQUESTS, and the fattest per-PR denominator
+  // on a 7-item corpus is 4 — so it withholds everywhere while the per-finding metrics
+  // beside it report. An empty table with a header would be the blank grid decision 12
+  // warned about; the sentence says which segments and why nothing is there.
+  const md = renderReport(withSegmentation(segmentationFigures(SEGMENTATION())));
+  assert.match(unwrapped(md), /### `findings_per_pr` — §3\.1 — findings per pull request {2}\*\*No cell cleared min-n\.\*\* All 1 segment\(s\) are withheld on every arm: `severity=minor`\./);
+  // No table header for a metric with no rows.
+  const grid = md.slice(md.indexOf("### `findings_per_pr`"));
+  assert.doesNotMatch(grid.slice(0, grid.indexOf("\n### ") === -1 ? undefined : grid.indexOf("\n### ")), /\| segment \|/);
+});
+
+test("a one-armed axis renders as `—`, which is not the same symbol as a withheld cell", () => {
+  // 🔴 Three of the pilot's seven axes are one-armed BY CONSTRUCTION: `novelty` reads
+  // a field only the panel's records carry, `coderabbit_category` and `window` only
+  // CodeRabbit's. "No measurement exists to make" and "the denominator was too thin"
+  // are different facts, and a bigger corpus closes exactly one of them — so they must
+  // not share a symbol. The axis's own declared `arms` is what says which is which.
+  const md = renderReport(withSegmentation(segmentationFigures(SEGMENTATION())));
+  assert.match(md, /\| `novelty=pre-existing` \| 0\.385 · n=13 \| — \|/);
+  assert.match(unwrapped(md), /`—` marks an axis the scorer declares for one arm only — `novelty` \(panel\)/);
+  assert.match(unwrapped(md), /It is not a withheld cell: there is no measurement to withhold/);
+  // And the withheld cells in the same grid still say "suppressed", not "—".
+  assert.doesNotMatch(md, /\| `severity=major` \| 0\.781 · n=32 \| — \|/);
+});
+
+test("the unit is hoisted into a column header only while that column agrees on it", () => {
+  // 🔴 `renderValue` may drop the `(n= unit)` suffix ONLY where the unit is rendered
+  // adjacently — that is its own docstring's condition, and the column header is what
+  // discharges it here. A column whose reported cells disagree has no one unit to
+  // hoist, so every cell keeps its own; a header that picked one of two would be the
+  // unitless figure `figure()` refuses to construct in the first place.
+  const payload = SEGMENTATION();
+  payload.cells.push(segCell("localization_rate", "severity", "nit", "panel", { suppressed: false, value: 0.5, n: 8, unit: "defect classes; median of 3 replicates" }));
+  const md = renderReport(withSegmentation(segmentationFigures(payload)));
+  assert.doesNotMatch(md, /\| segment \| panel · findings; median of 3 replicates \|/);
+  assert.match(md, /\| `severity=minor` \| 0\.787 \(n=89 findings; median of 3 replicates\) \|/);
+  assert.match(md, /\| `severity=nit` \| 0\.500 \(n=8 defect classes; median of 3 replicates\) \|/);
+});
+
+test("the comparable count is of the rows in the grid below it, so the two cannot disagree", () => {
+  // §4's deliverable is a COMPARISON, and with per-arm suppression a two-arm segment
+  // with both arms reported is strictly rarer than either arm clearing alone. The
+  // count leads the grid because a reader should not have to scan for it — and it is
+  // counted over the rendered rows rather than read from the payload's `comparisons`,
+  // so a row the renderer drops can never be counted as one a reader can see.
+  const built = segmentationFigures(SEGMENTATION());
+  const grid = built.grids.find((g) => g.metric === "localization_rate");
+  assert.equal(grid.comparable, 1); // severity=minor
+  assert.equal(grid.twoArm, 3); // minor, major, critical
+  const md = renderReport(withSegmentation(built));
+  assert.match(unwrapped(md), /Both arms report on \*\*1 of the 3\*\* segments this metric cuts on both arms/);
+});
+
+test("a cell the payload gave no coordinates for is still rendered, as the flat list it is", () => {
+  // FAIL DIRECTION. The grouping fields are the scorer's, and a payload written before
+  // them — or by a future scorer that omits one — cannot be placed in a grid. It is
+  // listed and labelled rather than dropped: this whole module's argument is that a
+  // silent omission is the one unrecoverable failure, and "the renderer could not
+  // place these" is a fact a reader can act on.
+  const md = renderReport(
+    withSegmentation(
+      segmentationFigures({
+        min_n: 5,
+        cells: [{ segment: "metric=in_diff_rate/severity=major/arm=panel", suppressed: false, value: 25 / 36, n: 36, unit: "findings" }],
+      }),
+    ),
+  );
+  assert.match(unwrapped(md), /\*\*1 cell\(s\) carry no metric\/axis\/bucket\/arm and cannot be placed in a grid\*\*/);
+  assert.match(md, /\| `metric=in_diff_rate\/severity=major\/arm=panel` \| 0\.694 \(n=36 findings\) \|/);
+});
+
+test("a refused metric × axis pair is rendered with its reason; a unit mismatch is only counted", () => {
+  // 🔴 A grid with no rows for an axis has THREE possible causes — thin, unbuildable,
+  // or refused as posed — and §5 rendered only the first two, so a reader of
+  // `nit_ratio` could not tell a refusal from an oversight. The pilot's twelve
+  // refusals are two statements about a metric and ten repetitions of one unit
+  // mismatch, and printing all twelve verbatim would re-import the noise this section
+  // is being rescued from.
+  //
+  // The split is STRUCTURAL — the metric's `currency` against the axis's `unit`, both
+  // stated in the payload — and not a match on the reason text, so a refusal with a
+  // reason nobody has seen before lands in the rendered group rather than the counted
+  // one. That is the safe direction: an unfamiliar refusal gets read.
+  const built = segmentationFigures(SEGMENTATION());
+  assert.deepEqual(built.pairsRefused.map((p) => `${p.metric}×${p.axis}`), ["localization_rate×novelty"]);
+  assert.equal(built.pairsUnitMismatch, 1);
+  const md = renderReport(withSegmentation(built));
+  assert.match(md, /\| `localization_rate` × `novelty` \| \*\*not computed\*\* — the novelty annotation is stamped ONLY on critical\/major findings \|/);
+  assert.doesNotMatch(md, /\| `findings_per_pr` × `novelty` \|/);
+  assert.match(unwrapped(md), /A further 1 pair\(s\) are not listed because they are one fact repeated: a metric counted in pull requests/);
+});
+
+test("a wrapped list never breaks inside a code span, because bucket names contain spaces", () => {
+  // 🔴 CodeRabbit's taxonomy is used VERBATIM — `data integrity & integration` — so a
+  // withheld-segment list folded on spaces alone split a backticked identifier across
+  // two lines, and markdown then rendered the backticks as literal characters. Every
+  // line §5 emits carries an even number of backticks.
+  const payload = SEGMENTATION();
+  for (const bucket of ["data integrity & integration", "performance & scalability", "security & privacy", "stability & availability"]) {
+    payload.cells.push(segCell("localization_rate", "coderabbit_category", bucket, "coderabbit", { suppressed: true, n: 1 }));
+  }
+  const md = renderReport(withSegmentation(segmentationFigures(payload)));
+  for (const line of md.split("\n")) {
+    assert.equal((line.match(/`/g) ?? []).length % 2, 0, `unbalanced backticks after wrapping: ${line}`);
+  }
+  // AND THE FOLD HAPPENS AT ALL. Five withheld segments named on one line is 300-odd
+  // characters, which is the shape §5 is being rescued from; a wrap that never fires
+  // is not a wrap. Table rows are excluded — a fold inside one would break the table,
+  // so those are left long on purpose.
+  const section = md.slice(md.indexOf("## 5."), md.indexOf("## 6."));
+  const prose = section.split("\n").filter((l) => !l.startsWith("|"));
+  const listStart = prose.findIndex((l) => l.startsWith("Withheld on every arm"));
+  assert.ok(listStart >= 0, "the withheld list should be on the page");
+  // The sentence ends in a full stop, so a list that fits on one line ends there. This
+  // one does not: five segments named, three of them CodeRabbit's verbatim categories.
+  assert.ok(!prose[listStart].endsWith("."), "the withheld list should be folded across more than one line, not left as one long line");
+  // The overhang allowance is for a code span too long to break — `wrapProse` will not
+  // split one — not for an unwrapped sentence.
+  for (const line of prose) assert.ok(line.length <= 160, `§5 emitted an unwrapped prose line of ${line.length} chars: ${line}`);
 });
 
 // --- the whole document -----------------------------------------------------

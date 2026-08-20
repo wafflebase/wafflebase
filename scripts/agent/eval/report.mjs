@@ -1109,6 +1109,17 @@ export function segmentationFigures(payload) {
   }
   const cells = (Array.isArray(payload.cells) ? payload.cells : []).map((c) => ({
     segment: c.segment ?? "(unnamed)",
+    // THE CUBE'S THREE COORDINATES, carried beside the flat label instead of being
+    // dropped. `segmentLabel` in the scorer says outright that flattening loses the
+    // grouping and that the components travel separately for exactly this reason —
+    // and for two releases nothing read them, so §5 rendered 149 stringly-typed keys
+    // and made a reader parse `metric=…/…=…/arm=…` by eye to rebuild a grid that was
+    // already in memory. `null` when the payload predates them: an unplaceable cell
+    // is still rendered (see `ungrouped` below), never dropped.
+    metric: typeof c.metric === "string" ? c.metric : null,
+    axis: typeof c.axis === "string" ? c.axis : null,
+    bucket: typeof c.bucket === "string" ? c.bucket : null,
+    arm: typeof c.arm === "string" ? c.arm : null,
     // A cell the scorer withheld renders as withheld, with the numbers that decided
     // it. A cell it measured renders as measured, INCLUDING a measured zero.
     cell: c.suppressed === true ? suppressed(c.n, c.min_n) : figure(c.value, c.n, c.unit),
@@ -1122,12 +1133,55 @@ export function segmentationFigures(payload) {
   const axes = (Array.isArray(payload.axes) ? payload.axes : []).map((a) => ({
     id: a.id ?? "(unnamed)",
     status: a.status ?? "unstated",
+    // WHICH ARMS THE AXIS EXISTS FOR, read off the payload's own declaration. Three
+    // of the pilot's seven axes are one-armed by construction — `novelty` reads a
+    // field only the panel's records carry, `coderabbit_category` and `window` read
+    // fields only CodeRabbit's do — so their empty column is a structural absence
+    // and NOT a withheld cell. Rendering the two as one symbol would say "too thin
+    // to report" about a measurement that was never available to make.
+    arms: Array.isArray(a.arms) ? [...a.arms] : [],
+    // What the axis COUNTS — `finding` or `item`. Read only to tell the pairs the
+    // scorer refused on a unit mismatch from the ones it refused on their meaning;
+    // see `pairs` below.
+    unit: typeof a.unit === "string" ? a.unit : null,
     cell: a.status === "computed" ? null : notComputed(a.reason ?? `the scorer reported this axis as ${JSON.stringify(a.status ?? null)} and gave no reason`),
+  }));
+  const metrics = (Array.isArray(payload.metrics) ? payload.metrics : []).map((m) => ({
+    id: m.id ?? "(unnamed)",
+    spec: typeof m.spec === "string" ? m.spec : null,
+    currency: typeof m.currency === "string" ? m.currency : null,
+  }));
+  // 🔴 A PAIR THE SCORER NEVER COMPUTED IS WHY A GRID HAS NO ROWS FOR AN AXIS, and
+  // nothing rendered it, so a reader of `nit_ratio` could not tell whether severity
+  // was missing because it was thin, because it was refused, or because somebody
+  // forgot. Two of the pilot's twelve refusals are statements about the metric —
+  // the nit ratio is a function of severity, and the novelty annotation only touches
+  // blockers — and they are rendered with the scorer's own reason.
+  //
+  // The other ten are ONE fact repeated: a metric counted in pull requests cut by an
+  // axis that cuts findings shares a single denominator across every bucket. They are
+  // counted, not listed. The split is STRUCTURAL — the metric's `currency` against the
+  // axis's `unit`, both stated in the payload — rather than a match on the reason text,
+  // so a refusal with a new reason falls into the listed group and is read, not hidden.
+  const axisUnit = new Map(axes.map((a) => [a.id, a.unit]));
+  const currency = new Map(metrics.map((m) => [m.id, m.currency]));
+  const allPairs = (Array.isArray(payload.pairs_not_computed) ? payload.pairs_not_computed : []).map((p) => ({
+    metric: p.metric ?? "(unnamed)",
+    axis: p.axis ?? "(unnamed)",
+    cell: notComputed(p.reason ?? "the scorer refused this metric/axis pair and gave no reason"),
+    unitMismatch: currency.get(p.metric) === "item" && axisUnit.get(p.axis) === "finding",
   }));
   return {
     availability: "present",
     cells,
     axes,
+    // Each metric's own one-line spec, verbatim from the payload. §5 leads every grid
+    // with it rather than with an authored gloss, so the sentence above a number and
+    // the definition the scorer computed it from cannot drift apart.
+    metrics,
+    pairsRefused: allPairs.filter((p) => !p.unitMismatch),
+    pairsUnitMismatch: allPairs.filter((p) => p.unitMismatch).length,
+    ...groupSegmentation(cells),
     min_n: payload.min_n ?? null,
     min_n_source: payload.min_n_source ?? null,
     // The split, so §5 states what the grid actually did rather than what decision 12
@@ -1135,6 +1189,77 @@ export function segmentationFigures(payload) {
     reported: cells.filter((c) => c.cell.availability === "present").length,
     withheld: cells.filter((c) => c.cell.availability === "suppressed").length,
   };
+}
+
+/**
+ * The flat cell list, regrouped into the cube it came from: one grid per metric,
+ * one row per axis bucket, one column per arm.
+ *
+ * 🔴 IT REGROUPS AND COUNTS. IT COMPUTES NOTHING. Every value, `n`, unit and
+ * suppression verdict below is the scorer's, untouched; the only arithmetic is
+ * `length` over cells whose state the scorer already decided, which is the same
+ * arithmetic `reported`/`withheld` above have always done. A total, a mean or a rank
+ * that the payload does not state belongs in the scorer, where it would be tested
+ * against the records it summarises — decision 12's invariant is that this file
+ * prints only what it was given, and that invariant is the reason §5's numbers can
+ * be quoted at all.
+ *
+ * ORDER COMES FROM THE PAYLOAD, by first appearance — metrics, then buckets, then
+ * arms. Sorting here would be this file inventing a ranking, and it would also break
+ * the byte-identical re-render property the moment a locale-sensitive comparator got
+ * involved. The scorer emits axis by axis and bucket by bucket, so first-appearance
+ * order is its grouping, preserved.
+ *
+ * A ROW WHOSE EVERY ARM IS WITHHELD IS NOT A ROW. It is counted and its label named
+ * in `withheldRows`, which is the whole point: 73 of 149 cells carried no value, and
+ * at one row each they were 73 of §5's 163 lines. A count naming the buckets they
+ * fell on is exactly as honest — a withheld cell still publishes no number — and it
+ * is the difference between a section that is read and one that is scrolled past.
+ */
+function groupSegmentation(cells) {
+  // Cells the payload could not place. Kept, listed, and never silently dropped: a
+  // payload written before the coordinates existed still renders every cell it has,
+  // as the flat list it is, under a heading that says why.
+  const placeable = (c) => c.metric !== null && c.arm !== null && c.axis !== null && c.bucket !== null;
+  const ungrouped = cells.filter((c) => !placeable(c));
+  const placed = cells.filter(placeable);
+  const armOrder = [...new Set(placed.map((c) => c.arm))];
+  const grids = [];
+  for (const metric of new Set(placed.map((c) => c.metric))) {
+    const mine = placed.filter((c) => c.metric === metric);
+    const rows = [];
+    for (const label of new Set(mine.map((c) => `${c.axis}=${c.bucket}`))) {
+      const inRow = mine.filter((c) => `${c.axis}=${c.bucket}` === label);
+      rows.push({
+        label,
+        axis: inRow[0].axis,
+        bucket: inRow[0].bucket,
+        // `null` for an arm with no cell at all — a one-armed axis — which is a
+        // different fact from a withheld one and renders as a different symbol.
+        cells: Object.fromEntries(armOrder.map((arm) => [arm, inRow.find((c) => c.arm === arm)?.cell ?? null])),
+      });
+    }
+    // A row EARNS its place by holding at least one measurement. One that does not is
+    // 100% withheld, and a table row is an expensive way to say nothing twice.
+    const present = (r) => Object.values(r.cells).filter((c) => c !== null && c.availability === "present");
+    const held = (r) => Object.values(r.cells).filter((c) => c !== null);
+    grids.push({
+      metric,
+      arms: armOrder.filter((arm) => mine.some((c) => c.arm === arm)),
+      rows: rows.filter((r) => present(r).length > 0),
+      // Named, not just counted, so a reader can see WHICH buckets the corpus is too
+      // thin for — that list is the argument for a bigger corpus and it is lost if
+      // the rows are dropped silently.
+      withheldRows: rows.filter((r) => present(r).length === 0).map((r) => r.label),
+      // A two-arm row with both arms reported is the only kind of row §5 can compare,
+      // and §4's deliverable is a comparison. Counted over the rows in the table below
+      // it, so the sentence and the grid can never disagree — the segmentation
+      // scorer's own `comparisons` array says 22 across this payload and so does this.
+      comparable: rows.filter((r) => held(r).length > 1 && present(r).length === held(r).length).length,
+      twoArm: rows.filter((r) => held(r).length > 1).length,
+    });
+  }
+  return { grids, ungrouped };
 }
 
 /** The `SECTIONS` row for a key, refusing an unknown one so a typo cannot produce a
@@ -2020,7 +2145,55 @@ function renderCostLatency(cl) {
   return out.flat().filter((line, i, all) => line !== "" || all[i - 1] !== "");
 }
 
-/** §5 — segmentation. Absent today; blank by design when it lands. */
+/**
+ * A generated sentence, folded to the width the report's authored prose is written
+ * at, so the raw markdown stays readable beside it.
+ *
+ * ONLY FOR PROSE, never for a table row — a fold inside a `|`-delimited line would
+ * break the table.
+ *
+ * 🔴 IT NEVER BREAKS INSIDE A CODE SPAN, and that is not a nicety: this section's
+ * bucket names contain spaces, CodeRabbit's verbatim taxonomy included, so a naive
+ * space split folded `` `coderabbit_category=data integrity & integration` `` across
+ * two lines and markdown then rendered the backticks as literal characters in the
+ * published report. Backtick parity is tracked and a break is only taken outside a
+ * span; an over-long span simply overhangs, which is the harmless failure.
+ *
+ * Pure and width-driven, so it cannot make two renders of one dataset differ.
+ */
+function wrapProse(text, width = 115) {
+  const out = [];
+  let line = "";
+  let open = false;
+  for (const word of text.split(" ")) {
+    const closes = (word.match(/`/g) ?? []).length % 2 === 1;
+    if (line === "") line = word;
+    else if (open || line.length + 1 + word.length <= width) line += ` ${word}`;
+    else {
+      out.push(line);
+      line = word;
+    }
+    if (closes) open = !open;
+  }
+  if (line !== "") out.push(line);
+  return out;
+}
+
+/**
+ * §5 — segmentation. Absent today; a grid per metric when it lands.
+ *
+ * 🔴 THE DEFECT THIS SHAPE FIXES. The first version pushed `sg.cells` into one table
+ * and produced 149 consecutive rows, two columns, 73 of them carrying no value, rows
+ * up to 231 characters — 163 lines, 34% of the report. The cube is metric × bucket ×
+ * arm and it was emitted as a one-dimensional list of composite keys, so a reader had
+ * to parse `metric=…/…=…/arm=…` by eye 149 times to rebuild the grid the payload
+ * already carried. An honest number nobody reads has already failed, and this section
+ * is quoted anyway.
+ *
+ * ARMS ARE COLUMNS, which is the part that makes the section do its job: §4's
+ * deliverable is "where each arm wins", and panel and CodeRabbit were previously
+ * dozens of rows apart on the same bucket.
+ */
 function renderSegmentation(sg) {
   const out = ["## 5. Where each arm wins, by segment", ""];
   if (sg.availability !== "present") {
@@ -2035,14 +2208,35 @@ function renderSegmentation(sg) {
     );
     return out;
   }
+  out.push(
+    "§1's metrics again, cut by segment: the question here is not who scores higher overall but **where** each arm",
+    "does. A cell moves when an arm's behaviour changes inside that bucket — or when the bucket simply collects more",
+    "findings, which is why every cell carries its own `n`. What no cell can tell you is *why*: these are slices of",
+    "one set of replays, not a controlled comparison, so a difference along an axis is a description of this corpus",
+    "and never an attribution to it.",
+    "",
+  );
   // WHAT THE GRID ACTUALLY DID, above it, because decision 12 predicted a blank grid
   // and half of this one reports. The prediction was true per pull request only.
   out.push(
     `**${sg.reported} of ${sg.cells.length} cells report; ${sg.withheld} are withheld** for a denominator below` +
       ` min-n${sg.min_n === null ? "" : ` = ${sg.min_n}`}${sg.min_n_source ? ` (${sg.min_n_source})` : ""}.`,
     "A withheld cell carries the `n` that failed and no value, so it cannot be read as a measured zero.",
-    "",
   );
+  // The sentence about withholding is only true while something is withheld. A grid
+  // with none would otherwise print "0 rows saying nothing is what made this section
+  // unread", which is the caption-contradicts-its-grid failure that `suppressed()`
+  // refuses a defaulted `min_n` to prevent, one paragraph up.
+  if (sg.withheld > 0) {
+    out.push(
+      ...wrapProse(
+        "Where a whole segment is withheld on every arm it is **counted and named below its grid rather than given a row of its " +
+          // The count is `sg.withheld`, not a literal.
+          `own** — a count withholds exactly as much as a row does, and ${sg.withheld} rows saying nothing is what made this section unread.`,
+      ),
+    );
+  }
+  out.push("");
   // Axes that produced no column at all, each with the scorer's own reason. An axis
   // nobody can build is a different fact from a bucket that came out thin, and only
   // one of the two appears in the table below.
@@ -2052,14 +2246,105 @@ function renderSegmentation(sg) {
     for (const a of absentAxes) out.push(`| \`${a.id}\` | ${renderCell(a.cell)} |`);
     out.push("");
   }
-  out.push("| segment | figure |", "|---|---|");
-  // `num` is passed HERE and the default is left alone. §5 is the first table whose
-  // values pass through `renderCell` rather than being formatted by its caller, so it
-  // is the first place the raw `String(v)` default shows — it printed a real cell as
-  // `0.6944444444444444`. Changing the default instead would reformat CodeRabbit's
-  // measured `critical` zero as `0.000`, which reads as a precision this data does not
-  // have, and would redden the test that pins a bare `0`.
-  for (const c of sg.cells) out.push(`| \`${c.segment}\` | ${renderCell(c.cell, num)} |`);
+  // Why a grid below has no rows for an axis at all. A refused pair is a third kind of
+  // absence — not thin, not unbuildable, but meaningless as posed — and it was the one
+  // §5 never printed.
+  if (sg.pairsRefused.length > 0) {
+    out.push(`Metric × axis pairs the scorer refused, by construction rather than for a thin denominator:`, "", "| pair | why |", "|---|---|");
+    for (const p of sg.pairsRefused) out.push(`| \`${p.metric}\` × \`${p.axis}\` | ${renderCell(p.cell)} |`);
+    out.push("");
+  }
+  if (sg.pairsUnitMismatch > 0) {
+    out.push(
+      ...wrapProse(
+        `A further ${sg.pairsUnitMismatch} pair(s) are not listed because they are one fact repeated: a metric counted in pull requests, cut by an axis ` +
+          "that cuts findings, gives every bucket the same denominator — a numerator filter rather than a segment (§4.1).",
+      ),
+      "",
+    );
+  }
+  // The one-armed axes, named once. Their empty column is `—` in every grid below and
+  // that symbol has to mean something specific, or a reader reads it as a thin cell.
+  const oneArmed = sg.axes.filter((a) => a.status === "computed" && a.arms.length === 1);
+  if (oneArmed.length > 0) {
+    out.push(
+      ...wrapProse(
+        `\`—\` marks an axis the scorer declares for one arm only — ${oneArmed.map((a) => `\`${a.id}\` (${a.arms.join(", ")})`).join(" · ")} — because the field it cuts on ` +
+          "exists in that arm's records and nowhere else. It is not a withheld cell: there is no measurement to withhold, and a bigger corpus would not produce one.",
+      ),
+      "",
+    );
+  }
+  for (const g of sg.grids) out.push(...renderSegmentationGrid(g, sg.metrics));
+  // Cells the payload gave no coordinates for. Never dropped — a payload that predates
+  // the grouping fields renders as the flat list it is, and says so.
+  if (sg.ungrouped.length > 0) {
+    out.push(
+      `**${sg.ungrouped.length} cell(s) carry no metric/axis/bucket/arm and cannot be placed in a grid**, so they are listed as the`,
+      "scorer emitted them. That is a payload from before those fields existed, not a measurement problem.",
+      "",
+      "| segment | figure |",
+      "|---|---|",
+    );
+    for (const c of sg.ungrouped) out.push(`| \`${c.segment}\` | ${renderCell(c.cell, num)} |`);
+    out.push("");
+  }
+  return out;
+}
+
+/**
+ * One metric's grid: buckets down, arms across.
+ *
+ * THE UNIT IS HOISTED INTO THE COLUMN HEADER, and only when every reported cell in
+ * that column agrees on it. That is the `renderValue`/`unitOf` contract — drop the
+ * `(n= unit)` suffix only where the unit is rendered adjacently — and it is what
+ * keeps a row readable: the panel's unit string is `findings with a stated severity;
+ * median of 3 replicates`, which repeated in every cell of every row is most of the
+ * 231-character width this section had. A column whose cells disagree keeps the unit
+ * in each cell, because a header that averaged two units would be the one thing
+ * `figure()` refuses to allow.
+ */
+function renderSegmentationGrid(g, metrics) {
+  const spec = metrics.find((m) => m.id === g.metric)?.spec ?? null;
+  const out = [`### \`${g.metric}\`${spec === null ? "" : ` — ${spec}`}`, ""];
+  // A metric whose every segment is withheld gets a sentence, not an empty table with
+  // a header. The rows are still named, so "which buckets" is answerable.
+  if (g.rows.length === 0) {
+    out.push(
+      ...wrapProse(`**No cell cleared min-n.** All ${g.withheldRows.length} segment(s) are withheld on every arm: ${g.withheldRows.map((r) => `\`${r}\``).join(" · ")}.`),
+      "",
+    );
+    return out;
+  }
+  const unitOfColumn = (arm) => {
+    const units = new Set(g.rows.map((r) => r.cells[arm]).filter((c) => c !== null && c.availability === "present").map((c) => c.unit));
+    return units.size === 1 ? [...units][0] : null;
+  };
+  const units = Object.fromEntries(g.arms.map((arm) => [arm, unitOfColumn(arm)]));
+  out.push(
+    ...wrapProse(`Both arms report on **${g.comparable} of the ${g.twoArm}** segments this metric cuts on both arms — those rows, and only those, are a comparison.`),
+    "",
+    `| segment | ${g.arms.map((arm) => `${arm}${units[arm] === null ? "" : ` · ${units[arm]}`}`).join(" | ")} |`,
+    `|---|${g.arms.map(() => "---").join("|")}|`,
+  );
+  for (const r of g.rows) {
+    // `num` is passed HERE and the default is left alone. §5 is the first table whose
+    // values pass through `renderCell`/`renderValue` rather than being formatted by
+    // its caller, so it is the first place the raw `String(v)` default shows — it
+    // printed a real cell as `0.6944444444444444`. Changing the default instead would
+    // reformat CodeRabbit's measured `critical` zero as `0.000`, which reads as a
+    // precision this data does not have, and would redden the test that pins a bare `0`.
+    const cells = g.arms.map((arm) => {
+      const c = r.cells[arm];
+      if (c === null) return "—";
+      if (c.availability !== "present") return renderCell(c, num);
+      return units[arm] === null ? renderCell(c, num) : `${renderValue(c, num)} · n=${c.n}`;
+    });
+    out.push(`| \`${r.label}\` | ${cells.join(" | ")} |`);
+  }
+  if (g.withheldRows.length > 0) {
+    out.push("", ...wrapProse(`Withheld on every arm and not given rows — ${g.withheldRows.length} segment(s): ${g.withheldRows.map((r) => `\`${r}\``).join(" · ")}.`));
+  }
   out.push("");
   return out;
 }
