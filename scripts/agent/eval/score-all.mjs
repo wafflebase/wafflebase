@@ -525,18 +525,18 @@ function nodeRun(args, { cwd, env, out = process.stderr }) {
  * so the tests drive the whole sequence with no network, no scorers and no store.
  */
 export async function scoreAll({
-  root,
+  root: rootArg,
   corpusVersion,
   configHash,
   runIds,
-  out,
+  out: outArg,
   agentDir = HERE.replace(/\/eval$/, ""),
   env = process.env,
   run = null,
   probe = probeRateLimit,
   log = console.error,
 } = {}) {
-  if (!root) refuse("--root is required (no default: a scorer that fell back to a path inside this repository would commit benchmark data into wafflebase for good)");
+  if (!rootArg) refuse("--root is required (no default: a scorer that fell back to a path inside this repository would commit benchmark data into wafflebase for good)");
   if (!corpusVersion) refuse("--corpus-version is required");
   if (!configHash) refuse("--config-hash is required — a score filed under the wrong reviewer pair is unpoolable (decision 13) and there is no way to tell afterwards");
   const ids = [...(runIds ?? [])];
@@ -547,9 +547,45 @@ export async function scoreAll({
   // something knowable for free.
   if (ids.length < 2) refuse(`agreement is defined over replicates, so this needs at least two run ids; got ${ids.length}. reliability.mjs refuses fewer, and it would refuse after the API reads rather than before them`);
 
+  // 🔴 RESOLVED TO ABSOLUTE, ONCE, BEFORE ANYTHING READS THEM. This is the fix for the
+  // lane's first live failure — the scheduled tick of 2026-08-17, which refused every
+  // corpus item on a store that was sitting right there.
+  //
+  // THE BUG, because a one-line fix with no explanation is a one-line fix somebody undoes.
+  // This driver runs in one directory and its children run in ANOTHER: `scorerArgs` builds
+  // the child's argv with a relative module path (`eval/volume-mix.mjs`), so `doRun` sets
+  // `cwd` to `scripts/agent` to make that path resolvable. The cwd exists for the SCRIPT
+  // path — and it silently reparents every other relative path in the same argv. The
+  // workflow passes `--root .eval-store` from the repository root, so:
+  //
+  //   the driver    resolved it against <repo>/            -> found the corpus, 7 items
+  //   every scorer  resolved it against <repo>/scripts/agent -> "corpus version … does not
+  //                                                             exist under this root"
+  //
+  // Both answers were correct about different directories, which is why the log showed a
+  // successful preflight immediately above a total refusal.
+  //
+  // `out` has the identical defect and it bites even when the root is absolute: the driver
+  // WRITES a payload relative to its own cwd and then tells `report.mjs --from` to read it
+  // relative to `scripts/agent`. Measured — ENOENT on a file the driver had just written.
+  // CI never hit it only because the workflow happens to pass an absolute `$RUNNER_TEMP`
+  // path. Resolving both here is one fix for one bug with two mouths.
+  //
+  // An absolute path means the same thing in every working directory, so the whole class
+  // goes away rather than this instance of it. The deeper cleanup — absolute module paths,
+  // so no `cwd` is load-bearing at all — is deliberately NOT here; it is a bigger change
+  // than the failure warrants and it would hide this one inside it.
+  const root = path.resolve(rootArg);
+  const out = outArg ? path.resolve(outArg) : null;
+
   const store = new EvalStore(root);
   const corpus = store.getCorpus(corpusVersion);
-  if (corpus === null) refuse(`corpus version ${JSON.stringify(corpusVersion)} does not exist under ${root}`);
+  // The RESOLVED path in the message, not the argument. The old wording named the corpus
+  // and not the directory, so the live failure read as "the corpus was re-frozen and this
+  // schedule points at a retired version" — which is a real thing that will happen one day
+  // and is exactly what the comment above SCHEDULED_CORPUS_VERSION warns about. A message
+  // that confidently accuses the wrong suspect costs more than no message.
+  if (corpus === null) refuse(`corpus version ${JSON.stringify(corpusVersion)} does not exist under ${root} (resolved from ${JSON.stringify(rootArg)})`);
   for (const runId of ids) {
     if (store.getRun(runId) === null) refuse(`run ${JSON.stringify(runId)} does not exist under ${root} — every scorer below would refuse it, one API budget later`);
   }
@@ -564,6 +600,8 @@ export async function scoreAll({
   const budget = assertBudget(parseRateLimit(probe()), { items: corpus.length, replicates: ids.length, log });
 
   const doRun = run ?? ((args) => nodeRun(args, { cwd: agentDir, env }));
+  // Both halves are already absolute, so `outDir` is too — and it is `outDir` that becomes
+  // `--from` on a child with a different cwd.
   const outDir = out ?? path.join(root, ".score-all");
   mkdirSync(outDir, { recursive: true });
 
