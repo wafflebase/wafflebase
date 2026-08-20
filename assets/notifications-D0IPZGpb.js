@@ -1,0 +1,6 @@
+import{c as s}from"./createReactComponent-BMqk8e2j.js";import{b as o,c as n}from"./index-LAQ73lQf.js";/**
+ * @license @tabler/icons-react v3.31.0 - MIT
+ *
+ * This source code is licensed under the MIT license.
+ * See the LICENSE file in the root directory of this source tree.
+ */var f=s("outline","database","IconDatabase",[["path",{d:"M12 6m-8 0a8 3 0 1 0 16 0a8 3 0 1 0 -16 0",key:"svg-0"}],["path",{d:"M4 6v6a8 3 0 0 0 16 0v-6",key:"svg-1"}],["path",{d:"M4 12v6a8 3 0 0 0 16 0v-6",key:"svg-2"}]]);const e=()=>"https://api.wafflebase.io/notifications";async function d(t){const a=new URL(e()),i=await o(a.toString());return await n(i,"Failed to fetch notifications"),i.json()}async function p(){const t=await o(`${e()}/unread-count`);return await n(t,"Failed to fetch unread count"),(await t.json()).count}async function m(t){const a=await o(`${e()}/read`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(t?{ids:t}:{})});await n(a,"Failed to mark notifications read")}async function h(t){const a=await o(`${e()}/comment`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(t)});await n(a,"Failed to report comment notification")}export{f as I,p as a,d as f,m,h as r};
