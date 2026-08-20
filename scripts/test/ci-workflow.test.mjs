@@ -492,3 +492,68 @@ test("ci-report.yml interpolates no artifact field raw", () => {
     }
   }
 });
+
+test("the changes job forces the full suite when it cannot resolve one", () => {
+  // THE FAILURE THIS EXISTS FOR. `What changed` clones at `fetch-depth: 0`, and that
+  // checkout occasionally stalls — measured, it takes 13-22s and never more than
+  // 57s, but its failures all sit at the job timeout with nothing in between. The
+  // job now absorbs that and SUCCEEDS, because nothing is broken: the scope simply
+  // is not known, and the run goes on to measure everything.
+  //
+  // Succeeding is what makes this test necessary. Every gate downstream reads
+  // `needs.changes.result != 'success' || needs.changes.outputs.heavy == 'true'`, so
+  // a job that succeeds with `heavy` unset satisfies neither term — and
+  // `verify-browser (22.x)` and `verify-integration (22.x)` are REQUIRED checks,
+  // which would then report green having run nothing at all. Forcing `heavy=true` on
+  // the unresolved path is the only thing standing between a stalled checkout and a
+  // mergeable pull request that verified nothing.
+  //
+  // NOT covered here: nothing in this repository executes `ci.yml`, so this reads
+  // the wiring rather than the behaviour.
+  const job = readJobs().find((j) => j.name === "changes");
+  assert.ok(job, "ci.yml has no `changes` job");
+
+  const heavyLine = job.lines.find((l) => /^ {6}heavy:/.test(l));
+  assert.ok(heavyLine, "the changes job no longer declares a `heavy` output");
+
+  const ids = [...heavyLine.matchAll(/steps\.([A-Za-z0-9_-]+)\.outputs\.heavy/g)].map((m) => m[1]);
+  assert.ok(
+    ids.length >= 2,
+    `the \`heavy\` output reads only ${JSON.stringify(ids)}. An output the resolver never ` +
+      `set is the empty string, which the gates read as "nothing heavy changed", so the ` +
+      `two required heavy checks would report green having run nothing.\n  ${heavyLine.trim()}`,
+  );
+
+  // Whatever backs it up has to actually force the suite on.
+  const stepBody = (id) => {
+    const at = job.lines.findIndex((l) => new RegExp(`^ {8}id: ${id}$`).test(l));
+    if (at < 0) return null;
+    const out = [];
+    for (let i = at; i < job.lines.length; i++) {
+      if (i > at && /^ {6}- /.test(job.lines[i])) break;
+      out.push(job.lines[i]);
+    }
+    return out;
+  };
+
+  for (const id of ids.filter((i) => i !== "resolve")) {
+    const body = stepBody(id);
+    assert.ok(body, `the \`heavy\` output names step \`${id}\`, which does not exist`);
+    assert.ok(
+      body.some((l) => /\bheavy=true\b/.test(l)),
+      `step \`${id}\` backs the \`heavy\` output but never writes \`heavy=true\`, so an ` +
+        `unresolved run would gate the required heavy checks off instead of measuring ` +
+        `everything.`,
+    );
+  }
+
+  // And the resolver must not be reachable without a checkout, or it fails the job
+  // on the very path this fallback exists to keep green.
+  const resolve = stepBody("resolve");
+  assert.ok(resolve, "the changes job has no `resolve` step");
+  assert.ok(
+    resolve.some((l) => /^ {8}if:.*steps\.\w+\.outcome == 'success'/.test(l)),
+    "`Resolve changed areas` is not guarded on a checkout outcome, so it would run in " +
+      "an empty workspace and fail the job instead of falling back to the full suite.",
+  );
+});

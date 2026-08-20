@@ -602,13 +602,29 @@ some unrelated merge the branch happens to end on.
 | --- | --- | --- |
 | `full` | whether filtering happens at all | `true` disables selection entirely: every `verify:self` lane runs. Set by a `push` to `main`, a `ciConfig` change, and every fail-safe route |
 | `packages` | which lanes run **when `full` is false** | reverse-dependency closure of the changed workspace packages |
-| `heavy` | `verify-browser`, `verify-integration`, the coverage steps | **any** workspace package changed |
+| `heavy` | `verify-browser`, `verify-integration`, the coverage steps | **any** workspace package changed — or the scope was never resolved, below |
 
 `full` and `packages` are separate because they answer different questions —
 "is selection on?" and "select what?" — and conflating them is how a fail-safe
 turns into a no-op: a resolution with `full: false` and no usable `packages`
 selects *nothing*, which is why `resolve()` validates the shape of a handed-off
 resolution rather than trusting that it parsed.
+
+**A job that cannot resolve anything still succeeds.** `What changed` clones at
+full depth, and that checkout occasionally stalls: measured across 30 runs it takes
+13–22s and never more than 57s, while every failure sits at the job timeout with
+nothing in between — a stalled clone of this history does not finish late, it does
+not finish. So it gets two short attempts instead of one long one, and if neither
+lands the job reports success having set `full` and `heavy` itself. Nothing is
+broken on that path; the scope is simply unknown, and a red check on a run that
+went on to measure everything reads as a failure that did not happen.
+
+Succeeding is what makes that explicit `heavy` load-bearing. The gates downstream
+read `needs.changes.result != 'success' || needs.changes.outputs.heavy == 'true'`,
+so a job that succeeds with `heavy` unset satisfies neither term — and
+`verify-browser` and `verify-integration` are required checks, which would then
+report green having run nothing. That is the no-op failure mode above wearing a
+different hat, and `scripts/test/ci-workflow.test.mjs` is what holds it shut.
 
 The closure is derived from each `packages/*/package.json`, so it cannot go stale
 when someone adds a dependency — the dependency *is* the mapping. The two heavy
