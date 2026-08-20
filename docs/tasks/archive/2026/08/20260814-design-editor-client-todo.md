@@ -38,7 +38,7 @@ also redeclared the intent and result types the server owns; the client imports 
 
 ## Done when
 
-- [ ] `/client` export subpath, no `node:` reachable from it
-- [ ] tests for the client's failure paths and the state parser
-- [ ] client verified against a live dev server, not only mocks
-- [ ] design doc §8 row + the three scope corrections recorded
+- [x] `/client` export subpath, no `node:` reachable from it
+- [x] tests for the client's failure paths and the state parser
+- [x] client verified against a live dev server, not only mocks
+- [x] design doc §8 row + the three scope corrections recorded

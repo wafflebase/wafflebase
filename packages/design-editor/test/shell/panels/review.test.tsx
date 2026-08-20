@@ -3,25 +3,144 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { ReviewApproveModal } from '../../../src/shell/panels/ReviewApproveModal.tsx';
-import type { BridgeClient } from '../../../src/client/bridge.ts';
+import type { BridgeClient, PendingLayoutEdit } from '../../../src/client/index.ts';
 
 /**
- * The modal that writes files, driven through its `bridge` PROP — which exists as a prop
- * so a test can reach this surface without a dev server.
+ * The review modal, at the one place the port left disconnected.
  *
- * The case that matters here is the one the `status` field was added for: `/commit` is
- * all-or-nothing and answers a REFUSAL with a 409 and `ok: false`, which is the same shape
- * a dead server produces. Reporting both as transport told the user to restart a dev server
- * that was running, and set `error` on every row — which flips `bridgeDown` and locks the
- * button at "Bridge offline" until the modal is reopened.
+ * The card builder handled the five token/class maps. The floating class editor stages
+ * `layoutEdits`, so a class edit made in the frame produced ZERO cards: the header said
+ * "1 file change staged", the diff list showed the real change, and the card area said
+ * "No changes to review." Measured against a wafflebase scene, and invisible to every other
+ * lane — the staging path and this modal were built in separate PRs and never met.
  */
 
 let root: Root | null = null;
+
+function render(ui: React.ReactNode) {
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  act(() => root!.render(ui));
+  return host;
+}
+
 afterEach(() => {
   act(() => root?.unmount());
   root = null;
   document.body.replaceChildren();
 });
+
+const layoutEdit = (over: Partial<PendingLayoutEdit> = {}): PendingLayoutEdit =>
+  ({
+    key: 'layoutEdits|k',
+    op: 'props',
+    sceneId: 'documents',
+    anchor: {
+      file: 'packages/frontend/src/components/app-sidebar.tsx',
+      component: 'AppSidebar',
+      path: [0, 1],
+      tag: 'div',
+      fp: 'fp1',
+    },
+    label: 'class edit',
+    scopeLabel: 'static',
+    classOps: { additions: ['flex-col'], removals: ['flex-row'] },
+    ...over,
+  }) as PendingLayoutEdit;
+
+const bridge = () =>
+  ({
+    // Every intent previews as located with no diff: this suite is about the CARD, and the
+    // diff list is a separate region driven by the plan.
+    mutate: async () => ({ ok: true, status: 200, files: ['x.tsx'], diff: '' }),
+    commit: async () => ({ ok: true, status: 200, results: [] }),
+  }) as unknown as BridgeClient;
+
+const props = (over: Record<string, unknown> = {}) => ({
+  open: true,
+  onOpenChange: () => {},
+  dark: false,
+  plan: [],
+  classEdits: [],
+  tokenEdits: [],
+  tokenAdds: [],
+  rebinds: [],
+  paletteEdits: [],
+  layoutEdits: [],
+  tokens: null,
+  bridge: bridge(),
+  allComponents: [],
+  onApproved: () => {},
+  onDiscard: () => {},
+  notify: vi.fn(),
+  ...over,
+});
+
+describe('ReviewApproveModal — layout edits', () => {
+  it('shows a card for a staged class edit instead of "No changes to review"', () => {
+    const host = render(<ReviewApproveModal {...props({ layoutEdits: [layoutEdit()] })} />);
+    const text = (host.textContent ?? '') + (document.body.textContent ?? '');
+    expect(text).not.toContain('No changes to review');
+    // The node, so the reviewer knows WHAT is being changed…
+    expect(text).toContain('<div>');
+    expect(text).toContain('AppSidebar');
+    // …the file, because a class rewrite lands in source…
+    expect(text).toContain('app-sidebar.tsx');
+    // …and both sides of the class change, which is the substance.
+    expect(text).toContain('flex-row');
+    expect(text).toContain('flex-col');
+  });
+
+  it('shows both sides of a replacement-only edit', () => {
+    // `classOps` carries `replacements` beside `additions`/`removals`, and the card read only
+    // the latter two — so the ordinary "change this class to that one" edit rendered two empty
+    // lists under the false subtitle "no class change staged".
+    render(
+      <ReviewApproveModal
+        {...props({
+          layoutEdits: [
+            layoutEdit({ classOps: { replacements: [{ from: 'p-2', to: 'p-4' }] } }),
+          ],
+        })}
+      />,
+    );
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('no class change staged');
+    expect(text).toContain('p-2');
+    expect(text).toContain('p-4');
+  });
+
+  it('names the path, including the root case', () => {
+    render(<ReviewApproveModal {...props({ layoutEdits: [layoutEdit({ anchor: { ...layoutEdit().anchor, path: [] } })] })} />);
+    expect(document.body.textContent).toContain('(root)');
+  });
+
+  it('says so when a layout edit stages no class change', () => {
+    // `props` with only `sets` is reachable once the prop controls exist. A card with two empty
+    // class lists would read as a change that does nothing.
+    render(
+      <ReviewApproveModal
+        {...props({ layoutEdits: [layoutEdit({ classOps: undefined, sets: [{ name: 'id', from: null, to: 'x' }] })] })}
+      />,
+    );
+    expect(document.body.textContent).toContain('no class change staged');
+  });
+
+  it('still says "No changes to review" when nothing is staged', () => {
+    // The empty state is correct and must survive: the fix is a missing card, not a missing
+    // empty state.
+    render(<ReviewApproveModal {...props()} />);
+    expect(document.body.textContent).toContain('No changes to review');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The commit path. `/commit` is all-or-nothing and answers a REFUSAL with a 409 and
+// `ok: false` — the same shape a dead server produces, which is why `status` exists.
+// Reporting both as transport told the user to restart a dev server that was running and
+// set `error` on every row, which flips `bridgeDown` and locks the button at
+// "Bridge offline" until the modal is reopened.
 
 const PLAN = [
   {
@@ -32,40 +151,6 @@ const PLAN = [
     key: 'k',
   },
 ] as never;
-
-function mount(commit: () => Promise<unknown>, over: Record<string, unknown> = {}) {
-  const notify = vi.fn();
-  const bridge = {
-    mutate: async () => ({ ok: true, status: 200, diff: '- p-1\n+ p-2', files: ['app/x.tsx'] }),
-    commit,
-  } as unknown as BridgeClient;
-  const host = document.createElement('div');
-  document.body.append(host);
-  root = createRoot(host);
-  act(() => {
-    root!.render(
-      <ReviewApproveModal
-        open
-        onOpenChange={() => {}}
-        dark={false}
-        plan={PLAN}
-        classEdits={[]}
-        tokenEdits={[]}
-        tokenAdds={[]}
-        rebinds={[]}
-        paletteEdits={[]}
-        tokens={null}
-        bridge={bridge}
-        allComponents={[]}
-        onApproved={() => {}}
-        onDiscard={() => {}}
-        notify={notify}
-        {...(over as object)}
-      />,
-    );
-  });
-  return { host, notify };
-}
 
 const settle = async () => {
   await act(async () => {
@@ -78,20 +163,71 @@ const approve = async () => {
   const btn = [...document.querySelectorAll('button')].find((b) =>
     /Approve/i.test(b.textContent ?? ''),
   );
-  if (!btn) throw new Error(`no Approve button; saw: ${[...document.querySelectorAll('button')].map((b) => b.textContent).join(' | ')}`);
+  if (!btn) throw new Error('no Approve button rendered');
   await act(async () => {
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
   await settle();
 };
 
-describe('a refused commit is not a dead bridge', () => {
+const commitBridge = (commit: () => Promise<unknown>) =>
+  ({
+    mutate: async () => ({ ok: true, status: 200, diff: '- p-1\n+ p-2', files: ['app/x.tsx'] }),
+    commit,
+  }) as unknown as BridgeClient;
+
+/**
+ * `/commit` is all-or-nothing — "a 409 means nothing was written" — so one intent the server
+ * cannot locate takes every valid edit down with it. The banner used to say those edits
+ * "will be skipped", which is the one outcome the batch cannot produce, and Approve stayed
+ * enabled: a guaranteed no-op that read as a save.
+ */
+describe('ReviewApproveModal — an unlocatable edit blocks approval', () => {
+  const unlocatable = () =>
+    ({
+      mutate: async () => ({ ok: false, status: 409, error: 'the text this edit expects is gone' }),
+      commit: async () => ({ ok: true, status: 200, results: [] }),
+    }) as unknown as BridgeClient;
+
+  const approveButton = () =>
+    [...document.querySelectorAll('button')].find((b) => /Approve|Resolve unmatched/i.test(b.textContent ?? ''));
+
+  it('disables Approve, and says why, when a dry run cannot locate an edit', async () => {
+    render(<ReviewApproveModal {...props({ plan: PLAN, bridge: unlocatable() })} />);
+    await settle();
+
+    const btn = approveButton()!;
+    expect(btn.hasAttribute('disabled')).toBe(true);
+    expect(btn.textContent).toContain('Resolve unmatched edits');
+    expect(document.body.textContent).not.toContain('will be skipped');
+  });
+
+  it('leaves Approve enabled when every edit locates', async () => {
+    render(<ReviewApproveModal {...props({ plan: PLAN, bridge: commitBridge(async () => ({ ok: true, status: 200, results: [] })) })} />);
+    await settle();
+
+    const btn = approveButton()!;
+    expect(btn.hasAttribute('disabled')).toBe(false);
+    expect(btn.textContent).toContain('Approve & Write');
+  });
+});
+
+describe('ReviewApproveModal — a refused commit is not a dead bridge', () => {
   it('a 409 refusal reports the refusal, not "restart your dev server"', async () => {
-    const { notify } = mount(async () => ({
-      ok: false,
-      status: 409,
-      error: 'a file changed under this edit',
-    }));
+    const notify = vi.fn();
+    render(
+      <ReviewApproveModal
+        {...props({
+          plan: PLAN,
+          notify,
+          bridge: commitBridge(async () => ({
+            ok: false,
+            status: 409,
+            error: 'a file changed under this edit',
+          })),
+        })}
+      />,
+    );
     await settle();
     await approve();
 
@@ -104,7 +240,12 @@ describe('a refused commit is not a dead bridge', () => {
 
   it('a request that never got a response still reports the bridge as unreachable', async () => {
     // No `status` = no response arrived. This is the case the old code assumed for all.
-    const { notify } = mount(async () => ({ ok: false, error: 'fetch failed' }));
+    const notify = vi.fn();
+    render(
+      <ReviewApproveModal
+        {...props({ plan: PLAN, notify, bridge: commitBridge(async () => ({ ok: false, error: 'fetch failed' })) })}
+      />,
+    );
     await settle();
     await approve();
 

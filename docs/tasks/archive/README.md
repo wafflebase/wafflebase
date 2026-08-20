@@ -6,12 +6,22 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 469
+Total archived tasks: 479
 
-## 2026/08 (41 tasks)
+## 2026/08 (51 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| design editor token panels (2026-08-19) | [20260819-design-editor-token-panels-todo.md](./2026/08/20260819-design-editor-token-panels-todo.md) | [20260819-design-editor-token-panels-lessons.md](./2026/08/20260819-design-editor-token-panels-lessons.md) |
+| design sandbox canvas (2026-08-19) | [20260819-design-sandbox-canvas-todo.md](./2026/08/20260819-design-sandbox-canvas-todo.md) | [20260819-design-sandbox-canvas-lessons.md](./2026/08/20260819-design-sandbox-canvas-lessons.md) |
+| design sandbox scene half (2026-08-19) | [20260819-design-sandbox-scene-half-todo.md](./2026/08/20260819-design-sandbox-scene-half-todo.md) | [20260819-design-sandbox-scene-half-lessons.md](./2026/08/20260819-design-sandbox-scene-half-lessons.md) |
+| design editor chrome (2026-08-18) | [20260818-design-editor-chrome-todo.md](./2026/08/20260818-design-editor-chrome-todo.md) | [20260818-design-editor-chrome-lessons.md](./2026/08/20260818-design-editor-chrome-lessons.md) |
+| design editor shell build (2026-08-17) | [20260817-design-editor-shell-build-todo.md](./2026/08/20260817-design-editor-shell-build-todo.md) | [20260817-design-editor-shell-build-lessons.md](./2026/08/20260817-design-editor-shell-build-lessons.md) |
+| design editor frame protocol (2026-08-15) | [20260815-design-editor-frame-protocol-todo.md](./2026/08/20260815-design-editor-frame-protocol-todo.md) | [20260815-design-editor-frame-protocol-lessons.md](./2026/08/20260815-design-editor-frame-protocol-lessons.md) |
+| design editor frame runtime (2026-08-15) | [20260815-design-editor-frame-runtime-todo.md](./2026/08/20260815-design-editor-frame-runtime-todo.md) | [20260815-design-editor-frame-runtime-lessons.md](./2026/08/20260815-design-editor-frame-runtime-lessons.md) |
+| design editor client (2026-08-14) | [20260814-design-editor-client-todo.md](./2026/08/20260814-design-editor-client-todo.md) | [20260814-design-editor-client-lessons.md](./2026/08/20260814-design-editor-client-lessons.md) |
+| design editor consumer gate (2026-08-14) | [20260814-design-editor-consumer-gate-todo.md](./2026/08/20260814-design-editor-consumer-gate-todo.md) | [20260814-design-editor-consumer-gate-lessons.md](./2026/08/20260814-design-editor-consumer-gate-lessons.md) |
+| design editor edits (2026-08-14) | [20260814-design-editor-edits-todo.md](./2026/08/20260814-design-editor-edits-todo.md) | [20260814-design-editor-edits-lessons.md](./2026/08/20260814-design-editor-edits-lessons.md) |
 | agent loop observability phase4 (2026-08-10) | [20260810-agent-loop-observability-phase4-todo.md](./2026/08/20260810-agent-loop-observability-phase4-todo.md) | - |
 | engine dts tsc emit (2026-08-10) | [20260810-engine-dts-tsc-emit-todo.md](./2026/08/20260810-engine-dts-tsc-emit-todo.md) | [20260810-engine-dts-tsc-emit-lessons.md](./2026/08/20260810-engine-dts-tsc-emit-lessons.md) |
 | eval run test reap (2026-08-10) | [20260810-eval-run-test-reap-todo.md](./2026/08/20260810-eval-run-test-reap-todo.md) | - |

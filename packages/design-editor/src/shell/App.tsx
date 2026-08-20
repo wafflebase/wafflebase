@@ -1024,6 +1024,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
             tokenAdds={Object.values(history.state.tokenAdds)}
             rebinds={Object.values(history.state.rebinds)}
             paletteEdits={Object.values(history.state.paletteEdits)}
+            layoutEdits={Object.values(history.state.layoutEdits)}
             tokens={tokens}
             bridge={bridge}
             allComponents={allComponents}

@@ -37,8 +37,8 @@ sends `family` and no `file`.
 
 ## Done when
 
-- [ ] no token path or naming rule compiled into client code
-- [ ] every translator and inverse round-trips through `saveDiff`
-- [ ] the ordering rule tested in both directions
-- [ ] `family` regression covered
-- [ ] §6 row and §8 row updated
+- [x] no token path or naming rule compiled into client code
+- [x] every translator and inverse round-trips through `saveDiff`
+- [x] the ordering rule tested in both directions
+- [x] `family` regression covered
+- [x] §6 row and §8 row updated
