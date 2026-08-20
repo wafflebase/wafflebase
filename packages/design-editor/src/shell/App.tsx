@@ -290,7 +290,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
         return next;
       });
     }
-  }, []);
+  }, [bridge]);
 
   const refreshTokens = useCallback(async () => {
     setTokens(await bridge.tokens());
@@ -303,17 +303,25 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
     setWriteDepth(h.undo?.length ?? 0);
     setReapplyDepth(h.redo?.length ?? 0);
     setWriteLog(h.undo ?? []);
-  }, []);
+  }, [bridge]);
 
   useEffect(() => {
     bridge.health().then(setHealth);
     refreshMetadata();
     refreshTokens();
     refreshWriteLog();
-  }, [refreshMetadata, refreshTokens, refreshWriteLog]);
+  }, [bridge, refreshMetadata, refreshTokens, refreshWriteLog]);
 
-  const scenes: SceneMeta[] = meta?.metadata?.scenes ?? [];
-  const files: FileMeta[] = meta?.metadata?.files ?? [];
+  /*
+   * MEMOISED, and the reason is narrower than it looks. `meta?.metadata?.scenes ?? []`
+   * returns the SAME array off `meta` once the manifest has loaded — measured, not assumed —
+   * so the identity churn this looks like does not happen in the state that matters. What
+   * does allocate is the `?? []` before `meta` arrives, and `exhaustive-deps` cannot tell the
+   * two apart, so it flags five hooks downstream. Wrapping costs nothing, holds in both
+   * states, and stops the question being re-litigated from the shape of the expression.
+   */
+  const scenes: SceneMeta[] = useMemo(() => meta?.metadata?.scenes ?? [], [meta]);
+  const files: FileMeta[] = useMemo(() => meta?.metadata?.files ?? [], [meta]);
   /**
    * The manifest decides the default, and it has to be re-decided when the manifest
    * arrives: the persisted id may name a scene this project no longer has, and the
