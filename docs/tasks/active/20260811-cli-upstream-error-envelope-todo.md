@@ -67,9 +67,12 @@ Sites:
   message>"}}`, exit code 1 — the **same** code on every path
   (content/export as well as import/upload/download), because both
   describe the identical condition and an agent must not have to branch
-  on which command it ran to know what the code will be.
+  on which command it ran to know what the code will be. After the merge
+  with #648 the status also names the class: 401/403 report `AUTH_ERROR`
+  and 5xx `SERVER_ERROR`, both exiting `2`.
 - A backend-shaped body (e.g. `TYPE_MISMATCH`, `SESSION_EXPIRED`) still
-  reaches stderr with the upstream's **own `code`**, exit code 1, from
+  reaches stderr with the upstream's **own `code`**, exiting the class of
+  its status (`exitCodeForStatus`), from
   *every* command — not just the six that already did. Forwarding is
   bounded rather than byte-for-byte: the `code` is never rewritten, but
   the surrounding text is capped (`code` 80 chars, `message` 500 chars,
@@ -86,15 +89,10 @@ Sites:
   Miro import and the sheet image upload all route ids through `seg()`,
   pinned by `packages/frontend/src/api/url.test.ts`.
 - An image `src` cannot aim an export at the local network, and cannot do
-  it via a redirect either: the fetcher takes the hops itself
-  (`redirect: 'manual'`, re-checked per `Location`, capped at 5) and
-  normalizes a hostname before comparing it, so `localhost.` is refused
-  like `localhost`. The only exemptions are the configured server's own
-  host **and port** (either scheme) and the hosts an operator named — a
-  second port on the server machine is not exempt, so a document cannot
-  reach `localhost:9200` because the CLI talks to `localhost:3000`. A
-  deployment that genuinely serves images from elsewhere stays exportable
-  through `WAFFLEBASE_IMAGE_HOSTS`, which the refusal message names.
+  it via a redirect either. **Superseded on `main`:** #648 landed its own
+  gate for exactly this (`assertFetchableImageUrl` + `pinnedAgent`), and
+  the merge below keeps `main`'s, so this branch no longer carries an
+  image gate of its own.
 - A refused image costs the image, not the export — for the CLI, which
   opts in by passing `onImageError` on every export path (`docs export`
   PDF/DOCX and `slides export` PPTX alike). The browser, which shares
@@ -110,3 +108,49 @@ Sites:
 - Any change to the backend's error bodies.
 - `login`'s workspace fetch, which reports a bespoke, actionable message
   ("Try again with `wafflebase login`") rather than forwarding a body.
+
+## Merge with `main` (#648, "CLI: classify failures so system errors exit 2")
+
+#648 landed on `main` while this branch was in review and reworked the same
+files from the other end: it implemented the documented `0` / `1` / `2` exit
+contract (`packages/cli/src/errors.ts`), and — reaching the same conclusion
+this branch had — rewrote every `!res.ok` site and built its own SSRF gate for
+export image fetching. 22 files conflicted. How each was settled:
+
+- **The `!res.ok` branch.** `main` wrote the rule out per call site
+  (`throw httpError(status)`, or an inline "if the body has `error`, print it
+  and set `exitCodeForStatus`"); this branch had already factored the same
+  rule into `forwardUpstreamError` / `upstreamErrorJson`. The guard is kept,
+  with `main`'s classification folded *into* it: the envelope path now exits
+  `exitCodeForStatus(status)` instead of a hardcoded `1`, and the
+  non-envelope path throws an `UpstreamHttpError` carrying both that exit
+  code and the class-appropriate code — `AUTH_ERROR` on 401/403,
+  `SERVER_ERROR` on 5xx, `HTTP_ERROR` otherwise, via one `upstreamErrorCode`
+  shared with `upstreamErrorJson` so the two paths still agree. A 401/403
+  with no upstream wording falls back to `AUTH_FAILED_MESSAGE`, so the
+  message reads the same whether `httpError()` or the guard reported it.
+- **`HttpClient`.** Both branches routed the API-key endpoints through the
+  shared authenticated round trip. `main`'s naming (`sendJson`,
+  `apiKeysBase`) is kept as the incumbent; this branch's `seg()` pinning is
+  kept on top, including the two api-key URLs.
+- **The image fetcher.** `main`'s gate is strictly the stronger of the two —
+  it decides per resolved address, pins the connection through an undici
+  `Agent` (so `https:` is pinned too, with no `Host: <ip>` cost), gates every
+  redirect hop, and handles an egress proxy. Keeping this branch's version
+  would have reverted that, so `packages/cli/src/docs/image-fetcher.ts` and
+  its tests are `main`'s wholesale. Only `reportSkippedImage` is carried
+  over, since the `onImageError` hook this branch added to
+  `@wafflebase/docs` / `@wafflebase/slides` is what the CLI export paths
+  pass it to; it now redacts the `src` it prints, like every other URL the
+  CLI puts on stderr.
+
+**Dropped with this branch's gate** — worth re-adding on top of `main`'s, but
+out of scope for a conflict resolution, so they are recorded here rather than
+silently lost:
+
+- [ ] Per-image `timeoutMs` (30 s) and `maxBytes` (25 MB) bounds. Which host
+      an export dials and how much it sends are both decided by document
+      content; `main`'s fetcher bounds neither.
+- [ ] `WAFFLEBASE_IMAGE_HOSTS` — the operator-named exemption for a
+      split-origin install (an internal MinIO, a reverse proxy on a second
+      port). `main` exempts only the configured server's host and port.

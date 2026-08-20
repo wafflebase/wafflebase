@@ -2,6 +2,11 @@ import { formatJson } from './json.js';
 import { formatTable } from './table.js';
 import { formatCsv } from './csv.js';
 import { formatYaml } from './yaml.js';
+import {
+  AUTH_FAILED_MESSAGE,
+  exitCodeFor,
+  exitCodeForStatus,
+} from '../errors.js';
 
 export type OutputFormat = 'json' | 'table' | 'csv' | 'yaml';
 
@@ -102,13 +107,18 @@ function errorCode(error: unknown): string {
  * bytes on either stream tells the caller nothing about what failed or
  * whether it is retryable. Errors go to stderr precisely so they survive
  * output redirection and quiet modes.
+ *
+ * The exit code is the failure's *class*, not a constant (see
+ * `../errors.js`): `1` for anything the caller can fix, `2` for
+ * network/auth/server faults. Agents branch on `$?` without parsing this
+ * body, which is the whole point of the contract.
  */
 export function outputError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(
     JSON.stringify({ error: { code: errorCode(error), message } }, null, 2),
   );
-  process.exitCode = 1;
+  process.exitCode = exitCodeFor(error);
 }
 
 /**
@@ -219,28 +229,59 @@ function safeEnvelope(
     : { error: { code, message: error.message ?? `HTTP ${status}` } };
 }
 
-/** `HTTP <status>`, plus the upstream's own wording when it had any. */
+/**
+ * `HTTP <status>`, plus the upstream's own wording when it had any.
+ *
+ * A 401/403 that said nothing useful gets the documented "run login" hint
+ * instead of a bare status, so it reads the same here as it does from
+ * `httpError()` — the message an agent sees must not depend on which of
+ * the two throw sites reported the rejected credential.
+ */
 function upstreamMessage(res: { status: number; data?: unknown }): string {
   const detail = upstreamDetail(res.data);
-  return detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`;
+  if (detail) return `HTTP ${res.status}: ${detail}`;
+  if (res.status === 401 || res.status === 403) return AUTH_FAILED_MESSAGE;
+  return `HTTP ${res.status}`;
+}
+
+/**
+ * The `code` reported for a failed response whose body was *not* the
+ * documented envelope, so there is no upstream `code` to forward.
+ *
+ * Same classification `httpError()` applies at the CLI's other throw
+ * sites (`../errors.js`): a rejected credential and a broken server are
+ * named as such wherever they surface, so the error matrix in
+ * `docs/design/cli.md` holds regardless of which path reported the
+ * failure. Everything else is the plain `HTTP_ERROR` the import/upload
+ * skill files document.
+ */
+function upstreamErrorCode(status: number): string {
+  if (status === 401 || status === 403) return 'AUTH_ERROR';
+  if (status >= 500) return 'SERVER_ERROR';
+  return 'HTTP_ERROR';
 }
 
 /**
  * A failed upstream response whose body was not the documented envelope.
  *
- * Carries `code` so `outputError` reports the same `HTTP_ERROR` that
+ * Carries `code` so `outputError` reports the same code that
  * `upstreamErrorJson` writes: the two paths describe the identical
  * condition, so an agent must not have to branch on which command it ran
- * to know what the code will be.
+ * to know what the code will be. `exitCode` comes from the status for the
+ * same reason it does everywhere else — a rejected session or a broken
+ * server is not something the caller can fix by retyping the command.
  */
 export class UpstreamHttpError extends Error {
-  readonly code = 'HTTP_ERROR';
+  readonly code: string;
+  readonly exitCode: number;
   constructor(
     message: string,
     readonly status: number,
   ) {
     super(message);
     this.name = 'UpstreamHttpError';
+    this.code = upstreamErrorCode(status);
+    this.exitCode = exitCodeForStatus(status);
   }
 }
 
@@ -272,7 +313,9 @@ export function forwardUpstreamError(res: {
 }): void {
   if (isErrorEnvelope(res.data)) {
     console.error(JSON.stringify(safeEnvelope(res.data, res.status), null, 2));
-    process.exitCode = 1;
+    // The status still decides the exit class — a 401 `SESSION_EXPIRED`
+    // body must not read as a user error just because it is JSON.
+    process.exitCode = exitCodeForStatus(res.status);
     return;
   }
   throw new UpstreamHttpError(upstreamMessage(res), res.status);
@@ -298,7 +341,12 @@ export function upstreamErrorJson(res: {
   if (isErrorEnvelope(res.data))
     return JSON.stringify(safeEnvelope(res.data, res.status), null, 2);
   return JSON.stringify(
-    { error: { code: 'HTTP_ERROR', message: upstreamMessage(res) } },
+    {
+      error: {
+        code: upstreamErrorCode(res.status),
+        message: upstreamMessage(res),
+      },
+    },
     null,
     2,
   );

@@ -249,6 +249,44 @@ describe('the layout', () => {
     expect(active?.textContent).toContain('Dashboard');
   });
 
+  it('shows a DEFERRED scene, disabled, and never selects it', async () => {
+    // Hiding it makes a declared scene look undeclared; offering it opens a frame whose only
+    // possible outcome is `no scene "<id>" in the scene manifest`, which the user then has to
+    // attribute. Both were live: the shell listed five unmountable wafflebase scenes.
+    const held = { ...scene, id: 'canvas', label: 'Sheet editor', deferred: true };
+    const host = await mount(
+      stubBridge({
+        metadata: async () => ({ ok: true, metadata: { scenes: [held, scene], files: [] } }) as never,
+      }),
+    );
+    const row = [...host.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Sheet editor'),
+    ) as HTMLButtonElement;
+    expect(row).toBeTruthy();
+    expect(row.disabled).toBe(true);
+    expect(row.textContent).toContain('not ready');
+    expect(row.title).toContain('not mountable yet');
+    // …and the default landed on the mountable one, not on the first entry.
+    const active = [...host.querySelectorAll('button')].find((b) =>
+      b.className.includes('bg-wb-accent/15'),
+    );
+    expect(active?.textContent).toContain('Dashboard');
+  });
+
+  it('picks a mountable scene even when the persisted one is deferred', async () => {
+    window.localStorage.setItem('design-editor:view:v1', JSON.stringify({ scene: 'canvas' }));
+    const held = { ...scene, id: 'canvas', label: 'Sheet editor', deferred: true };
+    const host = await mount(
+      stubBridge({
+        metadata: async () => ({ ok: true, metadata: { scenes: [held, scene], files: [] } }) as never,
+      }),
+    );
+    const active = [...host.querySelectorAll('button')].find((b) =>
+      b.className.includes('bg-wb-accent/15'),
+    );
+    expect(active?.textContent).toContain('Dashboard');
+  });
+
   it('says the manifest is missing rather than showing an empty list', async () => {
     const host = await mount(
       stubBridge({ metadata: async () => ({ ok: true, metadata: { scenes: [], files: [] } }) as never }),

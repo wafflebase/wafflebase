@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { FileDocument } from '../client/http-client.js';
+import { exitCodeForStatus } from '../errors.js';
 import { upstreamErrorJson } from '../output/formatter.js';
 
 /** Mirrors `MAX_FILE_UPLOAD_BYTES` in the backend's `file.constants.ts`. */
@@ -215,7 +216,7 @@ export async function runFilesUpload(
   const res = await client.uploadFileDocument(bytes, fileName, mimeType, fields);
   if (!res.ok) {
     io.stderr(upstreamErrorJson(res));
-    return { exitCode: 1 };
+    return { exitCode: exitCodeForStatus(res.status) };
   }
 
   io.stdout(JSON.stringify(res.data, null, 2));

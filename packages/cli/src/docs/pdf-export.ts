@@ -12,7 +12,39 @@ import {
 } from '@wafflebase/docs';
 import { FontkitMeasurer } from './fontkit-measurer.js';
 import { reportSkippedImage } from './image-fetcher.js';
+import { fetchOrThrow, httpError, redactUrl } from '../errors.js';
 import type { PageRange } from './page-range.js';
+
+/**
+ * Wrap a transport so the font downloads `PdfFonts` performs on its own
+ * obey the CLI's exit contract.
+ *
+ * `PdfFonts` is shared with the browser, where the CLI's error classes
+ * do not exist, so the classification is injected here rather than
+ * baked into the engine package. A font CDN that cannot be reached, or
+ * that answers 5xx, is a system error like every other network
+ * dependency the CLI has — exit `2`, not "you typed something wrong".
+ */
+export function classifiedFontFetch(
+  impl: typeof globalThis.fetch = globalThis.fetch,
+): typeof globalThis.fetch {
+  return async (input, init) => {
+    const url =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url;
+    const res = await fetchOrThrow(url, init, impl);
+    if (!res.ok) {
+      throw httpError(
+        res.status,
+        `Font download failed: ${res.status} ${res.statusText} for ${redactUrl(url)}`,
+      );
+    }
+    return res;
+  };
+}
 
 /**
  * Options for the CLI PDF export pipeline.
@@ -35,6 +67,11 @@ export interface CliPdfExportOptions {
    *  and to leave room for a future "strip header/footer" mode. */
   includeHeaderFooter?: boolean;
   fontSources?: PdfFontsOptions['sources'];
+  /** Transport for font downloads — a seam for tests. It is always
+   *  wrapped in `classifiedFontFetch`, which puts font downloads under
+   *  the same exit-code contract as every other CLI request, so a stub
+   *  cannot accidentally test around the classification. */
+  fontFetch?: typeof globalThis.fetch;
   /** Resolve and download image inlines so they can be embedded in the
    *  PDF. Required when the document contains image inlines —
    *  `PdfExporter` throws otherwise to avoid silently dropping content.
@@ -64,7 +101,10 @@ export async function exportPdf(
   opts: CliPdfExportOptions = {},
 ): Promise<Uint8Array> {
   const usage = scanFontsUsed(doc);
-  const fonts = new PdfFonts({ sources: opts.fontSources });
+  const fonts = new PdfFonts({
+    sources: opts.fontSources,
+    fetchImpl: classifiedFontFetch(opts.fontFetch),
+  });
   const measurer = new FontkitMeasurer();
   await preloadKoreanFonts(fonts, measurer, usage);
 

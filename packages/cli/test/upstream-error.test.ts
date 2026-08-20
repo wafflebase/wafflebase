@@ -573,28 +573,42 @@ describe('upstreamErrorJson', () => {
     });
   });
 
+  // The status still names the *class* of the failure, exactly as
+  // `httpError()` does at the CLI's other throw sites: a rejected
+  // credential is `AUTH_ERROR` and a broken server is `SERVER_ERROR`
+  // wherever they surface, so an agent's branch does not depend on which
+  // code path reported them.
   it("keeps the framework body's own message", () => {
     expect(
       JSON.parse(
         upstreamErrorJson({ status: 403, data: { message: 'Forbidden resource' } }),
       ),
     ).toEqual({
-      error: { code: 'HTTP_ERROR', message: 'HTTP 403: Forbidden resource' },
+      error: { code: 'AUTH_ERROR', message: 'HTTP 403: Forbidden resource' },
     });
   });
 
   it('does not quote an HTML error page as a message', () => {
     expect(
       JSON.parse(upstreamErrorJson({ status: 502, data: '<html>bad gateway</html>' })),
-    ).toEqual({ error: { code: 'HTTP_ERROR', message: 'HTTP 502' } });
+    ).toEqual({ error: { code: 'SERVER_ERROR', message: 'HTTP 502' } });
   });
 
   it('carries the status for a missing or unparseable body', () => {
     for (const data of [null, undefined, '<html>bad gateway</html>', { error: 42 }]) {
       expect(JSON.parse(upstreamErrorJson({ status: 502, data }))).toEqual({
-        error: { code: 'HTTP_ERROR', message: 'HTTP 502' },
+        error: { code: 'SERVER_ERROR', message: 'HTTP 502' },
       });
     }
+  });
+
+  it('falls back to the documented login hint on a bodyless 401', () => {
+    expect(JSON.parse(upstreamErrorJson({ status: 401, data: null }))).toEqual({
+      error: {
+        code: 'AUTH_ERROR',
+        message: 'Authentication failed. Run `wafflebase login`.',
+      },
+    });
   });
 });
 

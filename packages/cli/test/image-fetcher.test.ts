@@ -1,32 +1,22 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { createServer, type Server } from 'node:http';
+import { connect as netConnect } from 'node:net';
 import {
   assertFetchableImageUrl,
-  assertResolvedHostIsPublic,
   createImageFetcher,
-  IMAGE_HOSTS_ENV,
-  parseAllowedHosts,
+  isPrivateAddress,
+  proxyForUrl,
   resolveImageUrl,
-  type HostLookup,
 } from '../src/docs/image-fetcher.js';
+import {
+  EXIT_SYSTEM_ERROR,
+  EXIT_USER_ERROR,
+  SystemError,
+  exitCodeFor,
+} from '../src/errors.js';
 
-/**
- * Every `createImageFetcher` test injects a resolver: the real one would ask
- * the OS about `cdn.example.com`, and a suite that reaches the network is a
- * suite that fails on a plane. `publicLookup` answers with a public address,
- * which is what these tests mean by "an ordinary host".
- */
-const publicLookup: HostLookup = async () => ['93.184.216.34'];
-
-describe('parseAllowedHosts', () => {
-  it('splits, trims, lowercases and drops empties', () => {
-    expect(parseAllowedHosts(' 10.0.0.5:9000 , MinIO.internal ,,')).toEqual([
-      '10.0.0.5:9000',
-      'minio.internal',
-    ]);
-    expect(parseAllowedHosts(undefined)).toEqual([]);
-    expect(parseAllowedHosts('')).toEqual([]);
-  });
-});
+/** Public-resolving DNS stub, so no test touches the real resolver. */
+const publicLookup = async () => ['93.184.216.34'];
 
 describe('resolveImageUrl', () => {
   it('passes absolute http(s) URLs through untouched', () => {
@@ -73,206 +63,6 @@ describe('resolveImageUrl', () => {
   });
 });
 
-describe('assertFetchableImageUrl', () => {
-  const server = 'https://api.wafflebase.io';
-
-  it('allows public http(s) and data URLs', () => {
-    expect(() =>
-      assertFetchableImageUrl('https://cdn.example.com/a.png', server),
-    ).not.toThrow();
-    expect(() =>
-      assertFetchableImageUrl('http://cdn.example.com/a.png', server),
-    ).not.toThrow();
-    expect(() =>
-      assertFetchableImageUrl('data:image/png;base64,AAA', server),
-    ).not.toThrow();
-  });
-
-  it('refuses schemes that are not http, https, or data', () => {
-    for (const url of [
-      'file:///etc/passwd',
-      'blob:https://x/abc',
-      'ftp://internal.example/a.png',
-    ]) {
-      expect(() => assertFetchableImageUrl(url, server)).toThrow(
-        /Refusing to fetch image over/,
-      );
-    }
-  });
-
-  it('refuses loopback, private, link-local and CGNAT literals', () => {
-    for (const host of [
-      '169.254.169.254',
-      '127.0.0.1',
-      '0.0.0.0',
-      '10.1.2.3',
-      '172.16.0.1',
-      '172.31.255.255',
-      '192.168.1.1',
-      '100.100.0.1',
-      'localhost',
-      'app.localhost',
-      '[::1]',
-      '[fd00::1]',
-      '[fe80::1]',
-      '[::ffff:169.254.169.254]',
-    ]) {
-      expect(() =>
-        assertFetchableImageUrl(`http://${host}/a.png`, server),
-      ).toThrow(/non-public address/);
-    }
-  });
-
-  it('refuses the trailing-dot spelling of a loopback name', () => {
-    // `new URL('http://localhost./a').hostname` is `localhost.` — the WHATWG
-    // parser keeps the root label on a *domain* host, while every OS resolver
-    // treats it as the same name. An exact-match set misses it.
-    for (const host of ['localhost.', 'localhost..', 'app.localhost.']) {
-      expect(() =>
-        assertFetchableImageUrl(`http://${host}/a.png`, server),
-      ).toThrow(/non-public address/);
-    }
-  });
-
-  it('does not mistake public addresses for private ones', () => {
-    for (const host of ['172.15.0.1', '172.32.0.1', '11.0.0.1', '8.8.8.8']) {
-      expect(() =>
-        assertFetchableImageUrl(`http://${host}/a.png`, server),
-      ).not.toThrow();
-    }
-  });
-
-  it('names the escape hatch when it refuses a private address', () => {
-    expect(() =>
-      assertFetchableImageUrl('http://10.0.0.5:9000/a.png', server),
-    ).toThrow(/WAFFLEBASE_IMAGE_HOSTS/);
-  });
-
-  it('allows a private host the operator listed explicitly', () => {
-    // A split-origin self-hosted install (blobs on an internal MinIO) is a
-    // deployment shape, not an attack — but the operator has to name it.
-    expect(() =>
-      assertFetchableImageUrl('http://10.0.0.5:9000/a.png', server, [
-        '10.0.0.5:9000',
-      ]),
-    ).not.toThrow();
-    // Host without a port matches any port on that host.
-    expect(() =>
-      assertFetchableImageUrl('http://127.0.0.1:9200/a.png', server, [
-        '127.0.0.1',
-      ]),
-    ).not.toThrow();
-    // A different host is still refused.
-    expect(() =>
-      assertFetchableImageUrl('http://10.0.0.6:9000/a.png', server, [
-        '10.0.0.5:9000',
-      ]),
-    ).toThrow(/non-public address/);
-  });
-
-  it('exempts the configured server, so a local --server keeps working', () => {
-    expect(() =>
-      assertFetchableImageUrl(
-        'http://localhost:3000/images/abc',
-        'http://localhost:3000',
-      ),
-    ).not.toThrow();
-  });
-
-  it('exempts the server endpoint on either scheme', () => {
-    // The frontend writes *absolute* image URLs into document content, so a
-    // doc authored against `http://localhost:3000` carries that spelling
-    // forever and must still export when the CLI is pointed at the same
-    // service over TLS. A scheme does not select a different service; the
-    // port does.
-    for (const src of [
-      'http://localhost:3000/images/abc',
-      'https://localhost:3000/images/abc',
-    ]) {
-      expect(() =>
-        assertFetchableImageUrl(src, 'https://localhost:3000'),
-      ).not.toThrow();
-    }
-    // A *different* private host is still refused — that one needs the env var.
-    expect(() =>
-      assertFetchableImageUrl(
-        'http://10.0.0.5:9000/images/abc',
-        'http://localhost:3000',
-      ),
-    ).toThrow(/non-public address/);
-  });
-
-  it('refuses another port on the server host', () => {
-    // The exemption is the endpoint the operator chose, not the machine it
-    // runs on. Exempting the whole host would let document content aim the
-    // export at everything else listening there — an admin API, a database
-    // HTTP port, the container runtime — from inside the operator's network.
-    for (const src of [
-      'http://localhost:9200/_cluster/state',
-      'http://localhost:2375/containers/json',
-      'https://localhost:5984/_all_dbs',
-    ]) {
-      expect(() =>
-        assertFetchableImageUrl(src, 'http://localhost:3000'),
-      ).toThrow(/non-public address/);
-    }
-    // …unless the operator names that port, the way a split-origin install must.
-    expect(() =>
-      assertFetchableImageUrl('http://localhost:9000/blob.png', 'http://localhost:3000', [
-        'localhost:9000',
-      ]),
-    ).not.toThrow();
-  });
-
-  it('refuses IPv6 spellings that embed or tunnel a private address', () => {
-    // Enumerating "the private prefixes" misses every way IPv6 can carry an
-    // IPv4 address. 2000::/3 is the only global-unicast range, and the two
-    // tunnelling prefixes inside it are unwrapped or refused.
-    for (const host of [
-      '[64:ff9b::a9fe:a9fe]', // NAT64 well-known prefix → 169.254.169.254
-      '[2002:a9fe:a9fe::]', // 6to4 → 169.254.169.254
-      '[2002:0a00:0005::]', // 6to4 → 10.0.0.5
-      '[2001:0:1234::1]', // Teredo
-      '[2001:db8::1]', // documentation
-      '[ff02::1]', // multicast
-      '[100::1]', // discard-only
-    ]) {
-      expect(() =>
-        assertFetchableImageUrl(`http://${host}/a.png`, server),
-      ).toThrow(/non-public address/);
-    }
-    // A 6to4 address tunnelling a public IPv4, and an ordinary global
-    // unicast address, are still fetchable.
-    expect(() =>
-      assertFetchableImageUrl('http://[2002:0808:0808::]/a.png', server),
-    ).not.toThrow();
-    expect(() =>
-      assertFetchableImageUrl('http://[2606:4700::1111]/a.png', server),
-    ).not.toThrow();
-  });
-
-  it('refuses multicast, broadcast and reserved IPv4 ranges', () => {
-    for (const host of [
-      '224.0.0.1',
-      '239.255.255.250',
-      '240.0.0.1',
-      '255.255.255.255',
-      '192.0.0.1',
-      '198.18.0.1',
-    ]) {
-      expect(() =>
-        assertFetchableImageUrl(`http://${host}/a.png`, server),
-      ).toThrow(/non-public address/);
-    }
-  });
-
-  it('refuses a URL that never resolved to an absolute one', () => {
-    expect(() => assertFetchableImageUrl('/images/abc', '')).toThrow(
-      /no server to resolve it against/,
-    );
-  });
-});
-
 describe('createImageFetcher', () => {
   it('GETs the resolved URL via the injected fetch and returns the blob', async () => {
     const calls: string[] = [];
@@ -314,116 +104,6 @@ describe('createImageFetcher', () => {
     expect(calls).toEqual(['https://cdn.example.com/photo.jpg']);
   });
 
-  it('refuses an image src pointing at a non-public address', async () => {
-    // The `src` is document content, so an export must not be talked into
-    // GETting the instance-metadata endpoint from the operator's machine.
-    const stubFetch = vi.fn();
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch as unknown as typeof globalThis.fetch,
-      lookup: publicLookup,
-    });
-
-    await expect(
-      fetcher('http://169.254.169.254/latest/meta-data/iam/security-credentials/'),
-    ).rejects.toThrow(/non-public address/);
-    await expect(fetcher('file:///etc/passwd')).rejects.toThrow(
-      /Refusing to fetch image over "file:"/,
-    );
-    expect(stubFetch).not.toHaveBeenCalled();
-  });
-
-  it('still fetches the configured server even when it is local', async () => {
-    const calls: string[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input) => {
-      calls.push(String(input));
-      return new Response(new Uint8Array([1]), { status: 200 });
-    };
-    const fetcher = createImageFetcher({
-      serverBase: 'http://localhost:3000',
-      fetch: stubFetch,
-      lookup: publicLookup,
-    });
-
-    await fetcher('/images/abc');
-    expect(calls).toEqual(['http://localhost:3000/images/abc']);
-  });
-
-  it('re-checks the target of a redirect instead of following it blindly', async () => {
-    // A public host the guard allows can answer 302 -> the metadata endpoint.
-    // `fetch` follows redirects by default and re-runs no caller-side check,
-    // so the guard has to own the hop.
-    const calls: string[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input) => {
-      calls.push(String(input));
-      return new Response(null, {
-        status: 302,
-        headers: {
-          location:
-            'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
-        },
-      });
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: publicLookup,
-    });
-
-    await expect(fetcher('https://attacker.example/x.png')).rejects.toThrow(
-      /non-public address/,
-    );
-    // Only the first hop was ever requested.
-    expect(calls).toEqual(['https://attacker.example/x.png']);
-  });
-
-  it('follows a redirect to another public host', async () => {
-    const calls: string[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input) => {
-      calls.push(String(input));
-      if (calls.length === 1) {
-        return new Response(null, {
-          status: 301,
-          headers: { location: '/moved/a.png' },
-        });
-      }
-      return new Response(new Uint8Array([7]), { status: 200 });
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: publicLookup,
-    });
-
-    const blob = await fetcher('https://cdn.example.com/photo.jpg');
-    expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([7]);
-    expect(calls).toEqual([
-      'https://cdn.example.com/photo.jpg',
-      'https://cdn.example.com/moved/a.png',
-    ]);
-  });
-
-  it('gives up rather than following an endless redirect chain', async () => {
-    let n = 0;
-    const stubFetch: typeof globalThis.fetch = async () =>
-      new Response(null, {
-        status: 302,
-        headers: { location: `https://cdn.example.com/${n++}.png` },
-      });
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: publicLookup,
-    });
-
-    await expect(fetcher('https://cdn.example.com/a.png')).rejects.toThrow(
-      /Too many redirects/,
-    );
-  });
-
   it('throws a descriptive error on non-OK responses', async () => {
     const stubFetch: typeof globalThis.fetch = async () =>
       new Response('not found', { status: 404, statusText: 'Not Found' });
@@ -439,531 +119,817 @@ describe('createImageFetcher', () => {
     );
   });
 
-  it('asks fetch not to follow redirects, on every hop', async () => {
-    // The whole per-hop guard rests on this one option: with `fetch` following
-    // redirects itself, the loop below never sees the target and the re-check
-    // never happens. Assert the option, not just the behaviour of a stub that
-    // would answer the same either way.
-    const modes: (string | undefined)[] = [];
-    const stubFetch: typeof globalThis.fetch = async (_input, init) => {
-      modes.push(init?.redirect);
-      if (modes.length === 1) {
-        return new Response(null, {
-          status: 302,
-          headers: { location: 'https://cdn.example.com/moved.png' },
-        });
-      }
-      return new Response(new Uint8Array([9]), { status: 200 });
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: publicLookup,
-    });
-
-    await fetcher('https://cdn.example.com/a.png');
-    expect(modes).toEqual(['manual', 'manual']);
-  });
-
-  it('releases the body of a redirect it does not follow through', async () => {
-    // Nothing reads a 3xx body; left undrained it pins its socket open until
-    // the agent times out, which on a doc full of redirecting images stalls
-    // the export.
-    const seen: Response[] = [];
-    const stubFetch: typeof globalThis.fetch = async () => {
-      const res =
-        seen.length === 0
-          ? new Response('redirect body', {
-              status: 302,
-              headers: { location: 'https://cdn.example.com/moved.png' },
-            })
-          : new Response(new Uint8Array([1]), { status: 200 });
-      seen.push(res);
-      return res;
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: publicLookup,
-    });
-
-    await fetcher('https://cdn.example.com/a.png');
-    expect(seen[0].bodyUsed).toBe(true);
-  });
-
-  it('names an opaque redirect instead of reporting it as "failed: 0"', async () => {
-    // A browser's `manual` mode answers with a status-0 opaque-redirect
-    // response. Node's undici hands back the real 3xx — but if this ever runs
-    // where it does not, the operator should read why, not `failed: 0`.
-    // `Response` refuses to be constructed with status 0, so this stands in
-    // with the other filtered response that carries it.
-    const stubFetch: typeof globalThis.fetch = async () => Response.error();
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: publicLookup,
-    });
-
-    await expect(fetcher('https://cdn.example.com/a.png')).rejects.toThrow(
-      /opaque redirect/,
-    );
-  });
-
-  it('refuses a public name that resolves to the metadata endpoint', async () => {
-    // `169.254.169.254.nip.io` is an ordinary public name at wildcard DNS
-    // that answers with the literal it embeds. A string check on the URL sees
-    // nothing wrong with it, which is the whole trick.
-    const stubFetch = vi.fn();
-    const lookup: HostLookup = async (host) =>
-      host === '169.254.169.254.nip.io' ? ['169.254.169.254'] : ['8.8.8.8'];
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch as unknown as typeof globalThis.fetch,
-      lookup,
-    });
-
-    await expect(
-      fetcher(
-        'http://169.254.169.254.nip.io/latest/meta-data/iam/security-credentials/',
-      ),
-    ).rejects.toThrow(/resolves to 169\.254\.169\.254/);
-    expect(stubFetch).not.toHaveBeenCalled();
-  });
-
-  it('re-resolves the target of a redirect, not just its spelling', async () => {
-    const calls: string[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input) => {
-      calls.push(String(input));
-      return new Response(null, {
-        status: 302,
-        headers: { location: 'http://metadata.internal.example/creds' },
-      });
-    };
-    const lookup: HostLookup = async (host) =>
-      host === 'metadata.internal.example' ? ['10.0.0.7'] : ['8.8.8.8'];
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup,
-    });
-
-    await expect(fetcher('https://cdn.example.com/a.png')).rejects.toThrow(
-      /resolves to 10\.0\.0\.7/,
-    );
-    expect(calls).toEqual(['https://cdn.example.com/a.png']);
-  });
-
-  it('refuses a name that cannot be resolved rather than fetching it', async () => {
-    const stubFetch = vi.fn();
-    const lookup: HostLookup = async () => {
-      throw new Error('ENOTFOUND');
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch as unknown as typeof globalThis.fetch,
-      lookup,
-    });
-
-    await expect(fetcher('https://nowhere.example/a.png')).rejects.toThrow(
-      /could not be resolved/,
-    );
-    expect(stubFetch).not.toHaveBeenCalled();
-  });
-
-  it('never resolves a host the operator already exempted', async () => {
-    // The configured server and WAFFLEBASE_IMAGE_HOSTS are decisions the
-    // operator made; a resolver has no say in them, and a local `--server`
-    // must keep working with no DNS at all.
-    const lookup = vi.fn(async () => ['93.184.216.34']);
+  it('classifies a 5xx image response as a system error', async () => {
     const stubFetch: typeof globalThis.fetch = async () =>
-      new Response(new Uint8Array([1]), { status: 200 });
+      new Response('boom', { status: 503, statusText: 'Unavailable' });
 
     const fetcher = createImageFetcher({
-      serverBase: 'http://localhost:3000',
-      allowedHosts: ['minio.internal'],
+      serverBase: 'https://api.wafflebase.io',
       fetch: stubFetch,
-      lookup,
+      lookup: publicLookup,
     });
 
-    await fetcher('/images/abc');
-    await fetcher('http://minio.internal:9000/blob.png');
-    expect(lookup).not.toHaveBeenCalled();
+    const err = await fetcher('/images/abc')
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SystemError);
+    expect(exitCodeFor(err)).toBe(EXIT_SYSTEM_ERROR);
   });
 
-  it('reads the operator allow-list from the environment by default', async () => {
-    // `allowedHosts` is the injectable form; the environment variable is the
-    // one an operator actually sets, and nothing else exercises that wiring.
+  it('keeps a presigned query string out of the error message', async () => {
+    const stubFetch: typeof globalThis.fetch = async () =>
+      new Response('nope', { status: 403, statusText: 'Forbidden' });
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: publicLookup,
+    });
+
+    const err = await fetcher('https://cdn.example.com/p.jpg?sig=s3cret')
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect((err as Error).message).toContain('https://cdn.example.com/p.jpg');
+    expect((err as Error).message).not.toContain('s3cret');
+  });
+
+  it('turns an unreachable image host into a NETWORK_ERROR system error', async () => {
+    const stubFetch: typeof globalThis.fetch = async () => {
+      throw new TypeError('fetch failed');
+    };
+
+    const fetcher = createImageFetcher({
+      serverBase: 'https://api.wafflebase.io',
+      fetch: stubFetch,
+      lookup: publicLookup,
+    });
+
+    const err = await fetcher('/images/abc')
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SystemError);
+    expect((err as SystemError).code).toBe('NETWORK_ERROR');
+    expect(exitCodeFor(err)).toBe(EXIT_SYSTEM_ERROR);
+  });
+});
+
+describe('isPrivateAddress', () => {
+  it.each([
+    '127.0.0.1',
+    '10.1.2.3',
+    '172.16.0.1',
+    '192.168.1.1',
+    '169.254.169.254',
+    '100.64.0.1',
+    '0.0.0.0',
+    '::1',
+    '::',
+    'fd00::1',
+    'fe80::1',
+    'fec0::1', // deprecated site-local, still routed on old networks
+    '::ffff:127.0.0.1',
+    '::ffff:7f00:1',
+    '255.255.255.255',
+    '224.0.0.1',
+    '198.18.0.1',
+    '192.0.0.1',
+    '64:ff9b::a9fe:a9fe', // NAT64 → 169.254.169.254
+    '64:ff9b::7f00:1', // NAT64 → 127.0.0.1
+    '64:ff9b:1::1', // local-use NAT64 prefix
+    '2002:7f00:1::1', // 6to4 → 127.0.0.1
+    '2001:0:5db8:d822:0:0:80ff:fffe', // Teredo, client ~(127.0.0.1)
+  ])('blocks %s', (ip) => {
+    expect(isPrivateAddress(ip)).toBe(true);
+  });
+
+  it.each([
+    '93.184.216.34',
+    '8.8.8.8',
+    '172.32.0.1',
+    '2606:4700::1111',
+    '64:ff9b::808:808', // NAT64 → 8.8.8.8 stays reachable
+    '2002:5db8:d822::1', // 6to4 → 93.184.216.34
+    '2001:0:5db8:d822:0:0:f7f7:f7f7', // Teredo, client ~(8.8.8.8)
+  ])(
+    'allows %s',
+    (ip) => {
+      expect(isPrivateAddress(ip)).toBe(false);
+    },
+  );
+});
+
+describe('createImageFetcher SSRF gate', () => {
+  function fetcherWith(opts: {
+    lookup?: (h: string) => Promise<string[]>;
+    onFetch?: (url: string) => Response;
+    serverBase?: string;
+  }) {
     const calls: string[] = [];
     const stubFetch: typeof globalThis.fetch = async (input) => {
-      calls.push(String(input));
-      return new Response(new Uint8Array([1]), { status: 200 });
+      const url = typeof input === 'string' ? input : (input as URL).toString();
+      calls.push(url);
+      return opts.onFetch?.(url) ?? new Response(new Uint8Array([1]));
     };
-    const previous = process.env[IMAGE_HOSTS_ENV];
-    process.env[IMAGE_HOSTS_ENV] = '10.0.0.5:9000';
+    return {
+      calls,
+      fetcher: createImageFetcher({
+        serverBase: opts.serverBase ?? 'https://api.wafflebase.io',
+        fetch: stubFetch,
+        lookup: opts.lookup ?? publicLookup,
+      }),
+    };
+  }
+
+  it.each([
+    ['file:', 'file:///etc/passwd'],
+    ['blob:', 'blob:https://x/abc'],
+  ])('refuses to dereference a %s URL', async (_label, src) => {
+    const { fetcher, calls } = fetcherWith({});
+    const err = await fetcher(src)
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect((err as { code?: string }).code).toBe('IMAGE_URL_BLOCKED');
+    expect(exitCodeFor(err)).toBe(EXIT_USER_ERROR);
+    expect(calls).toEqual([]);
+  });
+
+  it.each([
+    'http://169.254.169.254/latest/meta-data/',
+    'http://127.0.0.1:9000/secret',
+    'http://[::ffff:7f00:1]/secret',
+    'http://10.0.0.5/internal',
+  ])('refuses the internal address %s', async (src) => {
+    const { fetcher, calls } = fetcherWith({});
+    await expect(fetcher(src)).rejects.toThrow(/Refusing to fetch/);
+    expect(calls).toEqual([]);
+  });
+
+  it.each(['http://localhost:9000/x', 'http://metadata.google.internal/x'])(
+    'refuses the internal host %s',
+    async (src) => {
+      const { fetcher, calls } = fetcherWith({});
+      await expect(fetcher(src)).rejects.toThrow(/Refusing to fetch/);
+      expect(calls).toEqual([]);
+    },
+  );
+
+  it('refuses a public name whose DNS record points at loopback', async () => {
+    const { fetcher, calls } = fetcherWith({
+      lookup: async () => ['127.0.0.1'],
+    });
+    await expect(fetcher('http://evil.example/x')).rejects.toThrow(
+      /resolves to an internal address/,
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('allows a public name that resolves publicly', async () => {
+    const { fetcher, calls } = fetcherWith({});
+    await fetcher('https://cdn.example.com/photo.jpg');
+    expect(calls).toEqual(['https://cdn.example.com/photo.jpg']);
+  });
+
+  it('fails closed when the name cannot be resolved', async () => {
+    const { fetcher, calls } = fetcherWith({
+      lookup: async () => {
+        throw new Error('ENOTFOUND');
+      },
+    });
+    const err = await fetcher('https://cdn.example.com/photo.jpg')
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SystemError);
+    expect((err as SystemError).code).toBe('NETWORK_ERROR');
+    expect(exitCodeFor(err)).toBe(EXIT_SYSTEM_ERROR);
+    expect(calls).toEqual([]);
+  });
+
+  it('fails closed when the resolver answers with no addresses', async () => {
+    const { fetcher, calls } = fetcherWith({ lookup: async () => [] });
+    const err = await fetcher('https://cdn.example.com/photo.jpg')
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SystemError);
+    expect(calls).toEqual([]);
+  });
+
+  it('allows the configured server spelled as another name for it', async () => {
+    // The frontend persists absolute image URLs, so a dev document says
+    // `http://localhost:3000/...` while the CLI may be pointed at
+    // `--server http://127.0.0.1:3000`. Same listener, different name.
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://127.0.0.1:3000',
+      lookup: async (h) => (h === 'localhost' ? ['127.0.0.1'] : []),
+    });
+    await fetcher('http://localhost:3000/api/v1/workspaces/w/images/abc');
+    expect(calls).toEqual([
+      'http://localhost:3000/api/v1/workspaces/w/images/abc',
+    ]);
+  });
+
+  it('allows the configured server named where the doc used its address', async () => {
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://localhost:3000',
+      lookup: async (h) => (h === 'localhost' ? ['127.0.0.1'] : []),
+    });
+    await fetcher('http://127.0.0.1:3000/images/abc');
+    expect(calls).toEqual(['http://127.0.0.1:3000/images/abc']);
+  });
+
+  it('allows the server across loopback families', async () => {
+    // `localhost` answers with `::1` alone on an IPv6-preferring host,
+    // while the document stores the `127.0.0.1` spelling the browser
+    // used. Both name this machine's loopback at the server's port, so
+    // refusing one of them would refuse a document its own images.
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://localhost:3000',
+      lookup: async (h) => (h === 'localhost' ? ['::1'] : []),
+    });
+    await fetcher('http://127.0.0.1:3000/images/abc');
+    expect(calls).toEqual(['http://127.0.0.1:3000/images/abc']);
+  });
+
+  it('refuses a foreign name aimed at the server address and port', async () => {
+    // The exemption is for the server, not for its address: a name the
+    // document author controls, pointed at the server's address on the
+    // server's port, would otherwise read any path there under an
+    // attacker-chosen `Host` — including a co-located virtual host.
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://localhost:3000',
+      lookup: async () => ['127.0.0.1'],
+    });
+    await expect(fetcher('http://evil.example:3000/admin')).rejects.toThrow(
+      /resolves to an internal address/,
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses another internal name on the server port', async () => {
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://api.internal:3000',
+      lookup: async () => ['10.0.0.5'],
+    });
+    await expect(fetcher('http://other.internal:3000/x')).rejects.toThrow(
+      /on an internal host/,
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('allows the configured server named by its own internal hostname', async () => {
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://api.internal:3000',
+      lookup: async () => ['10.0.0.5'],
+    });
+    await fetcher('http://api.internal:3000/images/abc');
+    expect(calls).toEqual(['http://api.internal:3000/images/abc']);
+  });
+
+  it('does not extend the server exemption to another port on that host', async () => {
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://localhost:3000',
+      lookup: async (h) => (h === 'localhost' ? ['127.0.0.1'] : []),
+    });
+    await expect(fetcher('http://127.0.0.1:9200/_search')).rejects.toThrow(
+      /Refusing to fetch/,
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('still allows the configured server even on localhost', async () => {
+    const { fetcher, calls } = fetcherWith({
+      serverBase: 'http://localhost:3000',
+      lookup: async () => ['127.0.0.1'],
+    });
+    await fetcher('/images/abc');
+    expect(calls).toEqual(['http://localhost:3000/images/abc']);
+  });
+
+  it('does not treat a public host as an IPv6 range (fc2.com)', async () => {
+    const { fetcher, calls } = fetcherWith({});
+    await fetcher('https://fc2.com/photo.jpg');
+    expect(calls).toEqual(['https://fc2.com/photo.jpg']);
+  });
+
+  it('re-checks each redirect hop instead of trusting the first host', async () => {
+    const { fetcher, calls } = fetcherWith({
+      onFetch: (url) =>
+        url === 'https://cdn.example.com/photo.jpg'
+          ? new Response(null, {
+              status: 302,
+              headers: { location: 'http://169.254.169.254/latest/' },
+            })
+          : new Response(new Uint8Array([1])),
+    });
+
+    await expect(fetcher('https://cdn.example.com/photo.jpg')).rejects.toThrow(
+      /Refusing to fetch/,
+    );
+    expect(calls).toEqual(['https://cdn.example.com/photo.jpg']);
+  });
+
+  it('follows a redirect to another allowed host', async () => {
+    const { fetcher, calls } = fetcherWith({
+      onFetch: (url) =>
+        url === 'https://cdn.example.com/photo.jpg'
+          ? new Response(null, {
+              status: 302,
+              headers: { location: 'https://images.example.com/photo.jpg' },
+            })
+          : new Response(new Uint8Array([7])),
+    });
+
+    const blob = await fetcher('https://cdn.example.com/photo.jpg');
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(
+      new Uint8Array([7]),
+    );
+    expect(calls).toEqual([
+      'https://cdn.example.com/photo.jpg',
+      'https://images.example.com/photo.jpg',
+    ]);
+  });
+
+  it('stops after too many redirects', async () => {
+    const { fetcher, calls } = fetcherWith({
+      onFetch: () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://cdn.example.com/loop' },
+        }),
+    });
+
+    await expect(fetcher('https://cdn.example.com/loop')).rejects.toThrow(
+      /too many redirects/,
+    );
+    expect(calls.length).toBe(6);
+  });
+});
+
+describe('assertFetchableImageUrl address pinning', () => {
+  const SERVER = new URL('http://127.0.0.1:3000');
+
+  it('pins a public host to the addresses it approved', async () => {
+    await expect(
+      assertFetchableImageUrl('https://cdn.example.com/p.jpg', SERVER, () =>
+        Promise.resolve(['93.184.216.34', '8.8.8.8']),
+      ),
+    ).resolves.toEqual(['93.184.216.34', '8.8.8.8']);
+  });
+
+  it('opens no connection for a data: URL', async () => {
+    await expect(
+      assertFetchableImageUrl('data:image/png;base64,AAA', SERVER, () =>
+        Promise.resolve([]),
+      ),
+    ).resolves.toBeNull();
+  });
+
+  it('refuses a foreign name that answers with the server address', async () => {
+    // Sharing an address with the server does not make a name the
+    // server. Waving it through would hand the document author a reader
+    // for any path on the API host, under a `Host` header of their
+    // choosing.
+    await expect(
+      assertFetchableImageUrl('http://mixed.example:3000/x', SERVER, async (h) =>
+        h === 'mixed.example' ? ['127.0.0.1', '10.0.0.5'] : ['127.0.0.1'],
+      ),
+    ).rejects.toThrow(/resolves to an internal address/);
+  });
+
+  it('pins an address-literal server spelling to that one address', async () => {
+    // The literal is compared against the server's resolved addresses —
+    // the one identity comparison the exemption still makes, and safe
+    // because a literal names one machine and no resolver can steer it.
+    const allowed = await assertFetchableImageUrl(
+      'http://127.0.0.1:3000/x',
+      new URL('http://api.internal:3000'),
+      async () => ['127.0.0.1'],
+    );
+    expect(allowed).toEqual(['127.0.0.1']);
+  });
+
+  it('refuses a server-port host that shares no address with the server', async () => {
+    await expect(
+      assertFetchableImageUrl('http://mixed.example:3000/x', SERVER, async (h) =>
+        h === 'mixed.example' ? ['10.0.0.5', '169.254.169.254'] : ['127.0.0.1'],
+      ),
+    ).rejects.toThrow(/resolves to an internal address/);
+  });
+
+  it('drops the private half of a public host’s answer', async () => {
+    // Nothing is granted by allowing the public address: the request is
+    // pinned to what comes back, so the private one is unreachable.
+    await expect(
+      assertFetchableImageUrl('https://split.example/p.jpg', SERVER, () =>
+        Promise.resolve(['93.184.216.34', '169.254.169.254']),
+      ),
+    ).resolves.toEqual(['93.184.216.34']);
+  });
+});
+
+/** Names every convention for "route this through a proxy". */
+const PROXY_ENV = [
+  'http_proxy',
+  'HTTP_PROXY',
+  'https_proxy',
+  'HTTPS_PROXY',
+  'all_proxy',
+  'ALL_PROXY',
+  'no_proxy',
+  'NO_PROXY',
+];
+
+/** Take the developer's own proxy configuration out of the test. */
+function withoutProxyEnv(): void {
+  for (const name of PROXY_ENV) vi.stubEnv(name, '');
+}
+
+describe('proxyForUrl', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('returns null when nothing is configured', () => {
+    expect(proxyForUrl('https://cdn.example.com/p.jpg', {})).toBeNull();
+  });
+
+  it('picks the proxy matching the scheme', () => {
+    const env = {
+      http_proxy: 'http://proxy.internal:8080',
+      https_proxy: 'http://secure.internal:8443',
+    };
+    expect(proxyForUrl('http://cdn.example.com/p.jpg', env)).toBe(
+      'http://proxy.internal:8080',
+    );
+    expect(proxyForUrl('https://cdn.example.com/p.jpg', env)).toBe(
+      'http://secure.internal:8443',
+    );
+  });
+
+  it('accepts the upper-case spelling and falls back to all_proxy', () => {
+    expect(
+      proxyForUrl('https://cdn.example.com/p.jpg', {
+        HTTPS_PROXY: 'http://proxy.internal:8080',
+      }),
+    ).toBe('http://proxy.internal:8080');
+    expect(
+      proxyForUrl('https://cdn.example.com/p.jpg', {
+        all_proxy: 'http://proxy.internal:8080',
+      }),
+    ).toBe('http://proxy.internal:8080');
+  });
+
+  it('honors no_proxy for exact hosts, suffixes, ports and "*"', () => {
+    const proxy = 'http://proxy.internal:8080';
+    const at = (no_proxy: string, url: string) =>
+      proxyForUrl(url, { https_proxy: proxy, http_proxy: proxy, no_proxy });
+
+    expect(at('cdn.example.com', 'https://cdn.example.com/p')).toBeNull();
+    expect(at('.example.com', 'https://cdn.example.com/p')).toBeNull();
+    expect(at('example.com', 'https://cdn.example.com/p')).toBeNull();
+    expect(at('*', 'https://anything.example/p')).toBeNull();
+    expect(at('cdn.example.com:443', 'https://cdn.example.com/p')).toBeNull();
+    expect(at('cdn.example.com:8443', 'https://cdn.example.com/p')).toBe(proxy);
+    expect(at('other.example', 'https://cdn.example.com/p')).toBe(proxy);
+    // A suffix must not match a host that merely ends with the letters.
+    expect(at('example.com', 'https://notexample.com/p')).toBe(proxy);
+  });
+
+  it('leaves data: URLs alone — they open no connection', () => {
+    expect(
+      proxyForUrl('data:image/png;base64,AAA', {
+        all_proxy: 'http://proxy.internal:8080',
+      }),
+    ).toBeNull();
+  });
+});
+
+describe('createImageFetcher over a real listener', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  /** A loopback server that 302s `/r` to `/img`, which serves bytes. */
+  async function listener(): Promise<{ server: Server; port: number }> {
+    const server = createServer((req, res) => {
+      if (req.url === '/r') {
+        res.writeHead(302, { location: '/img' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'image/png' });
+      res.end(Buffer.from([1, 2, 3]));
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+    return { server, port: address.port };
+  }
+
+  it('follows a redirect through the real transport, pinned to the gated address', async () => {
+    withoutProxyEnv();
+    const { server, port } = await listener();
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: `http://127.0.0.1:${port}`,
+      });
+      const blob = await fetcher('/r');
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('reads the hop through undici when the fetch layer opaque-filters it', async () => {
+    // A spec-conformant `redirect: 'manual'` yields status 0 with no
+    // headers, which carries neither the status nor the `Location` the
+    // redirect loop needs. The fallback re-reads the hop, so redirects
+    // still work (and are still gated) on such a runtime.
+    withoutProxyEnv();
+    const { server, port } = await listener();
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: `http://127.0.0.1:${port}`,
+        fetch: async () => Response.error(),
+      });
+      const blob = await fetcher('/r');
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('connects to the address the gate approved, not the one DNS answers with', async () => {
+    // The pin, exercised end to end. `pinned.invalid` cannot resolve —
+    // `.invalid` is reserved precisely so it never does — so the only
+    // way this request can reach the listener is the connector using
+    // the addresses the gate handed back. Drop the `dispatcher` from
+    // the fetch and this fails with ENOTFOUND, which is what makes it a
+    // test of the pinning rather than of the gate.
+    withoutProxyEnv();
+    const { server, port } = await listener();
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: `http://pinned.invalid:${port}`,
+        lookup: async () => ['127.0.0.1'],
+      });
+      const blob = await fetcher(`http://pinned.invalid:${port}/img`);
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
+    } finally {
+      server.close();
+    }
+  });
+
+  /**
+   * A forward proxy that serves both shapes a client may use: an
+   * absolute-form request it answers itself, and a `CONNECT` tunnel it
+   * opens to `targetPort`. Either way the *proxy* decides where the
+   * bytes come from, which is the point being tested.
+   */
+  async function forwardProxy(targetPort: number): Promise<{
+    server: Server;
+    port: number;
+    seen: string[];
+  }> {
+    const seen: string[] = [];
+    const server = createServer((req, res) => {
+      seen.push(`GET ${req.url}`);
+      res.writeHead(200, { 'content-type': 'image/png' });
+      res.end(Buffer.from([1, 2, 3]));
+    });
+    server.on('connect', (req, socket, head) => {
+      seen.push(`CONNECT ${req.url}`);
+      const upstream = netConnect(targetPort, '127.0.0.1', () => {
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (head?.length) upstream.write(head);
+        upstream.pipe(socket);
+        socket.pipe(upstream);
+      });
+      upstream.on('error', () => socket.destroy());
+      socket.on('error', () => upstream.destroy());
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+    return { server, port: address.port, seen };
+  }
+
+  it('routes through the configured proxy instead of dialing the pin', async () => {
+    // The image host resolves (for the gate) to a documentation-range
+    // address nothing listens on, so bytes can only arrive if the
+    // request went to the proxy — which the forced per-request `Agent`
+    // used to prevent, breaking every external image on a machine whose
+    // only route out is a proxy.
+    const origin = await listener();
+    const proxy = await forwardProxy(origin.port);
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', `http://127.0.0.1:${proxy.port}`);
     try {
       const fetcher = createImageFetcher({
         serverBase: 'https://api.wafflebase.io',
-        fetch: stubFetch,
-        lookup: publicLookup,
+        lookup: async () => ['192.0.2.10'],
       });
-
-      await fetcher('http://10.0.0.5:9000/blob.png');
-      expect(calls).toEqual(['http://10.0.0.5:9000/blob.png']);
-
-      // A private host the operator did not list is still refused.
-      await expect(fetcher('http://10.0.0.6:9000/blob.png')).rejects.toThrow(
-        /non-public address/,
-      );
+      const blob = await fetcher('http://cdn.example.com/photo.png');
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
+      expect(proxy.seen.length).toBe(1);
     } finally {
-      if (previous === undefined) delete process.env[IMAGE_HOSTS_ENV];
-      else process.env[IMAGE_HOSTS_ENV] = previous;
+      proxy.server.close();
+      origin.server.close();
+    }
+  }, 20_000);
+
+  /**
+   * The pin is not abandoned to the proxy: the hop is addressed to an
+   * address the gate approved, so the proxy has no name left to resolve
+   * and no second, divergent answer to act on. The name survives as the
+   * request's `Host`, which is what keeps virtual-hosted CDNs working.
+   */
+  it('asks the proxy for the gated address, under the original Host', async () => {
+    const seenHosts: string[] = [];
+    const origin = await new Promise<{ server: Server; port: number }>(
+      (resolve) => {
+        const server = createServer((req, res) => {
+          seenHosts.push(req.headers.host ?? '');
+          res.writeHead(200, { 'content-type': 'image/png' });
+          res.end(Buffer.from([1, 2, 3]));
+        });
+        server.listen(0, '127.0.0.1', () => {
+          const address = server.address();
+          if (!address || typeof address === 'string') throw new Error('port');
+          resolve({ server, port: address.port });
+        });
+      },
+    );
+    const proxy = await forwardProxy(origin.port);
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', `http://127.0.0.1:${proxy.port}`);
+    const warnings: string[] = [];
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: 'https://api.wafflebase.io',
+        lookup: async () => ['192.0.2.10'],
+        warn: (message) => warnings.push(message),
+      });
+      await fetcher('http://cdn.example.com/photo.png');
+
+      // The proxy was pointed at the approved address, never at the name.
+      expect(proxy.seen.length).toBe(1);
+      expect(proxy.seen[0]).toContain('192.0.2.10');
+      expect(proxy.seen[0]).not.toContain('cdn.example.com');
+      // ...and the origin still sees the host the document named.
+      expect(seenHosts).toEqual(['cdn.example.com']);
+      // Nothing was given up, so nothing is announced.
+      expect(warnings).toEqual([]);
+    } finally {
+      proxy.server.close();
+      origin.server.close();
+    }
+  }, 20_000);
+
+  it('bypasses the proxy for a host listed in no_proxy', async () => {
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', 'http://127.0.0.1:1');
+    vi.stubEnv('no_proxy', 'pinned.invalid');
+    const { server, port } = await listener();
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: `http://pinned.invalid:${port}`,
+        lookup: async () => ['127.0.0.1'],
+      });
+      const blob = await fetcher(`http://pinned.invalid:${port}/img`);
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
+    } finally {
+      server.close();
     }
   });
-});
 
-describe('assertResolvedHostIsPublic', () => {
-  const server = 'https://api.wafflebase.io';
-
-  it('allows a name that resolves to public addresses only, and hands them back', async () => {
-    // The addresses are returned, not discarded: the fetcher dials one of them
-    // directly so DNS cannot answer differently between check and connect.
-    await expect(
-      assertResolvedHostIsPublic(
-        'https://cdn.example.com/a.png',
-        server,
-        [],
-        async () => ['93.184.216.34', '2606:2800:220:1:248:1893:25c8:1946'],
-      ),
-    ).resolves.toEqual(['93.184.216.34', '2606:2800:220:1:248:1893:25c8:1946']);
-  });
-
-  it('refuses when any resolved address is non-public', async () => {
-    // A name can answer with several records; one private answer is enough to
-    // aim the request inside the network, so all of them have to be public.
-    await expect(
-      assertResolvedHostIsPublic('https://mixed.example/a.png', server, [], async () => [
-        '93.184.216.34',
-        '127.0.0.1',
-      ]),
-    ).rejects.toThrow(/resolves to 127\.0\.0\.1/);
-  });
-
-  it('does not resolve IP literals, which were already decided', async () => {
-    const lookup = vi.fn(async () => ['93.184.216.34']);
-    await assertResolvedHostIsPublic('http://8.8.8.8/a.png', server, [], lookup);
-    await assertResolvedHostIsPublic('data:image/png;base64,AAA', server, [], lookup);
-    expect(lookup).not.toHaveBeenCalled();
-  });
-});
-
-describe('createImageFetcher (bounded, address-pinned requests)', () => {
-  it('dials the address it checked and carries the name in Host', async () => {
-    // Check-then-connect is a race: `fetch` resolves the name a second time,
-    // so a resolver the attacker controls can answer publicly for the check
-    // and with 169.254.169.254 for the connection. Dialling the approved
-    // address closes it; the Host header keeps virtual hosts working.
-    const seen: { url: string; host?: string }[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input, init) => {
-      const headers = new Headers(init?.headers);
-      seen.push({ url: String(input), host: headers.get('host') ?? undefined });
-      return new Response(new Uint8Array([1]), { status: 200 });
-    };
-
+  it('still refuses an internal image host when a proxy is configured', async () => {
+    // The proxy changes who opens the connection, not what may be
+    // requested: the gate runs first either way.
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', 'http://127.0.0.1:1');
     const fetcher = createImageFetcher({
       serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: async () => ['93.184.216.34'],
+      lookup: async () => ['169.254.169.254'],
     });
-
-    await fetcher('http://cdn.example.com/a.png');
-    expect(seen).toEqual([
-      { url: 'http://93.184.216.34/a.png', host: 'cdn.example.com' },
-    ]);
+    await expect(fetcher('http://metadata.example/latest/')).rejects.toThrow(
+      /Refusing to fetch/,
+    );
   });
 
-  it('leaves https dialled by name so the certificate still validates', async () => {
-    // An IP literal has no SNI and no matching certificate, so pinning https
-    // would break every fetch. TLS carries that half: a rebound internal host
-    // would have to present a valid certificate for the attacker's name.
+  /**
+   * A proxy that allow-lists names refuses to connect to an address
+   * literal, and there the pin genuinely cannot be carried. The hop
+   * falls back to the name rather than failing the export on exactly the
+   * machines the proxy path exists for — but the operator who configured
+   * the proxy is the only one who can judge its resolver, and they
+   * cannot judge a weakening nobody reports.
+   */
+  async function nameOnlyProxy(targetPort: number): Promise<{
+    server: Server;
+    port: number;
+    seen: string[];
+  }> {
     const seen: string[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input, init) => {
-      seen.push(String(input));
-      expect(new Headers(init?.headers).get('host')).toBeNull();
-      return new Response(new Uint8Array([1]), { status: 200 });
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: async () => ['93.184.216.34'],
+    const server = createServer((req, res) => {
+      seen.push(`GET ${req.url}`);
+      res.writeHead(200, { 'content-type': 'image/png' });
+      res.end(Buffer.from([1, 2, 3]));
     });
-
-    await fetcher('https://cdn.example.com/a.png');
-    expect(seen).toEqual(['https://cdn.example.com/a.png']);
-  });
-
-  it('resolves a relative redirect against the name, not the pinned address', async () => {
-    const seen: string[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input) => {
-      seen.push(String(input));
-      if (seen.length === 1) {
-        return new Response(null, {
-          status: 302,
-          headers: { location: '/moved/a.png' },
-        });
+    server.on('connect', (req, socket, head) => {
+      seen.push(`CONNECT ${req.url}`);
+      // The refusal being modelled: an address literal is not on the
+      // allow-list, a name is.
+      if (/^\d/.test(req.url ?? '')) {
+        socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
+        return;
       }
-      return new Response(new Uint8Array([7]), { status: 200 });
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: async () => ['93.184.216.34'],
-    });
-
-    await fetcher('http://cdn.example.com/a.png');
-    expect(seen).toEqual([
-      'http://93.184.216.34/a.png',
-      'http://93.184.216.34/moved/a.png',
-    ]);
-  });
-
-  it('bounds every request with a timeout signal', async () => {
-    // The document decides which host is dialled; a host that accepts and
-    // never answers would otherwise hang the export forever.
-    let signal: AbortSignal | undefined;
-    const stubFetch: typeof globalThis.fetch = async (_input, init) => {
-      signal = init?.signal ?? undefined;
-      return new Response(new Uint8Array([1]), { status: 200 });
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: publicLookup,
-      timeoutMs: 1234,
-    });
-
-    await fetcher('https://cdn.example.com/a.png');
-    expect(signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it('refuses a body larger than the cap, by declared length', async () => {
-    const stubFetch: typeof globalThis.fetch = async () =>
-      new Response(new Uint8Array([1]), {
-        status: 200,
-        headers: { 'content-length': '999999' },
+      const upstream = netConnect(targetPort, '127.0.0.1', () => {
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (head?.length) upstream.write(head);
+        upstream.pipe(socket);
+        socket.pipe(upstream);
       });
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: publicLookup,
-      maxBytes: 1024,
+      upstream.on('error', () => socket.destroy());
+      socket.on('error', () => upstream.destroy());
     });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+    return { server, port: address.port, seen };
+  }
 
-    await expect(fetcher('https://cdn.example.com/big.png')).rejects.toThrow(
-      /exceeds the .* limit/,
-    );
-  });
-
-  it('refuses a body larger than the cap even when it lies about its length', async () => {
-    // `Content-Length` is a claim; the stream is the fact. Without the second
-    // check an image `src` could stream unbounded bytes into the exporter.
-    const stubFetch: typeof globalThis.fetch = async () =>
-      new Response(new Uint8Array(4096), { status: 200 });
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: publicLookup,
-      maxBytes: 1024,
-    });
-
-    await expect(fetcher('https://cdn.example.com/big.png')).rejects.toThrow(
-      /exceeds the .* limit/,
-    );
-  });
-
-  it('returns a body within the cap with its content type intact', async () => {
-    const stubFetch: typeof globalThis.fetch = async () =>
-      new Response(new Uint8Array([1, 2, 3]), {
-        status: 200,
-        headers: { 'content-type': 'image/png' },
+  it('falls back to the name, warning once, when the proxy refuses the address', async () => {
+    const origin = await listener();
+    const proxy = await nameOnlyProxy(origin.port);
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', `http://127.0.0.1:${proxy.port}`);
+    const warnings: string[] = [];
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: 'https://api.wafflebase.io',
+        lookup: async () => ['192.0.2.10'],
+        warn: (message) => warnings.push(message),
       });
+      // The export still succeeds — the whole reason the fallback exists.
+      const blob = await fetcher('http://cdn.example.com/one.png');
+      expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
+        1, 2, 3,
+      ]);
+      await fetcher('http://cdn.example.com/two.png');
 
+      // Said at all...
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toMatch(/proxy/i);
+      expect(warnings[0]).toMatch(/pinned/i);
+      expect(warnings[0]).toContain('cdn.example.com');
+      // ...and said once, however many images the document holds. The
+      // second image does not retry the address either: the proxy has
+      // already answered that question for this run.
+      expect(proxy.seen.filter((s) => s.includes('192.0.2.10')).length).toBe(1);
+      expect(
+        proxy.seen.filter((s) => s.includes('cdn.example.com')).length,
+      ).toBe(2);
+    } finally {
+      proxy.server.close();
+      origin.server.close();
+    }
+  }, 20_000);
+
+  it('stays quiet when no proxy applies and the pin holds', async () => {
+    withoutProxyEnv();
+    const { server, port } = await listener();
+    const warnings: string[] = [];
+    try {
+      const fetcher = createImageFetcher({
+        serverBase: `http://pinned.invalid:${port}`,
+        lookup: async () => ['127.0.0.1'],
+        warn: (message) => warnings.push(message),
+      });
+      await fetcher(`http://pinned.invalid:${port}/img`);
+      expect(warnings).toEqual([]);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('says nothing about a data: URL, which resolves no name', async () => {
+    withoutProxyEnv();
+    vi.stubEnv('http_proxy', 'http://127.0.0.1:1');
+    const warnings: string[] = [];
     const fetcher = createImageFetcher({
       serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: publicLookup,
-      maxBytes: 1024,
+      warn: (message) => warnings.push(message),
     });
-
-    const blob = await fetcher('https://cdn.example.com/a.png');
-    expect(blob.type).toBe('image/png');
+    const blob = await fetcher('data:image/png;base64,AQID');
     expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([
       1, 2, 3,
     ]);
-  });
-});
-
-describe('createImageFetcher (multi-address fallback)', () => {
-  /** A connect-level failure, shaped the way `fetch` reports one. */
-  const refused = () =>
-    Object.assign(new TypeError('fetch failed'), {
-      cause: Object.assign(new Error('connect ECONNREFUSED'), {
-        code: 'ECONNREFUSED',
-      }),
-    });
-
-  it('falls back to the next approved address when the first is unreachable', async () => {
-    // Pinning must not cost what plain `fetch` gives for free: given a name,
-    // it tries every address the resolver returned, so a host whose first
-    // record is dead still loads. Dialling only `addresses[0]` would make
-    // that host fail outright — working before this guard, broken after.
-    const seen: string[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input) => {
-      seen.push(String(input));
-      if (seen.length === 1) throw refused();
-      return new Response(new Uint8Array([9]), { status: 200 });
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: async () => ['93.184.216.34', '203.0.113.7'],
-    });
-
-    const blob = await fetcher('http://cdn.example.com/a.png');
-    expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual([9]);
-    expect(seen).toEqual([
-      'http://93.184.216.34/a.png',
-      'http://203.0.113.7/a.png',
-    ]);
-  });
-
-  it('reports the last failure when every approved address is unreachable', async () => {
-    const stubFetch: typeof globalThis.fetch = async () => {
-      throw refused();
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: async () => ['93.184.216.34', '203.0.113.7'],
-    });
-
-    await expect(fetcher('http://cdn.example.com/a.png')).rejects.toThrow(
-      /fetch failed/,
-    );
-  });
-
-  it('never dials any address when one of them is non-public', async () => {
-    // The fallback must not become a way to reach an address the guard would
-    // have refused. It cannot: a single non-public address refuses the whole
-    // name, so no address of it is ever dialled — not even the public one.
-    const stubFetch = vi.fn<typeof globalThis.fetch>(
-      async () => new Response(new Uint8Array([1]), { status: 200 }),
-    );
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: async () => ['93.184.216.34', '169.254.169.254'],
-    });
-
-    await expect(fetcher('http://cdn.example.com/a.png')).rejects.toThrow(
-      /non-public address/,
-    );
-    expect(stubFetch).not.toHaveBeenCalled();
-  });
-
-  it('does not retry other addresses after a timeout', async () => {
-    // A refused address fails instantly, so the next one is worth trying. A
-    // hop that burned its whole timeout has spent this image's budget, and
-    // retrying each remaining address would multiply an export's worst-case
-    // wall-clock by the record count.
-    const seen: string[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input) => {
-      seen.push(String(input));
-      throw new DOMException('The operation timed out.', 'TimeoutError');
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: async () => ['93.184.216.34', '203.0.113.7'],
-    });
-
-    await expect(fetcher('http://cdn.example.com/a.png')).rejects.toThrow(
-      /timed out/,
-    );
-    expect(seen).toEqual(['http://93.184.216.34/a.png']);
-  });
-
-  it('dials at most four addresses however many the resolver returns', async () => {
-    const seen: string[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input) => {
-      seen.push(String(input));
-      throw refused();
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: async () => [
-        '93.184.216.1',
-        '93.184.216.2',
-        '93.184.216.3',
-        '93.184.216.4',
-        '93.184.216.5',
-        '93.184.216.6',
-      ],
-    });
-
-    await expect(fetcher('http://cdn.example.com/a.png')).rejects.toThrow();
-    expect(seen).toHaveLength(4);
-  });
-
-  it('carries the original name in Host on every fallback attempt', async () => {
-    const hosts: (string | undefined)[] = [];
-    const stubFetch: typeof globalThis.fetch = async (_input, init) => {
-      hosts.push(new Headers(init?.headers).get('host') ?? undefined);
-      if (hosts.length === 1) throw refused();
-      return new Response(new Uint8Array([1]), { status: 200 });
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: async () => ['93.184.216.34', '203.0.113.7'],
-    });
-
-    await fetcher('http://cdn.example.com/a.png');
-    expect(hosts).toEqual(['cdn.example.com', 'cdn.example.com']);
-  });
-
-  it('still dials https once, by name', async () => {
-    // https is never pinned, so multiple addresses change nothing about it.
-    const seen: string[] = [];
-    const stubFetch: typeof globalThis.fetch = async (input) => {
-      seen.push(String(input));
-      return new Response(new Uint8Array([1]), { status: 200 });
-    };
-
-    const fetcher = createImageFetcher({
-      serverBase: 'https://api.wafflebase.io',
-      fetch: stubFetch,
-      lookup: async () => ['93.184.216.34', '203.0.113.7'],
-    });
-
-    await fetcher('https://cdn.example.com/a.png');
-    expect(seen).toEqual(['https://cdn.example.com/a.png']);
+    expect(warnings).toEqual([]);
   });
 });

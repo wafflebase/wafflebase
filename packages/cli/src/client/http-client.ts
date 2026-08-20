@@ -8,6 +8,7 @@ import {
   saveSession,
   decodeJwtExpiry,
 } from '../config/session.js';
+import { fetchOrThrow } from '../errors.js';
 
 /**
  * Canonical note content JSON exchanged with the content endpoint. A note's
@@ -92,7 +93,7 @@ export class HttpClient {
     if (!this.config.refreshToken) return false;
 
     const server = this.config.server.replace(/\/$/, '');
-    const res = await fetch(`${server}/auth/refresh`, {
+    const res = await fetchOrThrow(`${server}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: this.config.refreshToken }),
@@ -130,12 +131,17 @@ export class HttpClient {
    * Send a request, retrying once with a refreshed session on a 401 under JWT
    * auth. `build` is invoked per attempt so the retry picks up the new access
    * token — and so a multipart body is rebuilt rather than replayed.
+   *
+   * `fetchOrThrow` rather than a bare `fetch`, so a request that never
+   * reached an HTTP server (DNS, refused connection, TLS) raises a
+   * `SystemError` and exits `2` — every request the CLI makes, including
+   * the multipart file endpoints, is classified the same way.
    */
   private async send(
     url: string,
     build: (auth: Record<string, string>) => RequestInit,
   ): Promise<{ res: Response; sessionExpired: boolean }> {
-    const res = await fetch(url, build(this.authHeaders));
+    const res = await fetchOrThrow(url, build(this.authHeaders));
 
     if (
       res.status === 401 &&
@@ -146,7 +152,7 @@ export class HttpClient {
         return { res, sessionExpired: true };
       }
       return {
-        res: await fetch(url, build(this.authHeaders)),
+        res: await fetchOrThrow(url, build(this.authHeaders)),
         sessionExpired: false,
       };
     }
@@ -165,17 +171,16 @@ export class HttpClient {
   }
 
   /**
-   * A JSON request against a fully-qualified URL.
-   *
-   * Every JSON call — the `/api/v1` ones through `request()` and the
-   * workspace management ones that live outside that base — goes through
-   * here, so all of them refresh a JWT session on a 401 and report the same
-   * `SESSION_EXPIRED` envelope when the refresh fails. The management
+   * One authenticated JSON round trip against an absolute URL. Every JSON
+   * endpoint goes through here — the workspace-scoped `/api/v1` ones via
+   * `request()` and the management endpoints (API keys) with their own
+   * base — so all of them refresh a JWT session on a 401 and report the
+   * same `SESSION_EXPIRED` envelope when the refresh fails. The management
    * endpoints used to call `fetch` directly, which made `api-keys` the one
    * namespace where an expired session surfaced as whatever the backend's
    * 401 body happened to be.
    */
-  private async requestUrl<T>(
+  private async sendJson<T>(
     method: string,
     url: string,
     body?: unknown,
@@ -199,7 +204,7 @@ export class HttpClient {
     path: string,
     body?: unknown,
   ): Promise<ApiResponse<T>> {
-    return this.requestUrl<T>(method, `${this.base}${path}`, body);
+    return this.sendJson<T>(method, `${this.base}${path}`, body);
   }
 
   // Documents
@@ -395,19 +400,19 @@ export class HttpClient {
   }
 
   // API Keys (management endpoints sit outside the `/api/v1` base, but go
-  // through `requestUrl` like everything else so the 401 refresh and the
-  // SESSION_EXPIRED envelope apply here too).
-  private apiKeysUrl(): string {
+  // through the same authenticated round trip — see `sendJson` — so the 401
+  // refresh and the SESSION_EXPIRED envelope apply here too).
+  private get apiKeysBase(): string {
     const server = this.config.server.replace(/\/$/, '');
     return `${server}/workspaces/${seg(this.config.workspace)}/api-keys`;
   }
   listApiKeys() {
-    return this.requestUrl('GET', this.apiKeysUrl());
+    return this.sendJson('GET', this.apiKeysBase);
   }
   createApiKey(name: string) {
-    return this.requestUrl('POST', this.apiKeysUrl(), { name });
+    return this.sendJson('POST', this.apiKeysBase, { name });
   }
   revokeApiKey(id: string) {
-    return this.requestUrl('DELETE', `${this.apiKeysUrl()}/${seg(id)}`);
+    return this.sendJson('DELETE', `${this.apiKeysBase}/${seg(id)}`);
   }
 }

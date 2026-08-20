@@ -2,7 +2,7 @@
  * `scenes.config.json` as DATA — a rot guard, not a parser test.
  *
  * The manifest names eleven files in `packages/frontend/src/app/**` and an exported symbol
- * in each. Nothing imports it yet (the scene runtime is PRs 10-12), so nothing would notice
+ * in each. As of 11c the dom scenes are live, so a manifest mistake now reaches a frame
  * if the frontend renamed a page — and the frontend moves weekly. The failure that would
  * follow is the worst kind: the editor lists a scene, the frame requests a module that does
  * not resolve, and the symptom is a blank iframe rather than a message.
@@ -18,6 +18,7 @@
  */
 
 import fs from 'node:fs';
+import { fixturesFor } from '../../src/scenes/fixtures/index.ts';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import manifest from '../../scenes.config.json' with { type: 'json' };
@@ -36,6 +37,8 @@ const scenes = manifest.scenes as {
   routePattern?: string;
   shell?: string;
   mocks?: string[];
+  /** ref name → fixture set, e.g. `{ query: 'documents/list' }`. */
+  fixtures?: Record<string, string>;
   deferred?: boolean;
 }[];
 
@@ -136,14 +139,51 @@ describe('scenes.config.json', () => {
     }
   });
 
-  it('defers every scene, because the runtime that mounts them is not here yet', () => {
-    // THIS ASSERTION IS EXPECTED TO CHANGE, and that is its purpose. 8c ships the token
-    // pipeline; the frame entry, SceneHost, providers.tsx and the fixtures are PRs 10-12.
-    // Until then a loader would be generated for a scene that cannot mount, and Vite's
-    // dependency scanner crawls its specifier at startup regardless of whether anyone
-    // clicks it. Un-deferring is a deliberate line in the PR that supplies what the scene
-    // was waiting for, rather than something that happens by omission.
+  it('runs every dom scene and still defers every canvas scene', () => {
+    // The 8c assertion here was "every scene is deferred", and it said it expected to
+    // change. 11c is the change: the dom scenes have providers and fixtures now, so they
+    // mount. The canvas scenes need a mocked document store (`useDocument()` from
+    // `@yorkie-js/react`) that PR 12 supplies, and a loader for a scene that cannot mount
+    // costs a startup specifier crawl and a mount error someone has to diagnose.
     const live = scenes.filter((s) => !s.deferred).map((s) => s.id);
-    expect(live).toEqual([]);
+    const held = scenes.filter((s) => s.deferred).map((s) => s.id);
+    expect(live.sort()).toEqual(
+      ['analytics', 'datasources', 'documents', 'login', 'settings', 'settings-personal'],
+    );
+    expect(scenes.filter((s) => !s.deferred).every((s) => s.kind === 'dom')).toBe(true);
+    expect(scenes.filter((s) => s.deferred).every((s) => s.kind === 'canvas')).toBe(true);
+    expect(held.length).toBe(5);
+  });
+
+  it('resolves every fixture ref a live scene names', () => {
+    // The manifest cannot say whether a page needs data, but it CAN be held to its own
+    // word: a ref it names must produce a table. An unknown ref resolves to nothing, so
+    // the first request that needed it reaches the guard's miss path and the designer sees
+    // a frame error they then have to attribute to a typo three files away.
+    for (const s of scenes.filter((x) => !x.deferred)) {
+      for (const ref of Object.values(s.fixtures ?? {})) {
+        // The ref ALONE — no `mocks`, no `shell`. Passing the scene's mocks here made the
+        // assertion vacuous: `auth` contributes a table of its own, so an unknown ref still
+        // produced a non-empty result and a typo went unnoticed.
+        const table = fixturesFor({ fixtures: { k: ref } });
+        expect(Object.keys(table).length, `${s.id} names fixture ref "${ref}"`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('backs every app-shell scene with the shell fixtures', () => {
+    // `shell: "app"` mounts the real Layout, which fetches /workspaces, /analytics/enabled
+    // and /auth/me on its own behalf — so the table has to answer those before the page's
+    // own data even matters.
+    for (const s of scenes.filter((x) => !x.deferred && x.shell === 'app')) {
+      const table = fixturesFor({ shell: s.shell, mocks: s.mocks, fixtures: s.fixtures });
+      expect(Object.keys(table), `${s.id}`).toEqual(
+        expect.arrayContaining([
+          '/api/workspaces',
+          '/api/analytics/enabled',
+          '/api/auth/me',
+        ]),
+      );
+    }
   });
 });

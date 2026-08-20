@@ -24,6 +24,13 @@ Two paths, in priority order:
    `WAFFLEBASE_API_KEY`, or set `api-key:` in `~/.wafflebase/config.yaml`.
 2. **OAuth session** — `wafflebase login` opens a browser, completes
    GitHub OAuth, and writes a JWT session to `~/.wafflebase/session.json`.
+   The login callback is bound to a per-attempt nonce, which the backend
+   echoes back as the callback's `state`, so a server that predates that
+   echo never completes one; against such a server (a self-hosted backend
+   that has not upgraded yet) pass
+   `wafflebase login --allow-unbound-callback` to accept its `state`-less
+   callback anyway. It warns on stderr, and a *mismatched* `state` stays
+   refused under the flag.
 
 Always pair API keys with a workspace ID:
 
@@ -37,35 +44,18 @@ export WAFFLEBASE_WORKSPACE=ws-…
 `docs export` / `slides export` fetch the images a document references. An
 image `src` is content someone else may have written, so the fetcher speaks
 only `http`/`https`/`data` and refuses a non-public address (loopback,
-private, `169.254.169.254`, CGNAT, multicast/reserved, and any IPv6 that is
-not global unicast) unless it is the configured `--server`'s own host **and
-port** — either scheme, since a scheme does not select a different service
-but a port does. A hostname is resolved before it is fetched and refused the
-same way if it answers with a non-public address, so `169.254.169.254.nip.io`
-and friends get no further than the literal would; an `http:` request is then
-sent to the address that check approved, so DNS cannot answer differently
-between the check and the connection.
+private, `169.254.169.254`, CGNAT, multicast/reserved, and the IPv6
+spellings of all of those) unless it is the configured `--server`'s own host
+**and port**. The hostname is resolved before it is fetched and judged per
+address, so `169.254.169.254.nip.io` and friends get no further than the
+literal would, and the request is then pinned to the addresses that check
+approved — DNS cannot answer differently between the check and the
+connection. Every redirect hop is gated the same way, up to five.
 
-That pinning has one cost, on plain `http:` only: the request carries
-`Host: <ip>` rather than the original name, because Node's `fetch` drops a
-`host` header as a forbidden header name. A public `http:` image served by a
-name-based virtual host can therefore come back as the wrong site or a 404 —
-list such a host in `WAFFLEBASE_IMAGE_HOSTS` (exempt hosts are never pinned)
-or serve it over `https:`, which is dialled by name because a certificate
-cannot be validated against an IP literal. On `https:` it is TLS, not the
-resolver check, that stands between a rebound name and an internal host.
-
-Each image also gets 30 seconds and 25 MB, and an image that is refused or
-unreachable is reported on stderr and skipped rather than failing the whole
-export. If your deployment really serves images from somewhere else — an
-internal MinIO, a reverse proxy on a second port, another port on the API
-host — name it:
-
-```bash
-export WAFFLEBASE_IMAGE_HOSTS=10.0.0.5:9000,minio.internal
-```
-
-Entries are `host` or `host:port`; a portless entry matches any port.
+An image that is refused or unreachable is reported on stderr and skipped,
+rather than failing the whole export: one `src` you cannot fix must not cost
+you the export you asked for. The rest of the document still exports, minus
+those images.
 
 ## Command Tree (v0.3.7)
 
@@ -156,10 +146,11 @@ wafflebase schema cell.get          # → sheets.cells.get
   `USAGE`. A failed request whose
   body the backend did *not* send in that shape (an Express/Nest
   `{message, error, statusCode}` 404/500, an HTML proxy page) reports
-  `"HTTP_ERROR"` with `"HTTP <status>"` — plus the upstream's own
-  wording when it had any, as `"HTTP 404: Document has no file"`. Every
-  command reports the same code for that condition, so the branch does
-  not depend on which subcommand ran. Local failures (bad input, a
+  `"HTTP_ERROR"` — or `"AUTH_ERROR"` / `"SERVER_ERROR"` when the status
+  says so — with `"HTTP <status>"` plus the upstream's own wording when
+  it had any, as `"HTTP 404: Document has no file"`. Every command
+  reports the same code for that condition, so the branch does not
+  depend on which subcommand ran. Local failures (bad input, a
   filesystem error) still report `"ERROR"`.
 - **Forwarded backend errors are bounded**: when the backend *did* send
   the envelope, its own `code` is what you get — that is the value to
@@ -171,10 +162,16 @@ wafflebase schema cell.get          # → sheets.cells.get
   (`command`, a request id) are dropped once the whole body exceeds
   4,000 bytes, leaving `{code, message}`. Treat `message` as a display string,
   not a parseable payload.
-- **Exit codes**: `0` success, `1` failure. Every failure exits `1` —
-  including a network or auth failure — so branch on the envelope's
-  `code`, not the exit code. (`2` is reserved for a future system-error
-  split and is not emitted today.)
+- **Exit codes**: `0` success, `1` user error (bad input, 404, type
+  mismatch), `2` system error — an unreachable server
+  (`NETWORK_ERROR`), rejected credentials (`AUTH_ERROR`, HTTP 401/403),
+  or a server fault (`SERVER_ERROR`, HTTP 5xx). A 2xx the CLI cannot use
+  — a create that returned no id, a download that returned no bytes — is
+  a server fault too. The class is decided where the failure is raised,
+  so `--quiet` reports it too.
+- **Proxies**: image downloads during `docs export` / `slides export`
+  honor `http_proxy` / `https_proxy` / `all_proxy` and `no_proxy` (either
+  letter case).
 
 ## Skills (for AI agents)
 

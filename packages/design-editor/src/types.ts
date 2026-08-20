@@ -166,6 +166,15 @@ export interface SceneMeta {
   viewports?: string[];
   readOnly?: boolean;
   /**
+   * Declared but not mountable yet — the frame's loader table excludes it.
+   *
+   * A real intent, not a mistake: the scene names a file the metadata sweep checks, and its
+   * node tree is analysed, but something it needs at runtime (providers, a mocked store) is
+   * not in place. The shell must show it as unavailable rather than omit it — omitting it
+   * would make a declared scene look undeclared — and must not offer it as a selection.
+   */
+  deferred?: boolean;
+  /**
    * One walkable root per JSX-returning function — the component PLUS local
    * helpers like `renderRow`. That is what makes `items.map(renderRow)` a
    * supported case: the helper's JSX is `static` in its own root, so structural

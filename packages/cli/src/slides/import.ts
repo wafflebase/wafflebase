@@ -11,6 +11,7 @@ import {
   type CliPptxImportOptions,
 } from './pptx-import.js';
 import type { ImportReport } from '@wafflebase/slides/node';
+import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
 import { upstreamErrorJson } from '../output/formatter.js';
 import { seg } from '../client/url.js';
 
@@ -194,7 +195,7 @@ export async function runSlidesImport(
     const res = await client.putSlidesContent(replace, deck);
     if (!res.ok) {
       io.stderr(upstreamErrorJson(res));
-      return { exitCode: 1 };
+      return { exitCode: exitCodeForStatus(res.status) };
     }
     io.stdout(
       JSON.stringify(
@@ -237,7 +238,7 @@ export async function runSlidesImport(
   const created = await client.createDocument(inferredTitle, 'slides');
   if (!created.ok) {
     io.stderr(upstreamErrorJson(created));
-    return { exitCode: 1 };
+    return { exitCode: exitCodeForStatus(created.status) };
   }
   const newId = (created.data as { id?: string } | null)?.id;
   if (!newId) {
@@ -248,13 +249,16 @@ export async function runSlidesImport(
         2,
       ),
     );
-    return { exitCode: 1 };
+    // A 2xx that omitted the id is the server contradicting itself —
+    // nothing the caller can retype, so it exits with the system class
+    // like every other server fault.
+    return { exitCode: EXIT_SYSTEM_ERROR };
   }
 
   const put = await client.putSlidesContent(newId, deck);
   if (!put.ok) {
     io.stderr(upstreamErrorJson(put));
-    return { exitCode: 1 };
+    return { exitCode: exitCodeForStatus(put.status) };
   }
 
   io.stdout(

@@ -12,6 +12,7 @@ import {
   InvalidFormatError,
   type OutputFormat,
 } from '../src/output/formatter.js';
+import { SystemError, httpError } from '../src/errors.js';
 import { InvalidDocxError } from '../src/docs/docx-import.js';
 import { buildProgram, runCli } from '../src/cli.js';
 import { createProgram } from '../src/commands/root.js';
@@ -282,6 +283,25 @@ describe('outputError', () => {
     expect(getEmittedBody().error.message).toBe('plain string failure');
     expect(process.exitCode).toBe(1);
   });
+
+  it('exits 2 for a system error', () => {
+    outputError(new SystemError('NETWORK_ERROR', 'fetch failed'));
+    const body = getEmittedBody();
+    expect(body.error.code).toBe('NETWORK_ERROR');
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('exits 2 for an auth failure surfaced by httpError', () => {
+    outputError(httpError(401));
+    expect(getEmittedBody().error.code).toBe('AUTH_ERROR');
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('still exits 1 for a 404, which is a user error', () => {
+    outputError(httpError(404));
+    expect(getEmittedBody().error.code).toBe('ERROR');
+    expect(process.exitCode).toBe(1);
+  });
 });
 
 describe('output', () => {
@@ -404,7 +424,10 @@ describe('--quiet does not suppress the body or the error envelope', () => {
     expect(String(stdoutSpy.mock.calls[0]?.[0])).toBe('id,title\ndoc-1,Doc');
   });
 
-  it('prints the error envelope on stderr and exits 1 under --quiet', async () => {
+  it('prints the error envelope on stderr and fails under --quiet', async () => {
+    // `--quiet` gates neither the envelope nor the classification: a 5xx
+    // is a server fault, so it exits 2 with `SERVER_ERROR` here exactly
+    // as it would without the flag.
     stubFetch(500, null);
     await run('docs', 'get', 'doc-1', '--quiet');
     expect(stdoutSpy).not.toHaveBeenCalled();
@@ -412,10 +435,8 @@ describe('--quiet does not suppress the body or the error envelope', () => {
     const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
       error: { code: string; message: string };
     };
-    // A failed request with no parseable body is an upstream failure, so it
-    // reports the same `HTTP_ERROR` every other command reports for it.
-    expect(body.error).toEqual({ code: 'HTTP_ERROR', message: 'HTTP 500' });
-    expect(process.exitCode).toBe(1);
+    expect(body.error).toEqual({ code: 'SERVER_ERROR', message: 'HTTP 500' });
+    expect(process.exitCode).toBe(2);
   });
 
   // `sheets cells batch` parses its input before it talks to the server; that

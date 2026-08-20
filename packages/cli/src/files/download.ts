@@ -5,6 +5,7 @@ import {
   type BinaryIO,
 } from '../output/binary.js';
 import type { BinaryResponse } from '../client/http-client.js';
+import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
 import { upstreamErrorJson } from '../output/formatter.js';
 
 /**
@@ -71,7 +72,7 @@ export async function runFilesDownload(
   const res = await client.downloadFileDocument(docId);
   if (!res.ok) {
     io.stderr(upstreamErrorJson(res));
-    return { exitCode: 1 };
+    return { exitCode: exitCodeForStatus(res.status) };
   }
   // A response that succeeded but carried no body is still a failure, but not
   // an upstream *error* — routing it through `upstreamErrorJson` would report
@@ -90,7 +91,14 @@ export async function runFilesDownload(
         2,
       ),
     );
-    return { exitCode: 1 };
+    // The status decides the exit class: a 404 is the caller's doc id, a
+    // 401/5xx is not something they can fix by asking differently. An OK
+    // status that carried no bytes is neither — the server said yes and
+    // sent nothing, which is a server fault, so it exits with the
+    // system-error class rather than blaming the caller's arguments.
+    return {
+      exitCode: res.ok ? EXIT_SYSTEM_ERROR : exitCodeForStatus(res.status),
+    };
   }
 
   const target = resolveDownloadTarget(out, res.fileName, docId);

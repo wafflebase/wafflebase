@@ -45,6 +45,7 @@ const registry: CommandSchema[] = [
     safety: 'write',
     parameters: {
       '--server': { type: 'string', required: false, description: 'Server URL', default: 'https://api.wafflebase.io' },
+      '--allow-unbound-callback': { type: 'boolean', required: false, description: 'Accept a login callback that carries no state (server predates nonce-bound CLI login); downgrades the binding that stops a local page from completing this login' },
     },
     response: { user: 'string', workspace: 'string' },
   },

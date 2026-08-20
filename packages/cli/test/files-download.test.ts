@@ -163,10 +163,32 @@ describe('runFilesDownload', () => {
     expect(err.join('')).toContain('NOT_FOUND');
   });
 
-  it('does not report a bodyless success as an upstream error status', async () => {
-    // Routing this through `upstreamErrorJson` would print the status the
-    // response actually carried — `HTTP 200` on a *failure* — which tells an
-    // agent reading stderr the opposite of what happened.
+  it.each([
+    [401, 2],
+    [403, 2],
+    [500, 2],
+    [400, 1],
+    [404, 1],
+  ])('exits with the class of status %i', async (status, exitCode) => {
+    const { io, writes } = makeIO();
+    const client = {
+      downloadFileDocument: vi.fn().mockResolvedValue({
+        ok: false,
+        status,
+        data: { error: { code: 'HTTP_ERROR' } },
+      }),
+    };
+    const res = await runFilesDownload({ docId: 'doc-1' }, client, io);
+    expect(res.exitCode).toBe(exitCode);
+    expect(writes).toHaveLength(0);
+  });
+
+  it('exits 2 when an OK response carried no bytes', async () => {
+    // The server said yes and sent nothing. Reporting that as a user
+    // error would tell the caller to fix arguments that were correct —
+    // and routing it through `upstreamErrorJson` would print the status
+    // the response actually carried (`HTTP 200` on a *failure*), which
+    // tells an agent reading stderr the opposite of what happened.
     const { io, writes, err } = makeIO();
     const client = {
       downloadFileDocument: vi
@@ -174,7 +196,7 @@ describe('runFilesDownload', () => {
         .mockResolvedValue({ ok: true, status: 200, fileName: 'a.zip' }),
     };
     const res = await runFilesDownload({ docId: 'doc-1' }, client, io);
-    expect(res.exitCode).toBe(1);
+    expect(res.exitCode).toBe(2);
     expect(writes).toHaveLength(0);
     expect(err.join('')).toContain('no file content');
     expect(err.join('')).not.toMatch(/"message":\s*"HTTP 200"/);
