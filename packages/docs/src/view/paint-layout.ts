@@ -381,7 +381,13 @@ export function renderRun(
     ? (style.fontSize ?? theme.defaultFontSize) * 0.6
     : style.fontSize;
 
-  // Link defaults: blue text + underline (user-set values take precedence)
+  // Link defaults: blue text + underline (user-set values take precedence).
+  //
+  // On an `href` run the *absence* of `underline` therefore means "underlined"
+  // and only an explicit `underline: false` turns it off — this run style is
+  // the second implicit default layer (the first being named styles), so
+  // `Doc.styleOffAsClear` keeps that `false` instead of clearing the key.
+  // Clearing it here would make underline-off on a link a permanent no-op.
   const resolvedColor = resolveColor(style.color);
   let textColor = resolvedColor ?? theme.defaultColor;
   let showUnderline = style.underline ?? false;

@@ -362,9 +362,51 @@ describe('Doc', () => {
       expect(cd?.style.italic).toBe(false);
       expect('bold' in (cd?.style ?? {})).toBe(false);
     });
+
+    // `renderRun` underlines an `href` run whose `underline` is absent, so on
+    // a link the absent key means *underlined* and clearing it would make
+    // underline-off a permanent no-op.
+    it('keeps an explicit false when the range carries a hyperlink', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      const range = {
+        anchor: { blockId, offset: 0 },
+        focus: { blockId, offset: 6 },
+      };
+      doc.applyInlineStyle(range, { href: 'https://example.com' });
+
+      doc.applyInlineStyle(range, { underline: false, bold: false });
+
+      const style = doc.document.blocks[0].inlines[0].style;
+      expect(style.underline).toBe(false);
+      expect('bold' in style).toBe(false);
+    });
   });
 
   describe('setBlockType', () => {
+    // The `italic: false` a Heading 6 run legitimately stores is a dead flag
+    // the moment the block stops being a Heading 6 — the same #749 hazard,
+    // just reached through a block-type change instead of a toggle.
+    it('drops a style-off override the new block type no longer defaults', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      doc.setBlockType(blockId, 'heading', { headingLevel: 6 });
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
+        { italic: false },
+      );
+      expect(doc.document.blocks[0].inlines).toHaveLength(3);
+
+      doc.setBlockType(blockId, 'paragraph');
+
+      const inlines = doc.document.blocks[0].inlines;
+      expect(inlines).toHaveLength(1);
+      expect(inlines[0].text).toBe('abcdef');
+      expect('italic' in inlines[0].style).toBe(false);
+    });
+
     it('should change a paragraph to heading', () => {
       const doc = Doc.create();
       const blockId = doc.document.blocks[0].id;

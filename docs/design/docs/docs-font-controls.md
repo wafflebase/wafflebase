@@ -249,9 +249,29 @@ invariant, which holds across the docs engine, the slides text-box
 editor (which drives the same `Doc`), and the Yorkie store:
 
 > A boolean inline key the user turns off is removed from the run's
-> style. The one exception is a key the block's named style supplies
-> truthy (Heading 6 is italic), where an explicit `false` is the
-> override that makes the toggle visible.
+> style — **unless some layer under the run style supplies it truthy**,
+> where an explicit `false` is the override that makes the toggle
+> visible at all.
+
+There are exactly two such under-layers, and both are exceptions:
+
+1. **The block's named style** — Heading 6 is italic, so `italic:
+   false` is kept on a Heading 6 run.
+2. **The hyperlink default** — `renderRun` underlines an `href` run
+   whose `underline` is *absent* (`view/paint-layout.ts`), so on a link
+   the absent key means underlined and `underline: false` is kept.
+   Decided per slice: if any run the write touches is a link, the
+   slice's `underline: false` survives. A dead flag on the plain runs
+   beside a link is strictly better than an underline that cannot be
+   turned off.
+
+Exception 1 is *conditional on the block type*, so it can go stale: the
+`italic: false` a Heading 6 run legitimately stores becomes a dead flag
+the moment the block turns into a paragraph. `Doc.setBlockType`
+therefore re-normalises the block it just retyped (`dropStaleStyleOff`),
+dropping any boolean `false` the block's new style no longer supplies.
+Exception 2 needs no such sweep — its under-layer is the run's own
+`href`, which a block-type change cannot remove.
 
 A stored `false` is a dead flag. `inlineStylesEqual` compares strictly,
 so `false !== undefined` and `normalizeInlines` can never re-merge the
@@ -275,7 +295,26 @@ Three pieces implement it, none of which any caller has to know about:
 - `YorkieDocStore` already turned an `undefined` key into
   `removeStyleByPath` (see above), so the CRDT attribute is dropped
   too. Undo is unaffected: Yorkie's `TreeStyleOperation` builds the
-  reverse of a remove from the attributes it displaced.
+  reverse of a remove from the attributes it displaced. The tree write
+  sends *only* the patch's own attributes — re-asserting the node's
+  existing ones would make every toggle-off a full rewrite that
+  clobbers a concurrent remote change to an unrelated attribute.
+
+Two consumers of the old "off is stored as `false`" shape had to change
+with it:
+
+- **The format painter** (Cmd+Shift+C / Cmd+Alt+V) applies its buffer as
+  a merge patch, so it used to get "remove bold from the target" for
+  free from the source run's `bold: false`. It now bakes every boolean
+  explicitly when copying (`captureFormatAtCursor`), reading the
+  *effective* value so painting from an italic Heading 6 makes the
+  target italic rather than clearing it.
+- **`normalizeInlines`** merges any two adjacent runs whose styles
+  compare equal, and clearing a key is exactly what can make two runs
+  equal. Structural inlines (images, page numbers) are now excluded
+  from that merge, matching `isStructuralInline`'s contract: two
+  *identical* images are still two images, and concatenating them
+  loses one.
 
 Out of scope: `false` flags already stored by older builds are left
 alone — they resolve identically and are cleared the next time the user

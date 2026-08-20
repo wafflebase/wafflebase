@@ -830,6 +830,32 @@ describe('cell-rectangle routing for clear formatting and the format painter', (
     }
     expect(storedCell(store, 2).inlines[0].style.italic).toBeUndefined();
   });
+
+  /**
+   * The painter applies its buffer as a *merge patch*, so a buffer holding
+   * only the flags the source happens to carry can add a flag but never take
+   * one away. It used to get that for free from the toggle-off writing an
+   * explicit `false`; once toggle-off started clearing the key (issue #749)
+   * the buffer has to make every boolean explicit itself.
+   *
+   * The source paragraph here is italic and *not* bold; the cells are bold.
+   */
+  test('Cmd+Alt+V removes a flag the copied format does not have', () => {
+    const { editor, store, container, table, source } = setup();
+    editor._setSelectionForTest({
+      anchor: { blockId: source.id, offset: 1 },
+      focus: { blockId: source.id, offset: 1 },
+    });
+    dispatchKey(container, 'c', { shiftKey: true });
+
+    selectFirstTwoCells(editor, table);
+    dispatchKey(container, 'v', { altKey: true });
+
+    for (const col of [0, 1]) {
+      expect(storedCell(store, col).inlines[0].style.bold).toBeUndefined();
+    }
+    expect(storedCell(store, 2).inlines[0].style.bold).toBe(true);
+  });
 });
 
 /**

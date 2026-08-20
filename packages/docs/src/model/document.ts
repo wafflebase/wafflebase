@@ -45,6 +45,22 @@ const BOOLEAN_INLINE_STYLE_KEYS = [
   'subscript',
 ] as const;
 
+/**
+ * Does any run the range touches carry a hyperlink?
+ *
+ * A collapsed range touches the runs on both sides of the caret, since a
+ * caret sitting on a link boundary is about to write into either.
+ */
+function rangeCarriesLink(block: Block, from: number, to: number): boolean {
+  let pos = 0;
+  for (const inline of block.inlines) {
+    const end = pos + inline.text.length;
+    const touches = from === to ? pos <= from && end >= from : end > from && pos < to;
+    if (touches && inline.style.href !== undefined) return true;
+    pos = end;
+  }
+  return false;
+}
 
 /**
  * The current editing context for header/footer routing.
@@ -374,7 +390,7 @@ export class Doc {
    */
   applyInlineStyle(range: DocRange, style: Partial<InlineStyle>): void {
     visitRangeSlices(this, range, (blockId, from, to) => {
-      this.store.applyStyle(blockId, from, to, this.styleOffAsClear(blockId, style));
+      this.store.applyStyle(blockId, from, to, this.styleOffAsClear(blockId, from, to, style));
     });
     this.refresh();
   }
@@ -391,30 +407,91 @@ export class Doc {
    * dead flag also pins the run against a style later redefined to set it —
    * the lazy-cascade hazard `getSelectionStyleImpl` documents (issue #749).
    *
-   * The exception is the case where `false` carries information: when the
-   * block's named style supplies the key (Heading 6 is italic), clearing it
-   * would leave the run italic and the toggle-off would be a visual no-op.
-   * There the explicit `false` is the override and is kept.
+   * The exception is every case where `false` carries information — where
+   * some layer *under* the run style supplies the key, so clearing it would
+   * leave the run styled and the toggle-off would be a visual no-op. There
+   * are two such layers, and both are checked here:
+   *
+   * 1. The block's named style (Heading 6 is italic).
+   * 2. The hyperlink default: `renderRun` underlines an `href` run unless
+   *    `style.underline` is explicitly set (`view/paint-layout.ts`), so an
+   *    absent `underline` on a link means *underlined*.
+   *
+   * Keeping the whole slice's `underline: false` when *any* run in it is a
+   * link is deliberate: a slice is written as one patch, and a dead flag on
+   * the plain runs beside a link is strictly better than an untogglable
+   * underline on the link.
    */
   private styleOffAsClear(
     blockId: string,
+    from: number,
+    to: number,
     style: Partial<InlineStyle>,
   ): Partial<InlineStyle> {
+    let block: Block | undefined;
+    let looked = false;
     let defaults: Partial<InlineStyle> | undefined;
     let cleared: Partial<InlineStyle> | undefined;
     for (const key of BOOLEAN_INLINE_STYLE_KEYS) {
       if (style[key] !== false) continue;
+      if (!looked) {
+        block = this.findBlock(blockId);
+        looked = true;
+      }
       if (!defaults) {
-        const block = this.findBlock(blockId);
         defaults = block
           ? resolveStyleInline(blockStyleId(block), this._document.styles)
           : {};
       }
       if (defaults[key]) continue;
+      if (key === 'underline' && block && rangeCarriesLink(block, from, to)) continue;
       cleared = cleared ?? { ...style };
       cleared[key] = undefined;
     }
     return cleared ?? style;
+  }
+
+  /**
+   * Drop a boolean `false` that `styleOffAsClear` kept as a named-style
+   * override but whose named style no longer supplies the key.
+   *
+   * Called after a block-type change: the `italic: false` a Heading 6 run
+   * legitimately stored becomes a dead flag the moment the block turns into a
+   * paragraph, which is the very #749 hazard the clear-on-toggle-off rule
+   * exists to remove. The link-underline override is left alone — its
+   * defaulting layer is the run's own `href`, not the block's style, so a
+   * block-type change cannot strand it.
+   *
+   * Returns whether anything was written, so the caller can skip a second
+   * store read when there was nothing stale.
+   */
+  private dropStaleStyleOff(blockId: string): boolean {
+    const block = this.findBlock(blockId);
+    if (!block) return false;
+    const defaults = resolveStyleInline(blockStyleId(block), this._document.styles);
+
+    // Style-only writes never change the text, so block-level offsets
+    // collected up front stay valid across the whole loop.
+    const edits: Array<{ from: number; to: number; style: Partial<InlineStyle> }> = [];
+    let pos = 0;
+    for (const inline of block.inlines) {
+      const end = pos + inline.text.length;
+      let patch: Partial<InlineStyle> | undefined;
+      for (const key of BOOLEAN_INLINE_STYLE_KEYS) {
+        if (inline.style[key] !== false) continue;
+        if (defaults[key]) continue;
+        if (key === 'underline' && inline.style.href !== undefined) continue;
+        patch = patch ?? {};
+        patch[key] = undefined;
+      }
+      if (patch && end > pos) edits.push({ from: pos, to: end, style: patch });
+      pos = end;
+    }
+
+    for (const edit of edits) {
+      this.store.applyStyle(blockId, edit.from, edit.to, edit.style);
+    }
+    return edits.length > 0;
   }
 
   /**
@@ -428,7 +505,7 @@ export class Doc {
     style: Partial<InlineStyle>,
   ): void {
     visitCellRectangleSlices(this, cellRange, (blockId, from, to) => {
-      this.store.applyStyle(blockId, from, to, this.styleOffAsClear(blockId, style));
+      this.store.applyStyle(blockId, from, to, this.styleOffAsClear(blockId, from, to, style));
     });
     this.refresh();
   }
@@ -454,7 +531,11 @@ export class Doc {
     },
   ): void {
     this.store.setBlockType(blockId, type, opts);
+    // Refresh before the cleanup: it decides from the block's *new* style id,
+    // which only becomes visible once the store read is re-taken. Refreshed
+    // again only when it actually wrote, so the common case stays one read.
     this.refresh();
+    if (this.dropStaleStyleOff(blockId)) this.refresh();
   }
 
   /**

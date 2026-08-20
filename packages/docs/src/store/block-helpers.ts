@@ -1,6 +1,6 @@
 // packages/docs/src/store/block-helpers.ts
 import type { Block, Inline, InlineStyle, BlockType } from '../model/types.js';
-import { inlineStylesEqual, generateBlockId } from '../model/types.js';
+import { inlineStylesEqual, generateBlockId, isStructuralInline } from '../model/types.js';
 
 export interface InlinePosition {
   inlineIndex: number;
@@ -72,13 +72,26 @@ export function resolveDeleteRange(
 /**
  * Merge adjacent inlines with identical styles and remove empty inlines.
  * Always returns at least one inline.
+ *
+ * Structural inlines (images, page numbers) never merge, however equal they
+ * compare: one such inline describes exactly one object, so concatenating two
+ * of them silently drops the second while the offsets keep counting both.
+ * Two *identical* images pasted side by side are exactly that case, and
+ * `inlineStylesEqual` compares images by value — so equality is not the test
+ * here. Same rule as `isStructuralInline`'s contract and the paste path's
+ * `TextEditor.normalizeInlineList`.
  */
 export function normalizeInlines(inlines: Inline[]): Inline[] {
   const merged: Inline[] = [];
   for (const inline of inlines) {
     if (inline.text.length === 0) continue;
     const last = merged[merged.length - 1];
-    if (last && inlineStylesEqual(last.style, inline.style)) {
+    if (
+      last &&
+      !isStructuralInline(last) &&
+      !isStructuralInline(inline) &&
+      inlineStylesEqual(last.style, inline.style)
+    ) {
       last.text += inline.text;
     } else {
       merged.push({ text: inline.text, style: { ...inline.style } });
@@ -325,6 +338,27 @@ function mergeInlineStyle(
 }
 
 /**
+ * Enforce the one rule a style patch cannot express on its own: superscript
+ * and subscript are mutually exclusive, so turning one on clears the other.
+ *
+ * Exported because a store may have to write the same patch twice — the
+ * Yorkie store applies it to its local `Block` cache *and* to the Tree CRDT.
+ * Both writes must resolve the exclusion identically, or the CRDT keeps both
+ * flags while the cache shows one.
+ */
+export function resolveScriptExclusion(
+  style: Partial<InlineStyle>,
+): Partial<InlineStyle> {
+  const resolved: Partial<InlineStyle> = { ...style };
+  if (resolved.superscript) {
+    resolved.subscript = undefined;
+  } else if (resolved.subscript) {
+    resolved.superscript = undefined;
+  }
+  return resolved;
+}
+
+/**
  * Apply inline style to a range within a block. Returns new Block.
  * Splits inlines as needed and normalizes the result.
  */
@@ -334,13 +368,7 @@ export function applyInlineStyle(
   to: number,
   style: Partial<InlineStyle>,
 ): Block {
-  // Enforce mutual exclusion: superscript and subscript cannot coexist
-  const resolvedStyle: Partial<InlineStyle> = { ...style };
-  if (resolvedStyle.superscript) {
-    resolvedStyle.subscript = undefined;
-  } else if (resolvedStyle.subscript) {
-    resolvedStyle.superscript = undefined;
-  }
+  const resolvedStyle = resolveScriptExclusion(style);
 
   const newBlock = cloneBlock(block);
   const newInlines: Inline[] = [];

@@ -32,6 +32,7 @@ import {
   applyInsertText,
   applyDeleteText,
   applyInlineStyleHelper,
+  resolveScriptExclusion,
   applyInsertInline,
   applySplitBlock,
   applyMergeBlocks,
@@ -1879,11 +1880,24 @@ export class YorkieDocStore implements DocStore {
     // remove from the attributes it displaced, so Cmd+Z restores the flag.
     // Guarded by 'applyStyle clearing a key → undo → key restored' in
     // tests/app/docs/yorkie-doc-store.test.ts.
-    const styleAttrs = serializeInlineStyle(style as InlineStyle);
-    const removeAttrs = removedInlineStyleAttrs(style);
+    //
+    // The patch goes through `resolveScriptExclusion` first, the same
+    // resolution `applyInlineStyleHelper` applies to the local cache: without
+    // it, `{ superscript: true }` left `subscript` standing on the Tree node
+    // while the cache had dropped it, so the two disagreed until reload.
+    //
+    // Only the patch's own attributes are sent. Re-asserting the node's
+    // existing attributes would make every style write — including a pure
+    // clear, which is now every B/I/U/S toggle-off — a full rewrite that
+    // clobbers a concurrent remote change to an attribute this patch does
+    // not mention.
+    const resolved = resolveScriptExclusion(style);
+    const styleAttrs = serializeInlineStyle(resolved as InlineStyle);
+    const removeAttrs = removedInlineStyleAttrs(resolved);
     for (let i = startIdx; i < endIdx; i++) {
-      const existingAttrs = inlines[i].attributes ?? {};
-      tree.styleByPath([...blockPath, i], { ...existingAttrs, ...styleAttrs });
+      if (Object.keys(styleAttrs).length > 0) {
+        tree.styleByPath([...blockPath, i], styleAttrs);
+      }
       if (removeAttrs.length > 0) {
         tree.removeStyleByPath([...blockPath, i], [...blockPath, i + 1], removeAttrs);
       }

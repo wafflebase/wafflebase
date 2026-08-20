@@ -227,6 +227,23 @@ describe('YorkieDocStore', () => {
       expect(store.getBlock(block.id)?.inlines[0].style.bold).toBeUndefined();
     });
 
+    // Superscript and subscript are mutually exclusive, and the store writes
+    // the same patch twice — to its local Block cache and to the Tree CRDT.
+    // The cache resolved the exclusion (via applyInlineStyleHelper) while the
+    // tree write did not, so the CRDT kept both flags and a reload showed a
+    // run that was superscript *and* subscript. Read back through a fresh
+    // store so the assertion sees the tree, not the cache.
+    it('a superscript write clears subscript in the tree, not just the cache', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      store.applyStyle(block.id, 0, 5, { subscript: true });
+      store.applyStyle(block.id, 0, 5, { superscript: true });
+
+      const fromTree = new YorkieDocStore(doc).getBlock(block.id);
+      expect(fromTree?.inlines[0].style.superscript).toBe(true);
+      expect(fromTree?.inlines[0].style.subscript).toBeUndefined();
+    });
+
     it('splitBlock → undo → blocks merged back', () => {
       const block = makeBlock('HelloWorld');
       store.setDocument({ blocks: [block] });

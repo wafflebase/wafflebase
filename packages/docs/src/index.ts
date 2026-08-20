@@ -80,6 +80,7 @@ export {
   applyInsertText,
   applyDeleteText,
   applyInlineStyle as applyInlineStyleHelper,
+  resolveScriptExclusion,
   applyInsertInline,
   applySplitBlock,
   applyMergeBlocks,
