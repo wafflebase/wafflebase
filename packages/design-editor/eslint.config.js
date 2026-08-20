@@ -50,6 +50,17 @@ export default tseslint.config(
   },
   {
     /*
+     * The root config files. `vite.shell.config.ts` is what `pnpm build` runs, so a mistake
+     * in it breaks the shell the plugin serves — the same blast radius as `src/`, and it was
+     * outside the globs above simply because it is not under `src/` or `test/`. Node
+     * globals: it runs in the Vite config loader, not a browser.
+     */
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ['*.config.ts', '*.config.js'],
+    languageOptions: { ecmaVersion: 2022, globals: globals.node },
+  },
+  {
+    /*
      * The gates and the injector: Node scripts, no React.
      *
      * Node globals AND browser ones, which is not sloppiness — the gates are full of

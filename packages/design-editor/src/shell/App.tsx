@@ -305,11 +305,40 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
     setWriteLog(h.undo ?? []);
   }, [bridge]);
 
+  /**
+   * The initial load, as ONE awaited sequence guarded by a generation.
+   *
+   * The guard is hardening rather than a fix: `main.tsx` renders `<App />` with no `bridge`
+   * prop, so it is the module-level default and never changes, and the shell deliberately
+   * runs without `StrictMode` — so there is no second mount to race against today. What
+   * makes it worth the four lines is that this effect now names `bridge` in its
+   * dependencies: the day a caller passes a different one, a slow answer from the old
+   * bridge would otherwise land on the new session's state.
+   *
+   * `await`, not `.then`, per the repo's convention. Two things this deliberately does NOT
+   * do. There is no try/catch: `BridgeClient`'s first documented rule is that nothing throws
+   * — every method resolves to `{ ok: false, error }` precisely so a caller does not need one
+   * — so it would add a branch no failure can reach. And the guard covers `setHealth` only:
+   * the three `refresh*` callbacks set their own state internally, and guarding those would
+   * mean threading a generation through each. Worth doing if a caller ever does swap the
+   * bridge; not worth it for a race nothing can currently start.
+   */
   useEffect(() => {
-    bridge.health().then(setHealth);
-    refreshMetadata();
-    refreshTokens();
-    refreshWriteLog();
+    let live = true;
+    void (async () => {
+      // CONCURRENT, as before. Awaiting them in sequence would turn one round trip into
+      // four and slow the first paint for a guard that has nothing to catch yet.
+      const [h] = await Promise.all([
+        bridge.health(),
+        refreshMetadata(),
+        refreshTokens(),
+        refreshWriteLog(),
+      ]);
+      if (live) setHealth(h);
+    })();
+    return () => {
+      live = false;
+    };
   }, [bridge, refreshMetadata, refreshTokens, refreshWriteLog]);
 
   /*
