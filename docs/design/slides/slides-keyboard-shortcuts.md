@@ -150,19 +150,38 @@ rules run again. It deliberately does nothing when
   size — owns the keyboard while focused),
 - the control's popup is still open (`data-state="open"` /
   `aria-expanded="true"`; `Toggle`'s `on`/`off` states do not match),
-- the focus did not arrive from a pointer-driven toolbar interaction — the
-  last `pointerdown` must have landed in the toolbar or in a portalled
-  popup, and any `Tab` press clears that, so keyboard navigation into the
-  toolbar keeps focus where the user put it,
+- the control is marked `data-text-edit-keepalive`. Those controls hold
+  focus on behalf of a still-mounted in-place text box —
+  `packages/docs/src/view/text-box-editor.ts` skips its blur-commit when
+  focus moves into one — so releasing would re-arm `Delete` /
+  type-to-edit against the very element being edited, and would break the
+  shared pickers' "dismiss restores focus to the trigger" contract. This is
+  an *explicit* exemption, not a side effect of the deferred re-read below:
+  a keepalive control that still holds focus one task later must stay
+  focused,
+- the user is navigating by keyboard — a `Tab` press sets that flag and only
+  the next `pointerdown` clears it, so tabbing into the toolbar (or tabbing
+  to a trigger and dismissing its menu with Esc) keeps focus where the user
+  put it. Note the gate is *not* "the last `pointerdown` landed inside the
+  toolbar": the most common dismissal is clicking the canvas to close an
+  open picker, and the slides pickers are **modal** Radix Popovers whose
+  `onCloseAutoFocus` puts focus back on the trigger. That `pointerdown`
+  lands outside the toolbar (on the canvas, or on `html` while the modal
+  layer neutralises the body), so an inside-hit requirement would leave
+  #882 reproducing on exactly that path,
 - focus has already moved on by the time the deferred check runs — which is
-  what makes text-edit controls (they end with `editor.focus()` on the
-  hidden textarea) and menu triggers handing focus to their content
-  no-ops.
+  what makes menu triggers handing focus to their portalled content, and
+  controls that end with `editor.focus()` on the hidden textarea, no-ops.
 
-Board carries its own copy of the same `<button>` branch
-(`packages/frontend/src/app/board/is-editable-target.ts`); the attribute is
-opt-in, so the board toolbar can adopt the hook when that surface is
-verified.
+Board is deliberately **not** opted in. It carries its own copy of the same
+`<button>` branch (`packages/frontend/src/app/board/is-editable-target.ts`),
+but there that branch also exists so `Space` on a focused `BoardToolbar`
+toggle re-activates the toggle instead of entering pan mode. Blurring to the
+body would silently change board's pan-mode behaviour, so adopting the
+attribute is a board decision with its own trade-off to record (see
+[`board-editing-parity.md`](../board/board-editing-parity.md#known-limitations)),
+not part of this fix. The attribute is opt-in precisely so that can happen
+separately.
 
 Exceptions:
 

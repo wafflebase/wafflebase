@@ -26,10 +26,15 @@ slides colour palettes already use). Guards:
   legitimately keep focus;
 - a trigger whose popup is still open (`data-state="open"` /
   `aria-expanded="true"`) is left alone, so opening a menu still works;
-- the release only fires when the focus arrival is part of a pointer-driven
-  interaction (last `pointerdown` landed in the toolbar or in a portalled
-  popup, and no `Tab` has been pressed since) — Tab-navigating into the
-  toolbar keeps focus where the keyboard user put it;
+- controls marked `data-text-edit-keepalive` are exempt — they hold focus on
+  behalf of a still-mounted in-place text box, and releasing would re-arm
+  `Delete` / type-to-edit against the element being edited;
+- the release is skipped while the user is *keyboard*-navigating: a `Tab`
+  press sets that, the next `pointerdown` clears it, so Tab-navigating into
+  the toolbar keeps focus where the keyboard user put it. It is deliberately
+  not gated on the `pointerdown` landing *inside* the toolbar — the most
+  common dismissal is clicking the canvas to close a modal Radix picker,
+  which then hands focus back to the trigger;
 - the check is deferred one task and re-reads `document.activeElement`, so a
   trigger that hands focus to its portalled content, and text-edit controls
   that end with `editor.focus()`, are both no-ops.
@@ -41,17 +46,24 @@ slides colour palettes already use). Guards:
 - [x] Mark the desktop slides toolbar root with the attribute and call the
       hook from `packages/frontend/src/app/slides/toolbar/index.tsx`.
 - [x] Co-located RTL test: plain-button click releases, menu open keeps
-      focus, Escape-close releases, menu-item select releases, Tab into the
-      toolbar keeps focus, input keeps focus.
+      focus, Escape-close releases, menu-item select releases, canvas-click
+      dismissal releases, keepalive control keeps focus, Tab into the
+      toolbar keeps focus, input keeps focus — each release assertion paired
+      with a no-hook control render so it cannot pass vacuously.
+- [x] Wiring test (`src/app/slides/toolbar/index.test.tsx`): the real
+      `SlidesToolbar` renders the opt-in attribute and releases focus after a
+      real toolbar button is clicked.
 - [x] Document the rule in `docs/design/slides/slides-keyboard-shortcuts.md`
       next to the editable-target gate.
 
 ## Out of scope
 
-- The identical `tag === "BUTTON"` branch in
-  `packages/frontend/src/app/board/board-editing-parity`-era
-  `packages/frontend/src/app/board/is-editable-target.ts:27`. The issue
-  flags it as a pointer, not a claim; the new attribute is opt-in, so board
-  can adopt the hook later without touching this change.
+- **Board.** The identical `tag === "BUTTON"` branch in
+  `packages/frontend/src/app/board/is-editable-target.ts:27` is a pointer,
+  not a claim — and on board that branch also keeps `Space` activating a
+  focused toolbar toggle instead of entering pan mode, so opting board in
+  would change board's pan-mode behaviour. The attribute is opt-in, so board
+  can adopt it once that trade-off is decided; the trade-off is recorded
+  under Known limitations in `docs/design/board/board-editing-parity.md`.
 - The mobile slides toolbar (bottom sheets, no hardware keyboard target).
 - Any change to `isEditableTarget` itself.

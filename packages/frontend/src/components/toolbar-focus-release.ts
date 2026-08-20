@@ -15,8 +15,11 @@ import { releaseFocusToBody } from "./menu-focus";
  * been touched, the gate stays engaged and arrow keys / Delete / the
  * z-order shortcuts silently stop reaching the canvas (issue #882).
  *
- * This hook closes that gap by dropping focus back to the body once a
- * pointer-driven toolbar interaction is finished. Opt a toolbar in by
+ * This hook closes that gap by dropping focus back to the body whenever a
+ * toolbar control ends up focused outside of keyboard navigation — a click
+ * on the control itself, and equally the focus Radix hands back to a
+ * trigger when its popup closes (including the click-the-canvas dismissal,
+ * where the pointer-down never touches the toolbar). Opt a toolbar in by
  * setting the `CANVAS_TOOLBAR_ATTR` attribute — written literally as
  * `data-canvas-toolbar=""`, since a computed key does not type-check as a
  * JSX spread — on its root element.
@@ -41,14 +44,6 @@ const TOOLBAR_SELECTOR = `[${CANVAS_TOOLBAR_ATTR}]`;
  * "dismiss restores focus to the trigger" contract.
  */
 const TEXT_EDIT_KEEPALIVE_SELECTOR = "[data-text-edit-keepalive]";
-
-/**
- * Portalled surfaces a toolbar control can open. A pointer-down inside one
- * of these still counts as "the user is working the toolbar", so selecting
- * a menu item releases focus the same way clicking the trigger does.
- */
-const POPUP_SELECTOR =
-  '[role="menu"], [role="dialog"], [role="listbox"], [data-radix-popper-content-wrapper]';
 
 /**
  * True while `el` is a trigger whose popup is open. Radix sets both
@@ -78,34 +73,35 @@ function isReleasable(el: Element | null): boolean {
   );
 }
 
-function isPointerDrivenTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return (
-    target.closest(TOOLBAR_SELECTOR) !== null ||
-    target.closest(POPUP_SELECTOR) !== null
-  );
-}
-
 export function useCanvasFocusRelease(): void {
   useEffect(() => {
-    // Whether the focus we are about to see arrived as part of a
-    // pointer-driven toolbar interaction. A `Tab` press clears it so a
-    // keyboard user who deliberately tabs into the toolbar — or who
-    // tabbed to a trigger and then dismissed its menu — keeps focus
-    // where they put it.
-    let pointerDriven = false;
+    // Whether the user is currently navigating by keyboard. Only a `Tab`
+    // press sets it, and the next pointer-down clears it again — so a
+    // keyboard user who deliberately tabs into the toolbar (or who tabbed
+    // to a trigger and then dismissed its menu with Esc) keeps focus where
+    // they put it, while every mouse/touch interaction is releasable.
+    //
+    // The gate is deliberately *not* "the last pointer-down landed in the
+    // toolbar": the dominant dismissal is clicking the canvas to close an
+    // open picker, and every slides picker is a modal Radix Popover whose
+    // `onCloseAutoFocus` puts focus back on the toolbar trigger. That
+    // pointer-down lands outside the toolbar (on the canvas, or on `html`
+    // while the modal layer neutralises the body), so requiring an inside
+    // hit would leave the trigger focused and issue #882 reproducing on
+    // the most common path of all.
+    let keyboardNavigating = false;
     let pending: ReturnType<typeof setTimeout> | undefined;
 
-    const onPointerDown = (e: Event) => {
-      pointerDriven = isPointerDrivenTarget(e.target);
+    const onPointerDown = () => {
+      keyboardNavigating = false;
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Tab") pointerDriven = false;
+      if (e.key === "Tab") keyboardNavigating = true;
     };
 
     const onFocusIn = (e: FocusEvent) => {
-      if (!pointerDriven) return;
+      if (keyboardNavigating) return;
       if (
         !(e.target instanceof Element) ||
         e.target.closest(TOOLBAR_SELECTOR) === null

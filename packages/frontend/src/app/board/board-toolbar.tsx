@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { InsertKind, SlidesEditor, SlidesStore } from "@wafflebase/slides";
 import { Toggle } from "@/components/ui/toggle";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
-import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
 import {
   Tooltip,
   TooltipTrigger,
@@ -129,12 +128,15 @@ export function BoardToolbar({
   // keeps focus instead of the dropdown trigger stealing it back.
   const pendingStickyColor = useRef<string | null>(null);
 
-  // A board drives the same `SlidesEditor`, so it inherits the same
-  // shortcut gate: a focused toolbar `<button>` makes the document-level
-  // keydown handler skip every rule (issue #882). The `<Toolbar>` below
-  // opts in with `data-canvas-toolbar` (= `CANVAS_TOOLBAR_ATTR`), exactly
-  // as `SlidesToolbar` does.
-  useCanvasFocusRelease();
+  // NOTE: board deliberately does NOT opt into `useCanvasFocusRelease()`
+  // (`@/components/toolbar-focus-release`) yet, even though it drives the
+  // same `SlidesEditor` and inherits the same shortcut gate. Blurring a
+  // board toolbar button to the body changes what the *next* Space does:
+  // `isEditableTarget()` (`./is-editable-target.ts`) exists so Space on a
+  // focused toggle re-activates it rather than entering pan mode, and the
+  // release would flip that. Adopting the attribute is a board decision to
+  // make with that trade-off documented — see
+  // `docs/design/slides/slides-keyboard-shortcuts.md`.
 
   useEffect(() => {
     if (!editor) return;
@@ -183,7 +185,7 @@ export function BoardToolbar({
     (gridSnap ? ", snap on" : "");
 
   return (
-    <Toolbar data-canvas-toolbar="">
+    <Toolbar>
       <UndoRedoGroup store={store} />
       <ToolbarSeparator className="mx-1" />
       <ZoomControl controller={zoomController} />
