@@ -84,7 +84,15 @@ files.
   monorepo).
 - **CLI framework**: [commander](https://github.com/tj/commander.js)
   (lightweight, subcommand support).
-- **HTTP client**: built-in `fetch` (Node.js 18+).
+- **HTTP client**: [undici](https://github.com/nodejs/undici) — a direct
+  dependency rather than the runtime's built-in `fetch`. The export image
+  gate pins each request to the addresses it approved by handing the
+  request an undici `Agent`, and only the matching implementation is
+  guaranteed to honor a userland dispatcher (see §_Export image
+  fetching_). Requiring undici's own version is what makes the pin a
+  property of the CLI instead of of whatever `fetch` the host runtime
+  ships; it also sets the floor in `engines.node` (`>=20.18.1`, undici
+  7's own minimum).
 - **Output formats**: JSON (default), table (`--format table`), CSV
   (`--format csv`), YAML (`--format yaml`).
 - **Config file format**: [yaml](https://www.npmjs.com/package/yaml).
@@ -744,6 +752,8 @@ packages/cli/
   src/
     bin.ts               Entry point (#!/usr/bin/env node); delegates to cli.ts
     cli.ts               buildProgram() + runCli() (parseAsync + error envelope)
+    errors.ts            Failure classification: SystemError, httpError,
+                         fetchOrThrow, exitCodeFor(Status), redactUrl
     commands/
       root.ts            Root program, global flags, config loading
       login.ts           login (browser OAuth)
@@ -785,7 +795,7 @@ packages/cli/
       upload.ts          runFilesUpload orchestrator (size caps, MIME, parse hint)
       download.ts        runFilesDownload orchestrator + download-target resolution
     client/
-      http-client.ts     REST API v1 wrapper (built-in fetch)
+      http-client.ts     REST API v1 wrapper (undici fetch via fetchOrThrow)
       content-disposition.ts  Filename parser for binary responses
       dry-run.ts         Dry-run request printer
     config/

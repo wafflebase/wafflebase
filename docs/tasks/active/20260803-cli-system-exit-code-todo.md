@@ -44,10 +44,13 @@ Classify at the throw site, map class → exit code at the output site.
 
 ## Scope taken on beyond the exit contract
 
-The exit-code work is items 1-7 above. Three security fixes landed on the
-same branch and are recorded here rather than left unexplained, because
-they touch files (`packages/backend/src/auth/*`) the original Approach
-does not name:
+The exit-code work is items 1-7 above. Everything below landed on the
+same branch and is recorded here rather than left unexplained, because
+it touches files the original Approach does not name. The Checklist at
+the bottom of this file is a progress ledger, not the sanction — the
+reason each item is on this branch at all is the paragraph it gets here.
+
+Five security fixes, the first three in `packages/backend/src/auth/*`:
 
 8. **CLI login nonce** (`login.ts` + `github-auth.guard.ts`) — reached
    through item 6: `login` was being rewritten for its exit codes, and
@@ -68,6 +71,44 @@ does not name:
     which ships a larger version (consent interstitial, PKCE); that PR
     is not in this tree, so the hole was live. The version here is
     deliberately minimal so #786 can replace it wholesale.
+11. **Export image `src` gate** (`docs/image-fetcher.ts`) — reached
+    through items 4-5: `docs export` / `slides export` dereference image
+    `src` values, and routing those downloads through the classifier
+    meant reading the code that requests them. They were requested
+    unconditionally, so any document was an SSRF probe (`file:///etc/passwd`,
+    `http://169.254.169.254/...`) whose bytes landed in the artifact the
+    victim then opens. Descoped once (commit `d8f863191`) and put back by
+    review (`9efa8eee0`), which held that shipping the diff without the
+    gate was worse than the scope creep of keeping it. Design:
+    `docs/design/cli.md` §_Export image fetching_.
+12. **Egress proxy + the address pin through it** (same file) — reached
+    through item 11, in two steps, each closing an objection raised
+    against the step before it. The gate's per-address verdict only holds
+    if the connection lands on an approved address, so the request is
+    pinned via an undici `Agent` (which is why `undici` is now a runtime
+    dependency of `packages/cli` and `engines.node` moved to
+    `>=20.18.1`, undici 7's floor). Pinning that way overrode the
+    operator's `http_proxy` / `https_proxy` / `all_proxy` / `no_proxy`,
+    which on a proxy-only machine silently broke every export, so a hop
+    that a proxy applies to is dispatched through `ProxyAgent`. That in
+    turn handed the name resolution the gate had just done back to the
+    proxy — recorded as a residual risk in `e9a505cdd`, judged
+    insufficient, and closed in `d0ad1d0f6` by addressing the hop to an
+    approved address while `Host:`/SNI keep the document's name. The
+    honest read is that this belonged in its own PR; by the time the
+    chain was visible the alternatives were shipping a known-open gate
+    or two branches editing the same file. Design:
+    `docs/design/cli.md` §_Export image fetching_ (**Egress proxies**).
+
+One non-security seam:
+
+13. `PdfFonts` (`packages/docs/src/export/pdf-fonts.ts`) gained a
+    `fetchImpl` parameter, defaulting to the ambient `fetch`. Item 4's
+    rule is that every CLI request is classified, and the Noto KR
+    download was the one that was not — an unreachable font CDN exited
+    `1`. `pdf-fonts.ts` is shared with the browser, which has no
+    `errors.ts` and no `undici`, so the classified transport is injected
+    (`classifiedFontFetch` in `docs/pdf-export.ts`) rather than imported.
 
 ## Non-goals
 
