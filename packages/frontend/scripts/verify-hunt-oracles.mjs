@@ -874,6 +874,91 @@ async function checkBoardViewport(page, baseUrl) {
   return problems;
 }
 
+/**
+ * The board's aiming and dragging, which the charter makes measured claims about.
+ *
+ * The slides surface has `checkSlidesTargeting` and `checkSlidesDrag` for exactly these
+ * properties, and the board charter asserts the same two — that an element's centre selects
+ * ITSELF, and that a drag lands where it aims — without anything checking them. A charter
+ * claim nothing verifies is the failure mode this project keeps paying for.
+ *
+ * Driven through a real session so the runner's own `drag` branch executes, for the reason
+ * `checkSlidesDrag` is: a check that resolves points itself and calls the gesture directly
+ * never runs the dispatch it claims to verify.
+ */
+async function checkBoardTargeting(repoRoot) {
+  const problems = [];
+  const { openUiSession } = await import(`${repoRoot}/scripts/agent/hunt-ui-session.mjs`);
+  let session;
+  try {
+    session = await openUiSession({ repoRoot, fault: null });
+    const act = (action) => session.act(action);
+    const elements = async (what) => {
+      const r = await act({ type: "read", reader: "board.elements" });
+      if (!r.ok) {
+        problems.push(`could not read board.elements ${what}: ${String(r.error).slice(0, 140)}`);
+        return null;
+      }
+      return r.value;
+    };
+
+    if (!(await act({ type: "goto", surface: "board" })).ok) {
+      problems.push("could not mount the board surface — this check cannot run");
+      return problems;
+    }
+
+    // EVERY CENTRE SELECTS ITSELF. The seed's geometry rule is unit-tested; this is the half
+    // that needs a browser, because it depends on hit-testing agreeing with the arithmetic.
+    const seeded = await elements("before aiming");
+    if (!seeded) return problems;
+    for (const element of seeded) {
+      const clicked = await act({ type: "click", target: { reader: "board.elementCenter", args: [element.id] } });
+      if (!clicked.ok) {
+        problems.push(`clicking ${element.id}'s centre failed: ${String(clicked.error).slice(0, 140)}`);
+        continue;
+      }
+      const sel = await act({ type: "read", reader: "board.selection" });
+      if (JSON.stringify(sel.value) !== JSON.stringify([element.id])) {
+        problems.push(
+          `clicking board.elementCenter(${element.id}) selected ${JSON.stringify(sel.value)} — no element's ` +
+            "centre may sit under another, or every prediction naming an element aims at the wrong one",
+        );
+      }
+    }
+
+    // A DRAG LANDS EXACTLY WHERE IT AIMS. The destination is clear of the other seeded
+    // elements, so neither the 8-px element snap nor the grid snap (off by default) applies.
+    const before = seeded.find((e) => e.id === "note");
+    const moved = await act({
+      type: "drag",
+      target: { reader: "board.elementCenter", args: ["note"] },
+      to: { reader: "board.pointAt", args: [700, 460] },
+    });
+    if (!moved.ok) {
+      problems.push(`dragging note failed: ${String(moved.error).slice(0, 140)}`);
+    } else {
+      const after = (await elements("after the drag"))?.find((e) => e.id === "note");
+      if (after) {
+        const centre = { x: after.x + after.w / 2, y: after.y + after.h / 2 };
+        if (centre.x !== 700 || centre.y !== 460) {
+          problems.push(
+            `a drag to board.pointAt(700, 460) put note's centre at (${centre.x}, ${centre.y}) — either the ` +
+              "drag is not landing where it aims, or that destination is now within snapping range of something",
+          );
+        }
+        if (after.w !== before.w || after.h !== before.h) {
+          problems.push(`moving note also resized it: ${before.w}x${before.h} -> ${after.w}x${after.h}`);
+        }
+      }
+    }
+  } catch (error) {
+    problems.push(`the board session failed: ${error.message}`);
+  } finally {
+    await session?.close?.();
+  }
+  return problems;
+}
+
 async function checkUndoCapability(page, baseUrl) {
   const problems = [];
 
@@ -1779,6 +1864,11 @@ try {
     console.log("[verify:hunt-oracles] a real reader value drives a ground-A prediction to violated, and holds when clean");
   }
 
+  const boardTargetProblems = await checkBoardTargeting(repoRoot);
+  for (const p of boardTargetProblems) failures.push(`board targeting: ${p}`);
+  if (boardTargetProblems.length === 0) {
+    console.log("[verify:hunt-oracles] every board element's centre selects itself, and a drag lands exactly where it aims");
+  }
   const dragProblems = await checkSlidesDrag(repoRoot);
   for (const p of dragProblems) failures.push(`slides drag: ${p}`);
   if (dragProblems.length === 0) {

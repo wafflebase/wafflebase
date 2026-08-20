@@ -62,7 +62,12 @@ window could have changed it.
   when the view moves. Do not expect them to resemble anything on screen.
 - **THE VIEW IS A WINDOW, AND IT MOVES.** `board.viewport` reports `{panX, panY, zoom}`; a run
   starts pinned at `{panX: 0, panY: 0, zoom: 1}`, where one world pixel is one screen pixel.
-  A plain `scroll` PANS. Measured: `scroll dy 900` moves the viewport to `panY: -900`.
+  A plain `scroll` PANS — **but it must be AIMED**. The wheel listener is on the canvas, and a
+  `scroll` with no `target` wheels at wherever the mouse happens to be, which at the start of a
+  session is the top-left corner of the page and not over the board at all. Give every scroll a
+  `target` naming a reader that resolves onto the canvas, e.g.
+  `board.elementCenter` of something visible. Measured with a target: `scroll dy 900` moves the
+  viewport to `panY: -900`; without one it moves nothing and looks like a broken surface.
 - **AN OFF-SCREEN REFUSAL IS THE NORMAL STATE, NOT A DEFECT.** Most of an infinite plane is
   off-screen at any moment, so `board.pointAt` and `board.elementCenter` refuse routinely.
   Measured both directions: `board.pointAt(700, 1200)` refuses at rest, and after

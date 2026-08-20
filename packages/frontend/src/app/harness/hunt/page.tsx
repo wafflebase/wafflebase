@@ -61,8 +61,10 @@ const BoardToolbarLazy = lazy(() =>
 );
 
 import type { BoardGridKind } from "@/app/board/board-grid";
+import type { YorkieBoardRoot } from "@/types/board-document";
 
-import { asBoardStore } from "./mem-board-store";
+import { BOARD_SEED_FRAMES } from "./board-seed";
+
 import { installHuntBridge, type HuntSurface } from "./bridge";
 import { SEED_FRAMES } from "./slides-seed";
 
@@ -247,23 +249,36 @@ function frameOf(id: string): { x: number; y: number; w: number; h: number } {
  * makes the reader name one element and select another. Still overlapping at the corners, so
  * a z-order change is visible.
  */
+/** A seeded element's world rect, from the constant `board-seed.test.ts` asserts on. */
+function boardFrame(id: string): { x: number; y: number; w: number; h: number } {
+  const found = BOARD_SEED_FRAMES.find((f) => f.id === id);
+  if (!found) throw new Error(`[hunt-harness] no board seed frame named ${id}`);
+  return { x: found.x, y: found.y, w: found.w, h: found.h };
+}
+
+/**
+ * The board seed — four elements on one unbounded plane, ids fixed by hand.
+ *
+ * The geometry lives in `board-seed.ts` so its two rules — no element's centre under another,
+ * and everything inside the pinned starting view — are unit-testable without a browser.
+ */
 function seedBoardElements(): Element[] {
   const note: Element = {
     id: "note",
     type: "shape",
-    frame: { x: 60, y: 60, w: 200, h: 140, rotation: 0 },
+    frame: { ...boardFrame("note"), rotation: 0 },
     data: { kind: "roundRect", fill: { kind: "role", role: "accent1" } },
   };
   const card: Element = {
     id: "card",
     type: "shape",
-    frame: { x: 220, y: 150, w: 240, h: 160, rotation: 0 },
+    frame: { ...boardFrame("card"), rotation: 0 },
     data: { kind: "rect", fill: { kind: "role", role: "accent2" } },
   };
   const label: Element = {
     id: "label",
     type: "text",
-    frame: { x: 560, y: 80, w: 320, h: 90, rotation: 0 },
+    frame: { ...boardFrame("label"), rotation: 0 },
     data: {
       blocks: [
         {
@@ -278,7 +293,7 @@ function seedBoardElements(): Element[] {
   const idea: Element = {
     id: "idea",
     type: "text",
-    frame: { x: 560, y: 300, w: 300, h: 120, rotation: 0 },
+    frame: { ...boardFrame("idea"), rotation: 0 },
     data: {
       blocks: [
         {
@@ -399,6 +414,10 @@ export default function HuntHarnessPage() {
   // false candidate on the sheet surface, and the component warned about it in advance.
   const [gridKind, setGridKind] = useState<BoardGridKind>("none");
   const [gridSnap, setGridSnap] = useState(false);
+  // Read by `getSnapGrid` on every gesture frame, so flipping the checkbox changes the next
+  // drag rather than needing a remount. `BoardView` keeps the same ref for the same reason.
+  const gridSnapRef = useRef(gridSnap);
+  gridSnapRef.current = gridSnap;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -482,18 +501,32 @@ export default function HuntHarnessPage() {
           setEditor(docEditor);
         } else if (surface === "board") {
           const S: SlidesModule = await import("@wafflebase/slides");
-          const B = await import("@wafflebase/board");
-          // The wheel helper is a frontend module, not part of the board package.
+          // The wheel helper and the store are frontend modules, not part of the board package.
           const { applyWheelToViewport } = await import("@/app/board/board-wheel");
+          const { gridStep } = await import("@/app/board/board-grid");
+          const { YorkieBoardStore } = await import("@/app/board/yorkie-board-store");
+          const yorkie = (await import("@yorkie-js/sdk")).default;
           if (disposed) return disposeMounted();
 
-          // A BOARD IS ONE UNBOUNDED PLANE, so the seed is a flat element list rather than
-          // slides. `boardToSlidesDocument` is the product's own adapter, used here so the
-          // harness cannot drift from the shape a real board has.
-          const doc = B.boardToSlidesDocument({ meta: { title: "Hunt board" }, elements: seedBoardElements() });
-          // Wrapped so the 34 methods a real board REFUSES refuse here too. See
-          // `mem-board-store.ts`: a harness laxer than production hides the constraint.
-          const store = asBoardStore(new S.MemSlidesStore(doc));
+          // THE REAL BOARD STORE, not a stand-in.
+          //
+          // The first version wrapped `MemSlidesStore` and re-listed by hand the 34 methods a
+          // board refuses, because `MemSlidesStore` performs all of them and a harness laxer
+          // than production hides the constraint. That reasoning was right and the
+          // implementation was unnecessary: `YorkieBoardStore` runs with no server at all —
+          // its own tests construct one over a bare `yorkie.Document` — so the refusals can be
+          // the REAL ones rather than a copy that needs a test to stop it drifting.
+          //
+          // Seeded by writing the elements straight into the document rather than through
+          // `addElement`, which mints a uuid: an id that changes every boot makes
+          // `board.elements` differ between two runs of an identical plan, so replay reads as
+          // divergent and the fingerprint treats one defect as new every time.
+          const doc = new yorkie.Document<YorkieBoardRoot>("hunt-board");
+          doc.update((root) => {
+            root.meta = { title: "Hunt board" };
+            root.elements = seedBoardElements() as YorkieBoardRoot["elements"];
+          });
+          const store = new YorkieBoardStore(doc);
 
           const hostW = 960;
           const hostH = 540;
@@ -542,6 +575,16 @@ export default function HuntHarnessPage() {
             hostHeight: hostH,
             dpr,
             viewport,
+            // REQUIRED ON A BOARD MOUNT. Without it the editor keeps its slide-scoped paths —
+            // context-menu entries and chrome that call slide/layout/theme methods — and those
+            // now reach a store that REFUSES them, throwing where the product cannot. The
+            // editor documents this next to its own `notSupported` reference.
+            suppressSlideChrome: true,
+            // The grid snap the toolbar toggles has to reach the editor, or the checkbox moves
+            // nothing and the charter's claim that it changes a drag is false. `BoardView`
+            // passes the same callback; reading the ref means a toggle takes effect without
+            // remounting.
+            getSnapGrid: () => (gridSnapRef.current ? gridStep(viewport.zoom) : null),
           });
           if (disposed) return disposeMounted();
 
