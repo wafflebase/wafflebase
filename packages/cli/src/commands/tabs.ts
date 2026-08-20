@@ -5,6 +5,7 @@ import {
   outputError,
   parseOutputFormat,
 } from '../output/formatter.js';
+import { httpError } from '../errors.js';
 import { printDryRun } from '../client/dry-run.js';
 
 export function registerTabsCommand(parent: Command) {
@@ -18,7 +19,7 @@ export function registerTabsCommand(parent: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).listTabs(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -54,7 +55,7 @@ export function registerTabsCommand(parent: Command) {
         // discard the response of a tab that already exists server-side.
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).createTab(docId, body);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -81,7 +82,7 @@ export function registerTabsCommand(parent: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).renameTab(docId, tabId, name);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);

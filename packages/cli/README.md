@@ -24,6 +24,13 @@ Two paths, in priority order:
    `WAFFLEBASE_API_KEY`, or set `api-key:` in `~/.wafflebase/config.yaml`.
 2. **OAuth session** — `wafflebase login` opens a browser, completes
    GitHub OAuth, and writes a JWT session to `~/.wafflebase/session.json`.
+   The login callback is bound to a per-attempt nonce, which the backend
+   echoes back as the callback's `state`, so a server that predates that
+   echo never completes one; against such a server (a self-hosted backend
+   that has not upgraded yet) pass
+   `wafflebase login --allow-unbound-callback` to accept its `state`-less
+   callback anyway. It warns on stderr, and a *mismatched* `state` stays
+   refused under the flag.
 
 Always pair API keys with a workspace ID:
 
@@ -121,7 +128,15 @@ wafflebase schema cell.get          # → sheets.cells.get
   `USAGE`; everything else
   reports `"ERROR"`.
 - **Exit codes**: `0` success, `1` user error (bad input, 404, type
-  mismatch), `2` system error (network, auth).
+  mismatch), `2` system error — an unreachable server
+  (`NETWORK_ERROR`), rejected credentials (`AUTH_ERROR`, HTTP 401/403),
+  or a server fault (`SERVER_ERROR`, HTTP 5xx). A 2xx the CLI cannot use
+  — a create that returned no id, a download that returned no bytes — is
+  a server fault too. The class is decided where the failure is raised,
+  so `--quiet` reports it too.
+- **Proxies**: image downloads during `docs export` / `slides export`
+  honor `http_proxy` / `https_proxy` / `all_proxy` and `no_proxy` (either
+  letter case).
 
 ## Skills (for AI agents)
 

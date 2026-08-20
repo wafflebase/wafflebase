@@ -140,4 +140,38 @@ describe('runFilesDownload', () => {
     expect(writes).toHaveLength(0);
     expect(err.join('')).toContain('NOT_FOUND');
   });
+
+  it.each([
+    [401, 2],
+    [403, 2],
+    [500, 2],
+    [400, 1],
+    [404, 1],
+  ])('exits with the class of status %i', async (status, exitCode) => {
+    const { io, writes } = makeIO();
+    const client = {
+      downloadFileDocument: vi.fn().mockResolvedValue({
+        ok: false,
+        status,
+        data: { error: { code: 'HTTP_ERROR' } },
+      }),
+    };
+    const res = await runFilesDownload({ docId: 'doc-1' }, client, io);
+    expect(res.exitCode).toBe(exitCode);
+    expect(writes).toHaveLength(0);
+  });
+
+  it('exits 2 when an OK response carried no bytes', async () => {
+    // The server said yes and sent nothing. Reporting that as a user
+    // error would tell the caller to fix arguments that were correct.
+    const { io, writes } = makeIO();
+    const client = {
+      downloadFileDocument: vi
+        .fn()
+        .mockResolvedValue({ ok: true, status: 200, fileName: 'a.zip' }),
+    };
+    const res = await runFilesDownload({ docId: 'doc-1' }, client, io);
+    expect(res.exitCode).toBe(2);
+    expect(writes).toHaveLength(0);
+  });
 });

@@ -2,6 +2,7 @@ import { formatJson } from './json.js';
 import { formatTable } from './table.js';
 import { formatCsv } from './csv.js';
 import { formatYaml } from './yaml.js';
+import { exitCodeFor } from '../errors.js';
 
 export type OutputFormat = 'json' | 'table' | 'csv' | 'yaml';
 
@@ -102,11 +103,16 @@ function errorCode(error: unknown): string {
  * bytes on either stream tells the caller nothing about what failed or
  * whether it is retryable. Errors go to stderr precisely so they survive
  * output redirection and quiet modes.
+ *
+ * The exit code is the failure's *class*, not a constant (see
+ * `../errors.js`): `1` for anything the caller can fix, `2` for
+ * network/auth/server faults. Agents branch on `$?` without parsing this
+ * body, which is the whole point of the contract.
  */
 export function outputError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(
     JSON.stringify({ error: { code: errorCode(error), message } }, null, 2),
   );
-  process.exitCode = 1;
+  process.exitCode = exitCodeFor(error);
 }

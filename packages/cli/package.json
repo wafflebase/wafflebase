@@ -8,7 +8,7 @@
     "wafflebase": "./dist/bin.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.18.1"
   },
   "files": [
     "dist"
@@ -27,6 +27,7 @@
     "fontkit": "^2.0.4",
     "open": "^11.0.0",
     "pdf-lib": "^1.17.1",
+    "undici": "^7.29.0",
     "yaml": "^2.0.0"
   },
   "devDependencies": {

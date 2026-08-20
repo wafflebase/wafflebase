@@ -5,6 +5,7 @@ import {
   outputError,
   parseOutputFormat,
 } from '../output/formatter.js';
+import { httpError } from '../errors.js';
 
 export function registerApiKeysCommand(program: Command) {
   const apiKey = program
@@ -22,7 +23,7 @@ export function registerApiKeysCommand(program: Command) {
         // discard a raw key that the server will never show again.
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).createApiKey(name);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -37,7 +38,7 @@ export function registerApiKeysCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).listApiKeys();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -52,7 +53,7 @@ export function registerApiKeysCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).revokeApiKey(keyId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);

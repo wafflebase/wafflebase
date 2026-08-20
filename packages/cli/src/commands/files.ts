@@ -5,6 +5,7 @@ import {
   outputError,
   parseOutputFormat,
 } from '../output/formatter.js';
+import { httpError } from '../errors.js';
 import { printDryRun } from '../client/dry-run.js';
 import { runFilesUpload } from '../files/upload.js';
 import { runFilesDownload } from '../files/download.js';
@@ -88,7 +89,7 @@ export function registerFilesCommand(program: Command) {
           );
         }
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         let data = res.data as unknown;
         if (Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter((d) =>
@@ -109,7 +110,7 @@ export function registerFilesCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -130,7 +131,7 @@ export function registerFilesCommand(program: Command) {
         // discard the response of a rename that already happened.
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -149,7 +150,7 @@ export function registerFilesCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw httpError(res.status);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);

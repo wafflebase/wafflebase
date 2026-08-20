@@ -7,6 +7,7 @@ import {
   saveSession,
   decodeJwtExpiry,
 } from '../config/session.js';
+import { fetchOrThrow } from '../errors.js';
 
 /**
  * Canonical note content JSON exchanged with the content endpoint. A note's
@@ -91,7 +92,7 @@ export class HttpClient {
     if (!this.config.refreshToken) return false;
 
     const server = this.config.server.replace(/\/$/, '');
-    const res = await fetch(`${server}/auth/refresh`, {
+    const res = await fetchOrThrow(`${server}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken: this.config.refreshToken }),
@@ -129,12 +130,17 @@ export class HttpClient {
    * Send a request, retrying once with a refreshed session on a 401 under JWT
    * auth. `build` is invoked per attempt so the retry picks up the new access
    * token — and so a multipart body is rebuilt rather than replayed.
+   *
+   * `fetchOrThrow` rather than a bare `fetch`, so a request that never
+   * reached an HTTP server (DNS, refused connection, TLS) raises a
+   * `SystemError` and exits `2` — every request the CLI makes, including
+   * the multipart file endpoints, is classified the same way.
    */
   private async send(
     url: string,
     build: (auth: Record<string, string>) => RequestInit,
   ): Promise<{ res: Response; sessionExpired: boolean }> {
-    const res = await fetch(url, build(this.authHeaders));
+    const res = await fetchOrThrow(url, build(this.authHeaders));
 
     if (
       res.status === 401 &&
@@ -145,7 +151,7 @@ export class HttpClient {
         return { res, sessionExpired: true };
       }
       return {
-        res: await fetch(url, build(this.authHeaders)),
+        res: await fetchOrThrow(url, build(this.authHeaders)),
         sessionExpired: false,
       };
     }
@@ -163,19 +169,23 @@ export class HttpClient {
     } as T;
   }
 
-  async request<T>(
+  /**
+   * One authenticated JSON round trip against an absolute URL. Every JSON
+   * endpoint goes through here — the workspace-scoped `/api/v1` ones via
+   * `request()` and the management endpoints (API keys) with their own
+   * base — so a refreshable session is never reported as an auth failure
+   * just because of which base a call used.
+   */
+  private async sendJson<T>(
     method: string,
-    path: string,
+    url: string,
     body?: unknown,
   ): Promise<ApiResponse<T>> {
-    const { res, sessionExpired } = await this.send(
-      `${this.base}${path}`,
-      (auth) => ({
-        method,
-        headers: this.jsonHeaders(auth),
-        body: body ? JSON.stringify(body) : undefined,
-      }),
-    );
+    const { res, sessionExpired } = await this.send(url, (auth) => ({
+      method,
+      headers: this.jsonHeaders(auth),
+      body: body ? JSON.stringify(body) : undefined,
+    }));
 
     if (sessionExpired) {
       return { ok: false, status: 401, data: this.sessionExpiredBody<T>() };
@@ -183,6 +193,14 @@ export class HttpClient {
 
     const data = (await res.json().catch(() => null)) as T;
     return { ok: res.ok, status: res.status, data };
+  }
+
+  async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<ApiResponse<T>> {
+    return this.sendJson<T>(method, `${this.base}${path}`, body);
   }
 
   // Documents
@@ -361,30 +379,22 @@ export class HttpClient {
     return this.request('PATCH', `/documents/${docId}/tabs/${tabId}/cells`, { cells });
   }
 
-  // API Keys (management endpoints use different base)
-  async listApiKeys() {
+  // API Keys (management endpoints use a different base, but the same
+  // authenticated round trip — see `send`)
+  private get apiKeysBase(): string {
     const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys`;
-    const res = await fetch(url, { headers: this.jsonHeaders() });
-    const data = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, data };
+    return `${server}/workspaces/${this.config.workspace}/api-keys`;
   }
-  async createApiKey(name: string) {
-    const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: this.jsonHeaders(),
-      body: JSON.stringify({ name }),
-    });
-    const data = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, data };
+  listApiKeys() {
+    return this.sendJson('GET', this.apiKeysBase);
   }
-  async revokeApiKey(id: string) {
-    const server = this.config.server.replace(/\/$/, '');
-    const url = `${server}/workspaces/${this.config.workspace}/api-keys/${id}`;
-    const res = await fetch(url, { method: 'DELETE', headers: this.jsonHeaders() });
-    const data = await res.json().catch(() => null);
-    return { ok: res.ok, status: res.status, data };
+  createApiKey(name: string) {
+    return this.sendJson('POST', this.apiKeysBase, { name });
+  }
+  revokeApiKey(id: string) {
+    return this.sendJson(
+      'DELETE',
+      `${this.apiKeysBase}/${encodeURIComponent(id)}`,
+    );
   }
 }

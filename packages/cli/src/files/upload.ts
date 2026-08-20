@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { FileDocument } from '../client/http-client.js';
+import { exitCodeForStatus } from '../errors.js';
 
 /** Mirrors `MAX_FILE_UPLOAD_BYTES` in the backend's `file.constants.ts`. */
 export const MAX_FILE_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -216,7 +217,9 @@ export async function runFilesUpload(
     io.stderr(
       JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
     );
-    return { exitCode: 1 };
+    // The status decides the exit class: a rejected session or a broken
+    // server is not something the caller can fix by picking another file.
+    return { exitCode: exitCodeForStatus(res.status) };
   }
 
   io.stdout(JSON.stringify(res.data, null, 2));

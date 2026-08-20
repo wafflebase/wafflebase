@@ -3,6 +3,7 @@ import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Document, ImageUploader } from '@wafflebase/docs';
 import { importDocx, InvalidDocxError } from './docx-import.js';
+import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
 
 /**
  * Minimal HTTP surface `runDocsImport` needs from the CLI's
@@ -162,7 +163,7 @@ export async function runDocsImport(
     const res = await client.putDocContent(replace, doc);
     if (!res.ok) {
       io.stderr(JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
-      return { exitCode: 1 };
+      return { exitCode: exitCodeForStatus(res.status) };
     }
     io.stdout(JSON.stringify({ id: replace, replaced: true }, null, 2));
     return { exitCode: 0 };
@@ -192,7 +193,7 @@ export async function runDocsImport(
   const created = await client.createDocument(inferredTitle, 'doc');
   if (!created.ok) {
     io.stderr(JSON.stringify(created.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
-    return { exitCode: 1 };
+    return { exitCode: exitCodeForStatus(created.status) };
   }
   const newId = (created.data as { id?: string } | null)?.id;
   if (!newId) {
@@ -203,13 +204,16 @@ export async function runDocsImport(
         2,
       ),
     );
-    return { exitCode: 1 };
+    // A 2xx that omitted the id is the server contradicting itself —
+    // nothing the caller can retype, so it exits with the system class
+    // like every other server fault.
+    return { exitCode: EXIT_SYSTEM_ERROR };
   }
 
   const put = await client.putDocContent(newId, doc);
   if (!put.ok) {
     io.stderr(JSON.stringify(put.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
-    return { exitCode: 1 };
+    return { exitCode: exitCodeForStatus(put.status) };
   }
 
   io.stdout(JSON.stringify({ id: newId, title: inferredTitle }, null, 2));
