@@ -53,8 +53,9 @@ is a finding, not a task.
 - [x] a gate covers wafflebase scenes, not only the fixture — `pnpm --filter
       @wafflebase/design-sandbox verify:scenes` (18 checks), a sibling of `verify:frame`
 - [ ] ~~`packages/design-editor/src/plugin/` is untouched~~ — it was NOT. See the finding below.
-- [ ] the deferred-scene listing inconsistency is gone — `/metadata` still lists the five
-      deferred canvas scenes, so the shell offers rows the frame cannot mount
+- [x] the deferred-scene listing inconsistency is gone — `analyzeScene` carries `deferred`,
+      and the shell renders those rows disabled with a reason instead of omitting them or
+      offering a click whose only outcome is a frame-side manifest error
 
 ## Findings
 
@@ -113,21 +114,21 @@ files no row names, which is why this ledger is per-file rather than per-PR.
 | Prototype file | Lines | Status |
 | --- | --- | --- |
 | `vite.config.ts` | 2538 | refactored into `design-editor/src/plugin/**` (8a) |
-| `sandbox/TokenEditorPanel.tsx` | 861 | **12** |
-| `sandbox/TokenBindingPanel.tsx` | 668 | **12** — needs `ComponentMeta` + `VariantState` |
-| `sandbox/ReviewApproveModal.tsx` | 534 | **12** — until then ⌘S writes directly |
-| `sandbox/AddTokenRow.tsx` | 172 | **12** |
-| `sandbox/Combobox.tsx` | 170 | **12** (token panels use it) |
-| `sandbox/Accordion.tsx` | 65 | **12** |
-| `sandbox/ComponentList.tsx` | 86 | **12** — pure population A, reads AST metadata only |
-| `sandbox/PreviewPane.tsx` | 204 | **12** — blocked on `registry.tsx`, see below |
-| `sandbox/registry.tsx` | 49 | **12** — decide: consumer-supplied seam, or drop the pane |
-| `sandbox/AgentPopover.tsx` | 164 | **unassigned** — the Phase 4 agent pipeline was withdrawn; decide keep-or-drop explicitly rather than by omission |
+| `sandbox/TokenEditorPanel.tsx` | 861 | **12a — landed** |
+| `sandbox/TokenBindingPanel.tsx` | 668 | **12a — landed**, fed by the component list |
+| `sandbox/ReviewApproveModal.tsx` | 534 | **12a — landed**; ⌘S opens it |
+| `sandbox/AddTokenRow.tsx` | 172 | **12a — landed** |
+| `sandbox/Combobox.tsx` | 170 | **12a — landed** |
+| `sandbox/Accordion.tsx` | 65 | **12a — landed** |
+| `sandbox/ComponentList.tsx` | 86 | **12a — landed** |
+| `sandbox/PreviewPane.tsx` | 204 | **DROPPED** (12a) — its renderer map cannot be derived from source |
+| `sandbox/registry.tsx` | 49 | **DROPPED** (12a) — hand-written per component; the scene frame is the preview |
+| `sandbox/AgentPopover.tsx` | 164 | **DROPPED** (12a) — the Phase 4 agent pipeline was withdrawn |
 | `scenes/providers.tsx` | 212 | **11c** (this PR) — dom mocks only; `*-store` mocks in 12 |
 | `scenes/fixtures/{documents,workspace,datasources,auth}.ts` | 286 | **11c** (this PR) |
-| `scenes/fixtures/canvas.ts` | 91 | **12** (canvas scenes) |
-| `scenes/canvas/yorkie-offline.tsx` | 315 | **12** |
-| `scenes/canvas/seed-{sheets,docs,notes}.ts` | 240 | **12** |
+| `scenes/fixtures/canvas.ts` | 91 | **12b** |
+| `scenes/canvas/yorkie-offline.tsx` | 315 | **12b** |
+| `scenes/canvas/seed-{sheets,docs,notes}.ts` | 240 | **12b** |
 | `scripts/{smoke-scene,smoke-canvas,smoke-layout}.ts` | 730 | superseded by `verify-consumer` (54) + `verify-frame` (34) |
 | `scripts/verify-bridge.mjs` | 311 | superseded by `verify-consumer` |
 | `scripts/crawl-frame-graph.mjs` | 103 | superseded — frame graph is `?wbFrame=` per-module now |

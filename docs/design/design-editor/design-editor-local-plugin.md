@@ -588,7 +588,8 @@ cap is what sets the granularity.
 | 11a | the shell build — `dist/shell`, two documents, self-contained CSS | in review — see below |
 | 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | written — see below |
 | 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | written — dom scenes live, see below |
-| 12 | the token panels, `ComponentList`, and the canvas scenes | held |
+| 12a | the token panels, the review modal, `ComponentList` — `design-editor` | written — §6's last row closed |
+| 12b | the canvas scenes — `design-sandbox` | held, and unmeasured: see below |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
 review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
@@ -678,7 +679,32 @@ Two things to settle while doing it:
   mount and the user sees a frame-side manifest error instead of "this scene is
   deferred". Offering an unclickable row is the defect; fix it here.
 
-#### PR 8 splits in three, by pipeline — not by file#### PR 8 splits in three, by pipeline — not by file
+#### 12 splits in two, by risk
+
+12a is a known port into `design-editor`; 12b is `design-sandbox` work whose prerequisite the
+prototype never finished. Coupling them would hide an unmeasured task inside a measured one.
+
+**12a closed §6's last row.** The panels read `TokenFamilyMeta` from `GET /tokens`, so the
+three `packages/core/src/tokens/*.ts` literals and the `FAMILY_META` table are gone and a
+project whose tokens live anywhere else works unchanged. The full prototype→contract mapping,
+and three defects it surfaced in already-merged code, are in
+`docs/tasks/active/20260819-design-editor-token-panels-todo.md`.
+
+**Three prototype files were dropped, as decisions.** `PreviewPane` + `registry.tsx`: the
+registry is a hand-written renderer per component with sample children a human chose, so a
+generic package cannot ship it and requiring one is a new onboarding cliff — the scene frame
+is the preview surface, which is the argument this document already makes for judging a token
+change on a real page. `AgentPopover`: the Phase 4 agent pipeline was withdrawn, so it has no
+destination.
+
+**12b's risk is unmeasured.** Canvas scene files are ordinary editable JSX — `sheet-editor`
+points at `document-detail.tsx`, 41 elements of sidebar, header and toolbar. What blocks them
+is that the page imports `{ DocumentProvider, useDocument }` from `@yorkie-js/react`, and the
+prototype's own manifest called these scenes "listed for shape, not function". `kind: 'canvas'`
+is a grouping label, not a code path — nothing branches on it — so no plugin work is expected,
+only store mocking in `design-sandbox`.
+
+#### PR 8 splits in three, by pipeline — not by file
 
 The obvious cut is one PR per file: the host is `vite.config.ts`, the adapter is
 `edits.ts`. [§6](#6-the-couplings-that-must-become-configuration) shows why that

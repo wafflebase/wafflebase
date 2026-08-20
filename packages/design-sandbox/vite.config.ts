@@ -189,13 +189,26 @@ export default defineConfig({
    * shim that PR 12 adds for the canvas scenes.
    */
   optimizeDeps: {
+    /**
+     * NOT pre-bundled, and this one is measured.
+     *
+     * `@tabler/icons-react` is a barrel over ~5,000 single-icon modules, and 65 frontend
+     * files import from it by name. Pre-bundled, esbuild emits a chunk PER ICON and the
+     * browser fetches every one: the documents scene's first load made 11,794 requests to
+     * `/.vite/deps/chunk-*.js` out of 12,503 total, and took 103 s on a WSL2/drvfs mount.
+     * Excluded, that becomes 33 chunks and 61 s, with a byte-identical render.
+     *
+     * The deeper cause is the barrel import itself and it is NOT ours to fix — changing 65
+     * frontend files to deep icon paths is an app-wide refactor with nothing to do with the
+     * design editor. This is the part that belongs here.
+     */
+    exclude: ['@tabler/icons-react'],
     include: [
       '@tanstack/react-query',
       '@tanstack/react-table',
       'react-router-dom',
       'sonner',
       'lucide-react',
-      '@tabler/icons-react',
     ],
   },
   plugins: [

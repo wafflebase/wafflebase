@@ -202,6 +202,31 @@ async function main() {
       await page.close();
     }
 
+    console.log('\nthe dep optimizer is not exploding');
+    {
+      /*
+       * A CHUNK COUNT, not a stopwatch. Cold-load time on this machine ranges 55-158 s and
+       * would make a flaky gate; the chunk count is stable and is the actual mechanism.
+       *
+       * Measured: with `@tabler/icons-react` pre-bundled, esbuild emits a chunk per icon and
+       * the documents scene fetched 11,794 of them out of 12,503 responses (103 s). Excluded,
+       * that is 33 chunks (61 s), same render. The ceiling is deliberately far above 33 and
+       * far below 11,794 — it catches the explosion, not ordinary drift.
+       */
+      const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+      let chunks = 0;
+      page.on('response', (r) => {
+        if (new URL(r.url()).pathname.includes('/.vite/deps/chunk-')) chunks++;
+      });
+      await page.goto(
+        `http://127.0.0.1:${PORT}/__design-editor/scene?scene=documents&frame=after&theme=light`,
+        { waitUntil: 'commit', timeout: PAINT_TIMEOUT_MS },
+      );
+      await waitForPaint(page);
+      check('a scene load stays under 500 pre-bundled chunks', chunks < 500, `${chunks} chunks`);
+      await page.close();
+    }
+
     console.log('\nthe fixtures reach the page, not just the shell');
     {
       const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });

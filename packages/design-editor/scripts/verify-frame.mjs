@@ -36,6 +36,7 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
+import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +45,15 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG = path.resolve(HERE, '..');
 const PROJECT = path.join(PKG, 'fixtures/consumer');
 const PORT = Number(process.env.PORT ?? 5210);
+/**
+ * NOTHING IS WRITTEN unless `--write` is passed — the same contract as `verify-consumer`.
+ * With it, the review modal's Approve is pressed for real, then `/undo` restores the file
+ * and the bytes are compared. Without it the run stops at the diff, which is where the
+ * useful evidence already is.
+ */
+const WRITE = process.argv.includes('--write');
+/** The fixture file a class edit on the dashboard scene lands in. */
+const SCENE_SRC = 'app/pages/dashboard.tsx';
 const SCENE = 'dashboard';
 
 let failures = 0;
@@ -349,6 +359,125 @@ async function main() {
         'and an outline selection reaches the frame',
         (await inner.$eval('[data-wb-overlay="selection"]', (e) => getComputedStyle(e).display)) === 'block',
       );
+
+      /**
+       * The claim the whole editor makes: an edit can be staged, taken back, and reviewed.
+       *
+       * This is the one path with no unit coverage and it cannot have any — the class editor
+       * only appears once the frame has MEASURED the selection and posted its rect back, and
+       * jsdom loads no iframe. Everything downstream (the plan count, ⌘Z, the review modal)
+       * is therefore only ever exercised here.
+       */
+      console.log('\nan edit stages, comes back, and reaches the review');
+      await inner.click('[data-wb-node]');
+      await page.waitForTimeout(700);
+      const saveBtn = async () =>
+        page.$eval('button[title*="⌘S"], button[title*="matches the editor"]', (b) => ({
+          text: (b.textContent ?? '').trim(),
+          disabled: b.disabled,
+        }));
+      if (check('the class editor opened on the selection', !!(await page.$('[data-wb-class-editor]')))) {
+        await page.click('[data-wb-class-editor] button[title="flex-col"]');
+        await page.waitForTimeout(300);
+        // The count on Save is `saveDiff(baseline, present).length` — "how many file changes
+        // it would take", which is the number the header promises.
+        check('staging one class edit puts one change in the plan', /1$/.test((await saveBtn()).text), (await saveBtn()).text);
+        check(
+          'and the toggle reads as active',
+          (await page.getAttribute('[data-wb-class-editor] button[title="flex-col"]', 'aria-pressed')) === 'true',
+        );
+
+        await page.keyboard.press('Control+z');
+        await page.waitForTimeout(300);
+        check('⌘Z empties the plan again', (await saveBtn()).disabled === true, JSON.stringify(await saveBtn()));
+
+        await page.keyboard.press('Control+Shift+z');
+        await page.waitForTimeout(300);
+        check('and ⇧⌘Z puts it back', /1$/.test((await saveBtn()).text), (await saveBtn()).text);
+
+        // ⌘S OPENS THE REVIEW; it does not write. That is PR 12's change to this path, and
+        // the modal dry-runs every intent — so its presence also proves `/mutate?dryRun`
+        // answered for a real staged edit.
+        await page.keyboard.press('Control+s');
+        await page.waitForTimeout(2500);
+        const modal = await page.$('[role="dialog"][aria-modal="true"]');
+        if (check('⌘S opens the review instead of writing', !!modal)) {
+          const text = ((await page.textContent('[role="dialog"][aria-modal="true"]')) ?? '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          check(
+            'and the review shows a diff for the staged edit',
+            /flex-col/.test(text),
+            JSON.stringify(text.slice(0, 120)),
+          );
+          if (WRITE) {
+            /*
+             * THE ONE THING NO OTHER LANE CAN SHOW: that pressing Approve changes the
+             * consumer's source. Everything upstream of here is a dry run, so a mistake in
+             * the commit path — a wrong file, an intent that composes but writes nothing —
+             * survives every other check in this repository.
+             */
+            const abs = path.join(PROJECT, SCENE_SRC);
+            const before = await fs.readFile(abs, 'utf8');
+            const approve = (await page.$$('[role="dialog"] button')).at(-1);
+            await approve?.click();
+            await page.waitForTimeout(3000);
+            const after = await fs.readFile(abs, 'utf8');
+            check(
+              'Approve writes the class into the consumer’s source',
+              after !== before && after.includes('flex-col'),
+              after === before ? 'the file is unchanged' : 'changed',
+            );
+            check('and the modal closed itself', !(await page.$('[role="dialog"][aria-modal="true"]')));
+
+            // Restore through the bridge's own transaction log, not by rewriting the file:
+            // that is the path a user takes, so a broken undo fails HERE rather than leaving
+            // the fixture dirty for the next run to discover.
+            const undone = await (
+              await fetch(`http://127.0.0.1:${PORT}/__design-editor/api/undo`, { method: 'POST' })
+            ).json();
+            check('undo answers ok', undone.ok === true, undone.error);
+            const restored = await fs.readFile(abs, 'utf8');
+            check('and the file is byte-identical again', restored === before);
+            // The comment above promises the failure lands HERE. It only did so for the
+            // current run: an unrestored fixture keeps the written class, and the NEXT
+            // run's "Approve writes the class" check is then satisfied by the leftover
+            // rather than by a write — green while measuring nothing.
+            if (restored !== before) {
+              await fs.writeFile(abs, before, 'utf8');
+              console.log('       (undo did not restore the fixture — rewrote it from the pre-edit bytes)');
+            }
+
+            // `PathGuard.backup` writes `${file}.bak` beside the source; the design doc's
+            // Risks section names that and prescribes a cache directory instead. Unimplemented,
+            // so this cleans up and reports rather than pretending it did not happen.
+            const bak = `${abs}.bak`;
+            let left = false;
+            try {
+              await fs.unlink(bak);
+              console.log(`       removed ${SCENE_SRC}.bak (see the Risks section)`);
+            } catch {
+              try {
+                await fs.access(bak);
+                left = true;
+              } catch {
+                /* never created, or already gone */
+              }
+            }
+            check('no backup was left in the fixture', !left, `${SCENE_SRC}.bak`);
+          } else {
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(400);
+            check('Escape closes it without writing', !(await page.$('[role="dialog"][aria-modal="true"]')));
+            console.log('       (skipping the real Approve — pass --write to include it)');
+          }
+        }
+
+        // Leave nothing staged: the viewport checks below remount the frame, and a dirty
+        // editor there would make a failure read as a protocol problem.
+        await page.keyboard.press('Control+z');
+        await page.waitForTimeout(300);
+      }
 
       const viewportButtons = await page.$$('button[title^="Viewport"]');
       check('the viewport switcher is present', viewportButtons.length > 0);
