@@ -40,30 +40,16 @@
 
 import { readFileSync, existsSync, statSync, appendFileSync } from "node:fs";
 import path from "node:path";
-import { MAX_SLOTS, TOKEN_ENV } from "./token-pool.mjs";
+import { MAX_SLOTS, TOKEN_ENV, slotSuffix } from "./token-pool.mjs";
+
+// Re-exported, not redefined: `token-pool.mjs` owns the slot naming, and a second
+// copy of this mapping is exactly the drift its docblock warns about.
+export { slotSuffix };
 
 const STATE_FILE = "review-pool-state.json";
 // Must match what review-panel.mjs stamps. Read as a gate, not decoration — see the
 // version check in `chooseCredential`.
 const POOL_STATE_VERSION = 1;
-
-/**
- * The env-var suffix for a slot name: `CLAUDE_CODE_OAUTH_TOKEN_3` → `"3"`, and the
- * unsuffixed slot-zero name → `""`.
- *
- * Returns `null` for anything that is not one of this pool's names. That matters
- * because the caller interpolates the result into a `secrets[...]` lookup: a name
- * from a malformed artifact must not be able to steer that lookup at some other
- * secret, so the value is re-derived from the KNOWN slot list rather than trusted.
- */
-export function slotSuffix(name) {
-  if (typeof name !== "string") return null;
-  if (name === TOKEN_ENV) return "";
-  for (let i = 1; i <= MAX_SLOTS; i++) {
-    if (name === `${TOKEN_ENV}_${i}`) return String(i);
-  }
-  return null;
-}
 
 /**
  * Decide from a parsed pool-state object. Pure, so the fail directions above are
