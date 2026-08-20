@@ -30,6 +30,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  API_READERS,
   BUDGET_HEADROOM,
   CALLS_PER_ITEM_READ,
   CAPABILITIES,
@@ -38,6 +39,7 @@ import {
   STEPS,
   assertBudget,
   assertCapability,
+  assertPartialIsDeclared,
   assertNoDegradation,
   assertPanelLatency,
   degradationsIn,
@@ -163,17 +165,28 @@ test("every step names a module that exists, and exactly one is per-replicate", 
 
 test("the API-cost model counts exactly the scorers that read the API", () => {
   // `reads_api` is documentation unless something checks it against the model, and the
-  // model's `replicates + 2` is precisely "the per-replicate reader once per replicate,
-  // plus each cross-run reader once".
+  // model is precisely "the per-replicate reader once per replicate, plus each cross-run
+  // reader once".
   const perReplicate = STEPS.filter((s) => s.reads_api && s.per_replicate).length;
   const crossRun = STEPS.filter((s) => s.reads_api && !s.per_replicate).length;
   assert.equal(perReplicate, 1);
-  assert.equal(crossRun, 2);
+  // THREE cross-run readers since `validity.mjs` was wired in: it rebuilds the CodeRabbit
+  // arm's claim population through the same adapter `complementarity` and `segmentation`
+  // use. The model no longer holds its own literal — `API_READERS` derives both counts
+  // from `STEPS`, so a seventh reader cannot leave the preflight asking for less than the
+  // pass spends. That error was in the FLATTERING direction: the budget clears, the pass
+  // starts, and it meets the limit part way through, which is a score filed from a
+  // partial arm and indistinguishable from a clean review.
+  assert.equal(crossRun, 3);
+  assert.deepEqual(API_READERS, { per_replicate: perReplicate, cross_run: crossRun });
   assert.equal(estimateApiCalls({ items: 7, replicates: 3 }), 7 * (3 * perReplicate + crossRun) * CALLS_PER_ITEM_READ);
-  // MEASURED 2026-08-13 against the real API: a full pass over the 7-item pilot at K=3
-  // moved x-ratelimit-used by 175. This is a resource figure and not a benchmark one —
-  // no number the lane REPORTS is pinned anywhere in this file.
-  assert.equal(estimateApiCalls({ items: 7, replicates: 3 }), 175);
+  // MEASURED 2026-08-13 against the real API: the FIVE-step pass over the 7-item pilot at
+  // K=3 moved x-ratelimit-used by 175 — exactly `7 * (3 * 1 + 2) * 5`. The measurement is
+  // not stale, the pass grew: the same pilot now costs `7 * (3 * 1 + 3) * 5` = 210. This
+  // is a resource figure and not a benchmark one — no number the lane REPORTS is pinned
+  // anywhere in this file.
+  assert.equal(7 * (3 * 1 + 2) * CALLS_PER_ITEM_READ, 175);
+  assert.equal(estimateApiCalls({ items: 7, replicates: 3 }), 210);
 });
 
 // --- the flags the driver passes exist ---------------------------------------
@@ -238,7 +251,12 @@ test("volume-mix refuses more than one replicate rather than scoring the first",
 
 test("writtenPaths names one path per replicate for the per-run score and one per cross-run score", () => {
   const paths = writtenPaths({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, runIds: RUNS });
-  assert.equal(paths.length, RUNS.length + 4 + 1, "three volume-mix files, four cross-run scores, one report");
+  // DERIVED from `STEPS` rather than counted by hand, so adding a step moves this with it
+  // instead of reddening it: the count is the whole point of the function and a literal
+  // here would have to be re-guessed every time the lane grows.
+  const crossRunSteps = STEPS.filter((s) => !s.per_replicate).length;
+  assert.equal(crossRunSteps, 5);
+  assert.equal(paths.length, RUNS.length + crossRunSteps + 1, "three volume-mix files, five cross-run scores, one report");
   for (const id of RUNS) assert.ok(paths.includes(`scores/per-run/${id}/volume-mix-v1.json`));
   assert.equal(paths[paths.length - 1], `reports/${comparisonIdFor({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION })}.md`);
 });
@@ -690,8 +708,10 @@ test("a RELATIVE --root is resolved before it reaches a child, which runs in a d
     });
 
     // The pass COMPLETED, so the argv below are a whole run's worth rather than whatever
-    // was recorded before an early throw.
-    assert.equal(result.filed.length, RUNS.length + 4);
+    // was recorded before an early throw. Derived from `STEPS` for the same reason
+    // `writtenPaths`' count is: one filing per replicate for the per-replicate step, one
+    // for each cross-run step.
+    assert.equal(result.filed.length, RUNS.length + STEPS.filter((s) => !s.per_replicate).length);
     assert.ok(spy.calls.length >= 12, `expected a full pass of calls, got ${spy.calls.length}`);
 
     // Every path handed to a child is absolute. This is the assertion; everything above is
@@ -911,4 +931,120 @@ test("the lane needs no deep checkout and no npm install, and says so", () => {
   assert.equal(/npm ci/.test(yaml), false, "the scorers import node: builtins and their own siblings only");
   assert.equal(/refs\/(eval|pull)/.test(yaml), false, "no corpus commit is fetched, because none is read");
   assert.equal(/CLAUDE_CODE_OAUTH_TOKEN/.test(yaml), false, "this lane must hold no model credential");
+});
+
+// --- validity's declared partial exit ---------------------------------------
+//
+// Appended as a block rather than interleaved above, so a parallel branch touching this
+// file rebases cleanly.
+
+/** The one step that declares a tolerated non-zero exit, read from `STEPS` rather than
+ *  named, so this block follows the declaration instead of duplicating it. */
+const partialStep = () => STEPS.find((s) => Number.isFinite(s.partial_exit));
+
+test("exactly one step declares a tolerated non-zero exit, and it is validity", () => {
+  // 🔴 WHY THIS IS SCOPED TO ONE STEP. `validity.mjs` exits 1 whenever its own
+  // completeness verdict is `partial`, and on a store nobody has adjudicated that is its
+  // CORRECT answer — every precision cell is `not-computed` with a reason, which is the
+  // figure §6 exists to carry. The other five exit non-zero only when something broke, so
+  // a driver-wide tolerance would swallow exactly the failures this file is for.
+  assert.deepEqual(STEPS.filter((s) => Number.isFinite(s.partial_exit)).map((s) => s.key), ["validity"]);
+  assert.equal(partialStep().partial_exit, 1);
+  // And it is the exit code validity.mjs actually sets — read from its source, not
+  // assumed, because a driver tolerating a code the scorer no longer uses is a driver
+  // that has stopped checking anything.
+  assert.match(source("validity.mjs"), /process\.exitCode = result\.completeness\.verdict === "complete" \? 0 : 1;/);
+});
+
+test("🔴 the tolerated exit is accepted ONLY when the payload declares itself partial", () => {
+  const step = partialStep();
+  const said = [];
+  const log = (m) => said.push(m);
+  // The honest state: exit 1, payload says `partial`, and the scorer's own reasons reach
+  // the log. A tolerated failure that printed nothing would be indistinguishable from a
+  // clean pass in a job log — the shape of every silent degradation this file guards.
+  const ok = assertPartialIsDeclared(step, {
+    status: 1,
+    payload: { completeness: { verdict: "partial", reasons: ["no finding label exists for this corpus version"] } },
+    label: "validity.mjs",
+    log,
+  });
+  assert.deepEqual(ok, { state: "partial", reasons: 1 });
+  assert.ok(said.some((m) => m.includes("PARTIAL by its own verdict")), said.join("\n"));
+  assert.ok(said.some((m) => m.includes("no finding label exists")), "the scorer's reasons must reach the log");
+
+  // ① THE CODE AND THE PAYLOAD DISAGREE. Exit 1 over `complete` means one of the two is
+  // wrong and nothing downstream can tell which.
+  assert.throws(
+    () => assertPartialIsDeclared(step, { status: 1, payload: { completeness: { verdict: "complete", reasons: [] } }, label: "validity.mjs", log }),
+    /the exit code says partial and the payload says otherwise/,
+  );
+  // ② THE CHECK'S INPUT NEVER ARRIVED — lesson 7. A payload with no completeness verdict
+  // leaves the exit code as the only evidence, and an exit code cannot be told from a
+  // crash.
+  assert.throws(
+    () => assertPartialIsDeclared(step, { status: 1, payload: {}, label: "validity.mjs", log }),
+    /carries no completeness\.verdict to confirm it/,
+  );
+  // ③ ANY OTHER NON-ZERO STILL REFUSES, tolerated code or not: 2 is bad flags and 137 is
+  // a kill, and neither is an answer.
+  for (const status of [2, 137]) {
+    assert.throws(
+      () => assertPartialIsDeclared(step, { status, payload: { completeness: { verdict: "partial", reasons: [] } }, label: "validity.mjs", log }),
+      new RegExp(`exited ${status}\\. Nothing was filed`),
+      `exit ${status} must refuse`,
+    );
+  }
+  // ④ AND A STEP THAT DECLARES NO TOLERANCE GETS THE OLD RULE UNCHANGED.
+  assert.throws(
+    () => assertPartialIsDeclared(STEPS[0], { status: 1, payload: { completeness: { verdict: "partial", reasons: [] } }, label: "volume-mix.mjs", log }),
+    /exited 1\. Nothing was filed/,
+  );
+  // A zero exit is complete and asks nothing of the payload.
+  assert.deepEqual(assertPartialIsDeclared(step, { status: 0, payload: {}, label: "validity.mjs", log }), { state: "complete" });
+});
+
+test("a whole pass files validity's partial score and names it on the summary line", async () => {
+  // END TO END through the driver, because the interlock that matters is the ORDER: the
+  // exit code is checked, then the payload parsed, then the verdict confirmed. A pass over
+  // today's store — no labels anywhere — must file six scores and render, not abort on the
+  // one whose honest output is an absence.
+  const parent = mkdtempSync(path.join(tmpdir(), "score-all-partial-"));
+  try {
+    const store = new EvalStore(path.join(parent, "store"));
+    store.putCorpusManifest(CORPUS_VERSION, { items: [{ id: "pr-415" }, { id: "pr-524" }] });
+    for (const id of RUNS) store.putRun(id, { runJson: { run_id: id } });
+    const spy = fullPassSpy(store, { configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION });
+    const said = [];
+    const run = (args) => {
+      // Only validity behaves like validity: exit 1 with a payload that says why.
+      if (args[0].endsWith("validity.mjs") && !args.includes("--help")) {
+        return { status: 1, stdout: JSON.stringify({ completeness: { verdict: "partial", reasons: ["no finding label exists for this corpus version"] } }), stderr: "" };
+      }
+      return spy.run(args);
+    };
+    const result = await scoreAll({
+      root: path.join(parent, "store"),
+      corpusVersion: CORPUS_VERSION,
+      configHash: CONFIG_HASH,
+      runIds: RUNS,
+      out: path.join(parent, "payloads"),
+      run,
+      probe: () => "x-ratelimit-limit: 5000\nx-ratelimit-remaining: 5000\nx-ratelimit-reset: 1786606948\n",
+      env: { GH_REPO: "wafflebase/wafflebase" },
+      log: (m) => said.push(m),
+    });
+    assert.ok(result.filed.includes("validity-v1"), `validity was not filed: ${result.filed.join(", ")}`);
+    assert.deepEqual(result.partial, ["validity-v1"]);
+    // 🔴 ON THE SUMMARY LINE. A score that calls itself partial is filed on purpose, and a
+    // summary that did not name it would let a reader take the whole pass as complete.
+    assert.match(summarise(result), /partial {6}validity-v1 — filed, and each says why in its own payload/);
+    // The store can read it back — the round trip against the real source of truth, not
+    // against the log line the persist step printed.
+    assert.ok(store.getScore({ scorerId: "validity-v1", scope: "cross-run", configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION }));
+    // And a pass with nothing partial says "none" rather than leaving the line off.
+    assert.match(summarise({ ...result, partial: [] }), /partial {6}none/);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
