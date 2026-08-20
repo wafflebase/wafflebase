@@ -583,3 +583,218 @@ is now a robustness guard rather than a live bug, and this doc should not claim 
 - [x] Re-rendered against the real store on the committed score file: the fit table, the
       measured zero and every absence read as before; §6 correctly silent because §4
       prints no minutes on that payload.
+
+# Follow-up — §2 leads with the directional rates and renders the adjudicated band
+
+*2026-08-20, on top of the two sections above. The complementarity scorer resolves
+adjudicated pairs into a labelled band and files it under `labels` in its payload;
+nothing read it. Three changes to this renderer: the figure a reader meets FIRST, the
+figure that was computed and invisible, and one hardcoded limit whose premise went
+false while its conclusion stayed true.*
+
+## The problem
+
+**① The section led with a Jaccard, and that figure is rhetorically wrong.** Its
+denominator is the union, and on this data the union is mostly classes only the panel
+raised — so the number falls when our arm says MORE, which is not disagreement. A reader
+meets `3.5%` and concludes the two reviewers barely agree. The same three counts say
+something else: on `pilot-01__k2` the panel raised 6 of CodeRabbit's 30 defect classes
+before adjudication and 12 of 30 after, while raising 135 classes CodeRabbit never had.
+**`8.2%` and `40.0%` are the same dataset**, and only the first is dragged by our own
+volume.
+
+**② The adjudicated band was computed, filed, and invisible.** `report.mjs` reads
+`overlap.jaccard` and `unresolved.jaccard_upper_bound`, which are deliberately the
+UNLABELLED figures — the scorer left them untouched so a consumer that had never heard of
+a label renders what it always rendered. The consequence is that every hour of
+adjudication was worth nothing on the page: the store holds 357 pair records, 43 of them
+apply to `pilot-01__k2`, and the report said `3.5%`.
+
+**③ §6's first limit was an assertion with no input.** It read *"No adjudicated labels
+exist."* That premise is now false — 357 pair labels, 45 of them `gold` — while its
+conclusion, that no precision figure appears anywhere, is still true. A sentence that
+cannot go red when the world moves under it is lesson 1's exact shape, and this one was
+one merge away from publishing a falsehood as a limit.
+
+## The change
+
+### §2 leads with two directional rates; the Jaccard sits beside them, labelled
+
+A directional rate is `both / (both + <the other arm>_only)` — *"of everything THIS arm
+raised, how much did the other arm raise too?"* — over four fields §2 already prints in
+its own table. Two of them, in a table above the band table, each with its `n` and its
+unit, per replicate and never pooled.
+
+**The denominator is the point.** Each rate divides by the arm it describes, so neither
+moves when the other arm gets louder; the Jaccard's denominator is the union, so it does.
+That is stated on the page rather than left to be noticed, and it is checked by a test
+that doubles the panel-only class count and asserts the CodeRabbit-side rate does not
+move while the Jaccard nearly halves.
+
+**A replicate with adjudicated pairs gets a SECOND row rather than an upgraded first
+one.** `pilot-01__k2` appears twice — `unadjudicated` and `43 gold label(s) applied` —
+because the movement from 6 of 30 to 12 of 30 is what adjudication bought, and one row
+that quietly became the other would hide it.
+
+### And the ceiling was arithmetic about the two counts, not a matcher limitation
+
+One sentence, guarded to the saturated case where the identity is exact: with 30
+CodeRabbit classes against the panel's 142, even a perfect match on every one of them
+leaves `30/142 = 21.1%` — which is precisely `pilot-01__k1`'s ceiling. It reproduces all
+three ceilings exactly, and it retires a figure this project has read as a property of
+the matcher for a week.
+
+### The adjudicated band, in its own subsection, with four things never separated from it
+
+`labels.headline.band.after` is rendered beside the unlabelled band rather than instead
+of it, per replicate. Four things travel with the number, because this is the first
+figure in the report that is genuinely PARTIAL rather than absent — and a partial figure
+does not protect itself the way an absent one does:
+
+**THE TIER is a column.** `ANNOTATION-GUIDE.md` §6: a `silver` label is an AI
+read-through *pending human confirmation* — *"usable but imperfect; do not treat as the
+ceiling."* The scorer names the most trusted tier present as the headline and resolves
+every other tier separately; both facts are rendered, the non-headline tiers unbolded
+under a heading that refuses them as the band. **The store now holds a silver tier, so
+this is not hypothetical: silver's ceiling MOVES on k2 where gold's does not, making the
+unconfirmed band the tighter one.**
+
+**THE CAUSE is words.** `pair-labels.mjs` distinguishes seven availability states. Five
+render as `not computed` with their own sentence; two — `resolved` and `resolved-nothing`
+— render as a figure, because a band that was looked at and did not move is a
+measurement. `LABEL_CAUSE` is pinned against `LABEL_AVAILABILITY` at import time.
+
+**`ceiling_moved` IS READ**, never inferred by diffing two percentages, and rendered in
+both directions with its reason.
+
+**THE DENOMINATORS travel with the band**: how many pairs were adjudicated out of how
+large a queue, on how many replicates of how many.
+
+### Two provenance counts that are not one fact
+
+`census.keys_moved` counts pairs whose **address** changed when a finding's text was
+re-parsed — the verdict is untouched and the label still applies through its alternate
+key. `census.needs_readjudication` counts **verdicts** flagged as doubted. Today they are
+**6** and **0**. They are rendered as two sentences bound to two fields, and a test swaps
+the payload's two values and asserts the two sentences swap.
+
+### §6's first limit is derived from the label census
+
+Two kinds of label, and only one of them makes a precision figure: a **pair** label
+answers *"are these two findings the same defect?"* and is what §2's band rests on; a
+**validity** label answers *"is this finding real?"* and is what precision, recall and
+correctness need. The store holds hundreds of the first and none of the second, so §6 now
+states both counts, names the two questions apart, and draws the same conclusion it
+always drew. With no pair labels filed it renders the original sentence unchanged — it is
+a derivation, not a rewrite.
+
+## Corrected while building
+
+### 1. 🔴 The first draft printed the Jaccard point without its ceiling — and a test from #805 caught it
+
+The lead table's last column held a bare `3.5%` under a `Jaccard` header. Demoting the
+figure beneath the two rates does not make it safe to print unqualified: it is the LOWER
+BOUND of an interval, and it was now the first number in the section. `report.test.mjs`
+has asserted since #805 that no code path prints the overlap point without its ceiling,
+and it went red. **The column holds a band.** The test's row count moved from 3 to 6
+because §2 now has two tables of replicate rows; its assertion was widened to every one
+of them and strengthened with a check that exactly three are the bolded band-table copies.
+
+**This is the second time that invariant has earned its keep, and it was earned against a
+change that had just spent four paragraphs explaining why the point must not be quoted
+alone.**
+
+### 2. The drift warning fired on the two replicates that were behaving correctly
+
+`labels.headline.labels.unmatched` is 45 on `pilot-01__k1` and `pilot-01__k3` — every
+label matches nothing there, because every label is `pilot-01__k2`'s. The first draft
+rendered *"45 gold label(s) match no undecided pair"* under both, which is the definition
+of `none-for-replicate` rather than a finding about it, and it buried the one that means
+something: **2** on k2. `complementarity.mjs` makes exactly this exclusion for exactly
+this reason, and this renderer now makes it too.
+
+### 3. `ceiling moved: no` on a row with no band
+
+The other-tiers table gave every row a yes/no. *"The ceiling did not move"* and *"there
+is no band here to move"* are the same word and different facts — the distinction the
+whole subsection is built on, one column to the right. A row with no band gets an
+em-dash.
+
+### 4. The exact ceiling budget is now derivable, and is still not printed
+
+The section above declined to print it because the deduction needed a per-finding
+undecided-pair count the scorer did not emit. **It emits one now** — one row per
+CodeRabbit-only class under each tier's `resolution.{resolved,finished_apart,
+still_undecided}[].pairs`. So the sentence saying the count does not exist became false
+and is corrected. What still does not exist is a TOTAL, and summing an array is a number
+the renderer computed: the invariant at the top of the file, and the reason the figure was
+declined twice already. **The sentence names the field and still refuses the number**; a
+test computes the total (263 on the fixture) and asserts it does not appear on the page.
+The total belongs to the scorer that owns the arithmetic — one `reduce`, one field.
+
+### 5. Two mutations that survived, one of them a real test gap
+
+A mutation that reversed §6's central clause — *"only the second bounds this report"* →
+*"only the FIRST"*, i.e. claiming the labels we HAVE are what precision needs — passed
+every assertion. The test checked the counts and the two questions and not the claim that
+joins them. Fixed with an assertion on the clause itself. The other survivor was
+**ineffective rather than uncaught**: randomly re-sorting a three-element frozen array
+usually leaves it in place, so the mutation often changed nothing. Re-run deterministically
+with `.reverse()`, the ordering test catches it.
+
+## Fail directions
+
+- **A score file with no `labels` block** renders the subsection with its own stated
+  cause and nothing else — no band table, no census sentences, no invented zeroes. The
+  committed pilot score is such a file today, so this path is exercised on real data.
+- **An eighth availability state, or a reordered trust scale**, breaks the import rather
+  than rendering an empty cause or promoting a provisional band to the headline.
+- **A label store that disagrees with itself across replicates** — impossible through the
+  CLI, which reads it once per run — is reported on the page, and the counts printed are
+  stated to be the first read's.
+- **An arm that raised nothing** has no directional rate: `0/0` is `null`, not `0.000`,
+  which would read as measured total disagreement.
+- **A dropped or unreadable label file** can only widen a band, so its count is printed
+  beside the bands it did not widen, including at zero.
+- **A store that gains validity labels** changes what §6 says, because §6 now reads the
+  census rather than asserting over it.
+
+## Explicit non-goals
+
+- **No pooling, and no labelled aggregate.** The `union` and `intersection` views carry
+  no labels by construction and are not in the payload this renderer reads at all.
+- **`complementarity.mjs`, `pair-labels.mjs` and `store.mjs` are untouched.**
+- **No new metric.** The directional rates are a presentation of counts §2 already
+  printed; the band is a field.
+- **No re-render of the published report.** `reports/` does not change until somebody
+  re-runs the scorers and the renderer against the store.
+
+## Verification
+
+- [x] **`agent:tests`, both invocations, from the committed tree**: **2245 + 56 = 2301,
+      0 fail, 1 skip**, against a freshly measured **2224 + 56 = 2280** on the same base —
+      **+21**. Both trees extracted separately with the same lockfile-pinned
+      `eslint@9.24.0` `node_modules` symlinked into each, so the skip count is comparable;
+      the single skip is the Agent SDK one. Both `iso` runs used a private `TMPDIR`.
+- [x] `npx eslint scripts` exits **0** on both trees (it caught two `no-regex-spaces` in
+      the new tests first).
+- [x] **38 mutations, 38 caught**, each by the test named for it — including the five that
+      are the point: a `resolved-nothing` band rendered as a cause, a `none-for-replicate`
+      band rendered as a figure, `ceiling_moved` inferred instead of read, both provenance
+      captions carrying one count, and §6's limit hardcoded again.
+- [x] **Rendered against the real store, end to end**, over all three replicates: §2 goes
+      from **41 lines to 133**, prints k2's adjudicated band `[7.3%, 20.4%]` beside its
+      unlabelled `[3.5%, 20.4%]` and its rates `12 of 30 — 40.0%` / `12 of 147 — 8.2%`,
+      k1 and k3 as `not computed` with `none-for-replicate` stated, and the `silver`
+      tier's `[5.4%, 14.2%]` unbolded with its moved ceiling flagged. §6 reads
+      *"357 adjudicated PAIR label(s) exist (45 `gold` · 312 `silver`), and no validity
+      label does."*
+- [x] The report still has **no clock** — the byte-identical re-render test passes
+      untouched, and a second one covers the labelled path.
+- [ ] **Not verified on real data:** a `distant` tier, a `none-matched` replicate, a
+      `store-empty` corpus, an unreadable label file, and a census that disagrees across
+      replicates. None occurs in the store; all are fixture-tested.
+- [ ] **This PR renders; it does not re-render.** The published report under `reports/`
+      does not change until the scorers and the renderer are re-run against the store.
+- [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
+      `build`.
