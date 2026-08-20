@@ -273,7 +273,7 @@ export function SceneHost({
   useEffect(() => {
     liveFrames += 1;
     if (liveFrames > 1) {
-      // eslint-disable-next-line no-console -- the shell has no other channel for a
+      // `console.warn` is allowed by the lint config: the shell has no other channel for a
       // developer-facing invariant breach, and silence is what turns this into an OOM.
       console.warn(
         `[design-editor] ${liveFrames} scene frames are mounted. Exactly one is expected ` +

@@ -103,7 +103,9 @@ export function Popover({
       document.removeEventListener('pointerdown', onDown, true);
       document.removeEventListener('keydown', onKey, true);
     };
-  }, [open]);
+    // `setOpen` is a `useCallback`, so listing it costs no extra runs and makes the effect
+    // honest about what it closes over.
+  }, [open, setOpen]);
 
   return (
     <Ctx.Provider value={ctx}>

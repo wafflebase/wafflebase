@@ -95,8 +95,10 @@ beforeAll(() => {
     transformIndexHtml: async (url: string, html: string) =>
       html.replace('<!doctype-marker>', '') + `<!--transformed:${url}-->`,
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a narrow stand-in for
-  // ViteDevServer; typing it fully would assert nothing this test reads.
+  // A narrow stand-in for ViteDevServer; typing it fully would assert nothing this test
+  // reads. The directive is one line because `disable-next-line` means the LITERAL next
+  // line — spread over two comment lines it disabled the comment and left the cast reported.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (plugin.configureServer as any).call(null, server);
 });
 
