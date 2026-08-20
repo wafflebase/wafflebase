@@ -143,10 +143,31 @@ export function createPathGuard(root: string, opaqueRoots: string[] = []): PathG
      * is OUR cache, keyed under our own name, and never a file the editor edits.
      */
     async backup(abs: string): Promise<string> {
-      const bak = path.join(root, 'node_modules', '.cache', 'wafflebase-design-editor', `${relOf(abs)}.bak`);
-      if (!fs.existsSync(bak)) {
-        await fsp.mkdir(path.dirname(bak), { recursive: true });
-        await fsp.copyFile(abs, bak);
+      /*
+       * VALIDATED HERE, not trusted from the caller. Every current caller passes a
+       * `resolveSafe` result, but this is a public method of the guard and an outside-root
+       * path does not stay outside: `relOf` yields `../outside/x.tsx`, which `path.join`
+       * normalises away, so the backup lands at `.cache/outside/x.tsx.bak` — inside the
+       * cache, mapped to nothing, and colliding with any other tree that has that shape.
+       */
+      const rel = relOf(abs);
+      if (rel.startsWith('../') || path.isAbsolute(rel)) {
+        throw new Error(`refusing to back up a path outside the project root: ${abs}`);
+      }
+
+      const bak = path.join(root, 'node_modules', '.cache', 'wafflebase-design-editor', `${rel}.bak`);
+      await fsp.mkdir(path.dirname(bak), { recursive: true });
+      /*
+       * EXCLUSIVE, because `existsSync` then `copyFile` is a window, and what fits through it
+       * is the one thing this function promises. Two writes to the same file racing here both
+       * saw no backup; the second then copied a file the first had ALREADY edited, replacing
+       * the session-pristine snapshot with a mid-session one. `EEXIST` is the success case —
+       * it means the pristine copy is already there.
+       */
+      try {
+        await fsp.copyFile(abs, bak, fs.constants.COPYFILE_EXCL);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
       }
       return bak;
     },

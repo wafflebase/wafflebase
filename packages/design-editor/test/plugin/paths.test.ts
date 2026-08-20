@@ -175,6 +175,39 @@ describe('backup', () => {
     })();
   });
 
+  it('refuses a path outside the root instead of mislocating its backup', async () => {
+    // `relOf` yields `../elsewhere/x.tsx`, which `path.join` normalises away — so this used
+    // to succeed and drop the backup at `.cache/elsewhere/x.tsx.bak`: inside the cache,
+    // mapped to no source file, and colliding with any other tree of that shape. Every
+    // caller happens to pass a `resolveSafe` result; the guard should not depend on that.
+    const g = createPathGuard(dir);
+    const outside = path.join(dir, '..', 'elsewhere', 'x.tsx');
+    mkdirSync(path.dirname(outside), { recursive: true });
+    writeFileSync(outside, 'NOT OURS', 'utf8');
+    await expect(g.backup(outside)).rejects.toThrow(/outside the project root/);
+    rmSync(path.dirname(outside), { recursive: true, force: true });
+  });
+
+  it('never overwrites the first snapshot, even from concurrent calls', async () => {
+    // The session-pristine guarantee, which `existsSync` then `copyFile` could not hold: two
+    // callers both saw no backup and both copied. `COPYFILE_EXCL` makes the first write the
+    // only one, and `EEXIST` the success case.
+    //
+    // NOTE the ordering this does NOT test: `backup()` must be awaited BEFORE the file is
+    // written, or it snapshots the edit. That is the caller's contract, not this function's.
+    const g = createPathGuard(dir);
+    const abs = path.join(dir, 'race.tsx');
+    writeFileSync(abs, 'PRISTINE', 'utf8');
+
+    const [bak] = await Promise.all([g.backup(abs), g.backup(abs), g.backup(abs)]);
+    expect(readFileSync(bak, 'utf8')).toBe('PRISTINE');
+
+    // And the session guarantee: a later backup of an edited file must not replace it.
+    writeFileSync(abs, 'EDITED', 'utf8');
+    await g.backup(abs);
+    expect(readFileSync(bak, 'utf8')).toBe('PRISTINE');
+  });
+
   it('mirrors the relative path, so equal basenames do not collide', () => {
     const g = createPathGuard(dir);
     const one = path.join(dir, 'x', 'same.tsx');

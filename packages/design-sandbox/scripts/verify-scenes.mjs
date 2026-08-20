@@ -554,6 +554,11 @@ async function main() {
               if (check('the review names which file it will write', !!rel, rel)) {
                 const abs = path.join(ROOT, rel);
                 const before = await fs.readFile(abs, 'utf8');
+                // Cleared before the write — see the same note in verify-frame.mjs: a leftover
+                // cached backup makes `PathGuard.backup` skip, and the presence check below
+                // would then pass on a file this run never created.
+                const cached = path.join(ROOT, 'node_modules/.cache/wafflebase-design-editor', `${rel}.bak`);
+                await fs.rm(cached, { force: true });
                 try {
                   const approve = (await page.$$('[role="dialog"] button')).at(-1);
                   await approve?.click();
@@ -596,7 +601,6 @@ async function main() {
                   // The second half carries the content now: with backups under the cache
                   // directory, "nothing beside the source" is true even if the escape hatch
                   // stopped being written at all.
-                  const cached = path.join(ROOT, 'node_modules/.cache/wafflebase-design-editor', `${rel}.bak`);
                   let inCache = false;
                   try {
                     await fs.access(cached);
@@ -605,7 +609,11 @@ async function main() {
                     /* never written */
                   }
                   check('and one WAS written into node_modules/.cache', inCache, cached);
-                  if (inCache) await fs.unlink(cached).catch(() => {});
+                  try {
+                    await fs.rm(cached, { force: true });
+                  } catch (err) {
+                    check('and the cached backup could be cleaned up', false, String(err));
+                  }
                 } finally {
                   /*
                    * PRODUCT SOURCE, not a fixture. A failed undo — or anything above throwing

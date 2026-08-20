@@ -419,6 +419,19 @@ async function main() {
              */
             const abs = path.join(PROJECT, SCENE_SRC);
             const before = await fs.readFile(abs, 'utf8');
+            /*
+             * CLEARED BEFORE THE WRITE. `PathGuard.backup` is once-per-file-per-session, so a
+             * cached copy left by an interrupted run makes it skip writing — and the presence
+             * check below would then pass on that leftover, exactly the way the old
+             * beside-the-source check passed on its own cleanup. The assertion is only worth
+             * anything if the file it looks for cannot predate the run.
+             */
+            const cached = path.join(
+              PROJECT,
+              'node_modules/.cache/wafflebase-design-editor',
+              `${SCENE_SRC}.bak`,
+            );
+            await fs.rm(cached, { force: true });
             try {
               const approve = (await page.$$('[role="dialog"] button')).at(-1);
               await approve?.click();
@@ -458,11 +471,6 @@ async function main() {
               }
               check('no backup beside the consumer’s source', !beside, `${SCENE_SRC}.bak`);
 
-              const cached = path.join(
-                PROJECT,
-                'node_modules/.cache/wafflebase-design-editor',
-                `${SCENE_SRC}.bak`,
-              );
               let inCache = false;
               try {
                 await fs.access(cached);
@@ -471,7 +479,16 @@ async function main() {
                 /* the escape hatch was never written */
               }
               check('and one WAS written into node_modules/.cache', inCache, cached);
-              if (inCache) await fs.unlink(cached).catch(() => {});
+              // Reported, not swallowed: a cleanup that fails silently leaves the file that
+              // makes the NEXT run's check pass without a write.
+              let cleaned = true;
+              try {
+                await fs.rm(cached, { force: true });
+              } catch (err) {
+                cleaned = false;
+                check('and the cached backup could be cleaned up', false, String(err));
+              }
+              if (cleaned && inCache) console.log(`       removed the cached backup for ${SCENE_SRC}`);
             } finally {
               /*
                * In `finally`, not after the undo check: anything above can throw — a missing
