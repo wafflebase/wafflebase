@@ -78,7 +78,28 @@ jobs:
   changes:
     name: What changed
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 15, not 5, and the number is guarding the CHECKOUT rather than the resolver.
+    # The resolver runs in ~2s; the `fetch-depth: 0` fetch above it is bimodal —
+    # normally 16-43s, but with a heavy tail. Measured over 20 consecutive CI runs
+    # on 2026-08-19: four took 268-318s and THREE of those crossed the old 5-minute
+    # ceiling. Only 22 branches and 42 tags exist, so this is not ref volume; the
+    # variance is on GitHub's git endpoint and is not ours to fix.
+    #
+    # Timing out here is far more expensive than it looks, which is why the headroom
+    # is generous. This job is already fail-safe — every consumer reads
+    # `needs.changes.result != 'success' || heavy == 'true'`, so a failure here makes
+    # them run EVERYTHING — but a job cancelled by `timeout-minutes` makes the whole
+    # RUN conclude `cancelled`, and the agent pipeline gates its fix/promote jobs on
+    # `needs.ci.outputs.conclusion == 'success'`. On #899 that stopped the loop dead
+    # after round 3 with two blocking findings outstanding: all three verify lanes had
+    # PASSED, and nothing paged, because `cancelled` is handled by neither
+    # agent-iterate-ci.yml (which fires only on `failure`) nor the panel's `stalled`
+    # net (which needs a `failure` among its needs).
+    #
+    # So the cost of this ceiling being too low is a silently stalled PR, while the
+    # cost of it being too high is one runner sitting idle. Do not lower it back
+    # without re-measuring the fetch tail.
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
