@@ -698,6 +698,38 @@ const defaultWarn = (message: string): void => {
 };
 
 /**
+ * Longest `src` or reason quoted when an image is skipped. Both are
+ * upstream-controlled — the URL is document content and the reason can carry
+ * a remote server's wording — and this line shares stderr with the JSON error
+ * envelope an agent parses, so neither may flood it.
+ */
+const MAX_SKIP_FIELD = 200;
+
+/** One line's worth of a document-controlled string: bounded and single-line. */
+function oneLine(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  const flat = text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
+  return flat.length > MAX_SKIP_FIELD
+    ? `${flat.slice(0, MAX_SKIP_FIELD)}…`
+    : flat;
+}
+
+/**
+ * The CLI's answer to an image an export could not embed: say so on stderr
+ * and carry on.
+ *
+ * The exporters only drop an image for a caller that supplies this, and the
+ * CLI is that caller because the gate above makes a refused `src` an
+ * ordinary outcome — an export a user waited minutes for must not die over
+ * one image they cannot fix. A browser caller passes nothing and keeps the
+ * loud failure, where the UI has somewhere to show it.
+ */
+export function reportSkippedImage(src: string, error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  console.warn(`Skipping image ${oneLine(redactUrl(src))}: ${oneLine(reason)}`);
+}
+
+/**
  * Build an `ImageFetcher` for the CLI export pipelines. The fetcher
  * downloads each unique image inline `src` once, returning a Blob the
  * exporter can embed verbatim (PDF) or stream into the DOCX zip.

@@ -1,5 +1,6 @@
 import { fetchWithAuth } from "@/api/auth";
 import { assertOk } from "@/api/http-error";
+import { seg } from "@/api/url";
 import { createNdjsonLineReader } from "@/api/ndjson";
 import type { MiroItemLike, MiroConnectorLike } from "@wafflebase/board";
 
@@ -90,7 +91,7 @@ export async function openMiroImportStream(
   payload: { token: string; boardUrl: string },
 ): Promise<Response> {
   const res = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/workspaces/${workspaceId}/miro/import`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/workspaces/${seg(workspaceId)}/miro/import`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },

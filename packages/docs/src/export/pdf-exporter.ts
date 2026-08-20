@@ -22,6 +22,7 @@ import type { TextMeasurer } from '../view/measurer.js';
 import { PdfPainter } from './pdf-painter.js';
 import {
   collectAndEmbedImages,
+  type ImageErrorReporter,
   type ImageFetcher,
 } from './pdf-image-painter.js';
 import { yieldToPaint } from './yield.js';
@@ -31,6 +32,14 @@ const PX_PER_PT = 96 / 72;
 export interface PdfExportOptions {
   fonts?: PdfFonts;
   imageFetcher?: ImageFetcher;
+  /**
+   * Opt in to surviving an image the fetcher could not deliver: the failure
+   * is reported here and the image is dropped instead of failing the export.
+   * Omit it — as the browser exporter does — and a failed image still throws,
+   * so the caller's own error path reports it rather than the user receiving
+   * a silently incomplete document.
+   */
+  onImageError?: ImageErrorReporter;
   metadata?: { title?: string; author?: string; subject?: string; keywords?: string[] };
   /**
    * Text measurer used for layout and pagination. **Required.** The
@@ -130,7 +139,7 @@ export class PdfExporter {
     // supplied fetcher, and embeds them into the PDF up-front so the
     // painter can look them up by src in O(1) per draw.
     const imageMap = await collectAndEmbedImages(
-      doc, pdfDoc, opts.imageFetcher,
+      doc, pdfDoc, opts.imageFetcher, opts.onImageError,
     );
 
     // 6. Per-page paint. While painting we also build a mapping from

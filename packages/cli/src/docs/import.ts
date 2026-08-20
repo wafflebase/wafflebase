@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Document, ImageUploader } from '@wafflebase/docs';
+import { upstreamErrorJson } from '../output/formatter.js';
+import { seg } from '../client/url.js';
 import { importDocx, InvalidDocxError } from './docx-import.js';
 import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
 
@@ -153,7 +155,11 @@ export async function runDocsImport(
     if (dryRun) {
       io.stdout(
         JSON.stringify(
-          { method: 'PUT', path: `/documents/${replace}/content`, body: doc },
+          {
+            method: 'PUT',
+            path: `/documents/${seg(replace)}/content`,
+            body: doc,
+          },
           null,
           2,
         ),
@@ -162,7 +168,7 @@ export async function runDocsImport(
     }
     const res = await client.putDocContent(replace, doc);
     if (!res.ok) {
-      io.stderr(JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
+      io.stderr(upstreamErrorJson(res));
       return { exitCode: exitCodeForStatus(res.status) };
     }
     io.stdout(JSON.stringify({ id: replace, replaced: true }, null, 2));
@@ -192,7 +198,7 @@ export async function runDocsImport(
 
   const created = await client.createDocument(inferredTitle, 'doc');
   if (!created.ok) {
-    io.stderr(JSON.stringify(created.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
+    io.stderr(upstreamErrorJson(created));
     return { exitCode: exitCodeForStatus(created.status) };
   }
   const newId = (created.data as { id?: string } | null)?.id;
@@ -212,7 +218,7 @@ export async function runDocsImport(
 
   const put = await client.putDocContent(newId, doc);
   if (!put.ok) {
-    io.stderr(JSON.stringify(put.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
+    io.stderr(upstreamErrorJson(put));
     return { exitCode: exitCodeForStatus(put.status) };
   }
 

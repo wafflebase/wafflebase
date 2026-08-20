@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { elementToXml, groupToXml, type ElementXmlCtx } from '../../../src/export/pptx/group.js';
-import type { ChartElement, GroupElement, ShapeElement } from '../../../src/model/element.js';
+import type {
+  ChartElement,
+  GroupElement,
+  ImageElement,
+  ShapeElement,
+} from '../../../src/model/element.js';
 
 const ctx: ElementXmlCtx = {
   resolveImageRId: () => 'rId1',
@@ -107,6 +112,48 @@ describe('group', () => {
     const xml = groupToXml(g, ctx);
     // Math.PI/2 radians = 90 degrees = 5 400 000 in OOXML 60 000ths-of-a-degree
     expect(xml).toContain('rot="5400000"');
+  });
+
+  it('omits the whole group when every child serialized away', () => {
+    const dropped: ImageElement = {
+      id: 'img',
+      frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+      type: 'image',
+      data: { src: 'https://example.com/gone.png' },
+    };
+    const g: GroupElement = {
+      id: 'ge',
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+      type: 'group',
+      data: { children: [dropped] },
+    };
+    // A `<p:grpSp>` with no shape children is invalid OOXML, so the group
+    // goes with its children rather than shipping an empty husk.
+    expect(groupToXml(g, { ...ctx, resolveImageRId: () => null })).toBe('');
+  });
+
+  it('drops an emptied nested group without emptying its parent', () => {
+    const dropped: ImageElement = {
+      id: 'img2',
+      frame: { x: 0, y: 0, w: 10, h: 10, rotation: 0 },
+      type: 'image',
+      data: { src: 'https://example.com/gone.png' },
+    };
+    const inner: GroupElement = {
+      id: 'inner2',
+      frame: { x: 0, y: 0, w: 50, h: 50, rotation: 0 },
+      type: 'group',
+      data: { children: [dropped] },
+    };
+    const outer: GroupElement = {
+      id: 'outer2',
+      frame: { x: 0, y: 0, w: 100, h: 100, rotation: 0 },
+      type: 'group',
+      data: { children: [inner, child] },
+    };
+    const xml = groupToXml(outer, { ...ctx, resolveImageRId: () => null });
+    expect((xml.match(/<p:grpSp>/g) ?? []).length).toBe(1);
+    expect(xml).toContain('<p:sp>');
   });
 
   it('emits flipH and flipV on group xfrm', () => {

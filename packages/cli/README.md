@@ -39,6 +39,24 @@ export WAFFLEBASE_API_KEY=wfb_…
 export WAFFLEBASE_WORKSPACE=ws-…
 ```
 
+## Image fetching
+
+`docs export` / `slides export` fetch the images a document references. An
+image `src` is content someone else may have written, so the fetcher speaks
+only `http`/`https`/`data` and refuses a non-public address (loopback,
+private, `169.254.169.254`, CGNAT, multicast/reserved, and the IPv6
+spellings of all of those) unless it is the configured `--server`'s own host
+**and port**. The hostname is resolved before it is fetched and judged per
+address, so `169.254.169.254.nip.io` and friends get no further than the
+literal would, and the request is then pinned to the addresses that check
+approved — DNS cannot answer differently between the check and the
+connection. Every redirect hop is gated the same way, up to five.
+
+An image that is refused or unreachable is reported on stderr and skipped,
+rather than failing the whole export: one `src` you cannot fix must not cost
+you the export you asked for. The rest of the document still exports, minus
+those images.
+
 ## Command Tree (v0.3.7)
 
 Plural namespaces are canonical; singular forms are accepted as
@@ -125,8 +143,25 @@ wafflebase schema cell.get          # → sheets.cells.get
   `INVALID_DOCX`, `TYPE_MISMATCH`, `CONFIRMATION_REQ`) carry a
   command-specific `code` agents can branch on; argument-parsing
   failures (missing argument, unknown option, unknown command) report
-  `USAGE`; everything else
-  reports `"ERROR"`.
+  `USAGE`. A failed request whose
+  body the backend did *not* send in that shape (an Express/Nest
+  `{message, error, statusCode}` 404/500, an HTML proxy page) reports
+  `"HTTP_ERROR"` — or `"AUTH_ERROR"` / `"SERVER_ERROR"` when the status
+  says so — with `"HTTP <status>"` plus the upstream's own wording when
+  it had any, as `"HTTP 404: Document has no file"`. Every command
+  reports the same code for that condition, so the branch does not
+  depend on which subcommand ran. Local failures (bad input, a
+  filesystem error) still report `"ERROR"`.
+- **Forwarded backend errors are bounded**: when the backend *did* send
+  the envelope, its own `code` is what you get — that is the value to
+  branch on, and it is never rewritten. The surrounding text is capped,
+  because it is upstream-controlled content going straight into an
+  agent's stderr: `code` is truncated at 80 characters, `message` at 500
+  (with a trailing `…`), a `message` that is an HTML document is replaced
+  by `"HTTP <status>"`, and any extra fields the backend attached
+  (`command`, a request id) are dropped once the whole body exceeds
+  4,000 bytes, leaving `{code, message}`. Treat `message` as a display string,
+  not a parseable payload.
 - **Exit codes**: `0` success, `1` user error (bad input, 404, type
   mismatch), `2` system error — an unreachable server
   (`NETWORK_ERROR`), rejected credentials (`AUTH_ERROR`, HTTP 401/403),

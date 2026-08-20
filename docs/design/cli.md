@@ -318,6 +318,10 @@ When the CLI authenticates a request, it checks sources in this order:
 2. Session → `activeWorkspace`.
 3. Config profile → `workspace`.
 
+A resolved workspace id is interpolated into the request path like any
+other id, so it goes through the same one-segment encoding — and the same
+refusal of a `.` / `..` id — described in §10.
+
 #### 3.4 Token refresh
 
 The CLI wraps HTTP requests with automatic refresh:
@@ -798,6 +802,7 @@ packages/cli/
       http-client.ts     REST API v1 wrapper (undici fetch via fetchOrThrow)
       content-disposition.ts  Filename parser for binary responses
       dry-run.ts         Dry-run request printer
+      url.ts             seg() — one-segment id encoding, shared by both builders
     config/
       config.ts          Config file + env + flag resolution
       session.ts         Session file read/write + token refresh
@@ -1482,9 +1487,13 @@ is the agent interface. This approach has key advantages:
 | `--replace --dry-run` without `--yes`               | 0    | —                   | (no prompt, no gate — a preview writes nothing)                     |
 | Output file already exists                          | 1    | FILE_EXISTS         | "Refusing to overwrite <file>; pass --force"                       |
 | `--out` / `<file>` directory missing                | 1    | PATH_NOT_FOUND      | (system message)                                                   |
+| Backend 401, JWT session could not be refreshed     | 2    | SESSION_EXPIRED     | "Session expired. Run `wafflebase login`."                         |
+| Backend error body *is* the envelope                | by status | (forwarded, bounded) | (the upstream's own code — e.g. SESSION_EXPIRED, TYPE_MISMATCH) |
+| Backend error body is not the envelope              | by status | HTTP_ERROR (AUTH_ERROR on 401/403, SERVER_ERROR on 5xx) | "HTTP <status>" (+ ": <upstream message>" when the body had one) |
 | Backend 401/403                                     | 2    | AUTH_ERROR          | "Authentication failed. Run `wafflebase login`."                   |
 | Backend 5xx                                         | 2    | SERVER_ERROR        | caller's message, else "HTTP <status>"                             |
 | Server unreachable (DNS, refused, TLS)              | 2    | NETWORK_ERROR       | "Request to <url> failed: <cause>" (URL + cause redacted)          |
+| Workspace / document / tab / cell id is `.` or `..` | 1    | ERROR               | "Invalid path segment: \"..\"" (refused before any request is sent) |
 | Unparseable `--server` / image URL                  | 1    | INVALID_URL         | "Invalid URL \"<url>\". Check --server / WAFFLEBASE_SERVER."       |
 | Image `src` the CLI refuses to dereference          | 1    | IMAGE_URL_BLOCKED   | "Refusing to fetch …"                                              |
 | Create returned 2xx with no `id`                    | 2    | INVALID_RESPONSE    | "Server did not return an id"                                      |
@@ -1495,6 +1504,126 @@ is the agent interface. This approach has key advantages:
 | Font download 401/403                               | 2    | AUTH_ERROR          | "Font download failed: <status> …"                                 |
 | Font download 5xx                                   | 2    | SERVER_ERROR        | "Font download failed: <status> …"                                 |
 | Font download 4xx (e.g. a 404 font URL)             | 1    | —                   | "Font download failed: <status> …"                                 |
+
+There is deliberately no `UNAUTHORIZED` code: an auth failure is just a
+backend response like any other. It reports `SESSION_EXPIRED` (the client's
+own synthesized envelope, the one case the CLI knows is an auth failure) or
+`AUTH_ERROR` — a single classifier for every command, so the code an agent
+branches on never depends on which subcommand it ran.
+
+**Every `!res.ok` goes through one guard.** `forwardUpstreamError`
+(`packages/cli/src/output/formatter.ts`) is the whole non-OK branch for
+commands that print through `outputError`, and `upstreamErrorJson` is its
+twin for the import/upload/download paths that report through an injected
+`io.stderr` and a returned exit code. Both apply the same rule — a body that
+*is* the documented envelope is forwarded (bounded, see below), anything else
+becomes the `HTTP_ERROR` / `AUTH_ERROR` / `SERVER_ERROR` envelope carrying
+the upstream's own wording — and both take the exit class from the status
+(`exitCodeForStatus`), so a `401 SESSION_EXPIRED` body does not read as a
+user error just because it happens to be JSON. Before that, the `!res.ok`
+branch was written out at each call site: six of them forwarded a real
+envelope and the rest threw `new Error("HTTP <status>")`, which flattened
+the client's own `SESSION_EXPIRED` to `{code: "ERROR"}` depending only on
+which subcommand the agent happened to run.
+
+**Ids are one path segment each.** Every id the client interpolates into a
+request URL — the workspace, a document id, a tab id, a cell reference —
+comes from argv, a config file, or a document an agent generated, and
+`fetch` resolves `.` / `..` per the WHATWG URL rules. So each id is
+percent-encoded (`seg()`, `packages/cli/src/client/url.ts`), which pins it
+to the segment it was meant to fill: an id of
+`../../../../workspaces/w/api-keys/k` is sent as a literal (escaped)
+document id and 404s, instead of walking the request out of the
+`/api/v1/workspaces/<ws>` base and issuing the command's own method, with
+the session's bearer token, against an endpoint it never named.
+
+Encoding cannot pin `.` and `..` themselves — `encodeURIComponent` leaves a
+dot untouched and the URL parser resolves those two segments however they
+are spelled — so they are the one id the client refuses outright. No real
+id is ever a dot segment, so this is the matrix's `ERROR` row above: a
+plain throw before the request is built (nothing reaches the network), and
+therefore the classifier's default code rather than a code of its own.
+Every other id, however strange, is encoded and sent.
+
+Both rules cover `--dry-run` (§8.2), not just the request path: the preview
+is a second URL builder (`printDryRun`, `packages/cli/src/client/dry-run.ts`),
+and a preview that skipped the encoding would print a walked-out URL as "the
+request that would be sent" — the one output an agent is most likely to copy
+and run. The commands encode with the same `seg()` when they assemble a
+previewed path, the printer encodes the workspace, and it re-checks the
+assembled path for a dot segment, since after encoding there cannot be one.
+
+The same reasoning applies wherever else an id or a name chooses something
+outside the process:
+
+- **A downloaded file lands on a name, not a path.** `files download` writes
+  to the caller's `out` when they gave one — they typed a path, so a path is
+  what they meant. Everything else is a *name*: both the server's
+  `Content-Disposition` filename (derived from a document title) and the
+  document id from argv are reduced with `basename` and refused if they are
+  `.`, `..` or empty, falling back to `download` in the CWD
+  (`packages/cli/src/files/download.ts`).
+- **An image `src` in a document cannot aim an export at the local network.**
+  `docs export` / `slides export` fetch every image inline from the operator's
+  machine, and the `src` is content someone else may have written — so the
+  fetcher gates every URL and every redirect hop, and pins each request to the
+  addresses that gate approved. That guard is specified in full under
+  §_Export image fetching_ above; it is the same rule as this section's,
+  applied to a URL the document chose rather than an id the caller typed.
+  A refusal is **not** fatal to the export — *for the CLI*. The exporters
+  (`collectAndEmbedImages`, `DocxExporter.collectImages`, `exportPptx`) each
+  take an `onImageError` reporter, and supplying it is what turns a per-image
+  failure from fatal into a drop: the failed `src` is reported and that one
+  image is left out (the DOCX run is omitted rather than left pointing at a
+  relationship that was never written, and the PPTX element is skipped the way
+  an unserializable chart already is). Every CLI export path passes
+  `reportSkippedImage`, which prints one bounded, redacted line on stderr. One
+  image the user cannot fix must not cost them the export they asked for —
+  which is also what keeps a document full of URLs from an origin this install
+  cannot reach exportable.
+  The tolerance is opt-in precisely because those exporters are shared with
+  the browser, which passes no reporter and keeps the old loud failure: there
+  no SSRF guard makes a refusal ordinary, the export UI reports a thrown
+  error, and a `console.warn` nobody reads would hand the user a silently
+  incomplete download. The canonical write-up of that contract lives with the
+  exporters, in
+  [`docs/docs-pdf-export.md`](docs/docs-pdf-export.md#surviving-a-failed-image-onimageerror).
+  One caveat worth stating plainly: the `catch` spans the decode and embed
+  calls as well as the fetch, so for a caller that opted in, undecodable bytes
+  are dropped as quietly as a refused host.
+
+The rule is not CLI-only. The frontend talks to the same API with the user's
+session, and interpolates route-param ids the same way, so it carries the same
+primitive — literally the same one: `seg()` lives in `@wafflebase/core/url`
+alongside `isSafeUrl`, the existing home for shared URL-safety rules, and both
+`packages/cli/src/client/url.ts` and `packages/frontend/src/api/url.ts`
+re-export it from there rather than keeping a second copy that can drift. It is
+applied to **every**
+browser API module that interpolates one — documents, workspaces, folders,
+share links, datasources, files, analytics, Miro import and the sheet image
+upload. A partially applied guard would be worse than none, because it reads
+as covered: ids reach these modules from `useParams`, so a crafted link like
+`/workspaces/..%2F..%2Fauth%2Flogout/settings` is enough (react-router
+percent-decodes route params before handing them over). `url.test.ts` drives
+one call per id-bearing route and asserts the normalized pathname still names
+the route that was asked for.
+
+**Forwarding is bounded, not byte-for-byte.** On the "body *is* the envelope"
+row the `code` is the upstream's own — that is the contract, and it is never
+rewritten or reclassified. The text around it is not echoed unchanged,
+because a forwarded body is upstream-controlled content printed straight
+into an agent's stderr, and the non-envelope path already refuses to quote a
+stack trace or an HTML page. The same bounds therefore apply on the envelope
+path (`safeEnvelope`, `packages/cli/src/output/formatter.ts`):
+
+| Field                       | Bound                                                              |
+| --------------------------- | ------------------------------------------------------------------ |
+| `error.code`                | truncated at 80 characters — a code is an identifier, not prose     |
+| `error.message`             | trimmed, truncated at 500 characters with a trailing `…`            |
+| `error.message` that is HTML | replaced by `HTTP <status>` — a document is not a message           |
+| sibling fields (`command`, request ids) | kept while the serialized body stays under 4,000 bytes; past that only `{code, message}` survives |
+
+An `error.message` is a display string, not a payload to parse.
 
 ### 11. Design Principles
 

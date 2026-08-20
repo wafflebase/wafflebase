@@ -6,9 +6,10 @@ import {
   output,
   outputError,
   parseOutputFormat,
+  forwardUpstreamError,
 } from '../output/formatter.js';
-import { exitCodeForStatus, httpError } from '../errors.js';
 import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 import { runNotesImport } from '../notes/import.js';
 import {
   parseNotesContentFormat,
@@ -40,7 +41,7 @@ export function registerNotesCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) throw httpError(res.status);
+        if (!res.ok) return forwardUpstreamError(res);
         let data = res.data as unknown;
         if (Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter(
@@ -68,7 +69,7 @@ export function registerNotesCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).createDocument(title, 'note');
-        if (!res.ok) throw httpError(res.status);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -83,7 +84,7 @@ export function registerNotesCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) throw httpError(res.status);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -96,13 +97,15 @@ export function registerNotesCommand(program: Command) {
     .action(async function (this: Command, docId: string, title: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}`, { title });
+        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, {
+          title,
+        });
         return;
       }
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) throw httpError(res.status);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -115,13 +118,13 @@ export function registerNotesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'DELETE', `/documents/${docId}`);
+        printDryRun(getConfig(opts), 'DELETE', `/documents/${seg(docId)}`);
         return;
       }
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) throw httpError(res.status);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -144,26 +147,19 @@ export function registerNotesCommand(program: Command) {
         const format = parseNotesContentFormat(opts.format);
 
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'GET', `/documents/${docId}/content`);
+          printDryRun(
+            getConfig(opts),
+            'GET',
+            `/documents/${seg(docId)}/content`,
+          );
           return;
         }
 
         const res = await getClient(opts).getNoteContent(docId);
-        if (!res.ok) {
-          const body = res.data as
-            | { error?: { code?: string; message?: string } }
-            | null;
-          if (body?.error) {
-            // Surface backend-shaped errors (e.g., TYPE_MISMATCH) verbatim
-            // so agents reading stderr can act on the `code` field. The
-            // status still decides the exit class — a 401 SESSION_EXPIRED
-            // body must not read as a user error just because it is JSON.
-            console.error(JSON.stringify(body, null, 2));
-            process.exitCode = exitCodeForStatus(res.status);
-            return;
-          }
-          throw httpError(res.status);
-        }
+        // Surfaces a backend-shaped error (e.g., TYPE_MISMATCH) verbatim so
+        // agents reading stderr can act on its `code`; anything else throws
+        // and comes back out through `outputError`.
+        if (!res.ok) return forwardUpstreamError(res);
 
         runNotesContent({
           note: res.data,
@@ -206,19 +202,15 @@ export function registerNotesCommand(program: Command) {
           );
         }
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'GET', `/documents/${docId}/content`);
+          printDryRun(
+            getConfig(opts),
+            'GET',
+            `/documents/${seg(docId)}/content`,
+          );
           return;
         }
         const res = await getClient(opts).getNoteContent(docId);
-        if (!res.ok) {
-          const body = res.data as { error?: { code?: string } } | null;
-          if (body?.error) {
-            console.error(JSON.stringify(body, null, 2));
-            process.exitCode = exitCodeForStatus(res.status);
-            return;
-          }
-          throw httpError(res.status);
-        }
+        if (!res.ok) return forwardUpstreamError(res);
         runNotesContent({
           note: res.data,
           format: 'md',

@@ -2,6 +2,7 @@ import type { Document } from '@wafflebase/docs';
 import type { SlidesDocument } from '@wafflebase/slides/node';
 import type { CliConfig } from '../config/config.js';
 import { parseContentDispositionFilename } from './content-disposition.js';
+import { seg } from './url.js';
 import {
   loadSession,
   saveSession,
@@ -82,7 +83,7 @@ export class HttpClient {
 
   private get base(): string {
     const server = this.config.server.replace(/\/$/, '');
-    return `${server}/api/v1/workspaces/${this.config.workspace}`;
+    return `${server}/api/v1/workspaces/${seg(this.config.workspace)}`;
   }
 
   /**
@@ -173,8 +174,11 @@ export class HttpClient {
    * One authenticated JSON round trip against an absolute URL. Every JSON
    * endpoint goes through here — the workspace-scoped `/api/v1` ones via
    * `request()` and the management endpoints (API keys) with their own
-   * base — so a refreshable session is never reported as an auth failure
-   * just because of which base a call used.
+   * base — so all of them refresh a JWT session on a 401 and report the
+   * same `SESSION_EXPIRED` envelope when the refresh fails. The management
+   * endpoints used to call `fetch` directly, which made `api-keys` the one
+   * namespace where an expired session surfaced as whatever the backend's
+   * 401 body happened to be.
    */
   private async sendJson<T>(
     method: string,
@@ -214,13 +218,13 @@ export class HttpClient {
     return this.request('POST', '/documents', body);
   }
   getDocument(id: string) {
-    return this.request('GET', `/documents/${id}`);
+    return this.request('GET', `/documents/${seg(id)}`);
   }
   updateDocument(id: string, title: string) {
-    return this.request('PATCH', `/documents/${id}`, { title });
+    return this.request('PATCH', `/documents/${seg(id)}`, { title });
   }
   deleteDocument(id: string) {
-    return this.request('DELETE', `/documents/${id}`);
+    return this.request('DELETE', `/documents/${seg(id)}`);
   }
 
   // Files (blob documents) — no CRDT content, just bytes. Upload stores the
@@ -269,7 +273,7 @@ export class HttpClient {
 
   async downloadFileDocument(docId: string): Promise<BinaryResponse> {
     const { res, sessionExpired } = await this.send(
-      `${this.base}/files/${encodeURIComponent(docId)}`,
+      `${this.base}/files/${seg(docId)}`,
       (auth) => ({ method: 'GET', headers: auth }),
     );
 
@@ -298,13 +302,13 @@ export class HttpClient {
   getDocContent(docId: string) {
     return this.request<Document>(
       'GET',
-      `/documents/${docId}/content`,
+      `/documents/${seg(docId)}/content`,
     );
   }
   putDocContent(docId: string, doc: Document) {
     return this.request<Document>(
       'PUT',
-      `/documents/${docId}/content`,
+      `/documents/${seg(docId)}/content`,
       doc,
     );
   }
@@ -315,13 +319,13 @@ export class HttpClient {
   getSlidesContent(docId: string) {
     return this.request<SlidesDocument>(
       'GET',
-      `/documents/${docId}/content`,
+      `/documents/${seg(docId)}/content`,
     );
   }
   putSlidesContent(docId: string, deck: SlidesDocument) {
     return this.request<SlidesDocument>(
       'PUT',
-      `/documents/${docId}/content`,
+      `/documents/${seg(docId)}/content`,
       deck,
     );
   }
@@ -332,58 +336,75 @@ export class HttpClient {
   getNoteContent(docId: string) {
     return this.request<NoteContent>(
       'GET',
-      `/documents/${docId}/content`,
+      `/documents/${seg(docId)}/content`,
     );
   }
   putNoteContent(docId: string, note: NoteContent) {
     return this.request<NoteContent>(
       'PUT',
-      `/documents/${docId}/content`,
+      `/documents/${seg(docId)}/content`,
       note,
     );
   }
 
   // Tabs
   listTabs(docId: string) {
-    return this.request<unknown[]>('GET', `/documents/${docId}/tabs`);
+    return this.request<unknown[]>('GET', `/documents/${seg(docId)}/tabs`);
   }
   createTab(docId: string, body: { name?: string; type?: string }) {
-    return this.request('POST', `/documents/${docId}/tabs`, body);
+    return this.request('POST', `/documents/${seg(docId)}/tabs`, body);
   }
   renameTab(docId: string, tabId: string, name: string) {
-    return this.request('PATCH', `/documents/${docId}/tabs/${tabId}`, { name });
+    return this.request('PATCH', `/documents/${seg(docId)}/tabs/${seg(tabId)}`, {
+      name,
+    });
   }
 
   // Cells
   getCells(docId: string, tabId: string, range?: string) {
     const query = range ? `?range=${encodeURIComponent(range)}` : '';
-    return this.request('GET', `/documents/${docId}/tabs/${tabId}/cells${query}`);
+    return this.request(
+      'GET',
+      `/documents/${seg(docId)}/tabs/${seg(tabId)}/cells${query}`,
+    );
   }
   getCell(docId: string, tabId: string, sref: string) {
-    return this.request('GET', `/documents/${docId}/tabs/${tabId}/cells/${sref}`);
+    return this.request(
+      'GET',
+      `/documents/${seg(docId)}/tabs/${seg(tabId)}/cells/${seg(sref)}`,
+    );
   }
   setCell(docId: string, tabId: string, sref: string, value?: string, formula?: string) {
-    return this.request('PUT', `/documents/${docId}/tabs/${tabId}/cells/${sref}`, {
-      value,
-      formula,
-    });
+    return this.request(
+      'PUT',
+      `/documents/${seg(docId)}/tabs/${seg(tabId)}/cells/${seg(sref)}`,
+      { value, formula },
+    );
   }
   deleteCell(docId: string, tabId: string, sref: string) {
-    return this.request('DELETE', `/documents/${docId}/tabs/${tabId}/cells/${sref}`);
+    return this.request(
+      'DELETE',
+      `/documents/${seg(docId)}/tabs/${seg(tabId)}/cells/${seg(sref)}`,
+    );
   }
   batchCells(
     docId: string,
     tabId: string,
     cells: Record<string, { value?: string; formula?: string } | null>,
   ) {
-    return this.request('PATCH', `/documents/${docId}/tabs/${tabId}/cells`, { cells });
+    return this.request(
+      'PATCH',
+      `/documents/${seg(docId)}/tabs/${seg(tabId)}/cells`,
+      { cells },
+    );
   }
 
-  // API Keys (management endpoints use a different base, but the same
-  // authenticated round trip — see `send`)
+  // API Keys (management endpoints sit outside the `/api/v1` base, but go
+  // through the same authenticated round trip — see `sendJson` — so the 401
+  // refresh and the SESSION_EXPIRED envelope apply here too).
   private get apiKeysBase(): string {
     const server = this.config.server.replace(/\/$/, '');
-    return `${server}/workspaces/${this.config.workspace}/api-keys`;
+    return `${server}/workspaces/${seg(this.config.workspace)}/api-keys`;
   }
   listApiKeys() {
     return this.sendJson('GET', this.apiKeysBase);
@@ -392,9 +413,6 @@ export class HttpClient {
     return this.sendJson('POST', this.apiKeysBase, { name });
   }
   revokeApiKey(id: string) {
-    return this.sendJson(
-      'DELETE',
-      `${this.apiKeysBase}/${encodeURIComponent(id)}`,
-    );
+    return this.sendJson('DELETE', `${this.apiKeysBase}/${seg(id)}`);
   }
 }

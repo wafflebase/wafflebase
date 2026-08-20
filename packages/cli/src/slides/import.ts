@@ -12,6 +12,8 @@ import {
 } from './pptx-import.js';
 import type { ImportReport } from '@wafflebase/slides/node';
 import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
+import { upstreamErrorJson } from '../output/formatter.js';
+import { seg } from '../client/url.js';
 
 /**
  * Parsing surface — split out so tests can inject a stub that returns
@@ -180,7 +182,7 @@ export async function runSlidesImport(
         JSON.stringify(
           {
             method: 'PUT',
-            path: `/documents/${replace}/content`,
+            path: `/documents/${seg(replace)}/content`,
             body: deck,
             report: summariseReport(report),
           },
@@ -192,7 +194,7 @@ export async function runSlidesImport(
     }
     const res = await client.putSlidesContent(replace, deck);
     if (!res.ok) {
-      io.stderr(JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
+      io.stderr(upstreamErrorJson(res));
       return { exitCode: exitCodeForStatus(res.status) };
     }
     io.stdout(
@@ -235,7 +237,7 @@ export async function runSlidesImport(
 
   const created = await client.createDocument(inferredTitle, 'slides');
   if (!created.ok) {
-    io.stderr(JSON.stringify(created.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
+    io.stderr(upstreamErrorJson(created));
     return { exitCode: exitCodeForStatus(created.status) };
   }
   const newId = (created.data as { id?: string } | null)?.id;
@@ -255,7 +257,7 @@ export async function runSlidesImport(
 
   const put = await client.putSlidesContent(newId, deck);
   if (!put.ok) {
-    io.stderr(JSON.stringify(put.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
+    io.stderr(upstreamErrorJson(put));
     return { exitCode: exitCodeForStatus(put.status) };
   }
 

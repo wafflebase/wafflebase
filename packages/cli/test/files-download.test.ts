@@ -86,6 +86,28 @@ describe('resolveDownloadTarget', () => {
     expect(resolveDownloadTarget(undefined, '..', 'doc-1')).toBe('doc-1');
     expect(resolveDownloadTarget(undefined, '../..', 'doc-1')).toBe('doc-1');
   });
+
+  it('strips any directory component from the document id fallback too', () => {
+    // The id comes from argv, so it gets the same treatment as the server's
+    // name — it names a file, it does not choose a directory.
+    expect(resolveDownloadTarget(undefined, undefined, '../../.bashrc')).toBe(
+      '.bashrc',
+    );
+    expect(
+      resolveDownloadTarget(undefined, undefined, '/etc/cron.d/wafflebase'),
+    ).toBe('wafflebase');
+    expect(resolveDownloadTarget(undefined, undefined, '/etc/passwd')).toBe(
+      'passwd',
+    );
+  });
+
+  it('uses a fixed in-CWD name when no usable name survives', () => {
+    expect(resolveDownloadTarget(undefined, undefined, '..')).toBe('download');
+    expect(resolveDownloadTarget(undefined, '..', '../../..')).toBe('download');
+    expect(resolveDownloadTarget(undefined, undefined, '/')).toBe('download');
+    // `-` is stdout to the writer; an id must not redirect the bytes there.
+    expect(resolveDownloadTarget(undefined, undefined, '-')).toBe('download');
+  });
 });
 
 describe('runFilesDownload', () => {
@@ -163,8 +185,11 @@ describe('runFilesDownload', () => {
 
   it('exits 2 when an OK response carried no bytes', async () => {
     // The server said yes and sent nothing. Reporting that as a user
-    // error would tell the caller to fix arguments that were correct.
-    const { io, writes } = makeIO();
+    // error would tell the caller to fix arguments that were correct —
+    // and routing it through `upstreamErrorJson` would print the status
+    // the response actually carried (`HTTP 200` on a *failure*), which
+    // tells an agent reading stderr the opposite of what happened.
+    const { io, writes, err } = makeIO();
     const client = {
       downloadFileDocument: vi
         .fn()
@@ -173,5 +198,7 @@ describe('runFilesDownload', () => {
     const res = await runFilesDownload({ docId: 'doc-1' }, client, io);
     expect(res.exitCode).toBe(2);
     expect(writes).toHaveLength(0);
+    expect(err.join('')).toContain('no file content');
+    expect(err.join('')).not.toMatch(/"message":\s*"HTTP 200"/);
   });
 });
