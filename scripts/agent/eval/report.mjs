@@ -656,8 +656,39 @@ function labelStoreOf(reps) {
     invalid: Array.isArray(first.store?.invalid) ? first.store.invalid.length : 0,
     // A payload assembled from two scoring runs would carry two censuses. It cannot
     // happen through the CLI, which is why it is worth a line rather than a comment.
-    census_disagrees: new Set(blocks.map((b) => `${b.census?.n ?? 0}|${b.census?.keys_moved ?? 0}|${b.census?.needs_readjudication ?? 0}`)).size > 1,
+    //
+    // 🔴 IT FINGERPRINTS EVERY FIELD THIS OBJECT HANDS THE RENDERER, not the three it
+    // started with. The warning's own words are "the counts above describe only the
+    // first", so it has to cover every count that comes from `blocks[0]` — and §2
+    // quotes `by_source` and `superseded`, and §6 quotes `by_source` again, all of
+    // which were outside the old fingerprint. A guard that watches three of seven
+    // fields is the shape lesson 7 is about: it stands in one door and the room has
+    // three. `unreadable` and `invalid` are store-level rather than census fields and
+    // are included for the same reason — they are printed from the same first block.
+    census_disagrees: new Set(blocks.map(censusFingerprint)).size > 1,
   };
+}
+
+/**
+ * Everything `labelStoreOf` reads out of ONE label block, as a comparable string.
+ *
+ * `by_source` is an object, so its entries are sorted before serialising: two censuses
+ * with the same counts in a different key order are the same census, and a fingerprint
+ * that said otherwise would raise a disagreement warning on a payload that has none.
+ * `pairLabelCensus` already sorts, so this only matters for a hand-assembled payload —
+ * which is exactly the input this guard exists for.
+ */
+function censusFingerprint(block) {
+  const c = block.census ?? {};
+  return JSON.stringify([
+    c.n ?? 0,
+    Object.entries(c.by_source ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+    c.keys_moved ?? 0,
+    c.needs_readjudication ?? 0,
+    c.superseded ?? 0,
+    Array.isArray(block.store?.unreadable) ? block.store.unreadable.length : 0,
+    Array.isArray(block.store?.invalid) ? block.store.invalid.length : 0,
+  ]);
 }
 
 /**
@@ -1384,11 +1415,24 @@ function renderComplementarity(c) {
       // ceiling is saturated every CodeRabbit class merges in the limit, so the bound
       // collapses to CodeRabbit's class count over the panel's — an exact identity on a
       // saturated replicate, and it reproduces every ceiling in the table above.
-      `**And the ceiling is a property of the two counts rather than of the matcher.** \`${worst.label}\` has`,
-      `${worst.rates.coderabbit.n} CodeRabbit class(es) against the panel's ${worst.rates.panel.n}, so even a perfect match on every one of them`,
-      `leaves ${worst.rates.coderabbit.n}/${worst.rates.panel.n} = ${pct(worst.ceiling)} — which is exactly the ceiling on that row. It is arithmetic about how`,
-      "much each arm said, and no amount of adjudication moves it.",
-      "",
+      //
+      // ⟳ AND IT IS CHECKED BEFORE IT IS CLAIMED, because the sentence says "exactly".
+      // It printed the FRACTION from the two class counts and the PERCENTAGE from
+      // `unresolved.jaccard_upper_bound`, and nothing made the two agree: on a payload
+      // whose saturation flag is true but whose counts no longer reproduce its ceiling
+      // it rendered `leaves 30/288 = 20.4%`, where 30/288 is 10.4% — a false identity,
+      // asserted, in a section built on every figure being derivable from the payload
+      // in front of it. `saturated` is a field this renderer cannot verify, so the
+      // arithmetic is verified instead, at the precision the page prints.
+      ...(ceilingIdentityHolds(worst)
+        ? [
+            `**And the ceiling is a property of the two counts rather than of the matcher.** \`${worst.label}\` has`,
+            `${worst.rates.coderabbit.n} CodeRabbit class(es) against the panel's ${worst.rates.panel.n}, so even a perfect match on every one of them`,
+            `leaves ${worst.rates.coderabbit.n}/${worst.rates.panel.n} = ${pct(worst.ceiling)} — which is exactly the ceiling on that row. It is arithmetic about how`,
+            "much each arm said, and no amount of adjudication moves it.",
+            "",
+          ]
+        : []),
       `The queue is ${worst.maybe_links} undecided pairs on \`${worst.label}\`, of which **${worst.strong_maybe_links} score ≥ ${worst.triage_threshold}**. Those two`,
       "numbers buy different ends of the band, and the cheap one buys the end that is already tight:",
       "",
@@ -1440,6 +1484,27 @@ function renderComplementarity(c) {
   );
   out.push(...renderAdjudicatedBand(c));
   return out;
+}
+
+/**
+ * Does `CodeRabbit classes ÷ panel classes` actually equal the ceiling this row prints?
+ *
+ * AT PRINT PRECISION, deliberately, because that is the claim being made. The sentence
+ * this guards says the quotient is *exactly* the ceiling, and a reader checks that
+ * against the two numbers on the page — so the comparison is between what would be
+ * printed, not between two full-precision floats that differ in the fifteenth decimal.
+ * Both sides go through `pct`, which is also what renders them.
+ *
+ * When it does not hold, the sentence is omitted rather than softened. It is an
+ * explanation of a figure that is already on the page with its own band, not a figure
+ * in its own right — so dropping it removes an assertion and hides nothing, whereas
+ * printing "approximately" would keep a claim this renderer cannot support.
+ */
+function ceilingIdentityHolds(worst) {
+  const cr = worst?.rates?.coderabbit?.n;
+  const panel = worst?.rates?.panel?.n;
+  if (!Number.isFinite(cr) || !Number.isFinite(panel) || panel <= 0) return false;
+  return pct(cr / panel) === pct(worst.ceiling);
 }
 
 /**

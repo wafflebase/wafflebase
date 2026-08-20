@@ -1490,6 +1490,20 @@ test("a score assembled from two reads of the label store says so rather than qu
   assert.match(rendered, /\*\*6 of 357 record\(s\) carry a pair key that MOVED\.\*\*/);
   assert.equal(rendered.includes("9 of 400"), false);
   assert.equal(LABELLED_REPORT().includes("different label censuses"), false);
+  // 🔴 EVERY FIELD THIS SUMMARY HANDS THE RENDERER IS FINGERPRINTED, not the three the
+  // guard started with. `by_source` and `superseded` are printed from the first block
+  // too — `by_source` in §2's tier sentence AND in §6's limit — so a disagreement in
+  // either has to raise the same warning. It did not, which left the warning's own
+  // words ("the counts above describe only the first") true of four fields and silent
+  // about three.
+  const only = (i, census) => ({ per_replicate: LABELLED.per_replicate.map((r, j) => (j === i ? { ...r, labels: { ...r.labels, census } } : r)) });
+  assert.match(LABELLED_REPORT(only(1, { ...CENSUS, by_source: { gold: 44, silver: 313 } })), /different label censuses/);
+  assert.match(LABELLED_REPORT(only(1, { ...CENSUS, superseded: 11 })), /different label censuses/);
+  // A different KEY ORDER in `by_source` is the same census, and must not trip it.
+  assert.equal(LABELLED_REPORT(only(1, { ...CENSUS, by_source: { silver: 312, gold: 45 } })).includes("different label censuses"), false);
+  // And the store-level counts printed from the same first block are covered too.
+  const store2 = { per_replicate: LABELLED.per_replicate.map((r, j) => (j === 1 ? { ...r, labels: { ...r.labels, store: { ...r.labels.store, invalid: [{ file: "x.json", reason: "bad verdict" }] } } } : r)) };
+  assert.match(LABELLED_REPORT(store2), /different label censuses/);
 });
 
 test("🔴 ceiling_moved is READ, and rendered as a fact with its reason in both directions", () => {
@@ -1683,6 +1697,16 @@ test("🔴 a directional rate divides by the arm it describes, so the other arm'
   assert.match(md, /\| `pilot-01__k2` \| unadjudicated \| 6 of 30 — \*\*20\.0%\*\* \| 6 of 288 — \*\*2\.1%\*\* \| \[1\.9%, 20\.4%\] \|/);
   // Same shared count, same CodeRabbit rate, a Jaccard nearly halved.
   assert.equal(complementarityFigures(LABELLED).bands[1].rates.coderabbit.value.ratio, c.bands[0].rates.coderabbit.value.ratio);
+  // 🔴 AND THE CEILING IDENTITY IS OMITTED HERE, because on this payload it is false.
+  // The fixture keeps k2's `unresolved` while doubling its panel-only classes, so the
+  // saturation flag still says `true` while the counts imply 30/288 = 10.4% against a
+  // stated ceiling of 20.4%. The sentence claims the quotient is *exactly* the ceiling,
+  // so it renders only when it is: this used to print `leaves 30/288 = 20.4%`, a false
+  // identity built from a fraction and a percentage that were never compared.
+  assert.equal(md.includes("the ceiling is a property of the two counts"), false);
+  assert.equal(md.includes("30/288"), false);
+  // The saturation block it lives in is still rendered — only the identity is dropped.
+  assert.match(md, /The ceiling is SATURATED on all 1 replicates/);
 });
 
 test("🔴 the ceiling is stated as a property of the two arms' counts, not of the matcher", () => {
@@ -1694,6 +1718,20 @@ test("🔴 the ceiling is stated as a property of the two arms' counts, not of t
   assert.match(md, /`pilot-01__k1` has\n30 CodeRabbit class\(es\) against the panel's 142/);
   assert.match(md, /leaves 30\/142 = 21\.1% — which is exactly the ceiling on that row/);
   assert.match(md, /no amount of adjudication moves it/);
+  // 🔴 THE CHECK IS AT PRINT PRECISION, and this is the case that says why. A stored
+  // ceiling of `0.211` and a quotient of `30/142 = 0.21126…` are different floats and
+  // the same printed figure — so a full-precision comparison would drop a sentence
+  // whose own two numbers agree on the page. A score file that has been through a
+  // rounding serialiser is exactly that payload, and the identity is still true of it.
+  const rounded = {
+    per_replicate: [{
+      ...LABELLED.per_replicate[0],
+      unresolved: { ...LABELLED.per_replicate[0].unresolved, jaccard_upper_bound: 0.211 },
+      labels: undefined,
+    }],
+  };
+  const md2 = LABELLED_REPORT(rounded);
+  assert.match(md2, /leaves 30\/142 = 21\.1% — which is exactly the ceiling on that row/);
 });
 
 test("an arm that raised nothing has no rate, rather than a rate of zero", () => {
