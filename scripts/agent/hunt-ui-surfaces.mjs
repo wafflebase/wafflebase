@@ -30,7 +30,7 @@
  * here with no readers could never predict anything, and readers added for a surface
  * missing here would be unreachable. One test asserts the two agree.
  */
-export const UI_SURFACES = Object.freeze(["sheet", "doc", "slides"]);
+export const UI_SURFACES = Object.freeze(["sheet", "doc", "slides", "board"]);
 
 /**
  * Confirm the harness mounted the surface that was asked for.

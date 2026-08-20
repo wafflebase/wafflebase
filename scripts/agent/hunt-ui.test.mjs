@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 
 import {
   loadPersonas,
@@ -54,6 +54,63 @@ test("each persona's briefs are DIFFERENT, which is the whole point of briefs", 
   for (const p of loadPersonas(CHARTERS_UI)) {
     const tasks = p.briefs.map((b) => b.task);
     assert.equal(new Set(tasks).size, tasks.length, `${p.id} repeats a brief`);
+  }
+});
+
+test("the board rubric names EVERY control the harness leaves unwired", () => {
+  // Same guard the sheet rubric gets, for the same reason: a charter claim about which
+  // controls are inert is a claim with an expiry date, and the sheet's went stale silently
+  // (it said FOUR when there were five) until a live run spent two verifier sessions on
+  // `Paint format`. Pinned against `BoardToolbarProps`' OPTIONAL callback props, which is
+  // what "unwired here" means — the harness passes the required ones and omits these.
+  const toolbar = readFileSync(
+    path.join(HERE, "..", "..", "packages", "frontend", "src", "app", "board", "board-toolbar.tsx"),
+    "utf8",
+  );
+  const propsStart = toolbar.indexOf("interface BoardToolbarProps");
+  assert.ok(propsStart > 0, "could not find BoardToolbarProps — the pattern has gone stale");
+  const propsBlock = toolbar.slice(propsStart, toolbar.indexOf("}", propsStart));
+  const optional = [...propsBlock.matchAll(/^\s+(on[A-Z]\w*)\?:/gm)].map((m) => m[1]);
+  assert.ok(optional.length > 0, "parsed no optional callbacks out of BoardToolbarProps");
+
+  const rubric = loadPersonas(CHARTERS_UI).find((p) => p.id === "board-author").rubric;
+  const labels = { onInsertSticky: "Sticky note", onInsertImage: "Insert image" };
+  const unmapped = optional.filter((prop) => !(prop in labels));
+  assert.deepEqual(unmapped, [], `new optional board toolbar prop(s) with no known label: ${unmapped.join(", ")}`);
+  for (const prop of optional) {
+    assert.match(rubric, new RegExp(`\`${labels[prop]}\``), `the board rubric must name \`${labels[prop]}\``);
+  }
+});
+
+test("the board rubric's control counts match what the toolbar can render", () => {
+  // The charter quotes "7 controls" idle and "12" with a selection, and names each of the five
+  // that appear on selection. Those numbers came from a live reading and would otherwise rot
+  // in silence, so pin the part that is checkable statically: every control the charter names
+  // as appearing on selection must actually exist in the toolbar source.
+  const rubric = loadPersonas(CHARTERS_UI).find((p) => p.id === "board-author").rubric;
+  const toolbar = readFileSync(
+    path.join(HERE, "..", "..", "packages", "frontend", "src", "app", "board", "board-toolbar.tsx"),
+    "utf8",
+  );
+  const onSelection = ["Arrange", "Border color", "Border dash", "Border weight", "Fill color"];
+  for (const name of onSelection) {
+    assert.match(rubric, new RegExp(`\`${name}\``), `the board rubric should name \`${name}\``);
+  }
+  // WHERE THEY ACTUALLY COME FROM, which is the opposite of what this test first assumed.
+  // The board toolbar COMPOSES the shared slides leaf controls — `ShapeControls` and friends —
+  // so only `Arrange` is written in `board-toolbar.tsx`; the border and fill pickers live in
+  // `slides/toolbar/`. Searching the wrong file made this fail on a correct rubric.
+  const leafDir = path.join(HERE, "..", "..", "packages", "frontend", "src", "app", "slides", "toolbar");
+  const leafSource = readdirSync(leafDir)
+    .filter((f) => f.endsWith(".tsx"))
+    .map((f) => readFileSync(path.join(leafDir, f), "utf8"))
+    .join("\n");
+  const composed = toolbar + "\n" + leafSource;
+  for (const name of onSelection) {
+    assert.ok(
+      composed.includes(name),
+      `${name} is named by the rubric but appears in neither board-toolbar.tsx nor the composed slides leaf controls`,
+    );
   }
 });
 

@@ -31,7 +31,7 @@ import { formatValue, parseRef, toSref, type MemStore, type Spreadsheet } from "
 // `SLIDE_WIDTH` therefore arrives on the handle instead of being imported. The page already
 // knows it — it is the number the page sized the canvas against — and taking it from there
 // keeps the scale a single fact rather than two that can disagree.
-import type { Element, MemSlidesStore, SlidesEditor } from "@wafflebase/slides";
+import { worldToScreen, type Element, type MemSlidesStore, type SlidesEditor, type Viewport } from "@wafflebase/slides";
 
 // The bounds predicate lives beside the seed geometry so both are unit-testable without a
 // browser. See `isOffSlide` for why this branch was unreachable from the oracle lane.
@@ -39,7 +39,7 @@ import { isOffSlide } from "./slides-seed";
 
 export const HUNT_BRIDGE_KEY = "__WB_HUNT__";
 
-export type HuntSurface = "sheet" | "doc" | "slides";
+export type HuntSurface = "sheet" | "doc" | "slides" | "board";
 
 export type SheetHandle = {
   spreadsheet: Spreadsheet;
@@ -50,6 +50,21 @@ export type SheetHandle = {
 export type DocHandle = {
   editor: EditorAPI;
   host: HTMLElement;
+};
+
+/**
+ * A board is the slides editor over ONE unbounded plane, so it shares `SlidesEditor` and a
+ * `SlidesStore`. What it does not share is the coordinate system: there is no slide rect and
+ * no fixed fit-scale, only a `Viewport` the host owns and pans/zooms. Every point reader on
+ * this surface has to go through that, which is why the handle carries it rather than a
+ * `slideWidth`.
+ */
+export type BoardHandle = {
+  editor: SlidesEditor;
+  store: MemSlidesStore;
+  host: HTMLElement;
+  /** Read fresh on every call — the host mutates this as the user pans and zooms. */
+  viewport: () => Viewport;
 };
 
 export type SlidesHandle = {
@@ -140,6 +155,7 @@ type BridgeState = {
   sheet: SheetHandle | null;
   doc: DocHandle | null;
   slides: SlidesHandle | null;
+  board: BoardHandle | null;
 };
 
 export type HuntBridge = {
@@ -156,6 +172,7 @@ export type HuntBridgeController = {
   setSheet(handle: SheetHandle | null): void;
   setDoc(handle: DocHandle | null): void;
   setSlides(handle: SlidesHandle | null): void;
+  setBoard(handle: BoardHandle | null): void;
   dispose(): void;
 };
 
@@ -180,6 +197,20 @@ function requireDoc(state: BridgeState): DocHandle {
     refuse(`doc reader used while surface is "${state.surface}" — goto the doc surface first`);
   }
   return state.doc;
+}
+
+function requireBoard(state: BridgeState): BoardHandle {
+  if (!state.board) {
+    refuse(`board reader used while surface is "${state.surface}" — goto the board surface first`);
+  }
+  return state.board;
+}
+
+/** The board's single plane. Its id is synthetic and the store has exactly one. */
+function boardPlane(handle: BoardHandle) {
+  const slide = handle.store.read().slides[0];
+  if (!slide) refuse("the board has no plane — the harness is not mounted correctly");
+  return slide;
 }
 
 function requireSlides(state: BridgeState): SlidesHandle {
@@ -460,6 +491,133 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
      * the grid has no DOM node per cell, so only the engine can say where `B2` is.
      * Mirrors `getCellCenterClientPoint` in the interaction harness.
      */
+    // --- board -------------------------------------------------------------
+    //
+    // Deliberately mirrors the slides readers, because it is the same engine over one
+    // unbounded plane. The difference is entirely in the point readers: a board has no slide
+    // rect and no fixed fit-scale, so world->screen goes through the live `Viewport`.
+
+    /** Every element on the board's single plane, in WORLD coordinates. */
+    "board.elements": (): ElementSnapshot[] =>
+      boardPlane(requireBoard(state)).elements.map((el) => {
+        const snapshot: ElementSnapshot = {
+          id: el.id,
+          type: el.type,
+          x: el.frame.x,
+          y: el.frame.y,
+          w: el.frame.w,
+          h: el.frame.h,
+          rotation: el.frame.rotation,
+        };
+        const text = textOfElement(el);
+        if (text !== undefined) snapshot.text = text;
+        if (el.type === "group") snapshot.childCount = el.data.children.length;
+        return snapshot;
+      }),
+
+    "board.selection": () => [...requireBoard(state).editor.getSelection()],
+
+    "board.elementCount": () => boardPlane(requireBoard(state)).elements.length,
+
+    /** See `doc.canUndo`. Real here — the board store keeps undo stacks. */
+    "board.canUndo": () => requireBoard(state).store.canUndo(),
+
+    /**
+     * Where the view is looking: pan in screen px, zoom as world px -> screen px.
+     *
+     * EXPOSED BECAUSE IT IS STATE THE USER CHANGES. On a bounded slide the transform is a
+     * constant and worth hiding; on an unbounded plane it is the thing scrolling and zooming
+     * alter, so a prediction about "did the view move" needs to name it. It is also what makes
+     * an off-screen refusal explicable rather than mysterious.
+     */
+    "board.viewport": () => {
+      const { panX, panY, zoom } = requireBoard(state).viewport();
+      return { panX, panY, zoom };
+    },
+
+    /**
+     * Viewport coordinates of a WORLD point.
+     *
+     * Uses the engine's own `worldToScreen` rather than re-deriving it. The slides equivalent
+     * had to invert `clientToLogical` by hand and carry a comment pinning the two together;
+     * here the forward transform is exported, so there is nothing to keep in step.
+     */
+    "board.pointAt": (args) => {
+      const wx = asNumber(args, 0, "board.pointAt");
+      const wy = asNumber(args, 1, "board.pointAt");
+      const handle = requireBoard(state);
+      const canvas = handle.host.querySelector("canvas");
+      if (!canvas) refuse("board.pointAt has no canvas to measure against — is the editor mounted?");
+      const origin = canvas.getBoundingClientRect();
+      const local = worldToScreen(handle.viewport(), { x: wx, y: wy });
+      const point = { x: Math.round(origin.left + local.x), y: Math.round(origin.top + local.y) };
+      if (isOffSlide(point, origin)) {
+        const vp = handle.viewport();
+        refuse(
+          `board.pointAt(${wx}, ${wy}) is off-screen at (${point.x}, ${point.y}). A board is ` +
+            "UNBOUNDED, so most of it is off-screen at any moment — this is the normal state of a " +
+            `point you have not scrolled to, NOT a defect. The view is at pan (${Math.round(vp.panX)}, ` +
+            `${Math.round(vp.panY)}) zoom ${vp.zoom}; scroll toward it, or read board.elements and ` +
+            "aim at something that is on screen.",
+        );
+      }
+      return point;
+    },
+
+    /** An element's centre, in viewport coordinates. Same refusal reasoning as `board.pointAt`. */
+    "board.elementCenter": (args) => {
+      const id = asString(args, 0, "board.elementCenter");
+      const handle = requireBoard(state);
+      const element = boardPlane(handle).elements.find((el) => el.id === id);
+      if (!element) {
+        const available = boardPlane(handle)
+          .elements.map((el) => el.id)
+          .join(", ");
+        refuse(
+          `board.elementCenter(${JSON.stringify(id)}) — no element with that id on the board. ` +
+            `Available: ${available || "(the board is empty)"}. Read board.elements for the list.`,
+        );
+      }
+      const canvas = handle.host.querySelector("canvas");
+      if (!canvas) refuse(`board.elementCenter(${id}) has no canvas to measure against`);
+      const origin = canvas.getBoundingClientRect();
+      const local = worldToScreen(handle.viewport(), {
+        x: element.frame.x + element.frame.w / 2,
+        y: element.frame.y + element.frame.h / 2,
+      });
+      const point = { x: Math.round(origin.left + local.x), y: Math.round(origin.top + local.y) };
+      if (isOffSlide(point, origin)) {
+        refuse(
+          `board.elementCenter(${id}) is off-screen at (${point.x}, ${point.y}) — the element is ` +
+            "outside the current view. Scroll to bring it into view; clicking there would land on nothing.",
+        );
+      }
+      return point;
+    },
+
+    /** A selection handle's centre. Identical to the slides reader — handles are the same DOM nodes. */
+    "board.handleCenter": (args) => {
+      const kind = asString(args, 0, "board.handleCenter");
+      const handle = requireBoard(state);
+      const nodes = [...handle.host.querySelectorAll<HTMLElement>("[data-handle]")];
+      const found = nodes.find((n) => n.dataset.handle === kind);
+      if (!found) {
+        const available = nodes.map((n) => n.dataset.handle).join(", ");
+        refuse(
+          `board.handleCenter(${JSON.stringify(kind)}) — no such handle. ` +
+            (available ? `Available: ${available}.` : "Nothing is selected, so there are no handles; click an element first."),
+        );
+      }
+      const rect = found.getBoundingClientRect();
+      const point = { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+      const canvas = handle.host.querySelector("canvas");
+      if (!canvas) refuse(`board.handleCenter(${kind}) has no canvas to measure against`);
+      if (isOffSlide(point, canvas.getBoundingClientRect())) {
+        refuse(`board.handleCenter(${kind}) is off-screen at (${point.x}, ${point.y}) — scroll its element into view.`);
+      }
+      return point;
+    },
+
     // --- slides ------------------------------------------------------------
     /**
      * Every element on the current slide — the general reader slides predictions build on.
@@ -709,7 +867,7 @@ function buildReaders(state: BridgeState): Record<string, (args: unknown[]) => u
  * mounted.
  */
 export function installHuntBridge(): HuntBridgeController {
-  const state: BridgeState = { ready: false, surface: "sheet", sheet: null, doc: null, slides: null };
+  const state: BridgeState = { ready: false, surface: "sheet", sheet: null, doc: null, slides: null, board: null };
   const readers = buildReaders(state);
 
   const bridge: HuntBridge = {
@@ -756,11 +914,15 @@ export function installHuntBridge(): HuntBridgeController {
     setSlides: (handle) => {
       state.slides = handle;
     },
+    setBoard: (handle) => {
+      state.board = handle;
+    },
     dispose: () => {
       state.ready = false;
       state.sheet = null;
       state.doc = null;
       state.slides = null;
+      state.board = null;
       if (owner[HUNT_BRIDGE_KEY] === bridge) delete owner[HUNT_BRIDGE_KEY];
     },
   };
