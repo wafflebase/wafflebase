@@ -94,15 +94,26 @@ export function registerLoginCommand(program: Command): void {
  *
  * Nothing here is evidence a browser appeared. `open()` resolves as soon as
  * the child process is *spawned*, so on a headless box `xdg-open` resolves
- * and then exits non-zero a moment later; and when the opener binary is
- * missing entirely the failure arrives as an asynchronous `error` event on
- * the child, after this `try` has already been left — which, unhandled,
- * takes the process down. So the event is absorbed and the caller announces
- * the URL regardless: treating "spawned" as "opened" is what left headless
- * users staring at the callback timeout with no way to continue.
+ * and then exits non-zero a moment later. So the caller announces the URL
+ * regardless: treating "spawned" as "opened" is what left headless users
+ * staring at the callback timeout with no way to continue.
  *
- * Exported for tests: the `error` listener is the whole point of the helper
- * and nothing else observes it.
+ * Both failure shapes are absorbed here, and they are different ones:
+ *
+ * - **The spawn itself fails** (no opener binary). `child_process.spawn`
+ *   schedules that `error` on `process.nextTick`, so nothing a caller
+ *   attaches after `await` could catch it — but `open` attaches
+ *   `once('error', reject)` in the same synchronous turn as the spawn and
+ *   resolves only on `'spawn'`, so the failure arrives as a *rejection* and
+ *   the `try` is what handles it (open v11 `index.js`, the `subprocess`
+ *   block).
+ * - **The child fails after spawning.** `open` removes its own listener once
+ *   `'spawn'` fires, leaving an emitter with no `error` handler; an unhandled
+ *   `error` event takes the process down. That is what the listener below is
+ *   for.
+ *
+ * Exported for tests: the two absorbers are the whole point of the helper and
+ * nothing else observes them.
  */
 export async function openBrowser(url: string): Promise<void> {
   try {

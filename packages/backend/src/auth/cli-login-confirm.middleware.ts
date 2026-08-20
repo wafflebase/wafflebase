@@ -2,6 +2,7 @@ import { Injectable, NestMiddleware } from '@nestjs/common';
 import { createHmac, randomBytes } from 'node:crypto';
 import type { CookieOptions, NextFunction, Request, Response } from 'express';
 import {
+  cliLoginAvailable,
   parseCliChallenge,
   parseCliNonce,
   parseCliPort,
@@ -109,6 +110,15 @@ export function cliConfirmToken(
 export class CliLoginConfirmMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
     if (req.query?.mode !== 'cli') {
+      return next();
+    }
+
+    // A deployment whose cookies cannot be `Secure` has no consent gate to
+    // show — this cookie is the gate, and there it is plantable
+    // (`cliLoginAvailable`). Falling through hands the request to
+    // `GitHubAuthGuard`, which answers the documented 400 instead of walking
+    // someone through a page that proves nothing.
+    if (!cliLoginAvailable()) {
       return next();
     }
 

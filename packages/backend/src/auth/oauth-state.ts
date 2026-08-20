@@ -55,11 +55,56 @@ export function oauthStateCookieName(): string {
  *
  * Shared with `wafflebase_cli_confirm`, whose secret is proven the same
  * way — by possession of a cookie — and which is therefore open to the
- * same sibling-subdomain cookie tossing described above.
+ * same sibling-subdomain cookie tossing described above, and with the
+ * session and refresh cookies, which are open to it in the other
+ * direction (a *planted* session rather than a planted challenge).
  */
 export function hostPrefixedCookieName(base: string): string {
   return isSecureCookie() ? `__Host-${base}` : base;
 }
+
+/**
+ * The session and refresh cookies, named by the same rule.
+ *
+ * These are the cookies actually worth stealing — a session JWT and the
+ * refresh token that mints more of them — and until now they were the only
+ * login cookies carrying no prefix. `Secure` alone does not cover the write
+ * side: a foothold on any sibling subdomain (a stale preview host, a vendor
+ * subdomain, an https one of either) can set
+ * `wafflebase_session=<attacker's JWT>; Domain=<parent>`, which the browser
+ * then sends here alongside — or instead of — the host-only cookie, and the
+ * victim browses as the attacker (session fixation). `__Host-` is what
+ * forbids a `Domain` on that name, so the planted cookie cannot exist.
+ *
+ * Only the name this build would mint is read, exactly as for the state
+ * cookies: honouring an unprefixed leftover in production would re-admit the
+ * cookie tossing the prefix blocks. An existing session issued under the bare
+ * name therefore stops being recognised the first time a deployment turns
+ * `Secure` on, and the browser is sent through the login again;
+ * `clearAuthCookies` expires both shapes so nothing stale is left behind.
+ */
+const SESSION_COOKIE_BASE = 'wafflebase_session';
+const REFRESH_COOKIE_BASE = 'wafflebase_refresh';
+
+export function sessionCookieName(): string {
+  return hostPrefixedCookieName(SESSION_COOKIE_BASE);
+}
+
+export function refreshCookieName(): string {
+  return hostPrefixedCookieName(REFRESH_COOKIE_BASE);
+}
+
+/**
+ * The pre-prefix names, for expiry only.
+ *
+ * Logging out has to reach a cookie written before the prefix applied (or by
+ * a build that predates it), and a deletion carries no credential, so
+ * clearing both shapes is safe where *accepting* both would not be.
+ */
+export const UNPREFIXED_SESSION_COOKIE_NAMES: readonly string[] = [
+  SESSION_COOKIE_BASE,
+  REFRESH_COOKIE_BASE,
+];
 
 /**
  * Browser binding for the **CLI** OAuth login.

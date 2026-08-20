@@ -3,7 +3,10 @@ import {
   isWebOAuthState,
   oauthStateCookieName,
   oauthStateCookieOptions,
+  refreshCookieName,
+  sessionCookieName,
   timingSafeEqualStr,
+  UNPREFIXED_SESSION_COOKIE_NAMES,
   useSecureCookies,
   webOAuthStateMatches,
 } from './oauth-state';
@@ -74,6 +77,36 @@ describe('oauth-state', () => {
 
       expect(oauthStateCookieName()).toBe('wafflebase_oauth_state');
       expect(oauthStateCookieOptions().secure).toBe(false);
+    });
+
+    /**
+     * The session and refresh cookies are the ones worth stealing, and they
+     * are open to the same tossing in the other direction: a sibling
+     * subdomain that can write `wafflebase_session=<its own JWT>;
+     * Domain=<parent>` puts the victim in the attacker's account. They take
+     * the prefix on exactly the same condition, from the same helper, so the
+     * name cannot drift from the `Secure` flag it requires.
+     */
+    it('prefixes the session cookies with the same rule', () => {
+      process.env.NODE_ENV = 'production';
+      expect(sessionCookieName()).toBe('__Host-wafflebase_session');
+      expect(refreshCookieName()).toBe('__Host-wafflebase_refresh');
+
+      process.env.NODE_ENV = 'development';
+      expect(sessionCookieName()).toBe('wafflebase_session');
+      expect(refreshCookieName()).toBe('wafflebase_refresh');
+    });
+
+    /**
+     * Expiry, not acceptance: sign-out has to reach a cookie written before
+     * the prefix applied, while the read path deliberately follows only the
+     * current name.
+     */
+    it('keeps the bare names for expiry', () => {
+      expect(UNPREFIXED_SESSION_COOKIE_NAMES).toEqual([
+        'wafflebase_session',
+        'wafflebase_refresh',
+      ]);
     });
   });
 

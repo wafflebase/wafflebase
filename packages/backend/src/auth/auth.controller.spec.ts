@@ -6,7 +6,11 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { CliAuthStore, hashCliVerifier } from './cli-auth.store';
 import { JwtStrategy } from './jwt.strategy';
-import { cliStateCookieName, createWebOAuthState } from './oauth-state';
+import {
+  cliStateCookieName,
+  createWebOAuthState,
+  refreshCookieName,
+} from './oauth-state';
 
 /** The PKCE pair a current CLI registers for a login attempt. */
 const CLI_VERIFIER = 'v'.repeat(43);
@@ -501,31 +505,60 @@ describe('AuthController', () => {
       }
     });
 
+    /**
+     * Drive the cookie-*setting* path. Sign-out deliberately emits both a
+     * `Secure` and a non-`Secure` expiry (see `clearAuthCookies`), so it is
+     * no longer where the configured flag can be observed — this is.
+     */
+    async function issueCookies() {
+      const res = createMockResponse();
+      (res.sendStatus as jest.Mock).mockReturnValue(undefined);
+      (authService.verifyRefreshToken as jest.Mock).mockReturnValue({ sub: 7 });
+      (userService.user as jest.Mock).mockResolvedValue({
+        id: 7,
+        authProvider: 'github',
+        username: 'alice',
+        email: 'alice@example.com',
+        photo: null,
+      });
+      (authService.createTokens as jest.Mock).mockReturnValue({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token-next',
+      });
+      const req = {
+        cookies: { [refreshCookieName()]: 'refresh-token' },
+      } as unknown as Request;
+
+      await controller.refresh(req, res);
+      return res;
+    }
+
     it('sets SameSite=Lax with secure=true in production', async () => {
       process.env.NODE_ENV = 'production';
-      const res = createMockResponse();
+      const res = await issueCookies();
 
-      await controller.logout(res);
-
-      expect(res.clearCookie).toHaveBeenCalledTimes(2);
-      for (const call of (res.clearCookie as jest.Mock).mock.calls) {
-        const [, options] = call;
+      expect(res.cookie).toHaveBeenCalledTimes(2);
+      for (const [name, , options] of (res.cookie as jest.Mock).mock.calls) {
+        // `__Host-` needs `Secure` *and* `Path=/`, and a browser rejects the
+        // cookie outright without them — so the name and these two options
+        // have to move together.
+        expect(name).toMatch(/^__Host-wafflebase_(session|refresh)$/);
         expect(options).toMatchObject({
           httpOnly: true,
           secure: true,
           sameSite: 'lax',
+          path: '/',
         });
+        expect(options).not.toHaveProperty('domain');
       }
     });
 
     it('sets SameSite=Lax with secure=false outside production', async () => {
       process.env.NODE_ENV = 'development';
-      const res = createMockResponse();
+      const res = await issueCookies();
 
-      await controller.logout(res);
-
-      for (const call of (res.clearCookie as jest.Mock).mock.calls) {
-        const [, options] = call;
+      for (const [name, , options] of (res.cookie as jest.Mock).mock.calls) {
+        expect(name).toMatch(/^wafflebase_(session|refresh)$/);
         expect(options).toMatchObject({
           httpOnly: true,
           secure: false,
@@ -537,15 +570,80 @@ describe('AuthController', () => {
     it('never sets SameSite=None on auth cookies', async () => {
       for (const env of ['production', 'staging', 'development', 'test']) {
         process.env.NODE_ENV = env;
-        const res = createMockResponse();
-
+        const res = await issueCookies();
         await controller.logout(res);
 
-        for (const call of (res.clearCookie as jest.Mock).mock.calls) {
-          const [, options] = call;
+        for (const call of [
+          ...(res.cookie as jest.Mock).mock.calls,
+          ...(res.clearCookie as jest.Mock).mock.calls,
+        ]) {
+          const options = call[call.length - 1];
           expect(options.sameSite).not.toBe('none');
         }
       }
+    });
+  });
+
+  /**
+   * Sign-out has to reach the cookie the browser actually holds, and which
+   * one that is depends on config that may have changed since it was
+   * written.
+   *
+   * A `Set-Cookie` carrying `Secure` is discarded on a plain-http
+   * connection, so clearing only with the configured flag leaves the session
+   * in place on an origin served over http with `COOKIE_SECURE=true` — a 200
+   * from `POST /auth/logout` and a live session behind it. And the name
+   * follows `__Host-`, so a cookie written before `Secure` was turned on
+   * answers to the bare name. Both axes are therefore swept.
+   */
+  describe('sign-out expires every cookie shape', () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalCallbackUrl = process.env.GITHUB_CALLBACK_URL;
+
+    beforeEach(() => {
+      delete process.env.GITHUB_CALLBACK_URL;
+    });
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+      if (originalCallbackUrl === undefined) {
+        delete process.env.GITHUB_CALLBACK_URL;
+      } else {
+        process.env.GITHUB_CALLBACK_URL = originalCallbackUrl;
+      }
+    });
+
+    it('expires the prefixed and bare names, Secure and not', async () => {
+      process.env.NODE_ENV = 'production';
+      const res = createMockResponse();
+
+      await controller.logout(res);
+
+      const cleared = (res.clearCookie as jest.Mock).mock.calls.map(
+        ([name, options]) => `${name}:${options.secure}`,
+      );
+      for (const name of [
+        '__Host-wafflebase_session',
+        '__Host-wafflebase_refresh',
+        'wafflebase_session',
+        'wafflebase_refresh',
+      ]) {
+        // The insecure variant is the one that can arrive over http, where a
+        // `Secure` expiry is dropped and the session would survive logout.
+        expect(cleared).toContain(`${name}:true`);
+        expect(cleared).toContain(`${name}:false`);
+      }
+    });
+
+    it('emits each expiry once outside production too', async () => {
+      process.env.NODE_ENV = 'development';
+      const res = createMockResponse();
+
+      await controller.logout(res);
+
+      // Unprefixed and prefixed names coincide here, so the sweep is two
+      // names × two `Secure` answers — no duplicated Set-Cookie headers.
+      expect(res.clearCookie).toHaveBeenCalledTimes(4);
     });
   });
 
@@ -664,5 +762,50 @@ describe('JwtStrategy', () => {
     const token = extractor(req);
 
     expect(token).toBe('cookie-token');
+  });
+
+  /**
+   * The extractor has to follow the name the controller writes. Reading the
+   * bare name where `__Host-wafflebase_session` is what gets set would hand
+   * a session back to a sibling subdomain that planted it under a `Domain`
+   * — which is precisely what the prefix forbids — and reading only the bare
+   * name would log every https deployment out.
+   */
+  describe('session cookie naming', () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalCallbackUrl = process.env.GITHUB_CALLBACK_URL;
+
+    beforeEach(() => {
+      delete process.env.GITHUB_CALLBACK_URL;
+      process.env.NODE_ENV = 'production';
+    });
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalNodeEnv;
+      if (originalCallbackUrl === undefined) {
+        delete process.env.GITHUB_CALLBACK_URL;
+      } else {
+        process.env.GITHUB_CALLBACK_URL = originalCallbackUrl;
+      }
+    });
+
+    it('reads the __Host- cookie and ignores an unprefixed leftover', () => {
+      const strategy = new JwtStrategy(mockConfigService);
+      const extractor = (strategy as any)._jwtFromRequest;
+
+      expect(
+        extractor({
+          cookies: { '__Host-wafflebase_session': 'prefixed-token' },
+          headers: {},
+        } as unknown as Request),
+      ).toBe('prefixed-token');
+
+      expect(
+        extractor({
+          cookies: { wafflebase_session: 'planted-token' },
+          headers: {},
+        } as unknown as Request),
+      ).toBeNull();
+    });
   });
 });

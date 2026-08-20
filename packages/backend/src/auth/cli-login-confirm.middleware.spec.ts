@@ -185,6 +185,29 @@ describe('CliLoginConfirmMiddleware', () => {
   });
 
   /**
+   * On a cleartext non-loopback origin this cookie cannot be `Secure`, so
+   * anything on the path or on a sibling subdomain can plant it and walk
+   * itself through the gate. There is no consent to obtain there: the
+   * request falls through to `GitHubAuthGuard`, which refuses the CLI login
+   * outright, rather than being shown a page that proves nothing.
+   */
+  it('shows no confirmation page where the cookie is plantable', () => {
+    const previousUrl = process.env.GITHUB_CALLBACK_URL;
+    process.env.GITHUB_CALLBACK_URL =
+      'http://wafflebase.example.com/auth/github/callback';
+    try {
+      const { res, next } = run({ mode: 'cli', port: '49152' });
+
+      expect(next).toHaveBeenCalled();
+      expect(res.send).not.toHaveBeenCalled();
+      expect(res.cookie).not.toHaveBeenCalled();
+    } finally {
+      if (previousUrl === undefined) delete process.env.GITHUB_CALLBACK_URL;
+      else process.env.GITHUB_CALLBACK_URL = previousUrl;
+    }
+  });
+
+  /**
    * The click is proven by possession of this cookie alone, so it needs
    * the same host binding as the OAuth state cookie: without `__Host-`,
    * a foothold on any sibling subdomain can write one with `Domain=` set
@@ -195,7 +218,12 @@ describe('CliLoginConfirmMiddleware', () => {
    */
   it('prefixes the confirm cookie with __Host- where cookies are Secure', () => {
     const previous = process.env.NODE_ENV;
+    const previousUrl = process.env.GITHUB_CALLBACK_URL;
     process.env.NODE_ENV = 'production';
+    // `useSecureCookies()` reads the callback URL ahead of `NODE_ENV`, so a
+    // developer's own `.env` (`http://localhost:3000/...`) would otherwise
+    // decide this assertion and the suite would pass only in CI.
+    delete process.env.GITHUB_CALLBACK_URL;
     try {
       const { res } = run({ mode: 'cli', port: '49152' });
 
@@ -217,6 +245,8 @@ describe('CliLoginConfirmMiddleware', () => {
       expect(options.domain).toBeUndefined();
     } finally {
       process.env.NODE_ENV = previous;
+      if (previousUrl === undefined) delete process.env.GITHUB_CALLBACK_URL;
+      else process.env.GITHUB_CALLBACK_URL = previousUrl;
     }
   });
 });

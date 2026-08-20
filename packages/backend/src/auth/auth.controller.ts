@@ -28,12 +28,13 @@ import {
   isWebOAuthState,
   oauthStateCookieName,
   oauthStateCookieOptions,
+  refreshCookieName,
+  sessionCookieName,
+  UNPREFIXED_SESSION_COOKIE_NAMES,
   useSecureCookies,
   webOAuthStateMatches,
 } from './oauth-state';
 
-const ACCESS_COOKIE_NAME = 'wafflebase_session';
-const REFRESH_COOKIE_NAME = 'wafflebase_refresh';
 const DEFAULT_ACCESS_COOKIE_MAX_AGE_MS = 60 * 60 * 1000;
 const DEFAULT_REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -262,7 +263,7 @@ export class AuthController {
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async refresh(@Req() req: Request, @Res() res: Response) {
-    const cookieToken = req.cookies?.[REFRESH_COOKIE_NAME];
+    const cookieToken = req.cookies?.[refreshCookieName()];
     const bodyToken =
       typeof req.body?.refreshToken === 'string'
         ? req.body.refreshToken
@@ -321,10 +322,42 @@ export class AuthController {
     return `${frontend}/login?error=${encodeURIComponent(code)}`;
   }
 
+  /**
+   * Expire the session cookies — in every shape this deployment may have
+   * written them.
+   *
+   * One `clearCookie` with the configured options is not enough, in two
+   * independent ways, and both of them end with a session surviving its own
+   * sign-out.
+   *
+   * A `Set-Cookie` carrying `Secure` is discarded by the browser when the
+   * connection is not, so on an origin actually served over plain http —
+   * `COOKIE_SECURE=true` set by hand, or set for a TLS-terminating proxy that
+   * is no longer in front — the expiring cookie never lands, `POST
+   * /auth/logout` answers 200, and the cookie set under the previous config is
+   * still there. The insecure variant is therefore emitted too: over https
+   * both land (a cookie's identity is name/domain/path, so the non-`Secure`
+   * one overwrites and expires the `Secure` one), and over http the one that
+   * can arrive does.
+   *
+   * The name follows `__Host-` as well, so a cookie written before this
+   * deployment turned `Secure` on answers to the bare name. Both names are
+   * expired for the same reason: a deletion carries no credential, so the
+   * blunt sweep is free, whereas *accepting* both names would re-admit the
+   * sibling-subdomain planting the prefix exists to stop.
+   */
   private clearAuthCookies(res: Response) {
-    const clearOptions = this.baseCookieOptions();
-    res.clearCookie(ACCESS_COOKIE_NAME, clearOptions);
-    res.clearCookie(REFRESH_COOKIE_NAME, clearOptions);
+    const base = this.baseCookieOptions();
+    const names = new Set([
+      sessionCookieName(),
+      refreshCookieName(),
+      ...UNPREFIXED_SESSION_COOKIE_NAMES,
+    ]);
+    for (const name of names) {
+      for (const secure of [true, false]) {
+        res.clearCookie(name, { ...base, secure });
+      }
+    }
   }
 
   private setAuthCookies(
@@ -332,7 +365,7 @@ export class AuthController {
     accessToken: string,
     refreshToken: string,
   ) {
-    res.cookie(ACCESS_COOKIE_NAME, accessToken, {
+    res.cookie(sessionCookieName(), accessToken, {
       ...this.baseCookieOptions(),
       maxAge: this.cookieMaxAge(
         'JWT_ACCESS_COOKIE_MAX_AGE_MS',
@@ -340,7 +373,7 @@ export class AuthController {
       ),
     });
 
-    res.cookie(REFRESH_COOKIE_NAME, refreshToken, {
+    res.cookie(refreshCookieName(), refreshToken, {
       ...this.baseCookieOptions(),
       maxAge: this.cookieMaxAge(
         'JWT_REFRESH_COOKIE_MAX_AGE_MS',
@@ -372,6 +405,11 @@ export class AuthController {
       // fallback when no callback URL is configured.
       secure: useSecureCookies(),
       sameSite: 'lax',
+      // Explicit, because it is load-bearing rather than a default: the
+      // `__Host-` prefix `sessionCookieName()` applies is honoured only on a
+      // cookie with `Path=/` and no `Domain`, and a prefixed cookie set
+      // without them is rejected outright.
+      path: '/',
     };
   }
 }

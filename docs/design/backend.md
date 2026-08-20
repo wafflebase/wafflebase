@@ -145,6 +145,24 @@ imports the full module set listed below.
   link carries a `wafflebase_cli_confirm` cookie secret back as
   `?confirm=`, and which re-encodes `mode`/`port`/`nonce` so the login's
   parameters survive the hop.
+- Because that gate *is* a cookie, a deployment where cookies cannot be
+  `Secure` has no gate at all: anything on the network path or on a sibling
+  subdomain can plant `wafflebase_cli_confirm` and click itself through. So
+  `?mode=cli` is refused there outright — `400 Command-line sign-in requires
+  an https server` (`cliLoginAvailable()`), and the middleware shows no
+  confirmation page rather than one that proves nothing. "There" means
+  positive evidence of a cleartext non-loopback origin: `COOKIE_SECURE`
+  first, then `GITHUB_CALLBACK_URL`'s scheme, with loopback hosts (a secure
+  context in the browser, and how the flow is developed) and an install that
+  configures no callback URL at all both exempt. The browser login stays
+  available, since its failure mode is a refused login rather than a stolen
+  one and refusing it would leave such a deployment with no way in.
+- The same predicate names the downgrade the other way round: a
+  `NODE_ENV=production` install whose origin reads as cleartext non-loopback
+  is issuing **session** cookies without `Secure`, and the guard logs one
+  warning about it at the first login. An explicit `COOKIE_SECURE=false`
+  does not silence it — that variable states the origin's scheme, which is
+  the finding, not a waiver.
 
 **`GET /auth/github/callback`**
 - Guard: `AuthGuard('github')`
@@ -166,7 +184,8 @@ imports the full module set listed below.
        browser is refused.
   3. Calls `AuthService.createTokens()` to sign access/refresh JWTs.
   4. Sets httpOnly cookies named `wafflebase_session` and
-     `wafflebase_refresh`.
+     `wafflebase_refresh` — `__Host-` prefixed wherever cookies are
+     `Secure`, like every other login cookie.
   5. Redirects to `FRONTEND_URL`.
 - A browser login that fails the state check is **redirected** to
   `FRONTEND_URL/login?error=oauth_state`, not answered with a 400. Losing
@@ -188,7 +207,9 @@ imports the full module set listed below.
 
 **`POST /auth/logout`**
 - Guard: none (public endpoint)
-- Clears `wafflebase_session` and `wafflebase_refresh`.
+- Clears `wafflebase_session` and `wafflebase_refresh`, in both their
+  prefixed and unprefixed names and with and without `Secure`, so a cookie
+  written under a previous configuration is expired too.
 
 **`GET /auth/yorkie-token`**
 - Guard: `JwtAuthGuard`
@@ -353,7 +374,8 @@ one workspace; those resolve the workspace from the path instead.
 `JwtStrategy` extends Passport's `passport-jwt` strategy:
 
 - **Token source:** Extracted from the `wafflebase_session` cookie
-  (not the Authorization header).
+  (not the Authorization header) — under the `__Host-` prefixed name
+  wherever cookies are `Secure`, and only that name.
 - **Secret:** `JWT_SECRET` from environment.
 - **Validation:** Extracts `id` (from `sub`), `username`, `email`, `photo`
   from the JWT payload and attaches to `req.user`.
@@ -389,13 +411,31 @@ is a login that dead-ends, not a login that is safer.
 
 | Cookie | Production | Development |
 |--------|------------|-------------|
-| `wafflebase_session` | httpOnly, secure, sameSite=`lax`, maxAge=1h by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=1h by default |
-| `wafflebase_refresh` | httpOnly, secure, sameSite=`lax`, maxAge=7d by default | httpOnly, secure=`false`, sameSite=`lax`, maxAge=7d by default |
+| `__Host-wafflebase_session` | httpOnly, secure, sameSite=`lax`, path=`/`, maxAge=1h by default | `wafflebase_session` (unprefixed), secure=`false` |
+| `__Host-wafflebase_refresh` | httpOnly, secure, sameSite=`lax`, path=`/`, maxAge=7d by default | `wafflebase_refresh` (unprefixed), secure=`false` |
 | `__Host-wafflebase_oauth_state` | httpOnly, secure, sameSite=`lax`, path=`/`, maxAge=10m | `wafflebase_oauth_state` (unprefixed), secure=`false` |
 | `__Host-wafflebase_cli_confirm` | httpOnly, secure, sameSite=`lax`, path=`/`, short-lived | `wafflebase_cli_confirm` (unprefixed), secure=`false` |
 
 The two OAuth cookies are single-use: they exist only for the duration
 of one login and are cleared when consumed.
+
+The **session and refresh cookies take the prefix too**, from the same
+helper. `Secure` covers only the read side; the cookies worth stealing were
+the only login cookies whose *write* side was unrestricted, so a foothold on
+any sibling subdomain could set `wafflebase_session=<its own JWT>;
+Domain=<parent>` and the victim would browse as the attacker (session
+fixation). `JwtStrategy` reads only the name this deployment mints — an
+unprefixed leftover is ignored, which is what makes the prefix worth
+anything — so a session issued before a deployment turned `Secure` on is not
+recognised and the browser is sent through the login again.
+
+`clearAuthCookies` is deliberately blunter than that: sign-out expires both
+names and emits each with **and** without `Secure`. A `Set-Cookie` carrying
+`Secure` is discarded on a plain-http connection, so clearing only with the
+configured flag would answer `200` and leave the session alive on an origin
+served over http whose config says otherwise (`COOKIE_SECURE=true`, or a
+proxy that is no longer in front). A deletion carries no credential, so
+sweeping every shape is free where *accepting* every shape would not be.
 
 The state cookie carries the **`__Host-` prefix** in production, which
 costs it the narrower `path=/auth` (the prefix is honoured only on a
