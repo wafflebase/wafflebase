@@ -13,6 +13,59 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import '../../../src/view/canvas/test-canvas-env';
 import { MemSlidesStore } from '../../../src/store/memory';
 import { initialize, type SlidesEditor } from '../../../src/view/editor/editor';
+import type { Block } from '@wafflebase/docs';
+import type {
+  MountSlidesTextBoxOptions,
+  SlidesTextBoxEditor,
+} from '../../../src/view/editor/text-box-editor';
+
+/** Same stub the other editor suites mount (see text-box-autogrow). */
+function mockMountTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor {
+  const container = document.createElement('div');
+  container.className = 'wfb-slides-text-box-editor';
+  container.style.position = 'absolute';
+  opts.overlay.appendChild(container);
+  let mounted = true;
+  return {
+    isEditing: () => mounted,
+    focus: () => undefined,
+    commit: () => opts.onCommit(opts.blocks),
+    detach: () => {
+      mounted = false;
+      container.remove();
+    },
+    container,
+    getSelectionStyle: () => ({}),
+    getRangeStyleSummary: () => ({}),
+    applyStyle: () => {},
+    stepSelectionFontSize: () => {},
+    clearInlineFormatting: () => {},
+    applyBlockStyle: () => {},
+    getBlockType: () => ({ type: 'paragraph' as const }),
+    getBlockStyle: () => ({}),
+    setBlockType: () => {},
+    toggleList: () => {},
+    indent: () => {},
+    outdent: () => {},
+    insertLink: () => {},
+    removeLink: () => {},
+    getLinkAtCursor: () => undefined,
+    requestLink: () => {},
+    undo: () => {},
+    redo: () => {},
+    onCursorMove: () => () => {},
+  };
+}
+
+/** Minimal blank paragraph for a text element. */
+function emptyBlock(): Block {
+  return {
+    id: 'b1',
+    type: 'paragraph',
+    inlines: [{ text: '', style: {} }],
+    style: {},
+  } as Block;
+}
 
 function setup(slideCount: number) {
   const canvas = document.createElement('canvas');
@@ -34,6 +87,7 @@ function setup(slideCount: number) {
     hostWidth: 1920,
     hostHeight: 1080,
     dpr: 1,
+    mountTextBox: mockMountTextBox,
   });
   return { store, editor, slideIds };
 }
@@ -167,6 +221,55 @@ describe('current slide healing', () => {
 
     // Repeated frames must not keep walking the cursor backwards.
     for (let i = 0; i < 3; i++) frame(ed);
+    expect(ed.getCurrentSlideId()).toBe(slideIds[0]);
+  });
+
+  it('cancels a text edit anchored to the removed slide', () => {
+    const { store, editor: ed, slideIds } = setup(2);
+    editor = ed;
+    ed.setCurrentSlide(slideIds[1]);
+    let textId = '';
+    store.batch(() => {
+      textId = store.addElement(slideIds[1], {
+        type: 'text',
+        frame: { x: 100, y: 100, w: 400, h: 120, rotation: 0 },
+        data: { blocks: [emptyBlock()] },
+      });
+    });
+    ed.enterTextEditing(textId);
+    expect(ed.isTextEditing()).toBe(true);
+
+    // The heal runs inside render(), and tearing the text box down
+    // re-enters render() — the cursor is moved first so that nested
+    // resolve is a plain hit instead of a second heal.
+    store.batch(() => store.removeSlides([slideIds[1]]));
+    frame(ed);
+
+    expect(ed.isTextEditing()).toBe(false);
+    expect(ed.getCurrentSlideId()).toBe(slideIds[0]);
+  });
+
+  it('discards a crop session anchored to the removed slide', () => {
+    const { store, editor: ed, slideIds } = setup(2);
+    editor = ed;
+    ed.setCurrentSlide(slideIds[1]);
+    let imageId = '';
+    store.batch(() => {
+      imageId = store.addElement(slideIds[1], {
+        type: 'image',
+        frame: { x: 200, y: 200, w: 400, h: 300, rotation: 0 },
+        data: { src: 'data:image/png;base64,AAAA' },
+      });
+    });
+    ed.enterImageCrop(imageId);
+    expect(ed.isCropping()).toBe(true);
+
+    // The session's image is gone with its slide, so it is discarded
+    // rather than committed — a commit would write to nowhere.
+    store.batch(() => store.removeSlides([slideIds[1]]));
+    frame(ed);
+
+    expect(ed.isCropping()).toBe(false);
     expect(ed.getCurrentSlideId()).toBe(slideIds[0]);
   });
 

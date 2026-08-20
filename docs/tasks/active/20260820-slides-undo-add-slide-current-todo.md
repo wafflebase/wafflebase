@@ -45,7 +45,10 @@ one rule rather than each call site remembering to move the cursor:
 - [x] Add `currentIndex` + `resolveCurrentSlide()` and wire both call sites
 - [x] Unit test: undo of `Add slide` lands on the previously-current slide
 - [x] Unit test: remote-style removal of the current slide heals too
-- [x] Unit test: idle short-circuit still makes clean frames free
+- [x] Unit test: the heal cancels a text edit / crop session anchored to
+      the removed slide (exercises the re-entrant `render()` path)
+- [x] Confirm the existing `render-idle-short-circuit` suite stays green
+      (the heal must add no `store.read()` on a clean frame)
 
 ## Acceptance criteria (from the issue)
 
