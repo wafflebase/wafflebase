@@ -32,7 +32,7 @@ metrics (precision, severity-weighted precision, a relative-recall band, the
 false-positive profile), two permanent refusals, a per-arm claim census, a per-arm join
 census, and a CLI whose `--root` has no default.
 
-`scripts/agent/eval/validity.test.mjs` — 34 tests.
+`scripts/agent/eval/validity.test.mjs` — 39 tests.
 
 Nothing is written, nothing is spawned and nothing is spent. `store.mjs` needs no change:
 `validateScore` (`store.mjs:383`) only requires the scorer id to be a legal path segment,
@@ -40,15 +40,17 @@ so there is no registry to extend.
 
 ### Three ways to have no number, and the fourth that has one
 
-`AVAILABILITY` is `reported | suppressed | not-computed | not-measurable`, and the three
-absent states are decided by `availabilityFor` from the denominator plus what is known
-about the claims behind it:
+`AVAILABILITY` is `present | suppressed | not-computed | not-measurable` — **the
+renderer's own vocabulary**, imported from `report.mjs` and checked for set equality at
+import, because a cell from here is eventually handed to its `renderCell`, which refuses
+any state it does not know. The three absent states are decided by `availabilityFor` from
+the denominator plus what is known about the claims behind it:
 
 ```
 labelled_findings = 0, claim population exhausted   → not-measurable   (final)
 labelled_findings = 0, claims still unlabelled      → not-computed     (pending)
 0 < labelled_findings < min_n                       → suppressed       (thin)
-labelled_findings >= min_n                          → reported
+labelled_findings >= min_n                          → present
 ```
 
 `exhausted` has to be **earned**: every distinct claim the arm made already carries a
@@ -99,9 +101,11 @@ union_low  = max(a, b)   →  high = a / union_low
 union_high = a + b       →  low  = a / union_high
 ```
 
-Both bounds are emitted and there is **no `value` key**. One case is refused outright:
-with no labelled finding on the other arm the band collapses to `[1, 1]`, and *"we found
-100% of confirmed defects"* would be true of the arithmetic and false about the world.
+Both bounds are emitted and there is **no `value` key**. Both arms' support gates it,
+because the band has a tautology at each end: with no labelled finding on the **other** arm
+it collapses to `[1, 1]` — *"we found 100% of confirmed defects"* — and with none on
+**this** one it collapses to `[0, 0]`. Each is true of the arithmetic and false about the
+world, so both are refused, and a numerator below `min_n` is withheld.
 
 ### Tiers are never pooled
 
@@ -138,6 +142,22 @@ are two cells and there is no arithmetic that produces one figure over both.
   exports `repeated` and `segmentation.mjs` already uses it. A second reader is how two
   CLIs come to disagree about what `--run-id x --run-id y` means.
 
+### Found by review, after the first pass, and fixed here
+
+Eight defects, and six of them are the classes of error this file spends its length
+warning about — which is the argument for the review rather than against the design.
+
+| | |
+|---|---|
+| **A second availability vocabulary.** This file said `reported` where `report.mjs:186`'s `AVAILABILITY` — the vocabulary `renderCell` refuses anything outside — says `present`. Three of four values coincided, so a payload looked renderable and was not | The vocabulary is now imported and checked for **set equality at import time**, and a test hands a cell of **every** state to the real `renderCell`. A near-miss synonym is worse than a different word |
+| **The claim population was narrower than the labelled one.** The CLI excluded items whose envelope status is not `ok`; `adjudicate.mjs` queues from every stored item without consulting the envelope | Such an item's claims are now **counted and its status reported**. The per-PR scorers exclude them for a different question — a failed replay would read as a careful reviewer in a median — and copying that rule here dropped real judgements to `unmatched` |
+| **`distinct_keys_by_stated_severity` read a floored value.** `normalizeSeverity` maps an unrecognised severity to `major`, so a finding nobody called blocking was counted as one the arm "called major" — and a `not-measurable` reason was built on that count | Routed through `volume-mix.mjs`'s exported `severityIsStated`, exactly as `segmentation.mjs` does, into a `severity-unstated` bucket. Measured on the corpus: **0 of 426 panel claims and 0 of 30 CodeRabbit claims** are floored, so the caption is now true rather than accidentally true |
+| **The recall band guarded the other arm's denominator and never its own numerator's support**, so an arm with one labelled finding out of 426 claims published a band, and an arm with none published `[0, 0]` | This arm's labelled count now gates it too — refused at zero, withheld below `min_n`. The mirror of the one-armed `1.0`, which was already guarded |
+| **The CLI read every label but supplied only the selected arm's claims**, so `--arm panel` invented a CodeRabbit arm on which every label was `claims-not-supplied`, and returned `partial` and exit 1 for a question it had answered correctly | `--arm` now selects the judgements as well as the population |
+| **A per-tier cell printed a per-arm sentence.** `claimPopulation` is per arm, correctly — no claim can take a further label of any tier once it has one — but the reason read *"none was judged critical"*, which is false the moment a label of another tier judged one | The reason names the tier |
+| **The operator weight-override path was never exercised** | A test drives it end to end through `scoreValidity`, proves a flat vector collapses the weighted figure onto plain precision, and proves an illegal vector is still refused |
+| **The FP profile's `stated_severity` axis was only asserted to exist**, on a fixture where it equalled the annotator's severity — so reading the wrong field would have passed | A fixture where the reviewer said `nit` and the adjudicator said `major` for all six claims, so the two axes cannot both be right |
+
 ## Fail directions
 
 | What fails | What happens | Why that is the safe way |
@@ -172,12 +192,12 @@ with `git archive` and given the same `node_modules` (pinned `eslint@9.24.0`,
 `@anthropic-ai/claude-agent-sdk@0.3.217`, `zod@4.4.3`), then measured once each.
 
 - [x] `cd scripts/agent && node --test-timeout=60000 --test $(ls **/*.test.mjs | grep -v '^eval/run.test.mjs$')` →
-      **2258 tests, 0 fail, 0 skip**; freshly measured baseline on the same tree without
-      these two files: **2224, 0 fail, 0 skip**. **+34**, which is this file's whole test count.
+      **2263 tests, 0 fail, 0 skip**; freshly measured baseline on the same tree without
+      these two files: **2224, 0 fail, 0 skip**. **+39**, which is this file's whole test count.
 - [x] `cd scripts/agent && TMPDIR="$(mktemp -d)" node --test-timeout=60000 --test eval/run.test.mjs` →
       **56 tests, 0 fail**, identical on both trees.
 - [x] `npx eslint scripts` → exit **0** on both trees, no output.
-- [x] **28 mutations, 28 caught by the specifically-named test.** The harness proves each
+- [x] **36 mutations, 36 caught by the specifically-named test.** The harness proves each
       mutation changed the file's bytes before running, uses a replacer function rather
       than a replacement string, restores the subject afterwards and verifies the
       restoration. A mutation caught by a *different* test is reported as a harness

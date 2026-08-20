@@ -33,6 +33,7 @@ import { KNOWN } from "../severity.mjs";
 import { buildFindingRecord } from "./finding-record.mjs";
 import { buildFindingLabel } from "./labels.mjs";
 import { MIN_N } from "./segmentation.mjs";
+import { AVAILABILITY as RENDERER_AVAILABILITY, renderCell } from "./report.mjs";
 import {
   AVAILABILITY,
   CLAIM_POPULATIONS,
@@ -44,6 +45,7 @@ import {
   SCORER_ID,
   SEVERITY_WEIGHTS,
   SEVERITY_WEIGHTS_SPEC,
+  assertAvailabilityMatchesRenderer,
   assertOneTier,
   assertSeverityWeights,
   availabilityFor,
@@ -140,6 +142,33 @@ test("assertSeverityWeights refuses a vector that disagrees with the spec, misse
   assert.throws(() => assertSeverityWeights({ critical: 4, major: 3, minor: 2, nit: 0 }), /positive number/);
 });
 
+test("the availability vocabulary IS the renderer's, and every cell survives renderCell", () => {
+  // The bug this replaces: this file said `reported` where report.mjs says `present`, so
+  // three of four states coincided and `renderCell` refused the fourth. A near-miss
+  // synonym is worse than a different word, because the payload looks renderable.
+  assert.deepEqual([...AVAILABILITY].sort(), [...RENDERER_AVAILABILITY].sort());
+  assert.throws(() => assertAvailabilityMatchesRenderer(["present", "suppressed", "not-computed"]), /the renderer's is/);
+  assert.throws(() => assertAvailabilityMatchesRenderer(["reported", "suppressed", "not-computed", "not-measurable"]), /forces a translation layer/);
+
+  // Not just the vocabulary — an actual cell of each state, handed to the renderer that
+  // refuses an unknown one. This is the assertion that would have caught the rename.
+  const { records, labels } = pilotCodeRabbitArm();
+  const arms = [{ arm: "coderabbit", legs: [{ run_id: null, records }] }];
+  // Two payloads, because ALL FOUR states have to be exercised and one payload cannot
+  // hold them: `not-computed` needs an unlabelled claim left over, which is exactly what
+  // stops any cell being `not-measurable`.
+  const full = scoreValidity({ arms, labels, corpusVersion: CV, parserVintage: VINTAGE });
+  const partial = scoreValidity({ arms, labels: labels.slice(0, 29), corpusVersion: CV, parserVintage: VINTAGE });
+  const states = new Set();
+  for (const cell of [...full.cells, ...partial.cells]) {
+    states.add(cell.availability);
+    assert.doesNotThrow(() => renderCell({ ...cell, n: cell.labelled_findings, unit: "labelled findings" }), `renderCell refused ${cell.segment}`);
+  }
+  // Measured, not assumed: the full payload gives present / suppressed / not-measurable
+  // and the partial one gives not-computed.
+  assert.deepEqual([...states].sort(), [...AVAILABILITY].sort(), "every availability state must be exercised against the renderer");
+});
+
 // --- the four availability states --------------------------------------------
 
 test("availabilityFor tells a missing denominator from a thin one from a pending one", () => {
@@ -149,8 +178,8 @@ test("availabilityFor tells a missing denominator from a thin one from a pending
   assert.equal(availabilityFor({ labelledFindings: 0, minN: 5, claimPopulation: "unknown" }), "not-computed");
   // Both sides of the threshold.
   assert.equal(availabilityFor({ labelledFindings: 4, minN: 5, claimPopulation: "exhausted" }), "suppressed");
-  assert.equal(availabilityFor({ labelledFindings: 5, minN: 5, claimPopulation: "exhausted" }), "reported");
-  for (const v of ["not-measurable", "not-computed", "suppressed", "reported"]) assert.ok(AVAILABILITY.includes(v));
+  assert.equal(availabilityFor({ labelledFindings: 5, minN: 5, claimPopulation: "exhausted" }), "present");
+  for (const v of ["not-measurable", "not-computed", "suppressed", "present"]) assert.ok(AVAILABILITY.includes(v));
 });
 
 test("availabilityFor refuses an impossible denominator, a threshold of zero and an unknown claim population", () => {
@@ -182,6 +211,10 @@ test("critical is NOT MEASURABLE and major is SUPPRESSED, and the two cells diff
   assert.match(critical.reason, /raised no finding it called critical/);
   assert.equal(major.labelled_findings, 3);
   assert.match(major.reason, /below min_n 5/);
+  // The cell is per TIER and the claim population is per ARM, so the reason has to name
+  // the tier. It used to read "none was judged critical", a sentence about the whole arm
+  // printed on a cell about one tier of it — false the moment another tier judged one.
+  assert.match(critical.reason, /no gold label judges a finding critical/);
 
   // Neither carries a figure, and neither carries a numerator a reader could divide.
   for (const cell of [critical, major]) {
@@ -364,7 +397,7 @@ test("a suppressed cell carries its denominator and nothing a reader could quote
   const fifth = [...records, record({ severity: "minor", summary: "thin claim 3" }), record({ severity: "minor", summary: "thin claim 4" })];
   const five = fifth.map((r, i) => label({ findingKey: r.finding_key, severity: "minor", isReal: i === 0 }));
   const reported = precisionCell({ arm: "coderabbit", tier: "gold", stratumBasis: "stratum", stratum: "all", labels: five, minN: MIN_N, claimPopulation: "exhausted" });
-  assert.equal(reported.availability, "reported");
+  assert.equal(reported.availability, "present");
   assert.equal(reported.value, 1 / 5);
   assert.equal(reported.real_findings, 1);
   assert.equal(reported.interval.method, "wilson-score");
@@ -428,11 +461,37 @@ test("severity-weighted precision weights by the ANNOTATOR's severity and report
   assert.match(weighted.interval.undefined_reason, /not k successes in n trials/);
 });
 
+test("an operator weight vector overrides the derived one, is validated, and is named in the payload", () => {
+  // Spec §3.3 puts the weights in one place so anyone who disagrees can re-run with their
+  // own. That path existed and nothing exercised it, so neither the validation nor the
+  // provenance string was ever proved.
+  const records = Array.from({ length: 5 }, (_, i) => record({ severity: "nit", summary: `override claim ${i}` }));
+  const labels = records.map((r, i) => label({ findingKey: r.finding_key, severity: i === 0 ? "critical" : "nit", isReal: i === 0 }));
+  const arms = [{ arm: "coderabbit", legs: [{ run_id: null, records }] }];
+
+  const dflt = scoreValidity({ arms, labels, corpusVersion: CV, parserVintage: VINTAGE });
+  assert.match(dflt.severity_weights_source, /derived from severity.mjs KNOWN's ordering/);
+  assert.equal(dflt.cells.find((c) => c.metric === "severity_weighted_precision" && c.stratum === "all").value, 0.5);
+
+  // A flat vector must move the figure, or the override is not reaching the arithmetic.
+  const flat = scoreValidity({ arms, labels, corpusVersion: CV, parserVintage: VINTAGE, weights: { critical: 1, major: 1, minor: 1, nit: 1 } });
+  assert.deepEqual(flat.severity_weights, { critical: 1, major: 1, minor: 1, nit: 1 });
+  assert.equal(flat.severity_weights_source, "operator override");
+  const flatCell = flat.cells.find((c) => c.metric === "severity_weighted_precision" && c.stratum === "all");
+  assert.equal(flatCell.value, 1 / 5, "with flat weights the weighted figure collapses onto plain precision");
+  assert.equal(flatCell.labelled_weight_sum, 5);
+
+  // And an override still has to be a legal vector — the spec check is only skipped for
+  // the operator's numbers, not the shape check.
+  assert.throws(() => scoreValidity({ arms, labels, corpusVersion: CV, parserVintage: VINTAGE, weights: { critical: 4, major: 3, minor: 2 } }), /nit/);
+  assert.throws(() => scoreValidity({ arms, labels, corpusVersion: CV, parserVintage: VINTAGE, weights: { critical: 4, major: 3, minor: 2, nit: -1 } }), /positive number/);
+});
+
 // --- relative recall -----------------------------------------------------------
 
 test("relative recall is a BAND with both bounds and no point value", () => {
-  const band = relativeRecallBand({ arm: "panel", tier: "gold", real: 10, otherArm: "coderabbit", otherReal: 4, otherLabelled: 6, minN: 5 });
-  assert.equal(band.availability, "reported");
+  const band = relativeRecallBand({ arm: "panel", tier: "gold", real: 10, labelled: 12, otherArm: "coderabbit", otherReal: 4, otherLabelled: 6, minN: 5 });
+  assert.equal(band.availability, "present");
   assert.equal(band.union_low, 10);
   assert.equal(band.union_high, 14);
   assert.equal(band.low, 10 / 14);
@@ -440,21 +499,35 @@ test("relative recall is a BAND with both bounds and no point value", () => {
   assert.ok(!("value" in band), "a point is exactly what this metric may not publish");
   assert.equal(band.overlap_resolved, false);
   // The other arm's own band is the mirror image, and the two are not complements.
-  const theirs = relativeRecallBand({ arm: "coderabbit", tier: "gold", real: 4, otherArm: "panel", otherReal: 10, otherLabelled: 12, minN: 5 });
+  const theirs = relativeRecallBand({ arm: "coderabbit", tier: "gold", real: 4, labelled: 6, otherArm: "panel", otherReal: 10, otherLabelled: 12, minN: 5 });
   assert.equal(theirs.low, 4 / 14);
   assert.equal(theirs.high, 4 / 10);
 });
 
 test("relative recall over one arm's labels alone is 1.0 by construction, and is refused rather than printed", () => {
-  const band = relativeRecallBand({ arm: "coderabbit", tier: "gold", real: 18, otherArm: "panel", otherReal: 0, otherLabelled: 0, minN: 5 });
+  const band = relativeRecallBand({ arm: "coderabbit", tier: "gold", real: 18, labelled: 20, otherArm: "panel", otherReal: 0, otherLabelled: 0, minN: 5 });
   assert.equal(band.availability, "not-computed");
   assert.ok(!("low" in band));
   assert.match(band.reason, /collapses to \[1, 1\]/);
   assert.match(band.reason, /Label the panel arm/);
 });
 
+test("an arm with nothing labelled gets no recall band, because 0.0 would be a fact about the labelling", () => {
+  // The mirror of the one-armed 1.0, and the one missed on the first pass: the guard
+  // checked the OTHER arm's denominator and never this arm's own numerator's support.
+  const none = relativeRecallBand({ arm: "panel", tier: "gold", real: 0, labelled: 0, otherArm: "coderabbit", otherReal: 9, otherLabelled: 9, minN: 5 });
+  assert.equal(none.availability, "not-computed");
+  assert.ok(!("low" in none));
+  assert.match(none.reason, /0 by construction/);
+  // And one labelled finding out of hundreds of claims is not support for a share either.
+  const thin = relativeRecallBand({ arm: "panel", tier: "gold", real: 1, labelled: 1, otherArm: "coderabbit", otherReal: 9, otherLabelled: 9, minN: 5 });
+  assert.equal(thin.availability, "suppressed");
+  assert.ok(!("low" in thin));
+  assert.match(thin.reason, /too little support/);
+});
+
 test("a union whose lower bound is thin is withheld, because the weakest supported end decides", () => {
-  const band = relativeRecallBand({ arm: "panel", tier: "gold", real: 2, otherArm: "coderabbit", otherReal: 4, otherLabelled: 6, minN: 5 });
+  const band = relativeRecallBand({ arm: "panel", tier: "gold", real: 2, labelled: 8, otherArm: "coderabbit", otherReal: 4, otherLabelled: 6, minN: 5 });
   assert.equal(band.availability, "suppressed");
   assert.equal(band.union_low, 4);
   assert.equal(band.union_high, 6);
@@ -474,7 +547,7 @@ test("the whole score emits a relative-recall band per arm once both arms carry 
     corpusVersion: CV,
     parserVintage: VINTAGE,
   });
-  const bands = result.relative_recall.filter((r) => r.availability === "reported");
+  const bands = result.relative_recall.filter((r) => r.availability === "present");
   assert.equal(bands.length, 2);
   const panel = bands.find((b) => b.arm === "panel");
   assert.equal(panel.real_findings, 6);
@@ -499,7 +572,7 @@ test("the FP profile prints every count and suppresses only the shares", () => {
 
   assert.equal(nit.labelled_findings, 6);
   assert.equal(nit.false_findings, 4);
-  assert.equal(nit.share_availability, "reported");
+  assert.equal(nit.share_availability, "present");
   assert.equal(nit.false_share, 4 / 6);
 
   assert.equal(major.labelled_findings, 2);
@@ -507,10 +580,29 @@ test("the FP profile prints every count and suppresses only the shares", () => {
   assert.equal(major.share_availability, "suppressed");
   assert.ok(!("false_share" in major));
 
-  // The two severities in the profile are named for whose they are, so the reviewer's
-  // word and the adjudicator's cannot be read as one axis.
-  assert.ok(result.fp_profile.some((g) => g.axis === "stated_severity"));
   assert.match(bySeverity[0].axis_note, /adjudicator's own severity/);
+});
+
+test("the FP profile's two severity axes read DIFFERENT fields, and a fixture where they disagree proves it", () => {
+  // The previous fixture gave every label the reviewer's own severity, so reading the
+  // wrong field would have passed. Here the reviewer called all 6 claims `nit` and the
+  // adjudicator called all 6 `major` — so the two axes cannot both be right, and swapping
+  // the accessor moves both buckets.
+  const records = Array.from({ length: 6 }, (_, i) => record({ severity: "nit", summary: `disagreed claim ${i}` }));
+  const labels = records.map((r, i) => label({ findingKey: r.finding_key, severity: "major", isReal: i < 2 }));
+  const result = scoreValidity({ arms: [{ arm: "coderabbit", legs: [{ run_id: null, records }] }], labels, corpusVersion: CV, parserVintage: VINTAGE });
+
+  const annotator = result.fp_profile.filter((g) => g.axis === "annotator_severity");
+  const stated = result.fp_profile.filter((g) => g.axis === "stated_severity");
+  // One bucket each, and they are different words.
+  assert.deepEqual(annotator.map((g) => g.bucket), ["major"]);
+  assert.deepEqual(stated.map((g) => g.bucket), ["nit"]);
+  // Same 6 labels, same 4 wrong claims, cut two ways.
+  for (const g of [...annotator, ...stated]) {
+    assert.equal(g.labelled_findings, 6);
+    assert.equal(g.false_findings, 4);
+  }
+  assert.match(stated[0].axis_note, /severity the REVIEWER put on the claim/);
 });
 
 // --- the claim census ----------------------------------------------------------
@@ -531,6 +623,23 @@ test("a claim whose stated severity differs between replicates lands in its own 
   assert.equal(census.distinct_keys_by_stated_severity.major, 0);
   assert.equal(census.distinct_keys_by_stated_severity.minor, 0);
   assert.equal(census.distinct_keys_by_stated_severity.nit, 1);
+});
+
+test("a claim whose severity the reviewer never stated is NOT counted as one they called major", () => {
+  // `normalizeSeverity` floors an unrecognised severity to `major`, which is blocking. The
+  // census read that floored value and called it "the reviewer's own word", so a finding
+  // nobody called blocking was counted as a `major` claim — and a not-measurable reason
+  // was then built on the count.
+  const stated = record({ arm: "panel", runId: "run-1", severity: "minor", summary: "a stated claim" });
+  const floored = record({ arm: "panel", runId: "run-1", severity: "kinda bad", summary: "a floored claim" });
+  assert.equal(floored.severity, "major", "normalizeSeverity floors an unknown severity to major");
+  assert.equal(floored.severity_raw, "kinda bad", "and the record keeps what was actually said");
+
+  const census = claimCensus("panel", [{ run_id: "run-1", records: [stated, floored] }]);
+  assert.equal(census.distinct_finding_keys, 2);
+  assert.equal(census.distinct_keys_by_stated_severity.major, 0, "the floored claim must NOT be counted as a stated major");
+  assert.equal(census.distinct_keys_by_stated_severity["severity-unstated"], 1);
+  assert.equal(census.distinct_keys_by_stated_severity.minor, 1);
 });
 
 // --- refusals on caller error --------------------------------------------------
@@ -620,7 +729,7 @@ test("the min_n a cell was judged against is carried on the cell and named in th
   assert.equal(result.min_n_source, "operator override");
   // At min_n 3 the three majors clear, so the same data reports where it withheld.
   const major = result.cells.find((c) => c.stratum === "major" && c.metric === "precision");
-  assert.equal(major.availability, "reported");
+  assert.equal(major.availability, "present");
   assert.equal(major.min_n, 3);
   assert.match(renderReport(result).join("\n"), /min_n 3 \(operator override\)/);
 });

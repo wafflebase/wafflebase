@@ -74,7 +74,11 @@ import { LABEL_SOURCES, labelCensus } from "./labels.mjs";
 // second copy here is how a caption comes to contradict its own table.
 import { MIN_N, noInterval, wilson } from "./segmentation.mjs";
 import { repeated } from "./reliability.mjs";
-import { assertComparableWindow, assertOnePopulation, pin } from "./volume-mix.mjs";
+// The renderer's availability vocabulary, imported ONLY to be checked against ours — see
+// `assertAvailabilityMatchesRenderer`. Nothing else here reads report.mjs, and this file
+// adds no section to it.
+import { AVAILABILITY as RENDERER_AVAILABILITY } from "./report.mjs";
+import { assertComparableWindow, assertOnePopulation, pin, severityIsStated } from "./volume-mix.mjs";
 
 const refuse = (msg) => {
   throw new Error(`validity: ${msg}`);
@@ -120,7 +124,8 @@ export const LEVELS = Object.freeze({
 /**
  * The four states a cell can be in, and the three of them that carry no number.
  *
- *   reported        a value, its numerator, its denominator and its interval.
+ *   present         a value, its numerator, its denominator and its interval. The
+ *                   renderer's word for this state, checked against it at import.
  *   suppressed      the denominator exists and is below `min_n`. Carries the
  *                   denominator that failed and NO value, NO numerator and NO
  *                   interval — a suppressed cell that still carried its figure would
@@ -137,7 +142,39 @@ export const LEVELS = Object.freeze({
  * arrive; a corpus limit described as a pending judgement does the same thing one level
  * up. Lesson 6 — absent has more than one cause and pooling them is a scoring bug.
  */
-export const AVAILABILITY = Object.freeze(["reported", "suppressed", "not-computed", "not-measurable"]);
+export const AVAILABILITY = Object.freeze(["present", "suppressed", "not-computed", "not-measurable"]);
+
+/**
+ * The renderer already owns this vocabulary, so it is CHECKED against ours rather than
+ * chosen independently.
+ *
+ * 🔴 THIS FILE SHIPPED `reported` WHERE THE RENDERER SAYS `present`, and three of the four
+ * values coincided — which is the worst version of the bug, because a payload looked
+ * renderable and `renderCell` refuses it. `report.mjs:186` is the vocabulary a cell is
+ * eventually handed to, and a scorer emitting a near-miss synonym forces a translation
+ * layer between the two, which is where a state gets silently dropped. Same reasoning as
+ * `store.mjs`'s one-hash-helper rule: two vocabularies with the same shape is how they
+ * come to disagree forever.
+ *
+ * Set equality, not subset: a state the renderer knows and this file never emits is fine
+ * today and would be a silently unhandled branch the moment a cell carried it.
+ */
+export function assertAvailabilityMatchesRenderer(ours = AVAILABILITY, theirs = RENDERER_AVAILABILITY) {
+  const a = [...ours].sort();
+  const b = [...theirs].sort();
+  if (a.length !== b.length || a.some((v, i) => v !== b[i])) {
+    refuse(
+      `the availability vocabulary here is ${a.join(" | ")} and the renderer's is ${b.join(" | ")} — a cell this scorer ` +
+        `emits is handed to report.mjs's renderCell, which refuses any state it does not know, so a near-miss synonym ` +
+        `forces a translation layer between the two and that is where a state goes missing`,
+    );
+  }
+  return ours;
+}
+
+// At import time, beside the weight-vector check, for the same reason: a guard that fires
+// when the module loads beats one that never fires.
+assertAvailabilityMatchesRenderer();
 
 /**
  * What is known about the claims a cell's labels could ever have come from, which is
@@ -197,6 +234,20 @@ const JOINED = pin("joined", JOIN_STATUSES, "the joinable status");
  *  census that no single replicate produced. Measured on the pilot at K=3: see the
  *  census in the payload rather than a number here, which moves with the runs given. */
 const STATED_SEVERITY_VARIES = "stated-severity-varies";
+
+/**
+ * A claim whose severity the reviewer never STATED, so the value on the record is
+ * `normalizeSeverity`'s floor rather than anybody's judgement.
+ *
+ * 🔴 THIS BUCKET IS WHY THE CENSUS MAY CALL ITSELF "the reviewer's own word". Without it
+ * the census read `record.severity`, which is already normalised — an unrecognised
+ * severity is floored to `major` — so a finding nobody called blocking was counted as one
+ * the arm "called major", and a `not-measurable` reason was built on top of that. The
+ * routing is `segmentation.mjs`'s exactly (`severityIsStated(record) ? record.severity :
+ * <this bucket>`), via the same exported helper, so the two files cannot disagree about
+ * what "stated" means.
+ */
+const SEVERITY_UNSTATED = "severity-unstated";
 
 /**
  * The severity weight vector, DERIVED from `KNOWN`'s ordering rather than typed out.
@@ -345,7 +396,7 @@ export function availabilityFor({ labelledFindings, minN = MIN_N, claimPopulatio
     // whether another judgement could still land here.
     return claimPopulation === "exhausted" ? "not-measurable" : "not-computed";
   }
-  return labelledFindings < minN ? "suppressed" : "reported";
+  return labelledFindings < minN ? "suppressed" : "present";
 }
 
 // --- the claim population ----------------------------------------------------
@@ -375,11 +426,14 @@ export function claimCensus(arm, legs) {
       if (!nonEmptyString(r?.finding_key)) continue;
       records++;
       if (!severities.has(r.finding_key)) severities.set(r.finding_key, new Set());
-      severities.get(r.finding_key).add(r.severity);
+      // The reviewer's own word, or its own bucket when they never said one. Routed
+      // through `volume-mix.mjs`'s exported helper rather than re-deciding what "stated"
+      // means: on the CodeRabbit arm it reads `severity_basis`, on ours `severity_raw`.
+      severities.get(r.finding_key).add(severityIsStated(r) ? r.severity : SEVERITY_UNSTATED);
       if (!keys.has(r.finding_key)) keys.set(r.finding_key, { finding_key: r.finding_key, item_id: r.item_id ?? null, severity: r.severity, file: r.file ?? null });
     }
   }
-  const byStated = Object.fromEntries([...KNOWN, STATED_SEVERITY_VARIES].map((s) => [s, 0]));
+  const byStated = Object.fromEntries([...KNOWN, SEVERITY_UNSTATED, STATED_SEVERITY_VARIES].map((s) => [s, 0]));
   for (const [key, seen] of severities) {
     const bucket = seen.size === 1 ? [...seen][0] : STATED_SEVERITY_VARIES;
     if (Object.hasOwn(byStated, bucket)) byStated[bucket]++;
@@ -522,7 +576,7 @@ export function precisionCell({ metric = "precision", arm, tier, stratumBasis, s
     unclear_basis: "the label schema has no `unclear` state — is_real is boolean and refuses anything else — so the spec's excluded-unclear count is structurally zero rather than measured",
     confidence: { ...census.confidence },
   };
-  if (availability !== "reported") {
+  if (availability !== "present") {
     return {
       ...base,
       reason:
@@ -587,6 +641,13 @@ export function precisionCell({ metric = "precision", arm, tier, stratumBasis, s
  *
  *   low  = a / union_high        high = a / union_low
  *
+ * 🔴 AND AN ARM WITH NOTHING LABELLED PRODUCES 0.0 BY CONSTRUCTION, which is the same
+ * defect pointing the other way and was missed on the first pass: the guard below checked
+ * the OTHER arm's denominator and never this arm's own numerator's support, so an arm with
+ * one labelled finding out of 426 claims published a band. A share of 0 is then a fact
+ * about the labelling, not about the reviewer, so this arm's labelled count gates it too —
+ * refused at zero, withheld below `min_n`.
+ *
  * 🔴 ONE ARM ALONE PRODUCES 1.0 BY CONSTRUCTION and that is refused rather than
  * printed. With no labelled finding on the other arm the union IS this arm's own set,
  * the band collapses to [1, 1], and the sentence "our panel found 100% of confirmed
@@ -594,7 +655,7 @@ export function precisionCell({ metric = "precision", arm, tier, stratumBasis, s
  * tautology this whole metric is most likely to publish, so it is `not-computed` with
  * the reason, and the reason names the missing labels.
  */
-export function relativeRecallBand({ arm, tier, real, otherArm, otherReal, minN = MIN_N, otherLabelled = 0 } = {}) {
+export function relativeRecallBand({ arm, tier, real, otherArm, otherReal, minN = MIN_N, labelled = 0, otherLabelled = 0 } = {}) {
   const base = {
     metric: "relative_recall",
     segment: segmentLabel({ metric: "relative_recall", arm, tier, stratumBasis: "stratum", stratum: "all" }),
@@ -602,7 +663,9 @@ export function relativeRecallBand({ arm, tier, real, otherArm, otherReal, minN 
     label_source: tier,
     other_arm: otherArm,
     real_findings: real,
+    labelled_findings: labelled,
     other_arm_real_findings: otherReal,
+    other_arm_labelled_findings: otherLabelled,
     min_n: minN,
     overlap_resolved: false,
     // Named at the level it counts: confirmed-real FINDINGS across two arms, not
@@ -610,6 +673,22 @@ export function relativeRecallBand({ arm, tier, real, otherArm, otherReal, minN 
     denominator_level: "confirmed-real findings in the union of the two arms' labelled sets; the union's overlap is unresolved, so it is a band rather than a number",
     bound_basis: "union_low = max(a, b) when every defect either arm confirmed the other confirmed too; union_high = a + b when the two sets are disjoint. Resolving the cross-arm pairs narrows the band; nothing here resolves them",
   };
+  if (labelled === 0) {
+    return {
+      ...base,
+      availability: "not-computed",
+      reason:
+        `no labelled finding on the ${arm} arm, so its confirmed-real count is 0 by construction and any share over it ` +
+        `would be 0.0 — a property of the labelling rather than of the reviewer`,
+    };
+  }
+  if (labelled < minN) {
+    return {
+      ...base,
+      availability: "suppressed",
+      reason: `${labelled} labelled finding(s) on the ${arm} arm — below min_n ${minN}, so its numerator has too little support to carry a share`,
+    };
+  }
   if (otherLabelled === 0) {
     return {
       ...base,
@@ -636,7 +715,7 @@ export function relativeRecallBand({ arm, tier, real, otherArm, otherReal, minN 
   }
   return {
     ...base,
-    availability: "reported",
+    availability: "present",
     union_low: unionLow,
     union_high: unionHigh,
     // BOTH bounds, always. There is no `value` key on purpose: a point is exactly what
@@ -693,7 +772,7 @@ export function fpProfile({ arm, tier, joined = [], minN = MIN_N, claimPopulatio
         labelled_findings: b.labelled,
         min_n: minN,
         share_availability: availability,
-        ...(availability === "reported" ? { false_share: b.notReal / b.labelled, interval: wilson(b.notReal, b.labelled) } : { reason: thinReason(b.labelled, minN, { arm, stratum: `${axis.id}=${bucket}` }) }),
+        ...(availability === "present" ? { false_share: b.notReal / b.labelled, interval: wilson(b.notReal, b.labelled) } : { reason: thinReason(b.labelled, minN, { arm, stratum: `${axis.id}=${bucket}` }) }),
       });
     }
   }
@@ -865,9 +944,14 @@ export function scoreValidity({
             reason:
               inStratum.length === 0
                 ? claimPopulation === "exhausted"
-                  ? `every one of ${armId}'s ${claims.distinct_finding_keys} distinct claim(s) on this corpus is labelled and none was judged ${severity}` +
-                    (stated === 0 ? `, and the arm raised no finding it called ${severity} either — so no denominator for this stratum exists on this corpus` : `, so no denominator for this stratum exists on this corpus`)
-                  : `no label on the ${armId} arm judges a finding ${severity} yet` + (claims === null ? " and the arm's claim population was not supplied" : `; ${unlabelledClaims} claim(s) remain unlabelled and one may still land here`)
+                  ? // 🔴 THE REASON NAMES THE TIER, because the cell is per tier and the
+                    // claim population is per arm. It used to read "none was judged
+                    // ${severity}", which is false whenever a label of ANOTHER tier judged
+                    // one exactly that — a sentence about the arm printed on a cell about
+                    // one tier of it.
+                    `every one of ${armId}'s ${claims.distinct_finding_keys} distinct claim(s) on this corpus carries a label, so no further judgement can land here, and no ${tier} label judges a finding ${severity}` +
+                    (stated === 0 ? `; the arm also raised no finding it called ${severity} — so no denominator for this stratum exists on this corpus` : ` — so no denominator for this stratum exists on this corpus`)
+                  : `no ${tier} label on the ${armId} arm judges a finding ${severity} yet` + (claims === null ? " and the arm's claim population was not supplied" : `; ${unlabelledClaims} claim(s) remain unlabelled and one may still land here`)
                 : null,
           }),
         );
@@ -887,7 +971,7 @@ export function scoreValidity({
       if (!mine) continue;
       const otherArm = ARMS.find((a) => a !== armId);
       const theirs = realByArmTier.get(`${otherArm}/${tier}`) ?? { real: 0, labelled: 0 };
-      recall.push(relativeRecallBand({ arm: armId, tier, real: mine.real, otherArm, otherReal: theirs.real, otherLabelled: theirs.labelled, minN }));
+      recall.push(relativeRecallBand({ arm: armId, tier, real: mine.real, labelled: mine.labelled, otherArm, otherReal: theirs.real, otherLabelled: theirs.labelled, minN }));
     }
   }
 
@@ -963,7 +1047,7 @@ const num = (v, d = 3) => (Number.isFinite(v) ? v.toFixed(d) : "n/a");
  */
 export function cellLine(cell) {
   const levels = `${cell.labelled_findings} labelled finding(s) · ${cell.readings} reading(s)`;
-  if (cell.availability === "reported") {
+  if (cell.availability === "present") {
     const ci = cell.interval && cell.interval.low !== null ? ` · 95% CI [${num(cell.interval.low)}, ${num(cell.interval.high)}]` : "";
     const k = cell.metric === "severity_weighted_precision" ? ` (weight ${cell.real_weight_sum}/${cell.labelled_weight_sum})` : ` (${cell.real_findings}/${cell.labelled_findings})`;
     return `  ${cell.segment}: ${num(cell.value)}${k} · ${levels}${ci}`;
@@ -1004,7 +1088,7 @@ export function renderReport(result) {
   for (const cell of result.cells) out.push(cellLine(cell));
   for (const r of result.relative_recall) {
     out.push(
-      r.availability === "reported"
+      r.availability === "present"
         ? `  ${r.segment}: BAND [${num(r.low)}, ${num(r.high)}] · ${r.real_findings} confirmed real here, ${r.other_arm_real_findings} on ${r.other_arm} · union ${r.union_low}–${r.union_high}`
         : `  ${r.segment}: ${r.availability === "suppressed" ? "WITHHELD" : "NOT COMPUTED"} — ${r.reason}`,
     );
@@ -1012,7 +1096,7 @@ export function renderReport(result) {
   for (const g of result.fp_profile) {
     out.push(
       `  fp ${g.arm}/${g.label_source}/${g.axis}=${g.bucket}: ${g.false_findings} false of ${g.labelled_findings} labelled` +
-        (g.share_availability === "reported" ? ` · share ${num(g.false_share)}` : ` · share ${g.share_availability.toUpperCase()}`),
+        (g.share_availability === "present" ? ` · share ${num(g.false_share)}` : ` · share ${g.share_availability.toUpperCase()}`),
     );
   }
   out.push("");
@@ -1095,7 +1179,15 @@ async function main() {
   const { readFindingLabels, harvestVintage } = await import("./adjudicate.mjs");
   const read = readFindingLabels(args.root, args["corpus-version"]);
   for (const u of read.unreadable) console.error(`  ! unreadable label ${u.path}: ${u.reason}`);
-  const labels = itemFilter.length === 0 ? read.labels : read.labels.filter((l) => itemFilter.includes(l.item_id));
+  // 🔴 FILTERED BY `--arm` TOO. Reading every label while supplying only the selected
+  // arm's claims made the UNSELECTED arm appear with `claims-not-supplied` on every one of
+  // its labels — a bogus arm row, a completeness reason, and exit 1 on a run that had
+  // asked about one arm and got a correct answer for it. `--arm` selects the population
+  // AND the judgements about it, or the two halves disagree.
+  const wantedArms = arm === "both" ? ARMS : [arm];
+  const labels = read.labels
+    .filter((l) => wantedArms.includes(l.arm))
+    .filter((l) => itemFilter.length === 0 || itemFilter.includes(l.item_id));
 
   const arms = [];
   if (wantPanel) {
@@ -1110,12 +1202,20 @@ async function main() {
       for (const it of corpus) {
         if (itemFilter.length > 0 && !itemFilter.includes(it.id)) continue;
         const item = store.getItem(runId, it.id);
-        // An item that produced no real verdict raised no claim anybody could have
-        // labelled, and it is excluded rather than counted as a silent reviewer — the
-        // rule every scorer on this surface follows.
-        if (!item || item.envelope?.status !== "ok") {
-          console.error(`  ! ${runId}/${it.id}: envelope status ${JSON.stringify(item?.envelope?.status ?? null)} — excluded from the claim population`);
+        // 🔴 A NON-`ok` ITEM IS REPORTED, NOT EXCLUDED, and that is the opposite of what
+        // the per-PR scorers do — on purpose. `volume-mix.mjs` drops such an item because
+        // a failed replay would read as a careful reviewer in a per-PR median. This
+        // population is a different question: "which claims could a label be about", and
+        // `adjudicate.mjs` queues from EVERY stored item without consulting the envelope.
+        // Excluding them here made a label about a failed-but-productive replay join as
+        // `unmatched` — a real judgement dropped out of the denominator by a filter the
+        // labelling never applied.
+        if (!item) {
+          console.error(`  ! ${runId}/${it.id}: not replayed under this run`);
           continue;
+        }
+        if (item.envelope?.status !== "ok") {
+          console.error(`  ! ${runId}/${it.id}: envelope status ${JSON.stringify(item.envelope?.status ?? null)} — its claims are STILL counted, because adjudicate.mjs could have queued them`);
         }
         // `population: "reported"` because that is what `adjudicate.mjs` queues, so it
         // is the population the labels are about.
