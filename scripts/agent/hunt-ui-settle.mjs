@@ -88,9 +88,20 @@ export async function readSettled({
   let lastChange = now();
 
   for (;;) {
+    // ORDER IS DELIBERATE: quiet window first, deadline second.
+    //
+    // Reversing these looks like a tightening and is a loss. `now() - lastChange >=
+    // quietMs` is a statement about what was OBSERVED — the value did not move across
+    // the whole window — and the clock reaching the deadline in the same tick does not
+    // unmake that observation. Checking the deadline first reports `settled: false` for
+    // a reading that demonstrably held still, the runner turns that into `{__unsettled}`,
+    // and a real prediction verdict silently degrades to `unevaluable`. Costing signal to
+    // enforce a budget that has already been spent either way is the wrong trade.
     if (now() - lastChange >= quietMs) return { value, settled: true };
     if (now() >= deadline) return { value, settled: false };
-    await sleep(pollMs);
+    // Capped so the deadline is a real bound: an uncapped poll can return up to `pollMs`
+    // past it. `now() < deadline` is guaranteed by the check above, so this stays > 0.
+    await sleep(Math.min(pollMs, deadline - now()));
     const next = await read();
     const nextSerialized = serialize(next);
     if (nextSerialized !== serialized) {

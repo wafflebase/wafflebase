@@ -139,3 +139,37 @@ test("readSettled: polls at the configured interval", async () => {
   });
   assert.deepEqual(at.slice(0, 3), [0, SETTLE_POLL_MS, SETTLE_POLL_MS * 2]);
 });
+
+test("readSettled: never polls past the deadline, even when it is not a multiple of the poll", async () => {
+  // A deadline of 170ms with a 25ms poll lands mid-interval. Uncapped, the last sleep
+  // overshot to 175ms and `deadlineMs` was advisory rather than a bound.
+  const clock = fakeClock();
+  const result = await readSettled({
+    read: async () => clock.now(), // never repeats, so it can only end at the deadline
+    sleep: clock.sleep,
+    now: clock.now,
+    deadlineMs: 170,
+  });
+  assert.equal(result.settled, false);
+  assert.equal(clock.now(), 170, `returned at ${clock.now()}ms, past the 170ms deadline`);
+});
+
+test("readSettled: a window that closes exactly ON the deadline still counts as settled", async () => {
+  // Pins a REJECTED review suggestion: checking the deadline before the quiet window.
+  //
+  // The value changes at 50ms and holds to 200ms — a complete 150ms window, whose last
+  // tick coincides with the deadline. That the budget ran out on the same tick does not
+  // unmake the observation. Deadline-first would return `settled: false` here, the runner
+  // would emit `{__unsettled}`, and a genuinely settled reading would score `unevaluable`
+  // instead of yielding its verdict. Losing signal is worse than overrunning a budget
+  // that is already spent.
+  const clock = fakeClock();
+  const result = await readSettled({
+    read: async () => (clock.now() < 50 ? "a" : "b"),
+    sleep: clock.sleep,
+    now: clock.now,
+    deadlineMs: 200,
+  });
+  assert.deepEqual(result, { value: "b", settled: true });
+  assert.equal(clock.now(), 200);
+});
