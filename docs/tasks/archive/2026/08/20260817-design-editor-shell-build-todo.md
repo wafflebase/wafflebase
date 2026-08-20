@@ -111,7 +111,7 @@ contained" in §6 rules that out. System stack.
 
 ## Result
 
-```
+```text
 design-editor      812 tests / 30 files   (+7, all shellServer)
 verify-consumer     52/52  (was 41 — 11 new shell checks, and the gate
                             now builds the shell itself since dist/ is gitignored)

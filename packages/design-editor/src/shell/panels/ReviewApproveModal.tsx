@@ -172,8 +172,15 @@ export function ReviewApproveModal({
      * than inventing a diff for it.
      */
     for (const e of layoutEdits) {
-      const adds = e.classOps?.additions ?? [];
-      const removes = e.classOps?.removals ?? [];
+      /*
+       * REPLACEMENTS COUNT AS BOTH SIDES. `classOps` carries `replacements` alongside
+       * `additions`/`removals`, and reading only the latter two made a replacement-only edit —
+       * the ordinary shape of "change this class to that one" — render two empty lists under
+       * the false subtitle "no class change staged".
+       */
+      const swaps = e.classOps?.replacements ?? [];
+      const adds = [...(e.classOps?.additions ?? []), ...swaps.map((r) => r.to)];
+      const removes = [...(e.classOps?.removals ?? []), ...swaps.map((r) => r.from)];
       cards.push({
         componentName: '',
         title: `<${e.anchor.tag}> · ${e.anchor.component}`,

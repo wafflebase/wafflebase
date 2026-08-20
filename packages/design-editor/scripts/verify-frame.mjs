@@ -419,52 +419,58 @@ async function main() {
              */
             const abs = path.join(PROJECT, SCENE_SRC);
             const before = await fs.readFile(abs, 'utf8');
-            const approve = (await page.$$('[role="dialog"] button')).at(-1);
-            await approve?.click();
-            await page.waitForTimeout(3000);
-            const after = await fs.readFile(abs, 'utf8');
-            check(
-              'Approve writes the class into the consumer’s source',
-              after !== before && after.includes('flex-col'),
-              after === before ? 'the file is unchanged' : 'changed',
-            );
-            check('and the modal closed itself', !(await page.$('[role="dialog"][aria-modal="true"]')));
-
-            // Restore through the bridge's own transaction log, not by rewriting the file:
-            // that is the path a user takes, so a broken undo fails HERE rather than leaving
-            // the fixture dirty for the next run to discover.
-            const undone = await (
-              await fetch(`http://127.0.0.1:${PORT}/__design-editor/api/undo`, { method: 'POST' })
-            ).json();
-            check('undo answers ok', undone.ok === true, undone.error);
-            const restored = await fs.readFile(abs, 'utf8');
-            check('and the file is byte-identical again', restored === before);
-            // The comment above promises the failure lands HERE. It only did so for the
-            // current run: an unrestored fixture keeps the written class, and the NEXT
-            // run's "Approve writes the class" check is then satisfied by the leftover
-            // rather than by a write — green while measuring nothing.
-            if (restored !== before) {
-              await fs.writeFile(abs, before, 'utf8');
-              console.log('       (undo did not restore the fixture — rewrote it from the pre-edit bytes)');
-            }
-
-            // `PathGuard.backup` writes `${file}.bak` beside the source; the design doc's
-            // Risks section names that and prescribes a cache directory instead. Unimplemented,
-            // so this cleans up and reports rather than pretending it did not happen.
-            const bak = `${abs}.bak`;
-            let left = false;
             try {
-              await fs.unlink(bak);
-              console.log(`       removed ${SCENE_SRC}.bak (see the Risks section)`);
-            } catch {
+              const approve = (await page.$$('[role="dialog"] button')).at(-1);
+              await approve?.click();
+              await page.waitForTimeout(3000);
+              const after = await fs.readFile(abs, 'utf8');
+              check(
+                'Approve writes the class into the consumer’s source',
+                after !== before && after.includes('flex-col'),
+                after === before ? 'the file is unchanged' : 'changed',
+              );
+              check('and the modal closed itself', !(await page.$('[role="dialog"][aria-modal="true"]')));
+
+              // Restore through the bridge's own transaction log, not by rewriting the file:
+              // that is the path a user takes, so a broken undo fails HERE.
+              const undone = await (
+                await fetch(`http://127.0.0.1:${PORT}/__design-editor/api/undo`, { method: 'POST' })
+              ).json();
+              check('undo answers ok', undone.ok === true, undone.error);
+              check('and the file is byte-identical again', (await fs.readFile(abs, 'utf8')) === before);
+
+              /*
+               * OBSERVED BEFORE IT IS CLEANED UP. This used to `unlink` first and set `left`
+               * only if the unlink FAILED — so the check passed exactly when a backup had been
+               * left, as long as deleting it worked. It asserted the cleanup, not the finding.
+               */
+              const bak = `${abs}.bak`;
+              let left = false;
               try {
                 await fs.access(bak);
                 left = true;
               } catch {
-                /* never created, or already gone */
+                /* never created */
+              }
+              check('no backup was left in the fixture', !left, `${SCENE_SRC}.bak`);
+              if (left) {
+                await fs.unlink(bak).catch(() => {});
+                console.log(`       removed ${SCENE_SRC}.bak (see the Risks section)`);
+              }
+            } finally {
+              /*
+               * In `finally`, not after the undo check: anything above can throw — a missing
+               * Approve button, a page navigation — and an unrestored fixture keeps the written
+               * class, so the NEXT run's "Approve writes the class" check is satisfied by the
+               * leftover rather than by a write. Green while measuring nothing. The checks above
+               * still fail; this only stops the failure being carried forward.
+               */
+              const now = await fs.readFile(abs, 'utf8').catch(() => before);
+              if (now !== before) {
+                await fs.writeFile(abs, before, 'utf8');
+                console.log('       (restored the fixture from the pre-edit bytes)');
               }
             }
-            check('no backup was left in the fixture', !left, `${SCENE_SRC}.bak`);
           } else {
             await page.keyboard.press('Escape');
             await page.waitForTimeout(400);

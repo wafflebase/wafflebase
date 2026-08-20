@@ -523,41 +523,62 @@ async function main() {
               if (check('the review names which file it will write', !!rel, rel)) {
                 const abs = path.join(ROOT, rel);
                 const before = await fs.readFile(abs, 'utf8');
-                const approve = (await page.$$('[role="dialog"] button')).at(-1);
-                await approve?.click();
-                await page.waitForTimeout(4000);
-                const written = await fs.readFile(abs, 'utf8');
-                check(
-                  'Approve writes the class into wafflebase’s own source',
-                  written !== before && written.includes('flex-col'),
-                  written === before ? 'unchanged' : 'changed',
-                );
-
-                const undone = await (
-                  await fetch(`http://127.0.0.1:${PORT}/__design-editor/api/undo`, { method: 'POST' })
-                ).json();
-                check('undo answers ok', undone.ok === true, undone.error);
-                check(
-                  'and the file is byte-identical again',
-                  (await fs.readFile(abs, 'utf8')) === before,
-                  'a difference here means product source was left edited',
-                );
-
-                // `PathGuard.backup` writes `${file}.bak` beside the source; the design doc's
-                // Risks section names that and prescribes a cache directory instead.
-                let left = false;
                 try {
-                  await fs.unlink(`${abs}.bak`);
-                  console.log(`       removed ${rel}.bak (see the Risks section)`);
-                } catch {
+                  const approve = (await page.$$('[role="dialog"] button')).at(-1);
+                  await approve?.click();
+                  await page.waitForTimeout(4000);
+                  const written = await fs.readFile(abs, 'utf8');
+                  check(
+                    'Approve writes the class into wafflebase’s own source',
+                    written !== before && written.includes('flex-col'),
+                    written === before ? 'unchanged' : 'changed',
+                  );
+
+                  const undone = await (
+                    await fetch(`http://127.0.0.1:${PORT}/__design-editor/api/undo`, { method: 'POST' })
+                  ).json();
+                  check('undo answers ok', undone.ok === true, undone.error);
+                  check(
+                    'and the file is byte-identical again',
+                    (await fs.readFile(abs, 'utf8')) === before,
+                    'a difference here means product source was left edited',
+                  );
+
+                  /*
+                   * OBSERVED BEFORE IT IS CLEANED UP. This read used to `unlink` first and set
+                   * `left` only if the unlink FAILED — so the check passed exactly when a
+                   * backup had been left, as long as deleting it worked. It asserted the
+                   * cleanup, not the finding.
+                   *
+                   * `PathGuard.backup` writes `${file}.bak` beside the source; the design doc's
+                   * Risks section names that and prescribes a cache directory instead.
+                   */
+                  let left = false;
                   try {
                     await fs.access(`${abs}.bak`);
                     left = true;
                   } catch {
                     /* never created */
                   }
+                  check('no backup was left in packages/frontend', !left, `${rel}.bak`);
+                  if (left) {
+                    await fs.unlink(`${abs}.bak`).catch(() => {});
+                    console.log(`       removed ${rel}.bak (see the Risks section)`);
+                  }
+                } finally {
+                  /*
+                   * PRODUCT SOURCE, not a fixture. A failed undo — or anything above throwing
+                   * before it — used to end the run with `packages/frontend` still edited, and
+                   * the next run's "Approve writes the class" check would then be satisfied by
+                   * the leftover rather than by a write. The checks above still fail; this only
+                   * makes sure the tree does not carry the failure forward.
+                   */
+                  const now = await fs.readFile(abs, 'utf8').catch(() => before);
+                  if (now !== before) {
+                    await fs.writeFile(abs, before, 'utf8');
+                    console.log(`       restored ${rel} from the pre-edit bytes`);
+                  }
                 }
-                check('no backup was left in packages/frontend', !left, `${rel}.bak`);
               }
             } else {
               await page.keyboard.press('Escape');

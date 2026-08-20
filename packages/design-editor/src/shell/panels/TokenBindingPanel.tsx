@@ -366,6 +366,19 @@ export function TokenBindingPanel({
   dark,
   tokenStyle,
 }: TokenBindingPanelProps) {
+  /**
+   * The promote path's refusal, made visible. The comment at its use site said refusing
+   * loudly beats staging an edit the server will reject — and then returned silently, so the
+   * button did nothing and said nothing. Reachable: the role is parsed from the authored
+   * class, not from `families`, so an adapter with no semantic family still renders it.
+   *
+   * DECLARED BEFORE the `!cva` early return below. The panel is mounted without a key, so a
+   * selection switch re-renders this same instance, and a hook below that return is a
+   * conditional hook. Measured: neither switch direction throws today, and both branches
+   * render — but the rule exists for the hook added next to this one, not for this one.
+   */
+  const [promoteError, setPromoteError] = useState<string | null>(null);
+
   // Forwarded to every dropdown so its portaled content themes correctly and
   // reflects pending token-value edits (see Combobox contentClassName/Style).
   const menuClass = dark ? 'dark' : undefined;
@@ -392,13 +405,6 @@ export function TokenBindingPanel({
   // immediately selectable.
   const allRoles = [...new Set([...vocabulary, ...extraRoles, ...Object.values(tokenAdds).map((a) => a.kebabKey)])];
   const colorOpts = tokenOptions(allRoles);
-  /**
-   * The promote path's refusal, made visible. The comment below it said refusing loudly
-   * beats staging an edit the server will reject — and then returned silently, so the
-   * button did nothing and said nothing. Reachable: the role is parsed from the authored
-   * class, not from `families`, so an adapter with no semantic family still renders it.
-   */
-  const [promoteError, setPromoteError] = useState<string | null>(null);
 
   /**
    * Interaction states for one scope. The rows are computed from the AUTHORED

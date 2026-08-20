@@ -92,6 +92,25 @@ describe('ReviewApproveModal — layout edits', () => {
     expect(text).toContain('flex-col');
   });
 
+  it('shows both sides of a replacement-only edit', () => {
+    // `classOps` carries `replacements` beside `additions`/`removals`, and the card read only
+    // the latter two — so the ordinary "change this class to that one" edit rendered two empty
+    // lists under the false subtitle "no class change staged".
+    render(
+      <ReviewApproveModal
+        {...props({
+          layoutEdits: [
+            layoutEdit({ classOps: { replacements: [{ from: 'p-2', to: 'p-4' }] } }),
+          ],
+        })}
+      />,
+    );
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('no class change staged');
+    expect(text).toContain('p-2');
+    expect(text).toContain('p-4');
+  });
+
   it('names the path, including the root case', () => {
     render(<ReviewApproveModal {...props({ layoutEdits: [layoutEdit({ anchor: { ...layoutEdit().anchor, path: [] } })] })} />);
     expect(document.body.textContent).toContain('(root)');
