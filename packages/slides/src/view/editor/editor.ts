@@ -44,6 +44,7 @@ import {
   deckFontScale,
   deckSlideHeight,
   type Slide,
+  type SlidesDocument,
 } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import type { Endpoint } from '../../model/connector';
@@ -718,6 +719,14 @@ class SlidesEditorImpl implements SlidesEditor {
   private keyRules!: KeyRule[];
   private currentId: string | undefined;
   /**
+   * Index `currentId` was last resolved at in the deck's `slides` array,
+   * refreshed on every `resolveCurrentSlide` hit. When the current slide
+   * disappears — undo of `Add slide`, a peer's delete — this is the only
+   * record of where it used to be, and `resolveCurrentSlide` lands the
+   * cursor just before it rather than leaving a dangling id.
+   */
+  private currentIndex = 0;
+  /**
    * True while canvas layout-editing mode is active (PR3 theme builder).
    * Gates text-edit entry; the swapped `LayoutEditStore` already no-ops
    * structural mutations, so this only covers the UX the proxy can't.
@@ -1057,9 +1066,7 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.disposed) return;
     const doc = this.options.store.read();
     const slideH = deckSlideHeight(doc.meta);
-    const slide = this.currentId
-      ? doc.slides.find((s) => s.id === this.currentId)
-      : undefined;
+    const slide = this.resolveCurrentSlide(doc);
     if (!slide) {
       this.paintOverlay([], {
         scale: this.scale(),
@@ -1417,8 +1424,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // belong to that same SlidesDocument so a future colorResolver
     // can look up theme palettes via `getActiveTheme(doc)`.
     const doc = this.options.store.read();
-    const id = this.currentId;
-    const slide = id ? doc.slides.find((s) => s.id === id) : undefined;
+    const slide = this.resolveCurrentSlide(doc);
     if (!slide) {
       this.paintRuler();
       return;
@@ -1495,6 +1501,58 @@ class SlidesEditorImpl implements SlidesEditor {
     this.render();
     this.repaintOverlay();
     for (const cb of this.currentSlideListeners) cb();
+  }
+
+  /**
+   * Resolve `currentId` against `doc`, healing a dangling id.
+   *
+   * `Add slide` makes the new slide current, and undoing it restores the
+   * `slides` array without touching the editor's cursor — so `currentId`
+   * would keep naming a slide the deck no longer holds and nothing would
+   * paint (issue #883). A peer deleting the slide the local user is on
+   * leaves the same state. Both are removal paths with no local call
+   * site to fix up, so the cursor is revalidated here, at the one place
+   * the editor turns `currentId` into a slide: when the id is missing
+   * from a non-empty deck we move to the slide just before the vanished
+   * index, which for an undone insertion is the slide the user came from.
+   *
+   * Callers pass their own `store.read()` snapshot — resolving must not
+   * cost an extra read, in particular not on `render()`'s idle frames.
+   *
+   * Returns the slide to paint, or `undefined` for an empty deck (or an
+   * unset `currentId`, e.g. a store that had no slides at mount).
+   */
+  private resolveCurrentSlide(doc: SlidesDocument): Slide | undefined {
+    const id = this.currentId;
+    if (id === undefined) return undefined;
+    const idx = doc.slides.findIndex((s) => s.id === id);
+    if (idx !== -1) {
+      this.currentIndex = idx;
+      return doc.slides[idx];
+    }
+    if (doc.slides.length === 0) return undefined;
+    const nextIdx = Math.min(
+      Math.max(this.currentIndex - 1, 0),
+      doc.slides.length - 1,
+    );
+    const next = doc.slides[nextIdx];
+    // Move the cursor BEFORE tearing down the interaction state below:
+    // `exitEditMode` / `exitImageCrop` / `selection.clear()` all route
+    // back into `repaintOverlay()`, which resolves again — with the id
+    // already healed that nested resolve is a plain hit instead of a
+    // second heal.
+    this.currentId = next.id;
+    this.currentIndex = nextIdx;
+    this.renderer.markDirty();
+    // Anything anchored to the removed slide has nowhere left to commit,
+    // so it is discarded rather than committed (the opposite of
+    // `setCurrentSlide`, which leaves a still-existing slide behind).
+    if (this.cropSession !== null) this.exitImageCrop(false);
+    if (this.editingElementId !== null) this.exitEditMode('cancel');
+    this.setCellSelection(null);
+    this.selection.clear();
+    for (const cb of this.currentSlideListeners) cb();
+    return next;
   }
 
   /**
