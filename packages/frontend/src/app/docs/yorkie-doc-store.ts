@@ -37,6 +37,8 @@ import {
   applyMergeBlocks,
   blockStyleId,
   materializeBlockSpacing,
+  normalizeStyleClears,
+  normalizeCellStyleClears,
   serializeBlockStyleAttrs,
   parseBlockStyleAttrs,
   serializeMarginFromEdgeAttrs,
@@ -243,16 +245,20 @@ function serializeCellStyle(cell: TableCell): Record<string, string> {
 /**
  * Cell-style counterpart of `removedInlineStyleAttrs`: the Yorkie attribute
  * names to hand `removeNodeStyle` when the caller cleared a key by
- * passing it explicitly as `undefined` (e.g. the cell "No fill" reset).
+ * passing it explicitly as `undefined` (the cell "No fill" reset, or the
+ * `''` sentinel `normalizeCellStyleClears` folds into that same form).
  * `serializeCellStyle` drops those keys, and `styleByPath` only merges, so
  * without this the previous value stays on the Tree node.
  */
+const CELL_STYLE_ATTR_KEYS = [
+  'backgroundColor', 'verticalAlign', 'padding',
+  'borderTop', 'borderBottom', 'borderLeft', 'borderRight',
+] as const satisfies readonly (keyof CellStyle)[];
+
 function removedCellStyleAttrs(style: Partial<CellStyle>): string[] {
-  const keys = [
-    'backgroundColor', 'verticalAlign', 'padding',
-    'borderTop', 'borderBottom', 'borderLeft', 'borderRight',
-  ] as const;
-  return keys.filter((key) => key in style && style[key] === undefined);
+  return CELL_STYLE_ATTR_KEYS.filter(
+    (key) => key in style && style[key] === undefined,
+  );
 }
 
 /**
@@ -1909,8 +1915,11 @@ export class YorkieDocStore implements DocStore {
     // styleByPath only merges, so keys explicitly cleared to `undefined`
     // (e.g. removeLink → { href: undefined }) must also be removed via
     // removeStyleByPath; otherwise the old attribute survives on the node.
-    const styleAttrs = serializeInlineStyle(style as InlineStyle);
-    const removeAttrs = removedInlineStyleAttrs(style);
+    // `normalizeStyleClears` routes a color picker's "None" (`''`) into that
+    // same removal path instead of writing an empty attribute (#793).
+    const clearedStyle = normalizeStyleClears(style);
+    const styleAttrs = serializeInlineStyle(clearedStyle as InlineStyle);
+    const removeAttrs = removedInlineStyleAttrs(clearedStyle);
     for (let i = startIdx; i < endIdx; i++) {
       const existingAttrs = inlines[i].attributes ?? {};
       tree.styleByPath([...blockPath, i], { ...existingAttrs, ...styleAttrs });
@@ -2448,15 +2457,22 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const block = this.resolveTableBlock(tablePath, currentDoc);
     const cell = block.tableData!.rows[rowIndex].cells[colIndex];
-    const merged = { ...cell.style, ...style };
-
-    // Build serialized attributes for the cell node
-    const attrs = serializeCellStyle({ ...cell, style: merged });
     // `styleByPath` only merges, so a key cleared by passing it explicitly
     // as `undefined` (the "No fill" reset of issue #728) is dropped by
     // `serializeCellStyle` and the stale attribute survives on the node.
     // Remove those keys the same way the inline-style path does.
-    const removeAttrs = removedCellStyleAttrs(style);
+    // `normalizeCellStyleClears` folds the picker's `''` sentinel into that
+    // same explicitly-undefined form first, so both spellings of "clear"
+    // take the one removal path (issue #793).
+    const clearedStyle = normalizeCellStyleClears(style);
+    const removeAttrs = removedCellStyleAttrs(clearedStyle);
+    const merged: CellStyle = { ...cell.style, ...clearedStyle };
+    // Keep the local cache in step with the node: an explicitly-undefined key
+    // would otherwise survive the spread as a present-but-undefined property.
+    for (const key of removeAttrs) delete merged[key as keyof CellStyle];
+
+    // Build serialized attributes for the cell node
+    const attrs = serializeCellStyle({ ...cell, style: merged });
 
     const cursorForHistory = this.consumePendingCursor();
     this.doc.update((root, p) => {
@@ -2466,7 +2482,14 @@ export class YorkieDocStore implements DocStore {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       const cellPath = [...tablePath, rowIndex, colIndex];
-      tree.styleByPath(cellPath, attrs);
+      // A clear-only edit on an otherwise unstyled cell serializes to nothing;
+      // don't spend an op setting an empty attribute map. `applyCellSpan`
+      // guards the same call.
+      if (Object.keys(attrs).length > 0) {
+        tree.styleByPath(cellPath, attrs);
+      }
+      // Node-scoped: a path range would also strip the highlight of every
+      // inline in the cell and the fill of every nested-table cell inside it.
       removeNodeStyle(tree, cellPath, removeAttrs);
     });
 
