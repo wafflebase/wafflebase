@@ -36,6 +36,7 @@ import {
   ChevronLeft,
   ChevronRight,
   HardDriveDownload,
+  Info,
   Moon,
   Palette,
   RotateCcw,
@@ -43,7 +44,9 @@ import {
   Sun,
 } from 'lucide-react';
 import {
+  camelToKebab,
   createBridgeClient,
+  defaultVariantState,
   layoutEditKey,
   type BridgeClient,
   saveDiff,
@@ -51,7 +54,10 @@ import {
   type HealthResult,
   type MetadataResult,
   type PendingLayoutEdit,
+  type TokensResult,
   type TransactionSummary,
+  tokenPreviewStyle,
+  type VariantState,
 } from '../client/index.ts';
 import { anchorFromStamp, planRebase, rootsLookup, type RootsHolder } from '../client/anchors.ts';
 import { useEditHistory } from '../client/history.ts';
@@ -61,6 +67,10 @@ import { SceneOutline, type OutlineFile } from './scenes/SceneOutline.tsx';
 import { SceneNodeDetail, type SceneSelection } from './scenes/SceneNodeDetail.tsx';
 import { FloatingClassEditor } from './scenes/FloatingClassEditor.tsx';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs.tsx';
+import { ComponentList } from './panels/ComponentList.tsx';
+import { ReviewApproveModal } from './panels/ReviewApproveModal.tsx';
+import { TokenBindingPanel } from './panels/TokenBindingPanel.tsx';
+import { TokenEditorPanel } from './panels/TokenEditorPanel.tsx';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.tsx';
 import { sceneNodeAt, type FileMeta, type SceneMeta } from '../types.ts';
 import { stampId, type FrameRect, type StampRef } from '../scenes/frame-protocol.ts';
@@ -68,11 +78,22 @@ import { resolveImport } from '../scenes/import-paths.ts';
 
 const defaultBridge = createBridgeClient();
 
+/**
+ * The semantic role vocabulary — the adapter's own keys, not a compiled-in list.
+ *
+ * The prototype passed `mockMetadata.tokenVocabulary.semanticRoles`, a frozen snapshot of
+ * wafflebase's roles. What a binding may point at is whatever the consumer's semantic family
+ * actually declares, which `GET /tokens` reports per theme.
+ */
+const SEMANTIC_VOCABULARY = (tokens: TokensResult | null): string[] =>
+  Object.keys(tokens?.bindings?.themed.light ?? {}).map(camelToKebab).sort();
+
 /** View state worth surviving a reload, but NOT part of the undo history. */
 const VIEW_KEY = 'design-editor:view:v1';
 interface ViewState {
   dark: boolean;
   scene: string;
+  mode: 'components' | 'scenes';
 }
 const readView = (): Partial<ViewState> => {
   try {
@@ -197,6 +218,25 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   /** Dismissed without deselecting — e.g. to see the frame underneath. */
   const [classEditorClosed, setClassEditorClosed] = useState(false);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  /*
+   * Deliberately NOT persisted in `readView()`, unlike `dark` and `scene`. Those two are
+   * "where you are" and should survive a reload; this is "what am I inspecting right now".
+   * Restoring it would reopen the editor on empty lists with no memory of having asked for
+   * them, which reads as fixtures that broke overnight.
+   */
+  const [mockDataEmpty, setMockDataEmpty] = useState(false);
+  /*
+   * Which SUBJECT the panes are addressing — the recipe's two modes (§ "There are two
+   * MODES"). They differ in addressing (a CVA value vs a `NodeAnchor`) and in what the
+   * right pane can usefully say, which is why they are modes and not two lists in one
+   * tree: `TokenBindingPanel` takes a component, so while a whole route is under edit it
+   * would be describing a Button nobody is looking at.
+   *
+   * Persisted, unlike `mockDataEmpty` and like `dark`/`scene`: it is "where you are".
+   */
+  const [mode, setMode] = useState<'components' | 'scenes'>(
+    () => readView().mode ?? 'scenes',
+  );
   const [selectable, setSelectable] = useState<Set<string>>(new Set());
   const [drillTrail, setDrillTrail] = useState<string[]>([]);
   /** The staged edits a refresh says can no longer be applied, `map|key` → why. */
@@ -205,6 +245,16 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   const [writeDepth, setWriteDepth] = useState(0);
   const [reapplyDepth, setReapplyDepth] = useState(0);
   const [busy, setBusy] = useState(false);
+  /** `GET /tokens` — the adapter's report. Re-read after every write, like metadata. */
+  const [tokens, setTokens] = useState<TokensResult | null>(null);
+  /**
+   * Which component the binding panel edits. A NAME, not the object: `allComponents` is
+   * replaced wholesale by every metadata refresh, and holding the object would pin a stale
+   * copy whose CVA no longer matches the file.
+   */
+  const [componentName, setComponentName] = useState<string | null>(null);
+  const [variantState, setVariantState] = useState<VariantState>({});
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   const onHistoryReset = useCallback(
     () => notify('info', 'Dev server restarted', 'The persisted edit history was cleared.'),
@@ -215,11 +265,11 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(VIEW_KEY, JSON.stringify({ dark, scene: sceneId } satisfies ViewState));
+      window.localStorage.setItem(VIEW_KEY, JSON.stringify({ dark, scene: sceneId, mode } satisfies ViewState));
     } catch {
       /* a disabled store just means the view does not survive a reload */
     }
-  }, [dark, sceneId]);
+  }, [dark, sceneId, mode]);
 
   // ---------------------------------------------------------------------------
   // Metadata. Re-read after every write, because it is derived from source: a
@@ -260,7 +310,11 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
         return next;
       });
     }
-  }, []);
+  }, [bridge]);
+
+  const refreshTokens = useCallback(async () => {
+    setTokens(await bridge.tokens());
+  }, [bridge]);
 
   const refreshWriteLog = useCallback(async () => {
     const h = await bridge.transactions();
@@ -269,26 +323,109 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
     setWriteDepth(h.undo?.length ?? 0);
     setReapplyDepth(h.redo?.length ?? 0);
     setWriteLog(h.undo ?? []);
-  }, []);
+  }, [bridge]);
 
+  /**
+   * The initial load, as ONE awaited sequence guarded by a generation.
+   *
+   * The guard is hardening rather than a fix: `main.tsx` renders `<App />` with no `bridge`
+   * prop, so it is the module-level default and never changes, and the shell deliberately
+   * runs without `StrictMode` — so there is no second mount to race against today. What
+   * makes it worth the four lines is that this effect now names `bridge` in its
+   * dependencies: the day a caller passes a different one, a slow answer from the old
+   * bridge would otherwise land on the new session's state.
+   *
+   * `await`, not `.then`, per the repo's convention. Two things this deliberately does NOT
+   * do. There is no try/catch: `BridgeClient`'s first documented rule is that nothing throws
+   * — every method resolves to `{ ok: false, error }` precisely so a caller does not need one
+   * — so it would add a branch no failure can reach. And the guard covers `setHealth` only:
+   * the three `refresh*` callbacks set their own state internally, and guarding those would
+   * mean threading a generation through each. Worth doing if a caller ever does swap the
+   * bridge; not worth it for a race nothing can currently start.
+   */
   useEffect(() => {
-    bridge.health().then(setHealth);
-    refreshMetadata();
-    refreshWriteLog();
-  }, [refreshMetadata, refreshWriteLog]);
+    let live = true;
+    void (async () => {
+      // CONCURRENT, as before. Awaiting them in sequence would turn one round trip into
+      // four and slow the first paint for a guard that has nothing to catch yet.
+      const [h] = await Promise.all([
+        bridge.health(),
+        refreshMetadata(),
+        refreshTokens(),
+        refreshWriteLog(),
+      ]);
+      if (live) setHealth(h);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [bridge, refreshMetadata, refreshTokens, refreshWriteLog]);
 
-  const scenes: SceneMeta[] = meta?.metadata?.scenes ?? [];
-  const files: FileMeta[] = meta?.metadata?.files ?? [];
+  /*
+   * MEMOISED, and the reason is narrower than it looks. `meta?.metadata?.scenes ?? []`
+   * returns the SAME array off `meta` once the manifest has loaded — measured, not assumed —
+   * so the identity churn this looks like does not happen in the state that matters. What
+   * does allocate is the `?? []` before `meta` arrives, and `exhaustive-deps` cannot tell the
+   * two apart, so it flags five hooks downstream. Wrapping costs nothing, holds in both
+   * states, and stops the question being re-litigated from the shape of the expression.
+   */
+  const scenes: SceneMeta[] = useMemo(() => meta?.metadata?.scenes ?? [], [meta]);
+  const files: FileMeta[] = useMemo(() => meta?.metadata?.files ?? [], [meta]);
   /**
    * The manifest decides the default, and it has to be re-decided when the manifest
    * arrives: the persisted id may name a scene this project no longer has, and the
    * first render has no manifest at all.
    */
+  const mountable = useMemo(() => scenes.filter((s) => !s.deferred), [scenes]);
+  /**
+   * ONE derivation, gated ONCE. These were computed inline at two call sites with
+   * different guards — the vocabulary behind `families?.length`, `existingRoles` behind
+   * nothing — while `SEMANTIC_VOCABULARY` reads `bindings.themed.light`, a different field.
+   * An adapter with bindings but no families therefore produced an empty `allRoles` beside
+   * a full `existingRoles`, which suppressed `promoteTarget` for roles the picker could not
+   * offer either: no way forward, and no reason shown.
+   */
+  const vocabulary = useMemo(() => (tokens ? SEMANTIC_VOCABULARY(tokens) : []), [tokens]);
+  const existingRoles = useMemo(() => new Set(vocabulary), [vocabulary]);
   useEffect(() => {
     if (!scenes.length) return;
-    setSceneId((cur) => (scenes.some((s) => s.id === cur) ? cur : scenes[0].id));
-  }, [scenes]);
+    // MOUNTABLE only. A deferred scene has no loader, so defaulting to one opens a frame
+    // whose single possible outcome is `no scene "<id>" in the scene manifest`.
+    setSceneId((cur) => (mountable.some((s) => s.id === cur) ? cur : (mountable[0]?.id ?? '')));
+  }, [scenes, mountable]);
   const activeScene = scenes.find((s) => s.id === sceneId);
+
+  /**
+   * Every analysed component, flattened out of `metadata.files`.
+   *
+   * The prototype seeded this from a 908-line build-time snapshot and replaced it from the
+   * endpoint; there is no snapshot to seed from any more, so an empty list before the first
+   * response is simply "not loaded yet" rather than "this project has no components".
+   */
+  const allComponents = useMemo(
+    () => files.flatMap((f) => f.components ?? []),
+    [files],
+  );
+  const component = allComponents.find((c) => c.name === componentName) ?? allComponents[0];
+  /*
+   * A PERSISTED MODE THE PROJECT CANNOT OFFER. Same shape as the scene id that vanishes
+   * above: the view survives a reload, the project it describes may not. Restored as-is,
+   * the editor opens on `components` with its own switch disabled, showing `Bindings`
+   * with nothing to bind.
+   *
+   * Runs after metadata, because before it arrives `allComponents` is legitimately empty
+   * and switching then would override a mode the project does support.
+   */
+  useEffect(() => {
+    if (meta && allComponents.length === 0) setMode('scenes');
+  }, [meta, allComponents.length]);
+  /** Re-seed the variant axes when the selection changes; edits are keyed per component. */
+  const selectComponent = (name: string) => {
+    const next = allComponents.find((c) => c.name === name);
+    if (!next) return;
+    setComponentName(name);
+    setVariantState(defaultVariantState(next));
+  };
 
   /** Root-relative file → its own node tree, for every file the analyser read. */
   const holderOf = useCallback(
@@ -440,6 +577,26 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   // ---------------------------------------------------------------------------
   // Staging.
   // ---------------------------------------------------------------------------
+  /**
+   * Stage into any one of `EditState`'s maps, as one history step.
+   *
+   * `coalesce` collapses a run of changes to the same control — a colour input's keystrokes
+   * — into a single undo entry. Every panel's `onX` handler is one call to this, which is
+   * what keeps undo/redo tracking EDITS rather than saves.
+   */
+  const setIn = <K extends keyof EditState>(
+    map: K,
+    key: string,
+    value: EditState[K][string] | null,
+    coalesce?: string,
+  ) =>
+    history.update((prev) => {
+      const next = { ...prev[map] } as EditState[K];
+      if (value === null) delete next[key];
+      else next[key] = value as EditState[K][string];
+      return { ...prev, [map]: next } satisfies EditState;
+    }, coalesce);
+
   const setLayoutEdit = (key: string, value: PendingLayoutEdit | null) =>
     history.update((prev) => {
       const next = { ...prev.layoutEdits };
@@ -480,23 +637,26 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   // ---------------------------------------------------------------------------
   const plan = useMemo(() => saveDiff(history.baseline, history.state), [history.baseline, history.state]);
 
-  const save = useCallback(async () => {
+  /**
+   * ⌘S opens the REVIEW, it does not write.
+   *
+   * 11b wrote the plan straight through because the modal was PR 12's; this is that PR. The
+   * difference is not ceremony — the modal dry-runs every intent and shows the diff, which is
+   * the only place a designer sees what a class rewrite will do to source before it happens.
+   */
+  const save = useCallback(() => {
     if (!plan.length || busy) return;
-    setBusy(true);
-    const r = await bridge.commit(plan.map((p) => p.intent));
-    setBusy(false);
-    if (r.ok) {
-      history.markSaved();
-      notify('info', `Wrote ${plan.length} change${plan.length === 1 ? '' : 's'}`, r.files?.join(', '));
-      setStaleKeys({});
-    } else {
-      // NOT marked saved: the baseline must keep describing disk, or the next plan
-      // would try to revert a write that never happened.
-      notify('error', 'Nothing was written', r.error ?? 'The bridge refused the plan.');
-    }
+    setReviewOpen(true);
+  }, [plan, busy]);
+
+  /** Called by the modal once a commit actually landed. */
+  const onApproved = useCallback(() => {
+    history.markSaved();
+    setStaleKeys({});
     refreshMetadata();
+    refreshTokens();
     refreshWriteLog();
-  }, [plan, busy, history, notify, refreshMetadata, refreshWriteLog]);
+  }, [history, refreshMetadata, refreshTokens, refreshWriteLog]);
 
   /** Stepping the bridge's transaction log changes FILES, so the baseline moves too. */
   const stepWrite = async (dir: 'revert' | 'reapply') => {
@@ -655,6 +815,54 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
               </Popover>
             )}
 
+            {/*
+              THE CONFIG READOUT, moved rather than deleted.
+              
+              It was 11a's whole screen and 11a's header said it survives: "is my config
+              actually wired?" is the first question a consumer has, and §5 calls the answer
+              the real onboarding cliff. 12 needed the tab it was standing in, so it moves
+              here — the four facts a missing manifest or absent adapter gets wrong, one
+              click away, instead of gone.
+            */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  title="What the plugin found in this project"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-wb-border px-2.5 py-1 text-xs text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg"
+                >
+                  <Info className="size-3.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-96">
+                <dl className="flex flex-col gap-1 text-[10px]">
+                  <Readout label="Editing" value={health?.root ?? '(unreported)'} />
+                  <Readout
+                    label="Scene manifest"
+                    value={health?.scenes ?? 'none declared'}
+                    ok={!!health?.scenes}
+                  />
+                  <Readout
+                    label="Token adapter"
+                    value={
+                      tokens?.adapter === 'configured'
+                        ? `configured · ${tokens.families?.length ?? 0} families`
+                        : (tokens?.reason ?? 'none — the token panels are read-only')
+                    }
+                    ok={tokens?.adapter === 'configured'}
+                  />
+                  <Readout
+                    label="Aliases"
+                    value={
+                      health?.aliases?.length
+                        ? health.aliases.map((a) => `${a.find} → ${a.replacement || '.'}`).join('  ')
+                        : 'none configured'
+                    }
+                  />
+                </dl>
+              </PopoverContent>
+            </Popover>
+
             <Popover>
               <PopoverTrigger asChild>
                 <button
@@ -714,7 +922,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
               disabled={plan.length === 0 || busy}
               title={
                 plan.length
-                  ? 'Write the plan to code · ⌘S'
+                  ? 'Review the plan and write it · ⌘S'
                   : 'Nothing to write — code matches the editor'
               }
               className="inline-flex items-center gap-1.5 rounded-md bg-wb-accent px-2.5 py-1 text-xs font-medium text-wb-accent-fg transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
@@ -744,10 +952,38 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
 
         <div className="grid min-h-0 flex-1 grid-cols-[220px_1fr_340px] gap-3 p-3">
           <aside className="flex min-h-0 flex-col gap-2 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-3">
-            <p className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-wb-muted">
-              Scenes
-            </p>
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            {/*
+              THE MODE SWITCH. Which subject the editor is addressing — see `mode`.
+              A component with no CVA still lists, because "no variants" is a fact about
+              the component worth seeing, not a reason to hide it from its own list.
+            */}
+            <div className="flex shrink-0 gap-1 rounded-md bg-wb-bg p-0.5">
+              {(['scenes', 'components'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  disabled={m === 'components' && allComponents.length === 0}
+                  title={
+                    m === 'components' && allComponents.length === 0
+                      ? 'No components with extractable metadata in this project'
+                      : undefined
+                  }
+                  className={cn(
+                    'flex-1 rounded px-2 py-1 font-mono text-[10px] uppercase tracking-wide transition-colors',
+                    m === mode
+                      ? 'bg-wb-accent text-wb-accent-fg'
+                      : 'text-wb-muted enabled:hover:text-wb-fg disabled:opacity-40',
+                  )}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            <div
+              className="min-h-0 flex-1 overflow-y-auto"
+              hidden={mode !== 'scenes'}
+            >
               {scenes.length === 0 ? (
                 <p className="px-1 text-[11px] leading-relaxed text-wb-muted">
                   {meta && !meta.ok
@@ -758,17 +994,38 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 <ul className="flex flex-col gap-0.5">
                   {scenes.map((s) => (
                     <li key={s.id}>
+                      {/*
+                        A DEFERRED scene is shown and disabled, not hidden and not clickable.
+                        Hiding it would make a scene the project declares look undeclared;
+                        offering it opens a frame that can only report a manifest error. The
+                        title says which of the two states this is.
+                      */}
                       <button
                         type="button"
+                        disabled={!!s.deferred}
+                        title={
+                          s.deferred
+                            ? 'Declared but not mountable yet — it needs something the frame does not have (providers, a mocked store)'
+                            : (s.route ?? s.file)
+                        }
                         onClick={() => setSceneId(s.id)}
                         className={cn(
                           'w-full rounded-sm px-2 py-1.5 text-left text-xs transition-colors',
-                          s.id === sceneId
-                            ? 'bg-wb-accent/15 text-wb-accent'
-                            : 'text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg',
+                          s.deferred
+                            ? 'cursor-not-allowed text-wb-muted opacity-45'
+                            : s.id === sceneId
+                              ? 'bg-wb-accent/15 text-wb-accent'
+                              : 'text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg',
                         )}
                       >
-                        <span className="block truncate">{s.label}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="truncate">{s.label}</span>
+                          {s.deferred && (
+                            <span className="shrink-0 rounded-full bg-wb-border px-1.5 text-[9px]">
+                              not ready
+                            </span>
+                          )}
+                        </span>
                         <span className="block truncate font-mono text-[10px] opacity-60">
                           {s.route ?? s.file}
                         </span>
@@ -777,6 +1034,28 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                   ))}
                 </ul>
               )}
+            </div>
+            {/*
+              THE COMPONENT LIST — the whole left pane in `components` mode.
+
+              ONE DELIBERATE DIVERGENCE from the recipe, which pairs this mode with a
+              `PreviewPane` rendering the selected primitive in isolation. That preview
+              needs a hand-written renderer PER COMPONENT: the prototype's registry
+              carried two of them (Button, Badge) against 25 ui components, so shipping
+              the mode that way would show a preview for 2 and an empty frame for the
+              rest — a coverage gap dressed as a feature.
+
+              So the centre keeps the real page in BOTH modes. The mode still earns its
+              place, because the right pane genuinely differs: a CVA value and a
+              `NodeAnchor` are not the same address, and `TokenBindingPanel` describing a
+              Button while a route is under edit is the thing the recipe removes it for.
+            */}
+            <div className="min-h-0 flex-1 overflow-y-auto" hidden={mode !== 'components'}>
+              <ComponentList
+                components={allComponents}
+                selected={component?.name ?? ''}
+                onSelect={selectComponent}
+              />
             </div>
           </aside>
 
@@ -794,7 +1073,18 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 onClasses={registerCandidates}
                 onMeasured={setSelectionRect}
                 onSelectionHostRect={setSelectionHostRect}
+                mockDataEmpty={mockDataEmpty}
+                onMockDataEmptyChange={setMockDataEmpty}
               />
+            ) : scenes.length > 0 ? (
+              // The manifest DID arrive; every scene in it is deferred. Saying "waiting"
+              // here names the wrong cause and leaves the user waiting for something that
+              // already happened.
+              <p className="p-2 text-[11px] text-wb-muted">
+                Every scene in this manifest is <span className="font-code">deferred</span>, so
+                there is nothing to mount. Drop <span className="font-code">deferred</span> on a
+                scene to open it here.
+              </p>
             ) : (
               <p className="p-2 text-[11px] text-wb-muted">
                 Waiting for the scene manifest…
@@ -824,20 +1114,67 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
             />
           )}
 
+          <ReviewApproveModal
+            open={reviewOpen}
+            onOpenChange={setReviewOpen}
+            dark={dark}
+            plan={plan}
+            classEdits={Object.values(history.state.classEdits)}
+            tokenEdits={Object.values(history.state.tokenEdits)}
+            tokenAdds={Object.values(history.state.tokenAdds)}
+            rebinds={Object.values(history.state.rebinds)}
+            paletteEdits={Object.values(history.state.paletteEdits)}
+            layoutEdits={Object.values(history.state.layoutEdits)}
+            tokens={tokens}
+            bridge={bridge}
+            allComponents={allComponents}
+            onApproved={onApproved}
+            onDiscard={history.dropEdits}
+            notify={notify}
+          />
+
           <aside className="min-h-0 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-3">
-            <Tabs defaultValue="layout" className="flex h-full flex-col gap-3">
+            {/*
+              TWO TABS PER MODE, not three in one group.
+
+              `Layout` addresses a `NodeAnchor` in the scene under edit and `Bindings`
+              addresses one component's CVA, so exactly one of them has a subject at any
+              moment; offering both left the other describing something nobody selected.
+              `Tokens` is in both on purpose — it edits the stylesheet, whose blast radius
+              is every scene as much as every component, and judging a semantic colour on
+              a real page is the most valuable thing this tool does.
+
+              KEYED BY MODE so the group remounts: `defaultValue` is read once, and
+              switching modes retires the active tab's trigger. Without the key the group
+              would hold a `value` naming a tab that no longer exists and render no
+              content at all.
+            */}
+            <Tabs
+              key={mode}
+              defaultValue={mode === 'scenes' ? 'layout' : 'bindings'}
+              className="flex h-full flex-col gap-3"
+            >
               <TabsList className="w-full">
-                <TabsTrigger
-                  value="layout"
-                  className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
-                >
-                  Layout
-                </TabsTrigger>
+                {mode === 'scenes' ? (
+                  <TabsTrigger
+                    value="layout"
+                    className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
+                  >
+                    Layout
+                  </TabsTrigger>
+                ) : (
+                  <TabsTrigger
+                    value="bindings"
+                    className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
+                  >
+                    Bindings
+                  </TabsTrigger>
+                )}
                 <TabsTrigger
                   value="tokens"
                   className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
                 >
-                  Token Editor
+                  Tokens
                 </TabsTrigger>
               </TabsList>
 
@@ -867,39 +1204,58 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 </div>
               </TabsContent>
 
-              <TabsContent value="tokens" className="min-h-0 flex-1 overflow-y-auto">
-                {/*
-                  A STATED GAP, not a stub pretending to be a feature. The token editor
-                  and the token-binding panel are PR 12; what this tab reports instead
-                  is the one thing a consumer needs to know before then — whether the
-                  adapter that panel will need is even configured.
-                */}
-                <p className="text-[11px] leading-relaxed text-wb-muted">
-                  Token editing lands in a later change. What the plugin found so far:
-                </p>
-                <dl className="mt-2 flex flex-col gap-1 text-[10px]">
-                  <Readout label="Editing" value={health?.root ?? '(unreported)'} />
-                  <Readout
-                    label="Scene manifest"
-                    value={health?.scenes ?? 'none declared'}
-                    ok={!!health?.scenes}
-                  />
-                  <Readout
-                    label="Token adapter"
-                    value={
-                      health?.tokens === 'configured' ? 'configured' : 'none — panels will be read-only'
+              <TabsContent value="bindings" className="min-h-0 flex-1 overflow-hidden">
+                {component ? (
+                  <TokenBindingPanel
+                    component={component}
+                    variantState={variantState}
+                    onVariantChange={(axis, value) =>
+                      setVariantState((prev) => ({ ...prev, [axis]: value }))
                     }
-                    ok={health?.tokens === 'configured'}
+                    families={tokens?.families ?? []}
+                    vocabulary={vocabulary}
+                    /*
+                     * Roles that exist in source but not in the semantic family's own keys.
+                     * Empty: `SEMANTIC_VOCABULARY` already reads the adapter's live keys, so
+                     * there is nothing left for a second list to add. The prop stays because
+                     * a consumer whose vocabulary is curated rather than derived needs it.
+                     */
+                    extraRoles={[]}
+                    classEdits={history.state.classEdits}
+                    onClassEdit={(key, edit) => setIn('classEdits', key, edit, `class|${key}`)}
+                    onTokenAdd={(key, add) => setIn('tokenAdds', key, add)}
+                    tokenAdds={history.state.tokenAdds}
+                    existingRoles={existingRoles}
+                    dark={dark}
+                    tokenStyle={tokenPreviewStyle({
+                      theme: dark ? 'dark' : 'light',
+                      literalEdits: Object.values(history.state.tokenEdits),
+                      rebinds: Object.values(history.state.rebinds),
+                      paletteEdits: Object.values(history.state.paletteEdits),
+                      bindings: tokens?.bindings?.themed[dark ? 'dark' : 'light'],
+                    })}
                   />
-                  <Readout
-                    label="Aliases"
-                    value={
-                      health?.aliases?.length
-                        ? health.aliases.map((a) => `${a.find} → ${a.replacement || '.'}`).join('  ')
-                        : 'none configured'
-                    }
-                  />
-                </dl>
+                ) : (
+                  <p className="px-1 text-[11px] leading-relaxed text-wb-muted">
+                    No components analysed. List them under `components` in the scene manifest
+                    to edit their CVA values here.
+                  </p>
+                )}
+              </TabsContent>
+
+              <TabsContent value="tokens" className="min-h-0 flex-1 overflow-hidden">
+                <TokenEditorPanel
+                  dark={dark}
+                  tokens={tokens}
+                  tokenEdits={history.state.tokenEdits}
+                  onTokenEdit={(key, edit) => setIn('tokenEdits', key, edit, `token|${key}`)}
+                  tokenAdds={history.state.tokenAdds}
+                  onTokenAdd={(key, add) => setIn('tokenAdds', key, add)}
+                  rebinds={history.state.rebinds}
+                  onRebind={(key, edit) => setIn('rebinds', key, edit)}
+                  paletteEdits={history.state.paletteEdits}
+                  onPaletteEdit={(key, edit) => setIn('paletteEdits', key, edit, `palette|${key}`)}
+                />
               </TabsContent>
             </Tabs>
           </aside>

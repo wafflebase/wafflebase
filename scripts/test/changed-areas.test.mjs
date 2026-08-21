@@ -236,9 +236,10 @@ test("classify", async (t) => {
   });
 
   await t.test("a package directory with no manifest is unmapped, not a leaf", () => {
-    // packages/design-sdk/ was untracked work-in-progress when this was
-    // written: it matches `packages/**` but is in no graph, so it must force a
-    // full run rather than quietly resolving to an empty closure.
+    // A path under `packages/**` that is in no workspace graph must force a full run
+    // rather than quietly resolving to an empty closure. `packages/design-sdk/` was the
+    // real instance when this was written; it is no longer tracked, so the path below is
+    // now a stand-in for any future unmapped directory — which is what the rule is for.
     const out = classify(["packages/design-sdk/src/index.ts"], CI, GRAPH);
     assert.equal(out.full, true);
   });

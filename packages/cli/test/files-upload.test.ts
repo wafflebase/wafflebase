@@ -212,14 +212,16 @@ describe('runFilesUpload', () => {
     });
   });
 
-  it('surfaces a server error envelope and exits non-zero', async () => {
+  it('surfaces a server error envelope and exits as a system error', async () => {
+    // The stub answers 500, and a server fault is not something the
+    // caller can fix by choosing another file — exit 2, not 1.
     const { io, err } = makeIO();
     const res = await runFilesUpload(
       { file: 'bundle.zip' },
       makeClient(false),
       io,
     );
-    expect(res.exitCode).toBe(1);
+    expect(res.exitCode).toBe(2);
     expect(err.join('')).toContain('HTTP_ERROR');
   });
 });

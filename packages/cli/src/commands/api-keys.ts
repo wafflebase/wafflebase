@@ -4,6 +4,7 @@ import {
   output,
   outputError,
   parseOutputFormat,
+  forwardUpstreamError,
 } from '../output/formatter.js';
 
 export function registerApiKeysCommand(program: Command) {
@@ -22,7 +23,7 @@ export function registerApiKeysCommand(program: Command) {
         // discard a raw key that the server will never show again.
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).createApiKey(name);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -37,7 +38,7 @@ export function registerApiKeysCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).listApiKeys();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -52,7 +53,7 @@ export function registerApiKeysCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).revokeApiKey(keyId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);

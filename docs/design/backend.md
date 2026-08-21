@@ -103,6 +103,18 @@ imports the full module set listed below.
 **`GET /auth/github`**
 - Middleware: `CliLoginConfirmMiddleware` · Guard: `GitHubAuthGuard`
 - Initiates GitHub OAuth flow. Redirects to GitHub's authorization page.
+- Refuses a **`?mode=cli`** start another site navigated the browser into,
+  before any `state` is minted: a `Sec-Fetch-Site` of `cross-site` is a
+  `400`. `none` (opened by `wafflebase login`), `same-origin` (the
+  confirmation-page click), `same-site` and a client that sends no such
+  header are served. Neither state mechanism covers this direction on its
+  own — the navigation carrying the attack is also the one that mints the
+  state and sets its cookie. A **browser** login is not checked: the login
+  link lives on the frontend origin and points at `VITE_BACKEND_API_URL`,
+  which need not share a site with it, so refusing `cross-site` would
+  `400` every sign-in on such a deployment. The web flow's double-submit
+  `state` cookie is set and read on the backend's own origin and covers it
+  without help; the CLI's loopback code delivery has no such equivalent.
 - Every login gets a `state`, minted by the guard and attached to the
   request as `__oauthState` — the single key `GitHubStrategy.authenticate`
   reads to put `state` on the wire. The two flows mint it differently:

@@ -95,7 +95,7 @@ node scripts/agent/hunt-ui.mjs replay --plan <file.json> [--attempts N]
 node scripts/agent/hunt-ui.mjs report --out <dir>
 ```
 
-Three personas, each with two briefs — one per surface, which
+Four personas, each with two briefs — one per surface, which
 `hunt-ui.test.mjs` enforces: a surface nobody explores makes its reader list dead weight.
 
 | persona | surface | briefs |
@@ -103,6 +103,7 @@ Three personas, each with two briefs — one per surface, which
 | `doc-writer` | `doc` | `body-and-styles`, `structure-and-links` |
 | `sheet-author` | `sheet` | `values-and-formulas`, `navigation-and-selection` |
 | `slide-author` | `slides` | `arrange-and-order`, `content-and-undo` |
+| `board-author` | `board` | `arrange-and-view`, `content-and-undo` |
 
 A persona names its own surface, so `--surface` narrows what a named charter may run
 rather than selecting something to hunt on its own.
@@ -114,7 +115,13 @@ surface that means `slides.pointAt(x, y)` for an arbitrary point in slide-logica
 coordinates, and `slides.handleCenter(kind)` for a resize, rotate, connector or adjustment
 handle.
 
-One measured caveat, because it is the likeliest false finding on that surface: within **8
+The `board` surface adds a second wrinkle: it is an UNBOUNDED plane behind a movable
+window, so `board.pointAt` and `board.elementCenter` refuse routinely for anything not
+currently on screen. That is the normal state, not a defect — a plain `scroll` pans the view
+and makes the point reachable. `board.elements` reports WORLD coordinates, which do not move
+when the view does.
+
+One measured caveat, because it is the likeliest false finding on the slides surface: within **8
 slide-logical pixels** of an element edge or centre, the slide centre, or a guide, a dragged
 element **snaps**, and Alt does not disable it (Alt bypasses only the separate grid snap). A
 brief should either drag somewhere well clear of those and predict the exact point, or

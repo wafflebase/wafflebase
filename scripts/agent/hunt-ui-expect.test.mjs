@@ -8,6 +8,7 @@ import {
   evaluateExpectation,
   boundValue,
   isUnusableValue,
+  unsettledValue,
   MAX_VALUE_CHARS,
   resolveExpectationRefs,
   EXPECT_GROUNDS,
@@ -559,4 +560,33 @@ test("an @input baseline is grounded by the typing action itself", () => {
   const got = assessExpectation(e, "hello is right there", { journal, charter: CHARTER, atIndex: 1 });
   assert.equal(got.verdict, "violated");
   assert.equal(got.eligible, true);
+});
+
+// The settling counterpart of the marker regression above. A read that never stopped
+// moving is the same KIND of non-answer as one too large to serialize, and it reaches
+// the protocol by the same route — so it has to be refused by the same predicate.
+//
+// The path this closes: an effect slower than one poll made the runner hand over the
+// PRE-action value, `equals` against a ground-A baseline said `violated`, and a
+// correct prediction became an eligible candidate that spent a verifier panel.
+test("REGRESSION: an unsettled read is unevaluable, never a verdict", () => {
+  const marker = unsettledValue();
+  assert.equal(isUnusableValue(marker), true);
+
+  // Every operator, on either side. `violated` here is the false candidate; `held`
+  // would be worse, hiding a real difference behind a value nobody could measure.
+  for (const op of EXPECT_OPS) {
+    assert.equal(evaluateExpectation(A({ op }), marker, [11, 18, 32]).verdict, "unevaluable", `actual, ${op}`);
+    assert.equal(evaluateExpectation(A({ op }), [11, 18, 32], marker).verdict, "unevaluable", `baseline, ${op}`);
+  }
+
+  // Two unsettled reads must not compare equal to each other and score `held`.
+  assert.equal(evaluateExpectation(A({ op: "equals" }), marker, unsettledValue()).verdict, "unevaluable");
+
+  // It must survive the value bound intact — bounding it away would strip the marker
+  // and hand the protocol a plain object it would happily compare.
+  assert.equal(isUnusableValue(boundValue(marker)), true);
+
+  // And an ordinary reader value that merely has other keys is NOT a marker.
+  assert.equal(isUnusableValue({ ids: ["a"], settled: false }), false);
 });

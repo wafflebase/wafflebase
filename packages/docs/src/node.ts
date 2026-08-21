@@ -177,6 +177,9 @@ export type { PdfFontKey, FontUsage, PdfFontsOptions } from './export/pdf-fonts.
 export { DocxExporter } from './export/docx-exporter.js';
 export type { ImageFetcher as DocxImageFetcher } from './export/docx-exporter.js';
 export type { ImageFetcher as PdfImageFetcher } from './export/pdf-image-painter.js';
+// Supplying this is what opts a caller into dropping an image the fetcher
+// could not deliver; exported so a consumer can name the type it passes.
+export type { ImageErrorReporter } from './export/pdf-image-painter.js';
 
 // DOCX import — used by `wafflebase docs import`. The importer reaches
 // for `DOMParser` at runtime, so Node consumers (the CLI) must install

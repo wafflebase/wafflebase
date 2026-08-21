@@ -128,6 +128,16 @@ export function BoardToolbar({
   // keeps focus instead of the dropdown trigger stealing it back.
   const pendingStickyColor = useRef<string | null>(null);
 
+  // NOTE: board deliberately does NOT opt into `useCanvasFocusRelease()`
+  // (`@/components/toolbar-focus-release`) yet, even though it drives the
+  // same `SlidesEditor` and inherits the same shortcut gate. Blurring a
+  // board toolbar button to the body changes what the *next* Space does:
+  // `isEditableTarget()` (`./is-editable-target.ts`) exists so Space on a
+  // focused toggle re-activates it rather than entering pan mode, and the
+  // release would flip that. Adopting the attribute is a board decision to
+  // make with that trade-off documented — see
+  // `docs/design/slides/slides-keyboard-shortcuts.md`.
+
   useEffect(() => {
     if (!editor) return;
     setInsertMode(editor.getInsertMode());

@@ -638,7 +638,7 @@ export function analyzeNodes(filePath) {
  * @param {{id: string, kind: 'dom'|'canvas', label: string, export?: string,
  *          route?: string, routePattern?: string, shell?: 'app', mocks?: string[],
  *          fixtures?: Record<string,string>, viewports?: string[],
- *          readOnly?: boolean}} cfg
+ *          readOnly?: boolean, deferred?: boolean}} cfg
  */
 export function analyzeScene(filePath, cfg) {
   const { roots: built, imports, defaultExport, ambiguous } = analyzeNodes(filePath);
@@ -672,6 +672,13 @@ export function analyzeScene(filePath, cfg) {
     fixtures: cfg.fixtures,
     viewports: cfg.viewports,
     readOnly: cfg.readOnly,
+    // CARRIED, because the client has to say so. `renderScenesModule` drops a deferred
+    // scene from the frame's loader table, so the shell was listing rows whose only
+    // possible outcome was a frame-side `no scene "<id>" in the scene manifest` — an
+    // error the user then has to attribute. The scene stays in `/metadata` (its file is
+    // still checked by the sweep, and its outline is still real); what changes is that
+    // the shell can render it as unavailable instead of clickable.
+    deferred: cfg.deferred,
     roots: built,
     imports,
     ambiguous,

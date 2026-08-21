@@ -97,13 +97,31 @@ window could have changed it.
 - **ARROW KEYS NUDGE THE SELECTED ELEMENT BY ONE LOGICAL PIXEL.** Measured: `ArrowRight`
   moved `badge` from `x:1560` to `x:1561`. Ten presses right then ten presses left is an
   exact round trip on `slides.elements`, and nothing else on the slide may move.
-- **TEXT COMMITS ON BLUR, NOT AS YOU TYPE.** The text editor is a docs editor mounted in
-  the overlay and it writes back to the store when it loses focus. Measured: type `XX` into
-  the title and `slides.elements` still reports `"Quarterly review"`; press Escape and it
-  still does, because **Escape CANCELS**; click a different element and it reports
-  `"XXQuarterly review"`. So put a commit between your keystrokes and your read. A
-  prediction taken before the commit holds for the wrong reason, which is worse than
-  failing.
+- **TYPING INTO AN ELEMENT TAKES THREE STEPS, and skipping the first is silent.** Select it,
+  ENTER TEXT-EDIT MODE, type, then COMMIT by clicking a different element. Measured, on the
+  seeded title:
+
+  ```
+  click title via slides.elementCenter
+  key Enter                          (or F2 — this is the step that is easy to miss)
+  type "ZZ"
+  read slides.elements               -> still "Quarterly review": typing has not committed
+  click card via slides.elementCenter
+  read slides.elements               -> "ZZQuarterly review"
+  ```
+
+  **Without the `Enter`, the keystrokes go to the canvas as shortcuts and nothing lands in
+  the element at all** — and `slides.elements` looks exactly the same as it would if the
+  commit had failed, so the two are indistinguishable from the reading alone. A live run lost
+  two predictions to this.
+- **THE COMMIT IS A BLUR, AND ESCAPE CANCELS.** The text editor is a docs editor mounted in
+  the overlay and it writes back to the store when it loses focus. Escape discards instead —
+  measured, `"Quarterly review"` is still `"Quarterly review"` after Escape. So put a commit
+  between your keystrokes and your read. A prediction taken before the commit holds for the
+  wrong reason, which is worse than failing.
+  A text box you have just DRAGGED OUT is already in edit mode, so there you type straight
+  away — measured: drag out a `Text box`, type `Hello`, click another element, and
+  `slides.elements` reports `"Hello"`.
 - **CLICK AN ELEMENT THROUGH `slides.elementCenter`**, naming it as a click target's
   `reader`. There is no coordinate targeting; a canvas click resolves through that named
   reader or not at all.

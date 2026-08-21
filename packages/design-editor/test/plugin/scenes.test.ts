@@ -168,3 +168,41 @@ describe('renderScenesModule', () => {
     expect(out.match(/"id": "documents"/g)).toHaveLength(1);
   });
 });
+
+describe('the fixtures module', () => {
+  const one = {
+    scenes: [{ id: 'a', kind: 'dom' as const, label: 'A', file: 'app/a.tsx' }],
+  };
+
+  it('is imported STATICALLY, not through loadScene', () => {
+    // The fetch guard has to be installed before the first scene import; a table behind
+    // `loadScene`'s promise arrives after real API modules have already read their base
+    // URL and real pages have fired their queries.
+    const out = renderScenesModule('/p', one, null, '/p/fx.ts');
+    // `/@fs/` + the absolute path WITH its leading slash, same as the sibling
+    // specifiers — hence the doubled separator.
+    expect(out).toMatch(/^import fixturesFor from "\/@fs\/\/p\/fx\.ts";$/m);
+    expect(out).toContain('export { fixturesFor };');
+    // Not inside a loader.
+    expect(out).not.toMatch(/import\([^)]*fx\.ts/);
+  });
+
+  it('is NOT frame-qualified, unlike providers', () => {
+    // Plain data behind a pure function: no context to split, so qualifying it would
+    // double the parse for byte-identical output.
+    const out = renderScenesModule('/p', one, '/p/prov.tsx', '/p/fx.ts');
+    expect(out).toContain('"/@fs//p/fx.ts"');
+    expect(out).not.toContain('fx.ts?wbFrame');
+    // Providers still are, at both sides.
+    expect(out).toContain('"/@fs//p/prov.tsx?wbFrame=before"');
+    expect(out).toContain('"/@fs//p/prov.tsx?wbFrame=after"');
+  });
+
+  it('falls back to an empty table rather than throwing', () => {
+    // A consumer with no fixtures module mocks nothing, and the guard then reports each
+    // miss — which is what keeps "no fixture" distinguishable from "broken scene".
+    const out = renderScenesModule('/p', one, null);
+    expect(out).toContain('export const fixturesFor = () => ({})');
+    expect(out).not.toContain('import fixturesFor');
+  });
+});

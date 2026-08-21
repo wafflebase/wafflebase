@@ -151,8 +151,24 @@ export function isUnusableValue(value) {
   return (
     typeof value === "object" &&
     value !== null &&
-    (value.__oversized === true || value.__unserializable === true)
+    (value.__oversized === true ||
+      value.__unserializable === true ||
+      value.__unsettled === true)
   );
+}
+
+/**
+ * The marker for a read that never stopped moving. See `hunt-ui-settle.mjs`.
+ *
+ * It belongs in this family and not in a verdict branch of its own: a value caught
+ * mid-flight is the same KIND of thing as one too large to serialize — the runner
+ * looked, and cannot vouch for what it saw. Routing it through `isUnusableValue`
+ * means it scores `unevaluable`, which is already the load-bearing "no answer"
+ * verdict, instead of `violated`, which would manufacture the exact false candidate
+ * the settling exists to prevent.
+ */
+export function unsettledValue() {
+  return { __unsettled: true };
 }
 
 /** Beyond this, a serialized reader value is replaced by a marker. */

@@ -238,7 +238,7 @@ describe('runDocsImport (new doc)', () => {
     expect(body.error.code).toBe('INVALID_DOCX');
   });
 
-  it('exits 1 when create fails and skips PUT', async () => {
+  it('exits 2 when create fails with a server fault, and skips PUT', async () => {
     const cap = captureIO({ bytes, isTTY: true });
     const client = makeClient({ createOk: false });
     const result = await runDocsImport(
@@ -246,10 +246,31 @@ describe('runDocsImport (new doc)', () => {
       client,
       cap.io,
     );
-    expect(result.exitCode).toBe(1);
+    expect(result.exitCode).toBe(2);
     expect(client.putCalls).toEqual([]);
     const errBody = JSON.parse(cap.stderrLines[0]);
     expect(errBody.error.code).toBe('CREATE_FAILED');
+  });
+
+  it('exits 1 when create fails with a client-side status', async () => {
+    const cap = captureIO({ bytes, isTTY: true });
+    const client: ClientCapture = {
+      createCalls: [],
+      putCalls: [],
+      createDocument: async () => ({
+        ok: false,
+        status: 400, // the caller's problem, not the server's
+        data: { error: { code: 'BAD_REQUEST', message: 'bad title' } },
+      }),
+      putDocContent: async (_id, doc) => ({ ok: true, status: 200, data: doc }),
+    };
+    const result = await runDocsImport(
+      { file: 'sample.docx' },
+      client,
+      cap.io,
+    );
+    expect(result.exitCode).toBe(1);
+    expect(client.putCalls).toEqual([]);
   });
 
   it('--dry-run prints the plan and makes no requests', async () => {

@@ -1,5 +1,6 @@
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
+import { seg } from "./url";
 
 const VISITOR_KEY = "wb_visitor_id";
 
@@ -124,7 +125,7 @@ export async function getDocumentAnalytics(
   if (range?.to) qs.set("to", range.to);
   const suffix = qs.toString() ? `?${qs}` : "";
   const res = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${documentId}/analytics${suffix}`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(documentId)}/analytics${suffix}`,
   );
   await assertOk(res, "Failed to load analytics");
   return res.json();

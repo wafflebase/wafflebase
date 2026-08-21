@@ -162,6 +162,12 @@ export interface PdfFontsOptions {
    *  default network source.
    */
   sources?: Partial<Record<PdfFontKey, FontSource>>;
+  /** Override the `fetch` the default network source uses. The CLI
+   *  passes one that classifies a download failure the way it
+   *  classifies every other request (an unreachable font CDN is a
+   *  system error, not bad user input); the browser leaves it unset.
+   */
+  fetchImpl?: typeof globalThis.fetch;
 }
 
 /**
@@ -199,9 +205,11 @@ export class PdfFonts {
   /** Per-key fetch URLs for custom (`custom:…`) Google Font embeds,
    *  registered at embed time from the injected resolver. */
   private customUrls = new Map<PdfFontKey, string>();
+  private fetchImpl: typeof globalThis.fetch;
 
   constructor(opts: PdfFontsOptions = {}) {
     this.sources = opts.sources ?? {};
+    this.fetchImpl = opts.fetchImpl ?? ((...args) => fetch(...args));
   }
 
   /** Register a download URL for a custom font key so `load(key)` (and
@@ -233,7 +241,7 @@ export class PdfFonts {
       ?? (key.startsWith('custom:') ? undefined : DEFAULT_URLS[key as PdfStandardFontKey]);
     if (!url) return undefined;
     return async () => {
-      const res = await fetch(url);
+      const res = await this.fetchImpl(url);
       if (!res.ok) throw new Error(`Font fetch failed: ${url}`);
       return res.arrayBuffer();
     };

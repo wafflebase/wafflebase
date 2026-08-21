@@ -42,7 +42,7 @@ call sites away from the consumer's shadcn component, and fixtures that belong i
 
 ## Done when
 
-- [ ] the frame passthrough derives from `BASE`
-- [ ] the picker is disposable, and the suite leaks no observer
-- [ ] the dark selector is a parameter, not a constant
-- [ ] §8 records what remains and why
+- [x] the frame passthrough derives from `BASE`
+- [x] the picker is disposable, and the suite leaks no observer
+- [x] the dark selector is a parameter, not a constant
+- [x] §8 records what remains and why

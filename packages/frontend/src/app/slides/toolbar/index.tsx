@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SlidesEditor, SlidesStore, Theme } from "@wafflebase/slides";
 import { Toolbar, ToolbarSeparator } from "@/components/ui/toolbar";
+import { useCanvasFocusRelease } from "@/components/toolbar-focus-release";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { ZoomController } from "../zoom-controller";
 import { getToolbarState, type ToolbarState } from "./state";
@@ -62,6 +63,11 @@ export function SlidesToolbar({
   const [state, setState] = useState<ToolbarState>(() =>
     getToolbarState(editor, store),
   );
+  // A used toolbar control must not keep the keyboard: the slide canvas
+  // reads shortcuts from a document-level listener that ignores events
+  // targeting a focused <button> (issue #882). The desktop `<Toolbar>`
+  // below opts in with `data-canvas-toolbar` (= `CANVAS_TOOLBAR_ATTR`).
+  useCanvasFocusRelease();
 
   useEffect(() => {
     // The Google Fonts <link> is injected by useGoogleFontsLink() in
@@ -101,7 +107,7 @@ export function SlidesToolbar({
   }
 
   return (
-    <Toolbar>
+    <Toolbar data-canvas-toolbar="">
       <UndoRedoGroup store={store} />
       <ToolbarSeparator />
       <FormatPainterButton editor={editor} />

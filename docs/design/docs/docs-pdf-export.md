@@ -411,10 +411,27 @@ async function exportPdf(doc, title) {
 | Failure                  | Behavior                                                        |
 |--------------------------|-----------------------------------------------------------------|
 | Font fetch fails         | Throw with clear message; toast prompts user to check network   |
-| Image fetch fails        | Match DOCX behavior — throw (consistent across formats)         |
+| Image fetch fails        | Match DOCX behavior — throw, unless the caller passed `onImageError` (see below) |
 | Empty document           | Single empty PDF page (matches DOCX)                            |
-| Unsupported image format | Convert to PNG via Canvas; if conversion fails, throw           |
+| Unsupported image format | Convert to PNG via Canvas; if conversion fails, throw (same opt-out) |
 | Document with no fonts   | Skip font fetch entirely; use only pdf-lib standard fonts       |
+
+#### Surviving a failed image (`onImageError`)
+
+`PdfExportOptions.onImageError` — and the matching fourth argument to
+`DocxExporter.export` — is how a caller says it would rather lose one image
+than the export. Supply it and a per-image failure (fetch refused, host
+unreachable, undecodable bytes) is reported there and the image is left out;
+the PDF painter skips runs with no map entry, and the DOCX writer omits the
+run rather than referencing a relationship it never wrote.
+
+Tolerance is opt-in, so the rows above stay true by default. The **CLI**
+supplies a reporter because its SSRF guard
+([`cli.md` §10](../cli.md)) makes a refused `src` an ordinary outcome, and an
+export a user waited minutes on must not die over one URL they cannot fix.
+The **browser** exporters supply none: there a failed fetch is a real fault,
+the export UI reports the thrown error, and a `console.warn` nobody reads
+would turn it into a silently incomplete download.
 
 ### Testing
 

@@ -9,6 +9,9 @@ import {
   deleteDocuments,
   copyDocument,
   copyDocuments,
+  fetchDocument,
+  renameDocument,
+  deleteDocument,
   BulkCopyError,
 } from "./documents";
 
@@ -85,6 +88,45 @@ describe("copyDocuments", () => {
     expect((err as BulkCopyError).copied.map((d) => d.id)).toEqual(["a-copy"]);
     // It stops at the first failure — "c" is never attempted.
     expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * Route-param ids are pinned to their own path segment, the same rule the CLI
+ * enforces: a session-carrying request must reach the endpoint the caller
+ * named, not one an id walked it onto.
+ */
+describe("id encoding in document routes", () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  const traversal = "../../workspaces/other-ws/api-keys/key-1";
+  const encoded =
+    "..%2F..%2Fworkspaces%2Fother-ws%2Fapi-keys%2Fkey-1";
+
+  it("keeps a traversal id inside one segment on GET/PATCH/DELETE/copy", async () => {
+    mockFetch.mockResolvedValue(okJson({ id: "d" }));
+
+    await fetchDocument(traversal);
+    await renameDocument(traversal, "t");
+    await copyDocument(traversal);
+    await deleteDocument(traversal);
+
+    const urls = mockFetch.mock.calls.map((c) => String(c[0]));
+    expect(urls[0]).toMatch(new RegExp(`/documents/${encoded}$`));
+    expect(urls[1]).toMatch(new RegExp(`/documents/${encoded}$`));
+    expect(urls[2]).toMatch(new RegExp(`/documents/${encoded}/copy$`));
+    expect(urls[3]).toMatch(new RegExp(`/documents/${encoded}$`));
+    // Survives WHATWG normalization: the request still targets /documents/<id>.
+    for (const u of urls) {
+      expect(new URL(u, "https://api.example.test").pathname).toContain(
+        `/documents/${encoded}`,
+      );
+    }
+  });
+
+  it("refuses a dot-segment id rather than sending a walked-up request", async () => {
+    await expect(fetchDocument("..")).rejects.toThrow("Invalid path segment");
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 

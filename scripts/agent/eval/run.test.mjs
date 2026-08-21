@@ -31,6 +31,7 @@ import {
   main,
   materializeRepoAt,
   panelEnv,
+  resolveRunPanelDigest,
   resolvePanelSha,
   resolveRunOptions,
   summarizeRun,
@@ -49,6 +50,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STUB = path.join(HERE, "adapters", "stub-panel.mjs");
 const LENSES = path.join(HERE, "..", "lenses");
 const PANEL_SHA = "0".repeat(39) + "1";
+// A stub panel has no commit AND no files to hash, so both halves of the reviewer are
+// stated on the command line. `resolvePanelDigest` insists on that for the same reason
+// `resolvePanelSha` does: hashing the real panel's files while replaying a different
+// script would stamp this run with an identity it does not have.
+const PANEL_DIGEST = `sha256:${"1".repeat(64)}`;
 const SHA40 = /^[0-9a-f]{40}$/;
 
 const DIFF = [
@@ -159,10 +165,10 @@ function tempGitRepo() {
  *
  * `--no-repo-context` by default because materialising the tree is not what most of
  * these tests are about — the repo-context guard's own test passes
- * `noRepoContext: false` to reach it. And `--panel-sha` because `--panel-script`
- * points at the stub: a run that replayed a different script while stamping the real
- * panel's commit is exactly the mislabelling `panel_sha` exists to prevent, so the
- * runner insists on being told.
+ * `noRepoContext: false` to reach it. And `--panel-sha` / `--panel-digest` because
+ * `--panel-script` points at the stub: a run that replayed a different script while
+ * stamping the real panel's commit or the real panel's file hashes is exactly the
+ * mislabelling those two fields exist to prevent, so the runner insists on being told.
  */
 // --- reaping what the stub spawned ------------------------------------------
 //
@@ -262,6 +268,7 @@ async function runCli(root, spec = {}, extra = [], { noRepoContext = true } = {}
       "--lenses-dir", LENSES,
       "--panel-script", STUB,
       "--panel-sha", PANEL_SHA,
+      "--panel-digest", PANEL_DIGEST,
       ...(noRepoContext ? ["--no-repo-context"] : []),
       ...(capAnswered ? [] : ["--no-cost-cap"]),
       ...extra,
@@ -551,6 +558,33 @@ test("panel_sha is read from git, and a dirty panel is refused", () => {
     }).panelSha,
     "b".repeat(40),
   );
+});
+
+test("panel_digest is hashed from the panel's files, and a foreign script must state it", () => {
+  // The digest answers a DIFFERENT question from the sha and neither substitutes for the
+  // other: 16 of the ingested items carry 16 distinct `panel_sha` values and are 5 panels
+  // by content, and #830/#850 deleted the panel and returned it byte-identical. So the
+  // runner resolves both, and records which way each was obtained.
+  const digestOf = () => `sha256:${"a".repeat(64)}`;
+  assert.deepEqual(resolveRunPanelDigest({ panelScript: DEFAULT_PANEL_SCRIPT, digestOf }), {
+    panelDigest: `sha256:${"a".repeat(64)}`,
+    source: "files",
+  });
+  // Hashing the real panel's files while replaying a different script would stamp this
+  // run with an identity it does not have — the same mislabelling `--panel-sha` guards,
+  // one axis over, and `adapters/stub-panel.mjs` is the case that reaches it.
+  assert.throws(() => resolveRunPanelDigest({ panelScript: STUB, digestOf }), /Pass --panel-digest/);
+  // `reconstructed` and NOT `flag`, which is what `panel_sha` calls its own override: a
+  // stated digest was not hashed off the panel that ran, and a field claiming it was would
+  // assert an observation nobody made. See `PANEL_DIGEST_SOURCES`.
+  assert.deepEqual(resolveRunPanelDigest({ panelScript: STUB, override: PANEL_DIGEST }), { panelDigest: PANEL_DIGEST, source: "reconstructed" });
+  for (const bad of ["abc", `SHA256:${"a".repeat(64)}`, `sha256:${"a".repeat(63)}`, "a".repeat(40), 40]) {
+    assert.throws(() => resolveRunPanelDigest({ panelScript: STUB, override: bad }), /sha256:<64 hex>/, `${JSON.stringify(bad)} was accepted`);
+  }
+  // 🔴 THE REAL PANEL, HASHED FOR REAL. `digestOf` is injected above so the assertions
+  // are about the routing; this one call proves the default reader can actually read this
+  // checkout's declared file set, which is what every stored envelope will depend on.
+  assert.match(resolveRunPanelDigest({ panelScript: DEFAULT_PANEL_SCRIPT }).panelDigest, /^sha256:[0-9a-f]{64}$/);
 });
 
 test("a panel script that is not this checkout's cannot borrow this checkout's sha", () => {

@@ -90,6 +90,7 @@ const SELECTION_READERS = new Set([
   "sheet.selectionRange",
   "sheet.activeCell",
   "slides.selection",
+  "board.selection",
 ]);
 
 /**
