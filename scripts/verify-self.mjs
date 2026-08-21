@@ -292,10 +292,8 @@ const LANES = [
     pkgs: ["slides"],
     needs: ["core:build", "docs:build"],
   },
-  // notes, design-editor and design-sandbox reach no BUILT workspace output, so they
-  // are the lanes that can run against a tree with nothing built. design-sandbox does
-  // declare `@wafflebase/design-editor`, but consumes its SOURCE through that package's
-  // `exports` map rather than a `dist/`, so it still needs no `needs:` entry.
+  // notes and design-editor reach no BUILT workspace output, so they are the lanes
+  // that can run against a tree with nothing built.
   {
     name: "notes:check",
     cmd: "pnpm --filter @wafflebase/notes typecheck && pnpm --filter @wafflebase/notes test",
@@ -331,6 +329,15 @@ const LANES = [
     // have caught it.
     pkgs: ["design-sandbox"],
     tags: ["designEditor"],
+    // It does reach a `dist/`, one step removed and easy to miss: this package
+    // consumes `@wafflebase/design-editor` as SOURCE, but `vitest.config.ts`
+    // aliases the ENGINES to their `src/` too (the canvas seed tests must load the
+    // same copy the scenes do), and engine source imports `@wafflebase/core`
+    // through its `exports` map — `packages/sheets/src/view/theme.ts` pulls
+    // `@wafflebase/core/tokens`. Without core built that is an ERR_MODULE_NOT_FOUND
+    // inside sheets, reported against a design-sandbox test. Same shape as the
+    // frontend lanes: engines aliased to src, core resolved for real.
+    needs: ["core:build"],
   },
   {
     name: "board:check",
