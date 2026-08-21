@@ -258,14 +258,14 @@ A sample of what survives both arms' suppression tests:
       `extract-corpus.mjs:123`, and `localizationOf` · `scopeOf` · `severityMix` ·
       `proportion` · `median` · `gateSegmentOf` · `itemGeometry` in `volume-mix.mjs`.
       **No confidence-interval helper exists anywhere under `scripts/agent/`.**
-- [ ] **Not verified: how a report renders this grid.** No merged renderer reads a
-      `segmentation-v1` payload, so the shape is asserted against its own tests here and
-      the rendering is out of this PR's reach. The payload is additive-only — a consumer
-      reading `segment`, `suppressed`, `n`, `min_n`, `value` and `unit` needs nothing
-      else — and every other field is extra.
-- [ ] **Not verified: any figure a label would produce.** Precision, recall and defect
-      type are Wave 5/6 and no adjudicated labels exist. This scorer segments behaviour,
-      not quality.
+- **Not verified: how a report renders this grid.** No merged renderer reads a
+  `segmentation-v1` payload, so the shape is asserted against its own tests here and
+  the rendering is out of this PR's reach. The payload is additive-only — a consumer
+  reading `segment`, `suppressed`, `n`, `min_n`, `value` and `unit` needs nothing
+  else — and every other field is extra.
+- **Not verified: any figure a label would produce.** Precision, recall and defect
+  type are Wave 5/6 and no adjudicated labels exist. This scorer segments behaviour,
+  not quality.
 
 ---
 

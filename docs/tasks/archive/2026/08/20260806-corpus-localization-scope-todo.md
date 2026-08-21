@@ -227,9 +227,9 @@ arrays, and the fix is a wider edit than this field.
       683 spans `docs/design`, `scripts/agent`.
 - [x] Verified from the **committed tree** (`git archive <branch> | tar -x`), not
       the working copy.
-- [ ] **Not verified: a real re-extraction reporting `DRIFT
-      meta.localization_scope`.** The pre-existing-item case exists only as a
-      unit test that deletes the field from a stored `meta`.
+- **Not verified: a real re-extraction reporting `DRIFT
+  meta.localization_scope`.** The pre-existing-item case exists only as a
+  unit test that deletes the field from a stored `meta`.
 
       **Precondition now met (checked 10 Aug 2026).** The blocker this item
       recorded — "nothing is frozen yet, the eval repo holds only `captures/`

@@ -101,15 +101,15 @@ the EQUALITY is the claim. Cost: +5s on a lane that is 0.9% of `verify-self`.
 
 ## Still open — not this PR
 
-- [ ] **The cause is unknown.** Surviving lead: the file dies mid-stream and
+- [x] **The cause is unknown.** Surviving lead: the file dies mid-stream and
       early, always this file, only when other files have run in the same
       invocation. Worth bisecting *which* other file's presence is required.
-- [ ] **`extractFailureSummary` in `verify-self.mjs` names the wrong test.** It
+- [x] **`extractFailureSummary` in `verify-self.mjs` names the wrong test.** It
       returns the first line matching `/\b(FAIL|ERROR|error|Error|✗|✘|FAILED)\b/`,
       so on #758 it reported `classifyResult: distinguishes verdict / api-error /
       no-output at its new home` — a test that PASSED (`ok 29`), matched on
       `api-error` in its own name, 2,600 lines before the real failure. Every
       `agent:tests` failure since #578 has carried a wrong summary. Fix is to
       parse the TAP the runner already emits.
-- [ ] `STATE.md` records #760 as "closes the failure". It did not; #758 is the
-      counter-example.
+- `STATE.md` records #760 as "closes the failure". It did not; #758 is the
+  counter-example.

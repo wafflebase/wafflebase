@@ -47,7 +47,8 @@ event-webhook HMAC guard.
 ## Verify
 
 - [x] Self code-review over branch diff (workflow, high effort)
-- [ ] Manual smoke in `pnpm dev` (shadow mode logs, then enforce)
+- Not verified: manual smoke in `pnpm dev` (shadow mode logs, then enforce).
+  Code and unit tests are green; no human run was performed.
 
 ## Code-review findings (applied)
 
@@ -56,10 +57,10 @@ event-webhook HMAC guard.
   `JwtStrategy.validate` never checked the token type. Fixed: require
   `tokenType === 'access'` (also closes the pre-existing refresh-token replay
   when `JWT_REFRESH_SECRET` is unset). Updated 4 e2e token helpers.
-- [ ] **Finding 2 (viewer verb)** — NOT a code fix: yorkie's verb is
+- [x] **Finding 2 (viewer verb)** — NOT a code fix: yorkie's verb is
   change-pack-derived, so non-editing viewers get `r`. Documented as a
   shadow-mode rollout validation item (design doc Risks).
-- [ ] **Finding 3 (direct URL / non-member)** — by design (canonical URLs need
+- [x] **Finding 3 (direct URL / non-member)** — by design (canonical URLs need
   membership; share uses the share route). Documented, no change.
 - [x] **Finding 4 (fail-open)** — doc method with empty attributes now fails
   closed (403) instead of allow.

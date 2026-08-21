@@ -31,34 +31,34 @@ robustness reason docs used posRange anchors.
 
 ## Changes
 
-- [ ] `packages/notes/src/store/store.ts`
-  - [ ] Add `NoteSelection = { anchor: number; head: number }`.
-  - [ ] `undo(): NoteSelection | null` / `redo(): NoteSelection | null` (was `void`).
-  - [ ] Add `recordSelectionForHistory(anchor, head): void` — record the
+- [x] `packages/notes/src/store/store.ts`
+  - [x] Add `NoteSelection = { anchor: number; head: number }`.
+  - [x] `undo(): NoteSelection | null` / `redo(): NoteSelection | null` (was `void`).
+  - [x] Add `recordSelectionForHistory(anchor, head): void` — record the
         current batch's post-edit selection into its undo unit.
-- [ ] `packages/frontend/src/app/notes/yorkie-note-store.ts`
-  - [ ] `recordSelectionForHistory`: inside an active batch, `activePresence.set`
+- [x] `packages/frontend/src/app/notes/yorkie-note-store.ts`
+  - [x] `recordSelectionForHistory`: inside an active batch, `activePresence.set`
         the selection posRange with `{ addToHistory: true }`.
-  - [ ] `undo()/redo()`: after `doc.history.[undo|redo]()`, read restored
+  - [x] `undo()/redo()`: after `doc.history.[undo|redo]()`, read restored
         `selection` presence (posRange → index) and return it. Offline/test
         fallback via `getPresenceForTest` (mirror docs).
-- [ ] `packages/notes/src/store/memory.ts`
-  - [ ] Track `curSel`; store before-selection per undo unit; return the
+- [x] `packages/notes/src/store/memory.ts`
+  - [x] Track `curSel`; store before-selection per undo unit; return the
         restored selection from `undo()/redo()`.
-- [ ] `packages/notes/src/view/note-sync.ts`
-  - [ ] After a batch that actually edited, call
+- [x] `packages/notes/src/view/note-sync.ts`
+  - [x] After a batch that actually edited, call
         `store.recordSelectionForHistory(update.state.selection.main.anchor, .head)`.
-- [ ] `packages/notes/src/view/editor.ts`
-  - [ ] `runHistory`: apply the returned selection via `view.dispatch({ selection })`.
-  - [ ] vim route (`routeVimHistoryToStore`): apply the returned selection too.
+- [x] `packages/notes/src/view/editor.ts`
+  - [x] `runHistory`: apply the returned selection via `view.dispatch({ selection })`.
+  - [x] vim route (`routeVimHistoryToStore`): apply the returned selection too.
 
 ## Tests (TDD — write first, watch fail)
 
-- [ ] `memory.test.ts`: undo/redo returns the pre/post-edit selection.
-- [ ] `yorkie-note-store.test.ts`: a batch that records a selection, then
+- [x] `memory.test.ts`: undo/redo returns the pre/post-edit selection.
+- [x] `yorkie-note-store.test.ts`: a batch that records a selection, then
       `undo()` returns the pre-edit caret; `redo()` returns the post-edit caret;
       an empty/remote-only batch records no selection unit.
-- [ ] `notes-undo-integration.test.ts` (or note-sync): caret restored in the
+- [x] `notes-undo-integration.test.ts` (or note-sync): caret restored in the
       mounted view after undo.
 
 ## Invariants to keep green
@@ -71,7 +71,8 @@ robustness reason docs used posRange anchors.
 
 - [x] `pnpm verify:fast` (exit 0, 0 TS errors)
 - [x] Self code review (workflow /code-review high) — findings below
-- [ ] Manual smoke in `pnpm dev` (type, move caret, Cmd+Z / Cmd+Shift+Z).
+- Not verified: manual smoke in `pnpm dev` (type, move caret, Cmd+Z /
+  Cmd+Shift+Z). Code and unit tests are green; no human run was performed.
 
 ## Review findings addressed
 

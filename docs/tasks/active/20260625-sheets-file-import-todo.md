@@ -34,15 +34,15 @@ header/coercion helper.
   generic `createSpreadsheetDocumentFromImportedSheets` taking a flat sheet shape
   (or add a CSV-specific builder) so CSV isn't forced through the XLSX-shaped
   helper. Done: XLSX path still works; a generic builder exists for CSV.
-- [ ] **`csv-actions.ts` (parse + map).**
+- [x] **`csv-actions.ts` (parse + map).**
   Scope: pick a `.csv`, parse with `papaparse` (already a `@wafflebase/sheets`
   dep), build a one-sheet `SpreadsheetDocument`.
   Reuse: the generic builder above.
   Done: a CSV file produces an editable sheet document.
-- [ ] **Header detect + basic type coercion.**
+- [x] **Header detect + basic type coercion.**
   Scope: first row → bold header; coerce obvious number/date columns.
   Done: numbers/dates land as typed cells, not strings.
-- [ ] **Wire into the import entry point.**
+- [x] **Wire into the import entry point.**
   Scope: add "Import CSV" beside the existing XLSX import action.
   Done: end-to-end picker → editable sheet.
 
@@ -141,7 +141,7 @@ header/coercion helper.
 
 ## Cross-cutting
 
-- [ ] `docs/design/README.md` Sheets section updated (done on ideation branch)
+- [x] `docs/design/README.md` Sheets section updated (done on ideation branch)
 - [ ] Lessons in paired `20260625-sheets-file-import-lessons.md`
 - [ ] After all merged: `pnpm tasks:archive && pnpm tasks:index`
 

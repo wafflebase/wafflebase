@@ -52,7 +52,7 @@ Architecture: the approved Checkpoint 1 plan. Design docs to update on landing:
   - [ ] CP4.5 — the theme bridge
   - [ ] CP4.6 — verification + doc closeout ← **current**
 - [ ] **CP5 — Diff engine + doc closeout**
-- [ ] **Packaging — the two-package split** (`design-editor-local-plugin.md` §6)
+- [x] **Packaging — the two-package split** (`design-editor-local-plugin.md` §6)
 
 ## CP2 scope — done
 
@@ -131,7 +131,7 @@ Ordered by how load-bearing they are, not by size.
       ignored rather than applied.
 - [x] `scripts/poke-scene-preview.mjs` (`pnpm … poke`) — stages a real layout edit
       from outside the UI so the loop can be watched before the inspector exists.
-- [ ] **Browser verification.** Nothing has been seen rendering — every check so far
+- [x] **Browser verification.** Nothing has been seen rendering — every check so far
       is HTTP-level. See the by-hand list in `design-editor-engine.md` §9.
       **Still open, and it carries into CP4**: a canvas scene can satisfy every
       HTTP-level check and still paint nothing.
@@ -487,7 +487,7 @@ mutation kind, a new endpoint, or any server change.
 
 - [ ] `scripts/smoke-canvas.ts` — pure logic, no DOM: probe-registry dispatch,
       theme-delta substitution, seeder → root shape. Added to `pnpm … smoke`.
-- [ ] A pinned check that the detached-document invariants of finding 1 still hold,
+- [x] A pinned check that the detached-document invariants of finding 1 still hold,
       so a Yorkie bump fails loudly here instead of silently in every canvas scene.
 - [ ] Extend `verify:frame` and `verify-bridge.mjs` to the canvas frames; new
       engine checks numbered from 25.
