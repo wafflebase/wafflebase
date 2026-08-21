@@ -115,7 +115,10 @@ export interface DocStore {
   /** Apply partial block-level style (alignment, margins, etc.) via styleByPath. */
   applyBlockStyle(blockId: string, style: Partial<BlockStyle>): void;
   /** Apply partial cell style (background, borders, alignment) via styleByPath.
-   *  Additive only — setting a property to undefined will not remove it from the tree. */
+   *  Omitted properties are untouched. A property named with the value
+   *  `undefined` — or `''` for a color, the "Reset" sentinel the pickers pass —
+   *  is removed from the node and from the block, so the key is absent
+   *  afterwards rather than present holding `undefined` (#728, #793). */
   applyCellStyle(
     tableBlockId: string, rowIndex: number, colIndex: number,
     style: Partial<CellStyle>,

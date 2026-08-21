@@ -27,21 +27,32 @@ rather than patching each picker call site. Four docs surfaces pass `""` today
 reintroduce the bug; normalizing once also heals runs that already store `""`
 the next time the user clears them.
 
-- [ ] `packages/docs/src/model/types.ts` — add `normalizeStyleClears(style)`
+- [x] `packages/docs/src/model/types.ts` — add `normalizeStyleClears(style)`
       mapping `color`/`backgroundColor` of `''` to an explicit `undefined`
       (key kept, so the Yorkie remove path sees it).
-- [ ] `packages/docs/src/store/block-helpers.ts` — run the incoming style through
+- [x] `packages/docs/src/store/block-helpers.ts` — run the incoming style through
       it in `applyInlineStyle` (memory store + Yorkie cache path).
-- [ ] `packages/frontend/src/app/docs/yorkie-doc-store.ts` — same in
+- [x] `packages/frontend/src/app/docs/yorkie-doc-store.ts` — same in
       `applyStyleInTree`, so the CRDT attribute is removed rather than set to `""`.
-- [ ] Tests: block-helpers unit test replaying the issue's repro (highlight on,
+- [x] Tests: block-helpers unit test replaying the issue's repro (highlight on,
       then None → back to one run, no `backgroundColor` key); `types` unit test
       for the helper.
+- [x] `normalizeCellStyleClears` + the same boundary in `MemDocStore.applyCellStyle`
+      and `YorkieDocStore.applyCellStyle` — see the scope note below.
+
+The table-cell half started as a Non-goal and was pulled in. It is not a bug
+fix — the table context menu's **Reset** already passes `backgroundColor:
+undefined`, and #728 already gave `applyCellStyle` a removal path for that. What
+it buys is one contract instead of two: `''` and `undefined` now mean the same
+"clear" at every docs style boundary, so a cell picker wired the way the four
+inline pickers are wired cannot reintroduce the dead value. Both stores delete
+the key rather than leaving it present holding `undefined`, so `key in style`
+answers the same in either. Sheets is still out — different model.
 
 ## Non-goals
 
 - #749 (`false` stored for a toggled-off boolean style) — same shape, separate fix.
-- Sheets / table-cell background reset (`applyTableCellStyle`) — different model.
+- Sheets background reset — different model.
 - Healing already-stored `""` on document load (no migration pass).
 
 ## Verification

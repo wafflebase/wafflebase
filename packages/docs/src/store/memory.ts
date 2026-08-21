@@ -282,9 +282,16 @@ export class MemDocStore implements DocStore {
     const block = this.findBlock(tableBlockId);
     const cell = block.tableData!.rows[rowIndex].cells[colIndex];
     // The cell-background "Reset" entry passes `''`; normalizing it to an
-    // explicit `undefined` keeps this cache in step with the Yorkie store,
-    // which removes the attribute outright (#793).
-    cell.style = { ...cell.style, ...normalizeCellStyleClears(style) };
+    // explicit `undefined` and then dropping the key keeps this cache in step
+    // with the Yorkie store, which removes the attribute outright (#793).
+    // Spreading alone would leave the key present holding `undefined`, so
+    // `'backgroundColor' in cell.style` would answer true here and false there.
+    const cleared = normalizeCellStyleClears(style);
+    const merged: CellStyle = { ...cell.style, ...cleared };
+    for (const key of Object.keys(cleared) as Array<keyof CellStyle>) {
+      if (cleared[key] === undefined) delete merged[key];
+    }
+    cell.style = merged;
   }
 
   applyCellSpan(

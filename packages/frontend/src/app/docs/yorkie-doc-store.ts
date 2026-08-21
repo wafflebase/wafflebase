@@ -2482,7 +2482,12 @@ export class YorkieDocStore implements DocStore {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       const cellPath = [...tablePath, rowIndex, colIndex];
-      tree.styleByPath(cellPath, attrs);
+      // A clear-only edit on an otherwise unstyled cell serializes to nothing;
+      // don't spend an op setting an empty attribute map. `applyCellSpan`
+      // guards the same call.
+      if (Object.keys(attrs).length > 0) {
+        tree.styleByPath(cellPath, attrs);
+      }
       // Node-scoped: a path range would also strip the highlight of every
       // inline in the cell and the fill of every nested-table cell inside it.
       removeNodeStyle(tree, cellPath, removeAttrs);
