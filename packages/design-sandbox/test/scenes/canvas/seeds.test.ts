@@ -13,7 +13,7 @@ import { seedNotesFixture } from '../../../src/scenes/canvas/seed-notes.ts';
  *
  * The document here is constructed exactly as the shim constructs one — `new Document(key)`,
  * never attached — which is also the claim this whole feature rests on. Re-verified against
- * `@yorkie-js/sdk@0.7.16` (the prototype's probe was against 0.7.13): a detached document's
+ * `@yorkie-js/sdk@0.7.17` (the prototype's probe was against 0.7.13): a detached document's
  * `update()` works, `Text`/`Tree` construct, local `subscribe()` fires and `history.canUndo()`
  * answers. Only the `Client` touches the network.
  *
@@ -34,7 +34,7 @@ const sheetDoc = () => {
   return doc;
 };
 
-describe('a detached document is functional at 0.7.16', () => {
+describe('a detached document is functional at 0.7.17', () => {
   it('accepts an update, a Text and a Tree, and reports its own history', () => {
     // The foundation. If this ever fails, every canvas scene is unmountable and the shim's
     // premise is gone — so it is asserted here rather than assumed from a comment.
