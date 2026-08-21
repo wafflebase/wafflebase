@@ -587,11 +587,15 @@ cap is what sets the granularity.
 | 9c | `history` · `anchors` | folded into 11b — `SandboxLayout` is their only caller |
 | 10a | frame protocol · drill-in resolver · the alias seam | **merged** (#855) — see below |
 | 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | **merged** (#855) — see below |
-| 11a | the shell build — `dist/shell`, two documents, self-contained CSS | in review (#879) — see below |
-| 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | written — see below |
-| 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | written — dom scenes live, see below |
-| 12a | the token panels, the review modal, `ComponentList` — `design-editor` | written — §6's last row closed |
-| 12b | the canvas scenes — `design-sandbox` | written — four of five render |
+| 11a | the shell build — `dist/shell`, two documents, self-contained CSS | **merged** (#879) — see below |
+| 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | **merged** (#887) — see below |
+| 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | **merged** (#891) — see below |
+| 12a | the token panels, the review modal, `ComponentList` — `design-editor` | **merged** (#896) — §6's last row closed |
+| 12b | the canvas scenes — `design-sandbox` | **merged** (#903) — all five render |
+| 13a | editing a class against wafflebase's own source — `verify-scenes.mjs` | **merged** (#907) |
+| 13b | publish prep — backups out of the consumer's tree, the peer-import contract test | **merged** (#912) |
+| 13c | ESLint, which this package had never had | **merged** (#914) |
+| 13d | the gaps running it surfaced — the vacuous gate check, the missing Tailwind plugin, the mode split | this PR |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
 review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
@@ -618,6 +622,15 @@ earlier claims in this document:
   `PreviewPane` is blocked on `registry.tsx` — see 11c below. `ReviewApproveModal` is
   12's, so ⌘S writes the plan directly today.
 
+  > **Settled in 13d.** The mode came back; `PreviewPane` did not, and is now a
+  > recorded drop rather than a block. Its registry is a hand-written renderer PER
+  > COMPONENT and the prototype's carried two (Button, Badge) against 25 ui
+  > components — shipping it would show a preview for 2 and an empty frame for the
+  > rest. The centre keeps the real page in both modes, which is the better surface
+  > for judging a token change anyway. What the mode still buys is the right pane:
+  > `Layout` addresses a `NodeAnchor` and `Bindings` a CVA value, so exactly one of
+  > them has a subject at any moment.
+
 Three defects fixed in the ported code: `SceneNodeDetail` printed `expression — cn(…)`
 for every non-literal `className` (7b's `classNameExpr` is what actually distinguishes
 them); `FloatingClassEditor` leaked a `pointermove` listener when unmounted mid-drag;
@@ -629,7 +642,8 @@ And the port nearly dropped Tailwind candidate registration (`useTailwindCandida
 in no PR's file list); without it a composed class has no CSS rule and previews as
 nothing.
 
-**Staging has no browser coverage yet.** The class editor needs a measured selection
+**Staging had no browser coverage when this was written.** (`verify:scenes` now covers
+the click → stage → ⌘Z → ⇧⌘Z → ⌘S loop against wafflebase's own source; 13a.) The class editor needs a measured selection
 rect, which arrives from the frame over `postMessage`, and jsdom loads no iframe — so the
 staging *logic* is unit-tested (`history`, `anchors`, `FloatingClassEditor`) while the
 click → stage → ⌘Z → ⇧⌘Z loop gains its first `verify:frame` checks in 12a and its

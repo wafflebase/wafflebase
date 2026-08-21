@@ -115,6 +115,13 @@ React re-render *is* the subscription model — there is no state library.
   empty; badge = plan size. Bound to `⌘S`.
 
 **Panes:**
+> **Shipped, with one substitution.** The modes, the left-pane switch and the
+> right-pane split are what the editor does today. The `components` centre is NOT
+> `PreviewPane` — it keeps the real scene, because the preview registry is a
+> hand-written renderer per component and the prototype's held two of twenty-five.
+> See 13d in
+> [design-editor-local-plugin.md](design-editor-local-plugin.md).
+
 **There are two MODES**, switched from the top of the left pane:
 `components` edits one primitive's CVA; `scenes` edits a whole route file. They
 are modes rather than two lists in one tree because they differ in every

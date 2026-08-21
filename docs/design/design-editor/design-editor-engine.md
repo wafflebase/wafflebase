@@ -553,6 +553,25 @@ token edit repainted the button preview and left every scene untouched.
 
 ### 3.9 `POST /__design-editor/scene-preview` — the staged plan, as served bytes
 
+> **NOT SHIPPED.** The extracted plugin serves twelve routes and this is not one of
+> them, so what follows describes the prototype's design, not current behaviour.
+>
+> **What that costs.** Token edits preview live (`/preview-tokens` → `wb:set-token-vars`
+> pushes custom properties into the frame, which works because a CSS variable can be
+> overridden from outside). A CLASS edit has no equivalent: it stages in the shell, the
+> frame keeps painting the committed state, and you see the change only after Approve
+> writes it and Vite's HMR reloads. The two-altitude history (edits vs writes) exists so
+> you can try something before writing it — for classes you can currently try it without
+> seeing it.
+>
+> **Why it is hard to restore, and why the section stays.** The reasoning below is the
+> reason: a scene renders a real route file, so there is no `className` seam to push an
+> override through, and `layout-insert` cannot be expressed as an override at all. Serving
+> composed source is the only form in which what the frame paints and what a save writes
+> are the same bytes. Anyone reinstating live class preview needs this argument, so it is
+> kept rather than deleted — marked, so nobody goes looking for the endpoint.
+
+
 Body `{ frame: "before" | "after", intents }` →
 `{ ok, frame, applied, reloaded }`. **Writes nothing.**
 
