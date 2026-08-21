@@ -31,7 +31,7 @@ import {
   main,
   materializeRepoAt,
   panelEnv,
-  resolvePanelDigest,
+  resolveRunPanelDigest,
   resolvePanelSha,
   resolveRunOptions,
   summarizeRun,
@@ -566,25 +566,25 @@ test("panel_digest is hashed from the panel's files, and a foreign script must s
   // by content, and #830/#850 deleted the panel and returned it byte-identical. So the
   // runner resolves both, and records which way each was obtained.
   const digestOf = () => `sha256:${"a".repeat(64)}`;
-  assert.deepEqual(resolvePanelDigest({ panelScript: DEFAULT_PANEL_SCRIPT, digestOf }), {
+  assert.deepEqual(resolveRunPanelDigest({ panelScript: DEFAULT_PANEL_SCRIPT, digestOf }), {
     panelDigest: `sha256:${"a".repeat(64)}`,
     source: "files",
   });
   // Hashing the real panel's files while replaying a different script would stamp this
   // run with an identity it does not have — the same mislabelling `--panel-sha` guards,
   // one axis over, and `adapters/stub-panel.mjs` is the case that reaches it.
-  assert.throws(() => resolvePanelDigest({ panelScript: STUB, digestOf }), /Pass --panel-digest/);
+  assert.throws(() => resolveRunPanelDigest({ panelScript: STUB, digestOf }), /Pass --panel-digest/);
   // `reconstructed` and NOT `flag`, which is what `panel_sha` calls its own override: a
   // stated digest was not hashed off the panel that ran, and a field claiming it was would
   // assert an observation nobody made. See `PANEL_DIGEST_SOURCES`.
-  assert.deepEqual(resolvePanelDigest({ panelScript: STUB, override: PANEL_DIGEST }), { panelDigest: PANEL_DIGEST, source: "reconstructed" });
+  assert.deepEqual(resolveRunPanelDigest({ panelScript: STUB, override: PANEL_DIGEST }), { panelDigest: PANEL_DIGEST, source: "reconstructed" });
   for (const bad of ["abc", `SHA256:${"a".repeat(64)}`, `sha256:${"a".repeat(63)}`, "a".repeat(40), 40]) {
-    assert.throws(() => resolvePanelDigest({ panelScript: STUB, override: bad }), /sha256:<64 hex>/, `${JSON.stringify(bad)} was accepted`);
+    assert.throws(() => resolveRunPanelDigest({ panelScript: STUB, override: bad }), /sha256:<64 hex>/, `${JSON.stringify(bad)} was accepted`);
   }
   // 🔴 THE REAL PANEL, HASHED FOR REAL. `digestOf` is injected above so the assertions
   // are about the routing; this one call proves the default reader can actually read this
   // checkout's declared file set, which is what every stored envelope will depend on.
-  assert.match(resolvePanelDigest({ panelScript: DEFAULT_PANEL_SCRIPT }).panelDigest, /^sha256:[0-9a-f]{64}$/);
+  assert.match(resolveRunPanelDigest({ panelScript: DEFAULT_PANEL_SCRIPT }).panelDigest, /^sha256:[0-9a-f]{64}$/);
 });
 
 test("a panel script that is not this checkout's cannot borrow this checkout's sha", () => {

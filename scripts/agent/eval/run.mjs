@@ -561,6 +561,11 @@ export function resolvePanelSha({ panelScript, override, git = gitLines }) {
 /**
  * Which PANEL is about to run, by content, and refuse if that cannot be said either.
  *
+ * Named for the RUN deliberately: `panel-identity.mjs` exports a `resolvePanelDigest` too and
+ * it answers a different question — which panel a set of stored records agrees on. This one
+ * hashes the panel that is about to be spawned. Two exported functions with one name in one
+ * directory is a reader mistaking one contract for the other.
+ *
  * `resolvePanelSha` above records which COMMIT ran; this records which panel. They are
  * not the same fact and neither substitutes for the other — measured on the ingested
  * agent-PR data, 16 items carry 16 distinct `panel_sha` values and are 5 panels by
@@ -577,7 +582,7 @@ export function resolvePanelSha({ panelScript, override, git = gitLines }) {
  * files and stamping it on a run of some other script is exactly the mislabelling both
  * fields exist to prevent. `adapters/stub-panel.mjs` is that case.
  */
-export function resolvePanelDigest({ panelScript, override, digestOf = panelDigestOf }) {
+export function resolveRunPanelDigest({ panelScript, override, digestOf = panelDigestOf }) {
   if (override !== undefined && override !== null && override !== "") {
     if (!isPanelDigest(override)) {
       throw new Error(`run: --panel-digest must be sha256:<64 hex>, got ${JSON.stringify(override)}`);
@@ -849,7 +854,7 @@ export async function main(argv) {
     panelScript: opts.panelScript,
     override: opts.panelShaOverride,
   });
-  const { panelDigest, source: panelDigestSource } = resolvePanelDigest({
+  const { panelDigest, source: panelDigestSource } = resolveRunPanelDigest({
     panelScript: opts.panelScript,
     override: opts.panelDigestOverride,
   });

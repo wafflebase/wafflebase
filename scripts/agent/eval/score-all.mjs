@@ -721,7 +721,11 @@ export async function scoreAll({
   if (panelDigestArg !== null && !isPanelDigest(panelDigestArg)) {
     refuse(`--panel-digest must be sha256:<64 hex>, got ${JSON.stringify(panelDigestArg)}`);
   }
-  const panel = panelDigestArg ?? resolvePanelDigest({ records: store.panelDigestRecords(ids), allowMixed: allowMixedPanel }).digest;
+  // THROUGH the resolver, never around it. `--panel-digest` used to short-circuit the store
+  // entirely, which meant a pool that really did span two panels could be filed under one by
+  // passing a flag — the exact failure this key exists to prevent, reintroduced at the CLI.
+  // `resolvePanelDigest` honours a stated digest only where the records state nothing.
+  const panel = resolvePanelDigest({ records: store.panelDigestRecords(ids), allowMixed: allowMixedPanel, stated: panelDigestArg }).digest;
   if (panel === PANEL_DIGEST_ABSENT) {
     log(`score-all: no replicate records a panel_digest, so every cross-run path is keyed by ${JSON.stringify(PANEL_DIGEST_ABSENT)} — a named state, not a panel`);
   }

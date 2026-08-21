@@ -119,6 +119,56 @@ test("the digest is over CONTENT and not paths, so a moved panel is the same pan
   assert.match(panelManifest(files(a)), /^review-panel\.mjs [0-9a-f]{64}\nseverity\.mjs [0-9a-f]{64}\n$/);
 });
 
+test("🔴 a STATED panel digest may fill in for records that recorded none, never override them", () => {
+  const A = `sha256:${"a".repeat(64)}`, B = `sha256:${"b".repeat(64)}`, STATED = `sha256:${"c".repeat(64)}`;
+  const rec = (id, panelDigest) => ({ id, panelDigest });
+
+  // THE ONE CASE IT IS FOR: runs that recorded nothing, where computing the panel out of git
+  // afterwards is the only way to attribute their scores at all. Recorded as `reconstructed`,
+  // because it was asserted rather than observed.
+  const filled = resolvePanelDigest({ records: [rec("k1"), rec("k2")], stated: STATED });
+  assert.equal(filled.digest, STATED);
+  assert.equal(filled.source, "reconstructed");
+  assert.equal(filled.mixed, false);
+
+  // 🔴 REJECTION 1 — the records already agree on a DIFFERENT panel. A flag that won here
+  // would be an assertion overriding a measurement, and nothing downstream could tell.
+  assert.throws(() => resolvePanelDigest({ records: [rec("k1", A), rec("k2", A)], stated: STATED }), (e) => {
+    assert.match(e.message, /may only fill in for records that recorded none/);
+    assert.match(e.message, new RegExp(`${A} × 2`));
+    return true;
+  });
+  // ...and equally when it agrees: still refused, because "the flag happened to match" is not
+  // a rule anyone can rely on, and the records are the better source either way.
+  assert.throws(() => resolvePanelDigest({ records: [rec("k1", A)], stated: A }), /may only fill in/);
+
+  // 🔴 REJECTION 2 — a MIXED pool. This is the one that matters: the live run pools five
+  // panels, and a stated digest that bypassed the records would file it under one of them
+  // with no diagnostic anywhere. That is the exact defect the cross-run key exists to remove,
+  // reintroduced at the command line.
+  const mixedPool = [rec("k1", A), rec("k2", A), rec("k3", B)];
+  assert.throws(() => resolvePanelDigest({ records: mixedPool, stated: STATED }), (e) => {
+    assert.match(e.message, /may only fill in for records that recorded none/);
+    assert.match(e.message, /score each panel separately or pass the mixed-panel opt-out/);
+    return true;
+  });
+  // The opt-out does not rescue it either: `mixed` is what a RESOLUTION lands in, and a
+  // stated digest is a claim about one reviewer, so the two cannot both be true.
+  assert.throws(() => resolvePanelDigest({ records: mixedPool, stated: STATED, allowMixed: true }), /may only fill in/);
+  // Without the flag the pool behaves exactly as before — the automatic path is untouched.
+  assert.equal(resolvePanelDigest({ records: mixedPool, allowMixed: true }).digest, PANEL_DIGEST_MIXED);
+  assert.equal(resolvePanelDigest({ records: [rec("k1"), rec("k2")] }).digest, PANEL_DIGEST_ABSENT);
+
+  // A named state is not something to assert: it is where a resolution lands.
+  for (const bad of [PANEL_DIGEST_ABSENT, PANEL_DIGEST_MIXED, "sha256:nothex", 7]) {
+    assert.throws(() => resolvePanelDigest({ records: [rec("k1")], stated: bad }), /stated panel digest must be sha256/, `${JSON.stringify(bad)} was accepted`);
+  }
+  // Empty/absent `stated` means "not stated" and leaves the automatic path alone.
+  for (const none of [null, undefined, ""]) {
+    assert.equal(resolvePanelDigest({ records: [rec("k1", A)], stated: none }).digest, A);
+  }
+});
+
 test("a declared file that is NOT THERE is hashed as absent, which is not the same as omitted", () => {
   // 🔴 MEASURED, and it is why this state exists: `review-surface.mjs` — the post-freeze
   // demotion #881 added — does not exist at the pilot's panel commit `46da673dd`. The

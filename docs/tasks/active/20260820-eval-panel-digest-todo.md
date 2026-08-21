@@ -152,7 +152,17 @@ correction 4 exists to prevent. Extracted as `withPanelStamp(payload, panel)` an
 directly. The mutation harness also reported one **stale anchor** of its own, which is what
 that check is for.
 
-**8. The plan's caller list counts indirect callers.** `byConfigSegment` has **two** call
+**8. `--panel-digest` could override a RECORDED panel, not just fill in for a missing one.**
+Raised in review. The flag short-circuited the store in both callers, so a pool that really
+did span two panels could be filed under one by passing a flag — the defect the cross-run key
+exists to remove, reintroduced at the command line. `resolvePanelDigest` now takes `stated`
+and honours it only where every record resolves to `not-recorded`, refusing otherwise with
+what the records actually say. One rule in one place, because two copies of it is how the
+second becomes the permissive one. Both rejection cases are tested: records that already agree
+on a different panel, and a mixed pool (which `--allow-mixed-panel` does not rescue — `mixed`
+is where a resolution lands, and a stated digest is a claim about one reviewer).
+
+**9. The plan's caller list counts indirect callers.** `byConfigSegment` has **two** call
 sites outside the store at `7dc81061` — `report.mjs:328` and `score-all.mjs:550` — not the
 four listed; the other two are the `comparisonIdFor` calls those two flow through.
 
@@ -196,13 +206,13 @@ each. Baseline is `upstream/main` at **`5f2be6169b0687652f9ae8e23d345ea6f84465fd
   | | rest | iso (`eval/run.test.mjs`, private `TMPDIR`) | total |
   |---|---|---|---|
   | `upstream/main` `5f2be616` | 2337 pass · 0 fail · 1 skip | 56 pass · 0 fail | 2393 |
-  | this branch | **2349 pass · 0 fail · 1 skip** | **57 pass · 0 fail** | **2406 (+13)** |
+  | this branch | **2350 pass · 0 fail · 1 skip** | **57 pass · 0 fail** | **2407 (+14)** |
 
   The one skip is the Agent SDK's, in both trees. The five `lint-config.test.mjs` cases run
   in both, because both trees have a root `node_modules`.
 
 - [x] `npx eslint scripts` — exit 0, with the lockfile-pinned `eslint@9.24.0`.
-- [x] **Every new test mutation-tested: 31 of 31 mutations caught, all 31 by the
+- [x] **Every new test mutation-tested: 32 of 32 mutations caught, all 32 by the
       specifically-named test.** The harness diffs each file after mutating and fails if
       unchanged, and each mutation declares which test must redden — being caught by a
       different test is reported as a harness finding, not a pass. It reported on itself

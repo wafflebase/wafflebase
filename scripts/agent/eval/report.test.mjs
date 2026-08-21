@@ -2448,10 +2448,10 @@ test("🔴 a reviewer axis that DISAGREES across replicates is REPORTED, never r
   // 🔴 AND THE DIGEST, which is the axis a cross-run score's PATH is keyed by — so two
   // legs disagreeing on it means the figures on the page were pooled from two reviewers.
   // Reported, never resolved: no leg's answer is printed for it.
-  const otherDigest = reviewerFigures([PILOT_RUNS[0], pilotRun("pilot-01__k2", { capturedAt: "x", panelDigest: `sha256:${"9".repeat(64)}` })]);
+  const disagreeingRuns = [PILOT_RUNS[0], pilotRun("pilot-01__k2", { capturedAt: "x", panelDigest: `sha256:${"9".repeat(64)}` })];
+  const otherDigest = reviewerFigures(disagreeingRuns);
   assert.equal(otherDigest.panel_digest, null);
   assert.deepEqual(otherDigest.disagreements.map((x) => x.field), ["panel_digest"]);
-  const disagreeingRuns = [PILOT_RUNS[0], pilotRun("pilot-01__k2", { capturedAt: "x", panelDigest: `sha256:${"9".repeat(64)}` })];
   assert.match(renderReport(WITH_REVIEWER({ validity: ZERO_LABEL_VALIDITY() }, disagreeingRuns)), /\| panel contents \| \*\*disagrees across replicates/);
   // The two are INDEPENDENT: a panel deleted and restored (#830, #850) agrees on the
   // digest and differs on the sha, and a digest read off a stated flag rather than the

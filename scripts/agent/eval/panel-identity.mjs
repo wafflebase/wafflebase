@@ -454,13 +454,37 @@ export function tallyPanelDigests(records) {
  * NEVER PICKS THE FIRST. There is no majority rule and no most-common-wins here: 15
  * items on one panel and 1 on another is still two panels, and a rule that resolved it
  * would be a rule for hiding it.
+ *
+ * 🔴 `stated` — AN OPERATOR'S `--panel-digest` — IS CHECKED AGAINST THE RECORDS, NOT
+ * SUBSTITUTED FOR THEM. It exists for exactly one situation: runs that recorded no digest,
+ * where computing the panel out of git afterwards is the only way to attribute their scores
+ * at all. Anything else and it is an assertion overriding a measurement, and the worst case
+ * is the one this whole module is for — a pool that really does span two panels, silently
+ * filed under one because someone passed a flag. So a stated digest is honoured only when
+ * every record resolves to `not-recorded`, and refused otherwise with what the records
+ * actually say. It is resolved HERE and not at the two call sites, because two copies of
+ * this rule is how the second one comes to be more permissive than the first.
  */
-export function resolvePanelDigest({ records, allowMixed = false } = {}) {
+export function resolvePanelDigest({ records, allowMixed = false, stated = null } = {}) {
   const list = Array.isArray(records) ? records : [];
   if (list.length === 0) {
     refuse("a cross-run score must name the records it pools — with none, 'they all ran the same panel' is unfalsifiable");
   }
   const tally = tallyPanelDigests(list);
+  if (stated !== null && stated !== undefined && stated !== "") {
+    if (!isPanelDigest(stated)) {
+      refuse(`a stated panel digest must be sha256:<64 hex>, got ${JSON.stringify(stated)} — the named states are what a resolution lands in, not something to assert`);
+    }
+    if (!(tally.length === 1 && tally[0].digest === PANEL_DIGEST_ABSENT)) {
+      refuse(
+        `a panel digest was stated (${stated}) but the ${list.length} pooled record(s) already say ` +
+          `${tally.map((t) => `${t.digest} × ${t.items}`).join(", ")} — a stated digest may only fill in for records that ` +
+          "recorded none, never override what they recorded. Drop the flag to use what they say" +
+          (tally.length > 1 ? ", and score each panel separately or pass the mixed-panel opt-out" : ""),
+      );
+    }
+    return { digest: stated, mixed: false, tally, source: "reconstructed" };
+  }
   // `envelopes` on every path out of here: this function's whole input is stored records,
   // so whatever it answers was read rather than asserted. A caller that instead STATES a
   // digest does not come through here at all, and stamps `reconstructed`.

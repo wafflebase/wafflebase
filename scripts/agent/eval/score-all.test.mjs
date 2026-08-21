@@ -691,10 +691,13 @@ function fullPassSpy(store, { configHash, corpusVersion }) {
       // child filed under two different directories, which is the failure the round-trip
       // check below exists to catch.
       const scope = at("--scope");
-      const stated = at("--panel-digest");
-      const resolved = scope === "cross-run" && !stated ? resolvePanelDigest({ records: store.panelDigestRecords(allOf("--run-id")), allowMixed: args.includes("--allow-mixed-panel") }) : null;
-      const panel = scope === "cross-run" ? stated ?? resolved.digest : null;
-      const source = stated ? "reconstructed" : resolved?.source;
+      // `stated` goes THROUGH the resolver here too, exactly as `report.mjs --persist` does:
+      // a fixture that kept the old bypass would pass while the real path refused.
+      const resolved = scope === "cross-run"
+        ? resolvePanelDigest({ records: store.panelDigestRecords(allOf("--run-id")), allowMixed: args.includes("--allow-mixed-panel"), stated: at("--panel-digest") })
+        : null;
+      const panel = resolved?.digest ?? null;
+      const source = resolved?.source;
       const payload = JSON.parse(readFileSync(at("--from"), "utf8"));
       store.putScore(
         { scorerId: at("--scorer-id"), scope, runId: scope === "per-run" ? at("--run-id") : null, configHash: at("--config-hash"), panelDigest: panel, corpusVersion: at("--corpus-version") },

@@ -314,24 +314,6 @@ export function unitOf(cell) {
 }
 
 /**
- * The comparison's identity, DERIVED from the comparability key rather than
- * invented.
- *
- * The store's invariants make `(config_hash, panel_digest, corpus_version)` the key
- * that decides whether two runs may be pooled, and decision 13 makes results from a
- * different reviewer unpoolable. So the report's own name is that key: a report whose
- * filename names its reviewer and its corpus cannot be mistaken for one about
- * another reviewer, and `byConfigSegment` is reused rather than a second joiner
- * written, so the report file and the `scores/by-config/` directory it renders from
- * are named by one rule.
- *
- * ⚠ THE FILENAME CHANGED WHEN THE PANEL DIGEST JOINED THE KEY, and that is the fix
- * rather than a side effect: two panels previously produced one `reports/` filename and
- * the second render overwrote the first, the same collision as in `scores/by-config/`
- * one level down. A report published under the old two-part name is not renamed and not
- * read; it is a snapshot of a comparison whose reviewer it could not state.
- */
-/**
  * A cross-run score payload with the panel it is being filed under written INTO it.
  *
  * 🔴 THE PATH IS NOT PART OF THE FILE. A score file lifted out of git on its own has to be
@@ -352,6 +334,24 @@ export function withPanelStamp(payload, panel) {
   return stamped;
 }
 
+/**
+ * The comparison's identity, DERIVED from the comparability key rather than
+ * invented.
+ *
+ * The store's invariants make `(config_hash, panel_digest, corpus_version)` the key
+ * that decides whether two runs may be pooled, and decision 13 makes results from a
+ * different reviewer unpoolable. So the report's own name is that key: a report whose
+ * filename names its reviewer and its corpus cannot be mistaken for one about
+ * another reviewer, and `byConfigSegment` is reused rather than a second joiner
+ * written, so the report file and the `scores/by-config/` directory it renders from
+ * are named by one rule.
+ *
+ * ⚠ THE FILENAME CHANGED WHEN THE PANEL DIGEST JOINED THE KEY, and that is the fix
+ * rather than a side effect: two panels previously produced one `reports/` filename and
+ * the second render overwrote the first, the same collision as in `scores/by-config/`
+ * one level down. A report published under the old two-part name is not renamed and not
+ * read; it is a snapshot of a comparison whose reviewer it could not state.
+ */
 export function comparisonIdFor({ configHash, panelDigest, corpusVersion } = {}) {
   return byConfigSegment(configHash, panelDigest, corpusVersion);
 }
@@ -3367,15 +3367,17 @@ async function main() {
    * history. It is not a safe pooling key either, which is why it appears in the path.
    */
   const resolvePanel = (runIds) => {
-    if (args["panel-digest"]) {
-      if (!isPanelDigest(args["panel-digest"])) {
-        console.error(`--panel-digest must be sha256:<64 hex>, got ${JSON.stringify(args["panel-digest"])}`);
-        process.exit(2);
-      }
-      console.error(`  ! panel_digest ${args["panel-digest"]} was STATED on the command line, not read from the runs`);
-      return { digest: args["panel-digest"], mixed: false, tally: [], source: "reconstructed" };
+    if (args["panel-digest"] && !isPanelDigest(args["panel-digest"])) {
+      console.error(`--panel-digest must be sha256:<64 hex>, got ${JSON.stringify(args["panel-digest"])}`);
+      process.exit(2);
     }
-    const resolved = resolvePanelDigest({ records: store.panelDigestRecords(runIds), allowMixed: args["allow-mixed-panel"] });
+    // STATED, and still checked against the records — see `resolvePanelDigest`. A flag that
+    // bypassed them could file a genuine two-panel pool under one panel, which is the defect
+    // the key was added for; it is honoured only where the records state nothing.
+    const resolved = resolvePanelDigest({ records: store.panelDigestRecords(runIds), allowMixed: args["allow-mixed-panel"], stated: args["panel-digest"] ?? null });
+    if (resolved.source === "reconstructed") {
+      console.error(`  ! panel_digest ${resolved.digest} was STATED on the command line, not read from the runs`);
+    }
     if (resolved.mixed) {
       console.error(`  ! MIXED PANEL, filed as such: ${resolved.tally.map((t) => `${t.digest} × ${t.items}`).join(", ")}`);
     } else if (resolved.digest === PANEL_DIGEST_ABSENT) {
@@ -3390,6 +3392,16 @@ async function main() {
   if (args.persist) {
     if (!args["scorer-id"] || !args.scope || !args.from) {
       console.error("--persist needs --scorer-id, --scope and --from\n");
+      console.error(USAGE);
+      process.exit(2);
+    }
+    // A CROSS-RUN FILING MUST NAME ITS REPLICATES, refused here rather than one line later.
+    // The panel it is keyed by is read off those runs' envelopes, so with none there is
+    // nothing to read and nothing to check a stated digest against — `resolvePanelDigest`
+    // would refuse anyway, but from a message about pooling rather than about the flag the
+    // caller forgot.
+    if (args.scope === "cross-run" && runIds.length === 0) {
+      console.error("--persist --scope cross-run needs --run-id (repeatable): the panel a cross-run score is keyed by is read from the runs it pools\n");
       console.error(USAGE);
       process.exit(2);
     }
