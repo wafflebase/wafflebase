@@ -71,5 +71,6 @@ on the issue. The design doc is the fixed spec; nothing here changes it.
       agreement on the mandatory Azurite leg, fixture-helper hardening (codec
       assert, sync marker before inflate), env restore in the parity suite,
       pooled-connection assertion in the runtime smoke, formatting.
-- [ ] `pnpm verify:self`.
-- [ ] Capture lessons, archive task files after merge.
+- [x] `pnpm verify:self` — green locally and as the `verify-self` lane on
+      PR #868's CI.
+- [x] Capture lessons (see the lessons file), archive both task files.

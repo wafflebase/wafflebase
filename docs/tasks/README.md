@@ -58,7 +58,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | docs sync (2026-08-01) | [20260801-docs-sync-todo.md](./active/20260801-docs-sync-todo.md) | - |
 | autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
 | design editor layout sandbox (2026-07-29) | [20260729-design-editor-layout-sandbox-todo.md](./active/20260729-design-editor-layout-sandbox-todo.md) | [20260729-design-editor-layout-sandbox-lessons.md](./active/20260729-design-editor-layout-sandbox-lessons.md) |
-| sheets lakehouse connector (2026-07-29) | [20260729-sheets-lakehouse-connector-todo.md](./active/20260729-sheets-lakehouse-connector-todo.md) | [20260729-sheets-lakehouse-connector-lessons.md](./active/20260729-sheets-lakehouse-connector-lessons.md) |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
 | yorkie auth webhook (2026-07-12) | [20260712-yorkie-auth-webhook-todo.md](./active/20260712-yorkie-auth-webhook-todo.md) | - |
 | slides gradient editing (2026-07-11) | [20260711-slides-gradient-editing-todo.md](./active/20260711-slides-gradient-editing-todo.md) | [20260711-slides-gradient-editing-lessons.md](./active/20260711-slides-gradient-editing-lessons.md) |
@@ -73,7 +72,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 479
+- Archived task count: 480
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: block type toolbar refresh (2026-08-17)

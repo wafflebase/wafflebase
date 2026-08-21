@@ -6,7 +6,7 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 479
+Total archived tasks: 480
 
 ## 2026/08 (51 tasks)
 
@@ -64,7 +64,7 @@ Total archived tasks: 479
 | board miro import (2026-08-01) | [20260801-board-miro-import-todo.md](./2026/08/20260801-board-miro-import-todo.md) | [20260801-board-miro-import-lessons.md](./2026/08/20260801-board-miro-import-lessons.md) |
 | datasource test without save (2026-08-01) | [20260801-datasource-test-without-save-todo.md](./2026/08/20260801-datasource-test-without-save-todo.md) | - |
 
-## 2026/07 (98 tasks)
+## 2026/07 (99 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -84,6 +84,7 @@ Total archived tasks: 479
 | incremental review wiring (2026-07-29) | [20260729-incremental-review-wiring-todo.md](./2026/07/20260729-incremental-review-wiring-todo.md) | [20260729-incremental-review-wiring-lessons.md](./2026/07/20260729-incremental-review-wiring-lessons.md) |
 | json client import (2026-07-29) | [20260729-json-client-import-todo.md](./2026/07/20260729-json-client-import-todo.md) | [20260729-json-client-import-lessons.md](./2026/07/20260729-json-client-import-lessons.md) |
 | review novelty gate (2026-07-29) | [20260729-review-novelty-gate-todo.md](./2026/07/20260729-review-novelty-gate-todo.md) | - |
+| sheets lakehouse connector (2026-07-29) | [20260729-sheets-lakehouse-connector-todo.md](./2026/07/20260729-sheets-lakehouse-connector-todo.md) | [20260729-sheets-lakehouse-connector-lessons.md](./2026/07/20260729-sheets-lakehouse-connector-lessons.md) |
 | blast radius lens (2026-07-28) | [20260728-blast-radius-lens-todo.md](./2026/07/20260728-blast-radius-lens-todo.md) | [20260728-blast-radius-lens-lessons.md](./2026/07/20260728-blast-radius-lens-lessons.md) |
 | coverage first rubrics (2026-07-28) | [20260728-coverage-first-rubrics-todo.md](./2026/07/20260728-coverage-first-rubrics-todo.md) | [20260728-coverage-first-rubrics-lessons.md](./2026/07/20260728-coverage-first-rubrics-lessons.md) |
 | docs edit link in place (2026-07-28) | [20260728-docs-edit-link-in-place-todo.md](./2026/07/20260728-docs-edit-link-in-place-todo.md) | [20260728-docs-edit-link-in-place-lessons.md](./2026/07/20260728-docs-edit-link-in-place-lessons.md) |
