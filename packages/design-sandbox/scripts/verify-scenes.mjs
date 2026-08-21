@@ -243,6 +243,32 @@ async function main() {
     const manifest = JSON.parse(fsSync.readFileSync(path.join(HERE, 'scenes.config.json'), 'utf8'));
     const live = manifest.scenes.filter((s) => !s.deferred);
 
+    /*
+     * WARM THE FIRST SCENE BEFORE ANY CHECK READS A CLOCK.
+     *
+     * Adding `tailwindcss()` made the first scene load pay for compiling the whole
+     * utility set, and on a cold dev server that pushed the two heaviest scenes past
+     * `waitForSettled` — a run reporting `0 nodes · "(empty)"` for pages that render
+     * 126 and 166 nodes on the very next run. A gate that fails on the run that
+     * happens to be first is worse than a slow one: it teaches you to re-run rather
+     * than to read it.
+     *
+     * Discarded on purpose — nothing here is asserted. This exists so the timings the
+     * loop measures are the scene's, not the compiler's.
+     */
+    {
+      const warm = await browser.newPage();
+      await warm
+        .goto(
+          `http://127.0.0.1:${PORT}/__design-editor/scene?scene=${live[0].id}&frame=after&theme=light`,
+          { waitUntil: 'load', timeout: PAINT_TIMEOUT_MS * 2 },
+        )
+        .catch(() => {
+          /* a warmup that fails is not a finding; the real check follows */
+        });
+      await warm.close();
+    }
+
     console.log('every live scene paints its real page');
     for (const s of live) {
       const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
@@ -289,16 +315,38 @@ async function main() {
       // Nothing supplied one until `providers.tsx` imported it, and an unstyled scene still
       // mounts, still stamps, and still passes every check above — it just looks like a
       // broken theme. Counting rules is crude on purpose: the failure was zero, not wrong.
-      const rules = await page.evaluate(() =>
-        [...document.styleSheets].reduce((n, sh) => {
-          try {
-            return n + sh.cssRules.length;
-          } catch {
-            return n; // cross-origin sheet: not ours to read, not ours to count
+      const css = await page.evaluate(() => {
+        let rules = 0;
+        let utilities = 0;
+        // A UTILITY, not just a rule. Counting rules alone passed a frame carrying only
+        // preflight and the token layer — 413 of them — while every Tailwind class on the
+        // page generated nothing and `text-[28px]` computed to 16px. The class is on the
+        // element either way, so nothing structural notices.
+        const UTILITY = /^\.(flex|grid|hidden|absolute|relative|(text|bg|border|rounded|p|px|py|m|mx|my|gap|w|h)-)/;
+        // RECURSIVE, because Tailwind v4 emits utilities inside `@layer utilities {…}`.
+        // Walking only the top level counts the layer as one rule and reads no selector
+        // off it, which reported "0 utilities" for a frame that was styling correctly.
+        const walk = (list) => {
+          for (const r of list) {
+            rules++;
+            if (r.selectorText?.split(',').some((sel) => UTILITY.test(sel.trim()))) utilities++;
+            if (r.cssRules) walk(r.cssRules);
           }
-        }, 0),
+        };
+        for (const sh of document.styleSheets) {
+          try {
+            walk(sh.cssRules);
+          } catch {
+            /* cross-origin sheet: not ours to read, not ours to count */
+          }
+        }
+        return { rules, utilities };
+      });
+      check(
+        `${s.id} is styled`,
+        css.rules > 50 && css.utilities > 20,
+        `${css.rules} rules, ${css.utilities} utilities`,
       );
-      check(`${s.id} is styled`, rules > 50, `${rules} css rules`);
       // An unmocked request is the failure the fixture table exists to prevent, and it is
       // reported rather than tolerated: a scene whose data 401s looks like a broken scene.
       // Only meaningful once the scene has stopped asking — see `trackRequests`.

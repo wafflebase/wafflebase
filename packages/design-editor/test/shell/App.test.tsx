@@ -229,6 +229,66 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+describe('the two modes', () => {
+  /*
+   * The recipe specifies these as MODES with two tabs each; the shell had shipped one
+   * list and three tabs in one group, so `Layout` and `Bindings` were both on screen
+   * while only one of them could have a subject.
+   */
+  /** A project with one component, so `components` mode has a subject to offer. */
+  const withComponent = () =>
+    stubBridge({
+      metadata: async () =>
+        ({
+          ok: true,
+          metadata: {
+            scenes: [scene],
+            files: [
+              {
+                file: 'ui/badge.tsx',
+                module: '@/ui/badge',
+                orphanCva: [],
+                components: [
+                  { name: 'Badge', kind: 'function', props: [], propOrigins: [], cva: null },
+                ],
+              },
+            ],
+          },
+        }) as never,
+    });
+
+  const modeButton = (host: HTMLElement, label: string) =>
+    [...host.querySelectorAll('button')].find(
+      (b) => (b.textContent ?? '').trim().toLowerCase() === label,
+    );
+  const tabs = (host: HTMLElement) =>
+    [...host.querySelectorAll('[role="tab"]')].map((t) => (t.textContent ?? '').trim());
+
+  it('opens on scenes: Layout and Tokens, no Bindings', async () => {
+    const host = await mount(stubBridge());
+    expect(tabs(host)).toEqual(['Layout', 'Tokens']);
+  });
+
+  it('switches to components: Bindings replaces Layout', async () => {
+    const host = await mount(withComponent());
+    await act(async () => modeButton(host, 'components')!.click());
+    expect(tabs(host)).toEqual(['Bindings', 'Tokens']);
+  });
+
+  it('KEEPS the scene mounted in components mode — the centre is the real page', async () => {
+    // The one deliberate divergence from the recipe: no `PreviewPane`, so switching
+    // subject must not blank the centre.
+    const host = await mount(withComponent());
+    await act(async () => modeButton(host, 'components')!.click());
+    expect(host.querySelector('iframe')).toBeTruthy();
+  });
+
+  it('disables components when the project has none, rather than hiding the switch', async () => {
+    const host = await mount(stubBridge()); // the default stub's project has no components
+    expect((modeButton(host, 'components') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
 describe('the mock/empty toggle', () => {
   /*
    * The frame has implemented this the whole time — `?empty=1`, `emptyFixtureTable`, the

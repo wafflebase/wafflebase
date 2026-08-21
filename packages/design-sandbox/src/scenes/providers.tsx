@@ -47,7 +47,7 @@
  * scene-side entry point, and it is loaded frame-qualified with the scene, so the CSS
  * arrives on the same graph the components do.
  */
-import '@/index.css';
+import './scene.css';
 import { useEffect, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';

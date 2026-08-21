@@ -46,6 +46,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { designEditor } from '@wafflebase/design-editor';
 import { wafflebaseCore } from './src/tokens/core-adapter';
 
@@ -266,6 +267,22 @@ export default defineConfig({
     // BEFORE `react()`: the redirect has to win before the transform sees the specifier.
     yorkieOffline(),
     react(),
+    /*
+     * THE HOST STYLESHEET'S COMPILER. `providers.tsx` imports `@/index.css`, whose first
+     * line is `@import "tailwindcss"` — without this plugin that import resolves to the
+     * package's preflight and theme layer and NO UTILITIES ARE GENERATED. The scene then
+     * mounts, stamps, and passes every structural check while `text-[28px]` computes to
+     * 16px, which reads as a broken design rather than a missing plugin.
+     *
+     * The header comment above predicted this: it listed `tailwindcss()` as deferred
+     * "until scene source is served". Scene source has been served since 11c; the plugin
+     * did not come with it.
+     *
+     * `@source` is explicit rather than left to auto-detection. Tailwind roots its content
+     * scan at the project being built — this package — and the classes to generate live in
+     * `packages/frontend/src`, which it would never look at.
+     */
+    tailwindcss(),
     designEditor({
       root: REPO_ROOT,
       scenes: path.join(HERE, 'scenes.config.json'),
