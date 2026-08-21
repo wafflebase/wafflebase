@@ -127,7 +127,8 @@ export interface SceneHostProps {
 }
 
 interface FrameError {
-  kind: 'mount' | 'render' | 'compile' | 'fetch';
+  /** `stream` is a REFUSED EventSource — the guard working, not a missing fixture. */
+  kind: 'mount' | 'render' | 'compile' | 'fetch' | 'stream';
   message: string;
   url?: string;
 }
@@ -179,6 +180,8 @@ export function SceneHost({
   const [stage, setStage] = useState({ width: 0, height: 0 });
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<FrameError | null>(null);
+  /** Refused EventSources, by URL. Expected behaviour, reported rather than raised. */
+  const [streams, setStreams] = useState<string[]>([]);
   const [nonce, setNonce] = useState(0);
   /**
    * Picking ON suppresses the product's own click handlers so a click selects a node;
@@ -239,6 +242,7 @@ export function SceneHost({
   const reload = useCallback(() => {
     setReady(false);
     setError(null);
+    setStreams([]);
     setNonce((n) => n + 1);
   }, []);
 
@@ -268,6 +272,7 @@ export function SceneHost({
   useEffect(() => {
     setReady(false);
     setError(null);
+    setStreams([]);
   }, [sceneId, side]);
 
   useEffect(() => {
@@ -300,6 +305,18 @@ export function SceneHost({
           onReady?.(msg.selectable);
           break;
         case 'wb:error':
+          /*
+           * A REFUSED STREAM IS NOT AN ERROR STATE. The guard turning an EventSource away
+           * is the guard working, and routing it here put a full-bleed red overlay over a
+           * scene that had rendered perfectly — the one failure mode that teaches you to
+           * dismiss the overlay without reading it, which is exactly when a real fetch
+           * miss goes unnoticed. It is still worth SEEING, so it lands in a quiet line on
+           * the toolbar instead of replacing the scene.
+           */
+          if (msg.kind === 'stream') {
+            setStreams((prev) => (prev.includes(msg.url ?? '') ? prev : [...prev, msg.url ?? '']));
+            break;
+          }
           setError({ kind: msg.kind, message: msg.message, url: msg.url });
           if (msg.kind === 'compile') onCompileError?.(msg.message);
           break;
@@ -635,6 +652,19 @@ export function SceneHost({
         )}
 
         {error && <FrameErrorOverlay error={error} onReload={reload} />}
+
+        {/*
+          Streams, said once and quietly. It answers "why is nothing live in here?"
+          without claiming the scene is broken.
+        */}
+        {streams.length > 0 && !error && (
+          <p
+            title={`Refused, by design — a stream has no fixture shape:\n${streams.join('\n')}`}
+            className="pointer-events-auto absolute bottom-1 left-1 max-w-[60%] truncate rounded-sm bg-wb-panel/90 px-1.5 py-0.5 font-mono text-[10px] text-wb-muted"
+          >
+            {streams.length} live stream{streams.length > 1 ? 's' : ''} refused
+          </p>
+        )}
       </div>
     </div>
   );
@@ -661,6 +691,9 @@ export function FrameErrorOverlay({
     compile:
       'The module did not transform — a write from this editor probably broke the file. ' +
       'Revert the last write from the write log.',
+    stream:
+      'The scene opened an EventSource, and the guard turned it away — a stream has no ' +
+      'fixture shape and nothing here reads what it carries. Expected, not a fixture gap.',
     fetch:
       'The scene asked for a URL no fixture covers. Requests are never allowed out of ' +
       'the frame: a real 401 makes an auth wrapper navigate the frame away, which looks ' +

@@ -34,6 +34,20 @@
  * `useContext` would return the default, and the Settings scene's switch would
  * read as always-light with a no-op `setTheme`. Silent, and expensive to find.
  */
+/*
+ * THE HOST'S STYLESHEET, supplied by the host.
+ *
+ * `scene-entry.tsx` deliberately imports none: §6 says the frame keeps using the CONSUMER's
+ * CSS, because dressing a scene in the editor's own stylesheet is measuring the instrument.
+ * That is right, and it left the other half undone — nothing on this side supplied one, so
+ * every scene rendered wafflebase's components with no Tailwind and no tokens, which reads
+ * as a broken theme rather than a missing import.
+ *
+ * It belongs HERE rather than in the manifest: this module is already the consumer's
+ * scene-side entry point, and it is loaded frame-qualified with the scene, so the CSS
+ * arrives on the same graph the components do.
+ */
+import './scene.css';
 import { useEffect, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
