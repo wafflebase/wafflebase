@@ -40,4 +40,17 @@ export const FIXTURE_WORKSPACE = {
  */
 export const AUTH_FIXTURES: FixtureTable = {
   '/api/auth/me': FIXTURE_USER,
+  /*
+   * THE BELL RIDES WITH THE SIGNED-IN USER, which is why it lives here and not in the shell
+   * table. `app/Layout` renders the site header for `shell: "app"` scenes, but the canvas
+   * scenes have no shell and render it themselves through `document-detail.tsx` — so keying
+   * it to the shell left all four canvas scenes asking for a URL no fixture covered. Every
+   * scene that declares `auth` is exactly the set that paints a header; `login` declares
+   * neither, and has none.
+   *
+   * Zero, not a number: an unread badge is chrome, and a scene under design review should
+   * not carry a red dot that means nothing.
+   */
+  '/api/notifications/unread-count': { count: 0 },
+
 };

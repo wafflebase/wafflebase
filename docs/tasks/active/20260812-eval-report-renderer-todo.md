@@ -798,3 +798,378 @@ with `.reverse()`, the ordering test catches it.
       does not change until the scorers and the renderer are re-run against the store.
 - [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
       `build`.
+
+# Follow-up — the validity section, readable provenance, and §1/§3 explained
+
+*2026-08-20, on top of the three sections above. Built against `upstream/main` at
+`3b7a067`, then REBASED onto `39debb4` after #909 landed §5's restructure — see
+"Rebased onto #909" at the end of this section for what that changed and what it did not.*
+
+* Three changes: a section for the metric this benchmark is eventually FOR, a
+header a reader can act on, and two sections that stated figures without saying what they
+were figures of.*
+
+## The problem
+
+**① `validity.mjs` merged (#905) and was wired into nothing.** Measured on the base:
+`report.mjs` carried **0** references to `validity-v1` and `score-all.mjs` **0** references
+to validity. So precision — the only metric in this project about whether a finding is
+TRUE — appeared on the page as one sentence in the limits. A reader cannot tell prose in a
+footer from a metric nobody thought of, and the two are exactly the distinction this
+renderer's four availability states exist to draw. Worse, the two metrics this corpus can
+**never** answer had no representation at all: `absolute_recall` and `miss_profile` were
+declared not-computable inside the scorer and invisible outside it.
+
+**② The header named the reviewer as two hashes and nothing else.**
+
+```
+| reviewer | `panel_sha 46da673dd46dd5576626ee6d1b4e2e40728345e0` · `sha256:1c7853deb…f01` |
+```
+
+A digest has no ordering. It can say *different* and never *older, in which respect* — so
+the page invited comparison against a panel that no longer exists without saying that is
+what a reader would be doing. Everything needed was already in the store and unread:
+`runs/<id>/config.snapshot.json` holds `config_id`, `target`, `sdk_version`,
+`config_hash_version` and `lenses[]` with a model on each, and `run.json` holds
+`panel_sha` and `panel_sha_source`. `store.getRun` already returns the snapshot beside the
+envelope, and the render path already called it.
+
+**③ §1 and §3 stated figures and assumed the reader knew why they mattered.** §2 and §4
+carry their reasoning inline and it works — *"read the two directional rates before the
+Jaccard"*, *"the two figures time different things"*. §1 printed `4.6×–4.9×` with no
+sentence saying that a count is a count; §3 printed two figures that point opposite ways
+without saying what reproducibility is a property OF.
+
+## The change
+
+### §6 — every metric spec §3.3 names, as a cell in the same four states as every figure
+
+A sixth `SECTIONS` entry and a `validityFigures()` in the house style. One grid, six rows,
+`metric | status | unit`. Today four rows read `not computed` with the label census behind
+them and two read `not measurable` with the scorer's own reason — and the section is
+**last**, because the order in `renderReport` is the argument: measured first, bounded
+second, unavailable third. Limits moves from §6 to §7; **§5 is untouched**, deliberately,
+because `prompts/report-rewrite-section5.md` owns it in a parallel branch.
+
+**The refusal is a REFUSAL, not a coercion.** A payload declaring `absolute_recall` as
+anything other than `not-measurable` stops the render. `not-computed` tells a reader to
+wait for a judgement; these two can never be judged, because a corpus assembled from what
+two reviewers said cannot contain what they both missed. A renderer that translated one
+state into the other would print the softer word over a permanent refusal and nothing
+downstream could tell. The follow-up paragraph **names** the two metrics rather than
+saying "the last two rows" — a caption keyed to position would quietly point elsewhere the
+day the scorer reorders `METRICS`.
+
+**Three cell shapes, three adapters, because they are not one shape.** `precisionCell`
+carries `value`; `relativeRecallBand` carries `low`/`high` and **no `value` at all**,
+deliberately, since a point estimate is what that metric may not publish while the
+cross-arm overlap is unresolved; `fpProfile` carries a `false_findings` count printed at
+any size beside a `share_availability` for the proportion. Reading `.availability` across
+all three would leave every profile group unlabelled and `renderCell` refuses that. Each
+figure's `n` is `labelled_findings` and never `readings` — 428 labels written from 245
+readings and 428 written from 428 are different datasets, and only the first number
+belongs under the ratio.
+
+### `score-all.mjs` runs it, and two things had to change to let it
+
+**`reads_api: true`, and the handoff said `false`.** `validity.mjs`'s usage text says it
+"costs nothing", which is about money; the same sentence goes on to say the CodeRabbit arm
+makes read-only GitHub calls. It rebuilds that arm's claim population through
+`adapters/coderabbit.mjs`'s `corpusRecords` — `fetchCodeRabbitPr` once per item, five
+endpoints each. So the budget model no longer holds a literal: `API_READERS` derives both
+reader counts from `STEPS`, and `estimateApiCalls` is `k * per_replicate + cross_run`.
+**The 7-item pilot at K=3 now costs 210 core calls, not 175.** The 2026-08-13 measurement
+is not stale — the pass grew by one cross-run reader, which is `items × 5`. Left at
+`false` the preflight would have asked for 175 against a real 210 and cleared, and the
+pass would have met the limit part way through: a score filed from a partial CodeRabbit
+arm, which reads exactly like a clean review.
+
+**`partial_exit`, because validity exits 1 on a store nobody has adjudicated.** That is
+its correct answer, permanently — `process.exitCode = verdict === "complete" ? 0 : 1`, and
+today the verdict is `partial`. Under this driver's plain exit-code rule the lane would
+have filed six scores and then aborted on the one whose honest output is the absence. So
+one step declares one tolerated code, and the tolerance is checked **harder** rather than
+more loosely: `assertPartialIsDeclared` accepts it only if the payload parses and says
+`partial` in its own words. Exit 1 over a `complete` payload refuses (the code and the
+payload disagree and one of them is wrong); a payload with no verdict refuses (the check's
+input never arrived — lesson 7); 2 and 137 refuse as before; and a step declaring no
+tolerance gets the old rule unchanged. The scorer's reasons reach the log and the scorer id
+reaches `summarise`, because a tolerated failure that printed nothing is indistinguishable
+from a clean pass in a job log.
+
+### The header says which panel, on which model, under which SDK
+
+`reviewerFigures(runs)` takes the run envelopes exactly as `store.getRun` returns them plus
+the id — no new accessor, no new file format, nothing recomputed. It renders the six lens
+ids with the model, sample count, effort and gating each one runs, `config_id`, the replay
+target, the SDK version, and `panel_sha` short with the full one kept once beside it,
+because the full hash is the join key and somebody will need it.
+
+**Every axis is compared across replicates and a disagreement is REPORTED, never
+resolved.** Three replicates carry three snapshots and nothing in the store forces them to
+match; a config edited between two legs leaves one lens on a different model, and printing
+replicate 1's answer would describe a reviewer that produced a third of the data. When the
+lens set disagrees the lens table is **empty** rather than showing one leg's, and each
+disagreeing axis becomes a row naming what every replicate said. Agreement is stated once,
+because "we checked and they match" and "nobody checked" are otherwise the same silence.
+
+⚠ **`captured_at` is not an axis.** The pilot's three snapshots differ in it by 19 hours
+and describe one reviewer — which is exactly why `config-hash.mjs` classifies it as
+cosmetic. A comparison over whole snapshot bytes would report a disagreement on every
+honest store, and a guard that fires on every real input is the same as not having one.
+
+### §1 and §3 explain their metric before their numbers
+
+Two sentences each, in the voice §2 already uses. §1: the section counts findings, it moves
+when a reviewer raises more or fewer claims, and it cannot see whether the reviewer is more
+often right. §3: it asks whether the same reviewer run again says the same thing, it moves
+with anything that changes sampling, and it is silent on correctness — three replicates
+that agreed perfectly could agree on three findings that are all wrong. No glossary, no
+second-person coaching, and every figure keeps its `n` and its unit because `figure`
+refuses without both.
+
+**No stated limit was softened into an apology.** *"Cross-arm latency: not measurable —
+PERMANENTLY"* is stronger as a result than as a regret, and a test asserts the document
+contains none of `unfortunately`, `we were unable`, `we could not measure`, `sadly`,
+`regrettably`.
+
+## Corrected while building
+
+### 1. 🔴 `reads_api: false` came from the handoff and was wrong in the flattering direction
+
+The prompt supplied the `STEPS` row with `reads_api: false` and told the next session to
+check it against the module before asserting it. Checked: it reads the API. The error would
+have been invisible — a preflight that clears is a preflight that says nothing — and it
+understates in the direction that lets the pass start.
+
+### 2. 🔴 A mutation SURVIVED, and it was ineffective rather than uncaught
+
+The ordering half of §3's explanation — *does it precede the table?* — was mutation-tested
+by INSERTING the explanation below the table. It survived. Not because the assertion is
+weak: the explanation then appeared **twice** and `indexOf` found the copy still sitting
+above the table. Checking that a mutation changed behaviour at all costs five seconds;
+concluding "missing test" and writing one costs much more. It is now two edits and one
+mutation — a move, not an insert.
+
+### 3. The `not computed` reasons were 250 characters wide, which is note 2's own complaint
+
+The first pass repeated the label census into every metric row: *"the store holds 0 finding
+label(s) for this corpus version over 0 reading(s), and X is a ratio over labels"*, four
+times. That is the §5 defect reproduced in a table of six rows. The census is now stated
+once above the grid and each row says only what is true of it — and the sentence stopped
+claiming `fp_profile` is a ratio, which it is not.
+
+### 4. A block comment ended early on a glob
+
+`runs/pilot-01__k*/config.snapshot.json` inside a `/** … */` closed the comment at the
+`*/` and the test file stopped parsing. Same family as the NUL-byte separator rule in the
+conventions: a path with a glob in it belongs in prose, not in a block comment.
+
+### 5. `0 labels over 0 readings` states the same thing twice
+
+`readings` is on the page because a judgement count and a reading count are different
+denominators. At zero it qualifies nothing, so the second level now appears only once there
+is something for it to qualify.
+
+## Fail directions
+
+- **No validity score filed** → §6 renders `not computed` naming the scorer, and
+  `report.mjs` exits 1 as it already does for any absent section. The absence is on the
+  page; the exit code stops a pipeline quoting it as complete.
+- **A score file with no `metrics` block** → a DIFFERENT `not computed`, because the
+  refusals are half of what this section carries and a payload naming no metric cannot say
+  which it refused.
+- **A cell in a state this renderer does not know** → refuses. The scorer checks its
+  vocabulary against ours at import (`assertAvailabilityMatchesRenderer`); this is the
+  second door, and a near-miss synonym reaching a cell must stop the render rather than
+  produce a row with nothing in it.
+- **A metric with no declared unit** → refuses. A literal here would caption a scorer's
+  figure with a word the scorer never used.
+- **No run envelopes** → the provenance block renders `not computed` with its reason, and
+  the two hashes above it are untouched. `panel_sha` stays REQUIRED; provenance is
+  optional because it is provenance and not identity.
+- **A replicate with no config snapshot** → named, and it does not count toward agreement.
+  Silently dropping it would leave the header describing a lens set two of three legs never
+  confirmed.
+- **A lens field the snapshot does not state** → the words `not stated`. `security` carries
+  no `effort`; the panel's default lives in `review-panel.mjs` and inferring it here would
+  print a value the snapshot never recorded.
+- **validity exits non-zero for a real fault** → the lane refuses, as before. Only the one
+  declared code is tolerated and only with the payload's own confirmation.
+
+## Explicit non-goals
+
+1. **§5 untouched** — grid, prose and explanation. `prompts/report-rewrite-section5.md`
+   owns it in a parallel branch, and the only change here that reaches it is that Limits
+   renumbered from §6 to §7.
+2. **No scorer changed.** `validity.mjs`, `segmentation.mjs` and the rest are wiring
+   targets, not edits. Every reason string on the page is the scorer's own words, so the
+   report cannot drift from what the scorer refused to compute.
+3. **Nothing computed that the payload does not state.** The only arithmetic is counting
+   how many cells are in which state, which is what §5 already does for its grid.
+4. **No label written and `adjudicate.mjs` not run.** A validity section with zero labels
+   is the correct output today.
+5. **The published report is not re-rendered.** That is a lane dispatch.
+6. **Band and profile detail tables are unexercised by real data.** They render, they are
+   fixture-tested against the scorer's own constructors, and no store has a cell for them
+   yet. Stated rather than implied.
+
+## Verification
+
+- [x] **`agent:tests`, both invocations, from the committed tree**: **2323 + 56 = 2379, 0
+      fail, 0 skip**, against a freshly measured **2307 + 56 = 2363** on the rebased base
+      — **+16**, two of them added by the review round below. (Pre-rebase, on `3b7a067`, it
+      was 2302 + 56 against 2288 + 56; the base has moved twice since, to #909 and then to
+      `ddb6235`, and the baseline is 2307 + 56 on both because nothing upstream has touched
+      these five files.) Both trees extracted separately with the same lockfile-pinned
+      `eslint@9.24.0` `node_modules` and the same `scripts/agent/node_modules` symlinked
+      into each, so the skip count is comparable and zero on both. Both `iso` runs used a
+      private `TMPDIR`.
+- [x] `npx eslint scripts` exits **0**, from the committed tree.
+- [x] **25 mutations, 25 caught, each by the test named for it.** The harness verifies it
+      applied each one — needle count exactly 1, file hash changed — and restores the tree
+      byte for byte, because three sessions in this project have shipped a harness that
+      under-reported in the flattering direction. Five that are the point: the permanent
+      refusal coerced to `not-computed`, a figure's `n` taken from `readings`, the lens
+      table falling back to replicate 1 on a disagreement, `captured_at` becoming an axis,
+      and `reads_api` written `false`.
+- [x] **Rendered against the real store, end to end**, over all three replicates, into a
+      scratch copy so nothing was written to the data repo: **370 lines to 444** on the
+      rebased base (#909 took main's own render from 394 to 370; this section adds 74). §6 reads
+      `not computed` on four metrics with the label census behind them and `not measurable`
+      on two with `what_would_change_it`; the header names all six lenses with
+      `claude-opus-5` on five and `claude-sonnet-5` on `docs`, and states that all three
+      replicates agree.
+- [x] **`validity.mjs` run against the real store** (35 read-only API calls, no money): 0
+      labels, 426 distinct panel claims, 30 CodeRabbit claims, both arms `pending`,
+      `partial`, exit 1 — which is the state `partial_exit` exists for.
+- [x] The report still has **no clock** — the byte-identical re-render test passes
+      untouched, and a new one covers the enlarged document with both the reviewer block
+      and §6 attached, plus the no-blank-cell sweep over every table row.
+- [ ] **Not verified on real data:** a present precision cell, a relative-recall band, a
+      false-positive profile group, a lens set that disagrees across replicates, and a
+      replicate with no config snapshot. None exists in the store; all are fixture-tested,
+      and the validity fixtures are built by calling the scorer's own `precisionCell`,
+      `relativeRecallBand` and `fpProfile` rather than typed out, so the shapes are the
+      scorer's and not this session's guess at them.
+- [ ] **This PR renders; it does not re-render.** The published report under `reports/`
+      does not change until the scorers and the renderer are re-run against the store, and
+      that run now costs 210 core API calls rather than 175.
+- [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
+      `build`.
+
+## Rebased onto #909
+
+*#909 — "Render the report's segmentation section as a grid per metric" — landed while this
+was open, and both changes touch `report.mjs` and `report.test.mjs`. It was a mechanical
+rebase and not a logical one, which was the prediction the two were built in parallel on;
+recorded here because "it merged cleanly" and "it still means the same thing" are different
+claims and only one of them a merge tool can make.*
+
+**ONE conflict, and it was positional.** Both changes inserted a new block into the same
+gap — between `segmentationFigures()` and `sectionFor()`. #909 put `groupSegmentation()`
+there; this change put `VALIDITY_CELL_LISTS`, `validityFigures()`, `unitFor()` and
+`validityCell()`. Nothing overlapped in meaning, so both survive in the order each belongs:
+`groupSegmentation` stays beside the §5 machinery it was written for, the validity block
+follows. `report.test.mjs` merged with no conflict at all, because #909 inserted its tests
+at §5's own block and this change appends at the end of the file — which is the convention
+both prompts specified for exactly this reason.
+
+⚠ **`git apply -3` could not do it and that is not a defect.** A `--depth=1` clone lacks
+the base blob a three-way merge needs, and `git apply` is atomic, so the attempt left the
+tree untouched rather than half-patched. The merge was done per file with `git merge-file`
+over three trees already on disk: the base at `3b7a067`, this branch's version, and
+`39debb4`.
+
+**Two couplings that the clean merge did NOT prove, checked by hand:**
+
+- 🔴 **#909's §5 prose-wrap test slices `md.indexOf("## 5.")` to `md.indexOf("## 6.")`.**
+  Before this change `## 6.` was the limits heading; now it is the validity heading. The
+  slice still bounds exactly §5 — but only because this change put a section there. Had
+  validity been numbered anything else, or appended after the limits, #909's test would
+  have silently widened to cover two sections or thrown on a missing index. It is noted
+  here because the next section added to this report inherits the same coupling.
+- 🔴 **#909's backtick-balance assertion runs over the whole document, and its fixture
+  leaves §6 in the no-score-filed branch** — so it never sees a rendered metric grid, a
+  lens table or a band, which is where this section emits most of its code spans. An
+  unclosed span silently swallows the rest of a markdown line. The assertion is now made
+  over a POPULATED §6 as well, inside this section's own byte-identical test.
+
+**What did NOT change.** The header block, §6, §1's explanation and §3's explanation render
+**byte-identically** before and after the rebase, verified section by section against the
+pre-rebase render. #909 touched `segmentationFigures` and `renderSegmentation`; this change
+touches neither, and §5's own numbering is untouched.
+
+**Re-measured from the rebased committed tree**, because a count from a pre-rebase tree is a
+count against a base that no longer exists: **2323 + 56 = 2379, 0 fail, 0 skip** against a
+freshly measured **2307 + 56 = 2363** on `39debb4` — **+14**, the same delta as before.
+`npx eslint scripts` exits 0. All **25 mutations re-run on the rebased tree, 25 caught by
+the test named for each** — the needles are text rather than line numbers, so #909's
+insertions moved nothing they match.
+
+## Review round — three findings, all valid, all the same family
+
+*Three findings came back on this branch and all three were reproduced before anything was
+changed. Two are one defect wearing two hats.*
+
+### 1. 🔴 Two hardcoded claims that §6 can falsify — the frame, and §7's first limit
+
+`renderWhatThisIsNot()` asserted *"There is no precision figure, no recall figure and no
+correctness figure anywhere in this document"* as a literal, and `labelsLimit()` concluded
+*"no validity label does"* and *"there is still no precision … figure anywhere above"* from
+the complementarity payload alone. §6 renders a precision figure the moment validity labels
+exist. Reproduced: a render carrying six labels puts `0.667 (n=6 labelled findings)` in §6
+while both sentences were still on the page.
+
+**This is the identical defect `labelsLimit` was written to fix, one metric later.** That
+function exists because *"No adjudicated labels exist."* was an assertion with no input and
+could not go red when 357 pair labels landed. The fix derived it from the PAIR census — and
+left it concluding something about VALIDITY labels it had no input for. So the function read
+one payload and made a claim about another, and the frame above every number did the same
+with no payload at all.
+
+Both now ask `qualityFigures(s.validity)`, which counts `present` cells per list — precision
+cells, bands and reporting profile shares, named separately so a band is never counted as a
+precision cell. A **suppressed** cell does not flip either claim: a withheld cell publishes
+no number, and the claim is about what a reader can quote. Both sentences revert verbatim
+when the premise does, which is what makes it a derivation rather than a rewrite.
+
+### 2. 🔴 `lensSignature` could contradict what the file had already proved
+
+`lensSignature` compares the snapshot's RAW lens fields; `config_hash` compares their
+CANONICAL form — `config-hash.mjs` normalises an omitted `effort` to the panel's default
+before hashing. **Measured:** a snapshot that omits `effort` and one that states the default
+explicitly produce the same `config_hash` and different signatures. On that input the block
+printed *"these are not replicates of one reviewer"* and blanked the lens table — over legs
+whose hash is identical, which is the definition of one reviewer on the configuration axis,
+and which the render path already refuses to proceed without.
+
+**The pilot has exactly that shape**: `security` omits `effort` where every other lens states
+one, so a snapshot regenerated by a `config-build.mjs` that inlines defaults would trip it.
+
+`config_hash` is now an axis, and it outranks the signature: a lens difference under an
+agreeing hash is demoted to `cosmetic_differences`, renders as ⚠ rather than 🔴, and the
+lens table still renders. Under a DISAGREEING hash it keeps the full refusal. A hash that is
+not stated outranks nothing — the demotion is earned, never assumed.
+
+⚠ **And the fixture was wrong in the direction that hid this.** The disagreement test moved
+a lens's `model` while leaving `config_hash` identical, which the store cannot produce: a
+model is inside the hash. Left alone, that fixture would have "proved" the demotion rule
+safe while it silently swallowed real reviewer changes. `pilotRun` now takes `configHash` and
+the test moves both together.
+
+## Verification of the review round
+
+- [x] All three findings **reproduced first**, against this branch's own code, before any
+      change: the two sentences printed over a §6 that showed a figure, and two snapshots
+      hashing identically while signaturing differently.
+- [x] **2323 + 56 = 2379, 0 fail, 0 skip** from the committed tree, against **2307 + 56 =
+      2363** on `ddb6235` — **+16**, two of them this round's.
+- [x] `npx eslint scripts` exits **0**.
+- [x] **The approved output is unchanged.** The header block, §1, §3, §6, the frame and §7
+      render byte-identically before and after these fixes on the real store — every change
+      is on a path today's data does not take, which is exactly why the defects survived
+      the first pass.
+- [ ] **The 25 mutations were NOT re-run after this round.** They were verified 25/25 on the
+      pre-fix tree; the three fixes are covered by their own tests, which were written
+      against reproductions rather than after the fact. Stated rather than implied.

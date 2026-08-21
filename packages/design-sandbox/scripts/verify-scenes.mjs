@@ -21,7 +21,7 @@
  *   - deferred scenes             → `no scene "<id>" in the scene manifest`
  * All four are silent in every other lane.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
@@ -188,8 +188,39 @@ async function waitForSettled(page) {
   return null;
 }
 
+/**
+ * `@wafflebase/core` IS BUILT OUTPUT, and this gate loads it.
+ *
+ * Unlike `verify:frame` and `verify:consumer`, which run against `fixtures/consumer` — a
+ * project that does not depend on core — the scenes mount wafflebase's own frontend, whose
+ * `index.css` and modules resolve `@wafflebase/core/*` through the exports map to
+ * `packages/core/dist`. Nothing here rebuilt it, so a `dist` older than `src` was served
+ * silently: every scene failed with `does not provide an export named …`, which reads as a
+ * broken scene rather than as a stale artefact. That cost an hour finding it once.
+ *
+ * Same mtime comparison `buildShellIfStale` uses in `verify:frame`, and for the same reason —
+ * a gate that rebuilds only when its artefact is MISSING serves stale bytes forever.
+ */
+function buildCoreIfStale() {
+  const core = path.join(ROOT, 'packages/core');
+  const dist = path.join(core, 'dist');
+  const newest = (dir) => {
+    let m = 0;
+    for (const e of fsSync.readdirSync(dir, { withFileTypes: true, recursive: true })) {
+      if (!e.isFile()) continue;
+      m = Math.max(m, fsSync.statSync(path.join(e.parentPath ?? e.path, e.name)).mtimeMs);
+    }
+    return m;
+  };
+  if (fsSync.existsSync(dist) && newest(path.join(core, 'src')) <= newest(dist)) return;
+  console.log('building @wafflebase/core (dist missing or older than src/)');
+  const r = spawnSync('pnpm', ['--filter', '@wafflebase/core', 'build'], { cwd: ROOT, stdio: 'inherit' });
+  if (r.status !== 0) throw new Error('core build failed');
+}
+
 async function main() {
   await buildShellIfStale();
+  buildCoreIfStale();
   const { child, log } = await boot();
   let browser;
   try {
@@ -212,12 +243,57 @@ async function main() {
     const manifest = JSON.parse(fsSync.readFileSync(path.join(HERE, 'scenes.config.json'), 'utf8'));
     const live = manifest.scenes.filter((s) => !s.deferred);
 
+    /*
+     * WARM THE FIRST SCENE BEFORE ANY CHECK READS A CLOCK.
+     *
+     * Adding `tailwindcss()` made the first scene load pay for compiling the whole
+     * utility set, and on a cold dev server that pushed the two heaviest scenes past
+     * `waitForSettled` — a run reporting `0 nodes · "(empty)"` for pages that render
+     * 126 and 166 nodes on the very next run. A gate that fails on the run that
+     * happens to be first is worse than a slow one: it teaches you to re-run rather
+     * than to read it.
+     *
+     * Discarded on purpose — nothing here is asserted. This exists so the timings the
+     * loop measures are the scene's, not the compiler's.
+     */
+    {
+      const warm = await browser.newPage();
+      await warm
+        .goto(
+          `http://127.0.0.1:${PORT}/__design-editor/scene?scene=${live[0].id}&frame=after&theme=light`,
+          { waitUntil: 'load', timeout: PAINT_TIMEOUT_MS * 2 },
+        )
+        .catch(() => {
+          /* a warmup that fails is not a finding; the real check follows */
+        });
+      await warm.close();
+    }
+
     console.log('every live scene paints its real page');
     for (const s of live) {
       const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-      const misses = [];
-      page.on('console', (m) => {
-        if (/unmocked/i.test(m.text())) misses.push(m.text().slice(0, 70));
+      /*
+       * READ FROM THE CHANNEL THE GUARD ACTUALLY USES.
+       *
+       * This watched `page.on('console')` for the word "unmocked" — and the guard never
+       * writes to the console. `installFetchGuard`'s miss path calls `onMiss`, which
+       * `scene-entry` turns into `send({ type: 'wb:error', kind: 'fetch', … })`, and then
+       * throws into the caller — where React Query swallows it. So the console stayed clean
+       * and this check passed for every scene whether or not one had leaked.
+       *
+       * `window.parent` is the page itself when the scene document is opened directly, so
+       * the frame's own `postMessage` lands here. Same capture `verify-frame.mjs` already
+       * uses; installed before `goto` so nothing posted during mount is lost.
+       */
+      await page.addInitScript(() => {
+        window.__wbMisses = [];
+        window.__wbStreams = [];
+        window.addEventListener('message', (e) => {
+          const m = e.data;
+          if (!m || m.type !== 'wb:error') return;
+          if (m.kind === 'fetch') window.__wbMisses.push(m.url ?? m.message);
+          if (m.kind === 'stream') window.__wbStreams.push(m.url ?? m.message);
+        });
       });
       const settle = trackRequests(page);
       await page.goto(
@@ -235,12 +311,53 @@ async function main() {
         stamped > 0 && !/mount error/i.test(text ?? '') && !/Loading(\.\.\.|…)/.test(text ?? ''),
         `${stamped} nodes · ${JSON.stringify((text ?? '(empty)').slice(0, 70))}`,
       );
+      // The scene renders the CONSUMER's components, so it needs the CONSUMER's stylesheet.
+      // Nothing supplied one until `providers.tsx` imported it, and an unstyled scene still
+      // mounts, still stamps, and still passes every check above — it just looks like a
+      // broken theme. Counting rules is crude on purpose: the failure was zero, not wrong.
+      const css = await page.evaluate(() => {
+        let rules = 0;
+        let utilities = 0;
+        // A UTILITY, not just a rule. Counting rules alone passed a frame carrying only
+        // preflight and the token layer — 413 of them — while every Tailwind class on the
+        // page generated nothing and `text-[28px]` computed to 16px. The class is on the
+        // element either way, so nothing structural notices.
+        const UTILITY = /^\.(flex|grid|hidden|absolute|relative|(text|bg|border|rounded|p|px|py|m|mx|my|gap|w|h)-)/;
+        // RECURSIVE, because Tailwind v4 emits utilities inside `@layer utilities {…}`.
+        // Walking only the top level counts the layer as one rule and reads no selector
+        // off it, which reported "0 utilities" for a frame that was styling correctly.
+        const walk = (list) => {
+          for (const r of list) {
+            rules++;
+            if (r.selectorText?.split(',').some((sel) => UTILITY.test(sel.trim()))) utilities++;
+            if (r.cssRules) walk(r.cssRules);
+          }
+        };
+        for (const sh of document.styleSheets) {
+          try {
+            walk(sh.cssRules);
+          } catch {
+            /* cross-origin sheet: not ours to read, not ours to count */
+          }
+        }
+        return { rules, utilities };
+      });
+      check(
+        `${s.id} is styled`,
+        css.rules > 50 && css.utilities > 20,
+        `${css.rules} rules, ${css.utilities} utilities`,
+      );
       // An unmocked request is the failure the fixture table exists to prevent, and it is
       // reported rather than tolerated: a scene whose data 401s looks like a broken scene.
       // Only meaningful once the scene has stopped asking — see `trackRequests`.
       const quiet = await settle();
       check(`${s.id} settles its requests`, quiet, quiet ? 'network quiet' : 'still in flight');
-      check(`${s.id} makes no unmocked request`, misses.length === 0, misses.slice(0, 2).join(' | '));
+      const misses = [...new Set(await page.evaluate(() => window.__wbMisses ?? []))];
+      check(`${s.id} makes no unmocked request`, misses.length === 0, misses.slice(0, 3).join(' | '));
+      // Reported, never failed: a refused stream is the guard working. Printed so that a
+      // scene which suddenly opens a NEW one is visible rather than silently absorbed.
+      const streams = [...new Set(await page.evaluate(() => window.__wbStreams ?? []))];
+      if (streams.length) console.log(`       (streams refused: ${streams.join(', ')})`);
       await page.close();
     }
 
@@ -523,6 +640,11 @@ async function main() {
               if (check('the review names which file it will write', !!rel, rel)) {
                 const abs = path.join(ROOT, rel);
                 const before = await fs.readFile(abs, 'utf8');
+                // Cleared before the write — see the same note in verify-frame.mjs: a leftover
+                // cached backup makes `PathGuard.backup` skip, and the presence check below
+                // would then pass on a file this run never created.
+                const cached = path.join(ROOT, 'node_modules/.cache/wafflebase-design-editor', `${rel}.bak`);
+                await fs.rm(cached, { force: true });
                 try {
                   const approve = (await page.$$('[role="dialog"] button')).at(-1);
                   await approve?.click();
@@ -553,17 +675,30 @@ async function main() {
                    * `PathGuard.backup` writes `${file}.bak` beside the source; the design doc's
                    * Risks section names that and prescribes a cache directory instead.
                    */
-                  let left = false;
+                  let beside = false;
                   try {
                     await fs.access(`${abs}.bak`);
-                    left = true;
+                    beside = true;
                   } catch {
-                    /* never created */
+                    /* correct: nothing beside the source */
                   }
-                  check('no backup was left in packages/frontend', !left, `${rel}.bak`);
-                  if (left) {
-                    await fs.unlink(`${abs}.bak`).catch(() => {});
-                    console.log(`       removed ${rel}.bak (see the Risks section)`);
+                  check('no backup beside wafflebase’s source', !beside, `${rel}.bak`);
+
+                  // The second half carries the content now: with backups under the cache
+                  // directory, "nothing beside the source" is true even if the escape hatch
+                  // stopped being written at all.
+                  let inCache = false;
+                  try {
+                    await fs.access(cached);
+                    inCache = true;
+                  } catch {
+                    /* never written */
+                  }
+                  check('and one WAS written into node_modules/.cache', inCache, cached);
+                  try {
+                    await fs.rm(cached, { force: true });
+                  } catch (err) {
+                    check('and the cached backup could be cleaned up', false, String(err));
                   }
                 } finally {
                   /*

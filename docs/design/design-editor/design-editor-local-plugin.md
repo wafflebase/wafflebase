@@ -526,12 +526,14 @@ guarantee. The correct prefix comes from each emitter's own body (`m.` for
 `src.typography.` for `rootOnlyBlock`), not from the token's name; the prototype
 was right for two of four, by luck of the destructuring.
 
-⚠ **A live risk got fresh evidence.** The Risks section below prescribes moving
-`.bak` backups into `node_modules/.cache/wafflebase-design-editor/`. That is still
-unimplemented — `PathGuard.backup` writes `${file}.bak` beside the source — and
-8c's `verify-tokens.mjs --write` demonstrated it by littering three untracked files
-into `packages/core` and `packages/frontend` on every run. The script cleans up
-after itself; the fix belongs in `paths.ts` and is not the sandbox's to make.
+⚠ **A live risk got fresh evidence, and is now closed.** The Risks section below
+prescribes moving `.bak` backups into `node_modules/.cache/wafflebase-design-editor/`.
+8c's `verify-tokens.mjs --write` demonstrated why, by littering three untracked files
+into `packages/core` and `packages/frontend` on every run. `PathGuard.backup` writes
+there now, mirroring the file's root-relative path so equal basenames cannot collide.
+The earlier note here claimed the move was blocked on the transaction work because it
+"changes the restore path too" — it does not: restore runs through the transaction log
+and nothing ever read the `.bak` back.
 
 ### 7. What this replaces
 
@@ -585,11 +587,15 @@ cap is what sets the granularity.
 | 9c | `history` · `anchors` | folded into 11b — `SandboxLayout` is their only caller |
 | 10a | frame protocol · drill-in resolver · the alias seam | **merged** (#855) — see below |
 | 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | **merged** (#855) — see below |
-| 11a | the shell build — `dist/shell`, two documents, self-contained CSS | in review (#879) — see below |
-| 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | written — see below |
-| 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | written — dom scenes live, see below |
-| 12a | the token panels, the review modal, `ComponentList` — `design-editor` | written — §6's last row closed |
-| 12b | the canvas scenes — `design-sandbox` | written — four of five render |
+| 11a | the shell build — `dist/shell`, two documents, self-contained CSS | **merged** (#879) — see below |
+| 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | **merged** (#887) — see below |
+| 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | **merged** (#891) — see below |
+| 12a | the token panels, the review modal, `ComponentList` — `design-editor` | **merged** (#896) — §6's last row closed |
+| 12b | the canvas scenes — `design-sandbox` | **merged** (#903) — all five render |
+| 13a | editing a class against wafflebase's own source — `verify-scenes.mjs` | **merged** (#907) |
+| 13b | publish prep — backups out of the consumer's tree, the peer-import contract test | **merged** (#912) |
+| 13c | ESLint, which this package had never had | **merged** (#914) |
+| 13d | the gaps running it surfaced — the vacuous gate check, the missing Tailwind plugin, the mode split | this PR |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
 review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
@@ -616,6 +622,15 @@ earlier claims in this document:
   `PreviewPane` is blocked on `registry.tsx` — see 11c below. `ReviewApproveModal` is
   12's, so ⌘S writes the plan directly today.
 
+  > **Settled in 13d.** The mode came back; `PreviewPane` did not, and is now a
+  > recorded drop rather than a block. Its registry is a hand-written renderer PER
+  > COMPONENT and the prototype's carried two (Button, Badge) against 25 ui
+  > components — shipping it would show a preview for 2 and an empty frame for the
+  > rest. The centre keeps the real page in both modes, which is the better surface
+  > for judging a token change anyway. What the mode still buys is the right pane:
+  > `Layout` addresses a `NodeAnchor` and `Bindings` a CVA value, so exactly one of
+  > them has a subject at any moment.
+
 Three defects fixed in the ported code: `SceneNodeDetail` printed `expression — cn(…)`
 for every non-literal `className` (7b's `classNameExpr` is what actually distinguishes
 them); `FloatingClassEditor` leaked a `pointermove` listener when unmounted mid-drag;
@@ -627,7 +642,8 @@ And the port nearly dropped Tailwind candidate registration (`useTailwindCandida
 in no PR's file list); without it a composed class has no CSS rule and previews as
 nothing.
 
-**Staging has no browser coverage yet.** The class editor needs a measured selection
+**Staging had no browser coverage when this was written.** (`verify:scenes` now covers
+the click → stage → ⌘Z → ⇧⌘Z → ⌘S loop against wafflebase's own source; 13a.) The class editor needs a measured selection
 rect, which arrives from the frame over `postMessage`, and jsdom loads no iframe — so the
 staging *logic* is unit-tested (`history`, `anchors`, `FloatingClassEditor`) while the
 click → stage → ⌘Z → ⇧⌘Z loop gains its first `verify:frame` checks in 12a and its
@@ -1081,12 +1097,13 @@ project in week 1, before the agent loop. Treat >1 hour as a redesign trigger fo
 the configuration surface, not as documentation debt.
 
 **We write to a stranger's working tree.** `resolveSafe` + `.bak` backups are the
-right shape but were built for our own repo — and the backups land in the
-consumer's source directories, where our `.gitignore` entry cannot reach.
-Wafflebase's own tree already carries stray `.bak` files as evidence.
-*Mitigation:* backups move to `node_modules/.cache/wafflebase-design-editor/`;
-refuse every write resolving outside `options.root`; record the HEAD sha in each
-transaction so "undo" is meaningful against a moving tree.
+right shape but were built for our own repo. *Mitigations:* backups now land in
+`node_modules/.cache/wafflebase-design-editor/` rather than beside the consumer's
+source, where our `.gitignore` could not reach them — both browser gates assert that
+nothing is written next to the file **and** that the cached copy exists, because the
+first check alone goes vacuous once the location moves. Every write resolving outside
+`options.root` is refused. Still open: recording the HEAD sha in each transaction, so
+"undo" is meaningful against a moving tree.
 
 **The model key leaks into the frame.** *Mitigation:* env-only, dev-server-side,
 proxied through the bridge; never serialized into any client bundle, never

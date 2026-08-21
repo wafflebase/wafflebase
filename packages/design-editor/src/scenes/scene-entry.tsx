@@ -92,8 +92,17 @@ if (theme === 'dark') document.documentElement.classList.add('dark');
 const declared = fixturesFor(config);
 installFetchGuard({
   fixtures: mockDataEmpty ? emptyFixtureTable(declared) : declared,
+  /*
+   * TWO KINDS, because they mean opposite things. A missing fetch fixture is a DEFECT: the
+   * scene asked for data, got nothing, and is rendering something a user would never see. A
+   * refused `EventSource` is the DESIGN: a stream has no fixture shape and no scene reads
+   * what it carries, so the guard turns it away on purpose. Reporting both as `fetch` made
+   * every shell scene look like it had a fixture gap forever, which is how a real gap hides.
+   */
   onMiss: (url, method) =>
-    send({ type: 'wb:error', kind: 'fetch', message: `unmocked ${method} ${url}`, url }),
+    method === 'EVENTSOURCE'
+      ? send({ type: 'wb:error', kind: 'stream', message: `refused stream ${url}`, url })
+      : send({ type: 'wb:error', kind: 'fetch', message: `unmocked ${method} ${url}`, url }),
 });
 
 /**

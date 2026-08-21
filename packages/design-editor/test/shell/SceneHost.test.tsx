@@ -105,6 +105,38 @@ describe('frame → host', () => {
     expect(compiles).toEqual(['Unexpected )']);
   });
 
+  it('reports a refused stream WITHOUT the error overlay', () => {
+    /*
+     * The guard refusing an EventSource is the guard working. Raising it as an error
+     * covered a rendered scene with a red full-bleed panel, which is how you train
+     * someone to dismiss the overlay unread — and then miss a real fetch miss.
+     */
+    const { host, win } = mount();
+    fromFrame(win, {
+      type: 'wb:error',
+      kind: 'stream',
+      message: 'refused stream',
+      url: 'http://scene.invalid/api/notifications/stream',
+    });
+    expect(host.textContent).not.toContain('Scene stream error');
+    expect(host.textContent).toContain('1 live stream refused');
+  });
+
+  it('says a refused stream ONCE, however often the frame retries', () => {
+    // EventSource reconnects on its own, so the same URL arrives repeatedly.
+    const { host, win } = mount();
+    const msg = {
+      type: 'wb:error' as const,
+      kind: 'stream' as const,
+      message: 'refused stream',
+      url: 'http://scene.invalid/api/notifications/stream',
+    };
+    fromFrame(win, msg);
+    fromFrame(win, msg);
+    fromFrame(win, msg);
+    expect(host.textContent).toContain('1 live stream refused');
+  });
+
   it('ignores a message from another origin', () => {
     const got: StampRef[] = [];
     const { win } = mount({ onSelect: (n) => got.push(n) });

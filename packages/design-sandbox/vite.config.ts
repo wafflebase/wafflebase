@@ -46,7 +46,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { designEditor } from '@wafflebase/design-editor';
+import { designEditor, BASE } from '@wafflebase/design-editor';
+import tailwindcss from '@tailwindcss/vite';
 import { wafflebaseCore } from './src/tokens/core-adapter';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -107,6 +108,34 @@ const APP_LIBS = [
  */
 const YORKIE_SHIM = path.resolve(HERE, 'src/scenes/canvas/yorkie-offline.tsx');
 const YORKIE_REAL = '@yorkie-js/react/__wb-real';
+
+/**
+ * Send the bare `/` to the editor.
+ *
+ * This package's Vite root holds no `index.html`, so the root URL — the one Vite
+ * prints on start (`http://localhost:5173/`) — dead-ends; the editor lives at
+ * `BASE`. Redirecting makes the printed link land on the editor. A REAL consumer
+ * would not want this (their `/` is their own app), which is why it lives in this
+ * consumer config rather than in the generic plugin.
+ */
+function redirectRootToEditor(): Plugin {
+  return {
+    name: 'design-sandbox-redirect-root',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url ?? '';
+        if (url === '/' || url === '') {
+          res.statusCode = 302;
+          res.setHeader('Location', `${BASE}/`);
+          res.end();
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
 
 function yorkieOffline(): Plugin {
   return {
@@ -266,6 +295,22 @@ export default defineConfig({
     // BEFORE `react()`: the redirect has to win before the transform sees the specifier.
     yorkieOffline(),
     react(),
+    /*
+     * THE HOST STYLESHEET'S COMPILER. `providers.tsx` imports `@/index.css`, whose first
+     * line is `@import "tailwindcss"` — without this plugin that import resolves to the
+     * package's preflight and theme layer and NO UTILITIES ARE GENERATED. The scene then
+     * mounts, stamps, and passes every structural check while `text-[28px]` computes to
+     * 16px, which reads as a broken design rather than a missing plugin.
+     *
+     * The header comment above predicted this: it listed `tailwindcss()` as deferred
+     * "until scene source is served". Scene source has been served since 11c; the plugin
+     * did not come with it.
+     *
+     * `@source` is explicit rather than left to auto-detection. Tailwind roots its content
+     * scan at the project being built — this package — and the classes to generate live in
+     * `packages/frontend/src`, which it would never look at.
+     */
+    tailwindcss(),
     designEditor({
       root: REPO_ROOT,
       scenes: path.join(HERE, 'scenes.config.json'),
@@ -301,5 +346,9 @@ export default defineConfig({
        */
       tokens: wafflebaseCore({ root: REPO_ROOT }),
     }),
+    // A dev-only convenience, and order-independent: it only touches `/`, which is
+    // disjoint from every other plugin's paths, so it sits last rather than muddling
+    // the react()/yorkieOffline ordering note above.
+    redirectRootToEditor(),
   ],
 });
