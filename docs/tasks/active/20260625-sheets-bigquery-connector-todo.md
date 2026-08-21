@@ -22,10 +22,10 @@ Each task lists **what / files / reuse / done**. Mirror
 **Files:** `packages/backend/prisma/schema.prisma`,
 `packages/backend/src/bigquery/` (new module), reuse `datasource/crypto.util.ts`.
 
-- [ ] **`BigQuerySource` model + migration** — project, dataset, location,
+- [x] **`BigQuerySource` model + migration** — project, dataset, location,
   `credentials` (service-account JSON, AES-256-GCM), optional `maximumBytesBilled`,
   workspaceId, authorID. Done: CRUD; key encrypted + masked.
-- [ ] **Module scaffold (controller/dto/service)** — workspace-scoped CRUD +
+- [x] **Module scaffold (controller/dto/service)** — workspace-scoped CRUD +
   `POST /:id/test`. Done: controller-contract e2e green.
 
 ### BQ-2 — Query execution
@@ -34,9 +34,9 @@ Each task lists **what / files / reuse / done**. Mirror
 **Files:** `packages/backend/src/bigquery/bigquery.service.ts`, reuse
 `datasource/sql-validator.ts`, `packages/sheets/src/store/readonly.ts`.
 
-- [ ] **`@google-cloud/bigquery` client + auth** — add dep; authenticate from the
+- [x] **`@google-cloud/bigquery` client + auth** — add dep; authenticate from the
   decrypted service-account key. Done: a query runs against a test dataset.
-- [ ] **Validate + map to response shape** — reuse SELECT/WITH validator
+- [x] **Validate + map to response shape** — reuse SELECT/WITH validator
   (GoogleSQL) + 10k cap; map schema/rows → `{ columns:[{name,dataTypeID}], rows,
   rowCount, truncated, executionTime }`; STRUCT/ARRAY → JSON-string via `toCell`.
   Done: a SELECT renders read-only in a tab.
@@ -85,7 +85,7 @@ Each task lists **what / files / reuse / done**. Mirror
 
 ## Cross-cutting
 
-- [ ] `docs/design/README.md` updated (done on ideation branch)
+- [x] `docs/design/README.md` updated (done on ideation branch)
 - [ ] Lessons in `20260625-sheets-bigquery-connector-lessons.md`
 - [ ] After merge: `pnpm tasks:archive && pnpm tasks:index`
 

@@ -110,7 +110,7 @@ server-authorized; the join event is created server-side.
 - [x] `docs/design/README.md` — Common table entry (done with the design doc)
 - [x] `packages/backend/README.md` — endpoint table + module tree entry
 - [x] Fill in `20260810-notifications-lessons.md`
-- [ ] `pnpm tasks:archive && pnpm tasks:index` before merge
+- [x] `pnpm tasks:archive && pnpm tasks:index` before merge
 
 ## Review
 

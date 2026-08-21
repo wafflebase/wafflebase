@@ -476,13 +476,13 @@ to touch.
       recurrence f1 3/3 · f2 3/3 · f3 1/3 · f4 1/3.
 - [x] Verified from the **committed tree** (`git archive <branch> | tar -x`), not the
       working copy.
-- [ ] **Not verified against real data: every refusal.** All three abort in unit tests,
-      and the gate-route disagreement does too, but all 21 pilot replays are `ok` under
-      one reviewer with both routes agreeing — so the corpus exercises only the happy
-      path. The `status: "error"` refusal has a real subject waiting: the poisoned first
-      K=3 attempt (5 ok · 2 error) is exactly the input it exists to stop.
-- [ ] **Not measured: agreement at K > 3, or on any other corpus.** Three points
-      estimate a spread; they do not bound one.
-- [ ] **Not run:** `pnpm verify:self`, `verify:fast`, `verify:browser`,
-      `verify:integration`, any `packages/**` suite. Nothing here can affect them and
-      CI runs them on the PR regardless.
+- **Not verified against real data: every refusal.** All three abort in unit tests,
+  and the gate-route disagreement does too, but all 21 pilot replays are `ok` under
+  one reviewer with both routes agreeing — so the corpus exercises only the happy
+  path. The `status: "error"` refusal has a real subject waiting: the poisoned first
+  K=3 attempt (5 ok · 2 error) is exactly the input it exists to stop.
+- **Not measured: agreement at K > 3, or on any other corpus.** Three points
+  estimate a spread; they do not bound one.
+- **Not run:** `pnpm verify:self`, `verify:fast`, `verify:browser`,
+  `verify:integration`, any `packages/**` suite. Nothing here can affect them and
+  CI runs them on the PR regardless.

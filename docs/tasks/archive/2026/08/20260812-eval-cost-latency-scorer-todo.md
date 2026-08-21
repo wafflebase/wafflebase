@@ -419,27 +419,27 @@ the latency exceptions are real and specific (22 lines slower than 160).
       the cent. Exit 0, `COMPLETE`.
 - [x] The `duration_source` census prints all three values including the two at
       **n=0**.
-- [ ] **Not verified on real data: every path that handles an absence.** `absent`,
-      `not-run`, an unrecognised source, an `error` item and an unfrozen corpus item
-      are all unit-tested and none has ever occurred in the store — all 21 replays
-      are `ok` and timed. That is the state in which a mishandled absence goes
-      unnoticed, which is why each has a test and a printed census entry rather than
-      a default.
-- [ ] **Not verified: CodeRabbit's amortised price**, because no list price has been
-      supplied. The path is unit-tested; with no inputs it emits `null` and its
-      reason, which is what it will do until someone states the subscription terms.
-- [ ] **CodeRabbit's latency was measured OUTSIDE this module**, and the settled
-      figure is **2.6–14.4 min, median 6.8, n=7/7** over the same seven pull requests
-      — the `coderabbit-start-marker-to-first-finding` interval of §7, printed by the
-      arm's own adapter. ⟳ **The by-hand comment-edit-history method this bullet used
-      to cite, and the 2.5–14.4 it produced, are SUPERSEDED**; §4 records them as
-      history because the mechanism it proposed is wrong by 8× and a deleted wrong
-      answer gets reinvented. **Nothing here computes any of it**, and no figure from
-      it appears in the code — it is recorded so the declared gap can say *measurable*
-      rather than *impossible*, and so whoever wires it up starts from a checked
-      number rather than the superseded one.
-- [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`,
-      `verify:integration`. Nothing here can affect them and CI runs them anyway.
+- **Not verified on real data: every path that handles an absence.** `absent`,
+  `not-run`, an unrecognised source, an `error` item and an unfrozen corpus item
+  are all unit-tested and none has ever occurred in the store — all 21 replays
+  are `ok` and timed. That is the state in which a mishandled absence goes
+  unnoticed, which is why each has a test and a printed census entry rather than
+  a default.
+- **Not verified: CodeRabbit's amortised price**, because no list price has been
+  supplied. The path is unit-tested; with no inputs it emits `null` and its
+  reason, which is what it will do until someone states the subscription terms.
+- **CodeRabbit's latency was measured OUTSIDE this module**, and the settled
+  figure is **2.6–14.4 min, median 6.8, n=7/7** over the same seven pull requests
+  — the `coderabbit-start-marker-to-first-finding` interval of §7, printed by the
+  arm's own adapter. ⟳ **The by-hand comment-edit-history method this bullet used
+  to cite, and the 2.5–14.4 it produced, are SUPERSEDED**; §4 records them as
+  history because the mechanism it proposed is wrong by 8× and a deleted wrong
+  answer gets reinvented. **Nothing here computes any of it**, and no figure from
+  it appears in the code — it is recorded so the declared gap can say *measurable*
+  rather than *impossible*, and so whoever wires it up starts from a checked
+  number rather than the superseded one.
+- **Not run:** `verify:self`, `verify:fast`, `verify:browser`,
+  `verify:integration`. Nothing here can affect them and CI runs them anyway.
 
 ---
 
@@ -614,9 +614,9 @@ meaning anything — and the test asserts `complete` on exactly that input.
       cross-arm ratio, dropping `min_n`, counting the proxy's exclusion as
       incompleteness, pooling our wall clock over replicate medians, captioning an
       interval onto an absent figure, and reporting `n_measured` as `n`.
-- [ ] **Not verified on real data: the absence paths.** All 12 latency flavours are
-      unit-tested and only the "everything present" one has ever occurred — 7/7 items
-      have a marker and check runs. That is precisely the state in which a mishandled
-      absence goes unnoticed, which is why each is printed at n=0 every run.
-- [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
-      `build`. Nothing here can affect them and CI runs them anyway.
+- **Not verified on real data: the absence paths.** All 12 latency flavours are
+  unit-tested and only the "everything present" one has ever occurred — 7/7 items
+  have a marker and check runs. That is precisely the state in which a mishandled
+  absence goes unnoticed, which is why each is printed at n=0 every run.
+- **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
+  `build`. Nothing here can affect them and CI runs them anyway.

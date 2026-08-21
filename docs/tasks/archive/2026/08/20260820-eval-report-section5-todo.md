@@ -185,11 +185,11 @@ since #774, reported as `rest + iso`.
       the section gained the refused-pair table it never had. Without that addition §5
       renders in 128 lines.
 
-- [ ] **Not verified: how §5 reads at a corpus large enough to fill the grid.** Every
-      measurement here is the 7-item pilot, where three of five metrics report and two
-      do not. A corpus that lifts `findings_per_pr` above min-n turns two sentences
-      into two more grids, and nothing here says whether five grids is still readable.
-- [ ] **Not verified: any renderer other than GitHub's.** The unit in a column header
-      makes that header wide — 146 characters on `nit_ratio` — and a narrow viewport
-      will scroll it. That is still 85 characters narrower than the widest row the
-      section already had.
+- **Not verified: how §5 reads at a corpus large enough to fill the grid.** Every
+  measurement here is the 7-item pilot, where three of five metrics report and two
+  do not. A corpus that lifts `findings_per_pr` above min-n turns two sentences
+  into two more grids, and nothing here says whether five grids is still readable.
+- **Not verified: any renderer other than GitHub's.** The unit in a column header
+  makes that header wide — 146 characters on `nit_ratio` — and a narrow viewport
+  will scroll it. That is still 85 characters narrower than the widest row the
+  section already had.

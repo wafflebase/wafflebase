@@ -279,18 +279,18 @@ cell anywhere in a 320-line document.
       diff touches neither `run.mjs` nor `run.test.mjs`. It is the shared-state fault from
       #682 that snapshots `os.tmpdir()`. **Reported, not repaired** — fixing it inside an
       unrelated PR would make this diff unreviewable.
-- [ ] **Not verified: atomicity under a real interruption.** The tests prove the rename
-      happens (removing it goes red) and that no `.part-` debris survives a successful
-      write, which is what is observable without killing a process mid-write.
+- **Not verified: atomicity under a real interruption.** The tests prove the rename
+  happens (removing it goes red) and that no `.part-` debris survives a successful
+  write, which is what is observable without killing a process mid-write.
 - [x] **The segmentation contract is verified against a real producer**, not only fixtures —
       #808's payload regenerated from `reference/eval-segmentation-scorer.diff` and rendered end to
       end. ⚠ **No segmentation score is filed in the store**: #808 writes nothing (it needs this
       PR's `putScore` merged first), so §5 of the published report still reads *"not computed"* —
       now with its unit.
-- [ ] **Not verified: the shape `cost-latency-v1.json` will have.** #791 is still open,
-      so `costLatencyFigures` unpacks nothing beyond its identity fields and takes the
-      absence path. When #791 merges the section grows; today it renders *"not
-      computed"*, which is the honest state.
+- **Not verified: the shape `cost-latency-v1.json` will have.** #791 is still open,
+  so `costLatencyFigures` unpacks nothing beyond its identity fields and takes the
+  absence path. When #791 merges the section grows; today it renders *"not
+  computed"*, which is the honest state.
 
 ---
 
@@ -466,13 +466,13 @@ the same size for both, and remains stated in §6.
       ratio as a sentence, and the two arms' minutes in one table.
 - [x] The report still has **no clock** — the byte-identical re-render test passes
       untouched.
-- [ ] **Not verified: `suppressed` on real data.** No replicate has fewer than 3 priced
-      items, so that cell is unit-tested only.
-- [ ] **This PR renders; it does not re-render.** The published report under `reports/`
-      does not change until somebody re-runs the scorers and the renderer against the
-      store. That is not this PR's job and it is deliberately not done here.
-- [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
-      `build`.
+- **Not verified: `suppressed` on real data.** No replicate has fewer than 3 priced
+  items, so that cell is unit-tested only.
+- **This PR renders; it does not re-render.** The published report under `reports/`
+  does not change until somebody re-runs the scorers and the renderer against the
+  store. That is not this PR's job and it is deliberately not done here.
+- **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
+  `build`.
 
 ## Review round — five defects fixed, three findings declined
 
@@ -791,13 +791,13 @@ with `.reverse()`, the ordering test catches it.
       label does."*
 - [x] The report still has **no clock** — the byte-identical re-render test passes
       untouched, and a second one covers the labelled path.
-- [ ] **Not verified on real data:** a `distant` tier, a `none-matched` replicate, a
-      `store-empty` corpus, an unreadable label file, and a census that disagrees across
-      replicates. None occurs in the store; all are fixture-tested.
-- [ ] **This PR renders; it does not re-render.** The published report under `reports/`
-      does not change until the scorers and the renderer are re-run against the store.
-- [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
-      `build`.
+- **Not verified on real data:** a `distant` tier, a `none-matched` replicate, a
+  `store-empty` corpus, an unreadable label file, and a census that disagrees across
+  replicates. None occurs in the store; all are fixture-tested.
+- **This PR renders; it does not re-render.** The published report under `reports/`
+  does not change until the scorers and the renderer are re-run against the store.
+- **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
+  `build`.
 
 # Follow-up — the validity section, readable provenance, and §1/§3 explained
 
@@ -1046,17 +1046,17 @@ is something for it to qualify.
 - [x] The report still has **no clock** — the byte-identical re-render test passes
       untouched, and a new one covers the enlarged document with both the reviewer block
       and §6 attached, plus the no-blank-cell sweep over every table row.
-- [ ] **Not verified on real data:** a present precision cell, a relative-recall band, a
-      false-positive profile group, a lens set that disagrees across replicates, and a
-      replicate with no config snapshot. None exists in the store; all are fixture-tested,
-      and the validity fixtures are built by calling the scorer's own `precisionCell`,
-      `relativeRecallBand` and `fpProfile` rather than typed out, so the shapes are the
-      scorer's and not this session's guess at them.
-- [ ] **This PR renders; it does not re-render.** The published report under `reports/`
-      does not change until the scorers and the renderer are re-run against the store, and
-      that run now costs 210 core API calls rather than 175.
-- [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
-      `build`.
+- **Not verified on real data:** a present precision cell, a relative-recall band, a
+  false-positive profile group, a lens set that disagrees across replicates, and a
+  replicate with no config snapshot. None exists in the store; all are fixture-tested,
+  and the validity fixtures are built by calling the scorer's own `precisionCell`,
+  `relativeRecallBand` and `fpProfile` rather than typed out, so the shapes are the
+  scorer's and not this session's guess at them.
+- **This PR renders; it does not re-render.** The published report under `reports/`
+  does not change until the scorers and the renderer are re-run against the store, and
+  that run now costs 210 core API calls rather than 175.
+- **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
+  `build`.
 
 ## Rebased onto #909
 
@@ -1170,6 +1170,6 @@ the test moves both together.
       render byte-identically before and after these fixes on the real store — every change
       is on a path today's data does not take, which is exactly why the defects survived
       the first pass.
-- [ ] **The 25 mutations were NOT re-run after this round.** They were verified 25/25 on the
-      pre-fix tree; the three fixes are covered by their own tests, which were written
-      against reproductions rather than after the fact. Stated rather than implied.
+- **The 25 mutations were NOT re-run after this round.** They were verified 25/25 on the
+  pre-fix tree; the three fixes are covered by their own tests, which were written
+  against reproductions rather than after the fact. Stated rather than implied.

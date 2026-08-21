@@ -56,7 +56,8 @@ once.
       which covers the `image` *document type*)
 - [x] `pnpm verify:fast` green
 - [x] Self review over the branch diff — 1 finding, fixed (see Review)
-- [ ] Manual smoke in `pnpm dev` (paste a >10 MB screenshot into a note)
+- Not verified: manual smoke in `pnpm dev` (paste a >10 MB screenshot into a
+  note). Code and unit tests are green; no human run was performed.
 
 ## Out of scope
 

@@ -305,18 +305,18 @@ artefact.
       the file: triggers `[schedule, workflow_dispatch]`, top-level `permissions: {}`, job
       permissions the four reads, `timeout-minutes: 30`, `cancel-in-progress: false`, the
       four dispatch inputs, seven steps, and **no `write` scope anywhere**.
-- [ ] **`actionlint` was NOT run — it is not installed on this machine** (`~/.local/bin`
-      holds `claude`, `gh`, `pnpm`, `pnpx`). The parse above is PyYAML, which proves the
-      file is well-formed and its keys are where they claim to be; it does **not** check
-      Actions-specific semantics the way `actionlint` would — an unknown `uses` input, a bad
-      `cron`, a context that cannot resolve in the scope it appears in. The 10 workflow
-      tests in `score-all.test.mjs` cover the properties this PR cares about (triggers,
-      permissions, no `${{ }}` in a `run:` body, every `inputs.X` declared, the staging
-      paths, the dry-run gate's position, the flags it passes) and are not a substitute for
-      a linter.
-- [ ] **The lane has never run on GitHub.** Everything above is local: the two checkouts,
-      the token, `RUNNER_TEMP` and the push are simulated. The first dispatch should be
-      `dry_run: yes`.
+- **`actionlint` was NOT run — it is not installed on this machine** (`~/.local/bin`
+  holds `claude`, `gh`, `pnpm`, `pnpx`). The parse above is PyYAML, which proves the
+  file is well-formed and its keys are where they claim to be; it does **not** check
+  Actions-specific semantics the way `actionlint` would — an unknown `uses` input, a bad
+  `cron`, a context that cannot resolve in the scope it appears in. The 10 workflow
+  tests in `score-all.test.mjs` cover the properties this PR cares about (triggers,
+  permissions, no `${{ }}` in a `run:` body, every `inputs.X` declared, the staging
+  paths, the dry-run gate's position, the flags it passes) and are not a substitute for
+  a linter.
+- **The lane has never run on GitHub.** Everything above is local: the two checkouts,
+  the token, `RUNNER_TEMP` and the push are simulated. The first dispatch should be
+  `dry_run: yes`.
 
 ---
 
@@ -431,6 +431,6 @@ Base `7d3aab3` (`main`, #896). Both trees extracted with `git archive`, the same
       `existsSync` sweep both run — and then asserts every `--root` and `--from` handed to a
       child is absolute, with a count so neither assertion can pass by never running.
 - [x] Verified from the committed tree.
-- [ ] **Still never run on GitHub.** This fix is verified locally against a clone of `main`;
-      the token, `RUNNER_TEMP` and the push remain simulated. **Dispatch once with
-      `dry_run: yes` before trusting the next cron.**
+- **Still never run on GitHub.** This fix is verified locally against a clone of `main`;
+  the token, `RUNNER_TEMP` and the push remain simulated. **Dispatch once with
+  `dry_run: yes` before trusting the next cron.**

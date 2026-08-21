@@ -227,29 +227,29 @@ each. Baseline is `upstream/main` at **`5f2be6169b0687652f9ae8e23d345ea6f84465fd
 
 ### Not verified, and why
 
-- [ ] 🔴 **THE MIXTURE THIS PR EXISTS TO CATCH STAYS UNDETECTED UNTIL SOMETHING
-      RE-RECORDS, and that is the honest headline.** Every envelope in the store predates
-      `panel_digest`, so the live agent-PR run resolves to a single `not-recorded` bucket
-      rather than to a mixture — the field the refusal reads was only just invented. So the
-      5-panel pool is *not* refused today; it is filed under a path that says nobody
-      recorded a panel, which is an improvement on a path that implied one and a long way
-      short of the guard firing. The benefit is **deferred**, and it arrives one of two
-      ways: a fresh replay (which records digests as it runs) or a backfill onto those 16
-      items (a store write, and the human's call).
-      **The plan's two done-conditions — "the pilot's three legs still score to one path"
-      and "the agent-PR run refuses without the flag" — are jointly unsatisfiable on
-      today's data**, because the two runs are indistinguishable on the digest axis until
-      something records one. The refusal is exercised by tests and demonstrated end to end
-      over recorded digests.
-- [ ] **No replay was run.** `run.mjs`'s new resolution is covered by unit tests and by the
-      end-to-end tests against the stub panel; no paid replay was bought, and this PR needs
-      none.
-- [ ] **The panel/not-panel split for `ask.mjs` and `redact.mjs` is a judgement call**, not
-      a measurement. Both carry something that reaches a model or a reader
-      (`SYSTEM_PROMPT_DYNAMIC_BOUNDARY`, `publicInfraReason`) and both are shared with every
-      other agent script here, so including them would let a change made for the hunt lane
-      re-partition the panel's populations. The reasons are in `NOT_PANEL_FILES` so the call
-      can be revisited against evidence rather than re-argued from scratch.
+- 🔴 **THE MIXTURE THIS PR EXISTS TO CATCH STAYS UNDETECTED UNTIL SOMETHING
+  RE-RECORDS, and that is the honest headline.** Every envelope in the store predates
+  `panel_digest`, so the live agent-PR run resolves to a single `not-recorded` bucket
+  rather than to a mixture — the field the refusal reads was only just invented. So the
+  5-panel pool is *not* refused today; it is filed under a path that says nobody
+  recorded a panel, which is an improvement on a path that implied one and a long way
+  short of the guard firing. The benefit is **deferred**, and it arrives one of two
+  ways: a fresh replay (which records digests as it runs) or a backfill onto those 16
+  items (a store write, and the human's call).
+  **The plan's two done-conditions — "the pilot's three legs still score to one path"
+  and "the agent-PR run refuses without the flag" — are jointly unsatisfiable on
+  today's data**, because the two runs are indistinguishable on the digest axis until
+  something records one. The refusal is exercised by tests and demonstrated end to end
+  over recorded digests.
+- **No replay was run.** `run.mjs`'s new resolution is covered by unit tests and by the
+  end-to-end tests against the stub panel; no paid replay was bought, and this PR needs
+  none.
+- **The panel/not-panel split for `ask.mjs` and `redact.mjs` is a judgement call**, not
+  a measurement. Both carry something that reaches a model or a reader
+  (`SYSTEM_PROMPT_DYNAMIC_BOUNDARY`, `publicInfraReason`) and both are shared with every
+  other agent script here, so including them would let a change made for the hunt lane
+  re-partition the panel's populations. The reasons are in `NOT_PANEL_FILES` so the call
+  can be revisited against evidence rather than re-argued from scratch.
 
 ## The migration decision, for the human
 
