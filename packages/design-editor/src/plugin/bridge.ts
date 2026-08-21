@@ -22,7 +22,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Plugin, ViteDevServer } from 'vite';
 import type { FrameSide, MutateRequest, MutateResult } from './protocol.ts';
+import { planFiles } from './protocol.ts';
 import { BASE } from './shell.ts';
+import { frameOf } from './frame.ts';
 import type { PathGuard } from './paths.ts';
 import type { Tracker } from './tracked.ts';
 import type { Safelist } from './safelist.ts';
@@ -186,6 +188,51 @@ export interface ArtifactHost {
   moduleGraph: { getModulesByFile(file: string): Set<ArtifactModule> | undefined };
   reloadModule(mod: ArtifactModule): Promise<void>;
   config: { logger: { warn(msg: string): void } };
+}
+
+/**
+ * Publish a staged plan to one frame side and invalidate what it changes.
+ *
+ * THE UNION IS THE WHOLE POINT, and it is the half that did not survive extraction.
+ * `POST /plan` set the map and returned, so the frame kept serving the module it had
+ * already transformed and a staged class edit was invisible until Approve wrote it.
+ *
+ * Invalidating only the NEW plan's files is the naive version, and it fails in both
+ * directions: a file the old plan patched and the new one does not would serve its
+ * stale patch forever, and dropping the last intent leaves a plan that names no files
+ * at all — so undoing an edit would never revert on screen. Old ∪ new is what makes
+ * staging reversible.
+ *
+ * Only modules belonging to THIS side are reloaded. `before` and `after` are two
+ * transforms of the same file, and reloading both would make one side's preview move
+ * when the other's plan changed.
+ */
+export async function publishPlan(
+  server: ArtifactHost,
+  side: FrameSide,
+  files: Iterable<string>,
+  resolve: (rel: string) => { abs: string } | { error: string },
+): Promise<string[]> {
+  const reloaded: string[] = [];
+  for (const rel of files) {
+    const r = resolve(rel);
+    if ('error' in r) {
+      server.config.logger.warn(`[design-editor] plan names an unreachable file ${rel}: ${r.error}`);
+      continue;
+    }
+    for (const mod of server.moduleGraph.getModulesByFile(r.abs) ?? []) {
+      if (frameOf(mod.id) !== side) continue;
+      try {
+        await server.reloadModule(mod);
+        reloaded.push(mod.id ?? rel);
+      } catch (err) {
+        // Logged, not thrown: one unreloadable module must not lose the rest of the
+        // plan. Silence here means "I staged an edit and the frame did not move".
+        server.config.logger.warn(`[design-editor] could not reload ${rel}: ${String(err)}`);
+      }
+    }
+  }
+  return reloaded;
 }
 
 /**
@@ -690,8 +737,18 @@ export function bridge(deps: BridgeDeps): Plugin {
             if (side !== 'before' && side !== 'after') {
               return json(res, 400, { ok: false, error: '`side` must be "before" or "after"' });
             }
-            deps.plans.set(side, payload?.intents ?? []);
-            return json(res, 200, { ok: true, side, count: (payload?.intents ?? []).length });
+            const next = payload?.intents ?? [];
+            // Union of what this side WAS serving patched and what it will serve now —
+            // see `publishPlan`. Read before the map is overwritten.
+            const union = new Set([
+              ...planFiles(deps.plans.get(side) ?? []),
+              ...planFiles(next),
+            ]);
+            deps.plans.set(side, next);
+            const reloaded = await publishPlan(server, side, union, (rel) =>
+              deps.guard.resolveSafe(rel),
+            );
+            return json(res, 200, { ok: true, side, count: next.length, reloaded });
           }
 
           return next();

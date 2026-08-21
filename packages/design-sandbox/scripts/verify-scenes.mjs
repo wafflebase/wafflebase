@@ -598,9 +598,50 @@ async function main() {
             (await saveBtn()).text,
           );
 
+          /*
+           * THE STAGED EDIT MUST BE ON SCREEN BEFORE IT IS ON DISK.
+           *
+           * This is the check whose absence let live class preview go missing: `POST /plan`
+           * and `scene-patch` both shipped, nothing called the route, and every check here
+           * looked at the SAVE path — so the frame silently painted the committed state
+           * while the editor said an edit was staged. Token edits were unaffected and
+           * previewed live, which made the gap look like a scene quirk rather than a
+           * missing call.
+           *
+           * Read off the frame's own DOM by node id rather than through the stale element
+           * handle: publishing the plan reloads the module, so the node the click landed on
+           * has been replaced by the time this runs.
+           */
+          const nodeId = await editTarget.evaluate((n) => n.getAttribute('data-wb-node'));
+          await page.waitForTimeout(1200); // the plan publish → module reload round trip
+          const staged = await inner.evaluate(
+            (id) =>
+              document.querySelector(`[data-wb-node="${id}"]`)?.className ?? '(node is gone)',
+            nodeId,
+          );
+          check(
+            'the staged class is on screen BEFORE any save',
+            /\bflex-col\b/.test(String(staged)),
+            String(staged).slice(0, 90),
+          );
+
           await page.keyboard.press('Control+z');
           await page.waitForTimeout(400);
           check('⌘Z takes it back', (await saveBtn()).disabled === true, JSON.stringify(await saveBtn()));
+
+          // The REVERT half of the union. An emptied plan names no files of its own, so a
+          // frame that reloads only the new plan's files keeps the patch on screen forever.
+          await page.waitForTimeout(1200);
+          const reverted = await inner.evaluate(
+            (id) =>
+              document.querySelector(`[data-wb-node="${id}"]`)?.className ?? '(node is gone)',
+            nodeId,
+          );
+          check(
+            'and undoing it takes the class OFF the screen too',
+            !/\bflex-col\b/.test(String(reverted)),
+            String(reverted).slice(0, 90),
+          );
 
           await page.keyboard.press('Control+Shift+z');
           await page.waitForTimeout(400);
