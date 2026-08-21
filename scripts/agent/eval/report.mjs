@@ -76,6 +76,7 @@ import { parseArgs } from "../gh-checks.mjs";
 import { repeated, spread } from "./reliability.mjs";
 import { LABEL_AVAILABILITY, LABEL_SOURCES } from "./pair-labels.mjs";
 import { SCORE_SCOPES, byConfigSegment } from "./store.mjs";
+import { PANEL_DIGEST_ABSENT, isPanelDigest, resolvePanelDigest } from "./panel-identity.mjs";
 
 const refuse = (msg) => {
   throw new Error(`report: ${msg}`);
@@ -316,16 +317,43 @@ export function unitOf(cell) {
  * The comparison's identity, DERIVED from the comparability key rather than
  * invented.
  *
- * The store's invariants make `(config_hash, corpus_version)` the pair that decides
- * whether two runs may be pooled, and decision 13 makes results from a different
- * reviewer unpoolable. So the report's own name is that pair: a report whose
+ * The store's invariants make `(config_hash, panel_digest, corpus_version)` the key
+ * that decides whether two runs may be pooled, and decision 13 makes results from a
+ * different reviewer unpoolable. So the report's own name is that key: a report whose
  * filename names its reviewer and its corpus cannot be mistaken for one about
  * another reviewer, and `byConfigSegment` is reused rather than a second joiner
  * written, so the report file and the `scores/by-config/` directory it renders from
  * are named by one rule.
+ *
+ * ⚠ THE FILENAME CHANGED WHEN THE PANEL DIGEST JOINED THE KEY, and that is the fix
+ * rather than a side effect: two panels previously produced one `reports/` filename and
+ * the second render overwrote the first, the same collision as in `scores/by-config/`
+ * one level down. A report published under the old two-part name is not renamed and not
+ * read; it is a snapshot of a comparison whose reviewer it could not state.
  */
-export function comparisonIdFor({ configHash, corpusVersion } = {}) {
-  return byConfigSegment(configHash, corpusVersion);
+/**
+ * A cross-run score payload with the panel it is being filed under written INTO it.
+ *
+ * 🔴 THE PATH IS NOT PART OF THE FILE. A score file lifted out of git on its own has to be
+ * able to say which reviewer produced it and how well that is attributed, so both travel in
+ * the payload and `store.putScore` refuses a cross-run write where the payload and the path
+ * disagree. `panel_digests` rides along only for a `mixed` write, where the single value is
+ * a statement about a pool rather than a reviewer.
+ *
+ * Exported, and not inline in `main`, for the reason the mutation pass found: stamping
+ * written inside the CLI could not be reached by any test, and replacing `panel.source` with
+ * a hardcoded `"files"` — which would claim every reconstructed digest had been observed —
+ * survived undetected.
+ */
+export function withPanelStamp(payload, panel) {
+  if (panel === null || panel === undefined) return payload;
+  const stamped = { ...payload, panel_digest: panel.digest, panel_digest_source: panel.source };
+  if (panel.mixed) stamped.panel_digests = panel.tally.map((t) => t.digest);
+  return stamped;
+}
+
+export function comparisonIdFor({ configHash, panelDigest, corpusVersion } = {}) {
+  return byConfigSegment(configHash, panelDigest, corpusVersion);
 }
 
 // --- reading the scorers' payloads -------------------------------------------
@@ -1626,6 +1654,12 @@ export function reviewerFigures(runs = []) {
     { field: "lens set", of: (r) => lensSignature(r.configSnapshot) },
     { field: "panel_sha", of: (r) => stated(r.runJson?.panel_sha) },
     { field: "panel_sha_source", of: (r) => stated(r.runJson?.panel_sha_source) },
+    // The panel's CONTENT identity, on the same footing as its commit and compared the
+    // same way. It is a separate axis and not a derivative of `panel_sha`: two legs can
+    // agree on the digest and differ on the sha (a panel deleted and restored, #830 and
+    // #850) or agree on neither, and only the digest decides poolability.
+    { field: "panel_digest", of: (r) => stated(r.runJson?.panel_digest) },
+    { field: "panel_digest_source", of: (r) => stated(r.runJson?.panel_digest_source) },
   ];
   const disagreements = [];
   const agreed = {};
@@ -1665,6 +1699,7 @@ export function reviewerFigures(runs = []) {
 
   const first = withSnapshot[0].configSnapshot;
   const panelSha = agreed.panel_sha && agreed.panel_sha !== NOT_STATED ? agreed.panel_sha : null;
+  const panelDigest = agreed.panel_digest && agreed.panel_digest !== NOT_STATED ? agreed.panel_digest : null;
   return {
     availability: "present",
     replicates: withSnapshot.map((r) => ({ run_id: r.run_id ?? null })),
@@ -1681,6 +1716,9 @@ export function reviewerFigures(runs = []) {
     // seven characters are what a reader can compare against `git log` and forty are
     // what a machine joins on.
     panel_sha: panelSha === null ? null : { full: panelSha, short: panelSha.slice(0, 7), source: agreed.panel_sha_source ?? NOT_STATED },
+    // Same shape and same rule as `panel_sha` above: null when the legs disagree, never
+    // one leg's answer. The short form drops the `sha256:` prefix, which is constant.
+    panel_digest: panelDigest === null ? null : { full: panelDigest, short: panelDigest.slice(7, 19), source: agreed.panel_digest_source ?? NOT_STATED },
     // The lens table is the FIRST replicate's only when the lens set agreed; when it did
     // not, `disagreements` carries every leg's signature and this stays empty rather
     // than showing one of them as though it were the reviewer.
@@ -1712,8 +1750,8 @@ export function reviewerFigures(runs = []) {
  * render given no envelopes says so where the lens table would have been, which is the
  * declared-absence rule this module applies to every other missing input.
  */
-export function buildReport({ configHash, corpusVersion, panelSha = null, runIds = [], corpusItemIds = [], runs = [], scores = {} } = {}) {
-  const comparisonId = comparisonIdFor({ configHash, corpusVersion });
+export function buildReport({ configHash, corpusVersion, panelSha = null, panelDigest = null, runIds = [], corpusItemIds = [], runs = [], scores = {} } = {}) {
+  const comparisonId = comparisonIdFor({ configHash, panelDigest, corpusVersion });
   if (typeof panelSha !== "string" || panelSha.trim() === "") {
     refuse(
       "panel_sha is required — decision 13 makes results from a different reviewer unpoolable, and the reviewer is the PAIR " +
@@ -1723,7 +1761,11 @@ export function buildReport({ configHash, corpusVersion, panelSha = null, runIds
   return {
     schema_version: SCHEMA_VERSION,
     comparison_id: comparisonId,
-    reviewer: { config_hash: configHash, panel_sha: panelSha },
+    // `panel_digest` is inside the pooling key and therefore inside `reviewer`, unlike
+    // `reviewer_detail` below, which is the same reviewer in words. `comparisonIdFor`
+    // has already refused anything that is not a digest or a named state, so by here it
+    // is a value a reader can act on.
+    reviewer: { config_hash: configHash, panel_sha: panelSha, panel_digest: panelDigest },
     // The same reviewer, in words: which lenses ran, on which model, under which SDK.
     // Beside `reviewer` rather than inside it, because that pair is the POOLING KEY and
     // nothing may be added to it without changing what may be compared with what.
@@ -1802,7 +1844,7 @@ export function renderReport(result) {
   out.push(`| what | value |`);
   out.push(`|---|---|`);
   out.push(`| comparison id | \`${r.comparison_id}\` |`);
-  out.push(`| reviewer | \`panel_sha ${r.reviewer.panel_sha}\` · \`${r.reviewer.config_hash}\` |`);
+  out.push(`| reviewer | \`panel_sha ${r.reviewer.panel_sha}\` · \`panel_digest ${r.reviewer.panel_digest}\` · \`${r.reviewer.config_hash}\` |`);
   out.push(`| corpus | \`${r.corpus_version}\` — ${r.corpus_item_ids.join(", ") || "(none)"} |`);
   out.push(`| replicates | ${r.run_ids.length ? r.run_ids.map((x) => `\`${x}\``).join(" · ") : "(none)"} |`);
   out.push("");
@@ -1846,6 +1888,13 @@ function renderReviewer(r) {
     d.panel_sha
       ? `| panel code | \`${d.panel_sha.short}\` (full \`${d.panel_sha.full}\`, recorded from ${say("panel_sha_source")}) |`
       : "| panel code | **disagrees across replicates — see below** |",
+  );
+  // The digest is the half of the reviewer that decides which file these figures were
+  // filed under, so it is stated beside the commit rather than left to the path.
+  out.push(
+    d.panel_digest
+      ? `| panel contents | \`${d.panel_digest.short}\` (full \`${d.panel_digest.full}\`, recorded from ${say("panel_digest_source")}) |`
+      : "| panel contents | **disagrees across replicates — see below** |",
   );
   out.push("");
   if (d.lenses.length > 0) {
@@ -3257,9 +3306,11 @@ function renderLatencyLimit(r) {
 
 const USAGE =
   "usage: report.mjs --root <eval-data-root> --corpus-version <v> --config-hash <sha256:...> [--panel-sha <sha>]\n" +
-  "                  --run-id <id> [--run-id <id> ...] [--dry-run]\n" +
+  "                  --run-id <id> [--run-id <id> ...] [--panel-digest <sha256:...>]\n" +
+  "                  [--allow-mixed-panel] [--dry-run]\n" +
   "       report.mjs --root <eval-data-root> --persist --scorer-id <id> --scope per-run|cross-run\n" +
-  "                  --from <file|-> [--run-id <id>] [--corpus-version <v>] [--config-hash <sha256:...>]\n" +
+  "                  --from <file|-> [--run-id <id> ...] [--corpus-version <v>] [--config-hash <sha256:...>]\n" +
+  "                  [--panel-digest <sha256:...>] [--allow-mixed-panel]\n" +
   "\n" +
   "PERSIST files a scorer's --json output under scores/; the default mode RENDERS a\n" +
   "markdown comparison out of scores/ into reports/<comparison id>.md.\n" +
@@ -3270,10 +3321,17 @@ const USAGE =
   "'not computed', and that is only observable against a declared expectation.\n" +
   "\n" +
   "--root is REQUIRED and has no default. Writing benchmark data into whichever\n" +
-  "repository this code happens to live in would be permanent.";
+  "repository this code happens to live in would be permanent.\n" +
+  "\n" +
+  "A cross-run score is keyed by the PANEL as well as the config, read from the\n" +
+  "panel_digest the named runs recorded. Runs that disagree are REFUSED: one number\n" +
+  "over two panels is one number for two reviewers. --allow-mixed-panel files it\n" +
+  "anyway, under `mixed`, with the panels it pooled stamped into the payload.\n" +
+  "--panel-digest states the panel for runs that recorded none (see\n" +
+  "eval/panel-identity.mjs --at <ref>); without it those score under `not-recorded`.";
 
 async function main() {
-  const args = parseArgs(process.argv, { booleans: ["persist", "dry-run", "help", "json"] });
+  const args = parseArgs(process.argv, { booleans: ["persist", "dry-run", "help", "json", "allow-mixed-panel"] });
   if (args.help) {
     console.log(USAGE);
     return;
@@ -3297,6 +3355,38 @@ async function main() {
   // third would be the one that drifts.
   const runIds = repeated(process.argv, "run-id");
 
+  /**
+   * Which panel these runs ran, for the paths below — ONE resolution used by both the
+   * persist path and the render path, because a score filed under one panel and read
+   * back under another is a "not computed" over a number that is sitting there.
+   *
+   * `--panel-digest` states it for runs that recorded none, which is every run written
+   * before the field existed. Without it those runs resolve to the NAMED state
+   * `not-recorded` and say so on stderr rather than refusing: a run that predates the
+   * field is not a fault, and refusing here would stop the lane on all of its own
+   * history. It is not a safe pooling key either, which is why it appears in the path.
+   */
+  const resolvePanel = (runIds) => {
+    if (args["panel-digest"]) {
+      if (!isPanelDigest(args["panel-digest"])) {
+        console.error(`--panel-digest must be sha256:<64 hex>, got ${JSON.stringify(args["panel-digest"])}`);
+        process.exit(2);
+      }
+      console.error(`  ! panel_digest ${args["panel-digest"]} was STATED on the command line, not read from the runs`);
+      return { digest: args["panel-digest"], mixed: false, tally: [], source: "reconstructed" };
+    }
+    const resolved = resolvePanelDigest({ records: store.panelDigestRecords(runIds), allowMixed: args["allow-mixed-panel"] });
+    if (resolved.mixed) {
+      console.error(`  ! MIXED PANEL, filed as such: ${resolved.tally.map((t) => `${t.digest} × ${t.items}`).join(", ")}`);
+    } else if (resolved.digest === PANEL_DIGEST_ABSENT) {
+      console.error(
+        `  ! none of the ${resolved.tally[0].items} record(s) under ${runIds.join(", ")} states a panel_digest, so this is keyed ` +
+          `by ${JSON.stringify(PANEL_DIGEST_ABSENT)} — a named state, not a panel. Re-run the replay, or pass --panel-digest`,
+      );
+    }
+    return resolved;
+  };
+
   if (args.persist) {
     if (!args["scorer-id"] || !args.scope || !args.from) {
       console.error("--persist needs --scorer-id, --scope and --from\n");
@@ -3319,12 +3409,19 @@ async function main() {
       console.error(`--from ${args.from} is not JSON: ${e.message}`);
       process.exit(1);
     }
+    // 🔴 THE PANEL IS STAMPED INTO THE PAYLOAD, not only into the path, and `putScore`
+    // refuses a cross-run write where the two disagree. A score file lifted out of git
+    // on its own must be able to say which reviewer produced it; the directory it came
+    // from is not part of the file.
+    const panel = args.scope === "cross-run" ? resolvePanel(runIds) : null;
+    payload = withPanelStamp(payload, panel);
     const written = store.putScore(
       {
         scorerId: args["scorer-id"],
         scope: args.scope,
-        runId: runIds[0] ?? null,
+        runId: args.scope === "per-run" ? runIds[0] ?? null : null,
         configHash: args["config-hash"] ?? null,
+        panelDigest: panel?.digest ?? null,
         corpusVersion: args["corpus-version"] ?? null,
       },
       payload,
@@ -3350,7 +3447,7 @@ async function main() {
     process.exit(2);
   }
 
-  const key = { configHash: args["config-hash"], corpusVersion: args["corpus-version"] };
+  const key = { configHash: args["config-hash"], panelDigest: resolvePanel(runIds).digest, corpusVersion: args["corpus-version"] };
   // The PANEL SHA is read from a run envelope rather than taken on trust, because it
   // is the half of the reviewer pair that `config_hash` cannot see. `--panel-sha`
   // exists for a store whose runs are absent, and a disagreement is refused rather

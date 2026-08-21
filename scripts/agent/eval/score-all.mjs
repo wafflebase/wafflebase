@@ -44,6 +44,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EvalStore, REPORTS_DIR, SCORES_DIR, SCORE_SCOPE_DIRS, byConfigSegment } from "./store.mjs";
 import { comparisonIdFor } from "./report.mjs";
+import { PANEL_DIGEST_ABSENT, isPanelDigest, resolvePanelDigest } from "./panel-identity.mjs";
 import { parseArgs } from "../gh-checks.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -545,9 +546,9 @@ export function assertCapability(cap, { supported, payload }) {
  * the same shapes a second time — two implementations of one path is how the second one
  * drifts and files a score the renderer cannot find.
  */
-export function writtenPaths({ configHash, corpusVersion, runIds }) {
+export function writtenPaths({ configHash, panelDigest, corpusVersion, runIds }) {
   const out = [];
-  const segment = byConfigSegment(configHash, corpusVersion);
+  const segment = byConfigSegment(configHash, panelDigest, corpusVersion);
   for (const step of STEPS) {
     if (step.per_replicate) {
       for (const runId of runIds) out.push(path.posix.join(SCORES_DIR, SCORE_SCOPE_DIRS["per-run"], runId, `${step.scorer_id}.json`));
@@ -555,7 +556,7 @@ export function writtenPaths({ configHash, corpusVersion, runIds }) {
       out.push(path.posix.join(SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], segment, `${step.scorer_id}.json`));
     }
   }
-  out.push(path.posix.join(REPORTS_DIR, `${comparisonIdFor({ configHash, corpusVersion })}.md`));
+  out.push(path.posix.join(REPORTS_DIR, `${comparisonIdFor({ configHash, panelDigest, corpusVersion })}.md`));
   return out;
 }
 
@@ -579,17 +580,49 @@ export function scorerArgs(step, { root, corpusVersion, runIds, capabilityFlags 
   return args;
 }
 
-/** `report.mjs --persist`'s argv for one payload. */
-export function persistArgs(step, { root, corpusVersion, configHash, from, runId = null }) {
+/**
+ * `report.mjs --persist`'s argv for one payload.
+ *
+ * 🔴 A CROSS-RUN STEP IS PASSED EVERY REPLICATE, not none. It used to be passed no run
+ * id at all — correctly, because the score is not about one leg — but the panel a
+ * cross-run score is keyed by is read off the runs it pools, so the filing step has to
+ * know which those are. `runId` stays a per-replicate argument; `runIds` is what a
+ * cross-run step needs, and passing both would let them disagree.
+ */
+export function persistArgs(step, { root, corpusVersion, configHash, from, runId = null, runIds = [], panelDigest = null, allowMixedPanel = false }) {
   const args = [path.join("eval", "report.mjs"), "--root", root, "--persist", "--scorer-id", step.scorer_id, "--scope", step.scope, "--from", from, "--corpus-version", corpusVersion, "--config-hash", configHash];
   if (runId) args.push("--run-id", runId);
+  if (!step.per_replicate) {
+    for (const id of runIds) args.push("--run-id", id);
+    args.push(...panelFlags({ panelDigest, allowMixedPanel }));
+  }
   return args;
 }
 
 /** `report.mjs`'s render argv. */
-export function renderArgs({ root, corpusVersion, configHash, runIds }) {
+export function renderArgs({ root, corpusVersion, configHash, runIds, panelDigest = null, allowMixedPanel = false }) {
   const args = [path.join("eval", "report.mjs"), "--root", root, "--corpus-version", corpusVersion, "--config-hash", configHash];
   for (const runId of runIds) args.push("--run-id", runId);
+  args.push(...panelFlags({ panelDigest, allowMixedPanel }));
+  return args;
+}
+
+/**
+ * The two panel flags, in one place: the driver and its children must resolve the panel
+ * identically or a score is filed under a path the renderer then reads as "not
+ * computed". Built once rather than appended at each of the three call sites.
+ *
+ * ⚠ ONLY A REAL DIGEST IS HANDED DOWN. `--panel-digest` means "this IS the panel", so
+ * passing `not-recorded` or `mixed` through it would be stating a state as an identity —
+ * and `report.mjs` refuses it for exactly that reason. Those two resolve in the child
+ * from the same envelopes and the same `--allow-mixed-panel`, so it reaches the same
+ * answer; and if it ever did not, the driver's `getScore` round trip below reads the
+ * path the DRIVER expects and refuses when nothing is there.
+ */
+function panelFlags({ panelDigest, allowMixedPanel }) {
+  const args = [];
+  if (isPanelDigest(panelDigest)) args.push("--panel-digest", panelDigest);
+  if (allowMixedPanel) args.push("--allow-mixed-panel");
   return args;
 }
 
@@ -614,6 +647,8 @@ export async function scoreAll({
   corpusVersion,
   configHash,
   runIds,
+  panelDigest: panelDigestArg = null,
+  allowMixedPanel = false,
   out: outArg,
   agentDir = HERE.replace(/\/eval$/, ""),
   env = process.env,
@@ -674,6 +709,23 @@ export async function scoreAll({
   for (const runId of ids) {
     if (store.getRun(runId) === null) refuse(`run ${JSON.stringify(runId)} does not exist under ${root} — every scorer below would refuse it, one API budget later`);
   }
+  // WHICH PANEL, RESOLVED ONCE AND BEFORE THE BUDGET IS SPENT. Every cross-run path this
+  // pass writes is keyed by it, and so is the path each child files under, so the driver
+  // and its children have to agree — hence `panelFlags`, which hands the answer down
+  // rather than letting three processes each read the store and hope.
+  //
+  // Refused HERE, on the same argument as the two-replicate check above: a mixture of
+  // panels is knowable for free from the envelopes, and meeting that refusal after
+  // volume-mix and complementarity have spent 100-odd API calls wastes the budget to
+  // learn something that was on disk the whole time.
+  if (panelDigestArg !== null && !isPanelDigest(panelDigestArg)) {
+    refuse(`--panel-digest must be sha256:<64 hex>, got ${JSON.stringify(panelDigestArg)}`);
+  }
+  const panel = panelDigestArg ?? resolvePanelDigest({ records: store.panelDigestRecords(ids), allowMixed: allowMixedPanel }).digest;
+  if (panel === PANEL_DIGEST_ABSENT) {
+    log(`score-all: no replicate records a panel_digest, so every cross-run path is keyed by ${JSON.stringify(PANEL_DIGEST_ABSENT)} — a named state, not a panel`);
+  }
+
   // The same refusal `assertRepoResolved` makes per-call, made once and before anything
   // is read: `gh` expands {owner}/{repo} from the working directory's remote, and this
   // driver runs from the harness checkout whose remote is the right one only by accident.
@@ -734,32 +786,33 @@ export async function scoreAll({
       if (step.key === "cost_latency") assertPanelLatency(payload);
       for (const c of mine) capabilities.push(assertCapability(c, { supported: supported.get(c.id), payload }));
 
-      const p = doRun(persistArgs(step, { root, corpusVersion, configHash, from: payloadFile, runId: step.per_replicate ? leg[0] : null }));
+      const p = doRun(persistArgs(step, { root, corpusVersion, configHash, from: payloadFile, runId: step.per_replicate ? leg[0] : null, runIds: ids, panelDigest: panel, allowMixedPanel }));
       if (p.status !== 0) refuse(`filing ${step.scorer_id} exited ${p.status}`);
       // The ROUND TRIP, against the store rather than against the log line the persist
       // step just printed. A bug at both ends of a round trip is invisible to the round
       // trip, so what is checked is that the renderer's own reader can find it.
-      const back = store.getScore({ scorerId: step.scorer_id, scope: step.scope, runId: step.per_replicate ? leg[0] : null, configHash: step.per_replicate ? null : configHash, corpusVersion: step.per_replicate ? null : corpusVersion });
+      const back = store.getScore({ scorerId: step.scorer_id, scope: step.scope, runId: step.per_replicate ? leg[0] : null, configHash: step.per_replicate ? null : configHash, panelDigest: step.per_replicate ? null : panel, corpusVersion: step.per_replicate ? null : corpusVersion });
       if (back === null) refuse(`${step.scorer_id} was filed with exit 0 and getScore cannot read it back — the renderer would print "not computed" over a score that is sitting there`);
       filed.push(step.per_replicate ? `${step.scorer_id}@${leg[0]}` : step.scorer_id);
     }
   }
 
   log("score-all: report.mjs");
-  const rendered = doRun(renderArgs({ root, corpusVersion, configHash, runIds: ids }));
+  const rendered = doRun(renderArgs({ root, corpusVersion, configHash, runIds: ids, panelDigest: panel, allowMixedPanel }));
   // 🔴 PROPAGATED, not swallowed. `report.mjs` exits 1 when any section's score file is
   // absent, which is the one check that catches a scorer this driver does not know about
   // yet — and it is also what an unmerged scorer looks like. A lane that ignored it
   // would publish a report with a section reading "not computed" and call it a success.
   if (rendered.status !== 0) refuse(`report.mjs exited ${rendered.status} — at least one section's score is missing, so the rendered comparison is not the whole comparison`);
 
-  const paths = writtenPaths({ configHash, corpusVersion, runIds: ids });
+  const paths = writtenPaths({ configHash, panelDigest: panel, corpusVersion, runIds: ids });
   const absent = paths.filter((p) => !existsSync(path.join(root, p)));
   if (absent.length > 0) refuse(`the pass reported success and ${absent.length} of the ${paths.length} path(s) it names are not on disk: ${absent.join(", ")}`);
 
   return {
     corpus_version: corpusVersion,
     config_hash: configHash,
+    panel_digest: panel,
     run_ids: ids,
     corpus_items: corpus.length,
     filed,
@@ -782,6 +835,7 @@ export function summarise(result) {
       .join(" · ") || "none";
   return [
     `scored ${result.corpus_version} @ ${result.config_hash}`,
+    `  panel        ${result.panel_digest}`,
     `  replicates   ${result.run_ids.join(" · ")}`,
     `  corpus items ${result.corpus_items}`,
     `  filed        ${result.filed.length} score(s): ${result.filed.join(" · ")}`,
@@ -799,6 +853,7 @@ export function summarise(result) {
 const USAGE =
   "usage: score-all.mjs --root <eval-data-root> --corpus-version <v> --config-hash <sha256:...>\n" +
   "                    --runs <id,id,id> [--out <dir>] [--emit-dir <dir>] [--json]\n" +
+  "                    [--panel-digest <sha256:...>] [--allow-mixed-panel]\n" +
   "\n" +
   "Runs the six merged scorers over one stored comparison, files each payload through\n" +
   "report.mjs --persist, and renders the report. Reads the store and read-only GitHub\n" +
@@ -810,6 +865,9 @@ const USAGE =
   "\n" +
   "--runs takes EVERY replicate of one reviewer, comma-separated, matching\n" +
   "cost-latency.mjs. At least two: agreement is defined over replicates.\n" +
+  "One reviewer means one PANEL too: replicates whose recorded panel_digest disagrees\n" +
+  "are refused before the budget is spent. --allow-mixed-panel files the pass under\n" +
+  "`mixed` instead, and --panel-digest states the panel for runs that recorded none.\n" +
   "--emit-dir writes written-paths.txt, which is what a commit step stages BY PATH.\n" +
   "--root is REQUIRED and has no default; there is no --dry-run, because the only\n" +
   "irreversible step is a git commit and that belongs to the caller.\n" +
@@ -818,7 +876,7 @@ const USAGE =
   "refuses rather than reporting a corpus-wide absence that reads like a clean review.";
 
 async function main() {
-  const args = parseArgs(process.argv, { booleans: ["help", "json"] });
+  const args = parseArgs(process.argv, { booleans: ["help", "json", "allow-mixed-panel"] });
   if (args.help) {
     console.log(USAGE);
     return;
@@ -833,6 +891,8 @@ async function main() {
     corpusVersion: args["corpus-version"],
     configHash: args["config-hash"],
     runIds: String(args.runs).split(",").map((s) => s.trim()).filter(Boolean),
+    panelDigest: args["panel-digest"] ?? null,
+    allowMixedPanel: Boolean(args["allow-mixed-panel"]),
     out: args.out ?? null,
   });
   if (args["emit-dir"]) {

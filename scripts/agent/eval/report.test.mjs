@@ -23,6 +23,7 @@ import {
   SECTIONS,
   buildReport,
   comparisonIdFor,
+  withPanelStamp,
   complementarityFigures,
   costLatencyFigures,
   figure,
@@ -54,6 +55,10 @@ import { fpProfile, precisionCell, relativeRecallBand, scoreValidity } from "./v
 const CONFIG_HASH = "sha256:1c7853debf4edf92646d2299b0c924cb48cca89d6bb68b81648c57508a762f01";
 const CORPUS_VERSION = "2026-08-10-pilot-reviewed";
 const PANEL_SHA = "46da673dd46dd5576626ee6d1b4e2e40728345e0";
+// The pilot's panel by CONTENT. A digest, not a commit: `panel_sha` separates panels
+// that are byte-identical (#830 deleted the panel and #850 returned it), and the digest
+// is the half of the reviewer a cross-run score's path is keyed by.
+const PANEL_DIGEST = "sha256:0a694f26c5ba4226dce778e049706564f6a6737f2db5e0356d145fb4acd07ac5";
 const RUNS = ["pilot-01__k1", "pilot-01__k2", "pilot-01__k3"];
 
 /**
@@ -139,7 +144,7 @@ const COST_LATENCY = {
   schema_version: 2,
   scorer_id: "cost-latency-v1",
   scope: "cross-run",
-  reviewer: { config_hash: CONFIG_HASH, panel_sha: PANEL_SHA },
+  reviewer: { config_hash: CONFIG_HASH, panel_sha: PANEL_SHA, panel_digest: PANEL_DIGEST },
   corpus_version: CORPUS_VERSION,
   run_ids: RUNS,
   completeness: { verdict: "complete", reasons: [], corpus_item_count: 7, items_priced_in_every_replicate: RELIABILITY.items, totals_caveat: "every total here is recomputed from the envelopes present" },
@@ -194,6 +199,7 @@ const FULL = (extraScores = {}) =>
     configHash: CONFIG_HASH,
     corpusVersion: CORPUS_VERSION,
     panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST,
     runIds: RUNS,
     corpusItemIds: RELIABILITY.items,
     scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY, ...extraScores },
@@ -301,12 +307,49 @@ test("renderValue drops the n/unit suffix only because unitOf supplies it elsewh
 // --- identity ---------------------------------------------------------------
 
 test("the comparison id is DERIVED from the comparability key, not invented", () => {
-  const id = comparisonIdFor({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION });
-  assert.equal(id, `sha256-${CONFIG_HASH.slice(7)}__${CORPUS_VERSION}`);
-  // `(config_hash, corpus_version)` is the store's comparability key, so a report
-  // cannot be named without naming what it may be pooled with.
-  assert.throws(() => comparisonIdFor({ configHash: "nope", corpusVersion: CORPUS_VERSION }), /config hash must be sha256/);
-  assert.throws(() => comparisonIdFor({ configHash: CONFIG_HASH, corpusVersion: "../x" }), /corpus version must match/);
+  const id = comparisonIdFor({ configHash: CONFIG_HASH, panelDigest: PANEL_DIGEST, corpusVersion: CORPUS_VERSION });
+  assert.equal(id, `sha256-${CONFIG_HASH.slice(7)}__sha256-${PANEL_DIGEST.slice(7)}__${CORPUS_VERSION}`);
+  // `(config_hash, panel_digest, corpus_version)` is the store's comparability key, so
+  // a report cannot be named without naming what it may be pooled with — and the PANEL
+  // is in that name, because `config_hash` cannot see the panel's code and two panels
+  // previously produced one report filename, the second overwriting the first.
+  assert.throws(() => comparisonIdFor({ configHash: "nope", panelDigest: PANEL_DIGEST, corpusVersion: CORPUS_VERSION }), /config hash must be sha256/);
+  assert.throws(() => comparisonIdFor({ configHash: CONFIG_HASH, panelDigest: PANEL_DIGEST, corpusVersion: "../x" }), /corpus version must match/);
+  assert.throws(() => comparisonIdFor({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION }), /panel digest must be sha256/);
+  // Two panels, one config, one corpus: two names. This is the collision the third
+  // segment removes, and asserting it here is what keeps it removed.
+  assert.notEqual(id, comparisonIdFor({ configHash: CONFIG_HASH, panelDigest: `sha256:${"f".repeat(64)}`, corpusVersion: CORPUS_VERSION }));
+});
+
+test("a filed cross-run score carries the panel AND how well it is attributed", () => {
+  // The path is not part of the file, so both travel in the payload — and `putScore`
+  // refuses a cross-run write where the two disagree.
+  const read = { digest: PANEL_DIGEST, source: "envelopes", mixed: false, tally: [] };
+  assert.deepEqual(withPanelStamp({ jaccard: 0.4 }, read), {
+    jaccard: 0.4,
+    panel_digest: PANEL_DIGEST,
+    panel_digest_source: "envelopes",
+  });
+  // 🔴 `reconstructed` MUST SURVIVE THE STAMP. The pilot's replays predate `panel_digest`,
+  // so filing their scores under the panel that really produced them means computing that
+  // digest out of git now and STATING it — correct, and not an observation. A stamp that
+  // hardcoded `files` would assert one, and it is the caller's answer that has to arrive
+  // here rather than this function's opinion.
+  assert.equal(withPanelStamp({ jaccard: 0.4 }, { ...read, source: "reconstructed" }).panel_digest_source, "reconstructed");
+  // A `mixed` write additionally lists what it pooled, so the number can never be read
+  // afterwards as one reviewer's.
+  const mixed = withPanelStamp({ jaccard: 0.4 }, {
+    digest: "mixed",
+    source: "envelopes",
+    mixed: true,
+    tally: [{ digest: PANEL_DIGEST, items: 15 }, { digest: `sha256:${"9".repeat(64)}`, items: 1 }],
+  });
+  assert.deepEqual(mixed.panel_digests, [PANEL_DIGEST, `sha256:${"9".repeat(64)}`]);
+  // ...and an unmixed one does not, because an empty list would read as "pooled nothing".
+  assert.equal("panel_digests" in withPanelStamp({ jaccard: 0.4 }, read), false);
+  // A per-run score is keyed by a run id whose envelopes pin their own panel, so it is
+  // passed no panel and comes back untouched — not stamped with a null.
+  assert.deepEqual(withPanelStamp({ findings: 142 }, null), { findings: 142 });
 });
 
 test("a report that cannot name its reviewer is refused", () => {
@@ -315,7 +358,7 @@ test("a report that cannot name its reviewer is refused", () => {
   // leaves it identical. A report naming only half of it cannot be checked.
   for (const bad of [undefined, null, "", "   "]) {
     assert.throws(
-      () => buildReport({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, panelSha: bad }),
+      () => buildReport({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, panelDigest: PANEL_DIGEST, panelSha: bad }),
       /panel_sha is required/,
       `panel_sha=${JSON.stringify(bad)} should be refused`,
     );
@@ -471,6 +514,7 @@ test("a missing reliability figure prints why rather than 'undefined'", () => {
         configHash: CONFIG_HASH,
         corpusVersion: CORPUS_VERSION,
         panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST,
         runIds: RUNS,
         corpusItemIds: RELIABILITY.items,
         scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability },
@@ -836,6 +880,7 @@ test("the production-latency pair is intersected with the corpus, never asserted
     configHash: CONFIG_HASH,
     corpusVersion: "some-other-corpus",
     panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST,
     runIds: RUNS,
     corpusItemIds: ["pr-101", "pr-102"],
     scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY, cost_latency: COST_LATENCY },
@@ -1343,6 +1388,7 @@ test("a replicate with no score file is stated, not silently dropped from the ra
       configHash: CONFIG_HASH,
       corpusVersion: CORPUS_VERSION,
       panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST,
       runIds: RUNS,
       corpusItemIds: RELIABILITY.items,
       scores: { volume: holed, complementarity: COMPLEMENTARITY, reliability: RELIABILITY },
@@ -1377,6 +1423,7 @@ test("when the CodeRabbit arm reads differently across replicates, the TOTAL ref
       configHash: CONFIG_HASH,
       corpusVersion: CORPUS_VERSION,
       panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST,
       runIds: RUNS,
       corpusItemIds: RELIABILITY.items,
       scores: { volume: disagreeing, complementarity: COMPLEMENTARITY, reliability: RELIABILITY },
@@ -1406,6 +1453,7 @@ test("the caveats are derived from the corpus being rendered, not hard-coded", (
       configHash: CONFIG_HASH,
       corpusVersion: CORPUS_VERSION,
       panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST,
       runIds: [RUNS[0]],
       corpusItemIds: ["pr-999", "pr-1000"],
       scores: { volume: [VOLUME[0]], complementarity: COMPLEMENTARITY, reliability: RELIABILITY },
@@ -1427,6 +1475,7 @@ test("the caveats are derived from the corpus being rendered, not hard-coded", (
       configHash: CONFIG_HASH,
       corpusVersion: CORPUS_VERSION,
       panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST,
       runIds: RUNS.slice(0, 2),
       corpusItemIds: RELIABILITY.items,
       scores: { volume: VOLUME.slice(0, 2), complementarity: COMPLEMENTARITY, reliability: RELIABILITY },
@@ -1445,6 +1494,7 @@ test("the overlap band's wording follows the number of bands it actually has", (
       configHash: CONFIG_HASH,
       corpusVersion: CORPUS_VERSION,
       panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST,
       runIds: [RUNS[0]],
       corpusItemIds: RELIABILITY.items,
       scores: { volume: [VOLUME[0]], complementarity: one, reliability: RELIABILITY },
@@ -1634,6 +1684,7 @@ const LABELLED_FULL = (payload = LABELLED) =>
       configHash: CONFIG_HASH,
       corpusVersion: CORPUS_VERSION,
       panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST,
       runIds: RUNS,
       corpusItemIds: RELIABILITY.items,
       scores: { volume: VOLUME, complementarity: payload, reliability: RELIABILITY },
@@ -2157,9 +2208,9 @@ const PILOT_LENSES = [
  *  hash: `config_hash` covers every behaviour-determining lens field. A fixture that
  *  moved a model and left the hash alone would be testing an input the store cannot
  *  produce — and it did, until the demotion rule below made the difference matter. */
-const pilotRun = (runId, { capturedAt, lenses = PILOT_LENSES, sdk = "0.3.217", panelSha = PANEL_SHA, configHash = CONFIG_HASH } = {}) => ({
+const pilotRun = (runId, { capturedAt, lenses = PILOT_LENSES, sdk = "0.3.217", panelSha = PANEL_SHA, panelDigest = PANEL_DIGEST, configHash = CONFIG_HASH } = {}) => ({
   run_id: runId,
-  runJson: { run_id: runId, panel_sha: panelSha, panel_sha_source: "git", config_hash: configHash, sdk_version: sdk },
+  runJson: { run_id: runId, panel_sha: panelSha, panel_sha_source: "git", panel_digest: panelDigest, panel_digest_source: "files", config_hash: configHash, sdk_version: sdk },
   configSnapshot: {
     config_hash: configHash,
     config_hash_version: "wafflebase/config-hash@2",
@@ -2178,14 +2229,15 @@ const PILOT_RUNS = [
   pilotRun("pilot-01__k3", { capturedAt: "2026-08-11T03:32:42.285Z" }),
 ];
 
-const WITH_REVIEWER = (extra = {}) =>
+const WITH_REVIEWER = (extra = {}, runs = PILOT_RUNS) =>
   buildReport({
     configHash: CONFIG_HASH,
     corpusVersion: CORPUS_VERSION,
     panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST,
     runIds: RUNS,
     corpusItemIds: RELIABILITY.items,
-    runs: PILOT_RUNS,
+    runs,
     scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY, ...extra },
   });
 
@@ -2317,6 +2369,14 @@ test("the header names every lens and the model it runs, and keeps the full hash
   assert.equal(d.lenses.length, 6);
   assert.equal(d.panel_sha.short, "46da673");
   assert.equal(d.panel_sha.full, PANEL_SHA);
+  // 🔴 THE DIGEST IS ITS OWN AXIS, compared across the legs the same way and reported the
+  // same way. It is not derivable from `panel_sha`: two legs can agree on the digest and
+  // differ on the sha (a panel deleted and restored, #830 and #850), and only the digest
+  // decides which file a cross-run score lands in. The short form drops the constant
+  // `sha256:` prefix rather than truncating something a reader needs.
+  assert.equal(d.panel_digest.full, PANEL_DIGEST);
+  assert.equal(d.panel_digest.short, PANEL_DIGEST.slice(7, 19));
+  assert.equal(d.panel_digest.source, "files");
 
   const md = renderReport(WITH_REVIEWER({ validity: ZERO_LABEL_VALIDITY() }));
   for (const lens of PILOT_LENSES) {
@@ -2330,6 +2390,7 @@ test("the header names every lens and the model it runs, and keeps the full hash
   // THE SHORT SHA IS A PREFIX AND NOT A SUBSTITUTE: the full one stays on the page,
   // because it is the join key and somebody will need it.
   assert.match(md, new RegExp(`\\| panel code \\| \`46da673\` \\(full \`${PANEL_SHA}\`, recorded from \`git\`\\) \\|`));
+  assert.match(md, new RegExp(`\\| panel contents \\| \`${PANEL_DIGEST.slice(7, 19)}\` \\(full \`${PANEL_DIGEST}\`, recorded from \`files\`\\) \\|`));
   assert.match(md, /All 3 replicates name the same lens set, the same model on every lens/);
   // A lens field that the snapshot does not state renders as words. `security` carries no
   // `effort`, and the panel's default for it lives in `review-panel.mjs` — inferring it
@@ -2337,7 +2398,7 @@ test("the header names every lens and the model it runs, and keeps the full hash
   assert.match(md, /\| `security` \| `claude-opus-5` \| 1 \| `not stated` \| blocking \|/);
   // The two hashes in the header table above are untouched: this block adds to the
   // identity, it does not replace it.
-  assert.match(md, new RegExp(`\\| reviewer \\| \`panel_sha ${PANEL_SHA}\` · \`${CONFIG_HASH}\``));
+  assert.match(md, new RegExp(`\\| reviewer \\| \`panel_sha ${PANEL_SHA}\` · \`panel_digest ${PANEL_DIGEST}\` · \`${CONFIG_HASH}\``));
 });
 
 test("🔴 a reviewer axis that DISAGREES across replicates is REPORTED, never resolved to the first", () => {
@@ -2363,7 +2424,8 @@ test("🔴 a reviewer axis that DISAGREES across replicates is REPORTED, never r
   assert.equal(d.agreed["lens set"], undefined);
 
   const md = renderReport(
-    buildReport({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, panelSha: PANEL_SHA, runIds: RUNS, corpusItemIds: RELIABILITY.items, runs, scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY } }),
+    buildReport({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST, runIds: RUNS, corpusItemIds: RELIABILITY.items, runs, scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY } }),
   );
   assert.match(md, /🔴 \*\*2 axis\(es\) of the reviewer's identity DISAGREE across the replicates below\*\*/);
   assert.match(md, /\| `lens set` \| `pilot-01__k1` → .*`pilot-01__k3` → /);
@@ -2383,6 +2445,19 @@ test("🔴 a reviewer axis that DISAGREES across replicates is REPORTED, never r
   const otherSha = reviewerFigures([PILOT_RUNS[0], pilotRun("pilot-01__k2", { capturedAt: "x", panelSha: "0000000000000000000000000000000000000000" })]);
   assert.equal(otherSha.panel_sha, null);
   assert.deepEqual(otherSha.disagreements.map((x) => x.field), ["panel_sha"]);
+  // 🔴 AND THE DIGEST, which is the axis a cross-run score's PATH is keyed by — so two
+  // legs disagreeing on it means the figures on the page were pooled from two reviewers.
+  // Reported, never resolved: no leg's answer is printed for it.
+  const otherDigest = reviewerFigures([PILOT_RUNS[0], pilotRun("pilot-01__k2", { capturedAt: "x", panelDigest: `sha256:${"9".repeat(64)}` })]);
+  assert.equal(otherDigest.panel_digest, null);
+  assert.deepEqual(otherDigest.disagreements.map((x) => x.field), ["panel_digest"]);
+  const disagreeingRuns = [PILOT_RUNS[0], pilotRun("pilot-01__k2", { capturedAt: "x", panelDigest: `sha256:${"9".repeat(64)}` })];
+  assert.match(renderReport(WITH_REVIEWER({ validity: ZERO_LABEL_VALIDITY() }, disagreeingRuns)), /\| panel contents \| \*\*disagrees across replicates/);
+  // The two are INDEPENDENT: a panel deleted and restored (#830, #850) agrees on the
+  // digest and differs on the sha, and a digest read off a stated flag rather than the
+  // files differs in `panel_digest_source` alone. Neither is derivable from the other.
+  assert.equal(otherSha.panel_digest.full, PANEL_DIGEST);
+  assert.equal(otherDigest.panel_sha.full, PANEL_SHA);
 });
 
 test("🔴 a lens difference under an IDENTICAL config_hash is cosmetic, not a second reviewer", () => {
@@ -2407,7 +2482,8 @@ test("🔴 a lens difference under an IDENTICAL config_hash is cosmetic, not a s
   assert.equal(d.lenses.length, 6);
 
   const md = renderReport(
-    buildReport({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, panelSha: PANEL_SHA, runIds: RUNS, corpusItemIds: RELIABILITY.items, runs, scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY } }),
+    buildReport({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST, runIds: RUNS, corpusItemIds: RELIABILITY.items, runs, scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY } }),
   );
   assert.match(md, /⚠ \*\*The replicates record this configuration differently in 1 place\(s\), and `config_hash` is identical\*\*/);
   assert.match(md, /\| `security` \| `claude-opus-5` \|/, "the lens table must still be on the page");
@@ -2490,7 +2566,8 @@ test("a render with no run envelope, and one with no config snapshot, both SAY s
   assert.deepEqual(partial.snapshots_missing, ["pilot-01__k2"]);
   assert.equal(partial.replicates.length, 1, "a leg with no snapshot cannot confirm an axis");
   const md = renderReport(
-    buildReport({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, panelSha: PANEL_SHA, runIds: RUNS, corpusItemIds: RELIABILITY.items, runs: [PILOT_RUNS[0], { run_id: "pilot-01__k2", runJson: {}, configSnapshot: null }], scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY } }),
+    buildReport({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, panelSha: PANEL_SHA,
+    panelDigest: PANEL_DIGEST, runIds: RUNS, corpusItemIds: RELIABILITY.items, runs: [PILOT_RUNS[0], { run_id: "pilot-01__k2", runJson: {}, configSnapshot: null }], scores: { volume: VOLUME, complementarity: COMPLEMENTARITY, reliability: RELIABILITY } }),
   );
   assert.match(md, /⚠ \*\*1 replicate carries no config snapshot\*\* \(pilot-01__k2\)/);
   // Every leg missing its snapshot is a stated absence too, not an empty table.
