@@ -87,6 +87,32 @@ Setup, prerequisites, and the dev server are documented in the
 [backend README](packages/backend/README.md). Don't duplicate them here
 — if those instructions are wrong, fix them at the source.
 
+## Design editor (dev-only)
+
+The design editor is a development-only tool for editing wafflebase's
+design system — component JSX and design tokens — by rendering the app's
+**real** routes and writing edits back into source. It never ships to
+production. See [`packages/design-editor`](packages/design-editor/README.md)
+(the generic Vite plugin) and
+[`packages/design-sandbox`](packages/design-sandbox/README.md)
+(wafflebase's own instance) for architecture, and the
+[Design Editor design docs](docs/design/README.md#design-editor) for the
+rationale.
+
+Run it against wafflebase's own routes:
+
+```bash
+pnpm design-sandbox dev
+```
+
+The editor shell is a prebuilt bundle that `@wafflebase/design-editor`
+serves under `/__design-editor/`; the sandbox's `predev` builds it
+automatically before starting Vite. A missing shell bundle is what
+produces the `design-editor shell asset not found … was the package
+built?` 404. If you change **design-editor** source (not sandbox source),
+restart the dev server so the shell rebuilds — `predev` only runs on
+start.
+
 ## Verification gates
 
 We have three verification lanes; pick the one matching the scope of
