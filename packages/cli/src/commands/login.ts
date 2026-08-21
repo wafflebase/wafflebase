@@ -240,8 +240,14 @@ const REFUSAL = {
     '(DNS rebinding).',
 } as const;
 
-/** Hostnames a loopback listener can legitimately be addressed by. */
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+/**
+ * Hostnames a loopback listener can legitimately be addressed by.
+ *
+ * IPv6 appears bracketed only: `Host` requires the brackets for an IPv6
+ * literal (RFC 7230 §5.4), and `isLoopbackHost`'s pattern splits the port off
+ * a colon, so a bare `::1` never reaches this set to be matched.
+ */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /**
  * Whether a request's `Host` header addresses this loopback listener.

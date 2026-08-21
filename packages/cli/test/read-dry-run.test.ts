@@ -30,6 +30,15 @@ const listApiKeys = vi.fn();
 const createApiKey = vi.fn();
 const revokeApiKey = vi.fn();
 
+// `sheets export` is the one command here whose live path also writes to disk,
+// so the preview has to be shown not to touch the file either.
+const writeFileSync = vi.fn();
+
+vi.mock('node:fs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:fs')>()),
+  writeFileSync: (...a: unknown[]) => writeFileSync(...a),
+}));
+
 vi.mock('../src/client/http-client.js', () => ({
   HttpClient: class {
     listDocuments = (...a: unknown[]) => listDocuments(...a);
@@ -182,10 +191,25 @@ describe('--dry-run on read commands', () => {
       await run(['sheets', 'export', 'doc-1', 'out.csv', '--dry-run']);
 
       expect(getCells).not.toHaveBeenCalled();
+      // The title's second half: the write is downstream of the fetch, so a
+      // preview must leave the file alone. Asserted, not just claimed.
+      expect(writeFileSync).not.toHaveBeenCalled();
       expect(JSON.parse(stdout.join('\n'))).toEqual({
         dry_run: true,
         method: 'GET',
         url: `${BASE}/documents/doc-1/tabs/tab-1/cells`,
+      });
+    });
+
+    it('prints the range-scoped GET for --range', async () => {
+      await run(['sheets', 'export', 'doc-1', 'out.csv', '--range', 'A1:C10', '--dry-run']);
+
+      expect(getCells).not.toHaveBeenCalled();
+      expect(writeFileSync).not.toHaveBeenCalled();
+      expect(JSON.parse(stdout.join('\n'))).toEqual({
+        dry_run: true,
+        method: 'GET',
+        url: `${BASE}/documents/doc-1/tabs/tab-1/cells?range=A1%3AC10`,
       });
     });
 
