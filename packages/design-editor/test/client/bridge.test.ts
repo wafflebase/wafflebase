@@ -66,8 +66,35 @@ describe('createBridgeClient — failure is data, never a throw', () => {
     const fetch: FetchLike = () => Promise.resolve(new Response('<!doctype html>', { status: 404 }));
     await expect(createBridgeClient({ fetch }).health()).resolves.toEqual({
       ok: false,
+      status: 404,
       error: 'unexpected response (404)',
     });
+  });
+
+  it('carries the STATUS when a response arrived, and omits it when none did', async () => {
+    // The distinction a caller needs and could not previously make: `/mutate` reports an
+    // intent it cannot locate as a 409 with `ok: false` — the same shape a dead server
+    // produces. "This edit no longer matches its file" and "nothing is listening" need
+    // different words and different recovery, so `status` present/absent is the test.
+    const refused: FetchLike = () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ ok: false, error: 'could not locate' }), { status: 409 }),
+      );
+    const r = await createBridgeClient({ fetch: refused }).mutate({ kind: 'class-rewrite' } as never);
+    expect(r).toMatchObject({ ok: false, status: 409, error: 'could not locate' });
+
+    const dead: FetchLike = () => Promise.reject(new Error('ECONNREFUSED'));
+    const d = await createBridgeClient({ fetch: dead }).mutate({ kind: 'class-rewrite' } as never);
+    expect(d.status).toBeUndefined();
+    expect(d.ok).toBe(false);
+  });
+
+  it('lets the BODY win over the status field it carries', async () => {
+    // `status` is spread FIRST on purpose: a server that reports its own `status` in the
+    // payload is describing something else, and the transport code must not overwrite it.
+    const fetch: FetchLike = () =>
+      Promise.resolve(new Response(JSON.stringify({ ok: true, status: 7 }), { status: 200 }));
+    await expect(createBridgeClient({ fetch }).health()).resolves.toMatchObject({ status: 7 });
   });
 
   it('keeps a non-2xx BODY, because that is the part the editor renders', async () => {

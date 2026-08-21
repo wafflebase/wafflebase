@@ -12,6 +12,12 @@ export interface WithDocumentOptions {
    * the frontend convention in `packages/frontend/src/app/docs/docs-detail.tsx`.
    */
   docKeyPrefix?: string;
+  /**
+   * Seed a brand-new (empty) Yorkie document with this initial root. Yorkie
+   * applies it only when the document is empty, so it is idempotent. Pass it on
+   * write paths that assume a canonical root shape.
+   */
+  initialRoot?: Record<string, unknown>;
 }
 
 @Injectable()
@@ -41,7 +47,12 @@ export class YorkieService {
     let attached = false;
     try {
       await client.activate();
-      await client.attach(doc, { syncMode: SyncMode.Manual });
+      await client.attach(
+        doc,
+        options?.initialRoot
+          ? { syncMode: SyncMode.Manual, initialRoot: options.initialRoot as R }
+          : { syncMode: SyncMode.Manual },
+      );
       attached = true;
       const result = await callback(doc);
       if (options?.syncMode !== 'readonly') {

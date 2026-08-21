@@ -229,6 +229,103 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+describe('the two modes', () => {
+  /*
+   * The recipe specifies these as MODES with two tabs each; the shell had shipped one
+   * list and three tabs in one group, so `Layout` and `Bindings` were both on screen
+   * while only one of them could have a subject.
+   */
+  /** A project with one component, so `components` mode has a subject to offer. */
+  const withComponent = () =>
+    stubBridge({
+      metadata: async () =>
+        ({
+          ok: true,
+          metadata: {
+            scenes: [scene],
+            files: [
+              {
+                file: 'ui/badge.tsx',
+                module: '@/ui/badge',
+                orphanCva: [],
+                components: [
+                  { name: 'Badge', kind: 'function', props: [], propOrigins: [], cva: null },
+                ],
+              },
+            ],
+          },
+        }) as never,
+    });
+
+  const modeButton = (host: HTMLElement, label: string) =>
+    [...host.querySelectorAll('button')].find(
+      (b) => (b.textContent ?? '').trim().toLowerCase() === label,
+    );
+  const tabs = (host: HTMLElement) =>
+    [...host.querySelectorAll('[role="tab"]')].map((t) => (t.textContent ?? '').trim());
+
+  it('opens on scenes: Layout and Tokens, no Bindings', async () => {
+    const host = await mount(stubBridge());
+    expect(tabs(host)).toEqual(['Layout', 'Tokens']);
+  });
+
+  it('switches to components: Bindings replaces Layout', async () => {
+    const host = await mount(withComponent());
+    await act(async () => modeButton(host, 'components')!.click());
+    expect(tabs(host)).toEqual(['Bindings', 'Tokens']);
+  });
+
+  it('KEEPS the scene mounted in components mode — the centre is the real page', async () => {
+    // The one deliberate divergence from the recipe: no `PreviewPane`, so switching
+    // subject must not blank the centre.
+    const host = await mount(withComponent());
+    await act(async () => modeButton(host, 'components')!.click());
+    expect(host.querySelector('iframe')).toBeTruthy();
+  });
+
+  it('falls back to scenes when a persisted components mode has no components', async () => {
+    /*
+     * The mode persists, the project it names may not still have components — the same
+     * shape as the scene id that vanishes. Restored as-is, the editor opens on a mode
+     * whose own button is disabled, showing `Bindings` with nothing to bind.
+     */
+    window.localStorage.setItem(
+      'design-editor:view:v1',
+      JSON.stringify({ mode: 'components', scene: 'dash' }),
+    );
+    const host = await mount(stubBridge()); // default stub: no components
+    expect(tabs(host)).toEqual(['Layout', 'Tokens']);
+  });
+
+  it('disables components when the project has none, rather than hiding the switch', async () => {
+    const host = await mount(stubBridge()); // the default stub's project has no components
+    expect((modeButton(host, 'components') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('the mock/empty toggle', () => {
+  /*
+   * The frame has implemented this the whole time — `?empty=1`, `emptyFixtureTable`, the
+   * button, the iframe `key` — and `SceneHost` renders the button only when the handler is
+   * passed. So the ENTIRE feature was one absent prop in `App`, with no type error and no
+   * failing test, because everything it needs is optional. That is the shape this asserts:
+   * not that the toggle works (SceneHost.test covers that), but that the host WIRES it.
+   */
+  const toggle = (host: HTMLElement) =>
+    [...host.querySelectorAll('button')].find((b) => /Mock data|Empty/.test(b.textContent ?? ''));
+
+  it('offers the toggle — the handler reaches SceneHost', async () => {
+    expect(toggle(await mount(stubBridge()))).toBeTruthy();
+  });
+
+  it('flips to Empty when clicked, so the state is the HOST\'s', async () => {
+    const host = await mount(stubBridge());
+    expect(toggle(host)!.textContent).toContain('Mock data');
+    await act(async () => toggle(host)!.click());
+    expect(toggle(host)!.textContent).toContain('Empty');
+  });
+});
+
 describe('the layout', () => {
   it('lists the scenes the bridge reported, not a hardcoded id', () => {
     // The shell is prebuilt and cannot import `virtual:wb-scenes`, so the manifest
@@ -243,6 +340,44 @@ describe('the layout', () => {
     // A stored view survives a reload; the project it names may not.
     window.localStorage.setItem('design-editor:view:v1', JSON.stringify({ scene: 'vanished' }));
     const host = await mount(stubBridge());
+    const active = [...host.querySelectorAll('button')].find((b) =>
+      b.className.includes('bg-wb-accent/15'),
+    );
+    expect(active?.textContent).toContain('Dashboard');
+  });
+
+  it('shows a DEFERRED scene, disabled, and never selects it', async () => {
+    // Hiding it makes a declared scene look undeclared; offering it opens a frame whose only
+    // possible outcome is `no scene "<id>" in the scene manifest`, which the user then has to
+    // attribute. Both were live: the shell listed five unmountable wafflebase scenes.
+    const held = { ...scene, id: 'canvas', label: 'Sheet editor', deferred: true };
+    const host = await mount(
+      stubBridge({
+        metadata: async () => ({ ok: true, metadata: { scenes: [held, scene], files: [] } }) as never,
+      }),
+    );
+    const row = [...host.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Sheet editor'),
+    ) as HTMLButtonElement;
+    expect(row).toBeTruthy();
+    expect(row.disabled).toBe(true);
+    expect(row.textContent).toContain('not ready');
+    expect(row.title).toContain('not mountable yet');
+    // …and the default landed on the mountable one, not on the first entry.
+    const active = [...host.querySelectorAll('button')].find((b) =>
+      b.className.includes('bg-wb-accent/15'),
+    );
+    expect(active?.textContent).toContain('Dashboard');
+  });
+
+  it('picks a mountable scene even when the persisted one is deferred', async () => {
+    window.localStorage.setItem('design-editor:view:v1', JSON.stringify({ scene: 'canvas' }));
+    const held = { ...scene, id: 'canvas', label: 'Sheet editor', deferred: true };
+    const host = await mount(
+      stubBridge({
+        metadata: async () => ({ ok: true, metadata: { scenes: [held, scene], files: [] } }) as never,
+      }),
+    );
     const active = [...host.querySelectorAll('button')].find((b) =>
       b.className.includes('bg-wb-accent/15'),
     );

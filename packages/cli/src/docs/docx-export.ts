@@ -3,6 +3,7 @@ import {
   type Document,
   type DocxImageFetcher,
 } from '@wafflebase/docs';
+import { reportSkippedImage } from './image-fetcher.js';
 
 export interface CliDocxExportOptions {
   /** Mirrors `--include-header-footer`; informational only — DOCX always
@@ -30,6 +31,14 @@ export async function exportDocx(
   doc: Document,
   opts: CliDocxExportOptions = {},
 ): Promise<Uint8Array> {
-  const blob = await DocxExporter.export(doc, opts.imageFetcher);
+  // The fourth argument is what opts the CLI into dropping an image the
+  // fetcher could not deliver (reported on stderr) instead of failing the
+  // whole export; a browser caller passes none and keeps the loud failure.
+  const blob = await DocxExporter.export(
+    doc,
+    opts.imageFetcher,
+    undefined,
+    reportSkippedImage,
+  );
   return new Uint8Array(await blob.arrayBuffer());
 }

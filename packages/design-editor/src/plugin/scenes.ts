@@ -122,6 +122,18 @@ export function providersSpecifier(abs: string, side: FrameSide): string {
 }
 
 /**
+ * The fixtures module, deliberately NOT frame-qualified.
+ *
+ * `providers` is qualified because it wraps the scene and a shared instance would put
+ * both frame sides in one React realm. Fixtures are plain data behind a pure function —
+ * no context, no state — so qualifying them would double the parse for byte-identical
+ * output. That is the same reasoning `opaqueRoots` applies to a non-JSX subtree.
+ */
+export function fixturesSpecifier(abs: string): string {
+  return `/@fs/${abs.split(path.sep).join('/')}`;
+}
+
+/**
  * Generate the `virtual:wb-scenes` module body.
  *
  * Two loaders per scene, one per frame side, each importing the scene AND the
@@ -138,6 +150,7 @@ export function renderScenesModule(
   root: string,
   manifest: ScenesManifest,
   providersAbs: string | null,
+  fixturesAbs: string | null = null,
 ): string {
   const mountable = (manifest.scenes ?? []).filter(
     (s) => (s.kind === 'dom' || s.kind === 'canvas') && !s.deferred,
@@ -196,5 +209,15 @@ export const loadScene = (id, side) => {
 };
 
 export const hasProviders = ${providersAbs ? 'true' : 'false'};
-`;
+${
+  fixturesAbs
+    ? // STATIC, not dynamic: the fetch guard must be installed before the first scene
+      // import, so the table cannot be behind a promise. See `options.fixtures`.
+      `import fixturesFor from ${JSON.stringify(fixturesSpecifier(fixturesAbs))};\n` +
+      `export { fixturesFor };\n`
+    : // A consumer with no fixtures module mocks nothing, and a miss is reported rather
+      // than answered — a scene whose data silently 401s is indistinguishable from a
+      // scene that is broken.
+      `export const fixturesFor = () => ({});\n`
+}`;
 }

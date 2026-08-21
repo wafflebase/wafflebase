@@ -1,0 +1,21 @@
+/*
+ * THE SCENE STYLESHEET — wafflebase's own, handed to the frame.
+ *
+ * The frame renders the CONSUMER's components, so it needs the CONSUMER's CSS.
+ * `scene-entry.tsx` deliberately imports none (dressing a scene in the editor's
+ * stylesheet is measuring the instrument), which leaves supplying one to this side.
+ *
+ * WHY NOT JUST `@import '@/index.css'` FROM `providers.tsx`. That loads the right bytes
+ * and generates no utilities. Tailwind roots its content scan at the project being
+ * built — `packages/design-sandbox` — so it never reads the frontend components whose
+ * classes it is supposed to emit. The result passes every structural check while
+ * `text-[28px]` computes to 16px.
+ */
+@import '@/index.css';
+
+/*
+ * Where the classes actually live. Two roots, because a scene reaches both: the routes
+ * and components under `frontend/src`, and the engine packages a canvas scene mounts.
+ */
+@source '../../../frontend/src/**/*.{ts,tsx}';
+@source '../**/*.{ts,tsx}';
