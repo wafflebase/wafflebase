@@ -1,0 +1,58 @@
+{
+  "delta": {
+    "versions": [
+      0,
+      1,
+      2
+    ]
+  },
+  "generator": {
+    "packages": {
+      "SQLAlchemy": "2.0.51",
+      "deltalake": "1.6.2",
+      "pyarrow": "25.0.0",
+      "pyiceberg": "0.11.1"
+    }
+  },
+  "iceberg": {
+    "currentMetadataKey": "iceberg/default/events/metadata/00003-524f9efa-932c-4286-b583-bc71d9a3dba7.metadata.json",
+    "snapshotIds": [
+      "7989807407367529971",
+      "4492391797763991711",
+      "7953107897879720084"
+    ]
+  },
+  "rowsByCommit": [
+    [
+      {
+        "id": 1,
+        "value": "alpha"
+      }
+    ],
+    [
+      {
+        "id": 1,
+        "value": "alpha"
+      },
+      {
+        "id": 2,
+        "value": "beta"
+      }
+    ],
+    [
+      {
+        "id": 1,
+        "value": "alpha"
+      },
+      {
+        "id": 2,
+        "value": "beta"
+      },
+      {
+        "id": 3,
+        "value": "gamma"
+      }
+    ]
+  ],
+  "schemaVersion": 1
+}

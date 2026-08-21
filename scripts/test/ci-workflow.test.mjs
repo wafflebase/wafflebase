@@ -111,7 +111,11 @@ test("ci.yml job structure", async (t) => {
     // The other half of the same contract: if the job always runs, then every step
     // that costs real time must carry the gate, or filtering buys nothing. A step
     // added later without one would quietly reinstate the full cost.
-    for (const name of ["verify-browser", "verify-integration"]) {
+    for (const name of [
+      "verify-browser",
+      "verify-integration",
+      "verify-backend-image",
+    ]) {
       const job = jobs.find((j) => j.name === name);
       assert.ok(job, `${name} not found`);
       assert.ok(
@@ -123,6 +127,9 @@ test("ci.yml job structure", async (t) => {
         .map((l, i) => (/^ {6}- (name|uses):/.test(l) ? i : -1))
         .filter((i) => i >= 0);
       assert.ok(stepStarts.length >= 5, `${name}: expected to find its steps, found ${stepStarts.length}`);
+      // The notice step is the one exception: it runs precisely WHEN the
+      // filter says there is nothing to do, so it carries the inverse test.
+
 
       for (const at of stepStarts) {
         const label = job.lines[at].trim();

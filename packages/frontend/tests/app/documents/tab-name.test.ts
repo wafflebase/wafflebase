@@ -56,10 +56,11 @@ test("buildTabNameNormalizationPatches normalizes blanks and duplicates", () => 
     ["tab-1", " Sheet1 ", "sheet"],
     ["tab-2", "sheet1", "sheet"],
     ["tab-3", "  ", "datasource"],
+    ["tab-4", "", "lakehouse"],
   ]);
 
   const patches = buildTabNameNormalizationPatches(
-    ["tab-1", "tab-2", "tab-3"],
+    ["tab-1", "tab-2", "tab-3", "tab-4"],
     tabs,
   );
 
@@ -67,5 +68,6 @@ test("buildTabNameNormalizationPatches normalizes blanks and duplicates", () => 
     { tabId: "tab-1", name: "Sheet1" },
     { tabId: "tab-2", name: "sheet1 (2)" },
     { tabId: "tab-3", name: "DataSource" },
+    { tabId: "tab-4", name: "Lakehouse" },
   ]);
 });
