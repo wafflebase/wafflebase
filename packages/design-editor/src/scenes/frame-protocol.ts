@@ -147,7 +147,8 @@ export type FrameMessage =
    */
   | {
       type: 'wb:error';
-      kind: 'mount' | 'render' | 'compile' | 'fetch';
+      /** `stream` is a REFUSED EventSource — by design, unlike a missing `fetch` fixture. */
+      kind: 'mount' | 'render' | 'compile' | 'fetch' | 'stream';
       message: string;
       url?: string;
     }
@@ -224,7 +225,7 @@ const FRAME_SHAPES: Record<string, (d: Rec) => boolean> = {
   'wb:hover': (d) => orNull(d.node, isStampRef) && orNull(d.rect, isRect),
   'wb:measured': (d) => isNum(d.nonce) && orNull(d.rect, isRect),
   'wb:error': (d) =>
-    ['mount', 'render', 'compile', 'fetch'].includes(d.kind as string) &&
+    ['mount', 'render', 'compile', 'fetch', 'stream'].includes(d.kind as string) &&
     isStr(d.message) &&
     (d.url === undefined || isStr(d.url)),
   'wb:classes': (d) => isStrArray(d.classes),

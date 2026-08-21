@@ -127,7 +127,8 @@ export interface SceneHostProps {
 }
 
 interface FrameError {
-  kind: 'mount' | 'render' | 'compile' | 'fetch';
+  /** `stream` is a REFUSED EventSource — the guard working, not a missing fixture. */
+  kind: 'mount' | 'render' | 'compile' | 'fetch' | 'stream';
   message: string;
   url?: string;
 }
@@ -661,6 +662,9 @@ export function FrameErrorOverlay({
     compile:
       'The module did not transform — a write from this editor probably broke the file. ' +
       'Revert the last write from the write log.',
+    stream:
+      'The scene opened an EventSource, and the guard turned it away — a stream has no ' +
+      'fixture shape and nothing here reads what it carries. Expected, not a fixture gap.',
     fetch:
       'The scene asked for a URL no fixture covers. Requests are never allowed out of ' +
       'the frame: a real 401 makes an auth wrapper navigate the frame away, which looks ' +
