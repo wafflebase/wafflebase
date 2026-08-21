@@ -57,7 +57,7 @@ const BASE = `${SERVER}/api/v1/workspaces/${WORKSPACE}`;
 // API-key management is not under the v1 API base — it is the workspace route.
 const KEYS_BASE = `${SERVER}/workspaces/${WORKSPACE}/api-keys`;
 
-function run(argv: string[], workspace = WORKSPACE) {
+function run(argv: string[], workspace = WORKSPACE, server = SERVER) {
   const program = createProgram();
   registerDocsCommand(program);
   registerNotesCommand(program);
@@ -70,7 +70,7 @@ function run(argv: string[], workspace = WORKSPACE) {
   registerCellsCommand(sheets);
   registerSheetsExportCommand(sheets);
   return program.parseAsync(
-    ['--server', SERVER, '--workspace', workspace, '--api-key', 'wfb_test', ...argv],
+    ['--server', server, '--workspace', workspace, '--api-key', 'wfb_test', ...argv],
     { from: 'user' },
   );
 }
@@ -343,6 +343,53 @@ describe('--dry-run on read commands', () => {
 
       expect(getDocument).not.toHaveBeenCalled();
       expect(stdout).toEqual([]);
+    });
+  });
+
+  /**
+   * The preview goes to *stdout* — what an agent records as the command's
+   * result and what a CI job stores — so a credential in `--server` /
+   * `WAFFLEBASE_SERVER` must not ride along in it. `redactUrl` already makes
+   * this promise for every request failure (`src/errors.ts`); a dry run is if
+   * anything the likelier place for the value to be captured.
+   */
+  describe('server credentials', () => {
+    const CREDS = 'https://alice:hunter2@api.example.test';
+
+    it('keeps userinfo out of the previewed URL', async () => {
+      await run(['docs', 'list', '--dry-run'], WORKSPACE, CREDS);
+
+      const printed = JSON.parse(stdout.join('\n')) as { url: string };
+      expect(printed.url).toBe(
+        `https://api.example.test/api/v1/workspaces/${WORKSPACE}/documents`,
+      );
+      expect(stdout.join('\n')).not.toContain('hunter2');
+      expect(stdout.join('\n')).not.toContain('alice');
+    });
+
+    it('keeps it out of the api-key preview, which uses the other builder', async () => {
+      await run(['api-keys', 'list', '--dry-run'], WORKSPACE, CREDS);
+
+      const printed = JSON.parse(stdout.join('\n')) as { url: string };
+      expect(printed.url).toBe(
+        `https://api.example.test/workspaces/${WORKSPACE}/api-keys`,
+      );
+      expect(stdout.join('\n')).not.toContain('hunter2');
+    });
+
+    // The query is the CLI's own, built from the caller's arguments, and it is
+    // what makes a `cells get` preview worth reading — so redaction must not
+    // take it, the way `redactUrl` would.
+    it('still prints the range query it built', async () => {
+      await run(
+        ['sheets', 'cells', 'get', 'doc-1', 'A1:C10', '--dry-run'],
+        WORKSPACE,
+        CREDS,
+      );
+
+      const printed = JSON.parse(stdout.join('\n')) as { url: string };
+      expect(printed.url).toContain('?range=A1%3AC10');
+      expect(printed.url).not.toContain('hunter2');
     });
   });
 });
