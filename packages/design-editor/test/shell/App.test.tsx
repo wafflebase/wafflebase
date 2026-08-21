@@ -229,6 +229,29 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+describe('the mock/empty toggle', () => {
+  /*
+   * The frame has implemented this the whole time — `?empty=1`, `emptyFixtureTable`, the
+   * button, the iframe `key` — and `SceneHost` renders the button only when the handler is
+   * passed. So the ENTIRE feature was one absent prop in `App`, with no type error and no
+   * failing test, because everything it needs is optional. That is the shape this asserts:
+   * not that the toggle works (SceneHost.test covers that), but that the host WIRES it.
+   */
+  const toggle = (host: HTMLElement) =>
+    [...host.querySelectorAll('button')].find((b) => /Mock data|Empty/.test(b.textContent ?? ''));
+
+  it('offers the toggle — the handler reaches SceneHost', async () => {
+    expect(toggle(await mount(stubBridge()))).toBeTruthy();
+  });
+
+  it('flips to Empty when clicked, so the state is the HOST\'s', async () => {
+    const host = await mount(stubBridge());
+    expect(toggle(host)!.textContent).toContain('Mock data');
+    await act(async () => toggle(host)!.click());
+    expect(toggle(host)!.textContent).toContain('Empty');
+  });
+});
+
 describe('the layout', () => {
   it('lists the scenes the bridge reported, not a hardcoded id', () => {
     // The shell is prebuilt and cannot import `virtual:wb-scenes`, so the manifest

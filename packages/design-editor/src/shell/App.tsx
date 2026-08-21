@@ -217,6 +217,13 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   /** Dismissed without deselecting — e.g. to see the frame underneath. */
   const [classEditorClosed, setClassEditorClosed] = useState(false);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  /*
+   * Deliberately NOT persisted in `readView()`, unlike `dark` and `scene`. Those two are
+   * "where you are" and should survive a reload; this is "what am I inspecting right now".
+   * Restoring it would reopen the editor on empty lists with no memory of having asked for
+   * them, which reads as fixtures that broke overnight.
+   */
+  const [mockDataEmpty, setMockDataEmpty] = useState(false);
   const [selectable, setSelectable] = useState<Set<string>>(new Set());
   const [drillTrail, setDrillTrail] = useState<string[]>([]);
   /** The staged edits a refresh says can no longer be applied, `map|key` → why. */
@@ -1012,6 +1019,8 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 onClasses={registerCandidates}
                 onMeasured={setSelectionRect}
                 onSelectionHostRect={setSelectionHostRect}
+                mockDataEmpty={mockDataEmpty}
+                onMockDataEmptyChange={setMockDataEmpty}
               />
             ) : scenes.length > 0 ? (
               // The manifest DID arrive; every scene in it is deferred. Saying "waiting"
