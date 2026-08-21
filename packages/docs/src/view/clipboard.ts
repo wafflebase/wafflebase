@@ -5,7 +5,7 @@ import type {
 import type { StoredColor } from '../model/color.js';
 import {
   generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_BORDER_STYLE, DEFAULT_CELL_STYLE,
-  inlineStylesEqual, createTableBlock,
+  inlineStylesEqual, createTableBlock, normalizeTableMerges,
 } from '../model/types.js';
 
 interface ClipboardPayload {
@@ -257,19 +257,40 @@ function sanitizeTableData(value: unknown, depth: number): TableData | undefined
   const rawRows = Array.isArray(value.rows) ? value.rows : undefined;
   if (!rawRows) return undefined;
   const rows = [];
-  for (const rawRow of rawRows) {
+  // Track which entry of `rawRows` each kept row came from, so a dropped row
+  // does not shift every later `rowHeights` entry onto the wrong row.
+  const sourceIndices: number[] = [];
+  for (let i = 0; i < rawRows.length; i++) {
+    const rawRow: unknown = rawRows[i];
     if (!isRecord(rawRow) || !Array.isArray(rawRow.cells)) continue;
     rows.push({ cells: rawRow.cells.map((cell) => sanitizeCell(cell, depth + 1)) });
+    sourceIndices.push(i);
   }
   if (rows.length === 0) return undefined;
   const cols = Math.max(...rows.map((r) => r.cells.length));
+  // The layout and `normalizeTableMerges` both index the grid as a rectangle;
+  // a short row from a truncated payload would otherwise leave holes.
+  for (const row of rows) {
+    while (row.cells.length < cols) row.cells.push(sanitizeCell({}, depth + 1));
+  }
   const rawWidths = Array.isArray(value.columnWidths) ? value.columnWidths : [];
   const columnWidths: number[] = [];
-  for (let c = 0; c < cols; c++) columnWidths.push(asNumber(rawWidths[c]) ?? 100);
+  // `columnWidths` are fractions of the table width, not pixels — `createTableBlock`
+  // fills `1 / cols` and the layout multiplies by the content width. A missing
+  // entry defaults to an even share, not to 100 content-widths.
+  for (let c = 0; c < cols; c++) columnWidths.push(asNumber(rawWidths[c]) ?? 1 / cols);
   const table: TableData = { rows, columnWidths };
   if (Array.isArray(value.rowHeights)) {
-    table.rowHeights = rows.map((_, r) => asNumber((value.rowHeights as unknown[])[r]));
+    const rawHeights = value.rowHeights as unknown[];
+    table.rowHeights = sourceIndices.map((i) => asNumber(rawHeights[i]));
   }
+  // Restore the `colSpan: 0` covered-cell markers from the surviving anchors.
+  // `sanitizeCell` keeps only spans `> 1`, and the whole-table paste path
+  // (`insertBlocks`) never normalizes, so without this a copied merged table
+  // comes apart on paste — `computeTableLayout` skips a cell only on
+  // `colSpan === 0`. Regenerating beats trusting the payload's own markers:
+  // this also clamps out-of-grid spans and resolves overlapping anchors.
+  normalizeTableMerges(table);
   return table;
 }
 

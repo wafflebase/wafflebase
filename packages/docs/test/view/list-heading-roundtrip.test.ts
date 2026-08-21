@@ -519,6 +519,25 @@ describe('paste does not move a heading memory onto foreign text', () => {
     editor.dispose();
   });
 
+  test('a bullet pasted into a real heading leaves the level remembered', () => {
+    const { editor, container } = setupEditor([makeHeading('b1', 'Chapter ', 2)]);
+
+    // The fold bullets the destination's own text — the same move `toggleList`
+    // makes on a heading — so the level survives as the memory rather than
+    // being destroyed. Un-listing gives Heading 2 back.
+    pasteBlocks(container, editor, { blockId: 'b1', offset: 'Chapter '.length }, [
+      makeBulletedHeading('p1', 'Results', 3),
+      makeParagraph('p2', 'detail'),
+    ]);
+
+    const head = editor.getDoc().document.blocks[0];
+    expect(head.type).toBe('list-item');
+    expect(head.inlines.map((i) => i.text).join('')).toBe('Chapter Results');
+    expect(head.headingLevel).toBe(2);
+    expect(unlistedBlockType(head)).toEqual({ type: 'heading', opts: { headingLevel: 2 } });
+    editor.dispose();
+  });
+
   test('a real pasted heading still keeps its level', () => {
     const { editor, container } = setupEditor([makeParagraph('b1', 'Tail text')]);
 

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import type { TableCell } from '../../src/model/types.js';
+import { createTableBlock } from '../../src/model/types.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, serializeBlocks, deserializeBlocks, parseHtmlToInlines, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables } from '../../src/view/clipboard.js';
 
 describe('clipboard JSON serialization', () => {
@@ -244,6 +245,85 @@ describe('clipboard payload validation', () => {
     expect(deserializeBlocks('not json')).toEqual([]);
     // A table block with no recoverable tableData is dropped, not rendered.
     expect(deserializeBlocks(JSON.stringify({ version: 1, blocks: [{ type: 'table' }] }))).toEqual([]);
+  });
+
+  // The cases above all assert what the sanitizer throws away. These assert
+  // what it must let through: the rebuild is on the required path for every
+  // internal paste, so a sanitizer that silently dropped every pasted table or
+  // image would keep the rest of this file green.
+  it('round-trips a real table block, merges included', () => {
+    const table = createTableBlock(2, 3);
+    table.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'top left', style: {} }];
+    table.tableData!.rows[0].cells[0].style.backgroundColor = '#ff0000';
+    // A 2-wide anchor, so cell [0][1] is a covered cell the layout must skip.
+    table.tableData!.rows[0].cells[0].colSpan = 2;
+    table.tableData!.rows[0].cells[1].colSpan = 0;
+
+    const parsed = deserializeBlocks(serializeBlocks([table]));
+    expect(parsed).toHaveLength(1);
+    const td = parsed[0].tableData!;
+    expect(td.rows).toHaveLength(2);
+    expect(td.rows[0].cells).toHaveLength(3);
+    expect(td.columnWidths).toEqual([1 / 3, 1 / 3, 1 / 3]);
+    expect(td.rows[0].cells[0].blocks[0].inlines[0].text).toBe('top left');
+    expect(td.rows[0].cells[0].style.backgroundColor).toBe('#ff0000');
+    expect(td.rows[0].cells[0].colSpan).toBe(2);
+    expect(td.rows[0].cells[1].colSpan).toBe(0);
+  });
+
+  it('round-trips an inline image', () => {
+    const block = parseOne({
+      type: 'paragraph',
+      inlines: [{
+        text: '￼',
+        style: {
+          image: {
+            src: 'https://example.com/a.png',
+            width: 120, height: 80,
+            alt: 'a picture', rotation: 90,
+            cropLeft: 0.1, cropRight: 0.2, cropTop: 0.3, cropBottom: 0.4,
+            originalWidth: 600, originalHeight: 400,
+          },
+        },
+      }],
+    });
+    expect(block.inlines[0].style.image).toEqual({
+      src: 'https://example.com/a.png',
+      width: 120, height: 80,
+      alt: 'a picture', rotation: 90,
+      cropLeft: 0.1, cropRight: 0.2, cropTop: 0.3, cropBottom: 0.4,
+      originalWidth: 600, originalHeight: 400,
+    });
+  });
+
+  it('drops an image with no usable geometry', () => {
+    const block = parseOne({
+      type: 'paragraph',
+      inlines: [{ text: '￼', style: { image: { src: 'https://example.com/a.png' } } }],
+    });
+    expect(block.inlines[0].style.image).toBeUndefined();
+  });
+
+  // `columnWidths` are fractions of the table width. A truncated payload used
+  // to default the missing entries to `100`, i.e. 100 content-widths each.
+  it('defaults a missing column width to an even share, not to pixels', () => {
+    const block = parseOne({
+      type: 'table',
+      tableData: { rows: [{ cells: [{}, {}, {}, {}] }], columnWidths: [0.4] },
+    });
+    expect(block.tableData!.columnWidths).toEqual([0.4, 0.25, 0.25, 0.25]);
+  });
+
+  it('pads a short row and clamps a span that runs off the grid', () => {
+    const block = parseOne({
+      type: 'table',
+      tableData: { rows: [{ cells: [{ colSpan: 99 }, {}, {}] }, { cells: [{}] }] },
+    });
+    const td = block.tableData!;
+    expect(td.rows[1].cells).toHaveLength(3);
+    expect(td.rows[0].cells[0].colSpan).toBe(3);
+    expect(td.rows[0].cells[1].colSpan).toBe(0);
+    expect(td.rows[0].cells[2].colSpan).toBe(0);
   });
 
   it('validates the tableCells half of the payload too', () => {

@@ -39,10 +39,12 @@ import { caretInlineStyle, caretStyleDefaults } from '../model/caret-style.js';
  * Symmetrically, a destination that keeps its own text keeps its *own* memory:
  * the pasted bullet must not overwrite the level of the bulleted heading the
  * caret sits in, or exiting the list would flatten a heading the paste never
- * touched.
+ * touched. A destination that is still a real `heading` hands its level over
+ * as that memory: the fold bullets the destination's own text, which is the
+ * same move `toggleList` makes on a heading, and it remembers the level there.
  *
- * Only the list-item memory is treated this way: a real `heading` block must
- * keep its level, or the paste would leave a heading with no level at all.
+ * A pasted `heading` keeps its own level outright, or the paste would leave a
+ * heading with no level at all.
  */
 function foldedHeadingLevel(
   dest: Block,
@@ -53,7 +55,9 @@ function foldedHeadingLevel(
   // Every other type the fold produces carries no level of its own.
   if (pasted.type !== 'list-item') return undefined;
   if (destOwnTextLen > 0) {
-    return dest.type === 'list-item' ? dest.headingLevel : undefined;
+    return dest.type === 'list-item' || dest.type === 'heading'
+      ? dest.headingLevel
+      : undefined;
   }
   return pasted.headingLevel;
 }

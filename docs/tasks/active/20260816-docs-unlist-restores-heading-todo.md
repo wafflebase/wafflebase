@@ -55,4 +55,21 @@ clearing the level — only the list round trip restores.
   text typed into the following bullets into headings on exit, so
   `applySplitBlock` keeps dropping `headingLevel` for a non-`heading`
   split half. Only the block that was actually bulleted remembers.
+
+  One exception was carved out during implementation and is documented in
+  `docs/design/docs/docs.md`: a split at **offset 0** *moves* the memory to
+  the new block rather than propagating it, because the whole of the bulleted
+  heading's text goes there and the emptied original keeps nothing to
+  describe. `splitMovesHeadingMemory` states the rule and both stores honour
+  it. That is still not propagation — no block ends up remembering a heading
+  its text never was.
 - DOCX/PPTX export of a bulleted heading's `pStyle`.
+
+## Known limitations
+
+- The slides element clipboard (`packages/slides/src/view/editor/interactions/
+  clipboard.ts`) casts its payload straight to `Element[]`, and an `Element`
+  carries docs `Block[]` — so the sanitizer this PR added to the docs
+  clipboard is bypassed one package over. Pre-existing on `main` and untouched
+  here; worth a follow-up that reuses `sanitizeBlocks` for each text-bearing
+  element.
