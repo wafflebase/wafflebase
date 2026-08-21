@@ -553,23 +553,27 @@ token edit repainted the button preview and left every scene untouched.
 
 ### 3.9 `POST /__design-editor/scene-preview` — the staged plan, as served bytes
 
-> **NOT SHIPPED.** The extracted plugin serves twelve routes and this is not one of
-> them, so what follows describes the prototype's design, not current behaviour.
+> **SHIPPED AS `POST /plan`, AND INCOMPLETE.** The route exists under the shorter name
+> and everything below about WHY it patches a module still describes it. Two pieces of
+> the sequence did not come across, and between them the preview never appears:
 >
-> **What that costs.** Token edits preview live (`/preview-tokens` → `wb:set-token-vars`
-> pushes custom properties into the frame, which works because a CSS variable can be
-> overridden from outside). A CLASS edit has no equivalent: it stages in the shell, the
-> frame keeps painting the committed state, and you see the change only after Approve
-> writes it and Vite's HMR reloads. The two-altitude history (edits vs writes) exists so
-> you can try something before writing it — for classes you can currently try it without
-> seeing it.
+> 1. **Nothing calls it.** `bridge.plan(side, intents)` exists on the client and the
+>    shell never invokes it, so a staged class edit is never published to the server.
+> 2. **It stages without invalidating.** The handler sets `plans` and returns; the
+>    reload loop over the union of the old and new plan's files — the paragraph below
+>    this one, the case it warns a naive implementation gets wrong — is absent, so the
+>    frame keeps serving the module it already transformed.
 >
-> **Why it is hard to restore, and why the section stays.** The reasoning below is the
-> reason: a scene renders a real route file, so there is no `className` seam to push an
-> override through, and `layout-insert` cannot be expressed as an override at all. Serving
-> composed source is the only form in which what the frame paints and what a save writes
-> are the same bytes. Anyone reinstating live class preview needs this argument, so it is
-> kept rather than deleted — marked, so nobody goes looking for the endpoint.
+> **What that costs today.** Token edits preview live (`/preview-tokens` →
+> `wb:set-token-vars` pushes custom properties into the frame, which works because a CSS
+> variable can be overridden from outside). A class edit has no equivalent: it stages in
+> the shell and appears only once Approve writes it and Vite's HMR reloads. The
+> two-altitude history (edits vs writes) exists so you can try something before writing
+> it — for classes you can currently try it without seeing it.
+>
+> The module-patching half IS shipped: `plugin/scene-patch.ts` takes the same
+> `plans: Map<FrameSide, MutateRequest[]>` and applies it when serving a `?wbFrame=`
+> module. Restoring the preview is wiring those two ends together, not rebuilding this.
 
 
 Body `{ frame: "before" | "after", intents }` →

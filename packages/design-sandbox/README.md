@@ -41,8 +41,9 @@ the canvas seeds and the aliases that serve them) landed across PRs 11c–13.
 The editor has no isolated component preview, and that is a decision rather than a
 gap — see 13d in [the plan](../../docs/design/design-editor/design-editor-local-plugin.md).
 A live preview of a staged *class* edit is a genuine gap: token edits preview live,
-class edits appear only once written. `design-editor-engine.md` §3.9 carries the
-reasoning.
+class edits appear only once written. The route (`POST /plan`) and the module patcher
+both shipped — nothing calls the route, and it stages without invalidating. See
+`design-editor-engine.md` §3.9.
 
 ## Commands
 
