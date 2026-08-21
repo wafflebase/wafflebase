@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.5 (2026-08-22) | [20260822-release-v0.6.5-todo.md](./active/20260822-release-v0.6.5-todo.md) | - |
 | claude token pool (2026-08-14) | [20260814-claude-token-pool-todo.md](./active/20260814-claude-token-pool-todo.md) | - |
 | path aware ci (2026-08-12) | [20260812-path-aware-ci-todo.md](./active/20260812-path-aware-ci-todo.md) | - |
 | cli upstream error envelope (2026-08-11) | [20260811-cli-upstream-error-envelope-todo.md](./active/20260811-cli-upstream-error-envelope-todo.md) | [20260811-cli-upstream-error-envelope-lessons.md](./active/20260811-cli-upstream-error-envelope-lessons.md) |
@@ -40,4 +41,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 529
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: claude token pool (2026-08-14)
+Latest active task: release v0.6.5 (2026-08-22)
