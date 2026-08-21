@@ -551,7 +551,7 @@ cascade — so `SandboxLayout` sends the same delta over
 Until CP3.4 that channel did not exist, and the visible symptom was exact: a
 token edit repainted the button preview and left every scene untouched.
 
-### 3.9 `POST /__design-editor/scene-preview` — the staged plan, as served bytes
+### 3.9 `POST /__design-editor/plan` — the staged plan, as served bytes
 
 > **SHIPPED AS `POST /plan`, AND INCOMPLETE.** The route exists under the shorter name
 > and everything below about WHY it patches a module still describes it. Two pieces of
@@ -576,13 +576,19 @@ token edit repainted the button preview and left every scene untouched.
 > module. Restoring the preview is wiring those two ends together, not rebuilding this.
 
 
-Body `{ frame: "before" | "after", intents }` →
-`{ ok, frame, applied, reloaded }`. **Writes nothing.**
+Body `{ side: "before" | "after", intents }` → `{ ok, side, count }`.
+**Writes nothing.**
 
-Stores the layout half of a plan for one frame side and invalidates the modules
-that plan touches, so the frame re-imports them with the patch applied. Non-layout
-kinds are dropped server-side: token edits preview through §3.8 instead, and
-letting both paths claim the same module would have them fighting over it.
+Stores the layout half of a plan for one frame side, so `scene-patch` serves that
+side's modules with the patch applied. Non-layout kinds are dropped server-side:
+token edits preview through §3.8 instead, and letting both paths claim the same
+module would have them fighting over it.
+
+> **The two paragraphs below describe the intended behaviour, not the shipped
+> handler.** It stores the plan and returns; it does not invalidate, and there is
+> no `reloaded` in its response — which is the second of the two gaps named above.
+> They are kept as the contract to restore, because the union rule is the part a
+> reimplementation gets wrong.
 
 **Why a patched MODULE and not an override channel.** A class override works for
 a component preview because the preview owns the render and passes a
@@ -1624,8 +1630,8 @@ curl -s "localhost:5173/@fs$PWD/packages/frontend/src/app/login/page.tsx?wbFrame
   | grep -o '"data-wb-file": "[^"]*"' | sort -u
 
 # Publish a staged plan to the AFTER frame, then diff the two sides (§3.9)
-curl -s -X POST localhost:5173/__design-editor/scene-preview -H 'Content-Type: application/json' \
-  -d '{"frame":"after","intents":[{"kind":"layout-props","anchor":{...},"classOps":{"replacements":[{"from":"text-[19px]","to":"text-[21px]"}]}}]}'
+curl -s -X POST localhost:5173/__design-editor/api/plan -H 'Content-Type: application/json' \
+  -d '{"side":"after","intents":[{"kind":"layout-props","anchor":{...},"classOps":{"replacements":[{"from":"text-[19px]","to":"text-[21px]"}]}}]}'
 # …then re-fetch both frames; only `after` carries text-[21px]. Nothing is on disk.
 # An empty `intents` reverts it — that is the union-invalidation case.
 
@@ -1736,7 +1742,8 @@ covered here is whether the scene PAINTS; that list is in §9.
     scene-preview, `?wbFrame=after` serves `text-[21px]` while `?wbFrame=before`
     still serves `text-[19px]`. This is §7.8's premise reduced to an assertion.
 19. **An emptied plan un-patches the module** — the union-invalidation drop case
-    (§3.9), and the one a naive implementation gets wrong.
+    (§3.9), and the one a naive implementation gets wrong. *Cannot pass today:
+    the shipped handler stages without invalidating, so nothing re-serves.*
 20. **Propagation reaches a drilled-into file and stops at `node_modules`.**
 21. **The whole scene-preview sequence writes nothing** (`git diff` clean).
 22. **Every stamp says which file it came from.** The scene module emits exactly

@@ -73,7 +73,7 @@ not the repository you meant to edit, stop there.
 | `/__design-editor/api/health` | What the plugin resolved: root, scene manifest, providers module, whether a token adapter is configured, and the alias table. |
 | `/` | **404, and that is correct.** The dev server serves the editor's namespace, not the wafflebase app. |
 
-`GET /api/health` is the first thing to read when the shell loads but looks wrong — it
+`GET /__design-editor/api/health` is the first thing to read when the shell loads but looks wrong — it
 answers "is my config actually wired?" before you start debugging a scene:
 
 ```bash
@@ -119,7 +119,7 @@ pnpm --filter @wafflebase/design-editor verify:frame      # 40 checks
 
 # The same, against wafflebase itself: every scene mounts, is stampable, makes no
 # unmocked request, and a class edit reaches real source.
-pnpm --filter @wafflebase/design-sandbox verify:scenes    # 47 checks, ~15 min
+pnpm --filter @wafflebase/design-sandbox verify:scenes    # 57 checks, ~15 min
 ```
 
 Add `--write` to `verify:frame` or `verify:scenes` and they stop short of nothing: Approve

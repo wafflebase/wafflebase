@@ -407,6 +407,18 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
     [files],
   );
   const component = allComponents.find((c) => c.name === componentName) ?? allComponents[0];
+  /*
+   * A PERSISTED MODE THE PROJECT CANNOT OFFER. Same shape as the scene id that vanishes
+   * above: the view survives a reload, the project it describes may not. Restored as-is,
+   * the editor opens on `components` with its own switch disabled, showing `Bindings`
+   * with nothing to bind.
+   *
+   * Runs after metadata, because before it arrives `allComponents` is legitimately empty
+   * and switching then would override a mode the project does support.
+   */
+  useEffect(() => {
+    if (meta && allComponents.length === 0) setMode('scenes');
+  }, [meta, allComponents.length]);
   /** Re-seed the variant axes when the selection changes; edits are keyed per component. */
   const selectComponent = (name: string) => {
     const next = allComponents.find((c) => c.name === name);

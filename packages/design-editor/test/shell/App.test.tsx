@@ -283,6 +283,20 @@ describe('the two modes', () => {
     expect(host.querySelector('iframe')).toBeTruthy();
   });
 
+  it('falls back to scenes when a persisted components mode has no components', async () => {
+    /*
+     * The mode persists, the project it names may not still have components — the same
+     * shape as the scene id that vanishes. Restored as-is, the editor opens on a mode
+     * whose own button is disabled, showing `Bindings` with nothing to bind.
+     */
+    window.localStorage.setItem(
+      'design-editor:view:v1',
+      JSON.stringify({ mode: 'components', scene: 'dash' }),
+    );
+    const host = await mount(stubBridge()); // default stub: no components
+    expect(tabs(host)).toEqual(['Layout', 'Tokens']);
+  });
+
   it('disables components when the project has none, rather than hiding the switch', async () => {
     const host = await mount(stubBridge()); // the default stub's project has no components
     expect((modeButton(host, 'components') as HTMLButtonElement).disabled).toBe(true);

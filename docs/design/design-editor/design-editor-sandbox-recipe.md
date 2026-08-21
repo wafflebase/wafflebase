@@ -132,7 +132,7 @@ usefully say.
 | Pane | `components` | `scenes` |
 |---|---|---|
 | **Left** | `ComponentList` — searchable list from the AST metadata; a dashed icon marks components with no live preview. | The scene list from `scenes.config.json`, each showing its route. |
-| **Center** | `PreviewPane` — live render of the selected component + variant with all overrides applied, plus the interaction-state simulator (§2.3). Right-click summons the `AgentPopover`. | `SceneHost` — the iframe, viewport buttons, zoom, and the picking toggle (§2.11). |
+| **Center** | `SceneHost`, the same real scene as the other mode — **not** the `PreviewPane` this table originally specified (see the note above). The interaction-state simulator went with it; `states.ts` survives as the ADDRESSING for CVA state slots in `TokenBindingPanel`, not as a way to force a component into `:hover`. | `SceneHost` — the iframe, viewport buttons, zoom, and the picking toggle (§2.11). |
 | **Right tab 1** | **Token bindings** → `TokenBindingPanel`. Its `TabsContent` carries `style={tokenStyle}` so token-value/palette edits reflect live in the binding swatches. | **Layout** → `SceneOutline` over `SceneNodeDetail` (§2.13). |
 | **Right tab 2** | **Token Editor** → `TokenEditorPanel`. | **Token Editor** → the same panel. |
 
