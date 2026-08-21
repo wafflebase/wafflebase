@@ -203,6 +203,10 @@ export type {
   ImageFetcher as DocxImageFetcher,
 } from './export/docx-exporter.js';
 
+// Supplying this is what opts a caller into dropping an image the fetcher
+// could not deliver; exported so a consumer can name the type it passes.
+export type { ImageErrorReporter } from './export/pdf-image-painter.js';
+
 // Export (PDF)
 export { PdfExporter } from './export/pdf-exporter.js';
 export type { PdfExportOptions } from './export/pdf-exporter.js';

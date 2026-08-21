@@ -6,6 +6,7 @@ import {
   output,
   outputError,
   parseOutputFormat,
+  forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
@@ -110,14 +111,17 @@ export function registerSheetsImportCommand(parent: Command) {
         const mode = cellTable ? 'cells' : 'grid';
 
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}/tabs/${seg(localOpts.tab)}/cells`, {
-            cells,
-          });
+          printDryRun(
+            getConfig(opts),
+            'PATCH',
+            `/documents/${seg(docId)}/tabs/${seg(localOpts.tab)}/cells`,
+            { cells },
+          );
           return;
         }
 
         const res = await getClient(opts).batchCells(docId, localOpts.tab, cells);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         const result = typeof res.data === 'object' && res.data !== null
           ? { imported: cellCount, mode, ...res.data as Record<string, unknown> }
           : { imported: cellCount, mode };

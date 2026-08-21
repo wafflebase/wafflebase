@@ -15,6 +15,7 @@ import { exportPdf } from '../src/docs/pdf-export.js';
 import { exportDocx } from '../src/docs/docx-export.js';
 import { writeBinary, type BinaryIO } from '../src/output/binary.js';
 import { parsePageRange } from '../src/docs/page-range.js';
+import { EXIT_SYSTEM_ERROR, SystemError, exitCodeFor } from '../src/errors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const KR_FONT = readFileSync(
@@ -116,6 +117,36 @@ describe('exportPdf', () => {
     };
     const bytes = await exportPdf(doc, { fontSources: FONT_SOURCES });
     expect(looksLikePdf(bytes)).toBe(true);
+  }, 20000);
+
+  it('reports an unreachable font CDN as a system error', async () => {
+    // `PdfFonts` downloads the Noto KR OTFs itself; without the
+    // injected classifier the transport failure arrives as a bare
+    // TypeError and the CLI exits 1 for an offline machine — exactly
+    // the case the exit contract reserves 2 for.
+    const doc: Document = { blocks: [paragraph('p1', '안녕하세요')] };
+    const err = await exportPdf(doc, {
+      fontFetch: () => Promise.reject(new TypeError('fetch failed')),
+    })
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SystemError);
+    expect((err as SystemError).code).toBe('NETWORK_ERROR');
+    expect(exitCodeFor(err)).toBe(EXIT_SYSTEM_ERROR);
+  }, 20000);
+
+  it('reports a 5xx from the font CDN as a system error', async () => {
+    const doc: Document = { blocks: [paragraph('p1', '안녕하세요')] };
+    const err = await exportPdf(doc, {
+      fontFetch: async () =>
+        new Response('boom', { status: 503, statusText: 'Unavailable' }),
+    })
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(SystemError);
+    expect(exitCodeFor(err)).toBe(EXIT_SYSTEM_ERROR);
   }, 20000);
 
   it('embeds image inlines via the supplied imageFetcher', async () => {

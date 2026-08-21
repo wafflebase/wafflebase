@@ -482,6 +482,18 @@ describe('analyzeScene', () => {
     expect(scene.imports[0].named).toEqual(['Button']);
   });
 
+  it('carries `deferred`, so the client can say the scene is not mountable', () => {
+    // `renderScenesModule` drops a deferred scene from the frame's loader table. Without
+    // this field reaching the client the shell listed it as an ordinary, clickable row, and
+    // clicking it produced a frame-side `no scene "<id>" in the scene manifest` — an error
+    // the user had to attribute. Measured against wafflebase's own manifest: five such rows.
+    const held = analyzeScene(fixture(src), { id: 'page', kind: 'canvas', label: 'P', deferred: true });
+    expect(held.deferred).toBe(true);
+    // Absent stays absent, rather than becoming `false` — the manifest's own shape.
+    const live = analyzeScene(fixture(src), { id: 'page', kind: 'dom', label: 'P' });
+    expect(live.deferred).toBeUndefined();
+  });
+
   it('honours an explicitly named export', () => {
     const scene = analyzeScene(
       fixture(`export function Sidebar(){ return <aside/>; }`),

@@ -18,8 +18,8 @@ workflow.
 
 All PRs target `main`. CI runs `verify:self` and `verify:integration` —
 only the parts your change can affect (see
-[What CI actually runs](#what-ci-actually-runs)) — and posts a summary as
-a PR comment.
+[What CI actually runs](#what-ci-actually-runs)) — and comments with the
+scope it chose.
 
 ## Before you start
 
@@ -87,6 +87,32 @@ Setup, prerequisites, and the dev server are documented in the
 [backend README](packages/backend/README.md). Don't duplicate them here
 — if those instructions are wrong, fix them at the source.
 
+## Design editor (dev-only)
+
+The design editor is a development-only tool for editing wafflebase's
+design system — component JSX and design tokens — by rendering the app's
+**real** routes and writing edits back into source. It never ships to
+production. See [`packages/design-editor`](packages/design-editor/README.md)
+(the generic Vite plugin) and
+[`packages/design-sandbox`](packages/design-sandbox/README.md)
+(wafflebase's own instance) for architecture, and the
+[Design Editor design docs](docs/design/README.md#design-editor) for the
+rationale.
+
+Run it against wafflebase's own routes:
+
+```bash
+pnpm design-sandbox dev
+```
+
+The editor shell is a prebuilt bundle that `@wafflebase/design-editor`
+serves under `/__design-editor/`; the sandbox's `predev` builds it
+automatically before starting Vite. A missing shell bundle is what
+produces the `design-editor shell asset not found … was the package
+built?` 404. If you change **design-editor** source (not sandbox source),
+restart the dev server so the shell rebuilds — `predev` only runs on
+start.
+
 ## Verification gates
 
 We have three verification lanes; pick the one matching the scope of
@@ -98,9 +124,10 @@ your change.
 | `pnpm verify:self`               | Before opening a PR. Adds full builds, chunk budgets, visual + entropy checks. |
 | `pnpm verify:integration:docker` | When touching backend, datasource, share-link, or Yorkie code paths. Spins up Postgres + Yorkie automatically. |
 
-CI re-runs these on every PR and posts a per-lane summary comment. The
-two checkboxes in the PR template must be green (or the skip reason
-filled in) before review.
+CI re-runs these on every PR. Pass/fail is in the PR's checks list; the
+comment reports the scope CI chose — what was skipped and why. The two
+checkboxes in the PR template must be green (or the skip reason filled
+in) before review.
 
 ## What CI actually runs
 

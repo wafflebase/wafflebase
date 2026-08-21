@@ -526,12 +526,14 @@ guarantee. The correct prefix comes from each emitter's own body (`m.` for
 `src.typography.` for `rootOnlyBlock`), not from the token's name; the prototype
 was right for two of four, by luck of the destructuring.
 
-⚠ **A live risk got fresh evidence.** The Risks section below prescribes moving
-`.bak` backups into `node_modules/.cache/wafflebase-design-editor/`. That is still
-unimplemented — `PathGuard.backup` writes `${file}.bak` beside the source — and
-8c's `verify-tokens.mjs --write` demonstrated it by littering three untracked files
-into `packages/core` and `packages/frontend` on every run. The script cleans up
-after itself; the fix belongs in `paths.ts` and is not the sandbox's to make.
+⚠ **A live risk got fresh evidence, and is now closed.** The Risks section below
+prescribes moving `.bak` backups into `node_modules/.cache/wafflebase-design-editor/`.
+8c's `verify-tokens.mjs --write` demonstrated why, by littering three untracked files
+into `packages/core` and `packages/frontend` on every run. `PathGuard.backup` writes
+there now, mirroring the file's root-relative path so equal basenames cannot collide.
+The earlier note here claimed the move was blocked on the transaction work because it
+"changes the restore path too" — it does not: restore runs through the transaction log
+and nothing ever read the `.bak` back.
 
 ### 7. What this replaces
 
@@ -583,12 +585,17 @@ cap is what sets the granularity.
 | 9b | `edits.ts` | **merged** (#848) — see below |
 | gate | `fixtures/consumer` + `verify-consumer.mjs` | **merged** (#849) — see above |
 | 9c | `history` · `anchors` | folded into 11b — `SandboxLayout` is their only caller |
-| 10a | frame protocol · drill-in resolver · the alias seam | in review (#855) — see below |
-| 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | in review (#855) — see below |
-| 11a | the shell build — `dist/shell`, two documents, self-contained CSS | in review — see below |
-| 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | written — see below |
-| 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | next, before 12 — see below |
-| 12 | the token panels, `ComponentList`, and the canvas scenes | held |
+| 10a | frame protocol · drill-in resolver · the alias seam | **merged** (#855) — see below |
+| 10b | `frame-picker` · `fetch-fixtures` · `hmr-state` — the frame's DOM runtime | **merged** (#855) — see below |
+| 11a | the shell build — `dist/shell`, two documents, self-contained CSS | **merged** (#879) — see below |
+| 11b | the React chrome — `SandboxLayout`, `SceneHost`, `scene-entry`, the outline / node-detail / class-editor panels, plus 9c | **merged** (#887) — see below |
+| 11c | `packages/design-sandbox`'s scene half — `providers.tsx`, `fixtures/**`, the deferred `vite.config.ts` rows | **merged** (#891) — see below |
+| 12a | the token panels, the review modal, `ComponentList` — `design-editor` | **merged** (#896) — §6's last row closed |
+| 12b | the canvas scenes — `design-sandbox` | **merged** (#903) — all five render |
+| 13a | editing a class against wafflebase's own source — `verify-scenes.mjs` | **merged** (#907) |
+| 13b | publish prep — backups out of the consumer's tree, the peer-import contract test | **merged** (#912) |
+| 13c | ESLint, which this package had never had | **merged** (#914) |
+| 13d | the gaps running it surfaced — the vacuous gate check, the missing Tailwind plugin, the mode split | this PR |
 
 PRs 2–7b are the files the generalization work depends on and does not edit, so
 review and MVP work proceeded in parallel. `vite.config.ts` and `edits.ts` were
@@ -615,6 +622,15 @@ earlier claims in this document:
   `PreviewPane` is blocked on `registry.tsx` — see 11c below. `ReviewApproveModal` is
   12's, so ⌘S writes the plan directly today.
 
+  > **Settled in 13d.** The mode came back; `PreviewPane` did not, and is now a
+  > recorded drop rather than a block. Its registry is a hand-written renderer PER
+  > COMPONENT and the prototype's carried two (Button, Badge) against 25 ui
+  > components — shipping it would show a preview for 2 and an empty frame for the
+  > rest. The centre keeps the real page in both modes, which is the better surface
+  > for judging a token change anyway. What the mode still buys is the right pane:
+  > `Layout` addresses a `NodeAnchor` and `Bindings` a CVA value, so exactly one of
+  > them has a subject at any moment.
+
 Three defects fixed in the ported code: `SceneNodeDetail` printed `expression — cn(…)`
 for every non-literal `className` (7b's `classNameExpr` is what actually distinguishes
 them); `FloatingClassEditor` leaked a `pointermove` listener when unmounted mid-drag;
@@ -626,7 +642,8 @@ And the port nearly dropped Tailwind candidate registration (`useTailwindCandida
 in no PR's file list); without it a composed class has no CSS rule and previews as
 nothing.
 
-**Staging has no browser coverage yet.** The class editor needs a measured selection
+**Staging had no browser coverage when this was written.** (`verify:scenes` now covers
+the click → stage → ⌘Z → ⇧⌘Z → ⌘S loop against wafflebase's own source; 13a.) The class editor needs a measured selection
 rect, which arrives from the frame over `postMessage`, and jsdom loads no iframe — so the
 staging *logic* is unit-tested (`history`, `anchors`, `FloatingClassEditor`) while the
 click → stage → ⌘Z → ⇧⌘Z loop gains its first `verify:frame` checks in 12a and its
@@ -635,11 +652,19 @@ outline agreement and viewport/zoom.
 
 #### 11c — the scene half of `design-sandbox`
 
-**Measured state after 11b:** the editor renders the fixture consumer's scene (34/34)
-but not wafflebase's. Booting `packages/design-sandbox` gives a real scene list, a
-17-row outline of `app/login/page.tsx`, and `tokens: configured` — and a frame that
-says `no scene "login" in the scene manifest`. All 11 scenes are `deferred: true`, and
-`renderScenesModule` filters those out, so the frame's loader table is empty.
+**Outcome:** wafflebase's own six dom scenes now render inside the real `app/Layout`, and
+a click resolves to a `packages/frontend/**` source anchor — including a node in a
+different file from the scene, which is the app-shell case. Covered by
+`pnpm --filter @wafflebase/design-sandbox verify:scenes` (18 checks). The five canvas
+scenes stay `deferred`: they need a mocked document store, which is 12.
+
+**The split held, with one exception worth naming.** Everything else is consumer-side, but
+the plugin gained `options.fixtures`: `SceneConfig.fixtures` had been in the manifest type
+since 10a with nothing reading it, and the fetch guard must be installed before the first
+scene import, so the resolver cannot ride along with the lazily-loaded providers module.
+Full findings — including why the frontend is not typechecked from this package, and why
+`react-router-dom` is aliased rather than depended on — are in
+`docs/tasks/active/20260819-design-sandbox-scene-half-todo.md`.
 
 **Why a letter under 11.** These letters mark PRs the code forced apart on the way to a
 working editor, not strict subject membership — 11a is a build step, not chrome either.
@@ -657,8 +682,10 @@ supplies. Both presuppose scenes that mount.
 | the deferred `vite.config.ts` rows — `react()`, `tailwindcss()`, `@` + `@wafflebase/*` aliases, app-libs aliases, `optimizeDeps.include`, `define`, antlr4ts shims, `yorkieOffline()` | ~40 | `design-sandbox/vite.config.ts` |
 | drop `deferred` | 11 | `scenes.config.json` |
 
-**The plugin does not change.** That is the point: if applying the editor to our own app
-required editing the plugin, the split would have failed.
+**The plugin changes once, and the exception is documented.** It gained `options.fixtures`
+— see 11c's outcome above for why the fetch guard cannot ride along with the lazily-loaded
+providers module. Everything else here is consumer-side, which is the point: if applying the
+editor to our own app had required editing the plugin broadly, the split would have failed.
 
 Two things to settle while doing it:
 
@@ -668,7 +695,40 @@ Two things to settle while doing it:
   mount and the user sees a frame-side manifest error instead of "this scene is
   deferred". Offering an unclickable row is the defect; fix it here.
 
-#### PR 8 splits in three, by pipeline — not by file#### PR 8 splits in three, by pipeline — not by file
+#### 12 splits in two, by risk
+
+12a is a known port into `design-editor`; 12b is `design-sandbox` work whose prerequisite the
+prototype never finished. Coupling them would hide an unmeasured task inside a measured one.
+
+**12a closed §6's last row.** The panels read `TokenFamilyMeta` from `GET /tokens`, so the
+three `packages/core/src/tokens/*.ts` literals and the `FAMILY_META` table are gone and a
+project whose tokens live anywhere else works unchanged. The full prototype→contract mapping,
+and three defects it surfaced in already-merged code, are in
+`docs/tasks/active/20260819-design-editor-token-panels-todo.md`.
+
+**Three prototype files were dropped, as decisions.** `PreviewPane` + `registry.tsx`: the
+registry is a hand-written renderer per component with sample children a human chose, so a
+generic package cannot ship it and requiring one is a new onboarding cliff — the scene frame
+is the preview surface, which is the argument this document already makes for judging a token
+change on a real page. `AgentPopover`: the Phase 4 agent pipeline was withdrawn, so it has no
+destination.
+
+**12b measured out cheaper than expected, and the plugin did not change.** The four editor
+scenes render their fixture content inside the real app shell; only `pdf-viewer` stays
+deferred, because it needs the file's bytes at a blob URL and a table of JSON responses cannot
+produce one. `kind: 'canvas'` was and remains a grouping label — nothing branches on it.
+
+What made it work is `yorkie-offline.tsx`: `@yorkie-js/react` is redirected module-wide to a
+shim that constructs a real but DETACHED `Document`. A document never attached to a `Client` is
+fully functional — re-probed against the installed `@yorkie-js/sdk@0.7.16`, not inherited from
+the prototype's 0.7.13 measurement — so only the React binding needed replacing. The shim
+re-exports the real package and shadows `Tree`/`Text`/`Counter` from the SDK realm, because
+`@yorkie-js/react` bundles its own 824 KB SDK copy and a CRDT value from the wrong realm is
+silently flattened into a plain object rather than rejected. Findings, including a Yorkie proxy
+that answers `false` to `in` for a field it holds, are in
+`docs/tasks/active/20260819-design-sandbox-canvas-todo.md`.
+
+#### PR 8 splits in three, by pipeline — not by file
 
 The obvious cut is one PR per file: the host is `vite.config.ts`, the adapter is
 `edits.ts`. [§6](#6-the-couplings-that-must-become-configuration) shows why that
@@ -1037,12 +1097,13 @@ project in week 1, before the agent loop. Treat >1 hour as a redesign trigger fo
 the configuration surface, not as documentation debt.
 
 **We write to a stranger's working tree.** `resolveSafe` + `.bak` backups are the
-right shape but were built for our own repo — and the backups land in the
-consumer's source directories, where our `.gitignore` entry cannot reach.
-Wafflebase's own tree already carries stray `.bak` files as evidence.
-*Mitigation:* backups move to `node_modules/.cache/wafflebase-design-editor/`;
-refuse every write resolving outside `options.root`; record the HEAD sha in each
-transaction so "undo" is meaningful against a moving tree.
+right shape but were built for our own repo. *Mitigations:* backups now land in
+`node_modules/.cache/wafflebase-design-editor/` rather than beside the consumer's
+source, where our `.gitignore` could not reach them — both browser gates assert that
+nothing is written next to the file **and** that the cached copy exists, because the
+first check alone goes vacuous once the location moves. Every write resolving outside
+`options.root` is refused. Still open: recording the HEAD sha in each transaction, so
+"undo" is meaningful against a moving tree.
 
 **The model key leaks into the frame.** *Mitigation:* env-only, dev-server-side,
 proxied through the bridge; never serialized into any client bundle, never

@@ -32,8 +32,8 @@ positional argument (`--root` is build-only and the CLI rejects it) plus
 
 ## Done when
 
-- [ ] the fixture uses the DEFAULT adapter, not a bespoke one
-- [ ] the gate covers read, preview, mutate, refuse and undo
-- [ ] `--write` restores the fixture byte-identically
-- [ ] the gate is proven to fail when the fixture is broken
-- [ ] §8's open gap recorded as closed
+- [x] the fixture uses the DEFAULT adapter, not a bespoke one
+- [x] the gate covers read, preview, mutate, refuse and undo
+- [x] `--write` restores the fixture byte-identically
+- [x] the gate is proven to fail when the fixture is broken
+- [x] §8's open gap recorded as closed

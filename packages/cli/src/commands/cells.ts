@@ -4,6 +4,7 @@ import {
   output,
   outputError,
   parseOutputFormat,
+  forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
@@ -43,7 +44,7 @@ export function registerCellsCommand(parent: Command) {
           : range
             ? await getClient(opts).getCell(docId, tab, range)
             : await getClient(opts).getCells(docId, tab);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -84,7 +85,7 @@ export function registerCellsCommand(parent: Command) {
           formula ? undefined : value,
           formula ? value : undefined,
         );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -111,7 +112,7 @@ export function registerCellsCommand(parent: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteCell(docId, tab, ref);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -160,24 +161,28 @@ export function registerCellsCommand(parent: Command) {
         return;
       }
 
-      if (opts.dryRun) {
-        printDryRun(
-          getConfig(opts),
-          'PATCH',
-          `/documents/${seg(docId)}/tabs/${seg(tab)}/cells`,
-          { cells },
-        );
-        return;
-      }
-
       try {
+        // Inside the try, ahead of `--format` validation: the preview is
+        // built from ids, and `seg()` refuses a `.` / `..` one. That refusal
+        // has to reach `outputError` as the error envelope rather than
+        // escape the handler as a rejected action promise.
+        if (opts.dryRun) {
+          printDryRun(
+            getConfig(opts),
+            'PATCH',
+            `/documents/${seg(docId)}/tabs/${seg(tab)}/cells`,
+            { cells },
+          );
+          return;
+        }
+
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).batchCells(
           docId,
           tab,
           cells as Record<string, { value?: string; formula?: string } | null>,
         );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);

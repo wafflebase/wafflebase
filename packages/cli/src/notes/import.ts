@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { NoteContent } from '../client/http-client.js';
+import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
+import { upstreamErrorJson } from '../output/formatter.js';
 import { seg } from '../client/url.js';
 
 /**
@@ -158,10 +160,8 @@ export async function runNotesImport(
     }
     const res = await client.putNoteContent(replace, { content });
     if (!res.ok) {
-      io.stderr(
-        JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
-      );
-      return { exitCode: 1 };
+      io.stderr(upstreamErrorJson(res));
+      return { exitCode: exitCodeForStatus(res.status) };
     }
     io.stdout(JSON.stringify({ id: replace, replaced: true }, null, 2));
     return { exitCode: 0 };
@@ -187,10 +187,8 @@ export async function runNotesImport(
 
   const created = await client.createDocument(inferredTitle, 'note');
   if (!created.ok) {
-    io.stderr(
-      JSON.stringify(created.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
-    );
-    return { exitCode: 1 };
+    io.stderr(upstreamErrorJson(created));
+    return { exitCode: exitCodeForStatus(created.status) };
   }
   const newId = (created.data as { id?: string } | null)?.id;
   if (!newId) {
@@ -206,15 +204,16 @@ export async function runNotesImport(
         2,
       ),
     );
-    return { exitCode: 1 };
+    // A 2xx that omitted the id is the server contradicting itself —
+    // nothing the caller can retype, so it exits with the system class
+    // like every other server fault.
+    return { exitCode: EXIT_SYSTEM_ERROR };
   }
 
   const put = await client.putNoteContent(newId, { content });
   if (!put.ok) {
-    io.stderr(
-      JSON.stringify(put.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
-    );
-    return { exitCode: 1 };
+    io.stderr(upstreamErrorJson(put));
+    return { exitCode: exitCodeForStatus(put.status) };
   }
 
   io.stdout(JSON.stringify({ id: newId, title: inferredTitle }, null, 2));

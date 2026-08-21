@@ -1,38 +1,32 @@
 import type { CliConfig } from '../config/config.js';
+import { seg as coreSeg } from '@wafflebase/core/url';
 
 /**
- * The segments the WHATWG URL parser resolves away instead of keeping.
+ * One path segment of a request URL.
  *
- * `encodeURIComponent` escapes `/` and `?` but *not* `.`, and the URL spec
- * defines a dot segment as `.`, `..`, `%2e`, `.%2e`, `%2e.` or `%2e%2e`
- * (ASCII case-insensitive) — so percent-encoding cannot smuggle a literal
- * `..` through as data: `fetch` pops a path segment either way. An
- * identifier that is exactly a dot segment therefore has to be refused,
- * not escaped.
- */
-const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i;
-
-/**
- * Encode one path segment of a request (or previewed request) URL.
+ * The escaping and the `.` / `..` refusal live in `@wafflebase/core/url` — the
+ * shared home for URL safety primitives — because the browser client builds the
+ * same kind of URL from the same kind of id, and two copies of a security rule
+ * drift.
  *
- * Identifiers reach the CLI straight from argv, the environment, or a YAML
- * profile, and are interpolated into a URL string that `fetch` parses with
- * the WHATWG parser. Unescaped, a `/` or `?` in an id would retarget the
- * credentialed request off the workspace prefix; a `..` would pop a segment
- * — e.g. `api-keys revoke ..` would become `DELETE /workspaces/<ws>/`, the
- * route that deletes the whole workspace. Escaping handles the first,
- * rejection the second.
+ * Wrapped rather than re-exported because this package needs one rule more: the
+ * *empty* segment. That is CLI-local because the reason is this server's
+ * routing rather than URL semantics. An empty id does not retarget the request
+ * the way a traversal does, and it does not 404 either — Nest runs Express with
+ * strict routing disabled, so `GET /api/v1/workspaces/<ws>/documents/` matches
+ * the *collection* route, and `documents get ""` would silently list every
+ * document instead of failing on a missing id. The browser client builds its
+ * URLs from ids it already holds, so it has no equivalent hole to close.
  *
- * This is the single definition used by both the live client and the
- * `--dry-run` preview, so a preview cannot disagree with the request it
- * describes.
+ * Every id path uses this one, so nothing can reach the permissive form by
+ * accident. The single segment allowed to be empty is the workspace, which has
+ * its own builder (`workspaceSeg`).
  *
- * The *empty* segment is refused too. It does not retarget the request the way
- * a traversal does, but it does not 404 either: Nest runs Express with strict
- * routing disabled, so `GET /api/v1/workspaces/<ws>/documents/` matches the
- * *collection* route — `documents get ""` would silently list every document
- * instead of failing on a missing id. The one segment allowed to be empty is
- * the workspace (see `workspaceSeg`).
+ * It is used in the two places this package builds a URL — `HttpClient` for the
+ * request itself, and the commands assembling the path they hand `printDryRun`
+ * for `--dry-run`. A preview that skipped it would print a walked-out URL as
+ * "the request that would be sent", the one output an agent is most likely to
+ * copy and run.
  */
 export function seg(value: string): string {
   if (value === '') {
@@ -42,15 +36,7 @@ export function seg(value: string): string {
         'request would address the collection rather than the named resource.',
     );
   }
-  const encoded = encodeURIComponent(value);
-  if (DOT_SEGMENT.test(encoded)) {
-    throw new Error(
-      `Invalid identifier ${JSON.stringify(value)}: a URL path segment cannot ` +
-        `be "." or ".." — the URL parser resolves those, so the request would ` +
-        `reach a different endpoint than the one named.`,
-    );
-  }
-  return encoded;
+  return coreSeg(value);
 }
 
 /** The configured server with any trailing slash stripped. */

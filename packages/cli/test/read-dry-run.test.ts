@@ -331,14 +331,14 @@ describe('--dry-run on read commands', () => {
       expect(revokeApiKey).not.toHaveBeenCalled();
       expect(stdout).toEqual([]);
       expect(process.exitCode).toBe(1);
-      expect(stderr.join('\n')).toMatch(/Invalid identifier/);
+      expect(stderr.join('\n')).toMatch(/Invalid path segment/);
     });
 
     it('refuses a bare `..` doc id', async () => {
       // `docs get` previews before its try/catch, so the throw surfaces to
       // `runCli`, which envelopes it. Either way nothing is printed or sent.
       await expect(run(['docs', 'get', '..', '--dry-run'])).rejects.toThrow(
-        /Invalid identifier/,
+        /Invalid path segment/,
       );
 
       expect(getDocument).not.toHaveBeenCalled();

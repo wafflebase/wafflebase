@@ -3,6 +3,7 @@ import type { TestConnectionResult } from "@/types/datasource";
 import type { MetricSeriesPoint } from "./analytics";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
+import { seg } from "./url";
 
 const BASE = `${import.meta.env.VITE_BACKEND_API_URL}/workspaces`;
 
@@ -45,7 +46,7 @@ export async function fetchWorkspaces(): Promise<Workspace[]> {
  * Fetches workspace.
  */
 export async function fetchWorkspace(id: string): Promise<WorkspaceDetail> {
-  const res = await fetchWithAuth(`${BASE}/${id}`);
+  const res = await fetchWithAuth(`${BASE}/${seg(id)}`);
   await assertOk(res, "Failed to fetch workspace");
   return res.json();
 }
@@ -72,7 +73,7 @@ export async function updateWorkspace(
   id: string,
   data: { name?: string; slug?: string },
 ): Promise<Workspace> {
-  const res = await fetchWithAuth(`${BASE}/${id}`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(id)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -85,7 +86,7 @@ export async function updateWorkspace(
  * Deletes workspace.
  */
 export async function deleteWorkspace(id: string): Promise<void> {
-  const res = await fetchWithAuth(`${BASE}/${id}`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(id)}`, {
     method: "DELETE",
   });
   await assertOk(res, "Failed to delete workspace");
@@ -99,7 +100,7 @@ export async function removeMember(
   userId: number,
 ): Promise<void> {
   const res = await fetchWithAuth(
-    `${BASE}/${workspaceId}/members/${userId}`,
+    `${BASE}/${seg(workspaceId)}/members/${seg(String(userId))}`,
     { method: "DELETE" },
   );
   await assertOk(res, "Failed to remove member");
@@ -112,7 +113,7 @@ export async function createInvite(
   workspaceId: string,
   data?: { role?: string; expiration?: string },
 ): Promise<WorkspaceInvite> {
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/invites`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/invites`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data || {}),
@@ -127,7 +128,7 @@ export async function createInvite(
 export async function fetchInvites(
   workspaceId: string,
 ): Promise<WorkspaceInvite[]> {
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/invites`);
+  const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/invites`);
   await assertOk(res, "Failed to fetch invites");
   return res.json();
 }
@@ -140,7 +141,7 @@ export async function revokeInvite(
   inviteId: string,
 ): Promise<void> {
   const res = await fetchWithAuth(
-    `${BASE}/${workspaceId}/invites/${inviteId}`,
+    `${BASE}/${seg(workspaceId)}/invites/${seg(inviteId)}`,
     { method: "DELETE" },
   );
   await assertOk(res, "Failed to revoke invite");
@@ -153,7 +154,7 @@ export async function acceptInvite(
   token: string,
 ): Promise<{ workspaceId: string }> {
   const res = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/invites/${token}/accept`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/invites/${seg(token)}/accept`,
     { method: "POST" },
   );
   await assertOk(res, "Failed to accept invite");
@@ -181,7 +182,7 @@ export interface ApiKeyCreateResponse {
  * Fetches API keys for a workspace.
  */
 export async function fetchApiKeys(workspaceId: string): Promise<ApiKey[]> {
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/api-keys`);
+  const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/api-keys`);
   await assertOk(res, "Failed to fetch API keys");
   return res.json();
 }
@@ -193,7 +194,7 @@ export async function createApiKey(
   workspaceId: string,
   data: { name: string },
 ): Promise<ApiKeyCreateResponse> {
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/api-keys`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/api-keys`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -209,7 +210,7 @@ export async function revokeApiKey(
   workspaceId: string,
   keyId: string,
 ): Promise<void> {
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/api-keys/${keyId}`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/api-keys/${seg(keyId)}`, {
     method: "DELETE",
   });
   await assertOk(res, "Failed to revoke API key");
@@ -224,7 +225,7 @@ export async function fetchWorkspaceDocuments(
   folderId?: string | null,
 ): Promise<Document[]> {
   const qs = folderId ? `?folderId=${encodeURIComponent(folderId)}` : "";
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/documents${qs}`);
+  const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/documents${qs}`);
   await assertOk(res, "Failed to fetch documents");
   return res.json();
 }
@@ -269,7 +270,7 @@ export async function getWorkspaceAnalytics(
   if (range?.from) qs.set("from", range.from);
   if (range?.to) qs.set("to", range.to);
   const suffix = qs.toString() ? `?${qs}` : "";
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/analytics${suffix}`);
+  const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/analytics${suffix}`);
   await assertOk(res, "Failed to load analytics");
   return res.json();
 }
@@ -288,7 +289,7 @@ export async function createWorkspaceDocument(
     folderId?: string | null;
   },
 ) {
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/documents`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/documents`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -301,7 +302,7 @@ export async function createWorkspaceDocument(
  * Fetches workspace data sources.
  */
 export async function fetchWorkspaceDataSources(workspaceId: string) {
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/datasources`);
+  const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/datasources`);
   await assertOk(res, "Failed to fetch datasources");
   return res.json();
 }
@@ -313,7 +314,7 @@ export async function createWorkspaceDataSource(
   workspaceId: string,
   data: Record<string, unknown>,
 ) {
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/datasources`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/datasources`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -336,7 +337,7 @@ export async function testWorkspaceDataSourceConfig(
     sslEnabled: boolean;
   },
 ): Promise<TestConnectionResult> {
-  const res = await fetchWithAuth(`${BASE}/${workspaceId}/datasources/test`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(workspaceId)}/datasources/test`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),

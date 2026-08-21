@@ -1,5 +1,6 @@
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
+import { seg } from "./url";
 
 const BACKEND_BASE = import.meta.env.VITE_BACKEND_API_URL ?? "";
 
@@ -19,6 +20,6 @@ export async function uploadFile(
 
 /** Document-scoped, permission-gated URL that streams the stored blob. */
 export function fileUrl(documentId: string, token?: string): string {
-  const base = `${BACKEND_BASE}/documents/${documentId}/file`;
+  const base = `${BACKEND_BASE}/documents/${seg(documentId)}/file`;
   return token ? `${base}?token=${encodeURIComponent(token)}` : base;
 }

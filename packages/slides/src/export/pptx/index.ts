@@ -70,6 +70,17 @@ export interface ExportPptxOptions {
    * this option throws a clear error rather than writing broken XML.
    */
   fetchImage?: (src: string) => Promise<{ bytes: Uint8Array; mime: string }>;
+  /**
+   * Opt in to surviving an image `fetchImage` could not deliver: the failure
+   * is reported here and the element is left out of its slide, instead of
+   * failing the whole deck.
+   *
+   * Supplying it is the choice, so it never happens by default. The CLI
+   * passes one because its SSRF guard makes a refused `src` an ordinary
+   * outcome — the same reason the docs PDF/DOCX exporters take a reporter —
+   * while the browser export keeps the loud failure its UI can report.
+   */
+  onImageError?: (src: string, error: unknown) => void;
   /** Progress callback: `(done, total, 'slides')` once before work, then after each serialized slide. */
   onProgress?: (done: number, total: number, phase: string) => void;
 }
@@ -159,9 +170,19 @@ export async function exportPptx(
       );
     }
     for (const src of allImageSrcs) {
-      const { bytes, mime } = await opts.fetchImage(src);
-      const ext = extFromMime(mime);
-      const mediaPath = writer.addMedia(bytes, ext);
+      let fetched: { bytes: Uint8Array; mime: string };
+      try {
+        fetched = await opts.fetchImage(src);
+      } catch (error) {
+        // No reporter means the caller never opted into a partial deck, so
+        // the failure is theirs to handle. With one, the src stays out of the
+        // media map and `resolveImageRId` drops the element.
+        if (!opts.onImageError) throw error;
+        opts.onImageError(src, error);
+        continue;
+      }
+      const ext = extFromMime(fetched.mime);
+      const mediaPath = writer.addMedia(fetched.bytes, ext);
       srcToMediaPath.set(src, mediaPath);
     }
   }
@@ -281,18 +302,17 @@ export async function exportPptx(
     // Build per-slide image rId resolver.
     // src → rId is slide-local (each slide has its own .rels file).
     const slideImageRIdCache = new Map<string, string>();
-    function resolveImageRId(el: ImageElement): string {
+    function resolveImageRId(el: ImageElement): string | null {
       const src = el.data.src;
       const cached = slideImageRIdCache.get(src);
       if (cached) return cached;
       const mediaPath = srcToMediaPath.get(src);
       if (!mediaPath) {
-        // Image src is not in the pre-scan map — this should not happen if all
-        // elements were scanned, but guard with a clear error rather than an
-        // invalid r:embed="" attribute.
-        throw new Error(
-          `exportPptx: image src not found in media map: ${src.slice(0, 120)}`,
-        );
+        // Every src was pre-scanned, so the only way one is missing is a fetch
+        // the caller chose to survive via `onImageError`. `null` drops the
+        // element rather than writing an invalid `r:embed=""`; with no
+        // reporter the fetch loop above already threw.
+        return null;
       }
       // Add an image rel for this slide (target is relative to slide's dir).
       const rId = writer.addRel(slidePath, REL_TYPES.image, `../${mediaPath}`);

@@ -317,3 +317,120 @@ artefact.
 - [ ] **The lane has never run on GitHub.** Everything above is local: the two checkouts,
       the token, `RUNNER_TEMP` and the push are simulated. The first dispatch should be
       `dry_run: yes`.
+
+---
+
+# Follow-up — the lane's first scheduled tick failed (2026-08-20)
+
+## The problem
+
+`Eval Score` fired on its Monday cron for the first time, **2026-08-17 05:54Z**, and the
+*Score and render* step exited 1 without filing anything
+([run 31999551889](https://github.com/wafflebase/wafflebase/actions/runs/31999551889)):
+
+```
+score-all: 7 corpus item(s), 3 replicate(s) — 2026-08-10-pilot-reviewed @ sha256:1c78…
+score-all: API budget — 4978 of 5000 core call(s) remain, resets 06:45:28Z; needs ~175, requires 263
+score-all: volume-mix.mjs (pilot-01__k1)
+corpus version "2026-08-10-pilot-reviewed" does not exist under this root
+score-all: volume-mix.mjs (pilot-01__k1) exited 1. Nothing was filed
+```
+
+**Read those two middle lines together: the driver found 7 corpus items under that root, and
+the first scorer then said the corpus does not exist under the same root.** Both are
+correct, about different directories.
+
+**The cause.** This driver runs in one working directory and its children run in another.
+`scorerArgs` builds a child's argv with a *relative* module path (`eval/volume-mix.mjs`), so
+`doRun` sets `cwd` to `scripts/agent` to make that resolvable — and that cwd silently
+reparents every other relative path in the same argv. The workflow passes
+`--root .eval-store` from the repository root, so:
+
+| | resolves `.eval-store` against | result |
+|---|---|---|
+| the driver | `<repo>/` | found the corpus, 7 items |
+| every scorer | `<repo>/scripts/agent/` | *"does not exist under this root"* |
+
+**`--out` has the identical defect, and it bites even when the root is absolute.** Measured:
+with `--root` absolute and `--out ./my-payloads`, the driver *wrote* the payload relative to
+its own cwd and then handed `report.mjs --from my-payloads/…` to a child that resolved it
+under `scripts/agent/` — `ENOENT` on a file the driver had just written. CI never met this
+only because the workflow happens to pass an absolute `$RUNNER_TEMP` path.
+
+**Reproduced on merged `main`** at `7d3aab3`, byte-for-byte the CI failure, against a fresh
+clone with the store at `./.eval-store`. Absolute root, same command, same cwd → exit 0.
+
+### Why the 40 tests could not see it
+
+Three gaps in one direction:
+
+- **Every end-to-end run used an ABSOLUTE `--root`** — scratchpad paths, every time. The
+  workflow uses a relative one.
+- **The orchestrator tests inject `run`**, so no argv ever met a real cwd. Deliberate (fast,
+  no network) and precisely what hid this.
+- **The workflow test checks flag NAMES, not path semantics** — every flag the workflow
+  passes is one the driver accepts. The *values* were never exercised.
+
+So no test anywhere had a relative path meet a real child process. The residual risk was
+named in the Verification section above — *"the lane has never run on GitHub … the first
+dispatch should be `dry_run: yes`"* — and nobody dispatched one, so the cron was the first
+live exercise.
+
+## The change
+
+**Minimal and targeted.** `root` and `out` are resolved to absolute paths **once**, at the
+top of `scoreAll`, before the store is constructed and before any argv exists. An absolute
+path means the same thing in every working directory, so the class disappears rather than
+this instance of it. The raw inputs are renamed `rootArg` / `outArg` so nothing downstream
+can reach them unresolved.
+
+**And the refusal now names the resolved directory.** The old message named the corpus and
+no path, so the live failure read as *"the corpus was re-frozen and this schedule points at a
+retired version"* — a real thing that will happen one day, and exactly what the comment
+above `SCHEDULED_CORPUS_VERSION` warns about. A message that confidently accuses the wrong
+suspect costs more than no message.
+
+**Deliberately NOT in this change:** making the child *module* paths absolute so no `cwd` is
+load-bearing at all. That is the root-cause cleanup and it is a bigger change than this
+failure warrants; doing it here would hide this fix inside it. Left as a follow-up.
+
+## Fail directions
+
+What went right on Monday, and is worth not losing: the lane **exited non-zero, filed
+nothing, skipped the commit step, and went red**. No partial scores, no shortened arm, no
+half-written report, and the store was untouched. The refuse-on-any-doubt design held on
+first contact with CI; the bug was in the plumbing, not the guarantees.
+
+The one cost of that direction is a scheduled job that fails weekly until fixed — and an
+always-red job is one nobody reads, which is the failure this subsystem keeps shipping. That
+is why this is a fix and not a note.
+
+## Verification
+
+Base `7d3aab3` (`main`, #896). Both trees extracted with `git archive`, the same
+`scripts/agent/node_modules` and root `node_modules` symlinked into each.
+
+- [x] `agent:tests`, two invocations:
+
+  | | rest | iso | total | fail | skip |
+  |---|---|---|---|---|---|
+  | base `7d3aab3` | 2224 | 56 | **2280** | 0 | 0 |
+  | this branch | 2226 | 56 | **2282** | 0 | 0 |
+
+  **+2, exactly the two new tests.**
+- [x] `eslint scripts` (pinned 9.24.0) — exit 0 on both trees.
+- [x] **3 mutations, 3 caught by the specifically-named test:** reverting the root resolve
+      (2 tests red), reverting the out resolve (1), dropping the resolved path from the
+      refusal message (1). **All 40 pre-existing tests pass with the bug restored** — which
+      is the point of the two new ones.
+- [x] **The exact CI invocation now passes**: `--root .eval-store --out ./payloads` from the
+      repository root, on a fresh clone of `main` — exit 0, 7 scores filed, report rendered,
+      `coderabbit-latency=measured [coderabbit-start-marker-to-first-finding, n=7]`.
+- [x] The new test drives a **full pass** with a spy that emulates the two side-effecting
+      children through the real store, so the driver's own `getScore` round-trip and final
+      `existsSync` sweep both run — and then asserts every `--root` and `--from` handed to a
+      child is absolute, with a count so neither assertion can pass by never running.
+- [x] Verified from the committed tree.
+- [ ] **Still never run on GitHub.** This fix is verified locally against a clone of `main`;
+      the token, `RUNNER_TEMP` and the push remain simulated. **Dispatch once with
+      `dry_run: yes` before trusting the next cron.**

@@ -2,6 +2,7 @@ import type { Document, DocumentType } from "@/types/documents";
 import { toast } from "sonner";
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
+import { seg } from "./url";
 
 /**
  * Creates document.
@@ -43,7 +44,7 @@ export async function fetchDocuments(): Promise<Array<Document>> {
  */
 export async function fetchDocument(id: string): Promise<Document> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(id)}`
   );
   await assertOk(response, "Failed to fetch document");
   const document = await response.json();
@@ -61,7 +62,7 @@ export async function renameDocument(
   title: string
 ): Promise<Document> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(id)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -84,7 +85,7 @@ export async function moveDocument(
   target: { workspaceId?: string; folderId?: string | null }
 ): Promise<Document> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(id)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -106,7 +107,7 @@ export async function moveDocument(
  */
 export async function copyDocument(id: string): Promise<Document> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}/copy`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(id)}/copy`,
     {
       method: "POST",
     }
@@ -151,7 +152,7 @@ export async function copyDocuments(ids: string[]): Promise<Document[]> {
  */
 export async function deleteDocument(id: string): Promise<void> {
   const response = await fetchWithAuth(
-    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${id}`,
+    `${import.meta.env.VITE_BACKEND_API_URL}/documents/${seg(id)}`,
     {
       method: "DELETE",
     }

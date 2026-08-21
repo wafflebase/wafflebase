@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { writeFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { outputError } from '../output/formatter.js';
+import { outputError, forwardUpstreamError } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
 import { formatCsv } from '../output/csv.js';
@@ -63,10 +63,10 @@ export function registerSheetsExportCommand(parent: Command) {
         }
 
         const res = await getClient(opts).getCells(docId, localOpts.tab, localOpts.range);
-        if (!res.ok) {
-          const msg = (res.data as { error?: { message?: string } })?.error?.message;
-          throw new Error(msg ?? `HTTP ${res.status}`);
-        }
+        // Forwards a backend envelope verbatim rather than lifting its
+        // `message` out and dropping the `code` — the code is the part an
+        // agent branches on.
+        if (!res.ok) return forwardUpstreamError(res);
 
         const fmt = detectFormat(file, localOpts.fileFormat);
         // This writes the one CSV a user is most likely to open in a

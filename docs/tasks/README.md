@@ -18,9 +18,17 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| block type toolbar refresh (2026-08-17) | [20260817-block-type-toolbar-refresh-todo.md](./active/20260817-block-type-toolbar-refresh-todo.md) | [20260817-block-type-toolbar-refresh-lessons.md](./active/20260817-block-type-toolbar-refresh-lessons.md) |
+| harness git env (2026-08-17) | [20260817-harness-git-env-todo.md](./active/20260817-harness-git-env-todo.md) | - |
+| agent credential redaction (2026-08-15) | [20260815-agent-credential-redaction-todo.md](./active/20260815-agent-credential-redaction-todo.md) | - |
+| agent pool failover (2026-08-15) | [20260815-agent-pool-failover-todo.md](./active/20260815-agent-pool-failover-todo.md) | [20260815-agent-pool-failover-lessons.md](./active/20260815-agent-pool-failover-lessons.md) |
+| image downscale (2026-08-15) | [20260815-image-downscale-todo.md](./active/20260815-image-downscale-todo.md) | - |
+| claude token pool (2026-08-14) | [20260814-claude-token-pool-todo.md](./active/20260814-claude-token-pool-todo.md) | - |
 | notes image upload (2026-08-14) | [20260814-notes-image-upload-todo.md](./active/20260814-notes-image-upload-todo.md) | - |
 | doc index refresh (2026-08-13) | [20260813-doc-index-refresh-todo.md](./active/20260813-doc-index-refresh-todo.md) | [20260813-doc-index-refresh-lessons.md](./active/20260813-doc-index-refresh-lessons.md) |
 | document copy (2026-08-13) | [20260813-document-copy-todo.md](./active/20260813-document-copy-todo.md) | [20260813-document-copy-lessons.md](./active/20260813-document-copy-lessons.md) |
+| eval scoring lane (2026-08-13) | [20260813-eval-scoring-lane-todo.md](./active/20260813-eval-scoring-lane-todo.md) | - |
+| pair label consumer (2026-08-13) | [20260813-pair-label-consumer-todo.md](./active/20260813-pair-label-consumer-todo.md) | - |
 | visual font cache (2026-08-13) | [20260813-visual-font-cache-todo.md](./active/20260813-visual-font-cache-todo.md) | [20260813-visual-font-cache-lessons.md](./active/20260813-visual-font-cache-lessons.md) |
 | coderabbit latency (2026-08-12) | [20260812-coderabbit-latency-todo.md](./active/20260812-coderabbit-latency-todo.md) | - |
 | coderabbit title excludes code (2026-08-12) | [20260812-coderabbit-title-excludes-code-todo.md](./active/20260812-coderabbit-title-excludes-code-todo.md) | - |
@@ -41,6 +49,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | corpus pinned review commit (2026-08-10) | [20260810-corpus-pinned-review-commit-todo.md](./active/20260810-corpus-pinned-review-commit-todo.md) | - |
 | defect class grouping (2026-08-10) | [20260810-defect-class-grouping-todo.md](./active/20260810-defect-class-grouping-todo.md) | - |
 | devops merge queue (2026-08-10) | [20260810-devops-merge-queue-todo.md](./active/20260810-devops-merge-queue-todo.md) | - |
+| docs range aware toggles (2026-08-10) | [20260810-docs-range-aware-toggles-todo.md](./active/20260810-docs-range-aware-toggles-todo.md) | [20260810-docs-range-aware-toggles-lessons.md](./active/20260810-docs-range-aware-toggles-lessons.md) |
 | eval replay lane (2026-08-10) | [20260810-eval-replay-lane-todo.md](./active/20260810-eval-replay-lane-todo.md) | - |
 | notifications (2026-08-10) | [20260810-notifications-todo.md](./active/20260810-notifications-todo.md) | [20260810-notifications-lessons.md](./active/20260810-notifications-lessons.md) |
 | release v0.6.4 (2026-08-10) | [20260810-release-v0.6.4-todo.md](./active/20260810-release-v0.6.4-todo.md) | [20260810-release-v0.6.4-lessons.md](./active/20260810-release-v0.6.4-lessons.md) |
@@ -63,7 +72,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 469
+- Archived task count: 479
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: notes image upload (2026-08-14)
+Latest active task: block type toolbar refresh (2026-08-17)

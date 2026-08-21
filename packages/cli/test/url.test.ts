@@ -21,9 +21,12 @@ describe('seg', () => {
     expect(seg('report.v2..final')).toBe('report.v2..final');
   });
 
+  // The dot-segment refusal comes from `@wafflebase/core/url`, shared with the
+  // browser client, so the message is core's. The empty-segment refusal below
+  // is CLI-local — its reason is this server's routing — so its message is too.
   it('refuses an identifier that is exactly a dot segment', () => {
     for (const value of ['.', '..']) {
-      expect(() => seg(value)).toThrow(/Invalid identifier/);
+      expect(() => seg(value)).toThrow(/Invalid path segment/);
     }
   });
 
@@ -52,7 +55,7 @@ describe('workspaceSeg', () => {
   it('escapes a non-empty workspace like any other identifier', () => {
     expect(workspaceSeg({ ...CONFIG, workspace: 'a/b' })).toBe('a%2Fb');
     expect(() => workspaceSeg({ ...CONFIG, workspace: '..' })).toThrow(
-      /Invalid identifier/,
+      /Invalid path segment/,
     );
   });
 });
@@ -78,7 +81,7 @@ describe('apiV1Base', () => {
 
   it('refuses a dot-segment workspace', () => {
     expect(() => apiV1Base({ ...CONFIG, workspace: '..' })).toThrow(
-      /Invalid identifier/,
+      /Invalid path segment/,
     );
   });
 });
@@ -103,7 +106,7 @@ describe('apiKeysUrl', () => {
     expect(apiKeysUrl(CONFIG, '../documents/d1')).toBe(
       'https://api.example.test/workspaces/ws-1/api-keys/..%2Fdocuments%2Fd1',
     );
-    expect(() => apiKeysUrl(CONFIG, '..')).toThrow(/Invalid identifier/);
+    expect(() => apiKeysUrl(CONFIG, '..')).toThrow(/Invalid path segment/);
   });
 
   it('renders an unconfigured workspace as an empty segment', () => {

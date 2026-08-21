@@ -132,7 +132,7 @@ describe('HttpClient path encoding', () => {
     it('is refused rather than sent on the destructive api-key route', async () => {
       await expect(async () =>
         new HttpClient({ ...CONFIG }).revokeApiKey('..'),
-      ).rejects.toThrow(/Invalid identifier/);
+      ).rejects.toThrow(/Invalid path segment/);
 
       expect(fetchMock).not.toHaveBeenCalled();
       // What the rejected request would have become had it been sent.
@@ -147,14 +147,14 @@ describe('HttpClient path encoding', () => {
       // no request is issued.
       await expect(async () =>
         new HttpClient({ ...CONFIG }).getDocument('..'),
-      ).rejects.toThrow(/Invalid identifier/);
+      ).rejects.toThrow(/Invalid path segment/);
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('is refused as a workspace, before any request is built', async () => {
       await expect(async () =>
         new HttpClient({ ...CONFIG, workspace: '..' }).listDocuments(),
-      ).rejects.toThrow(/Invalid identifier/);
+      ).rejects.toThrow(/Invalid path segment/);
       expect(fetchMock).not.toHaveBeenCalled();
     });
 

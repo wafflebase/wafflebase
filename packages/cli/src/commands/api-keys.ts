@@ -4,6 +4,7 @@ import {
   output,
   outputError,
   parseOutputFormat,
+  forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRunUrl } from '../client/dry-run.js';
 import { apiKeysUrl } from '../client/url.js';
@@ -42,7 +43,7 @@ export function registerApiKeysCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).createApiKey(name);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -61,7 +62,7 @@ export function registerApiKeysCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).listApiKeys();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -82,7 +83,7 @@ export function registerApiKeysCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).revokeApiKey(keyId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);

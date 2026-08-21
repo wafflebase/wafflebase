@@ -4,6 +4,7 @@ import {
   output,
   outputError,
   parseOutputFormat,
+  forwardUpstreamError,
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
@@ -97,7 +98,7 @@ export function registerFilesCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         let data = res.data as unknown;
         if (Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter((d) =>
@@ -122,7 +123,7 @@ export function registerFilesCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -135,7 +136,9 @@ export function registerFilesCommand(program: Command) {
     .action(async function (this: Command, docId: string, title: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, { title });
+        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, {
+          title,
+        });
         return;
       }
       try {
@@ -143,7 +146,7 @@ export function registerFilesCommand(program: Command) {
         // discard the response of a rename that already happened.
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);
@@ -162,7 +165,7 @@ export function registerFilesCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
       } catch (e) {
         outputError(e);

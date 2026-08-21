@@ -36,6 +36,8 @@
     "cli": "pnpm --filter @wafflebase/cli",
     "documentation": "pnpm --filter @wafflebase/documentation",
     "core": "pnpm --filter @wafflebase/core",
+    "design-editor": "pnpm --filter @wafflebase/design-editor",
+    "design-sandbox": "pnpm --filter @wafflebase/design-sandbox",
     "build:all": "pnpm core build && pnpm frontend build && pnpm documentation build && rm -rf packages/frontend/dist/docs && cp -r packages/documentation/.vitepress/dist packages/frontend/dist/docs",
     "postinstall": "git config core.hooksPath .githooks || true"
   },

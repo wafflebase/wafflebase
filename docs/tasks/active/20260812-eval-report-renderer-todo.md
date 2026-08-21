@@ -583,3 +583,593 @@ is now a robustness guard rather than a live bug, and this doc should not claim 
 - [x] Re-rendered against the real store on the committed score file: the fit table, the
       measured zero and every absence read as before; §6 correctly silent because §4
       prints no minutes on that payload.
+
+# Follow-up — §2 leads with the directional rates and renders the adjudicated band
+
+*2026-08-20, on top of the two sections above. The complementarity scorer resolves
+adjudicated pairs into a labelled band and files it under `labels` in its payload;
+nothing read it. Three changes to this renderer: the figure a reader meets FIRST, the
+figure that was computed and invisible, and one hardcoded limit whose premise went
+false while its conclusion stayed true.*
+
+## The problem
+
+**① The section led with a Jaccard, and that figure is rhetorically wrong.** Its
+denominator is the union, and on this data the union is mostly classes only the panel
+raised — so the number falls when our arm says MORE, which is not disagreement. A reader
+meets `3.5%` and concludes the two reviewers barely agree. The same three counts say
+something else: on `pilot-01__k2` the panel raised 6 of CodeRabbit's 30 defect classes
+before adjudication and 12 of 30 after, while raising 135 classes CodeRabbit never had.
+**`8.2%` and `40.0%` are the same dataset**, and only the first is dragged by our own
+volume.
+
+**② The adjudicated band was computed, filed, and invisible.** `report.mjs` reads
+`overlap.jaccard` and `unresolved.jaccard_upper_bound`, which are deliberately the
+UNLABELLED figures — the scorer left them untouched so a consumer that had never heard of
+a label renders what it always rendered. The consequence is that every hour of
+adjudication was worth nothing on the page: the store holds 357 pair records, 43 of them
+apply to `pilot-01__k2`, and the report said `3.5%`.
+
+**③ §6's first limit was an assertion with no input.** It read *"No adjudicated labels
+exist."* That premise is now false — 357 pair labels, 45 of them `gold` — while its
+conclusion, that no precision figure appears anywhere, is still true. A sentence that
+cannot go red when the world moves under it is lesson 1's exact shape, and this one was
+one merge away from publishing a falsehood as a limit.
+
+## The change
+
+### §2 leads with two directional rates; the Jaccard sits beside them, labelled
+
+A directional rate is `both / (both + <the other arm>_only)` — *"of everything THIS arm
+raised, how much did the other arm raise too?"* — over four fields §2 already prints in
+its own table. Two of them, in a table above the band table, each with its `n` and its
+unit, per replicate and never pooled.
+
+**The denominator is the point.** Each rate divides by the arm it describes, so neither
+moves when the other arm gets louder; the Jaccard's denominator is the union, so it does.
+That is stated on the page rather than left to be noticed, and it is checked by a test
+that doubles the panel-only class count and asserts the CodeRabbit-side rate does not
+move while the Jaccard nearly halves.
+
+**A replicate with adjudicated pairs gets a SECOND row rather than an upgraded first
+one.** `pilot-01__k2` appears twice — `unadjudicated` and `43 gold label(s) applied` —
+because the movement from 6 of 30 to 12 of 30 is what adjudication bought, and one row
+that quietly became the other would hide it.
+
+### And the ceiling was arithmetic about the two counts, not a matcher limitation
+
+One sentence, guarded to the saturated case where the identity is exact: with 30
+CodeRabbit classes against the panel's 142, even a perfect match on every one of them
+leaves `30/142 = 21.1%` — which is precisely `pilot-01__k1`'s ceiling. It reproduces all
+three ceilings exactly, and it retires a figure this project has read as a property of
+the matcher for a week.
+
+### The adjudicated band, in its own subsection, with four things never separated from it
+
+`labels.headline.band.after` is rendered beside the unlabelled band rather than instead
+of it, per replicate. Four things travel with the number, because this is the first
+figure in the report that is genuinely PARTIAL rather than absent — and a partial figure
+does not protect itself the way an absent one does:
+
+**THE TIER is a column.** `ANNOTATION-GUIDE.md` §6: a `silver` label is an AI
+read-through *pending human confirmation* — *"usable but imperfect; do not treat as the
+ceiling."* The scorer names the most trusted tier present as the headline and resolves
+every other tier separately; both facts are rendered, the non-headline tiers unbolded
+under a heading that refuses them as the band. **The store now holds a silver tier, so
+this is not hypothetical: silver's ceiling MOVES on k2 where gold's does not, making the
+unconfirmed band the tighter one.**
+
+**THE CAUSE is words.** `pair-labels.mjs` distinguishes seven availability states. Five
+render as `not computed` with their own sentence; two — `resolved` and `resolved-nothing`
+— render as a figure, because a band that was looked at and did not move is a
+measurement. `LABEL_CAUSE` is pinned against `LABEL_AVAILABILITY` at import time.
+
+**`ceiling_moved` IS READ**, never inferred by diffing two percentages, and rendered in
+both directions with its reason.
+
+**THE DENOMINATORS travel with the band**: how many pairs were adjudicated out of how
+large a queue, on how many replicates of how many.
+
+### Two provenance counts that are not one fact
+
+`census.keys_moved` counts pairs whose **address** changed when a finding's text was
+re-parsed — the verdict is untouched and the label still applies through its alternate
+key. `census.needs_readjudication` counts **verdicts** flagged as doubted. Today they are
+**6** and **0**. They are rendered as two sentences bound to two fields, and a test swaps
+the payload's two values and asserts the two sentences swap.
+
+### §6's first limit is derived from the label census
+
+Two kinds of label, and only one of them makes a precision figure: a **pair** label
+answers *"are these two findings the same defect?"* and is what §2's band rests on; a
+**validity** label answers *"is this finding real?"* and is what precision, recall and
+correctness need. The store holds hundreds of the first and none of the second, so §6 now
+states both counts, names the two questions apart, and draws the same conclusion it
+always drew. With no pair labels filed it renders the original sentence unchanged — it is
+a derivation, not a rewrite.
+
+## Corrected while building
+
+### 1. 🔴 The first draft printed the Jaccard point without its ceiling — and a test from #805 caught it
+
+The lead table's last column held a bare `3.5%` under a `Jaccard` header. Demoting the
+figure beneath the two rates does not make it safe to print unqualified: it is the LOWER
+BOUND of an interval, and it was now the first number in the section. `report.test.mjs`
+has asserted since #805 that no code path prints the overlap point without its ceiling,
+and it went red. **The column holds a band.** The test's row count moved from 3 to 6
+because §2 now has two tables of replicate rows; its assertion was widened to every one
+of them and strengthened with a check that exactly three are the bolded band-table copies.
+
+**This is the second time that invariant has earned its keep, and it was earned against a
+change that had just spent four paragraphs explaining why the point must not be quoted
+alone.**
+
+### 2. The drift warning fired on the two replicates that were behaving correctly
+
+`labels.headline.labels.unmatched` is 45 on `pilot-01__k1` and `pilot-01__k3` — every
+label matches nothing there, because every label is `pilot-01__k2`'s. The first draft
+rendered *"45 gold label(s) match no undecided pair"* under both, which is the definition
+of `none-for-replicate` rather than a finding about it, and it buried the one that means
+something: **2** on k2. `complementarity.mjs` makes exactly this exclusion for exactly
+this reason, and this renderer now makes it too.
+
+### 3. `ceiling moved: no` on a row with no band
+
+The other-tiers table gave every row a yes/no. *"The ceiling did not move"* and *"there
+is no band here to move"* are the same word and different facts — the distinction the
+whole subsection is built on, one column to the right. A row with no band gets an
+em-dash.
+
+### 4. The exact ceiling budget is now derivable, and is still not printed
+
+The section above declined to print it because the deduction needed a per-finding
+undecided-pair count the scorer did not emit. **It emits one now** — one row per
+CodeRabbit-only class under each tier's `resolution.{resolved,finished_apart,
+still_undecided}[].pairs`. So the sentence saying the count does not exist became false
+and is corrected. What still does not exist is a TOTAL, and summing an array is a number
+the renderer computed: the invariant at the top of the file, and the reason the figure was
+declined twice already. **The sentence names the field and still refuses the number**; a
+test computes the total (263 on the fixture) and asserts it does not appear on the page.
+The total belongs to the scorer that owns the arithmetic — one `reduce`, one field.
+
+### 5. Two mutations that survived, one of them a real test gap
+
+A mutation that reversed §6's central clause — *"only the second bounds this report"* →
+*"only the FIRST"*, i.e. claiming the labels we HAVE are what precision needs — passed
+every assertion. The test checked the counts and the two questions and not the claim that
+joins them. Fixed with an assertion on the clause itself. The other survivor was
+**ineffective rather than uncaught**: randomly re-sorting a three-element frozen array
+usually leaves it in place, so the mutation often changed nothing. Re-run deterministically
+with `.reverse()`, the ordering test catches it.
+
+## Fail directions
+
+- **A score file with no `labels` block** renders the subsection with its own stated
+  cause and nothing else — no band table, no census sentences, no invented zeroes. The
+  committed pilot score is such a file today, so this path is exercised on real data.
+- **An eighth availability state, or a reordered trust scale**, breaks the import rather
+  than rendering an empty cause or promoting a provisional band to the headline.
+- **A label store that disagrees with itself across replicates** — impossible through the
+  CLI, which reads it once per run — is reported on the page, and the counts printed are
+  stated to be the first read's.
+- **An arm that raised nothing** has no directional rate: `0/0` is `null`, not `0.000`,
+  which would read as measured total disagreement.
+- **A dropped or unreadable label file** can only widen a band, so its count is printed
+  beside the bands it did not widen, including at zero.
+- **A store that gains validity labels** changes what §6 says, because §6 now reads the
+  census rather than asserting over it.
+
+## Explicit non-goals
+
+- **No pooling, and no labelled aggregate.** The `union` and `intersection` views carry
+  no labels by construction and are not in the payload this renderer reads at all.
+- **`complementarity.mjs`, `pair-labels.mjs` and `store.mjs` are untouched.**
+- **No new metric.** The directional rates are a presentation of counts §2 already
+  printed; the band is a field.
+- **No re-render of the published report.** `reports/` does not change until somebody
+  re-runs the scorers and the renderer against the store.
+
+## Verification
+
+- [x] **`agent:tests`, both invocations, from the committed tree**: **2245 + 56 = 2301,
+      0 fail, 1 skip**, against a freshly measured **2224 + 56 = 2280** on the same base —
+      **+21**. Both trees extracted separately with the same lockfile-pinned
+      `eslint@9.24.0` `node_modules` symlinked into each, so the skip count is comparable;
+      the single skip is the Agent SDK one. Both `iso` runs used a private `TMPDIR`.
+- [x] `npx eslint scripts` exits **0** on both trees (it caught two `no-regex-spaces` in
+      the new tests first).
+- [x] **38 mutations, 38 caught**, each by the test named for it — including the five that
+      are the point: a `resolved-nothing` band rendered as a cause, a `none-for-replicate`
+      band rendered as a figure, `ceiling_moved` inferred instead of read, both provenance
+      captions carrying one count, and §6's limit hardcoded again.
+- [x] **Rendered against the real store, end to end**, over all three replicates: §2 goes
+      from **41 lines to 133**, prints k2's adjudicated band `[7.3%, 20.4%]` beside its
+      unlabelled `[3.5%, 20.4%]` and its rates `12 of 30 — 40.0%` / `12 of 147 — 8.2%`,
+      k1 and k3 as `not computed` with `none-for-replicate` stated, and the `silver`
+      tier's `[5.4%, 14.2%]` unbolded with its moved ceiling flagged. §6 reads
+      *"357 adjudicated PAIR label(s) exist (45 `gold` · 312 `silver`), and no validity
+      label does."*
+- [x] The report still has **no clock** — the byte-identical re-render test passes
+      untouched, and a second one covers the labelled path.
+- [ ] **Not verified on real data:** a `distant` tier, a `none-matched` replicate, a
+      `store-empty` corpus, an unreadable label file, and a census that disagrees across
+      replicates. None occurs in the store; all are fixture-tested.
+- [ ] **This PR renders; it does not re-render.** The published report under `reports/`
+      does not change until the scorers and the renderer are re-run against the store.
+- [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
+      `build`.
+
+# Follow-up — the validity section, readable provenance, and §1/§3 explained
+
+*2026-08-20, on top of the three sections above. Built against `upstream/main` at
+`3b7a067`, then REBASED onto `39debb4` after #909 landed §5's restructure — see
+"Rebased onto #909" at the end of this section for what that changed and what it did not.*
+
+* Three changes: a section for the metric this benchmark is eventually FOR, a
+header a reader can act on, and two sections that stated figures without saying what they
+were figures of.*
+
+## The problem
+
+**① `validity.mjs` merged (#905) and was wired into nothing.** Measured on the base:
+`report.mjs` carried **0** references to `validity-v1` and `score-all.mjs` **0** references
+to validity. So precision — the only metric in this project about whether a finding is
+TRUE — appeared on the page as one sentence in the limits. A reader cannot tell prose in a
+footer from a metric nobody thought of, and the two are exactly the distinction this
+renderer's four availability states exist to draw. Worse, the two metrics this corpus can
+**never** answer had no representation at all: `absolute_recall` and `miss_profile` were
+declared not-computable inside the scorer and invisible outside it.
+
+**② The header named the reviewer as two hashes and nothing else.**
+
+```
+| reviewer | `panel_sha 46da673dd46dd5576626ee6d1b4e2e40728345e0` · `sha256:1c7853deb…f01` |
+```
+
+A digest has no ordering. It can say *different* and never *older, in which respect* — so
+the page invited comparison against a panel that no longer exists without saying that is
+what a reader would be doing. Everything needed was already in the store and unread:
+`runs/<id>/config.snapshot.json` holds `config_id`, `target`, `sdk_version`,
+`config_hash_version` and `lenses[]` with a model on each, and `run.json` holds
+`panel_sha` and `panel_sha_source`. `store.getRun` already returns the snapshot beside the
+envelope, and the render path already called it.
+
+**③ §1 and §3 stated figures and assumed the reader knew why they mattered.** §2 and §4
+carry their reasoning inline and it works — *"read the two directional rates before the
+Jaccard"*, *"the two figures time different things"*. §1 printed `4.6×–4.9×` with no
+sentence saying that a count is a count; §3 printed two figures that point opposite ways
+without saying what reproducibility is a property OF.
+
+## The change
+
+### §6 — every metric spec §3.3 names, as a cell in the same four states as every figure
+
+A sixth `SECTIONS` entry and a `validityFigures()` in the house style. One grid, six rows,
+`metric | status | unit`. Today four rows read `not computed` with the label census behind
+them and two read `not measurable` with the scorer's own reason — and the section is
+**last**, because the order in `renderReport` is the argument: measured first, bounded
+second, unavailable third. Limits moves from §6 to §7; **§5 is untouched**, deliberately,
+because `prompts/report-rewrite-section5.md` owns it in a parallel branch.
+
+**The refusal is a REFUSAL, not a coercion.** A payload declaring `absolute_recall` as
+anything other than `not-measurable` stops the render. `not-computed` tells a reader to
+wait for a judgement; these two can never be judged, because a corpus assembled from what
+two reviewers said cannot contain what they both missed. A renderer that translated one
+state into the other would print the softer word over a permanent refusal and nothing
+downstream could tell. The follow-up paragraph **names** the two metrics rather than
+saying "the last two rows" — a caption keyed to position would quietly point elsewhere the
+day the scorer reorders `METRICS`.
+
+**Three cell shapes, three adapters, because they are not one shape.** `precisionCell`
+carries `value`; `relativeRecallBand` carries `low`/`high` and **no `value` at all**,
+deliberately, since a point estimate is what that metric may not publish while the
+cross-arm overlap is unresolved; `fpProfile` carries a `false_findings` count printed at
+any size beside a `share_availability` for the proportion. Reading `.availability` across
+all three would leave every profile group unlabelled and `renderCell` refuses that. Each
+figure's `n` is `labelled_findings` and never `readings` — 428 labels written from 245
+readings and 428 written from 428 are different datasets, and only the first number
+belongs under the ratio.
+
+### `score-all.mjs` runs it, and two things had to change to let it
+
+**`reads_api: true`, and the handoff said `false`.** `validity.mjs`'s usage text says it
+"costs nothing", which is about money; the same sentence goes on to say the CodeRabbit arm
+makes read-only GitHub calls. It rebuilds that arm's claim population through
+`adapters/coderabbit.mjs`'s `corpusRecords` — `fetchCodeRabbitPr` once per item, five
+endpoints each. So the budget model no longer holds a literal: `API_READERS` derives both
+reader counts from `STEPS`, and `estimateApiCalls` is `k * per_replicate + cross_run`.
+**The 7-item pilot at K=3 now costs 210 core calls, not 175.** The 2026-08-13 measurement
+is not stale — the pass grew by one cross-run reader, which is `items × 5`. Left at
+`false` the preflight would have asked for 175 against a real 210 and cleared, and the
+pass would have met the limit part way through: a score filed from a partial CodeRabbit
+arm, which reads exactly like a clean review.
+
+**`partial_exit`, because validity exits 1 on a store nobody has adjudicated.** That is
+its correct answer, permanently — `process.exitCode = verdict === "complete" ? 0 : 1`, and
+today the verdict is `partial`. Under this driver's plain exit-code rule the lane would
+have filed six scores and then aborted on the one whose honest output is the absence. So
+one step declares one tolerated code, and the tolerance is checked **harder** rather than
+more loosely: `assertPartialIsDeclared` accepts it only if the payload parses and says
+`partial` in its own words. Exit 1 over a `complete` payload refuses (the code and the
+payload disagree and one of them is wrong); a payload with no verdict refuses (the check's
+input never arrived — lesson 7); 2 and 137 refuse as before; and a step declaring no
+tolerance gets the old rule unchanged. The scorer's reasons reach the log and the scorer id
+reaches `summarise`, because a tolerated failure that printed nothing is indistinguishable
+from a clean pass in a job log.
+
+### The header says which panel, on which model, under which SDK
+
+`reviewerFigures(runs)` takes the run envelopes exactly as `store.getRun` returns them plus
+the id — no new accessor, no new file format, nothing recomputed. It renders the six lens
+ids with the model, sample count, effort and gating each one runs, `config_id`, the replay
+target, the SDK version, and `panel_sha` short with the full one kept once beside it,
+because the full hash is the join key and somebody will need it.
+
+**Every axis is compared across replicates and a disagreement is REPORTED, never
+resolved.** Three replicates carry three snapshots and nothing in the store forces them to
+match; a config edited between two legs leaves one lens on a different model, and printing
+replicate 1's answer would describe a reviewer that produced a third of the data. When the
+lens set disagrees the lens table is **empty** rather than showing one leg's, and each
+disagreeing axis becomes a row naming what every replicate said. Agreement is stated once,
+because "we checked and they match" and "nobody checked" are otherwise the same silence.
+
+⚠ **`captured_at` is not an axis.** The pilot's three snapshots differ in it by 19 hours
+and describe one reviewer — which is exactly why `config-hash.mjs` classifies it as
+cosmetic. A comparison over whole snapshot bytes would report a disagreement on every
+honest store, and a guard that fires on every real input is the same as not having one.
+
+### §1 and §3 explain their metric before their numbers
+
+Two sentences each, in the voice §2 already uses. §1: the section counts findings, it moves
+when a reviewer raises more or fewer claims, and it cannot see whether the reviewer is more
+often right. §3: it asks whether the same reviewer run again says the same thing, it moves
+with anything that changes sampling, and it is silent on correctness — three replicates
+that agreed perfectly could agree on three findings that are all wrong. No glossary, no
+second-person coaching, and every figure keeps its `n` and its unit because `figure`
+refuses without both.
+
+**No stated limit was softened into an apology.** *"Cross-arm latency: not measurable —
+PERMANENTLY"* is stronger as a result than as a regret, and a test asserts the document
+contains none of `unfortunately`, `we were unable`, `we could not measure`, `sadly`,
+`regrettably`.
+
+## Corrected while building
+
+### 1. 🔴 `reads_api: false` came from the handoff and was wrong in the flattering direction
+
+The prompt supplied the `STEPS` row with `reads_api: false` and told the next session to
+check it against the module before asserting it. Checked: it reads the API. The error would
+have been invisible — a preflight that clears is a preflight that says nothing — and it
+understates in the direction that lets the pass start.
+
+### 2. 🔴 A mutation SURVIVED, and it was ineffective rather than uncaught
+
+The ordering half of §3's explanation — *does it precede the table?* — was mutation-tested
+by INSERTING the explanation below the table. It survived. Not because the assertion is
+weak: the explanation then appeared **twice** and `indexOf` found the copy still sitting
+above the table. Checking that a mutation changed behaviour at all costs five seconds;
+concluding "missing test" and writing one costs much more. It is now two edits and one
+mutation — a move, not an insert.
+
+### 3. The `not computed` reasons were 250 characters wide, which is note 2's own complaint
+
+The first pass repeated the label census into every metric row: *"the store holds 0 finding
+label(s) for this corpus version over 0 reading(s), and X is a ratio over labels"*, four
+times. That is the §5 defect reproduced in a table of six rows. The census is now stated
+once above the grid and each row says only what is true of it — and the sentence stopped
+claiming `fp_profile` is a ratio, which it is not.
+
+### 4. A block comment ended early on a glob
+
+`runs/pilot-01__k*/config.snapshot.json` inside a `/** … */` closed the comment at the
+`*/` and the test file stopped parsing. Same family as the NUL-byte separator rule in the
+conventions: a path with a glob in it belongs in prose, not in a block comment.
+
+### 5. `0 labels over 0 readings` states the same thing twice
+
+`readings` is on the page because a judgement count and a reading count are different
+denominators. At zero it qualifies nothing, so the second level now appears only once there
+is something for it to qualify.
+
+## Fail directions
+
+- **No validity score filed** → §6 renders `not computed` naming the scorer, and
+  `report.mjs` exits 1 as it already does for any absent section. The absence is on the
+  page; the exit code stops a pipeline quoting it as complete.
+- **A score file with no `metrics` block** → a DIFFERENT `not computed`, because the
+  refusals are half of what this section carries and a payload naming no metric cannot say
+  which it refused.
+- **A cell in a state this renderer does not know** → refuses. The scorer checks its
+  vocabulary against ours at import (`assertAvailabilityMatchesRenderer`); this is the
+  second door, and a near-miss synonym reaching a cell must stop the render rather than
+  produce a row with nothing in it.
+- **A metric with no declared unit** → refuses. A literal here would caption a scorer's
+  figure with a word the scorer never used.
+- **No run envelopes** → the provenance block renders `not computed` with its reason, and
+  the two hashes above it are untouched. `panel_sha` stays REQUIRED; provenance is
+  optional because it is provenance and not identity.
+- **A replicate with no config snapshot** → named, and it does not count toward agreement.
+  Silently dropping it would leave the header describing a lens set two of three legs never
+  confirmed.
+- **A lens field the snapshot does not state** → the words `not stated`. `security` carries
+  no `effort`; the panel's default lives in `review-panel.mjs` and inferring it here would
+  print a value the snapshot never recorded.
+- **validity exits non-zero for a real fault** → the lane refuses, as before. Only the one
+  declared code is tolerated and only with the payload's own confirmation.
+
+## Explicit non-goals
+
+1. **§5 untouched** — grid, prose and explanation. `prompts/report-rewrite-section5.md`
+   owns it in a parallel branch, and the only change here that reaches it is that Limits
+   renumbered from §6 to §7.
+2. **No scorer changed.** `validity.mjs`, `segmentation.mjs` and the rest are wiring
+   targets, not edits. Every reason string on the page is the scorer's own words, so the
+   report cannot drift from what the scorer refused to compute.
+3. **Nothing computed that the payload does not state.** The only arithmetic is counting
+   how many cells are in which state, which is what §5 already does for its grid.
+4. **No label written and `adjudicate.mjs` not run.** A validity section with zero labels
+   is the correct output today.
+5. **The published report is not re-rendered.** That is a lane dispatch.
+6. **Band and profile detail tables are unexercised by real data.** They render, they are
+   fixture-tested against the scorer's own constructors, and no store has a cell for them
+   yet. Stated rather than implied.
+
+## Verification
+
+- [x] **`agent:tests`, both invocations, from the committed tree**: **2323 + 56 = 2379, 0
+      fail, 0 skip**, against a freshly measured **2307 + 56 = 2363** on the rebased base
+      — **+16**, two of them added by the review round below. (Pre-rebase, on `3b7a067`, it
+      was 2302 + 56 against 2288 + 56; the base has moved twice since, to #909 and then to
+      `ddb6235`, and the baseline is 2307 + 56 on both because nothing upstream has touched
+      these five files.) Both trees extracted separately with the same lockfile-pinned
+      `eslint@9.24.0` `node_modules` and the same `scripts/agent/node_modules` symlinked
+      into each, so the skip count is comparable and zero on both. Both `iso` runs used a
+      private `TMPDIR`.
+- [x] `npx eslint scripts` exits **0**, from the committed tree.
+- [x] **25 mutations, 25 caught, each by the test named for it.** The harness verifies it
+      applied each one — needle count exactly 1, file hash changed — and restores the tree
+      byte for byte, because three sessions in this project have shipped a harness that
+      under-reported in the flattering direction. Five that are the point: the permanent
+      refusal coerced to `not-computed`, a figure's `n` taken from `readings`, the lens
+      table falling back to replicate 1 on a disagreement, `captured_at` becoming an axis,
+      and `reads_api` written `false`.
+- [x] **Rendered against the real store, end to end**, over all three replicates, into a
+      scratch copy so nothing was written to the data repo: **370 lines to 444** on the
+      rebased base (#909 took main's own render from 394 to 370; this section adds 74). §6 reads
+      `not computed` on four metrics with the label census behind them and `not measurable`
+      on two with `what_would_change_it`; the header names all six lenses with
+      `claude-opus-5` on five and `claude-sonnet-5` on `docs`, and states that all three
+      replicates agree.
+- [x] **`validity.mjs` run against the real store** (35 read-only API calls, no money): 0
+      labels, 426 distinct panel claims, 30 CodeRabbit claims, both arms `pending`,
+      `partial`, exit 1 — which is the state `partial_exit` exists for.
+- [x] The report still has **no clock** — the byte-identical re-render test passes
+      untouched, and a new one covers the enlarged document with both the reviewer block
+      and §6 attached, plus the no-blank-cell sweep over every table row.
+- [ ] **Not verified on real data:** a present precision cell, a relative-recall band, a
+      false-positive profile group, a lens set that disagrees across replicates, and a
+      replicate with no config snapshot. None exists in the store; all are fixture-tested,
+      and the validity fixtures are built by calling the scorer's own `precisionCell`,
+      `relativeRecallBand` and `fpProfile` rather than typed out, so the shapes are the
+      scorer's and not this session's guess at them.
+- [ ] **This PR renders; it does not re-render.** The published report under `reports/`
+      does not change until the scorers and the renderer are re-run against the store, and
+      that run now costs 210 core API calls rather than 175.
+- [ ] **Not run:** `verify:self`, `verify:fast`, `verify:browser`, `verify:integration`,
+      `build`.
+
+## Rebased onto #909
+
+*#909 — "Render the report's segmentation section as a grid per metric" — landed while this
+was open, and both changes touch `report.mjs` and `report.test.mjs`. It was a mechanical
+rebase and not a logical one, which was the prediction the two were built in parallel on;
+recorded here because "it merged cleanly" and "it still means the same thing" are different
+claims and only one of them a merge tool can make.*
+
+**ONE conflict, and it was positional.** Both changes inserted a new block into the same
+gap — between `segmentationFigures()` and `sectionFor()`. #909 put `groupSegmentation()`
+there; this change put `VALIDITY_CELL_LISTS`, `validityFigures()`, `unitFor()` and
+`validityCell()`. Nothing overlapped in meaning, so both survive in the order each belongs:
+`groupSegmentation` stays beside the §5 machinery it was written for, the validity block
+follows. `report.test.mjs` merged with no conflict at all, because #909 inserted its tests
+at §5's own block and this change appends at the end of the file — which is the convention
+both prompts specified for exactly this reason.
+
+⚠ **`git apply -3` could not do it and that is not a defect.** A `--depth=1` clone lacks
+the base blob a three-way merge needs, and `git apply` is atomic, so the attempt left the
+tree untouched rather than half-patched. The merge was done per file with `git merge-file`
+over three trees already on disk: the base at `3b7a067`, this branch's version, and
+`39debb4`.
+
+**Two couplings that the clean merge did NOT prove, checked by hand:**
+
+- 🔴 **#909's §5 prose-wrap test slices `md.indexOf("## 5.")` to `md.indexOf("## 6.")`.**
+  Before this change `## 6.` was the limits heading; now it is the validity heading. The
+  slice still bounds exactly §5 — but only because this change put a section there. Had
+  validity been numbered anything else, or appended after the limits, #909's test would
+  have silently widened to cover two sections or thrown on a missing index. It is noted
+  here because the next section added to this report inherits the same coupling.
+- 🔴 **#909's backtick-balance assertion runs over the whole document, and its fixture
+  leaves §6 in the no-score-filed branch** — so it never sees a rendered metric grid, a
+  lens table or a band, which is where this section emits most of its code spans. An
+  unclosed span silently swallows the rest of a markdown line. The assertion is now made
+  over a POPULATED §6 as well, inside this section's own byte-identical test.
+
+**What did NOT change.** The header block, §6, §1's explanation and §3's explanation render
+**byte-identically** before and after the rebase, verified section by section against the
+pre-rebase render. #909 touched `segmentationFigures` and `renderSegmentation`; this change
+touches neither, and §5's own numbering is untouched.
+
+**Re-measured from the rebased committed tree**, because a count from a pre-rebase tree is a
+count against a base that no longer exists: **2323 + 56 = 2379, 0 fail, 0 skip** against a
+freshly measured **2307 + 56 = 2363** on `39debb4` — **+14**, the same delta as before.
+`npx eslint scripts` exits 0. All **25 mutations re-run on the rebased tree, 25 caught by
+the test named for each** — the needles are text rather than line numbers, so #909's
+insertions moved nothing they match.
+
+## Review round — three findings, all valid, all the same family
+
+*Three findings came back on this branch and all three were reproduced before anything was
+changed. Two are one defect wearing two hats.*
+
+### 1. 🔴 Two hardcoded claims that §6 can falsify — the frame, and §7's first limit
+
+`renderWhatThisIsNot()` asserted *"There is no precision figure, no recall figure and no
+correctness figure anywhere in this document"* as a literal, and `labelsLimit()` concluded
+*"no validity label does"* and *"there is still no precision … figure anywhere above"* from
+the complementarity payload alone. §6 renders a precision figure the moment validity labels
+exist. Reproduced: a render carrying six labels puts `0.667 (n=6 labelled findings)` in §6
+while both sentences were still on the page.
+
+**This is the identical defect `labelsLimit` was written to fix, one metric later.** That
+function exists because *"No adjudicated labels exist."* was an assertion with no input and
+could not go red when 357 pair labels landed. The fix derived it from the PAIR census — and
+left it concluding something about VALIDITY labels it had no input for. So the function read
+one payload and made a claim about another, and the frame above every number did the same
+with no payload at all.
+
+Both now ask `qualityFigures(s.validity)`, which counts `present` cells per list — precision
+cells, bands and reporting profile shares, named separately so a band is never counted as a
+precision cell. A **suppressed** cell does not flip either claim: a withheld cell publishes
+no number, and the claim is about what a reader can quote. Both sentences revert verbatim
+when the premise does, which is what makes it a derivation rather than a rewrite.
+
+### 2. 🔴 `lensSignature` could contradict what the file had already proved
+
+`lensSignature` compares the snapshot's RAW lens fields; `config_hash` compares their
+CANONICAL form — `config-hash.mjs` normalises an omitted `effort` to the panel's default
+before hashing. **Measured:** a snapshot that omits `effort` and one that states the default
+explicitly produce the same `config_hash` and different signatures. On that input the block
+printed *"these are not replicates of one reviewer"* and blanked the lens table — over legs
+whose hash is identical, which is the definition of one reviewer on the configuration axis,
+and which the render path already refuses to proceed without.
+
+**The pilot has exactly that shape**: `security` omits `effort` where every other lens states
+one, so a snapshot regenerated by a `config-build.mjs` that inlines defaults would trip it.
+
+`config_hash` is now an axis, and it outranks the signature: a lens difference under an
+agreeing hash is demoted to `cosmetic_differences`, renders as ⚠ rather than 🔴, and the
+lens table still renders. Under a DISAGREEING hash it keeps the full refusal. A hash that is
+not stated outranks nothing — the demotion is earned, never assumed.
+
+⚠ **And the fixture was wrong in the direction that hid this.** The disagreement test moved
+a lens's `model` while leaving `config_hash` identical, which the store cannot produce: a
+model is inside the hash. Left alone, that fixture would have "proved" the demotion rule
+safe while it silently swallowed real reviewer changes. `pilotRun` now takes `configHash` and
+the test moves both together.
+
+## Verification of the review round
+
+- [x] All three findings **reproduced first**, against this branch's own code, before any
+      change: the two sentences printed over a §6 that showed a figure, and two snapshots
+      hashing identically while signaturing differently.
+- [x] **2323 + 56 = 2379, 0 fail, 0 skip** from the committed tree, against **2307 + 56 =
+      2363** on `ddb6235` — **+16**, two of them this round's.
+- [x] `npx eslint scripts` exits **0**.
+- [x] **The approved output is unchanged.** The header block, §1, §3, §6, the frame and §7
+      render byte-identically before and after these fixes on the real store — every change
+      is on a path today's data does not take, which is exactly why the defects survived
+      the first pass.
+- [ ] **The 25 mutations were NOT re-run after this round.** They were verified 25/25 on the
+      pre-fix tree; the three fixes are covered by their own tests, which were written
+      against reproductions rather than after the fact. Stated rather than implied.
