@@ -82,6 +82,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { createCaptureStore } from "../capture-store.mjs";
+import { PANEL_DIGEST_MIXED, PANEL_DIGEST_SOURCES, PANEL_DIGEST_STATES, isPanelDigest } from "./panel-identity.mjs";
 
 /**
  * The captures subdirectory, defined ONCE because two producers depend on it
@@ -103,7 +104,9 @@ export const RUNS_DIR = "runs";
 
 /**
  * Metrics layout, per the store README: `scores/per-run/<run id>/<scorer id>.json`
- * and `scores/by-config/<config hash>__<corpus version>/<scorer id>.json`.
+ * and `scores/by-config/<config hash>__<panel digest>__<corpus version>/<scorer
+ * id>.json` — three parts since the panel got a content identity of its own, for the
+ * reason `byConfigSegment` gives.
  *
  * 🔴 UNLIKE EVERY OTHER WRITE PATH IN THIS MODULE, SCORES ARE RE-WRITABLE, and
  * that is not an oversight — it is the reason the directory exists. The README's
@@ -350,18 +353,66 @@ export function configHashSegment(configHash) {
 }
 
 /**
+ * A `panel_digest` as a PATH SEGMENT — the SEAM the panel-equivalence mechanism
+ * replaces, and the only function it has to replace.
+ *
+ * Today it is the identity map onto `configHashSegment`'s mangle for a real digest,
+ * and a pass-through for the two named states. What is designed to land here next is
+ * a human declaration that two panel versions are EQUIVALENT — that #797's
+ * `console.log` → `console.error` did not make a new reviewer — which means mapping
+ * several digests onto one class id. Routing the middle segment through one function
+ * is what keeps that a change to THIS function rather than a second sweep through
+ * `byConfigSegment`'s call sites in `report.mjs` and `score-all.mjs`.
+ *
+ * 🔴 IT IS NOT PERMISSIVE. There is no default and no fallback: a caller with nothing
+ * to say about the panel must say `not-recorded` explicitly, which is a directory a
+ * reader can see, rather than getting the legacy two-part path by omission. A default
+ * here would leave the collision this segment exists to remove in place for every
+ * caller that had not been updated, which is the whole defect.
+ *
+ * The two named states pass through UNMANGLED because they contain no colon and are
+ * already legal segments; they cannot collide with a real digest, which always begins
+ * `sha256-`. `requireSegment` at the join is what keeps that true.
+ */
+export function panelKeySegment(panelDigest) {
+  const value = String(panelDigest ?? "");
+  if (PANEL_DIGEST_STATES.includes(value)) return value;
+  if (!SHA256_TEXT.test(value)) {
+    refuse(
+      `panel digest must be sha256:<64 hex> or one of ${PANEL_DIGEST_STATES.join(" | ")} to become a path segment, got ${JSON.stringify(panelDigest)} — ` +
+        "it is refused at the same door config_hash is, and for the same reason: an unconstrained id that is sanitised rather than validated is how two of them come to share one directory",
+    );
+  }
+  return value.replace(":", "-");
+}
+
+/**
  * The `by-config` directory name for one comparability key.
  *
- * `(config_hash, corpus_version)` is that key per the store README, and it is
- * joined with `__` because the fork-era artifact on disk already is
- * (`sha256-7470…__smoke`). Both halves are validated before they are joined and
- * the JOIN is validated after, so a `corpus_version` carrying a separator cannot
+ * 🔴 THREE PARTS, NOT TWO, AND THE MIDDLE ONE IS THE FIX. The key used to be
+ * `(config_hash, corpus_version)`, and `config-hash.mjs` says in its own header that
+ * it "hashes the LENS COMPOSITION, not the panel's code" — so two runs of two
+ * different panels produced one directory name, and the second cross-run score
+ * overwrote the first. Measured on the live data: one ingested run pools 16 items
+ * across 5 panels by content, all under one `config_hash`. The reviewer is the pair,
+ * so the KEY is the pair, and `panel_digest` is the half that was missing.
+ *
+ * Joined with `__` because the fork-era artifact on disk already is
+ * (`sha256-7470…__smoke`). Every part is validated before it is joined and the JOIN is
+ * validated after, so neither a `corpus_version` nor a digest carrying a separator can
  * smuggle a second directory level in behind a valid-looking hash.
+ *
+ * ⚠ A TWO-PART DIRECTORY IS NEITHER READ NOR DELETED. Nothing here matches one: the
+ * old `sha256-<hash>__<corpus>` names cannot be produced by this function any more, so
+ * scores filed before the panel had an identity stay exactly where they are and are
+ * simply not found. That is deliberate — silently matching them would pool the panels
+ * this key exists to separate, which is the defect with an extra step.
  */
-export function byConfigSegment(configHash, corpusVersion) {
+export function byConfigSegment(configHash, panelDigest, corpusVersion) {
   const hash = configHashSegment(configHash);
+  const panel = panelKeySegment(panelDigest);
   const version = requireSegment("corpus version", corpusVersion);
-  return requireSegment("by-config segment", `${hash}__${version}`);
+  return requireSegment("by-config segment", `${hash}__${panel}__${version}`);
 }
 
 /**
@@ -398,6 +449,54 @@ export function validateScore(scorerId, scope, score) {
     refuse(
       `score ${scorerId} payload declares scope ${JSON.stringify(score.scope)} but is being filed as ${JSON.stringify(scope)} — ` +
         "the scope decides which directory it lands in, so a disagreement files a cross-run figure under one of its own runs",
+    );
+  }
+  return score;
+}
+
+/**
+ * A cross-run score must NAME THE PANEL its path files it under, in its own payload.
+ *
+ * The path and the payload are two records of one fact, and this is the rule that
+ * keeps them from disagreeing — the same rule, for the same reason, as `scorer_id` and
+ * `scope` in `validateScore` above, and as `meta.id` against `envelope.run_id`. A
+ * payload naming a panel other than the one it is filed under means one of the two is
+ * wrong and nothing downstream can tell which.
+ *
+ * 🔴 A `mixed` SCORE MUST CARRY THE MIXTURE. The mixed-panel opt-out exists so the
+ * live agent-PR run — 16 items, 5 panels — can be scored at all, and the whole point
+ * of making it say so is that the saying survives into the file. So `mixed` in the
+ * path additionally requires `panel_digests`, a list of at least two, and a payload
+ * that claims `mixed` while naming one panel is refused: an averaged number that reads
+ * as a single reviewer's is worse than no number, because nothing downstream would
+ * ever ask again.
+ */
+export function validateScorePanel(scorerId, panelDigest, score) {
+  const stated = score?.panel_digest;
+  if (stated !== panelDigest) {
+    refuse(
+      `score ${scorerId} is being filed under panel ${JSON.stringify(panelDigest)} but its payload says ${JSON.stringify(stated)} — ` +
+        "a cross-run number must name its own panel, because the path is not readable from the file and one of the two is wrong",
+    );
+  }
+  // AND WHERE THE DIGEST CAME FROM, from the closed vocabulary. A score filed under a
+  // digest that was computed out of git after the fact and one filed under a digest hashed
+  // while the panel ran are different claims about how well the number is attributed, and
+  // the path cannot tell them apart. Checked here so the field cannot be decorative: a
+  // typo'd source would otherwise sit in the payload meaning nothing.
+  if (!PANEL_DIGEST_SOURCES.includes(score?.panel_digest_source)) {
+    refuse(
+      `score ${scorerId} states panel_digest_source ${JSON.stringify(score?.panel_digest_source)}, which is not one of ` +
+        `${PANEL_DIGEST_SOURCES.join(" | ")} — "hashed while the panel ran" and "reconstructed from git afterwards" are ` +
+        "different claims about the same number, and nothing downstream can recover which was meant",
+    );
+  }
+  if (panelDigest !== PANEL_DIGEST_MIXED) return score;
+  const list = score?.panel_digests;
+  if (!Array.isArray(list) || new Set(list).size < 2 || !list.every((d) => isPanelDigest(d) || PANEL_DIGEST_STATES.includes(d))) {
+    refuse(
+      `score ${scorerId} is filed as ${JSON.stringify(PANEL_DIGEST_MIXED)} but panel_digests is ${JSON.stringify(list)} — ` +
+        "a mixed score must list the panels it pooled, at least two of them, or nothing downstream can tell what was averaged",
     );
   }
   return score;
@@ -544,6 +643,14 @@ export function itemFileBytes({ meta, diff, changedFiles, issueSpec }) {
  *                panel as its own sibling, so running from a feature branch
  *                measures THAT branch's panel. Recording which commit ran is the
  *                only thing that makes the difference visible.
+ *   `panel_digest` the same question answered by CONTENT, and it is a different
+ *                answer: the 16 ingested agent items carry 16 distinct `panel_sha`
+ *                values and are 5 panels by content, so a commit-keyed identity
+ *                refuses to pool runs that cannot differ (#830 deleted the panel and
+ *                #850 returned it byte-identical). This is the half the cross-run
+ *                score PATH is keyed by, so an envelope without it cannot be scored
+ *                against anything. RECORDED, never recomputed — see
+ *                `panel-identity.mjs`, which is also why a scorer may not derive it.
  *   `gate`       whether the novelty gate ran. A run with the gate and a run
  *                without it produce identical-looking output, and pooling the two
  *                is the measurement error this lane exists to prevent.
@@ -588,6 +695,13 @@ export function validateRunEnvelope(runId, itemId, envelope) {
     refuse(
       `${runId}/${itemId}: envelope.panel_sha must be 40 lowercase hex characters, got ${JSON.stringify(e.panel_sha)} — ` +
         "the reviewer is the PAIR (config_hash, panel_sha), and without the second half a replay cannot be pooled with a live capture",
+    );
+  }
+  if (!isPanelDigest(e.panel_digest)) {
+    refuse(
+      `${runId}/${itemId}: envelope.panel_digest must be sha256:<64 hex>, got ${JSON.stringify(e.panel_digest)} — ` +
+        "panel_sha says which COMMIT ran and this says which PANEL, and they are not the same question: 16 of the ingested " +
+        "items carry 16 distinct panel_sha values and are 5 panels by content. The digest is what a cross-run score is keyed by",
     );
   }
   for (const field of ["config_hash", "corpus_version"]) {
@@ -937,6 +1051,35 @@ export class EvalStore {
     return { envelope, payload };
   }
 
+  /**
+   * Which panel every record under these run ids states, as `{id, panelDigest}` — the
+   * input `resolvePanelDigest` decides a cross-run score's key from.
+   *
+   * THE ITEMS AND NOT ONLY THE RUNS, because the mixture that motivated this is
+   * WITHIN a run: the live-ingested agent-PR run is one run id whose 16 item envelopes
+   * are 5 panels by content. Reading only `run.json` would have answered "one panel"
+   * about exactly the data that is not.
+   *
+   * It lives here rather than in the caller because the layout is this module's — a
+   * second walk over `runs/<id>/items/` written in `report.mjs` is the kind of
+   * duplicate that drifts into disagreeing about which files count. A READ PATH, so it
+   * degrades: a run id that does not exist contributes no records rather than throwing,
+   * and `resolvePanelDigest` refuses on the empty list, which is the same refusal one
+   * step later and with a message about the right thing.
+   */
+  panelDigestRecords(runIds = []) {
+    const out = [];
+    for (const runId of Array.isArray(runIds) ? runIds : []) {
+      const run = this.getRun(runId);
+      if (run === null) continue;
+      out.push({ id: `${runId}/${RUN_FILES.run}`, panelDigest: run.runJson?.panel_digest });
+      for (const itemId of this.listItems(runId)) {
+        out.push({ id: `${runId}/${itemId}`, panelDigest: this.getItem(runId, itemId)?.envelope?.panel_digest });
+      }
+    }
+    return out;
+  }
+
   /** Every complete item under a run id, sorted. `[]` for a run with none yet. */
   listItems(runId) {
     const dir = path.join(this._runDir(runId), "items");
@@ -954,9 +1097,12 @@ export class EvalStore {
    * A read path, so it degrades: a directory whose `run.json` is missing or
    * unreadable is skipped rather than thrown on. `panelSha` is offered as a filter
    * because `config_hash` alone does not identify the reviewer, so a caller
-   * aggregating "the same reviewer" must be able to say so.
+   * aggregating "the same reviewer" must be able to say so. `panelDigest` is the same
+   * filter over the CONTENT identity, and it is the one a cross-run scorer wants: the
+   * sha separates panels that are byte-identical, and the runs a score may pool are
+   * exactly the ones sharing the digest its path is keyed by.
    */
-  listRuns({ configHash, corpusVersion, panelSha } = {}) {
+  listRuns({ configHash, corpusVersion, panelSha, panelDigest } = {}) {
     const dir = path.join(this.root, RUNS_DIR);
     if (!existsSync(dir)) return [];
     const out = [];
@@ -970,6 +1116,7 @@ export class EvalStore {
       if (configHash && rj.config_hash !== configHash) continue;
       if (corpusVersion && rj.corpus_version !== corpusVersion) continue;
       if (panelSha && rj.panel_sha !== panelSha) continue;
+      if (panelDigest && rj.panel_digest !== panelDigest) continue;
       out.push(rj.run_id ?? seg);
     }
     return out;
@@ -991,8 +1138,13 @@ export class EvalStore {
    * The two scopes need DIFFERENT keys and neither is optional, so each refuses
    * separately: a `per-run` score with no run id and a `cross-run` score with no
    * config hash are both callers who have not said what their number is about.
+   *
+   * `panelDigest` is required on the cross-run branch for the same reason and by the
+   * same argument — see `byConfigSegment`. A `per-run` score does not take one because
+   * it does not need one: it is keyed by a run id whose envelopes pin their own panel,
+   * which is the property this method's cross-run branch previously only claimed.
    */
-  _scorePath({ scorerId, scope, runId = null, configHash = null, corpusVersion = null } = {}) {
+  _scorePath({ scorerId, scope, runId = null, configHash = null, panelDigest = null, corpusVersion = null } = {}) {
     requireSegment("scorer id", scorerId);
     if (!SCORE_SCOPES.includes(scope)) {
       refuse(`score ${scorerId}: scope must be one of ${SCORE_SCOPES.join(" | ")}, got ${JSON.stringify(scope)}`);
@@ -1001,7 +1153,7 @@ export class EvalStore {
     if (scope === "per-run") {
       return path.join(this.root, SCORES_DIR, SCORE_SCOPE_DIRS["per-run"], requireSegment("run id", runId), file);
     }
-    return path.join(this.root, SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], byConfigSegment(configHash, corpusVersion), file);
+    return path.join(this.root, SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], byConfigSegment(configHash, panelDigest, corpusVersion), file);
   }
 
   /**
@@ -1013,20 +1165,38 @@ export class EvalStore {
    * write would make a metric change unfilable. #780 is the worked example — it
    * moved 219 defect classes to 245 with no model call.
    *
-   * The one thing an overwrite cannot silently do is cross reviewers, and that is a
-   * property of the PATH rather than a check here: a `cross-run` score is keyed by
-   * `(config_hash, corpus_version)`, and a `per-run` score by a run id whose
-   * envelope pins its own `(config_hash, panel_sha)`. So a score computed under a
-   * different reviewer lands in a different file by construction, and there is no
-   * case where "re-score" and "different reviewer" are the same write.
+   * The one thing an overwrite must not silently do is cross reviewers.
+   *
+   * 🔴 THIS DOCBLOCK USED TO SAY THAT WAS FREE, AND THAT IS WHY IT WAS NOT CHECKED.
+   * It read: "a `cross-run` score is keyed by `(config_hash, corpus_version)` … so a
+   * score computed under a different reviewer lands in a different file by
+   * construction". The premise was true and the conclusion did not follow —
+   * `config-hash.mjs` says in its own header that it cannot see the panel's code, so
+   * two panels produced ONE directory name and the second score overwrote the first.
+   * Measured: one ingested run pools 16 items that are 5 panels by content under a
+   * single `config_hash`. The sentence was in the right file, next to the right code,
+   * and it was read as reassurance instead of as a claim to check.
+   *
+   * So the property is now built rather than asserted, in two places that have to
+   * agree: `byConfigSegment` puts `panel_digest` in the PATH, and the check below
+   * makes a cross-run payload state the panel it was filed under. A `per-run` score
+   * needs neither — it is keyed by a run id whose envelopes pin their own panel, which
+   * is the version of this argument that was always sound.
+   *
+   * WHY THE PAYLOAD IS CHECKED AND NOT STAMPED. This is the single write path and it
+   * refuses on doubt rather than repairing: a caller that files a number without
+   * saying whose it is has not decided what the number is about, and writing the
+   * answer in for them would make the path the only record of it. A score file read
+   * back out of git, on its own, must be able to say which panel produced it.
    *
    * Written atomically, like every other write on this surface: a half-written
    * `reliability-v1.json` that parses is a metric nobody can distinguish from a
    * complete one.
    */
-  putScore({ scorerId, scope, runId = null, configHash = null, corpusVersion = null } = {}, score) {
+  putScore({ scorerId, scope, runId = null, configHash = null, panelDigest = null, corpusVersion = null } = {}, score) {
     validateScore(scorerId, scope, score);
-    const abs = this._scorePath({ scorerId, scope, runId, configHash, corpusVersion });
+    if (scope === "cross-run") validateScorePanel(scorerId, panelDigest, score);
+    const abs = this._scorePath({ scorerId, scope, runId, configHash, panelDigest, corpusVersion });
     writeFileAtomic(abs, JSON.stringify(score, null, 2) + "\n");
     return abs;
   }
@@ -1048,8 +1218,8 @@ export class EvalStore {
    * measurement is unreadable", and the report would then print *"not computed"*
    * about a number that is sitting right there.
    */
-  getScore({ scorerId, scope, runId = null, configHash = null, corpusVersion = null } = {}) {
-    const abs = this._scorePath({ scorerId, scope, runId, configHash, corpusVersion });
+  getScore({ scorerId, scope, runId = null, configHash = null, panelDigest = null, corpusVersion = null } = {}) {
+    const abs = this._scorePath({ scorerId, scope, runId, configHash, panelDigest, corpusVersion });
     if (!existsSync(abs)) return null;
     try {
       return JSON.parse(readFileSync(abs, "utf8"));

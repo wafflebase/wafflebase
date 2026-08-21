@@ -54,13 +54,17 @@ import {
   summarise,
   writtenPaths,
 } from "./score-all.mjs";
-import { SCORER_IDS, SECTIONS, comparisonIdFor } from "./report.mjs";
+import { SCORER_IDS, SECTIONS, comparisonIdFor, withPanelStamp } from "./report.mjs";
+import { PANEL_DIGEST_ABSENT, isPanelDigest, resolvePanelDigest } from "./panel-identity.mjs";
 import { EvalStore } from "./store.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORKFLOW = path.join(HERE, "..", "..", "..", ".github", "workflows", "eval-score.yml");
 
 const CONFIG_HASH = "sha256:1c7853debf4edf92646d2299b0c924cb48cca89d6bb68b81648c57508a762f01";
+// The panel these replicates ran, by content. `writtenPaths` is keyed by it because
+// `scores/by-config/` is: two panels under one config hash used to produce one directory.
+const PANEL_DIGEST = `sha256:${"b".repeat(64)}`;
 const CORPUS_VERSION = "2026-08-10-pilot-reviewed";
 const RUNS = ["pilot-01__k1", "pilot-01__k2", "pilot-01__k3"];
 
@@ -210,7 +214,11 @@ test("every flag persistArgs and renderArgs pass is a flag report.mjs mentions",
   const text = source("report.mjs");
   const all = [
     ...persistArgs(STEPS[0], { root: "/tmp/root", corpusVersion: CORPUS_VERSION, configHash: CONFIG_HASH, from: "/tmp/p.json", runId: RUNS[0] }),
-    ...renderArgs({ root: "/tmp/root", corpusVersion: CORPUS_VERSION, configHash: CONFIG_HASH, runIds: RUNS }),
+    // A CROSS-RUN step too, because only that branch passes the panel flags — checking
+    // the per-replicate step alone would leave `--panel-digest` and
+    // `--allow-mixed-panel` unmentioned by report.mjs and nobody would know.
+    ...persistArgs(STEPS.find((s) => !s.per_replicate), { root: "/tmp/root", corpusVersion: CORPUS_VERSION, configHash: CONFIG_HASH, from: "/tmp/p.json", runIds: RUNS, panelDigest: PANEL_DIGEST, allowMixedPanel: true }),
+    ...renderArgs({ root: "/tmp/root", corpusVersion: CORPUS_VERSION, configHash: CONFIG_HASH, runIds: RUNS, panelDigest: PANEL_DIGEST, allowMixedPanel: true }),
   ];
   for (const flag of all.filter((a) => a.startsWith("--"))) {
     assert.ok(mentionsFlag(text, flag), `report.mjs never mentions ${flag}`);
@@ -249,8 +257,36 @@ test("volume-mix refuses more than one replicate rather than scoring the first",
 
 // --- the paths the commit step stages ---------------------------------------
 
+test("--panel-digest carries an IDENTITY, so a named state is never passed down as one", () => {
+  // 🔴 THE FLAG MEANS "THIS IS THE PANEL". `not-recorded` and `mixed` are states a
+  // resolution can land in, not panels, and `report.mjs` exits 2 on either — so a driver
+  // that handed them down would break the lane on exactly the runs that predate
+  // `panel_digest`, which is every run in the store today. The child re-resolves those
+  // two from the same envelopes and the same `--allow-mixed-panel` instead.
+  const base = { root: "/tmp/root", corpusVersion: CORPUS_VERSION, configHash: CONFIG_HASH, runIds: RUNS };
+  const crossRunStep = STEPS.find((st) => !st.per_replicate);
+  for (const state of [PANEL_DIGEST_ABSENT, "mixed"]) {
+    assert.equal(isPanelDigest(state), false, `${state} must not look like a digest`);
+    assert.equal(renderArgs({ ...base, panelDigest: state }).includes("--panel-digest"), false, `${state} was passed as an identity`);
+    assert.equal(persistArgs(crossRunStep, { ...base, from: "/tmp/p.json", panelDigest: state }).includes("--panel-digest"), false);
+  }
+  // A real digest IS passed, so the driver and its children key on one answer rather than
+  // resolving the store twice and hoping.
+  assert.ok(renderArgs({ ...base, panelDigest: PANEL_DIGEST }).includes("--panel-digest"));
+  assert.ok(persistArgs(crossRunStep, { ...base, from: "/tmp/p.json", panelDigest: PANEL_DIGEST }).includes("--panel-digest"));
+  // `--allow-mixed-panel` travels on its own, in both directions, because it is what
+  // makes the child's own resolution reach the driver's answer.
+  assert.ok(renderArgs({ ...base, panelDigest: "mixed", allowMixedPanel: true }).includes("--allow-mixed-panel"));
+  assert.equal(renderArgs({ ...base, panelDigest: PANEL_DIGEST }).includes("--allow-mixed-panel"), false);
+  // A PER-REPLICATE step gets neither: a per-run score is keyed by a run id whose
+  // envelopes pin their own panel, so passing one would be stating an identity twice.
+  const perRun = persistArgs(STEPS.find((st) => st.per_replicate), { ...base, from: "/tmp/p.json", runId: RUNS[0], panelDigest: PANEL_DIGEST, allowMixedPanel: true });
+  assert.equal(perRun.includes("--panel-digest"), false);
+  assert.equal(perRun.includes("--allow-mixed-panel"), false);
+});
+
 test("writtenPaths names one path per replicate for the per-run score and one per cross-run score", () => {
-  const paths = writtenPaths({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, runIds: RUNS });
+  const paths = writtenPaths({ configHash: CONFIG_HASH, panelDigest: PANEL_DIGEST, corpusVersion: CORPUS_VERSION, runIds: RUNS });
   // DERIVED from `STEPS` rather than counted by hand, so adding a step moves this with it
   // instead of reddening it: the count is the whole point of the function and a literal
   // here would have to be re-guessed every time the lane grows.
@@ -258,7 +294,7 @@ test("writtenPaths names one path per replicate for the per-run score and one pe
   assert.equal(crossRunSteps, 5);
   assert.equal(paths.length, RUNS.length + crossRunSteps + 1, "three volume-mix files, five cross-run scores, one report");
   for (const id of RUNS) assert.ok(paths.includes(`scores/per-run/${id}/volume-mix-v1.json`));
-  assert.equal(paths[paths.length - 1], `reports/${comparisonIdFor({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION })}.md`);
+  assert.equal(paths[paths.length - 1], `reports/${comparisonIdFor({ configHash: CONFIG_HASH, panelDigest: PANEL_DIGEST, corpusVersion: CORPUS_VERSION })}.md`);
 });
 
 test("writtenPaths cannot name the fork-era __smoke artifact, whatever it is asked for", () => {
@@ -268,11 +304,11 @@ test("writtenPaths cannot name the fork-era __smoke artifact, whatever it is ask
   // segment, so a directory belonging to another config hash is unreachable from here —
   // not filtered out, but never generated.
   const smoke = "sha256-74703c8840d3f326b65e69966bf0efa896912c5f9906e21eab746ee722677674__smoke";
-  const paths = writtenPaths({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, runIds: RUNS });
+  const paths = writtenPaths({ configHash: CONFIG_HASH, panelDigest: PANEL_DIGEST, corpusVersion: CORPUS_VERSION, runIds: RUNS });
   for (const p of paths) assert.equal(p.includes("__smoke"), false, `${p} reaches into another comparison's directory`);
   for (const p of paths) assert.equal(p.includes(smoke), false);
   // And the segment it DOES name is this comparison's, so the two cannot be confused.
-  assert.ok(paths.some((p) => p.includes(`sha256-${CONFIG_HASH.slice("sha256:".length)}__${CORPUS_VERSION}`)));
+  assert.ok(paths.some((p) => p.includes(`sha256-${CONFIG_HASH.slice("sha256:".length)}__sha256-${PANEL_DIGEST.slice("sha256:".length)}__${CORPUS_VERSION}`)));
 });
 
 test("writtenPaths agrees with the store's own writer, not with a second copy of the layout", () => {
@@ -282,12 +318,12 @@ test("writtenPaths agrees with the store's own writer, not with a second copy of
   const root = mkdtempSync(path.join(tmpdir(), "score-all-paths-"));
   try {
     const store = new EvalStore(root);
-    const paths = writtenPaths({ configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION, runIds: [RUNS[0]] });
+    const paths = writtenPaths({ configHash: CONFIG_HASH, panelDigest: PANEL_DIGEST, corpusVersion: CORPUS_VERSION, runIds: [RUNS[0]] });
     for (const step of STEPS) {
       const key = step.per_replicate
         ? { scorerId: step.scorer_id, scope: step.scope, runId: RUNS[0] }
-        : { scorerId: step.scorer_id, scope: step.scope, configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION };
-      const abs = store.putScore(key, { scorer_id: step.scorer_id, scope: step.scope });
+        : { scorerId: step.scorer_id, scope: step.scope, configHash: CONFIG_HASH, panelDigest: PANEL_DIGEST, corpusVersion: CORPUS_VERSION };
+      const abs = store.putScore(key, { scorer_id: step.scorer_id, scope: step.scope, ...(step.per_replicate ? {} : { panel_digest: PANEL_DIGEST, panel_digest_source: "envelopes" }) });
       const relative = path.relative(root, abs);
       assert.ok(paths.includes(relative), `the store wrote ${relative}, which writtenPaths does not name`);
     }
@@ -644,18 +680,34 @@ function fullPassSpy(store, { configHash, corpusVersion }) {
   const run = (args) => {
     calls.push(args);
     const at = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : null; };
+    const allOf = (flag) => args.map((a, i) => (a === flag ? args[i + 1] : null)).filter(Boolean);
     if (args.includes("--help")) {
       return { status: 0, stdout: `usage: x ${CAPABILITIES[0].flag} [--json]`, stderr: "" };
     }
     if (args.includes("--persist")) {
+      // The panel is resolved the way `report.mjs --persist` resolves it — through the
+      // REAL `resolvePanelDigest` over the store's own records, not a second copy of the
+      // rule. A fixture that hardcoded the answer would pass while the driver and its
+      // child filed under two different directories, which is the failure the round-trip
+      // check below exists to catch.
+      const scope = at("--scope");
+      // `stated` goes THROUGH the resolver here too, exactly as `report.mjs --persist` does:
+      // a fixture that kept the old bypass would pass while the real path refused.
+      const resolved = scope === "cross-run"
+        ? resolvePanelDigest({ records: store.panelDigestRecords(allOf("--run-id")), allowMixed: args.includes("--allow-mixed-panel"), stated: at("--panel-digest") })
+        : null;
+      const panel = resolved?.digest ?? null;
+      const source = resolved?.source;
+      const payload = JSON.parse(readFileSync(at("--from"), "utf8"));
       store.putScore(
-        { scorerId: at("--scorer-id"), scope: at("--scope"), runId: at("--run-id"), configHash: at("--config-hash"), corpusVersion: at("--corpus-version") },
-        JSON.parse(readFileSync(at("--from"), "utf8")),
+        { scorerId: at("--scorer-id"), scope, runId: scope === "per-run" ? at("--run-id") : null, configHash: at("--config-hash"), panelDigest: panel, corpusVersion: at("--corpus-version") },
+        withPanelStamp(payload, panel === null ? null : { digest: panel, source, mixed: false, tally: [] }),
       );
       return { status: 0, stdout: "", stderr: "" };
     }
     if (args[0].endsWith("report.mjs")) {
-      store.putReport(comparisonIdFor({ configHash, corpusVersion }), "# rendered\n");
+      const panel = at("--panel-digest") ?? resolvePanelDigest({ records: store.panelDigestRecords(allOf("--run-id")), allowMixed: args.includes("--allow-mixed-panel") }).digest;
+      store.putReport(comparisonIdFor({ configHash, panelDigest: panel, corpusVersion }), "# rendered\n");
       return { status: 0, stdout: "", stderr: "" };
     }
     // The payload has to MATCH the step, because `validateScore` refuses a payload that
@@ -1041,7 +1093,11 @@ test("a whole pass files validity's partial score and names it on the summary li
     assert.match(summarise(result), /partial {6}validity-v1 — filed, and each says why in its own payload/);
     // The store can read it back — the round trip against the real source of truth, not
     // against the log line the persist step printed.
-    assert.ok(store.getScore({ scorerId: "validity-v1", scope: "cross-run", configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION }));
+    // Read back under the panel the PASS resolved and reports, not under a digest this
+    // test picked: these runs record none, so the pass files under `not-recorded` — a
+    // named state in the path, which is the whole point of it being a path segment.
+    assert.equal(result.panel_digest, PANEL_DIGEST_ABSENT);
+    assert.ok(store.getScore({ scorerId: "validity-v1", scope: "cross-run", configHash: CONFIG_HASH, panelDigest: result.panel_digest, corpusVersion: CORPUS_VERSION }));
     // And a pass with nothing partial says "none" rather than leaving the line off.
     assert.match(summarise({ ...result, partial: [] }), /partial {6}none/);
   } finally {

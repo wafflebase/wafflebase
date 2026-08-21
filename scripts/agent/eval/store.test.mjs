@@ -4,6 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// The digest vocabulary comes from the module that OWNS it. Restating "mixed" here as a
+// literal would be a second source of truth for a value the store's paths depend on.
+import { PANEL_DIGEST_ABSENT, PANEL_DIGEST_MIXED, PANEL_DIGEST_SOURCES } from "./panel-identity.mjs";
 import {
   CAPTURES_SUBDIR,
   CORPUS_ITEM_FILES,
@@ -17,6 +20,7 @@ import {
   SCORE_SCOPE_DIRS,
   TRANSCRIPT_STATES,
   byConfigSegment,
+  panelKeySegment,
   configHashSegment,
   contentSha256,
   itemFileBytes,
@@ -455,6 +459,9 @@ test("validateCorpusItem is exported so a hand-written item is checked by the sa
 
 const RUN_ID = "2026-08-06T12-00-00-000Z__baseline";
 const PANEL_SHA = "61101a1bdbdffb9acb88772cae4c9347c69f413b";
+// The panel's CONTENT identity, the half of the reviewer `config_hash` cannot see and
+// `panel_sha` over-separates (#830 deleted the panel, #850 returned it byte-identical).
+const PANEL_DIGEST = `sha256:${"c".repeat(64)}`;
 
 /** A valid envelope, with fields overridable per test. */
 function envelope(over = {}) {
@@ -464,6 +471,7 @@ function envelope(over = {}) {
     config_hash: `sha256:${"a".repeat(64)}`,
     panel_sha: PANEL_SHA,
     panel_sha_source: "git",
+    panel_digest: PANEL_DIGEST,
     corpus_version: "v-test",
     status: "ok",
     reason: null,
@@ -478,7 +486,7 @@ function envelope(over = {}) {
   };
 }
 
-const runJson = (over = {}) => ({ run_id: RUN_ID, config_hash: `sha256:${"a".repeat(64)}`, corpus_version: "v-test", panel_sha: PANEL_SHA, status: "partial", ...over });
+const runJson = (over = {}) => ({ run_id: RUN_ID, config_hash: `sha256:${"a".repeat(64)}`, corpus_version: "v-test", panel_sha: PANEL_SHA, panel_digest: PANEL_DIGEST, status: "partial", ...over });
 
 test("a run item written by the store reads back identically", () => {
   const { store, cleanup } = tempStore();
@@ -588,6 +596,19 @@ test("an envelope with no panel_sha is refused — half of 'same reviewer' would
         () => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ panel_sha: bad }), payload: {} }),
         /panel_sha must be 40 lowercase hex/,
         `panel_sha ${JSON.stringify(bad)} was accepted`,
+      );
+    }
+    // 🔴 AND THE DIGEST, which is the half a cross-run score's PATH is keyed by. The
+    // commit is provenance a human checks against `git log`; the digest is what is equal
+    // exactly when the reviewer is the same, and an envelope without one cannot be scored
+    // against anything. It is RECORDED here and never recomputed — a scorer deriving it
+    // from git would answer differently after a history rewrite, and a historical panel is
+    // not reachable from a CI checkout at all.
+    for (const bad of [undefined, null, "", PANEL_SHA, `sha256:${"A".repeat(64)}`, `sha256-${"a".repeat(64)}`, `${PANEL_DIGEST} `, PANEL_DIGEST_ABSENT, 7]) {
+      assert.throws(
+        () => store.putItem(RUN_ID, "pr-664", { envelope: envelope({ panel_digest: bad }), payload: {} }),
+        /panel_digest must be sha256/,
+        `panel_digest ${JSON.stringify(bad)} was accepted`,
       );
     }
     assert.equal(store.hasItem(RUN_ID, "pr-664"), false, "a refused envelope must leave nothing behind");
@@ -815,7 +836,9 @@ test("validateRunEnvelope is exported so a hand-written envelope is checked by t
  *  shape `config-hash.mjs` actually produces rather than a hand-made literal. */
 const CONFIG_HASH = "sha256:1c7853debf4edf92646d2299b0c924cb48cca89d6bb68b81648c57508a762f01";
 const CORPUS_VERSION = "2026-08-10-pilot-reviewed";
-const SCORE_KEY = { scorerId: "reliability-v1", scope: "cross-run", configHash: CONFIG_HASH, corpusVersion: CORPUS_VERSION };
+const SCORE_KEY = { scorerId: "reliability-v1", scope: "cross-run", configHash: CONFIG_HASH, panelDigest: PANEL_DIGEST, corpusVersion: CORPUS_VERSION };
+/** A cross-run payload must NAME the panel it is filed under — see `validateScorePanel`. */
+const crossRun = (over) => ({ panel_digest: PANEL_DIGEST, panel_digest_source: "envelopes", ...over });
 
 test("a re-score OVERWRITES rather than refusing — re-scoreability is what scores/ is for", () => {
   const { store, cleanup } = tempStore();
@@ -823,13 +846,13 @@ test("a re-score OVERWRITES rather than refusing — re-scoreability is what sco
     // The pre-#780 grouper's figures, then the post-#780 ones. This is the real case:
     // #780 moved 219 defect classes to 245 with no model call, and a write-once
     // `scores/` would have left that re-score unfilable.
-    store.putScore(SCORE_KEY, { classes: 219, jaccard: 0.422 });
-    assert.deepEqual(store.getScore(SCORE_KEY), { classes: 219, jaccard: 0.422 });
-    store.putScore(SCORE_KEY, { classes: 245, jaccard: 0.434 });
-    assert.deepEqual(store.getScore(SCORE_KEY), { classes: 245, jaccard: 0.434 });
+    store.putScore(SCORE_KEY, crossRun({ classes: 219, jaccard: 0.422 }));
+    assert.deepEqual(store.getScore(SCORE_KEY), crossRun({ classes: 219, jaccard: 0.422 }));
+    store.putScore(SCORE_KEY, crossRun({ classes: 245, jaccard: 0.434 }));
+    assert.deepEqual(store.getScore(SCORE_KEY), crossRun({ classes: 245, jaccard: 0.434 }));
     // And it is only ONE file: an overwrite must not leave the superseded value
     // beside the current one under a different name.
-    const dir = path.join(store.root, SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], byConfigSegment(CONFIG_HASH, CORPUS_VERSION));
+    const dir = path.join(store.root, SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], byConfigSegment(CONFIG_HASH, PANEL_DIGEST, CORPUS_VERSION));
     assert.deepEqual(readdirSync(dir), ["reliability-v1.json"]);
   } finally {
     cleanup();
@@ -865,8 +888,19 @@ test("a scorer id and a comparison id are PATH SEGMENTS, and a traversal is refu
       );
     }
     // A traversal in the OTHER key components too — a valid scorer id is not enough.
-    assert.throws(() => store.putScore({ ...SCORE_KEY, corpusVersion: "../x" }, { n: 1 }), /corpus version must match/);
+    assert.throws(() => store.putScore({ ...SCORE_KEY, corpusVersion: "../x" }, crossRun({ n: 1 })), /corpus version must match/);
     assert.throws(() => store.putScore({ scorerId: "volume-mix-v1", scope: "per-run", runId: "../x" }, { n: 1 }), /run id must match/);
+    // 🔴 INCLUDING THE PANEL SLOT, which is a THIRD chance to escape the store and the
+    // newest one. `panelKeySegment` validates rather than sanitises for the same reason
+    // `configHashSegment` does, so a digest-shaped string is the only thing that reaches
+    // the join — and the two named states, neither of which contains a separator.
+    for (const bad of ["../escape", "sha256:nothex", "sha256-" + "a".repeat(64), "not-recorded/x", ""]) {
+      assert.throws(
+        () => store.putScore({ ...SCORE_KEY, panelDigest: bad }, crossRun({ n: 1, panel_digest: bad })),
+        /panel digest must be sha256/,
+        `panel digest ${JSON.stringify(bad)} should be refused`,
+      );
+    }
     // 🔴 AND THE READ PATH TOO, which is the assertion mutation testing added. The
     // write path validates twice — `validateScore` checks the scorer id before
     // `_scorePath` does — so removing `_scorePath`'s check left every write test
@@ -895,7 +929,7 @@ test("a config hash becomes a segment by VALIDATION, and the map is injective", 
   for (const bad of ["sha256:xyz", "1c7853debf4e", "sha1:" + "a".repeat(40), "../../etc/passwd", "", null]) {
     assert.throws(() => configHashSegment(bad), /config hash must be sha256/, `${JSON.stringify(bad)} should be refused`);
   }
-  assert.equal(byConfigSegment(CONFIG_HASH, CORPUS_VERSION), `sha256-${CONFIG_HASH.slice(7)}__${CORPUS_VERSION}`);
+  assert.equal(byConfigSegment(CONFIG_HASH, PANEL_DIGEST, CORPUS_VERSION), `sha256-${CONFIG_HASH.slice(7)}__sha256-${PANEL_DIGEST.slice(7)}__${CORPUS_VERSION}`);
   // Two hashes differing in one nibble stay two directories.
   const other = `sha256:${"0".repeat(63)}1`;
   assert.notEqual(configHashSegment(other), configHashSegment(`sha256:${"0".repeat(64)}`));
@@ -911,7 +945,7 @@ test("an absent score is null and a corrupt one is named — a renderer must tel
     // PRESENT and unparseable throws. Answering `null` would tell a renderer nobody
     // measured this when the truth is that the measurement is unreadable, and the
     // report would then print "not computed" about a number sitting right there.
-    const abs = path.join(root, SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], byConfigSegment(CONFIG_HASH, CORPUS_VERSION), "reliability-v1.json");
+    const abs = path.join(root, SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], byConfigSegment(CONFIG_HASH, PANEL_DIGEST, CORPUS_VERSION), "reliability-v1.json");
     mkdirSync(path.dirname(abs), { recursive: true });
     writeFileSync(abs, "{ not json");
     assert.throws(() => store.getScore(SCORE_KEY), /reliability-v1.*is unreadable/s);
@@ -925,17 +959,122 @@ test("a score's scope decides its directory, and each scope demands its own key"
   try {
     const perRun = store.putScore({ scorerId: "volume-mix-v1", scope: "per-run", runId: RUN_ID }, { findings: 142 });
     assert.equal(perRun, path.join(store.root, SCORES_DIR, "per-run", RUN_ID, "volume-mix-v1.json"));
-    const crossRun = store.putScore(SCORE_KEY, { classes: 245 });
-    assert.equal(crossRun, path.join(store.root, SCORES_DIR, "by-config", byConfigSegment(CONFIG_HASH, CORPUS_VERSION), "reliability-v1.json"));
+    const crossRunPath = store.putScore(SCORE_KEY, crossRun({ classes: 245 }));
+    assert.equal(crossRunPath, path.join(store.root, SCORES_DIR, "by-config", byConfigSegment(CONFIG_HASH, PANEL_DIGEST, CORPUS_VERSION), "reliability-v1.json"));
     // A cross-run score keyed by nothing, and a per-run score with no run: both are
     // callers who have not said what their number is about.
-    assert.throws(() => store.putScore({ scorerId: "reliability-v1", scope: "cross-run" }, { n: 1 }), /config hash must be sha256/);
+    assert.throws(() => store.putScore({ scorerId: "reliability-v1", scope: "cross-run" }, { n: 1 }), /must name its own panel/);
+    assert.throws(() => store.putScore({ scorerId: "reliability-v1", scope: "cross-run", panelDigest: PANEL_DIGEST }, crossRun({ n: 1 })), /config hash must be sha256/);
     assert.throws(() => store.putScore({ scorerId: "volume-mix-v1", scope: "per-run" }, { n: 1 }), /run id must match/);
     assert.throws(() => store.putScore({ ...SCORE_KEY, scope: "whenever" }, { n: 1 }), /scope must be one of/);
     assert.deepEqual(SCORE_SCOPES, ["per-run", "cross-run"]);
     // The scope names the POPULATION and the directory names the KEY, so the two are
     // deliberately not the same word.
     assert.equal(SCORE_SCOPE_DIRS["cross-run"], "by-config");
+  } finally {
+    cleanup();
+  }
+});
+
+test("🔴 two panels under one config hash are TWO score files — the collision this key removes", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    // THE DEFECT, reproduced against the real store. `config-hash.mjs` says in its own
+    // header that it "hashes the LENS COMPOSITION, not the panel's code", so these two
+    // writes share a `config_hash` and a `corpus_version` and differ only in the panel —
+    // which is the live shape: one ingested run pools 16 items that are 5 panels by
+    // content under a single config hash. Before the panel joined the key, the second
+    // write landed on the first and nothing anywhere said so.
+    const other = `sha256:${"e".repeat(64)}`;
+    const first = store.putScore(SCORE_KEY, crossRun({ jaccard: 0.422 }));
+    const second = store.putScore({ ...SCORE_KEY, panelDigest: other }, crossRun({ jaccard: 0.911, panel_digest: other }));
+    assert.notEqual(first, second);
+    // Both survive, and each reads back as ITSELF under its own panel.
+    assert.equal(store.getScore(SCORE_KEY).jaccard, 0.422);
+    assert.equal(store.getScore({ ...SCORE_KEY, panelDigest: other }).jaccard, 0.911);
+    // The two directories differ in the MIDDLE segment only, which is what makes the
+    // separation attributable rather than incidental.
+    assert.equal(path.dirname(first).replace(`sha256-${PANEL_DIGEST.slice(7)}`, "P"), path.dirname(second).replace(`sha256-${other.slice(7)}`, "P"));
+    // ⚠ AND THE LEGACY TWO-PART DIRECTORY IS NEITHER READ NOR WRITTEN. Scores filed
+    // before the panel had an identity stay where they are and are simply not found;
+    // silently matching them would pool the panels this key exists to separate.
+    const legacy = path.join(store.root, SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], `sha256-${CONFIG_HASH.slice(7)}__${CORPUS_VERSION}`);
+    mkdirSync(legacy, { recursive: true });
+    writeFileSync(path.join(legacy, "reliability-v1.json"), JSON.stringify({ jaccard: 0.111 }));
+    assert.equal(store.getScore(SCORE_KEY).jaccard, 0.422, "a two-part directory was matched, which would pool two panels");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a cross-run score must NAME its panel, and a mixed one must list what it pooled", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    // The path and the payload are two records of one fact. A score file lifted out of
+    // git on its own must be able to say which reviewer produced it, so the two are
+    // checked against each other — the same rule, and the same reason, as `scorer_id`.
+    assert.throws(() => store.putScore(SCORE_KEY, { jaccard: 0.4 }), /must name its own panel/);
+    assert.throws(
+      () => store.putScore(SCORE_KEY, { panel_digest: `sha256:${"f".repeat(64)}`, panel_digest_source: "envelopes", jaccard: 0.4 }),
+      /must name its own panel/,
+    );
+    // 🔴 A `mixed` SCORE MUST CARRY THE MIXTURE. The opt-out exists so a run pooling five
+    // panels can be scored at all, and the whole point of making it say so is that the
+    // saying survives into the file: an averaged number that reads as one reviewer's is
+    // worse than no number, because nothing downstream would ever ask again.
+    const mixedKey = { ...SCORE_KEY, panelDigest: PANEL_DIGEST_MIXED };
+    assert.throws(() => store.putScore(mixedKey, { panel_digest: PANEL_DIGEST_MIXED, panel_digest_source: "envelopes", jaccard: 0.4 }), /must list the panels it pooled/);
+    assert.throws(() => store.putScore(mixedKey, { panel_digest: PANEL_DIGEST_MIXED, panel_digest_source: "envelopes", panel_digests: [PANEL_DIGEST], jaccard: 0.4 }), /at least two/);
+    assert.throws(
+      () => store.putScore(mixedKey, { panel_digest: PANEL_DIGEST_MIXED, panel_digest_source: "envelopes", panel_digests: [PANEL_DIGEST, "not-a-digest"], jaccard: 0.4 }),
+      /must list the panels it pooled/,
+    );
+    const abs = store.putScore(mixedKey, { panel_digest: PANEL_DIGEST_MIXED, panel_digest_source: "envelopes", panel_digests: [PANEL_DIGEST, `sha256:${"e".repeat(64)}`], jaccard: 0.4 });
+    assert.match(abs, /__mixed__/);
+    // 🔴 AND WHERE THE DIGEST CAME FROM. `reconstructed` is what the pilot's scores need —
+    // its replays predate the field, so the only way to file them under the panel that
+    // really produced them is to compute that digest out of git now and STATE it. That is
+    // correct and it is not an observation, and the path cannot tell the two apart. So the
+    // payload says which, from a closed vocabulary, or the write is refused.
+    assert.deepEqual(PANEL_DIGEST_SOURCES, ["files", "reconstructed", "envelopes"]);
+    for (const src of PANEL_DIGEST_SOURCES) {
+      assert.ok(store.putScore(SCORE_KEY, { panel_digest: PANEL_DIGEST, panel_digest_source: src, jaccard: 0.4 }));
+    }
+    for (const bad of [undefined, null, "", "git", "flag", "hashed", 7]) {
+      assert.throws(
+        () => store.putScore(SCORE_KEY, { panel_digest: PANEL_DIGEST, panel_digest_source: bad, jaccard: 0.4 }),
+        /panel_digest_source/,
+        `panel_digest_source ${JSON.stringify(bad)} was accepted`,
+      );
+    }
+    // The two named states are the only non-digests a path may carry, and neither can be
+    // confused with a real digest — which always begins `sha256-`.
+    assert.equal(panelKeySegment(PANEL_DIGEST_MIXED), "mixed");
+    assert.equal(panelKeySegment(PANEL_DIGEST_ABSENT), "not-recorded");
+    assert.equal(panelKeySegment(PANEL_DIGEST), `sha256-${PANEL_DIGEST.slice(7)}`);
+  } finally {
+    cleanup();
+  }
+});
+
+test("panelDigestRecords reads the ITEMS, because that is where the mixture is", () => {
+  const { store, cleanup } = tempStore();
+  try {
+    // 🔴 THE LIVE MIXTURE IS WITHIN ONE RUN: the ingested agent-PR run is a single run id
+    // whose 16 item envelopes are 5 panels by content. A resolver reading only `run.json`
+    // would answer "one panel" about exactly the data that is not.
+    const other = `sha256:${"e".repeat(64)}`;
+    store.putRun(RUN_ID, { runJson: runJson() });
+    store.putItem(RUN_ID, "pr-664", { envelope: envelope(), payload: {} });
+    store.putItem(RUN_ID, "pr-899", { envelope: envelope({ item_id: "pr-899", panel_digest: other }), payload: {} });
+    const records = store.panelDigestRecords([RUN_ID]);
+    assert.deepEqual(records.map((r) => r.panelDigest).sort(), [PANEL_DIGEST, PANEL_DIGEST, other].sort());
+    assert.deepEqual(records.map((r) => r.id), [`${RUN_ID}/run.json`, `${RUN_ID}/pr-664`, `${RUN_ID}/pr-899`]);
+    // A run id that is not there contributes nothing rather than throwing — a read path,
+    // and `resolvePanelDigest` refuses the empty list one step later with a message about
+    // the right thing.
+    assert.deepEqual(store.panelDigestRecords(["no-such-run"]), []);
+    assert.deepEqual(store.panelDigestRecords(), []);
   } finally {
     cleanup();
   }
@@ -961,7 +1100,7 @@ test("a score payload may omit scorer_id and scope, but may not disagree with th
 test("a report is written whole, is re-writable, and may not be empty", () => {
   const { store, cleanup } = tempStore();
   try {
-    const id = byConfigSegment(CONFIG_HASH, CORPUS_VERSION);
+    const id = byConfigSegment(CONFIG_HASH, PANEL_DIGEST, CORPUS_VERSION);
     const abs = store.putReport(id, "# first render\n\n0.422");
     assert.equal(abs, path.join(store.root, REPORTS_DIR, `${id}.md`));
     assert.equal(readFileSync(abs, "utf8"), "# first render\n\n0.422\n");
