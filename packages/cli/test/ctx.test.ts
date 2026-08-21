@@ -100,16 +100,27 @@ describe('ctx switch failures', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     delete process.env.WAFFLEBASE_SESSION;
+    process.exitCode = undefined;
     rmSync(sessionPath, { force: true });
   });
 
-  /** Run `ctx switch <query>` to its `process.exit`, returning stderr. */
+  /**
+   * Run `ctx switch <query>` to completion, returning stderr.
+   *
+   * To *completion* — never through `process.exit()`. `process.exit` does
+   * not flush a stderr write that is still buffered, and stderr is
+   * buffered whenever it is a pipe rather than a TTY, which is how an
+   * agent runs this. A truncated envelope is worse than none, since it is
+   * what the agent then tries to `JSON.parse`. So the failure has to go
+   * out through `outputError`, which sets `process.exitCode` and lets the
+   * process end on its own once the line is written.
+   */
   async function runSwitch(query: string): Promise<string[]> {
     const errs: string[] = [];
     vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
       errs.push(args.map(String).join(' '));
     });
-    vi.spyOn(process, 'exit').mockImplementation((() => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
       throw new Error('process.exit');
     }) as never);
 
@@ -117,9 +128,9 @@ describe('ctx switch failures', () => {
     program.name('wafflebase').exitOverride();
     registerCtxCommand(program);
 
-    await expect(
-      program.parseAsync(['ctx', 'switch', query], { from: 'user' }),
-    ).rejects.toThrow('process.exit');
+    await program.parseAsync(['ctx', 'switch', query], { from: 'user' });
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
     return errs;
   }
 

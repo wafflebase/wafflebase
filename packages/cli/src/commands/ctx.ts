@@ -7,7 +7,6 @@ import {
 } from '../output/formatter.js';
 import { loadSession, saveSession } from '../config/session.js';
 import type { WorkspaceInfo } from '../config/session.js';
-import { commandPath, errorEnvelope } from '../output/formatter.js';
 
 export interface WorkspaceRow {
   id: string;
@@ -38,6 +37,15 @@ class NotLoggedInError extends Error {
 
   constructor() {
     super('Not logged in. Run `wafflebase login`.');
+  }
+}
+
+/** Thrown when `ctx switch` is given a name or id no workspace matches. */
+class WorkspaceNotFoundError extends Error {
+  readonly code = 'NOT_FOUND';
+
+  constructor(query: string) {
+    super(`Workspace not found: ${query}`);
   }
 }
 
@@ -74,15 +82,15 @@ export function registerCtxCommand(program: Command): void {
         const fmt = parseOutputFormat(opts.format);
         const session = loadSession();
         // Unlike `status`, this command cannot answer without a
-        // session, so it reports a structured error and exits 1. The
-        // exit code matches `ctx switch`, which still prints prose.
+        // session, so it reports a structured error and exits 1 — the
+        // same code and the same exit as `ctx switch`.
         if (!session) throw new NotLoggedInError();
         output(
           buildWorkspaceList(session.workspaces, session.activeWorkspace),
           fmt,
         );
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -90,34 +98,31 @@ export function registerCtxCommand(program: Command): void {
     .command('switch <name-or-id>')
     .description('Switch active workspace')
     .action(function (this: Command, query: string) {
-      const name = commandPath(this);
-      const session = loadSession();
-      if (!session) {
-        console.error(
-          // `NOT_LOGGED_IN`, not `UNAUTHORIZED`: `ctx list` already reports
-          // this exact condition under that code, and there is deliberately
-          // no `UNAUTHORIZED` in the matrix (docs/design/cli.md §10). The
-          // code an agent branches on must not depend on which `ctx`
-          // subcommand it happened to run.
-          errorEnvelope(
-            'NOT_LOGGED_IN',
-            'Not logged in. Run `wafflebase login`.',
-            name,
-          ),
-        );
-        process.exit(1);
-      }
+      // Every failure here goes out through `outputError`, which sets
+      // `process.exitCode` and lets the process end on its own. The
+      // earlier `console.error(...)` + `process.exit(1)` pair could
+      // truncate the envelope: `process.stderr.write` is asynchronous
+      // when stderr is a pipe rather than a TTY — which is how an agent
+      // runs this — and `process.exit()` does not flush what is still
+      // buffered. A half-written line is worse than a missing one,
+      // because it is what an agent tries to `JSON.parse`.
+      try {
+        const session = loadSession();
+        // `NOT_LOGGED_IN`, not `UNAUTHORIZED`: `ctx list` already reports
+        // this exact condition under that code, and there is deliberately
+        // no `UNAUTHORIZED` in the matrix (docs/design/cli.md §10). The
+        // code an agent branches on must not depend on which `ctx`
+        // subcommand it happened to run.
+        if (!session) throw new NotLoggedInError();
 
-      const ws = findWorkspace(session.workspaces, query);
-      if (!ws) {
-        console.error(
-          errorEnvelope('NOT_FOUND', `Workspace not found: ${query}`, name),
-        );
-        process.exit(1);
-      }
+        const ws = findWorkspace(session.workspaces, query);
+        if (!ws) throw new WorkspaceNotFoundError(query);
 
-      session.activeWorkspace = ws.id;
-      saveSession(session);
-      console.log(`Switched to ${ws.name}.`);
+        session.activeWorkspace = ws.id;
+        saveSession(session);
+        console.log(`Switched to ${ws.name}.`);
+      } catch (e) {
+        outputError(e, this);
+      }
     });
 }

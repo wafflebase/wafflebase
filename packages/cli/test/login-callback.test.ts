@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { Command } from 'commander';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -261,6 +261,16 @@ describe('wafflebase login', () => {
   );
   /** Where `announceLoginUrl` leaves the URL when stderr is not a terminal. */
   const urlPath = join(dirname(configPath), 'login-url.txt');
+
+  // Pinned for every test, not per test: `announceLoginUrl` writes
+  // `login-url.txt` beside the config file whenever stderr is not a
+  // terminal, which it is not under vitest. A test that sets only
+  // WAFFLEBASE_SESSION would leave that file in the developer's real
+  // config directory — a test suite must not write outside its tmpdir.
+  beforeEach(() => {
+    process.env.WAFFLEBASE_SESSION = sessionPath;
+    process.env.WAFFLEBASE_CONFIG = configPath;
+  });
 
   afterEach(() => {
     vi.restoreAllMocks();

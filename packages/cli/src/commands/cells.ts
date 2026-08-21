@@ -142,6 +142,7 @@ export function registerCellsCommand(parent: Command) {
               e instanceof Error ? e.message : String(e)
             }`,
           ),
+          this,
         );
         return;
       }
