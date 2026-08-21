@@ -101,7 +101,7 @@ React re-render *is* the subscription model — there is no state library.
 - A **`{N} stale` pill** (destructive) when re-validation says some staged edits no
   longer match the code. Opens a popover listing each one with its reason, a
   per-item **Discard**, **Re-check**, and **Discard all stale** (§6.6).
-- **Bridge health dot** — polls `GET /__design-editor/health` every 10s; emerald =
+- **Bridge health dot** — polls `GET /__design-editor/api/health` every 10s; emerald =
   up, destructive = down, muted = checking. Also the source of `sessionId`, which
   keys the persisted history.
 - **Theme toggle** — flips a `dark` boolean that adds/removes the `.dark` class
@@ -942,7 +942,7 @@ component sources to watch in the first place.
 **Closed in Phase 3 CP2.** This used to end "component metadata is a build-time
 snapshot, so an externally-edited component leaves the panel's class strings
 behind the source; the sandbox detects it but cannot refresh itself." It can now:
-`GET /__design-editor/metadata` is re-read on every `design-editor:metadata-change`
+`GET /__design-editor/api/metadata` is re-read on every `design-editor:metadata-change`
 push — which the bridge sends after its own writes AND after an external change —
 and `history.rebaseAnchors` re-points the staged layout anchors (§6.3b).
 `mock-metadata.ts` remains only as the bridge-offline fallback.
@@ -1069,7 +1069,7 @@ when instructed.
 ### Remaining current-phase gaps
 
 - ~~**Metadata is a static import**~~ — **closed in Phase 3 CP2.** The live tree
-  comes from `GET /__design-editor/metadata` and is re-read after every write and
+  comes from `GET /__design-editor/api/metadata` and is re-read after every write and
   every external change; `mock-metadata.ts` is now only the bridge-offline
   fallback. The `DesignMetadata` contract gained `scenes` and `revs`; nothing
   existing changed.
