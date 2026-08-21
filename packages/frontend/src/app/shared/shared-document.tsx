@@ -52,7 +52,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { IconDatabase, IconMessage, IconTable } from "@tabler/icons-react";
+import {
+  IconBuildingWarehouse,
+  IconDatabase,
+  IconMessage,
+  IconTable,
+} from "@tabler/icons-react";
 
 type PeerJumpTarget = {
   activeCell: NonNullable<UserPresenceType["activeCell"]>;
@@ -65,6 +70,26 @@ const DataSourceView = lazy(() =>
     default: module.DataSourceView,
   })),
 );
+
+/**
+ * Lakehouse endpoints require JWT workspace membership. This placeholder
+ * avoids fetchWithAuth redirecting anonymous share-link viewers to /login.
+ */
+function SharedLakehouseUnavailable() {
+  return (
+    <div className="flex h-full items-center justify-center p-6 text-center">
+      <div className="max-w-md space-y-2">
+        <h2 className="text-sm font-medium">
+          Lakehouse data is unavailable in shared links
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Open this document from its authenticated workspace to read the
+          connected table.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 // Slides editor + @wafflebase/slides bundle is heavy (see
 // `slides-detail-*` chunk override in harness.config.json). Lazy-load
@@ -215,6 +240,8 @@ function SharedDocumentLayout({
           <Suspense fallback={<Loader />}>
             {activeTab?.type === "datasource" ? (
               <DataSourceView tabId={activeTabId} readOnly={readOnly} />
+            ) : activeTab?.type === "lakehouse" ? (
+              <SharedLakehouseUnavailable />
             ) : (
               <SheetView tabId={activeTabId} readOnly={readOnly} peerJumpTarget={peerJumpTarget} />
             )}
@@ -229,10 +256,13 @@ function SharedDocumentLayout({
                   ? "border-primary bg-background text-foreground font-medium"
                   : "border-transparent text-muted-foreground"
               }`}
+              aria-current={tab.id === activeTabId ? "page" : undefined}
               onClick={() => setActiveTabId(tab.id)}
             >
               {tab.type === "datasource" ? (
                 <IconDatabase className="size-3.5" />
+              ) : tab.type === "lakehouse" ? (
+                <IconBuildingWarehouse className="size-3.5" />
               ) : (
                 <IconTable className="size-3.5" />
               )}

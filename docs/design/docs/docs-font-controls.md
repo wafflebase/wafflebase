@@ -245,8 +245,10 @@ plumbing change is needed.
 
 The text-color and highlight pickers each carry a **Reset** entry, and it
 follows the same rule as Clear formatting: reset calls `applyStyle` with the
-key mapped to `undefined`, so the attribute is *removed*. It must never write
-`''`. An empty string is not a color — `ctx.fillStyle = ''` is an invalid
+key mapped to `undefined`, so the attribute is *removed*. It must never
+**store** `''` (a store may still be *handed* one — see the write-path
+subsection below — but folds it into this same removal rather than keeping
+it). An empty string is not a color — `ctx.fillStyle = ''` is an invalid
 assignment the canvas silently ignores, leaving the run painted in whatever
 the previous pass set (on a selected run, the selection fill). That was the
 visible bug in issue #728.
@@ -268,6 +270,45 @@ The same convention holds at the export sinks: `toRgbHexColor` maps an empty
 or unusable color to "no color child" rather than an empty OOXML attribute
 value (see [docs-docx-import-export.md](docs-docx-import-export.md) and
 [slides-pptx-export.md](../slides/slides-pptx-export.md)).
+
+#### `''` on the write path is a clear, not a value
+
+Fixing the pickers is not enough on its own, because they are not the only
+writers. A caller the toolbar does not own — the slides text-box editor, the
+pending-inline-style path, a batched `applyStyles`, the content `PUT` — can
+still hand a store `{ backgroundColor: '' }`, and a picker that regresses to
+the old spelling would silently reintroduce the bug (issue #793). So `''` on
+a color key is a **model-layer contract**, enforced at the store boundary
+rather than at each call site: it means *clear this key*, and is folded into
+the explicitly-`undefined` form above — the one removal path — before any
+store writes it.
+
+Two exported helpers in `packages/docs/src/model/types.ts` do the folding,
+and every store write goes through one of them:
+
+| Helper | Keys | Wired into |
+| ------ | ---- | ---------- |
+| `normalizeStyleClears` | `color`, `backgroundColor` | `store/block-helpers.applyInlineStyle` (memory + cache) and `YorkieDocStore.applyStyleInTree` (the Yorkie tree, shared by `applyStyle` / `applyStyles`) |
+| `normalizeCellStyleClears` | `backgroundColor` | `MemDocStore.applyCellStyle` and `YorkieDocStore.applyCellStyle` |
+
+This adds no second way to clear an attribute: the helpers only rewrite the
+sentinel into the existing `undefined` key, which `removedInlineStyleAttrs` /
+`removedCellStyleAttrs` then turn into the `removeNodeStyle` removal that
+`undefined` has always taken.
+
+Merging `''` verbatim instead would leave a dead value behind: it stops
+painting (`''` is falsy, and `resolveStoredColor` normalizes it away) but
+never compares equal to an unset color, so `normalizeInlines` can no longer
+merge the run back into its neighbours, and anything reading "is there a
+highlight?" from key presence still sees one. In the Yorkie stores the damage
+is worse, because `styleByPath` only *merges*: a cleared key must additionally
+be dropped, or the old color survives in the CRDT while the local cache looks
+cleared — a peer or a reload still sees the highlight.
+
+Out of scope: boolean style keys (`bold: false` vs cleared — issue #749), and
+migrating `''` values already stored in existing documents. Those are
+normalized on write from this fix forward, and tolerated on read by
+`resolveStoredColor` / `toRgbHexColor` above.
 
 ### Editor API additions
 

@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # Stage 1: Build (runs on the CI host architecture — no QEMU emulation)
 # ---------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS builder
 
 RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 
@@ -55,7 +55,14 @@ RUN pnpm run build
 # ---------------------------------------------------------------------------
 # Stage 2: Runtime (target platform)
 # ---------------------------------------------------------------------------
-FROM node:20-alpine
+FROM node:22-bookworm-slim
+
+# DuckDB downloads signed extensions on first use. The slim image does not
+# include a system CA bundle, and the Delta extension is not published for all
+# musl/Alpine targets (notably linux_arm64_musl).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@10.5.2 --activate
 
@@ -84,6 +91,17 @@ RUN npx prisma@6.6.0 generate
 COPY --from=builder /app/packages/sheets/dist /app/packages/sheets/dist
 COPY --from=builder /app/packages/docs/dist /app/packages/docs/dist
 COPY --from=builder /app/packages/backend/dist /app/packages/backend/dist
+
+# Pre-bundle the DuckDB extensions the lakehouse connector needs, for THIS
+# platform (the runtime stage, not the builder's). Design §6 lists extension
+# auto-download as a limitation and asks locked-down networks to pre-bundle;
+# without this an egress-restricted deployment boots healthy and then fails
+# its first lakehouse read against extensions.duckdb.org. The script also
+# LOADs each one, so a platform whose binary is missing fails the build here
+# rather than in production.
+ENV LAKEHOUSE_DUCKDB_EXTENSION_DIR=/app/.duckdb-extensions
+COPY packages/backend/scripts/bundle-duckdb-extensions.cjs ./scripts/
+RUN node scripts/bundle-duckdb-extensions.cjs "$LAKEHOUSE_DUCKDB_EXTENSION_DIR"
 
 ENV NODE_ENV=production
 ENV PORT=3000

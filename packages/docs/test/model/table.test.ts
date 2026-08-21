@@ -261,6 +261,27 @@ describe('Doc table operations', () => {
       doc.applyCellStyle(tableId, { rowIndex: 0, colIndex: 0 }, { backgroundColor: '#FF0000' });
       expect(doc.getBlock(tableId).tableData!.rows[0].cells[0].style.backgroundColor).toBe('#FF0000');
     });
+
+    // The Reset entry passes `''`, and YorkieDocStore removes the attribute
+    // outright — so the key has to be gone here too, not present-but-undefined,
+    // or a `key in style` check answers differently per store (#793).
+    it('should remove the key when the background is reset with an empty string', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.applyCellStyle(tableId, { rowIndex: 0, colIndex: 0 }, { backgroundColor: '#FF0000' });
+      doc.applyCellStyle(tableId, { rowIndex: 0, colIndex: 0 }, { backgroundColor: '' });
+      const style = doc.getBlock(tableId).tableData!.rows[0].cells[0].style;
+      expect(style.backgroundColor).toBeUndefined();
+      expect('backgroundColor' in style).toBe(false);
+    });
+
+    it('should remove the key when the background is cleared with undefined', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.applyCellStyle(tableId, { rowIndex: 0, colIndex: 0 }, { backgroundColor: '#FF0000' });
+      doc.applyCellStyle(tableId, { rowIndex: 0, colIndex: 0 }, { backgroundColor: undefined });
+      expect('backgroundColor' in doc.getBlock(tableId).tableData!.rows[0].cells[0].style).toBe(false);
+    });
   });
 
   describe('applyInlineStyle in cell', () => {

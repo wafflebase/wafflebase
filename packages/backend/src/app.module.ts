@@ -21,6 +21,7 @@ import { FolderModule } from './folder/folder.module';
 import { MiroModule } from './miro/miro.module';
 import { NotificationModule } from './notification/notification.module';
 import { logSafeUrl } from './logging/log-safe-url';
+import { LakehouseModule } from './lakehouse/lakehouse.module';
 
 @Module({
   imports: [
@@ -117,6 +118,7 @@ import { logSafeUrl } from './logging/log-safe-url';
     FolderModule,
     MiroModule,
     NotificationModule,
+    LakehouseModule,
   ],
   controllers: [],
   providers: [

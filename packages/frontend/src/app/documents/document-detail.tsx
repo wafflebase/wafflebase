@@ -46,6 +46,7 @@ import {
 } from "@/types/worksheet";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import type { DataSource } from "@/types/datasource";
+import type { LakehouseSource } from "@/types/lakehouse";
 import {
   buildTabNameNormalizationPatches,
   generateTabId,
@@ -54,6 +55,7 @@ import {
   isTabNameTaken,
   normalizeTabName,
 } from "./tab-name";
+import { createLakehouseTabMeta } from "./lakehouse-tab";
 import {
   clearPendingImport,
   peekPendingImport,
@@ -70,9 +72,19 @@ const DataSourceView = lazy(() =>
     default: module.DataSourceView,
   })),
 );
+const LakehouseView = lazy(() =>
+  import("./lakehouse-feature").then((module) => ({
+    default: module.LakehouseView,
+  })),
+);
 const DataSourceSelector = lazy(() =>
   import("@/components/datasource-selector").then((module) => ({
     default: module.DataSourceSelector,
+  })),
+);
+const LakehouseSelector = lazy(() =>
+  import("./lakehouse-feature").then((module) => ({
+    default: module.LakehouseSelector,
   })),
 );
 
@@ -103,6 +115,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const { doc, root: docRoot } = useDocument<SpreadsheetDocument, UserPresenceType>();
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showDsSelector, setShowDsSelector] = useState(false);
+  const [showLakehouseSelector, setShowLakehouseSelector] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{
     tabId: string;
     dependentNames: string[];
@@ -395,13 +408,33 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     [doc],
   );
 
+  const addLakehouseTab = useCallback(
+    (source: LakehouseSource) => {
+      if (!doc) return;
+      const root = doc.getRoot();
+      const tabId = generateTabId();
+      const tab = createLakehouseTabMeta(root.tabs, tabId, source);
+
+      doc.update((r) => {
+        r.tabs[tabId] = tab;
+        r.tabOrder.push(tabId);
+      });
+      setActiveTabId(tabId);
+    },
+    [doc],
+  );
+
   const handleAddTab = useCallback(
     (type: TabType) => {
       if (type === "datasource") {
         setShowDsSelector(true);
-      } else {
-        addSheetTab();
+        return;
       }
+      if (type === "lakehouse") {
+        setShowLakehouseSelector(true);
+        return;
+      }
+      addSheetTab();
     },
     [addSheetTab],
   );
@@ -642,6 +675,8 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                     <Loader />
                   ) : activeTab?.type === "datasource" ? (
                     <DataSourceView tabId={activeTabId} />
+                  ) : activeTab?.type === "lakehouse" ? (
+                    <LakehouseView key={activeTabId} tabId={activeTabId} />
                   ) : (
                     <SheetView
                       tabId={activeTabId}
@@ -730,6 +765,16 @@ function DocumentLayout({ documentId }: { documentId: string }) {
             open={showDsSelector}
             onOpenChange={setShowDsSelector}
             onSelect={addDataSourceTab}
+          />
+        </Suspense>
+      )}
+      {showLakehouseSelector && documentData?.workspaceId && (
+        <Suspense fallback={null}>
+          <LakehouseSelector
+            workspaceId={documentData.workspaceId}
+            open={showLakehouseSelector}
+            onOpenChange={setShowLakehouseSelector}
+            onSelect={addLakehouseTab}
           />
         </Suspense>
       )}

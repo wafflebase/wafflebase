@@ -18,7 +18,7 @@ services:
       - "8081:8081"
 
   minio:
-    image: minio/minio
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     restart: always
     ports:
       - "9000:9000"
@@ -27,8 +27,32 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
     volumes:
       - minio-data:/data
+
+  # Azure Blob emulator for the lakehouse connector-parity suite (the
+  # `azurite-azure` leg). --skipApiVersionCheck keeps newer @azure/storage-blob
+  # SDK versions working against the pinned emulator image.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    restart: always
+    ports:
+      - "10000:10000"
+    command: azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://127.0.0.1:10000/devstoreaccount1?comp=list',(r)=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\"",
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 15
 
   # --- Analytics stack (Kafka + StarRocks) ---------------------------------
   # Opt-in: `docker compose --profile analytics up -d`. Powers the Share Link
