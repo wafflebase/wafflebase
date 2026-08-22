@@ -140,6 +140,29 @@ describe('Sheet merge + drag-move', () => {
     expect(await sheet.toDisplayString({ r: 3, c: 3 })).toBe('10');
   });
 
+  it('should clear destination cells covered by the moved merge', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 3, c: 2 }, 'ghost');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 3 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 3 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.unmergeSelection();
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('');
+  });
+
   it('should not move a range that splits a merged block', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');

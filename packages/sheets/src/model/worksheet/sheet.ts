@@ -2371,8 +2371,26 @@ export class Sheet {
             r: merge.anchor.r + deltaRow,
             c: merge.anchor.c + deltaCol,
           };
+          const anchorSref = toSref(anchor);
           await this.store.setMerge(anchor, merge.span);
-          this.merges.set(toSref(anchor), merge.span);
+          this.merges.set(anchorSref, merge.span);
+
+          // Covered cells hold no content (the same invariant `mergeSelection`
+          // establishes), so destination cells the move did not overwrite are
+          // cleared — otherwise they stay hidden under the merge and reappear
+          // when it is removed.
+          for (const sref of this.mergeCoveredSrefs(anchor, merge.span)) {
+            if (sref === anchorSref || movedGrid.has(sref)) continue;
+            const ref = parseRef(sref);
+            const cell = await this.store.get(ref);
+            if (!cell) continue;
+            if (cell.s && Object.keys(cell.s).length > 0) {
+              await this.store.set(ref, { s: cell.s });
+            } else {
+              await this.store.delete(ref);
+            }
+            changedSrefs.add(sref);
+          }
         }
         this.rebuildMergeCoverMap();
       }
