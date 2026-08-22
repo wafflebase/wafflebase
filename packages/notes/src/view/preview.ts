@@ -17,6 +17,12 @@ import {
   type MermaidTheme,
 } from './mermaid.js';
 
+/** Class `markdown-it-task-lists` puts on a task `<li>`. */
+const TASK_ITEM_CLASS = 'task-list-item';
+/** Attribute carrying a task item's 0-based source line. */
+const TASK_LINE_ATTR = 'data-source-line';
+const TASK_CHECKBOX_SELECTOR = 'input.task-list-item-checkbox';
+
 const md: MarkdownIt = new MarkdownIt({
   html: false,
   linkify: true,
@@ -37,9 +43,29 @@ const md: MarkdownIt = new MarkdownIt({
   },
 });
 
-// Read-only task-list checkboxes (`- [ ] foo` / `- [x] foo`): the preview is
-// not editable, so checkboxes render disabled rather than interactive.
-md.use(taskLists, { label: true, enabled: false });
+// Task-list checkboxes (`- [ ] foo` / `- [x] foo`). Rendered enabled so a
+// preview wired with an `onToggleTask` callback can be ticked directly; a
+// preview without one re-disables them after each render (see `render`).
+//
+// No `<label>` wrapper around the item text: the whole item is already a click
+// target (`onTaskClick`), and a label would also forward its click to the
+// checkbox inside it — the same tick reported twice.
+md.use(taskLists, { enabled: true });
+
+// Tag every task item with the source line its `- [ ]` sits on, so a click in
+// the preview knows which line to flip. `list_item_open.map` is the item's
+// source range and its first entry is that line (0-based).
+md.core.ruler.push('note-task-source-line', (state) => {
+  for (const token of state.tokens) {
+    if (
+      token.type === 'list_item_open' &&
+      token.attrGet('class')?.includes(TASK_ITEM_CLASS) &&
+      token.map
+    ) {
+      token.attrSet(TASK_LINE_ATTR, String(token.map[0]));
+    }
+  }
+});
 
 // KaTeX math (`$inline$` and `$$block$$`).
 md.use(katexPlugin);
@@ -147,11 +173,24 @@ export class NotePreview {
   /** Injectable in tests; production uses `mermaid.ts`'s lazy import. */
   private readonly mermaidLoader: MermaidLoader | undefined;
 
+  /**
+   * Writes a task item's new checked state back to the source. Absent (a
+   * read-only mount) makes the rendered checkboxes inert.
+   */
+  private readonly onToggleTask:
+    | ((line: number, checked: boolean) => void)
+    | undefined;
+
   constructor(
-    options: { theme?: 'light' | 'dark'; mermaidLoader?: MermaidLoader } = {},
+    options: {
+      theme?: 'light' | 'dark';
+      mermaidLoader?: MermaidLoader;
+      onToggleTask?: (line: number, checked: boolean) => void;
+    } = {},
   ) {
     this.mermaidTheme = options.theme === 'dark' ? 'dark' : 'default';
     this.mermaidLoader = options.mermaidLoader;
+    this.onToggleTask = options.onToggleTask;
 
     this.el = document.createElement('div');
     this.el.dataset.role = 'note-preview';
@@ -183,7 +222,43 @@ export class NotePreview {
           // button simply stays as "Copy" and the user can select manually.
         });
     });
+
+    // Click-to-toggle for task items, delegated for the same reason. The whole
+    // item is the target — the checkbox and the text beside it — so a task can
+    // be ticked without hitting the small box, which matters most on touch.
+    if (this.onToggleTask) this.el.addEventListener('click', this.onTaskClick);
   }
+
+  /**
+   * Toggle the task item a click landed in. Clicks on a link or button inside
+   * the item belong to that control, not to the checkbox.
+   *
+   * The DOM is not updated here: the callback rewrites the source line, and
+   * the resulting document change re-renders the preview from it. That keeps
+   * the checkbox showing what the note actually says, including when a peer
+   * ticks the same item concurrently.
+   */
+  private readonly onTaskClick = (e: MouseEvent): void => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    const item = target.closest(`.${TASK_ITEM_CLASS}`);
+    if (!item || !this.el.contains(item)) return;
+    if (target.closest('a, button')) return;
+
+    const line = Number(item.getAttribute(TASK_LINE_ATTR));
+    if (!Number.isInteger(line)) return;
+    const checkbox = item.querySelector(TASK_CHECKBOX_SELECTOR);
+    if (!(checkbox instanceof HTMLInputElement)) return;
+
+    // A click on the checkbox itself has already flipped `checked`; anywhere
+    // else in the item leaves it as rendered, so read the intent from the
+    // element the click landed on.
+    const checked = checkbox.contains(target)
+      ? checkbox.checked
+      : !checkbox.checked;
+    e.preventDefault();
+    this.onToggleTask?.(line, checked);
+  };
 
   /**
    * Switches the mermaid palette. Diagrams already on screen keep their old
@@ -196,6 +271,13 @@ export class NotePreview {
 
   render(markdown: string): void {
     this.el.innerHTML = md.render(markdown);
+    // Without a way to write the change back (a read-only mount), the
+    // checkboxes are display only — disabled rather than clickable-looking.
+    if (!this.onToggleTask) {
+      for (const box of this.el.querySelectorAll(TASK_CHECKBOX_SELECTOR)) {
+        box.setAttribute('disabled', '');
+      }
+    }
     // Mermaid diagrams render asynchronously (the engine is lazily imported);
     // cached ones land inside this call, the rest arrive shortly after.
     //

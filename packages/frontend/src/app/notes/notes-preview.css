@@ -334,3 +334,19 @@
 .dark .note-preview .note-mermaid-message {
   color: #ff7b72;
 }
+
+/*
+ * Task items are clickable as a whole — the checkbox and the text beside it
+ * both toggle it (see `NotePreview.onTaskClick`). A read-only preview passes
+ * no toggle callback and its checkboxes render disabled, which is what the
+ * `:not([disabled])` guard keys the pointer cursor off.
+ */
+.note-preview li.task-list-item:has(
+    input.task-list-item-checkbox:not([disabled])
+  ) {
+  cursor: pointer;
+}
+
+.note-preview input.task-list-item-checkbox:not([disabled]) {
+  cursor: pointer;
+}

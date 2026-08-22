@@ -42,6 +42,11 @@ import {
   IconArrowBackUp,
   IconArrowForwardUp,
   IconUserCode,
+  IconList,
+  IconListNumbers,
+  IconListCheck,
+  IconIndentIncrease,
+  IconIndentDecrease,
 } from "@tabler/icons-react";
 
 const KEYMAPS: { key: NoteKeymap; label: string }[] = [
@@ -60,6 +65,9 @@ const EMPTY_FORMATS: NoteInlineFormats = {
   italic: false,
   strikethrough: false,
   link: false,
+  list: null,
+  canIndent: false,
+  canOutdent: false,
 };
 
 function TooltipToggle({
@@ -284,6 +292,46 @@ export function NotesToolbar({
           >
             <IconStrikethrough size={16} />
           </TooltipToggle>
+          <ToolbarSeparator />
+          {/* List group: the three kinds are toggles (pressed when every
+              selected line is of that kind), indent/outdent plain buttons that
+              disable when the block cannot nest further in that direction.
+              All five apply to every line the selection covers. */}
+          <TooltipToggle
+            label="Bullet list"
+            pressed={formats.list === "bullet"}
+            onToggle={() => editor.toggleBulletList()}
+          >
+            <IconList size={16} />
+          </TooltipToggle>
+          <TooltipToggle
+            label="Numbered list"
+            pressed={formats.list === "ordered"}
+            onToggle={() => editor.toggleOrderedList()}
+          >
+            <IconListNumbers size={16} />
+          </TooltipToggle>
+          <TooltipToggle
+            label="Checkbox"
+            pressed={formats.list === "task"}
+            onToggle={() => editor.toggleTaskList()}
+          >
+            <IconListCheck size={16} />
+          </TooltipToggle>
+          <TooltipButton
+            label="Indent"
+            disabled={!formats.canIndent}
+            onClick={() => editor.indentList()}
+          >
+            <IconIndentIncrease size={16} />
+          </TooltipButton>
+          <TooltipButton
+            label="Outdent"
+            disabled={!formats.canOutdent}
+            onClick={() => editor.outdentList()}
+          >
+            <IconIndentDecrease size={16} />
+          </TooltipButton>
           <ToolbarSeparator />
           <TooltipToggle
             label="Link"

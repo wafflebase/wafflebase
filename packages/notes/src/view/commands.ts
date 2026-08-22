@@ -1,12 +1,23 @@
 import { EditorSelection, type EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
+import { computeListState, type NoteListKind } from './list-commands.js';
 
-/** Inline markdown formats active at the current selection. */
+/**
+ * Markdown formatting state at the current selection: the inline formats
+ * around it plus the block-level list state of the lines it covers. The
+ * toolbar reads both from the one selection-change subscription.
+ */
 export interface NoteInlineFormats {
   bold: boolean;
   italic: boolean;
   strikethrough: boolean;
   link: boolean;
+  /** The list kind shared by every selected line, or `null` if they differ. */
+  list: NoteListKind | null;
+  /** Whether the selected list lines can nest one level deeper. */
+  canIndent: boolean;
+  /** Whether the selected list lines can move one level out. */
+  canOutdent: boolean;
 }
 
 /**
@@ -51,6 +62,7 @@ function linkAtCursor(
 
 export function computeActiveFormats(state: EditorState): NoteInlineFormats {
   const bold = surroundedBy(state, '**');
+  const list = computeListState(state);
   return {
     bold,
     // A single `*` around the selection means italic — unless it is actually
@@ -58,6 +70,9 @@ export function computeActiveFormats(state: EditorState): NoteInlineFormats {
     italic: surroundedBy(state, '*') && !bold,
     strikethrough: surroundedBy(state, '~~'),
     link: linkAtCursor(state) !== null,
+    list: list.kind,
+    canIndent: list.canIndent,
+    canOutdent: list.canOutdent,
   };
 }
 

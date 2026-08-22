@@ -45,7 +45,7 @@ describe('NotePreview', () => {
     expect(pre?.contains(button)).toBe(false);
   });
 
-  it('renders a disabled checkbox for task-list items', () => {
+  it('renders a disabled checkbox for task-list items without a toggle', () => {
     const preview = new NotePreview();
     preview.render('- [x] done\n- [ ] todo');
 
@@ -58,6 +58,65 @@ describe('NotePreview', () => {
     }
     expect(checkboxes[0].hasAttribute('checked')).toBe(true);
     expect(checkboxes[1].hasAttribute('checked')).toBe(false);
+  });
+
+  it('renders enabled checkboxes when a toggle callback is supplied', () => {
+    const preview = new NotePreview({ onToggleTask: () => {} });
+    preview.render('- [ ] todo');
+
+    const checkbox = preview.el.querySelector('input.task-list-item-checkbox');
+    expect(checkbox?.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('toggles from a click on the checkbox and on the text beside it', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('# notes\n\n- [ ] todo\n- [x] done');
+
+    const items = preview.el.querySelectorAll('li.task-list-item');
+    expect(items.length).toBe(2);
+
+    // The checkbox itself: clicking an unticked box flips its DOM state before
+    // the click event, so the reported state is the one it now shows.
+    items[0]
+      .querySelector('input')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    // The adjacent text: `- [x] done` is ticked, so the click means "untick".
+    // It is the fourth line of the source, i.e. index 3.
+    items[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(toggles).toEqual([
+      [2, true],
+      [3, false],
+    ]);
+  });
+
+  it('leaves a link inside a task item to the link', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('- [ ] see [docs](https://example.com)');
+
+    preview.el
+      .querySelector('a')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(toggles).toEqual([]);
+  });
+
+  it('does not toggle without a callback', () => {
+    const preview = new NotePreview();
+    preview.render('- [ ] todo');
+    const checkbox = preview.el.querySelector('input')!;
+    // No listener is attached at all, so the click is inert (the checkbox is
+    // disabled as well).
+    checkbox.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(preview.el.querySelector('input')?.hasAttribute('disabled')).toBe(
+      true,
+    );
   });
 
   it('renders KaTeX markup for inline math', () => {
