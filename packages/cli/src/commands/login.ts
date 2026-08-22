@@ -416,7 +416,45 @@ const REFUSAL = {
   notGet:
     'a non-GET request reached the callback. The server redirects the ' +
     'browser with a plain GET navigation, so this was not it.',
+  notLoopback:
+    'a request addressed to a host other than this loopback listener ' +
+    'reached the callback. Our redirect is addressed to ' +
+    '`127.0.0.1:<port>`, so this was a name that merely resolves here ' +
+    '(DNS rebinding).',
 } as const;
+
+/**
+ * Hostnames a loopback listener can legitimately be addressed by.
+ *
+ * IPv6 appears bracketed only: `Host` requires the brackets for an IPv6
+ * literal (RFC 7230 §5.4), and `isLoopbackHost`'s pattern splits the port off
+ * a colon, so a bare `::1` never reaches this set to be matched.
+ */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/**
+ * Whether a request's `Host` header addresses this loopback listener.
+ *
+ * A hostname under an attacker's control that resolves to `127.0.0.1` (DNS
+ * rebinding) lets a remote page's requests reach this listener while the
+ * browser treats them as same-origin. Such a request carries the attacker's
+ * host, so requiring a loopback literal keeps the listener answering only
+ * callers that addressed it directly. That is defence in depth behind the
+ * nonce, not a replacement for it: a rebound page still has to guess the
+ * per-attempt nonce, and this simply stops it from reaching the code that
+ * checks. A missing `Host` (HTTP/1.0) is allowed: a browser always sends one.
+ */
+export function isLoopbackHost(
+  host: string | undefined,
+  port: number,
+): boolean {
+  if (host === undefined) return true;
+  const match = /^(\[[^\]]+\]|[^:]+)(?::(\d+))?$/.exec(
+    host.trim().toLowerCase(),
+  );
+  if (!match || !LOOPBACK_HOSTS.has(match[1])) return false;
+  return match[2] === undefined || Number(match[2]) === port;
+}
 
 /** The wait's failure message, naming the last refusal when there was one. */
 export function loginTimeoutMessage(refusal?: string): string {
@@ -450,7 +488,9 @@ export interface CallbackServerOptions {
  * session fixation). A method other than GET is rejected outright: our
  * redirect is a top-level GET navigation and never looks like that.
  *
- * The nonce is the whole defense, deliberately: an earlier revision also
+ * The nonce is what makes a callback trustworthy; `isLoopbackHost` only
+ * keeps a DNS-rebound name from reaching the check at all. Nothing else
+ * is required of the request: an earlier revision also
  * refused any request carrying an `Origin` header, which a browser,
  * extension, or proxy can legitimately attach to a cross-origin redirect
  * chain (`Origin: null` among them). That would refuse the *genuine*
@@ -478,6 +518,9 @@ export function startCallbackServer(
   return new Promise((resolve, reject) => {
     let settled = false;
     let lastRefusal: string | undefined;
+    // Known once the listener is bound; the `Host` check below compares
+    // against it, and a request cannot arrive before then.
+    let boundPort = 0;
 
     const refuse = (
       res: import('node:http').ServerResponse,
@@ -498,6 +541,11 @@ export function startCallbackServer(
     });
 
     const srv = createServer((req, res) => {
+      if (!isLoopbackHost(req.headers.host, boundPort)) {
+        refuse(res, 403, REFUSAL.notLoopback);
+        return;
+      }
+
       const url = new URL(req.url ?? '/', `http://127.0.0.1`);
 
       if (url.pathname !== '/callback') {
@@ -604,6 +652,7 @@ export function startCallbackServer(
           reject(new Error('Failed to start callback server'));
           return;
         }
+        boundPort = addr.port;
         timeout = setTimeout(() => {
           if (!settled) {
             settled = true;

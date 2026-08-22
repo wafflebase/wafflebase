@@ -40,6 +40,12 @@ export function registerNotesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const fmt = parseOutputFormat(opts.format);
+        if (opts.dryRun) {
+          // The `note` filter is applied client-side, so it leaves no trace
+          // on the request the server would see.
+          printDryRun(getConfig(opts), 'GET', '/documents');
+          return;
+        }
         const res = await getClient(opts).listDocuments();
         if (!res.ok) return forwardUpstreamError(res);
         let data = res.data as unknown;
@@ -83,6 +89,10 @@ export function registerNotesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const fmt = parseOutputFormat(opts.format);
+        if (opts.dryRun) {
+          printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}`);
+          return;
+        }
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);

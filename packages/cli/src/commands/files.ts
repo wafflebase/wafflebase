@@ -84,10 +84,18 @@ export function registerFilesCommand(program: Command) {
       const local = this.opts<{ type?: string }>();
       try {
         const fmt = parseOutputFormat(opts.format);
+        // Validated BEFORE the dry-run branch: a dry run validates inputs,
+        // so a bad `--type` must still be an error rather than a preview.
         if (local.type && !BLOB_TYPES.has(local.type)) {
           throw new Error(
             `Invalid --type "${local.type}". Expected file, pdf, or image.`,
           );
+        }
+        if (opts.dryRun) {
+          // The blob-type filter is applied client-side, so it leaves no
+          // trace on the request the server would see.
+          printDryRun(getConfig(opts), 'GET', '/documents');
+          return;
         }
         const res = await getClient(opts).listDocuments();
         if (!res.ok) return forwardUpstreamError(res);
@@ -110,6 +118,10 @@ export function registerFilesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const fmt = parseOutputFormat(opts.format);
+        if (opts.dryRun) {
+          printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}`);
+          return;
+        }
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) return forwardUpstreamError(res);
         output(res.data, fmt);
