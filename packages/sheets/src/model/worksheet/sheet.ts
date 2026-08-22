@@ -198,6 +198,17 @@ function withoutSetDefaults(
 }
 
 /**
+ * `RangeOpRefusal` names why a range gesture (drag-move, autofill) declined to
+ * run. The model refuses these to keep the merge map consistent; the reason
+ * travels to the view so the gesture explains itself instead of looking like
+ * it did nothing.
+ */
+export type RangeOpRefusal =
+  | 'merge-source-split'
+  | 'merge-dest-partial'
+  | 'merge-autofill';
+
+/**
  * `Sheet` class represents a sheet with rows and columns.
  */
 export class Sheet {
@@ -300,6 +311,11 @@ export class Sheet {
    * Used to trigger anchor recalculation when a blocker is cleared.
    */
   private spillBlockers = new Map<Sref, Sref>();
+
+  /**
+   * Called when a range gesture is refused, so the view can tell the user.
+   */
+  private onRefusal?: (refusal: RangeOpRefusal) => void;
 
   /**
    * `filterColumns` stores column-specific criteria keyed by absolute column index.
@@ -978,6 +994,21 @@ export class Sheet {
     const anchor = this.spillBlockers.get(sref);
     if (anchor !== undefined) this.spillBlockers.delete(sref);
     return anchor;
+  }
+
+  /**
+   * `setOnRefusal` registers a callback fired when a range gesture is refused
+   * (used to surface a message instead of a silent no-op).
+   */
+  setOnRefusal(callback: (refusal: RangeOpRefusal) => void): void {
+    this.onRefusal = callback;
+  }
+
+  /**
+   * `refuse` reports a declined range gesture to the registered listener.
+   */
+  private refuse(refusal: RangeOpRefusal): void {
+    this.onRefusal?.(refusal);
   }
 
   /**
@@ -2289,9 +2320,11 @@ export class Sheet {
     // Merged blocks fully inside the source travel with the move; blocks the
     // move would only partially cover — split at the source, or partially
     // overwritten at the destination — would corrupt the merge state, so the
-    // whole move is rejected instead.
+    // whole move is rejected instead. The refusal is reported so the view can
+    // explain it rather than leave the drag looking like a no-op.
     const movedMerges = this.getMergesIntersecting(normalizedSource);
     if (movedMerges.some((m) => !isRangeInRange(m.range, normalizedSource))) {
+      this.refuse('merge-source-split');
       return;
     }
     const movedAnchors = new Set(movedMerges.map((m) => m.anchorSref));
@@ -2299,6 +2332,7 @@ export class Sheet {
       (m) => !movedAnchors.has(m.anchorSref),
     );
     if (overwrittenMerges.some((m) => !isRangeInRange(m.range, destRange))) {
+      this.refuse('merge-dest-partial');
       return;
     }
 
@@ -2342,6 +2376,10 @@ export class Sheet {
         changedSrefs.add(sref);
       }
 
+      // Anchors whose blocker this move cleared — they get another attempt at
+      // spilling, the same contract `removeData` follows.
+      const unblockedAnchors = new Set<Sref>();
+
       // Clear source cells that don't overlap with destination
       for (let r = srcMinR; r <= srcMaxR; r++) {
         for (let c = srcMinC; c <= srcMaxC; c++) {
@@ -2351,6 +2389,8 @@ export class Sheet {
             if (sourceCell?.spillAnchor) continue;
             await this.store.delete({ r, c });
             changedSrefs.add(sref);
+            const blockedAnchor = this.consumeSpillBlocker(sref);
+            if (blockedAnchor) unblockedAnchors.add(blockedAnchor);
           }
         }
       }
@@ -2418,6 +2458,8 @@ export class Sheet {
             } else {
               await this.store.delete(ref);
             }
+            const blockedAnchor = this.consumeSpillBlocker(sref);
+            if (blockedAnchor) unblockedAnchors.add(blockedAnchor);
           }
         }
         this.rebuildMergeCoverMap();
@@ -2427,9 +2469,16 @@ export class Sheet {
       await this.redirectFormulasForCut(cutRefMap);
 
       // Recalculate dependants
-      if (changedSrefs.size > 0) {
+      if (changedSrefs.size > 0 || unblockedAnchors.size > 0) {
         const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
         const dependantsMap = await this.store.buildDependantsMap(expanded);
+
+        // Include previously-blocked anchors so they can re-attempt the spill.
+        for (const anchor of unblockedAnchors) {
+          expanded.add(anchor);
+          if (!dependantsMap.has(anchor)) dependantsMap.set(anchor, new Set());
+        }
+
         await calculate(this, dependantsMap, expanded);
       }
 
@@ -2519,6 +2568,7 @@ export class Sheet {
 
     // Keep first version conservative: block autofill across merged blocks.
     if (this.getMergesIntersecting(fillRange).length > 0) {
+      this.refuse('merge-autofill');
       return false;
     }
 
