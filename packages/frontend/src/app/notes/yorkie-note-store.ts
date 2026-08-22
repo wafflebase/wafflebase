@@ -40,7 +40,32 @@ const WRITTEN_AT_ATTR = 't';
  * - Verified provenance would need the backend to sign each run's authorship,
  *   or Yorkie to expose a change's server-assigned actor per run; both are out
  *   of proportion for a reading aid. Recorded in `docs/design/notes/notes.md`.
+ *
+ * Writing a name is therefore also OPT-IN, not automatic — see
+ * `recordAuthorship` below.
  */
+
+/**
+ * Whether this client stamps its display name onto the text it writes.
+ *
+ * Recording is a disclosure, and an unusually durable one: unlike the peer
+ * caret label — which is presence, and evaporates when the client detaches —
+ * an author attribute is written into `root.content` and stays there for the
+ * life of the note, readable by everyone who can read the note at all,
+ * including anonymous viewer-role share-link visitors. So it is not something a
+ * client should do merely because it is attached.
+ *
+ * It is off unless the host turns it on, and the host ties it to the same
+ * user-facing "Show authors" preference that reveals the gutter: a user who
+ * never opts in neither sees others' names nor leaves their own, and turning
+ * the preference back off stops recording immediately (already-written runs
+ * keep their attributes — the CRDT is append-only history, and rewriting a peer's
+ * runs to erase a name is not something one client may do to a shared document).
+ */
+export interface YorkieNoteStoreOptions {
+  /** Record this client's display name on inserted text. Defaults to false. */
+  recordAuthorship?: boolean;
+}
 
 /**
  * How far ahead of us a peer's clock may legitimately be. Real clocks disagree
@@ -114,8 +139,14 @@ export class YorkieNoteStore implements NoteStore {
    * Read and cleared by `runHistory`; null between ops.
    */
   private pendingHistorySelection: NoteSelection | null = null;
+  /** See `YorkieNoteStoreOptions.recordAuthorship`. */
+  private recordAuthorship: boolean;
 
-  constructor(private readonly doc: Document<YorkieNotesRoot, NotesPresence>) {
+  constructor(
+    private readonly doc: Document<YorkieNotesRoot, NotesPresence>,
+    options: YorkieNoteStoreOptions = {},
+  ) {
+    this.recordAuthorship = options.recordAuthorship ?? false;
     this.undoFloor = doc.getUndoStackForTest().length;
     // Snapshot the reversed selection the moment an undo/redo lands. Registered
     // in the constructor so it runs BEFORE the view's `subscribeRemote`: once
@@ -135,13 +166,24 @@ export class YorkieNoteStore implements NoteStore {
     return content ? content.toString() : '';
   }
 
+  /**
+   * Turn recording of this client's name on inserted text on or off, live.
+   * Called when the user toggles the authorship preference, so opting out takes
+   * effect on the next keystroke rather than on the next mount.
+   */
+  setRecordAuthorship(record: boolean): void {
+    this.recordAuthorship = record;
+  }
+
   editText(from: number, to: number, insert: string): void {
     this.withUpdate((root) => {
       // Attribution rides along as attributes on the inserted run, so the blame
       // gutter needs no second structure in the root and the CodePair-shaped
       // `{ content: Text }` schema is untouched. A pure deletion inserts
-      // nothing, so it carries no attributes.
-      if (insert.length > 0) {
+      // nothing, so it carries no attributes — and neither does any edit while
+      // the user has not opted into recording, which leaves text written then
+      // indistinguishable from text written before the feature existed.
+      if (insert.length > 0 && this.recordAuthorship) {
         root.content.edit(from, to, insert, {
           // Sanitized on the way in as well as on the way out, so a well-behaved
           // client never puts a name in the CRDT that its own reader would have

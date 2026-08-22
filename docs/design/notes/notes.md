@@ -517,6 +517,21 @@ each line. Consecutive lines by one author collapse to a single label. It is
 it on gets a note identical to before — same layout, same line width, and none
 of the per-edit bookkeeping.
 
+The toggle is **one switch for both halves of the feature**: while it is on the
+client shows other people's names *and* records its own on the text it writes
+(`YorkieNoteStore` takes `{ recordAuthorship }` and exposes
+`setRecordAuthorship`, wired to the same `wafflebase:notes:showAuthors`
+preference). Recording is not a side effect of being attached, because it is not
+symmetrical with the caret label it is copied from: a caret name is presence and
+evaporates on detach, whereas an author attribute goes into `root.content` and
+stays for the life of the note, readable by anyone who can read the note at all
+— including anonymous viewer-role share-link visitors. Making it follow the
+visible toggle is what turns it into a decision the user made: opting out stops
+recording on the next keystroke, and the menu item says in as many words that
+the name is recorded and who can see it. Runs already written keep their
+attributes; rewriting a shared document's runs to erase a name is not something
+one client may do to it.
+
 Authorship rides on the existing `root.content` `Text` as **per-run
 attributes**, written by `YorkieNoteStore.editText`:
 
@@ -594,6 +609,18 @@ it", and the difference is load-bearing:
     `\p{Cc}\p{Cf}` strip alone misses), folds exotic spaces, and caps at 64
     characters. It lives at the render boundary rather than in one store, so no
     store implementation has to be trusted to have cleaned its own output.
+  - **Color.** The peer caret's `color` is presence too, and unlike a name it
+    is not text content: it is interpolated into a `style` *attribute*, which
+    the browser parses as a declaration list, so a color carrying `;` stops
+    being a color and becomes whatever declarations its author chose (`position:
+    fixed; inset: 0; background-image: url(…)` — a full-viewport overlay and an
+    outbound request on every other viewer's screen). `sanitizePeerColor()`
+    (`packages/notes/src/view/remote-selection.ts`) therefore *recognizes*
+    rather than escapes: `#hex`, a bare CSS keyword, or an
+    `rgb()/rgba()/hsl()/hsla()` whose arguments are numbers — the shapes
+    `noteUserColor` actually produces — pass, and anything else is replaced with
+    a neutral fallback. There is no character to neutralize here, only a value
+    to refuse.
   - The gutter's hover title says "(self-reported)" for the same reason.
 - Verified provenance would need the backend to sign each run's authorship, or
   Yorkie to expose a change's server-assigned actor per run. Both are out of

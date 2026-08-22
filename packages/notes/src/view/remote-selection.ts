@@ -47,6 +47,45 @@ export const noteRemoteSelectionsTheme = cmView.EditorView.baseTheme({
 const remoteSelAnnotation: cmState.AnnotationType<Array<number>> =
   cmState.Annotation.define();
 
+/**
+ * What this application actually produces for a peer color — `hsl(210, 70%,
+ * 55%)` (`noteUserColor`) — plus the other shapes a legitimate one could take:
+ * a hex color, a bare CSS color keyword, or an `rgb()/rgba()/hsl()/hsla()`
+ * function whose arguments are numbers. Nothing else: no quotes, no `url(`, no
+ * semicolon, no closing brace.
+ */
+const SAFE_COLOR_RE =
+  /^(?:#[0-9a-f]{3,8}|[a-z]{3,20}|(?:rgb|rgba|hsl|hsla)\((?:\s*[-+]?[0-9]*\.?[0-9]+(?:%|deg|rad|grad|turn)?\s*[,/]?\s*){3,4}\))$/i;
+
+/** Rendered in place of a color that is not recognizably one. */
+export const FALLBACK_PEER_COLOR = '#9ca3af';
+
+/**
+ * A peer's presence `color` as it is safe to put in a `style` attribute.
+ *
+ * `color` is self-reported in exactly the way `name` is (see
+ * `display-name.ts`): it comes from a peer's own Yorkie presence, which every
+ * attached client writes for itself and nothing validates. Unlike a name it is
+ * not text content but part of a *style attribute string*, and an attribute
+ * value is a declaration LIST — a `color` containing `;` stops being a color
+ * and becomes whatever further declarations its author chose (`position:
+ * fixed; inset: 0; background-image: url(https://…)` is a full-viewport
+ * overlay and an outbound request on every other viewer's screen).
+ *
+ * So a color is not escaped, it is RECOGNIZED: a value that does not match one
+ * of the shapes a real color takes is replaced with a neutral fallback rather
+ * than rendered. Escaping would be the wrong tool — there is no character to
+ * neutralize here, only a value to refuse.
+ */
+export function sanitizePeerColor(value: unknown): string {
+  if (typeof value !== 'string') return FALLBACK_PEER_COLOR;
+  const color = value.trim();
+  // Bounded before the regex runs: the pattern has nested quantifiers, and the
+  // input is peer-controlled and otherwise unbounded.
+  if (color.length === 0 || color.length > 64) return FALLBACK_PEER_COLOR;
+  return SAFE_COLOR_RE.test(color) ? color : FALLBACK_PEER_COLOR;
+}
+
 class NoteCaretWidget extends cmView.WidgetType {
   constructor(
     readonly color: string,
@@ -125,6 +164,10 @@ class NoteRemoteSelectionsPluginValue implements cmView.PluginValue {
     const decorations: Array<cmState.Range<cmView.Decoration>> = [];
     const docLen = state.doc.length;
     for (const peer of this.store.getPeerSelections()) {
+      // Recognized once per peer, then used for every decoration below — both
+      // the style-attribute string and the caret widget — so no raw
+      // peer-controlled color reaches the DOM by either route.
+      const color = sanitizePeerColor(peer.color);
       // Clamp both endpoints to the local document bounds ONCE, up front.
       // A peer selection can point past `docLen` in a real collaborative
       // race (another client deleted text after the peer recorded its
@@ -143,7 +186,7 @@ class NoteRemoteSelectionsPluginValue implements cmView.PluginValue {
             from,
             to,
             value: cmView.Decoration.mark({
-              attributes: { style: `background-color: ${peer.color}` },
+              attributes: { style: `background-color: ${color}` },
               class: 'cm-ySelection',
             }),
           });
@@ -165,13 +208,14 @@ class NoteRemoteSelectionsPluginValue implements cmView.PluginValue {
         value: cmView.Decoration.widget({
           side: peer.from - peer.to > 0 ? -1 : 1,
           block: false,
-          // The label is a peer's own presence `name` — the same self-reported
-          // value the blame gutter shows, and unverified in exactly the same
-          // way (see `display-name.ts`). Sanitized here so both render paths
-          // share one guarantee: a name cannot carry invisible or
-          // direction-changing characters, and cannot run past the cap.
+          // Both fields on the widget are a peer's own presence — the same
+          // self-reported values the blame gutter shows, and unverified in
+          // exactly the same way (see `display-name.ts`). Neither is trusted:
+          // a name cannot carry invisible or direction-changing characters and
+          // cannot run past the cap, and a color that is not recognizably a
+          // color is replaced rather than rendered.
           widget: new NoteCaretWidget(
-            peer.color,
+            color,
             sanitizeDisplayName(peer.name) ?? '',
           ),
         }),

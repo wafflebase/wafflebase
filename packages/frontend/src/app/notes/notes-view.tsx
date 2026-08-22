@@ -27,8 +27,11 @@ interface NotesViewProps {
   /** Editor keybinding mode. Defaults to `default`. */
   keymap?: NoteKeymap;
   /**
-   * Show the blame gutter (who last edited each line). Defaults to false, so a
-   * mount that never passes it renders exactly as before the gutter existed.
+   * Show the blame gutter (who last edited each line), AND record this user's
+   * display name on the lines they edit — one preference, because reading
+   * others' names and leaving your own are two halves of the same opt-in.
+   * Defaults to false, so a mount that never passes it renders exactly as
+   * before the gutter existed and writes nothing into the note's content.
    */
   showAuthors?: boolean;
   /**
@@ -87,6 +90,10 @@ export function NotesView({
 }: NotesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorAPI | null>(null);
+  // Kept alongside the editor so toggling the authorship preference reaches the
+  // store (which decides whether a name is WRITTEN) as well as the view (which
+  // decides whether names are SHOWN).
+  const storeRef = useRef<YorkieNoteStore | null>(null);
   // The editor is initialized once (see the [didMount, doc] effect below), but
   // `uploadImage` changes identity as the document query resolves the
   // workspace id. Reading it through a ref hands the engine a stable callback
@@ -111,7 +118,8 @@ export function NotesView({
     // no write permission — the auth webhook would reject the update).
     if (!readOnly) ensureText(doc);
 
-    const store = new YorkieNoteStore(doc);
+    const store = new YorkieNoteStore(doc, { recordAuthorship: showAuthors });
+    storeRef.current = store;
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
     const editor = initialize(container, store, theme, readOnly, viewMode, {
       showAuthors,
@@ -128,6 +136,7 @@ export function NotesView({
     return () => {
       editor.dispose();
       editorRef.current = null;
+      storeRef.current = null;
       onEditorReady?.(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,9 +159,13 @@ export function NotesView({
     editorRef.current?.setKeymap(keymap);
   }, [keymap]);
 
-  // Show/hide the blame gutter from the view menu.
+  // Show/hide the blame gutter from the view menu — and, with it, start or stop
+  // recording this user's name on the text they write. Opting out has to reach
+  // the store too, or the name would keep being written into the note's content
+  // for a gutter nobody is looking at.
   useEffect(() => {
     editorRef.current?.setShowAuthors(showAuthors);
+    storeRef.current?.setRecordAuthorship(showAuthors);
   }, [showAuthors]);
 
   if (loading) return <Loader />;

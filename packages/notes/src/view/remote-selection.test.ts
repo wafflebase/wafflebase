@@ -3,7 +3,12 @@ import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import type { NoteStore, NotePeerSelection } from '../store/store.js';
 import { noteStoreFacet } from './note-sync.js';
-import { noteRemoteSelections, noteRemoteSelectionsTheme } from './remote-selection.js';
+import {
+  noteRemoteSelections,
+  noteRemoteSelectionsTheme,
+  sanitizePeerColor,
+  FALLBACK_PEER_COLOR,
+} from './remote-selection.js';
 
 function storeWithPeers(peers: NotePeerSelection[]): NoteStore & { setLocal: ReturnType<typeof vi.fn> } {
   const setLocal = vi.fn();
@@ -72,6 +77,67 @@ describe('noteRemoteSelections', () => {
     expect(label).not.toContain('\u202E');
     view.destroy();
     parent.remove();
+  });
+
+  it('refuses a peer color that is not recognizably a color', () => {
+    // `color` is peer-controlled presence, exactly like `name`, but it lands in
+    // a `style` ATTRIBUTE — a declaration list. A value carrying `;` would stop
+    // being a color and become declarations of the peer's choosing (here a
+    // full-viewport overlay with an outbound request), painted on every other
+    // viewer's screen.
+    const store = storeWithPeers([
+      {
+        clientID: 'c1',
+        from: 0,
+        to: 5,
+        color:
+          'red; position: fixed; inset: 0; z-index: 9999; background-image: url(https://evil.example/x.png)',
+        name: 'Mallory',
+      },
+    ]);
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: store.getText(),
+        extensions: [
+          noteStoreFacet.of(store),
+          noteRemoteSelectionsTheme,
+          noteRemoteSelections,
+        ],
+      }),
+    });
+    const mark = view.dom.querySelector('.cm-ySelection') as HTMLElement;
+    // The attribute is re-serialized by the DOM, so assert on the parsed
+    // declarations: exactly one, and not one of the injected ones.
+    expect(mark.style.length).toBe(1);
+    expect(mark.style.item(0)).toBe('background-color');
+    expect(mark.style.position).toBe('');
+    expect(mark.style.backgroundImage).toBe('');
+    expect(mark.getAttribute('style')).not.toContain('url(');
+    view.destroy();
+    parent.remove();
+  });
+
+  it('passes through the colors a real peer reports', () => {
+    // The application's own `noteUserColor` produces `hsl(...)`; refusing that
+    // would trade an injection for every caret rendering the same grey.
+    for (const color of ['hsl(210, 70%, 55%)', '#f00', '#ff0000', 'rebeccapurple']) {
+      expect(sanitizePeerColor(color)).toBe(color);
+    }
+    for (const bad of [
+      'red;color:blue',
+      'url(https://evil.example/x.png)',
+      'hsl(210, 70%, 55%); position: fixed',
+      '#fff}.cm-content{display:none',
+      'x'.repeat(200),
+      '',
+      undefined,
+      42,
+    ]) {
+      expect(sanitizePeerColor(bad)).toBe(FALLBACK_PEER_COLOR);
+    }
   });
 
   it('renders decorations for a multi-line peer selection without throwing', () => {

@@ -38,9 +38,10 @@ export function writeViewMode(mode: NoteViewMode): void {
 }
 
 /**
- * Whether the blame gutter (who last edited each line) is shown. Defaults to
- * false: the feature is opt-in, so someone who never turns it on sees the note
- * exactly as before.
+ * Whether the blame gutter (who last edited each line) is shown — and, with it,
+ * whether this user's display name is recorded on the lines they edit. Defaults
+ * to false: the feature is opt-in in both directions, so someone who never turns
+ * it on sees the note exactly as before and leaves no name in its content.
  */
 export function readShowAuthors(): boolean {
   return read(SHOW_AUTHORS_KEY) === "true";
