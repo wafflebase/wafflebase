@@ -88,6 +88,7 @@ type DocsPresence = {
   activeCursorPos?: {
     blockId: string;
     offset: number;
+    lineAffinity?: 'forward' | 'backward';
   };
   // Remote selection highlight payload (shipped).
   activeSelection?: {
@@ -188,10 +189,12 @@ helper (`packages/docs/src/view/peer-cursor.ts`), which converts any
 Selection endpoints now publish `lineAffinity` (it rides along on the
 `DocPosition`s in `activeSelection`), so a peer's highlight brackets the
 same wrapped line the author sees. The peer *caret* still resolves
-`'backward'`: `activeCursorPos` is not typed for the field, so a wrap
+`'backward'`: the field rides along on `activeCursorPos`, but peer caret
+rendering hard-codes the backward reading (`editor.ts:1563`), so a wrap
 boundary places the caret at the end of the previous visual line — a minor
 visual offset that is acceptable for peer display, and the one place where
-a peer's caret and their highlight can sit a visual line apart.
+a peer's caret and their highlight can sit a visual line apart. Honouring
+it there is a follow-up, not part of this change.
 
 **Caret style:**
 

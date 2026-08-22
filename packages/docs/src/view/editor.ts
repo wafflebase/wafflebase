@@ -3592,10 +3592,20 @@ export function initialize(
     restoreLocalCursor: (cursorPos, range) => {
       if (cursorPos && doc.findBlock(cursorPos.blockId)) {
         const block = doc.getBlock(cursorPos.blockId);
-        cursor.moveTo({
-          blockId: cursorPos.blockId,
-          offset: Math.min(cursorPos.offset, getBlockTextLength(block)),
-        });
+        // Carry the affinity: this runs on every remote change with a
+        // freshly resolved position, so dropping it here would undo the
+        // anchor round-trip and re-collapse the caret onto the previous
+        // visual line at a wrap boundary. `moveTo` defaults it when absent.
+        cursor.moveTo(
+          {
+            blockId: cursorPos.blockId,
+            offset: Math.min(cursorPos.offset, getBlockTextLength(block)),
+            ...(cursorPos.lineAffinity
+              ? { lineAffinity: cursorPos.lineAffinity }
+              : {}),
+          },
+          cursorPos.lineAffinity,
+        );
       }
       selection.setRange(range ?? null);
     },
