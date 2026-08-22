@@ -153,6 +153,27 @@ const COPY_BUTTON_SELECTOR = '.note-copy-btn';
 const COPY_RESET_DELAY_MS = 1500;
 
 /**
+ * Whether a live text selection covers any part of `item`.
+ *
+ * A plain click collapses the selection on mousedown, so a non-collapsed range
+ * still standing when the `click` arrives means the pointer was dragging over
+ * text — a read/copy gesture, not a tick.
+ */
+function selectionTouches(item: Element): boolean {
+  const selection = item.ownerDocument.defaultView?.getSelection?.();
+  if (!selection || selection.isCollapsed) return false;
+  for (let i = 0; i < selection.rangeCount; i++) {
+    const range = selection.getRangeAt(i);
+    if (range.collapsed) continue;
+    const container = range.commonAncestorContainer;
+    // Inside the item, or spanning it (the selection's common ancestor is then
+    // one of the item's own ancestors).
+    if (item.contains(container) || container.contains(item)) return true;
+  }
+  return false;
+}
+
+/**
  * A lightweight, framework-free markdown preview pane. Renders `markdown-it`
  * HTML into a container element on demand.
  *
@@ -244,14 +265,32 @@ export class NotePreview {
    * ticks the same item concurrently.
    */
   private readonly onTaskClick = (e: MouseEvent): void => {
+    // A repeated click is a selection gesture — double-click selects a word,
+    // triple-click the line — and browsers still deliver a `click` for each.
+    // Selecting a task's text must not rewrite it.
+    if (e.detail > 1) return;
+
     const target = e.target;
     if (!(target instanceof Element)) return;
     const item = target.closest(`.${TASK_ITEM_CLASS}`);
     if (!item || !this.el.contains(item)) return;
     if (target.closest('a, button')) return;
+    // A nested list item under a task owns its own text; `closest()` would
+    // otherwise resolve a click on a plain child bullet to the ancestor task
+    // and tick a line the user never pointed at.
+    const clickedItem = target.closest('li');
+    if (clickedItem && clickedItem !== item) return;
+    // The `click` that ends a drag-select lands here too, so a user merely
+    // selecting a task's text (to read or copy it) would silently rewrite the
+    // source line and sync that edit to peers.
+    if (selectionTouches(item)) return;
 
-    const line = Number(item.getAttribute(TASK_LINE_ATTR));
-    if (!Number.isInteger(line)) return;
+    // A missing (or blank) attribute must not be read as line 0: `Number(null)`
+    // and `Number('')` are both 0, which passes the integer guard and would
+    // flip whatever task sits on the note's first line instead.
+    const raw = item.getAttribute(TASK_LINE_ATTR);
+    const line = raw !== null && raw.trim() !== '' ? Number(raw) : Number.NaN;
+    if (!Number.isInteger(line) || line < 0) return;
     const checkbox = item.querySelector(TASK_CHECKBOX_SELECTOR);
     if (!(checkbox instanceof HTMLInputElement)) return;
 
