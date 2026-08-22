@@ -112,6 +112,11 @@ describe('docs editor — Home / End / Cmd+Backspace at a wrap boundary', () => 
     (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = origOffscreenCanvas;
     if (origPlatform) {
       Object.defineProperty(window.navigator, 'platform', origPlatform);
+    } else {
+      // jsdom defines `platform` on Navigator.prototype, so there was no
+      // own descriptor to put back — drop the stub instead of leaving a
+      // Mac platform on the navigator for whatever runs next.
+      delete (window.navigator as unknown as { platform?: string }).platform;
     }
   });
 
