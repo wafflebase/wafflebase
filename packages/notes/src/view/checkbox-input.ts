@@ -19,7 +19,15 @@ const BARE_BOX_RE = /^(\s*)\[([ xX])\]$/;
  */
 export const noteCheckboxInput: Extension = EditorView.inputHandler.of(
   (view, from, to, text) => {
-    if (text !== ' ' || view.state.readOnly) return false;
+    // A note can be non-writable two ways: the read-only facet, or a
+    // non-editable view (what a share-link mount uses).
+    if (
+      text !== ' ' ||
+      view.state.readOnly ||
+      !view.state.facet(EditorView.editable)
+    ) {
+      return false;
+    }
     const line = view.state.doc.lineAt(from);
     const match = BARE_BOX_RE.exec(line.text.slice(0, from - line.from));
     if (!match) return false;

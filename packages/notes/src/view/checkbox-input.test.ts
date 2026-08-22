@@ -83,4 +83,16 @@ describe('bare checkbox input', () => {
     expect(type(view, ' ')).toBe(false);
     view.destroy();
   });
+
+  it('does not rewrite a non-editable view (a share-link mount)', () => {
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: '[ ]',
+        selection: EditorSelection.cursor(3),
+        extensions: [noteCheckboxInput, EditorView.editable.of(false)],
+      }),
+    });
+    expect(type(view, ' ')).toBe(false);
+    view.destroy();
+  });
 });
