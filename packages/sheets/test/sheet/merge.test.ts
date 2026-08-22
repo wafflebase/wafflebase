@@ -86,3 +86,193 @@ describe('Sheet merge + structural edits', () => {
     expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('A');
   });
 });
+
+describe('Sheet merge + drag-move', () => {
+  it('should propagate the merge to the destination', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 2 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('A3')).toEqual({ rs: 1, cs: 2 });
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('');
+  });
+
+  it('should replace a merge fully covered by the destination', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 3, c: 1 }, '20');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 3 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 3 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('A3')).toEqual({ rs: 1, cs: 3 });
+    expect(await sheet.toDisplayString({ r: 3, c: 3 })).toBe('10');
+  });
+
+  it('should persist the propagated merge to the store', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 2 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    const stored = await store.getMerges();
+    expect(stored.size).toBe(1);
+    expect(stored.get('A3')).toEqual({ rs: 1, cs: 2 });
+    expect(stored.has('A1')).toBe(false);
+  });
+
+  it('should recalculate dependants of a merge the move removed', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 3, c: 1 }, '20');
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    await sheet.mergeSelection();
+
+    await sheet.setData({ r: 1, c: 4 }, '=B3+1');
+    expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('21');
+
+    // A1:B1 fully covers the A3:B3 merge, so the merge is dropped and B3 stops
+    // aliasing A3 — the dependant must not keep the aliased value.
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 2 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    expect(sheet.getMerges().size).toBe(0);
+    expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('1');
+  });
+
+  it('should clear destination cells covered by the moved merge', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 3, c: 2 }, 'ghost');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 3 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 3 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.unmergeSelection();
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('');
+  });
+
+  it('should not move a range that splits a merged block', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 1 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('A1')).toEqual({ rs: 1, cs: 2 });
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('');
+  });
+
+  it('should not move onto a partially covered merged block', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '5');
+    await sheet.setData({ r: 3, c: 1 }, '20');
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 1 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('A3')).toEqual({ rs: 1, cs: 2 });
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('5');
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('20');
+  });
+
+  it('should move plain cells when no merge is involved', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '7');
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 1 },
+      ],
+      { r: 3, c: 2 },
+    );
+
+    expect(sheet.getMerges().size).toBe(0);
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('7');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+  });
+});

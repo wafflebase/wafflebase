@@ -2257,7 +2257,9 @@ export class Sheet {
    * Unlike copy-paste, drag-move preserves formula text as-is (Google Sheets
    * behavior). For example, `=SUM(A10:I10)` stays `=SUM(A10:I10)` after move.
    * Other cells that referenced the moved cells are redirected to the new
-   * positions.
+   * positions. Merged blocks travel with the move: a merge fully inside the
+   * source range is re-created at the destination (Google Sheets merge
+   * propagation).
    */
   async moveRangeTo(sourceRange: Range, destStart: Ref): Promise<void> {
     if (this.pivotDefinition) return;
@@ -2277,6 +2279,28 @@ export class Sheet {
 
     // No-op if destination is same as source
     if (deltaRow === 0 && deltaCol === 0) return;
+
+    const destEnd: Ref = {
+      r: destStart.r + (srcMaxR - srcMinR),
+      c: destStart.c + (srcMaxC - srcMinC),
+    };
+    const destRange: Range = [destStart, destEnd];
+
+    // Merged blocks fully inside the source travel with the move; blocks the
+    // move would only partially cover — split at the source, or partially
+    // overwritten at the destination — would corrupt the merge state, so the
+    // whole move is rejected instead.
+    const movedMerges = this.getMergesIntersecting(normalizedSource);
+    if (movedMerges.some((m) => !isRangeInRange(m.range, normalizedSource))) {
+      return;
+    }
+    const movedAnchors = new Set(movedMerges.map((m) => m.anchorSref));
+    const overwrittenMerges = this.getMergesIntersecting(destRange).filter(
+      (m) => !movedAnchors.has(m.anchorSref),
+    );
+    if (overwrittenMerges.some((m) => !isRangeInRange(m.range, destRange))) {
+      return;
+    }
 
     const grid = await this.fetchGrid(normalizedSource);
 
@@ -2333,6 +2357,72 @@ export class Sheet {
 
       await this.store.setRangeStyles(this.rangeStyles);
 
+      // Propagate merges: drop them at the source and at the overwritten
+      // destination, then re-create the source layout at the destination.
+      // This runs before the recalculation below, which expands changed refs
+      // through merge aliases and so must see the new layout.
+      if (movedMerges.length > 0 || overwrittenMerges.length > 0) {
+        for (const merge of [...movedMerges, ...overwrittenMerges]) {
+          // Every cell the block covered stops aliasing to its anchor, so
+          // formulas reading through the alias have to be recalculated even
+          // where no cell object changed — the same invalidation
+          // `unmergeSelection` performs.
+          for (const sref of this.mergeCoveredSrefs(merge.anchor, merge.span)) {
+            changedSrefs.add(sref);
+          }
+          await this.store.deleteMerge(merge.anchor);
+          this.merges.delete(merge.anchorSref);
+        }
+        for (const merge of movedMerges) {
+          const anchor: Ref = {
+            r: merge.anchor.r + deltaRow,
+            c: merge.anchor.c + deltaCol,
+          };
+          const anchorSref = toSref(anchor);
+          await this.store.setMerge(anchor, merge.span);
+          this.merges.set(anchorSref, merge.span);
+
+          // Covered cells hold no content (the same invariant `mergeSelection`
+          // establishes), so destination cells the move did not overwrite are
+          // cleared — otherwise they stay hidden under the merge and reappear
+          // when it is removed.
+          for (const sref of this.mergeCoveredSrefs(anchor, merge.span)) {
+            // The block now aliases these cells to the new anchor.
+            changedSrefs.add(sref);
+            if (sref === anchorSref || movedGrid.has(sref)) continue;
+            const ref = parseRef(sref);
+            const cell = await this.store.get(ref);
+            if (!cell) continue;
+            // Ghost cells are read-only; their anchor owns their lifetime.
+            if (cell.spillAnchor) continue;
+            // Clearing a spill anchor would orphan its ghosts, so drop them
+            // first — the same cleanup contract `removeData` follows.
+            if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
+              this.clearSpillBlockers(sref);
+              for (let dr = 0; dr < cell.spillRows; dr++) {
+                for (let dc = 0; dc < cell.spillCols; dc++) {
+                  if (dr === 0 && dc === 0) continue;
+                  const ghostRef = { r: ref.r + dr, c: ref.c + dc };
+                  const ghostCell = await this.store.get(ghostRef);
+                  if (ghostCell?.spillAnchor === sref) {
+                    await this.store.delete(ghostRef);
+                    changedSrefs.add(toSref(ghostRef));
+                  }
+                }
+              }
+            } else if (cell.spillBlocked) {
+              this.clearSpillBlockers(sref);
+            }
+            if (cell.s && Object.keys(cell.s).length > 0) {
+              await this.store.set(ref, { s: cell.s });
+            } else {
+              await this.store.delete(ref);
+            }
+          }
+        }
+        this.rebuildMergeCoverMap();
+      }
+
       // Redirect formula references that pointed to moved cells
       await this.redirectFormulasForCut(cutRefMap);
 
@@ -2351,10 +2441,6 @@ export class Sheet {
     }
 
     // Select the destination range
-    const destEnd: Ref = {
-      r: destStart.r + (srcMaxR - srcMinR),
-      c: destStart.c + (srcMaxC - srcMinC),
-    };
     this.selectionType = 'cell';
     this.activeCell = destStart;
     this.ranges = [[destStart, destEnd]];
