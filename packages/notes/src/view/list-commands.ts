@@ -205,7 +205,18 @@ function replacePrefixes(
     }
   }
   if (changes.length > 0) {
-    view.dispatch(view.state.update({ changes, userEvent: 'input' }));
+    // Map the selection forward (assoc 1), as `toggleQuote` does: a caret
+    // sitting exactly at a line start would otherwise stay *before* the
+    // marker just written there, so the next keystroke would land ahead of
+    // it and break the item apart.
+    const changeSet = view.state.changes(changes);
+    view.dispatch(
+      view.state.update({
+        changes: changeSet,
+        selection: view.state.selection.map(changeSet, 1),
+        userEvent: 'input',
+      }),
+    );
   }
   view.focus();
 }

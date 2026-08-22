@@ -37,6 +37,17 @@ describe('list toggles', () => {
     view.destroy();
   });
 
+  it('puts the caret after the marker when the line was empty', () => {
+    // A caret at a line start maps to the same offset by default, i.e. in
+    // front of the marker just written — the next keystroke would then land
+    // ahead of it ("x- ") and break the item apart.
+    const view = mount('', 0);
+    toggleBulletList(view);
+    expect(view.state.doc.toString()).toBe('- ');
+    expect(view.state.selection.main.head).toBe(2);
+    view.destroy();
+  });
+
   it('drops the indent when a nested item is turned back into text', () => {
     // Keeping the indent would leave "b" as a lazy continuation of "a" — the
     // line reads as part of the item above instead of as its own paragraph.

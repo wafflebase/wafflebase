@@ -265,16 +265,32 @@ export class NotePreview {
    * ticks the same item concurrently.
    */
   private readonly onTaskClick = (e: MouseEvent): void => {
-    // A repeated click is a selection gesture — double-click selects a word,
-    // triple-click the line — and browsers still deliver a `click` for each.
-    // Selecting a task's text must not rewrite it.
-    if (e.detail > 1) return;
-
     const target = e.target;
     if (!(target instanceof Element)) return;
     const item = target.closest(`.${TASK_ITEM_CLASS}`);
     if (!item || !this.el.contains(item)) return;
-    if (target.closest('a, button')) return;
+    // Controls that own their own click. `summary` matters here because the
+    // preview renders foldouts, and one nested in a task item would otherwise
+    // be cancelled below — the disclosure would not open and the click would
+    // rewrite the source line instead.
+    if (target.closest('a, button, summary')) return;
+    const checkbox = item.querySelector(TASK_CHECKBOX_SELECTOR);
+    if (!(checkbox instanceof HTMLInputElement)) return;
+    const onCheckbox = checkbox.contains(target);
+
+    // The browser has already flipped a real checkbox by the time this runs,
+    // and only cancelling reverts it. Cancel before the guards below: any of
+    // them bailing would otherwise leave the preview showing a state the note
+    // does not have, with no re-render to correct it (the preview repaints on
+    // `docChanged`, and a bail-out changes no document).
+    if (onCheckbox) e.preventDefault();
+
+    // A repeated click is a selection gesture — double-click selects a word,
+    // triple-click the line — and browsers still deliver a `click` for each.
+    // Selecting a task's text must not rewrite it. A click landing on the
+    // checkbox itself is never such a gesture, though, and dropping it would
+    // swallow a quick tick-then-untick.
+    if (!onCheckbox && e.detail > 1) return;
     // A nested list item under a task owns its own text; `closest()` would
     // otherwise resolve a click on a plain child bullet to the ancestor task
     // and tick a line the user never pointed at.
@@ -283,7 +299,7 @@ export class NotePreview {
     // The `click` that ends a drag-select lands here too, so a user merely
     // selecting a task's text (to read or copy it) would silently rewrite the
     // source line and sync that edit to peers.
-    if (selectionTouches(item)) return;
+    if (!onCheckbox && selectionTouches(item)) return;
 
     // A missing (or blank) attribute must not be read as line 0: `Number(null)`
     // and `Number('')` are both 0, which passes the integer guard and would
@@ -291,15 +307,12 @@ export class NotePreview {
     const raw = item.getAttribute(TASK_LINE_ATTR);
     const line = raw !== null && raw.trim() !== '' ? Number(raw) : Number.NaN;
     if (!Number.isInteger(line) || line < 0) return;
-    const checkbox = item.querySelector(TASK_CHECKBOX_SELECTOR);
-    if (!(checkbox instanceof HTMLInputElement)) return;
 
-    // A click on the checkbox itself has already flipped `checked`; anywhere
+    // A click on the checkbox itself has already flipped `checked` (the
+    // cancellation above only takes effect once dispatch finishes); anywhere
     // else in the item leaves it as rendered, so read the intent from the
     // element the click landed on.
-    const checked = checkbox.contains(target)
-      ? checkbox.checked
-      : !checkbox.checked;
+    const checked = onCheckbox ? checkbox.checked : !checkbox.checked;
     e.preventDefault();
     this.onToggleTask?.(line, checked);
   };

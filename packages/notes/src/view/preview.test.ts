@@ -152,6 +152,63 @@ describe('NotePreview', () => {
     expect(toggles).toEqual([]);
   });
 
+  it('still ticks a rapid second click on the checkbox itself', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('- [ ] todo');
+
+    // Ticking and immediately unticking is two clicks inside the double-click
+    // interval, so the second carries `detail: 2` — but a click landing on the
+    // checkbox is never a text-selection gesture, and dropping it would
+    // swallow the untick.
+    const box = preview.el.querySelector('input')!;
+    box.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    box.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }));
+    expect(toggles.length).toBe(2);
+  });
+
+  it('cancels a checkbox click it refuses, so the box matches the source', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('- [ ] todo');
+
+    // Drop the source line, which is a refusal path — but the browser has
+    // already ticked the box, and no document changed, so nothing re-renders
+    // to put it back. Cancelling is the only thing that keeps the preview
+    // honest about what the note says.
+    const item = preview.el.querySelector('li.task-list-item')!;
+    item.removeAttribute('data-source-line');
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    item.querySelector('input')!.dispatchEvent(event);
+    expect(toggles).toEqual([]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('lets a foldout summary inside a task item open instead of ticking', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render(
+      '- [ ] todo\n\n  <details>\n  <summary>More</summary>\n\n  body\n\n  </details>',
+    );
+
+    const summary = preview.el.querySelector('summary.note-summary')!;
+    expect(summary.closest('li.task-list-item')).not.toBeNull();
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    summary.dispatchEvent(event);
+    // The disclosure owns this click: cancelling it would stop the <details>
+    // opening, and toggling would edit a line nobody pointed at.
+    expect(event.defaultPrevented).toBe(false);
+    expect(toggles).toEqual([]);
+  });
+
   it('does not toggle when the click ends a text-selection drag', () => {
     const toggles: Array<[number, boolean]> = [];
     const preview = new NotePreview({
