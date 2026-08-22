@@ -150,10 +150,19 @@ only fatal before a *single* long block.
   paste in three comments, where it was wrong (it is 4) — and the
   indeterminate-indicator argument was then built on that wrong claim. The
   real number was one test away the whole time; it is now pinned by
-  `paste-undo-units.test.ts`.
+  `editor-undo-selection.test.ts`.
 - `requestAnimationFrame` is paused, not throttled, in a backgrounded tab.
   Anything that awaits a frame before doing work needs a timeout fallback,
   or backgrounding the tab stalls the work indefinitely.
 - When a test passes both with and without the fix, it is not a test of the
   fix. Mutation-check anything subtle: reverting `yieldToPaintedFrame` to
   `yieldToPaint` left every original test green.
+- A *new frontend test file* that mounts the docs editor costs the suite a
+  whole extra `@wafflebase/docs` module graph, transformed in parallel with
+  everything else. That was enough to time out the unrelated 5 s
+  "TextEditSection module imports without error" smoke test — reliably, and
+  only with the new file present. Reducing the work *inside* the test did
+  nothing; folding it into `editor-undo-selection.test.ts`, which already
+  imports the same modules, fixed it. Before blaming a known-flaky test,
+  check whether your change is what tipped it: bisect by removing your file,
+  not by re-running.

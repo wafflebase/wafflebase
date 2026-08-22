@@ -76,6 +76,11 @@ Findings from the pre-PR review, all applied on this branch:
 - Design docs updated: `docs-paste-table-into-cell.md` still prescribed the
   per-block chaining loop this replaced.
 
+The undo-cost test lives in `editor-undo-selection.test.ts` rather than its
+own file: a second frontend test file mounting the docs editor pulled in
+another full `@wafflebase/docs` module graph and reliably timed out the
+unrelated 5 s `TextEditSection` import smoke test.
+
 Each fix has a test that fails without it — verified by mutation:
 reverting to `yieldToPaint`, dropping the composition guard, and dropping
 the timeout fallback each fail exactly one test. Notably the first of
@@ -94,7 +99,7 @@ Two bugs fell out of the same change without being asked for: a large
 paste used to cost one undo step and one CRDT change **per block** (a
 1000-block paste needed 1000 Cmd+Z presses and pushed 1000 changes to
 every peer). Both are now *constant* — measured at 4 undo units for any
-multi-block paste, pinned by `paste-undo-units.test.ts`. Not 1: the
+multi-block paste, pinned by `editor-undo-selection.test.ts`. Not 1: the
 surrounding split / head-rewrite / tail-rewrite are still separate store
 writes, and collapsing them would need a `DocStore` transaction primitive
 that does not exist. An early draft of this work claimed "one undo unit"

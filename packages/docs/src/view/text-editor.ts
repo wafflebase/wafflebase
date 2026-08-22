@@ -1250,7 +1250,7 @@ export class TextEditor {
    * Not one undo unit: `insertBlocks()` splits the destination, rewrites the
    * head, inserts the batch, and rewrites the tail as separate store writes
    * (measured at 4 for a multi-block paste, pinned by
-   * `tests/app/docs/paste-undo-units.test.ts` in the frontend). What batching
+   * `tests/app/docs/editor-undo-selection.test.ts` in the frontend). What batching
    * bought is that the count is now *constant* instead of one per pasted
    * block. Collapsing it to one would need a transaction primitive on
    * `DocStore`, which does not exist.
