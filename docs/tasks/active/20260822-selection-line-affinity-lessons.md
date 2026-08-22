@@ -22,6 +22,13 @@ focus can land.
 - Interior blocks of a multi-block selection do not need affinity: their
   boundaries are offset `0` and the block text length, neither of which is
   ambiguous in the middle of the block. Only the two real endpoints are.
+- Making `'forward'` the *start* default is behavior-neutral off the
+  boundary and strictly better on it: a backward-affinity start that sits
+  on a wrap boundary resolves to the very end of the previous line, so the
+  rect it produces there has zero width. Forward affinity only drops that
+  invisible rect. The mirror case is the same — a forward-affinity *end*
+  turns the old end rect into a zero-width one and promotes its line into
+  the fully-painted middle-lines loop, covering the identical pixels.
 - `selection.ts` already had the same forward/backward split hard-coded in
   the cell-internal branch (`resolvePositionPixel(start, 'forward')` /
   `lineIdxForOffset(..., 'backward')`), which is a good confirmation that

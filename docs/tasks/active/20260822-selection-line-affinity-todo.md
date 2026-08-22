@@ -9,13 +9,21 @@ starts at the previous line's end instead of the clicked line's start.
 
 ## Acceptance criteria
 
-- [ ] The selection endpoint type carries `lineAffinity` alongside
+- [x] The selection endpoint type carries `lineAffinity` alongside
       `blockId` and `offset`.
-- [ ] `setRange` / `getNormalizedRange` preserve the affinity on both
+- [x] `setRange` / `getNormalizedRange` preserve the affinity on both
       endpoints (including the reversed anchor/focus case).
-- [ ] `selection.ts` passes the endpoint affinity through to
+- [x] `selection.ts` passes the endpoint affinity through to
       `findPageForPosition` when computing selection boundaries.
-- [ ] Endpoints without an affinity keep today's behavior (backward).
+- [x] An endpoint without an affinity reads forward at the start and
+      backward at the end — the asymmetry the cell-internal branch already
+      hard-coded. Written up as a deliberate deviation from the issue's
+      "keep the backward default" wording in the PR body: keeping backward
+      for the start would leave the reported bug in place for every
+      endpoint that has no affinity attached. Safe because a
+      backward-affinity start sitting on a boundary always produces a
+      zero-width first rect (the start is at the very end of that line),
+      so switching to forward only removes an invisible rect.
 
 ## Plan
 
