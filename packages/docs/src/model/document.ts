@@ -666,6 +666,19 @@ export class Doc {
   }
 
   /**
+   * Insert several blocks after the sibling, in order, as one store write.
+   * The multi-block paste path: looping `insertBlockAfter()` costs a full
+   * `refresh()` (a whole-document read) *and* a separate store write per
+   * block, which on `YorkieDocStore` is also one CRDT change and one undo
+   * unit each. Here both happen once for the batch.
+   */
+  insertBlocksAfter(siblingBlockId: string, blocks: Block[]): void {
+    if (blocks.length === 0) return;
+    this.store.insertBlocksAfter(siblingBlockId, blocks);
+    this.refresh();
+  }
+
+  /**
    * Search for text matches across all blocks.
    * Returns matches with block ID and character offsets.
    */

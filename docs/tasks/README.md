@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs large paste perf (2026-08-23) | [20260823-docs-large-paste-perf-todo.md](./active/20260823-docs-large-paste-perf-todo.md) | [20260823-docs-large-paste-perf-lessons.md](./active/20260823-docs-large-paste-perf-lessons.md) |
 | docs visual line affinity (2026-08-22) | [20260822-docs-visual-line-affinity-todo.md](./active/20260822-docs-visual-line-affinity-todo.md) | [20260822-docs-visual-line-affinity-lessons.md](./active/20260822-docs-visual-line-affinity-lessons.md) |
 | image viewer back button (2026-08-22) | [20260822-image-viewer-back-button-todo.md](./active/20260822-image-viewer-back-button-todo.md) | [20260822-image-viewer-back-button-lessons.md](./active/20260822-image-viewer-back-button-lessons.md) |
 | mark ready exit codes (2026-08-22) | [20260822-mark-ready-exit-codes-todo.md](./active/20260822-mark-ready-exit-codes-todo.md) | [20260822-mark-ready-exit-codes-lessons.md](./active/20260822-mark-ready-exit-codes-lessons.md) |
@@ -58,4 +59,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 530
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docs visual line affinity (2026-08-22)
+Latest active task: docs large paste perf (2026-08-23)

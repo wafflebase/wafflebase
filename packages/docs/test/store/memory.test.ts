@@ -315,6 +315,36 @@ describe('MemDocStore', () => {
       expect(doc.blocks).toHaveLength(1);
       expect(doc.blocks[0].inlines[0].text).toBe('Hello World');
     });
+
+    it('insertBlocksAfter inserts every block in order after the sibling', () => {
+      const first = makeBlock('First');
+      const last = makeBlock('Last');
+      const store = new MemDocStore({ blocks: [first, last] });
+      store.insertBlocksAfter(first.id, [
+        makeBlock('A'),
+        makeBlock('B'),
+        makeBlock('C'),
+      ]);
+      expect(store.getDocument().blocks.map((b) => b.inlines[0].text)).toEqual([
+        'First', 'A', 'B', 'C', 'Last',
+      ]);
+    });
+
+    it('insertBlocksAfter is a no-op for an empty list', () => {
+      const first = makeBlock('First');
+      const store = new MemDocStore({ blocks: [first] });
+      store.insertBlocksAfter(first.id, []);
+      expect(store.getDocument().blocks).toHaveLength(1);
+    });
+
+    it('insertBlocksAfter deep-copies its input', () => {
+      const first = makeBlock('First');
+      const store = new MemDocStore({ blocks: [first] });
+      const pasted = makeBlock('Pasted');
+      store.insertBlocksAfter(first.id, [pasted]);
+      pasted.inlines[0].text = 'Mutated after the call';
+      expect(store.getDocument().blocks[1].inlines[0].text).toBe('Pasted');
+    });
   });
 
   describe('header/footer', () => {

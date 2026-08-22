@@ -29,6 +29,7 @@ import { DocsCommentPopover } from "./comments/DocsCommentPopover";
 import { useDocsComments } from "./comments/docs-comments-controller";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { insertImageFromFile } from "./image-insert";
+import { toast } from "sonner";
 
 export type { EditorAPI } from "@wafflebase/docs";
 
@@ -432,6 +433,16 @@ export function DocsView({
     // depend on auth cookies and the `/images` endpoint.
     editor.onImageFileDrop((file, pos) => {
       void insertImageFromFile(editor, file, pos);
+    });
+
+    // Busy indicator for pastes big enough to block the tab (thousands of
+    // blocks). Deliberately indeterminate: the write is a single atomic
+    // transaction — one undo unit, one CRDT change — so there is no fraction
+    // to report without giving that up. The editor waits for a painted frame
+    // after this returns, which is what lets the toast appear at all.
+    editor.onLargePaste(() => {
+      const id = toast.loading("Pasting a large document…");
+      return () => toast.dismiss(id);
     });
 
     const handleMouseMove = (e: MouseEvent) => {

@@ -2764,6 +2764,108 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  describe('insertBlocksAfter', () => {
+    it('should insert every block in order after a top-level sibling', () => {
+      const b1 = makeBlock('First');
+      const b2 = makeBlock('Last');
+      store.setDocument({ blocks: [b1, b2] });
+
+      store.insertBlocksAfter(b1.id, [
+        makeBlock('A'),
+        makeBlock('B'),
+        makeBlock('C'),
+      ]);
+
+      const texts = store.getDocument().blocks.map((b) => b.inlines[0].text);
+      expect(texts).toEqual(['First', 'A', 'B', 'C', 'Last']);
+    });
+
+    it('should insert every block in order after a cell-internal sibling', () => {
+      const { tableBlock, doc } = makeTableDoc();
+      store.setDocument(doc);
+
+      const cellBlockId = tableBlock.tableData!.rows[0].cells[0].blocks[0].id;
+      store.insertBlocksAfter(cellBlockId, [makeBlock('A'), makeBlock('B')]);
+
+      const cell = store.getDocument().blocks[1].tableData!.rows[0].cells[0];
+      expect(cell.blocks.map((b) => b.inlines[0].text)).toEqual(['', 'A', 'B']);
+    });
+
+    it('should insert after a body sibling when a header exists', () => {
+      const b1 = makeBlock('Body1');
+      const b2 = makeBlock('Body2');
+      store.setDocument({
+        blocks: [b1, b2],
+        header: { blocks: [makeBlock('Header')], marginFromEdge: 48 },
+      });
+
+      store.insertBlocksAfter(b1.id, [makeBlock('A'), makeBlock('B')]);
+
+      const result = store.getDocument();
+      expect(result.blocks.map((b) => b.inlines[0].text)).toEqual([
+        'Body1', 'A', 'B', 'Body2',
+      ]);
+      expect(result.header!.blocks.map((b) => b.inlines[0].text)).toEqual(['Header']);
+    });
+
+    it('should carry nested table blocks', () => {
+      const b1 = makeBlock('First');
+      store.setDocument({ blocks: [b1] });
+
+      store.insertBlocksAfter(b1.id, [makeBlock('A'), createTableBlock(2, 2)]);
+
+      const result = store.getDocument();
+      expect(result.blocks.length).toBe(3);
+      expect(result.blocks[2].type).toBe('table');
+      expect(result.blocks[2].tableData!.rows.length).toBe(2);
+    });
+
+    it('should be a no-op for an empty list', () => {
+      const b1 = makeBlock('First');
+      store.setDocument({ blocks: [b1] });
+      const before = doc.getUndoStackForTest().length;
+
+      store.insertBlocksAfter(b1.id, []);
+
+      expect(store.getDocument().blocks.length).toBe(1);
+      expect(doc.getUndoStackForTest().length).toBe(before);
+    });
+
+    // The whole point of the batched primitive: Yorkie counts one
+    // doc.update() as one undo unit, so a per-block loop would make a
+    // 3-block paste take three Cmd+Z presses (and push three changes to
+    // every peer).
+    it('should produce exactly one undo unit for the whole batch', () => {
+      const b1 = makeBlock('First');
+      store.setDocument({ blocks: [b1] });
+      const before = doc.getUndoStackForTest().length;
+
+      store.insertBlocksAfter(b1.id, [
+        makeBlock('A'),
+        makeBlock('B'),
+        makeBlock('C'),
+      ]);
+
+      expect(doc.getUndoStackForTest().length).toBe(before + 1);
+
+      store.undo();
+      expect(store.getDocument().blocks.map((b) => b.inlines[0].text)).toEqual(['First']);
+    });
+
+    it('should leave the read cache agreeing with a fresh read of the tree', () => {
+      const b1 = makeBlock('First');
+      store.setDocument({ blocks: [b1] });
+      store.insertBlocksAfter(b1.id, [makeBlock('A'), makeBlock('B')]);
+
+      // A second store over the same Yorkie document has no warm cache, so
+      // it reads the tree directly.
+      const fresh = new YorkieDocStore(doc);
+      expect(store.getDocument().blocks.map((b) => b.inlines[0].text)).toEqual(
+        fresh.getDocument().blocks.map((b) => b.inlines[0].text),
+      );
+    });
+  });
+
   describe('deleteBlock (cell-internal)', () => {
     it('should delete a cell-internal block when multiple blocks exist', () => {
       const { tableBlock, doc } = makeTableDoc();
