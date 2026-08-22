@@ -165,6 +165,14 @@ type-dispatcher:
   and keyboard ←/→ navigate to the sibling `/f/:id`; the buttons hide at the
   ends. The fetch is scoped to `doc.workspaceId` and only runs for image
   documents.
+- **Leaving the viewer** (issue #840) — a back button in the header (the
+  `SiteHeader.leading` slot, left of the title) and the Esc key both return to
+  the documents list. The destination comes from one `useDocumentsPath()` hook
+  — the document's own workspace list, else the first workspace, else
+  `/documents` — shared with `FileShell`'s not-found redirect. Esc obeys the
+  same input/contenteditable guard as ←/→ (so the header's rename field keeps
+  Esc for cancel), and the anonymous share-link mount passes no `onClose`, so
+  Esc is inert for a viewer who has no documents list.
 
 ### Documents list — inline row thumbnails (D1)
 

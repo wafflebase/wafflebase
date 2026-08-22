@@ -14,9 +14,15 @@ const MAX_ZOOM = 5;
 export function ImageViewer({
   documentId,
   token,
+  onClose,
 }: {
   documentId: string;
   token?: string;
+  /**
+   * Leaves the viewer for the documents list on Esc. Omitted by the
+   * anonymous share-link mount, which has no list to return to.
+   */
+  onClose?: () => void;
 }) {
   const navigate = useNavigate();
   const [src, setSrc] = useState<string | null>(null);
@@ -117,10 +123,11 @@ export function ImageViewer({
       }
       if (e.key === "ArrowLeft") go(prevId);
       else if (e.key === "ArrowRight") go(nextId);
+      else if (e.key === "Escape" && onClose) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, prevId, nextId]);
+  }, [go, prevId, nextId, onClose]);
 
   return (
     <div className="relative flex flex-1 items-center justify-center overflow-auto bg-muted/30">
