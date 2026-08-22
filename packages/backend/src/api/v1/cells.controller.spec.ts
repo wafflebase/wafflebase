@@ -1,4 +1,9 @@
-import { createSpreadsheetDocument } from '@wafflebase/sheets';
+import { BadRequestException } from '@nestjs/common';
+import {
+  createSpreadsheetDocument,
+  getWorksheetCell,
+  parseRef,
+} from '@wafflebase/sheets';
 import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import { ApiV1CellsController } from './cells.controller';
 
@@ -59,5 +64,30 @@ describe('ApiV1CellsController initialRoot', () => {
     const opts = withDocument.mock.calls.at(-1)?.[2];
     expect(opts?.initialRoot).toBeUndefined();
     expect(opts?.syncMode).toBe('readonly');
+  });
+
+  it('setCell merges style into the cell and keeps the value', async () => {
+    await controller.setCell(WS, DOC, 'tab-1', 'A1', {
+      value: 'x',
+      style: { b: true, bg: '#ffff00' },
+    });
+    const cell = getWorksheetCell(root.sheets['tab-1'], parseRef('A1'));
+    expect(cell?.v).toBe('x');
+    expect(cell?.s).toMatchObject({ b: true, bg: '#ffff00' });
+  });
+
+  it('setCell rejects an invalid style with 400 before opening the doc', async () => {
+    await expect(
+      controller.setCell(WS, DOC, 'tab-1', 'A1', { style: { al: 'middle' } }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(withDocument).not.toHaveBeenCalled();
+  });
+
+  it('batchUpdate applies per-cell style', async () => {
+    await controller.batchUpdate(WS, DOC, 'tab-1', {
+      cells: { A1: { value: '1', style: { i: true } } },
+    });
+    const cell = getWorksheetCell(root.sheets['tab-1'], parseRef('A1'));
+    expect(cell?.s).toMatchObject({ i: true });
   });
 });
