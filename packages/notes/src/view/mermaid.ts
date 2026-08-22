@@ -22,7 +22,9 @@
  * posture instead of delegating it wholesale to the engine:
  *
  *   - `securityLevel: 'strict'` plus an extended `secure` key list, so
- *     mermaid sanitizes labels and ignores `click` directives.
+ *     mermaid sanitizes labels and ignores `click` directives, and
+ *     `htmlLabels: false`, so a node label is SVG text rather than an HTML
+ *     subtree (issue #721 — see the note on the layout window below).
  *   - `stripConfigDirectives()` removes the two config carriers — `%%{...}%%`
  *     directives and leading front matter — from the fence body, so a note
  *     cannot push per-diagram config (notably `themeCSS`) into the `<style>`
@@ -43,13 +45,22 @@
  * outside sandbox mode `mermaid.render()` appends its own `d<id>` host div to
  * `document.body`, lays the diagram out there (it needs a rendered box to
  * measure text), and only then serializes it — so the engine's output exists
- * in the reader's live document *before* `sanitizeSvg()` ever sees it. What
- * guards that window is mermaid's own strict-mode sanitizing (the engine
- * DOMPurifies label content as it builds the tree) plus layer 2 stripping the
- * carriers a note could steer the engine with; layer 3 governs what *persists*
- * in the preview, and is defense in depth over the engine's own final
- * DOMPurify pass. Sandbox mode remains the only way to close the layout
- * window itself, and that trade is knowingly taken.
+ * in the reader's live document *before* `sanitizeSvg()` ever sees it. Layer 3
+ * governs what *persists* in the preview; it is not a fetch boundary.
+ *
+ * That window is why `htmlLabels: false` is part of layer 1 rather than a
+ * styling choice (issue #721). With HTML labels on, a label is a
+ * `<foreignObject>` subtree the engine parses into the live document to measure
+ * it, so `A["<img src=https://attacker.example/beacon>"]` fetched the URL —
+ * disclosing every reader's IP, User-Agent, and reading time to the note's
+ * author — while `sanitizeSvg()`, running strictly downstream, still removed
+ * every `<img>` from what persisted. No `FORBID_TAGS`/`ALLOWED_URI_REGEXP`
+ * tuning reaches a request that has already gone out. With HTML labels off
+ * there is no label subtree to lay out: the same payload measures and renders
+ * as literal SVG text. The cost is HTML inside a label — no rich text, no
+ * `<br/>`, no markdown formatting — and it is the whole reason the key is
+ * pinned in `SECURE_KEYS` and the carriers stripped, so a note cannot turn it
+ * back on.
  */
 
 import type { Config as PurifyConfig, DOMPurify as Purifier } from 'dompurify';
@@ -222,14 +233,31 @@ const FRONTMATTER_RE = /^([^\S\n\r]*)-{3}\s*[\n\r](.*?)[\n\r]\1-{3}\s*[\n\r]+/s;
  * enumerate (`"config":`, `'config':`, `? config`, aliases). The cost is
  * mermaid's front-matter `title:`/`displayMode:`, which the preview does not
  * advertise; the alternative is a rule that can be spelled around.
+ *
+ * Runs to a FIXPOINT rather than once, because `FRONTMATTER_RE` is `^`-anchored
+ * and a single pass therefore *manufactures* a carrier the source did not have
+ * (issue #721): removing the first `---` block promotes the second to leading
+ * front matter, which mermaid then parses, and removing a leading `%%{init}%%`
+ * directive promotes a `---` block that followed it the same way. The loop
+ * terminates for free — an iteration that changes anything strictly shortens
+ * the string.
  */
 export function stripConfigDirectives(source: string): string {
-  return source.replace(FRONTMATTER_RE, '').replace(DIRECTIVE_RE, '');
+  let stripped = source;
+  for (;;) {
+    const next = stripped.replace(FRONTMATTER_RE, '').replace(DIRECTIVE_RE, '');
+    if (next === stripped) return stripped;
+    stripped = next;
+  }
 }
 
 const PURIFY_CONFIG: PurifyConfig & { RETURN_DOM_FRAGMENT: true } = {
-  // SVG (+ filters) for the diagram, HTML for the `<foreignObject>` label
-  // subtree mermaid emits for html-label diagram types.
+  // SVG (+ filters) for the diagram, HTML for the `<foreignObject>` subtrees
+  // mermaid emits. `htmlLabels: false` means node labels are no longer among
+  // them, but several diagram types (venn text nodes, architecture icons,
+  // kanban, sequence) append a `foreignObject` with no `htmlLabels` guard, so
+  // dropping the HTML profile here would empty those labels while changing
+  // nothing about the fetch carriers below — which are forbidden either way.
   USE_PROFILES: { svg: true, svgFilters: true, html: true },
   // DOMPurify excludes both by default because they are namespace-confusion
   // and external-reference carriers in a sanitize-to-STRING pipeline. Mermaid
@@ -433,12 +461,16 @@ async function renderPass(
   if (initializedTheme !== theme) {
     // `startOnLoad: false`: the preview drives rendering itself rather than
     // letting mermaid scan the whole document. `securityLevel: 'strict'` plus
-    // the extended `secure` list keeps the preview's no-raw-HTML posture (see
-    // the SECURITY note at the top of this file).
+    // the extended `secure` list and `htmlLabels: false` keep the preview's
+    // no-raw-HTML posture (see the SECURITY note at the top of this file).
+    // `htmlLabels` is the TOP-LEVEL key on purpose: the engine resolves labels
+    // through `config.htmlLabels ?? config.flowchart?.htmlLabels ?? true`, and
+    // setting the per-diagram `flowchart.htmlLabels` instead is deprecated.
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: 'strict',
       secure: SECURE_KEYS,
+      htmlLabels: false,
       theme,
     });
     initializedTheme = theme;

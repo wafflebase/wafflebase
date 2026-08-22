@@ -613,6 +613,55 @@ describe('NotePreview mermaid fences', () => {
     expect(source).toContain('flowchart LR');
   });
 
+  it('renders labels as SVG text, not as an HTML subtree', async () => {
+    // Issue #721: with HTML labels on, `A["<img src=…>"]` is laid out as a
+    // <foreignObject> subtree in the live document while mermaid measures it,
+    // so the URL is fetched — beaconing the reader's IP to the note's author —
+    // before sanitizeSvg() ever runs. Only the engine config closes that.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(DIAGRAM);
+    await flush();
+
+    expect(engine.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({ htmlLabels: false }),
+    );
+  });
+
+  it('strips a second front matter block the first strip would promote', async () => {
+    // The front-matter pattern is ^-anchored, so a single pass removes block
+    // one and PROMOTES block two into the leading position mermaid parses —
+    // manufacturing a carrier the source did not have. Stripping runs to a
+    // fixpoint instead.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\n---\ntitle: FIRST\n---\n---\nconfig:\n  themeCSS: "body{display:none}"\n---\nflowchart LR\n  A-->B\n```',
+    );
+    await flush();
+
+    const [, source] = vi.mocked(engine.render).mock.calls[0];
+    expect(source).not.toContain('themeCSS');
+    expect(source).not.toContain('FIRST');
+    expect(source.trimStart().startsWith('flowchart LR')).toBe(true);
+  });
+
+  it('strips front matter a directive strip promotes to leading', async () => {
+    // The same promotion across carrier kinds. Mermaid extracts front matter
+    // BEFORE removing directives, so it never reads a `---` block that a
+    // directive precedes — but our strip hands it text where that block leads.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\n%%{init: {"theme": "dark"} }%%---\nconfig:\n  themeCSS: "body{display:none}"\n---\nflowchart LR\n  A-->B\n```',
+    );
+    await flush();
+
+    const [, source] = vi.mocked(engine.render).mock.calls[0];
+    expect(source).not.toContain('themeCSS');
+    expect(source.trimStart().startsWith('flowchart LR')).toBe(true);
+  });
+
   it('drops a config-bearing front matter block too', async () => {
     const engine = stubEngine();
     const preview = new NotePreview({ mermaidLoader: async () => engine });

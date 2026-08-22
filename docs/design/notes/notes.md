@@ -463,13 +463,21 @@ GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
   (a collaborator or editor-role share-link visitor authors it, someone else
   renders it), so the `html: false` "no raw note HTML" rule is not delegated to
   the engine alone: (1) `securityLevel: 'strict'` with `startOnLoad: false`
-  sanitizes labels and ignores `click` directives, and an extended `secure` key
-  list pins the theming keys; (2) `stripConfigDirectives()` removes both config
+  sanitizes labels and ignores `click` directives, an extended `secure` key
+  list pins the theming keys, and `htmlLabels: false` makes a node label SVG
+  text rather than an HTML subtree (issue #721, below); (2)
+  `stripConfigDirectives()` removes both config
   carriers — `%%{...}%%` directives and leading front matter — from the fence
   body, so a note cannot push `themeCSS`/`themeVariables` into the
   document-scoped `<style>` mermaid emits inside the SVG. It reuses mermaid's
   own `directiveRegex`/`frontMatterRegex` (the closing `}%%` is *optional* for
-  the engine) and drops front matter unconditionally, because `secure` pins
+  the engine), drops front matter unconditionally, and runs to a **fixpoint**
+  rather than once — the front-matter pattern is `^`-anchored, so a single pass
+  *manufactures* a carrier the source did not have: removing the first `---`
+  block promotes the second into the leading position mermaid parses, and the
+  engine extracts front matter *before* it removes directives, so a `---` block
+  a directive precedes is one mermaid would never have read. Dropping front
+  matter unconditionally matters because `secure` pins
   only top-level keys — a carrier the strip under-recognizes still delivers a
   nested override — and the copies are version-pinned
   (`MERMAID_CARRIER_PATTERNS_VERSION`, asserted against the installed
@@ -498,9 +506,25 @@ GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
   That trade is knowingly taken, and layer 3 is **not** an equivalent
   substitute: outside sandbox mode the engine appends its own `d<id>` host div
   to `document.body` and lays the diagram out there before serializing, so its
-  output is briefly in the live document ahead of our pass. Mermaid's own
-  strict-mode sanitizing plus layer 2's carrier strip guard that window; layer
-  3 governs what persists.
+  output is briefly in the live document ahead of our pass. Layer 3 governs
+  what *persists*; it is not a fetch boundary.
+- **Why `htmlLabels: false` (issue #721).** That layout window was a real
+  disclosure while node labels were HTML: `A["<img src=…>"]` is a
+  `<foreignObject>` subtree the engine parses into the live document to measure
+  it, so the URL was fetched — handing the note's author every reader's IP,
+  User-Agent and reading time — while `sanitizeSvg()`, running strictly
+  downstream, still removed every `<img>` from what persisted. A request
+  already sent is out of reach of `FORBID_TAGS`/`ALLOWED_URI_REGEXP`; the same
+  went for `onerror` on such an `<img>` and for a `background:url(…)` in a
+  label's inline `style`. With HTML labels off there is no label subtree to lay
+  out and the payload measures and renders as literal SVG text. The cost is
+  HTML inside a label — no rich text, no `<br/>`, no markdown formatting — and
+  the key is pinned in `secure` and its carriers stripped so a note cannot turn
+  it back on. A restrictive `img-src` CSP would fix the whole class app-wide
+  and remains the better long-term answer; the repo has no CSP today. Layer 3
+  keeps its HTML profile and `foreignobject` regardless, because several
+  diagram types (venn text nodes, architecture icons, kanban, sequence) emit a
+  `foreignObject` with no `htmlLabels` guard.
 
 #### Empty nested bullet vs setext heading — shipped (issue #517)
 
