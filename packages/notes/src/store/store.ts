@@ -28,6 +28,10 @@ export interface NoteSelection {
 /**
  * One contiguous run of characters written by a single author, in CodeMirror
  * index coordinates. Feeds the blame gutter (issue #814).
+ *
+ * `author` is a CLAIM, not a verified identity: every store gets it from a
+ * client's own self-report, and no store is trusted to have cleaned it — the
+ * gutter runs it through `sanitizeDisplayName` before it becomes DOM.
  */
 export interface NoteAuthorSpan {
   /** Start index, inclusive. */
@@ -44,7 +48,12 @@ export interface NoteAuthorSpan {
   at: number;
 }
 
-/** A peer's selection, in CodeMirror index coordinates. */
+/**
+ * A peer's selection, in CodeMirror index coordinates. `name` is the peer's
+ * self-reported presence name — the same unverified value as
+ * `NoteAuthorSpan.author`, and sanitized at the same boundary (the caret widget
+ * in `remote-selection.ts`).
+ */
 export interface NotePeerSelection {
   clientID: string;
   from: number;

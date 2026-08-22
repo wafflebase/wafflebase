@@ -45,6 +45,35 @@ describe('noteRemoteSelections', () => {
     parent.remove();
   });
 
+  it('sanitizes the self-reported name on a peer caret label', () => {
+    // A peer's presence `name` is a claim: nothing verifies it, so the caret
+    // label gets the same treatment as the blame gutter's label — invisible and
+    // direction-changing characters stripped, length capped.
+    const store = storeWithPeers([
+      {
+        clientID: 'c1',
+        from: 3,
+        to: 3,
+        color: '#f00',
+        name: `A\u202Eda\u200B${'x'.repeat(200)}`,
+      },
+    ]);
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: store.getText(),
+        extensions: [noteStoreFacet.of(store), noteRemoteSelectionsTheme, noteRemoteSelections],
+      }),
+    });
+    const label = view.dom.querySelector('.cm-ySelectionInfo')!.textContent!;
+    expect(label).toBe(`Ada${'x'.repeat(61)}`);
+    expect(label).not.toContain('\u202E');
+    view.destroy();
+    parent.remove();
+  });
+
   it('renders decorations for a multi-line peer selection without throwing', () => {
     const docText = 'line one\nline two\nline three\nline four';
     const store = storeWithPeers([

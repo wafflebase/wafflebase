@@ -1,6 +1,7 @@
 import * as cmState from '@codemirror/state';
 import * as cmView from '@codemirror/view';
 import type { NoteAuthorSpan, NoteStore } from '../store/store.js';
+import { sanitizeDisplayName } from '../display-name.js';
 import { noteStoreFacet } from './note-sync.js';
 
 /**
@@ -48,7 +49,12 @@ function authorOfRange(
     if (!best || span.at >= best.at) best = span;
   }
   if (!best || best.author === null) return null;
-  return best.author.trim() === '' ? ANONYMOUS_AUTHOR : best.author;
+  // Sanitized here, at the boundary where the name becomes DOM, not only in
+  // whichever store produced it: names are self-reported either way (see
+  // `display-name.ts`), and no store implementation should be trusted to have
+  // stripped them.
+  const name = sanitizeDisplayName(best.author) ?? '';
+  return name === '' ? ANONYMOUS_AUTHOR : name;
 }
 
 /**

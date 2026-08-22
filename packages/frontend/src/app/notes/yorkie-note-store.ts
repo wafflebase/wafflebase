@@ -7,6 +7,7 @@ import type {
   NoteSelection,
   Unsubscribe,
 } from '@wafflebase/notes';
+import { sanitizeDisplayName } from '@wafflebase/notes';
 import type { YorkieNotesRoot, NotesPresence } from '@/types/notes-document';
 
 /**
@@ -31,39 +32,42 @@ const WRITTEN_AT_ATTR = 't';
  *   audit trail and never an input to an access decision. It is rendered as
  *   self-reported rather than as verified fact (see `blame-gutter.ts`).
  * - What is read back is sanitized here instead of trusted, so a forged
- *   attribute cannot do more than claim a name: a future `t` cannot outrank
- *   every genuine edit (clamped to now), and a name cannot smuggle control /
- *   zero-width / bidi characters or run unbounded.
+ *   attribute cannot do more than claim a name: a `t` further in the future
+ *   than clock skew explains is discarded, so it cannot outrank the genuine
+ *   edits on its line, and a name cannot smuggle invisible / bidi characters or
+ *   run unbounded (`sanitizeDisplayName`, shared with the peer caret label —
+ *   the other place the same unverified presence name reaches the DOM).
  * - Verified provenance would need the backend to sign each run's authorship,
  *   or Yorkie to expose a change's server-assigned actor per run; both are out
  *   of proportion for a reading aid. Recorded in `docs/design/notes/notes.md`.
  */
-const MAX_AUTHOR_LENGTH = 64;
 
 /**
- * The author name of a run, as it is safe to display: control, zero-width and
- * bidi-override characters removed (those are exactly what one would use to
- * make a forged name render as somebody else's, or to break the gutter out of
- * its single line) and length-capped. `null` for a run with no `a` attribute at
- * all — text written before attribution shipped.
+ * How far ahead of us a peer's clock may legitimately be. Real clocks disagree
+ * by seconds, so a run written a moment ago by a skewed peer reads as slightly
+ * future; past this, a timestamp is not skew, it is a claim.
  */
-function sanitizeAuthor(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  return value.replace(/[\p{Cc}\p{Cf}]/gu, '').slice(0, MAX_AUTHOR_LENGTH);
-}
+const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 /**
- * The write timestamp of a run, clamped into the past. "Newest run wins" is what
- * decides a line's label, so an unclamped client-supplied value would let one
- * run outrank every real edit on its line forever; clamping to `now` reduces a
- * forged timestamp to a tie, which document order then breaks. Anything that is
- * not a positive finite number reads as unknown (`0`), which any real edit
- * outranks.
+ * The write timestamp of a run, bounded. "Newest run wins" is what decides a
+ * line's label, so a client-supplied value is what a forgery would reach for:
+ * one run outranking every real edit on its line.
+ *
+ * A value beyond `now + MAX_CLOCK_SKEW_MS` is therefore DISCARDED rather than
+ * clamped. Clamping it re-reads `now` on every call, so a run claiming the year
+ * 3000 would keep reading as the newest run on its line forever — a control
+ * that looks like a bound and is not one. Reporting it as unknown (`0`) puts it
+ * below every real edit instead. Within skew the value is clamped to `now`,
+ * which caps what it can win to a tie that document order breaks, and only
+ * until the wall clock passes it. Anything that is not a positive finite number
+ * is unknown too.
  */
 function sanitizeWrittenAt(value: unknown, now: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
     return 0;
   }
+  if (value > now + MAX_CLOCK_SKEW_MS) return 0;
   return Math.min(value, now);
 }
 
@@ -142,7 +146,7 @@ export class YorkieNoteStore implements NoteStore {
           // Sanitized on the way in as well as on the way out, so a well-behaved
           // client never puts a name in the CRDT that its own reader would have
           // to strip.
-          [AUTHOR_ATTR]: sanitizeAuthor(this.localAuthorName()) ?? '',
+          [AUTHOR_ATTR]: sanitizeDisplayName(this.localAuthorName()) ?? '',
           [WRITTEN_AT_ATTR]: Date.now(),
         });
       } else {
@@ -173,7 +177,7 @@ export class YorkieNoteStore implements NoteStore {
         // sanitized, not trusted. Text written before per-line attribution
         // shipped carries no attributes at all — reported as `null` so the
         // gutter leaves those lines blank instead of guessing a name.
-        author: sanitizeAuthor(attrs?.[AUTHOR_ATTR]),
+        author: sanitizeDisplayName(attrs?.[AUTHOR_ATTR]),
         at: sanitizeWrittenAt(attrs?.[WRITTEN_AT_ATTR], now),
       });
       index += text.length;

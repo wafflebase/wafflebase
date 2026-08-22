@@ -112,9 +112,10 @@ describe('blame gutter in the editor', () => {
     store.setLocalAuthor('bob');
     store.editText(13, 13, 'third');
 
-    // The production path never mounts with `showAuthors: true`: the hosts
-    // mount with the persisted preference (false by default) and flip it with
-    // `setShowAuthors` when the user checks "Show authors" in the view menu.
+    // The path the view menu takes: the hosts mount with the persisted
+    // preference (false until the user has ever turned the gutter on, true
+    // afterwards) and flip it with `setShowAuthors` when the user checks
+    // "Show authors" — so the off-then-on direction needs its own coverage.
     const api = initialize(container, store, 'light', false, 'edit');
     await tick();
     expect(container.querySelector('.cm-noteBlame')).toBeNull();

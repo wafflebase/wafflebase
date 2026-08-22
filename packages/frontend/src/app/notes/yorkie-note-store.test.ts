@@ -230,10 +230,12 @@ describe('YorkieNoteStore', () => {
       ]);
     });
 
-    it('clamps a run claiming a future write time back to now', () => {
+    it('discards a write time further ahead than clock skew explains', () => {
       // A hostile client can write any attribute it likes (nothing verifies
-      // them), and "newest run wins" decides the label — so an unclamped `t`
-      // would let one run outrank every genuine edit on its line forever.
+      // them), and "newest run wins" decides the label — so a `t` in the year
+      // 3000 would outrank every genuine edit on its line. Clamping it to `now`
+      // is not enough: `now` is re-read on every call, so the clamped value
+      // stays the newest one forever. It has to read as unknown (`0`).
       const doc = makeDoc();
       doc.update((root) => {
         root.content.edit(5, 5, '!', { a: 'forged', t: 4e15 });
@@ -241,7 +243,38 @@ describe('YorkieNoteStore', () => {
       const store = new YorkieNoteStore(doc);
       const forged = store.getAuthorSpans().at(-1)!;
       expect(forged.author).toBe('forged');
-      expect(forged.at).toBeLessThanOrEqual(Date.now());
+      expect(forged.at).toBe(0);
+    });
+
+    it('outranks a forged future write time with a genuine edit', () => {
+      // The whole point of discarding it: the real author of the line wins.
+      const doc = makeDoc();
+      doc.update((root) => {
+        root.content.edit(0, 0, 'X', { a: 'forged', t: 4e15 });
+      });
+      doc.update((_root, presence) => presence.set({ name: 'ann' }));
+      const store = new YorkieNoteStore(doc);
+      store.editText(6, 6, '!');
+
+      const spans = store.getAuthorSpans();
+      const forged = spans.find((s) => s.author === 'forged')!;
+      const genuine = spans.find((s) => s.author === 'ann')!;
+      expect(forged.at).toBe(0);
+      expect(genuine.at).toBeGreaterThan(forged.at);
+    });
+
+    it('clamps a write time inside clock skew back to now', () => {
+      // A peer whose clock runs a little fast is not an attacker; its run stays
+      // attributed, just no newer than this client's own clock.
+      const doc = makeDoc();
+      const skewed = Date.now() + 30_000;
+      doc.update((root) => {
+        root.content.edit(5, 5, '!', { a: 'ann', t: skewed });
+      });
+      const store = new YorkieNoteStore(doc);
+      const span = store.getAuthorSpans().at(-1)!;
+      expect(span.at).toBeGreaterThan(0);
+      expect(span.at).toBeLessThan(skewed);
     });
 
     it('strips control and bidi characters out of a claimed name', () => {

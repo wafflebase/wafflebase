@@ -9,6 +9,10 @@ export type {
 } from './store/store.js';
 export { MemNoteStore } from './store/memory.js';
 export type { Unsubscribe } from './types.js';
+export {
+  MAX_DISPLAY_NAME_LENGTH,
+  sanitizeDisplayName,
+} from './display-name.js';
 
 // View
 export {

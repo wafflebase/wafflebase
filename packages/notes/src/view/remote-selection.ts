@@ -1,6 +1,7 @@
 import * as cmState from '@codemirror/state';
 import * as cmView from '@codemirror/view';
 import type { NoteStore } from '../store/store.js';
+import { sanitizeDisplayName } from '../display-name.js';
 import { noteStoreFacet } from './note-sync.js';
 
 export const noteRemoteSelectionsTheme = cmView.EditorView.baseTheme({
@@ -164,7 +165,15 @@ class NoteRemoteSelectionsPluginValue implements cmView.PluginValue {
         value: cmView.Decoration.widget({
           side: peer.from - peer.to > 0 ? -1 : 1,
           block: false,
-          widget: new NoteCaretWidget(peer.color, peer.name),
+          // The label is a peer's own presence `name` — the same self-reported
+          // value the blame gutter shows, and unverified in exactly the same
+          // way (see `display-name.ts`). Sanitized here so both render paths
+          // share one guarantee: a name cannot carry invisible or
+          // direction-changing characters, and cannot run past the cap.
+          widget: new NoteCaretWidget(
+            peer.color,
+            sanitizeDisplayName(peer.name) ?? '',
+          ),
         }),
       });
     }

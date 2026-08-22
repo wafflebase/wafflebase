@@ -578,14 +578,23 @@ it", and the difference is load-bearing:
 - So blame is **never** an audit trail and **never** an input to an access
   decision. Nothing reads `getAuthorSpans()` except the gutter's label
   computation.
-- What is enforced is the blast radius of a forged attribute, in
-  `YorkieNoteStore.getAuthorSpans()`: `t` is clamped to `Date.now()` (so a
-  future timestamp cannot outrank every genuine edit on its line — it becomes a
-  tie that document order breaks), and the name has control, zero-width and
-  bidi-override characters stripped and is capped at 64 characters (so a forged
-  name cannot render as somebody else's through invisible characters, nor break
-  the gutter out of its one-line column). The gutter's hover title says
-  "(self-reported)" for the same reason.
+- What is enforced is the blast radius of a forged attribute:
+  - **Time.** `YorkieNoteStore.getAuthorSpans()` discards a `t` further ahead
+    than clock skew explains (5 minutes) instead of clamping it. Clamping was
+    not a bound: `Date.now()` is re-read on every call, so a run claiming the
+    year 3000 clamped to "now" stayed the newest run on its line forever — which
+    is exactly the outranking the clamp was meant to prevent. Discarded, it
+    reads as unknown (`0`) and loses to every real edit; within skew it is still
+    clamped to now, so the most it can win is a tie that document order breaks.
+  - **Name.** Both places a self-reported name reaches the DOM — the gutter
+    label and the peer caret label — run it through
+    `sanitizeDisplayName()` (`packages/notes/src/display-name.ts`), which strips
+    invisible and direction-changing characters (controls, format characters,
+    line/paragraph separators, and the invisible-but-not-`Cf` code points that a
+    `\p{Cc}\p{Cf}` strip alone misses), folds exotic spaces, and caps at 64
+    characters. It lives at the render boundary rather than in one store, so no
+    store implementation has to be trusted to have cleaned its own output.
+  - The gutter's hover title says "(self-reported)" for the same reason.
 - Verified provenance would need the backend to sign each run's authorship, or
   Yorkie to expose a change's server-assigned actor per run. Both are out of
   proportion for a reading aid; if authorship ever needs to be relied on, that
