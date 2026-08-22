@@ -10,11 +10,14 @@ export function SiteHeader({
   title,
   editable = false,
   onRename,
+  leading,
   children,
 }: {
   title: string;
   editable?: boolean;
   onRename?: (newTitle: string) => void;
+  /** Optional control rendered left of the title (e.g. a back button). */
+  leading?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
@@ -49,6 +52,7 @@ export function SiteHeader({
             orientation="vertical"
             className="mx-2 shrink-0 data-[orientation=vertical]:h-4"
           />
+          {leading}
           {editing ? (
             <input
               ref={inputRef}

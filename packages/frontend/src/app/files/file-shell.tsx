@@ -13,6 +13,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
+import { useDocumentsPath } from "./use-documents-path";
 
 /**
  * Shared app shell for the `/f/:id` file routes (pdf + image). Owns the
@@ -23,10 +24,13 @@ import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
 export function FileShell({
   documentId,
   headerActions,
+  headerLeading,
   children,
 }: {
   documentId: string;
   headerActions: ReactNode;
+  /** Optional header control rendered left of the title. */
+  headerLeading?: ReactNode;
   children: ReactNode;
 }) {
   const navigate = useNavigate();
@@ -55,16 +59,14 @@ export function FileShell({
     (w) => w.id === documentData?.workspaceId,
   );
   const workspaceSlug = currentWorkspace?.slug;
-  const fallbackSlug = workspaceSlug ?? workspaces[0]?.slug;
+  const documentsPath = useDocumentsPath(documentData?.workspaceId);
 
   useEffect(() => {
     if (isDocumentError) {
       toast.error("Document not found");
-      navigate(fallbackSlug ? `/w/${fallbackSlug}` : "/documents", {
-        replace: true,
-      });
+      navigate(documentsPath, { replace: true });
     }
-  }, [isDocumentError, navigate, fallbackSlug]);
+  }, [isDocumentError, navigate, documentsPath]);
 
   const items = useMemo(() => {
     const base = workspaceSlug
@@ -117,6 +119,7 @@ export function FileShell({
           title={documentData?.title ?? "Loading..."}
           editable
           onRename={handleRenameDocument}
+          leading={headerLeading}
         >
           <div className="flex items-center gap-2">{headerActions}</div>
         </SiteHeader>

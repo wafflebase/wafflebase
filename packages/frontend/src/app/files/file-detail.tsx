@@ -1,6 +1,7 @@
-import { Navigate, useParams } from "react-router-dom";
+import { useCallback } from "react";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Download } from "lucide-react";
+import { ArrowLeft, Download } from "lucide-react";
 import { toast } from "sonner";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument } from "@/api/documents";
@@ -13,6 +14,7 @@ import type { User } from "@/types/users";
 import { FileShell } from "./file-shell";
 import { GenericFileView } from "./generic-file-view";
 import { ImageViewer } from "./image-viewer";
+import { useDocumentsPath } from "./use-documents-path";
 import {
   PdfCollabProvider,
   PdfHeaderActions,
@@ -46,6 +48,23 @@ function DownloadFileButton({
       }}
     >
       <Download className="h-4 w-4" />
+    </Button>
+  );
+}
+
+/** Header button that leaves a viewer for the documents list. */
+function BackToDocumentsButton({ onClick }: { onClick: () => void }) {
+  const label = "Back to documents";
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label={label}
+      title={label}
+      className="shrink-0"
+      onClick={onClick}
+    >
+      <ArrowLeft className="h-4 w-4" />
     </Button>
   );
 }
@@ -98,14 +117,26 @@ function ImageFileLayout({
   documentId,
   title,
   fileId,
+  workspaceId,
 }: {
   documentId: string;
   title: string;
   fileId?: string;
+  workspaceId?: string;
 }) {
+  const navigate = useNavigate();
+  const documentsPath = useDocumentsPath(workspaceId);
+  // Shared by the header button and the viewer's Esc key, so both leave for
+  // the same list.
+  const close = useCallback(
+    () => navigate(documentsPath),
+    [navigate, documentsPath],
+  );
+
   return (
     <FileShell
       documentId={documentId}
+      headerLeading={<BackToDocumentsButton onClick={close} />}
       headerActions={
         <>
           <DownloadFileButton
@@ -118,7 +149,7 @@ function ImageFileLayout({
         </>
       }
     >
-      <ImageViewer documentId={documentId} />
+      <ImageViewer documentId={documentId} onClose={close} />
     </FileShell>
   );
 }
@@ -209,6 +240,7 @@ export function FileDetail() {
         documentId={id!}
         title={documentData.title}
         fileId={documentData.fileId}
+        workspaceId={documentData.workspaceId}
       />
     );
   }

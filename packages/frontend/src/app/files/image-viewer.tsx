@@ -11,12 +11,48 @@ const ZOOM_STEP = 0.25;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 5;
 
+/**
+ * Markup Radix renders for an open dismissable layer: the header's
+ * ShareDialog, the mobile sidebar Sheet, the notification Popover, any
+ * dropdown/select content. Every one of them closes on Esc from a
+ * *document*-level listener and none stops propagation, so an Esc meant for
+ * the overlay would otherwise also reach the viewer's key handler and
+ * navigate the user out from behind the closing overlay.
+ */
+const OPEN_OVERLAY_SELECTOR = [
+  '[role="dialog"][data-state="open"]',
+  '[role="alertdialog"][data-state="open"]',
+  '[role="menu"][data-state="open"]',
+  '[role="listbox"][data-state="open"]',
+  // Anything else Radix hosts in a popper (hover card, combobox content).
+  // Matched on the *content* element, never the wrapper: the wrapper is also
+  // what a tooltip mounts into, and tooltips open on plain hover or keyboard
+  // focus — including the sidebar's nav tooltips, which stay invisible on an
+  // expanded desktop sidebar (`hidden` on TooltipContent) — so keying off the
+  // wrapper would let a hovered nav item silently kill Esc and prev/next.
+  // Requiring `data-state="open"` excludes them twice over: a tooltip reports
+  // `instant-open`/`delayed-open`, never `open`. It also disarms the guard as
+  // soon as a real overlay starts closing, instead of holding it through the
+  // exit animation.
+  '[data-radix-popper-content-wrapper] > [data-state="open"]:not([data-slot="tooltip-content"])',
+].join(",");
+
+function hasOpenOverlay(): boolean {
+  return document.querySelector(OPEN_OVERLAY_SELECTOR) !== null;
+}
+
 export function ImageViewer({
   documentId,
   token,
+  onClose,
 }: {
   documentId: string;
   token?: string;
+  /**
+   * Leaves the viewer for the documents list on Esc. Omitted by the
+   * anonymous share-link mount, which has no list to return to.
+   */
+  onClose?: () => void;
 }) {
   const navigate = useNavigate();
   const [src, setSrc] = useState<string | null>(null);
@@ -104,6 +140,9 @@ export function ImageViewer({
     [navigate],
   );
 
+  // Registered in the capture phase on purpose: an overlay can only be
+  // recognised as open *before* Radix's own document-level handler unmounts
+  // it, and window-capture runs ahead of document-bubble.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -115,12 +154,15 @@ export function ImageViewer({
       ) {
         return;
       }
+      // The keystroke belongs to whatever is layered over the viewer.
+      if (hasOpenOverlay()) return;
       if (e.key === "ArrowLeft") go(prevId);
       else if (e.key === "ArrowRight") go(nextId);
+      else if (e.key === "Escape" && onClose) onClose();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [go, prevId, nextId]);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [go, prevId, nextId, onClose]);
 
   return (
     <div className="relative flex flex-1 items-center justify-center overflow-auto bg-muted/30">
