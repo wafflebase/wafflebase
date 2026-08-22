@@ -76,6 +76,21 @@ Behavior depends on selection type:
 - **Cell selection**: append a `rangeStyles` patch and only touch existing
   cell-level styles that conflict with the patch (to avoid redundant writes).
 
+### `setRangeBorders(preset)`
+
+- Writes per-cell borders for the preset, cell by cell (cell selections only).
+- A preset uses `false` to mean "no border on this edge", so the border keys it
+  writes go through the same default-key pruning as `setRangeStyle`: a key at
+  its default is **removed** from the cell unless a sheet/column/row/range
+  style layer sets it to something else, in which case the explicit `false` is
+  kept to override that layer.
+- Consequence: `Clear borders` returns a cell to the exact style it had before
+  any border was applied — the same round trip `Bold` on/off gives — and a
+  preset whose keys all prune away leaves the cell (or the empty grid slot)
+  untouched.
+- This is why the preset path does not use `setStyle`, whose contract is to
+  preserve an explicit `false`.
+
 ### `toggleRangeStyle(prop)`
 
 - Computes from active cell effective style, then applies via `setRangeStyle`.
