@@ -961,10 +961,15 @@ export class YorkieDocStore implements DocStore {
       const block = this.getBlockByRegion(currentDoc, path, region);
       if (!block) return pos;
       const len = this.blockTextLength(block);
+      // Spread rather than assign, here and on every other resolve path: a
+      // position that carries no affinity has to come back the exact shape it
+      // went in as. `lineAffinity: undefined` is an OWN property, which
+      // `deepStrictEqual` — what the caret-anchoring integration tests use —
+      // reads as different from an absent one.
       return {
         blockId: pos.blockId,
         offset: Math.max(0, Math.min(pos.offset, len)),
-        lineAffinity: pos.lineAffinity,
+        ...(pos.lineAffinity ? { lineAffinity: pos.lineAffinity } : {}),
       };
     } catch {
       return pos;
@@ -1051,7 +1056,7 @@ export class YorkieDocStore implements DocStore {
       return {
         blockId: anchor.blockId,
         offset: anchor.offset,
-        lineAffinity: anchor.lineAffinity,
+        ...(anchor.lineAffinity ? { lineAffinity: anchor.lineAffinity } : {}),
       };
     }
 
@@ -1069,7 +1074,7 @@ export class YorkieDocStore implements DocStore {
       return {
         blockId,
         offset: this.blockOffsetFromPath(blockNode, path.slice(blockPath.length)),
-        lineAffinity: anchor.lineAffinity,
+        ...(anchor.lineAffinity ? { lineAffinity: anchor.lineAffinity } : {}),
       };
     } catch {
       return this.fallbackAnchoredDocPosition(anchor);
@@ -1121,7 +1126,7 @@ export class YorkieDocStore implements DocStore {
       return {
         blockId: anchor.blockId,
         offset: Math.min(anchor.offset, this.blockTextLength(sameBlock)),
-        lineAffinity: anchor.lineAffinity,
+        ...(anchor.lineAffinity ? { lineAffinity: anchor.lineAffinity } : {}),
       };
     }
 

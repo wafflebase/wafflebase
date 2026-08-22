@@ -60,4 +60,8 @@ starts at the previous line's end instead of the clicked line's start.
 ## Out of scope
 
 - Word / paragraph selection (double, triple click) affinity heuristics.
-- Changing the default affinity for endpoints that do not carry one.
+- Changing the default affinity for a standalone **caret**, which still
+  reads `'backward'`. (The default for an affinity-less selection
+  **endpoint** did change — start reads forward, end backward; see the
+  acceptance criterion above for why leaving the start backward would have
+  left the reported bug in place.)

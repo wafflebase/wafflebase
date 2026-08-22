@@ -21,6 +21,10 @@ export type DocsPresence = {
   activeCursorPos?: {
     blockId: string;
     offset: number;
+    // Published by `updateCursorPos` when the caret carries one. Peer caret
+    // rendering still resolves `'backward'`; typing it keeps the wire shape
+    // honest rather than dropping a field the store already sends.
+    lineAffinity?: 'forward' | 'backward';
   };
   activeSelection?: {
     // `lineAffinity` disambiguates an endpoint sitting on a visual wrap

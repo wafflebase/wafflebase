@@ -201,8 +201,11 @@ export interface InlineStyle {
  * wrap boundary, where the same offset is both the end of one line and
  * the start of the next: `'forward'` means the next line, `'backward'`
  * the previous one. It is view-level metadata — model operations use only
- * `blockId` and `offset` — and is optional, so a position that carries no
- * affinity keeps the default backward reading.
+ * `blockId` and `offset` — and is optional. An endpoint that carries none is
+ * read from the side its range extends towards: a range's start defaults to
+ * `'forward'` and its end to `'backward'`, so a highlight covers the wrapped
+ * line the two endpoints bracket instead of opening on a zero-width sliver of
+ * the line above. A standalone caret still reads `'backward'`.
  */
 export interface DocPosition {
   blockId: string;

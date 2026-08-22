@@ -80,8 +80,12 @@ interface DocPosition {
 `lineAffinity` disambiguates an offset that sits exactly on a visual wrap
 boundary, where the same offset is both the end of one line and the start of the
 next. It is view-level metadata — model operations read only `blockId` and
-`offset` — and it is optional, so a position without one keeps the historical
-backward reading. Because `DocRange.anchor` / `.focus` are `DocPosition`s,
+`offset` — and it is optional. An endpoint that carries none is read from the
+side its range extends towards: `computeSelectionRects` defaults a range's
+start to `'forward'` and its end to `'backward'`, so a highlight covers the
+wrapped line its endpoints bracket rather than opening on a zero-width sliver
+of the line above. A standalone caret keeps the historical backward reading.
+Because `DocRange.anchor` / `.focus` are `DocPosition`s,
 selection endpoints carry it too: `selection.ts` passes the endpoint affinity
 into `findPageForPosition` (and `resolvePositionPixel` for cell-internal
 selections) so a highlight that begins at a wrap boundary starts on the line the
