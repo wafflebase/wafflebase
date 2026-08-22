@@ -6,6 +6,9 @@ import {
   toggleItalic,
   toggleStrikethrough,
   toggleLink,
+  toggleQuote,
+  insertCodeBlock,
+  insertFoldout,
   insertTable,
   computeActiveFormats,
 } from './commands.js';
@@ -71,6 +74,83 @@ describe('markdown commands', () => {
     // Cursor is inside the link → toggling unwraps back to the label text.
     toggleLink(view);
     expect(view.state.doc.toString()).toBe('site');
+    view.destroy();
+  });
+
+  it('inserts a foldout skeleton with the caret inside the summary', () => {
+    const view = mount('', 0);
+    insertFoldout(view);
+    expect(view.state.doc.toString()).toBe(
+      '<details>\n<summary></summary>\n\n</details>\n',
+    );
+    // Caret between `<summary>` and `</summary>`.
+    const head = view.state.selection.main.head;
+    expect(head).toBe('<details>\n<summary>'.length);
+    expect(view.state.sliceDoc(head, head + 10)).toBe('</summary>');
+    view.destroy();
+  });
+
+  it('breaks out of the current line before inserting a foldout', () => {
+    const view = mount('text', 4);
+    insertFoldout(view);
+    expect(view.state.doc.toString().split('\n')[0]).toBe('text');
+    expect(view.state.doc.toString().split('\n')[1]).toBe('<details>');
+    view.destroy();
+  });
+
+  it('inserts foldout tags flush left so they are not indented code', () => {
+    const view = mount('', 0);
+    insertFoldout(view);
+    for (const line of view.state.doc.toString().split('\n')) {
+      expect(line).toBe(line.trimStart());
+    }
+    view.destroy();
+  });
+
+  it('fences the selection as a code block and keeps it selected', () => {
+    const view = mount('code', 0, 4);
+    insertCodeBlock(view);
+    expect(view.state.doc.toString()).toBe('```\ncode\n```\n');
+    const { from, to } = view.state.selection.main;
+    expect(view.state.sliceDoc(from, to)).toBe('code');
+    view.destroy();
+  });
+
+  it('opens an empty fence with the caret inside it', () => {
+    const view = mount('', 0);
+    insertCodeBlock(view);
+    expect(view.state.doc.toString()).toBe('```\n\n```\n');
+    expect(view.state.selection.main.head).toBe(4);
+    view.destroy();
+  });
+
+  it('quotes every line the selection touches, and unquotes them', () => {
+    const view = mount('one\ntwo', 1, 5);
+    toggleQuote(view);
+    expect(view.state.doc.toString()).toBe('> one\n> two');
+    // All lines are quoted now, so toggling strips the markers.
+    toggleQuote(view);
+    expect(view.state.doc.toString()).toBe('one\ntwo');
+    view.destroy();
+  });
+
+  it('keeps the caret after the marker when quoting from a line start', () => {
+    const view = mount('', 0);
+    toggleQuote(view);
+    expect(view.state.doc.toString()).toBe('> ');
+    // Not 0: typing next must land inside the quote, not ahead of the marker.
+    expect(view.state.selection.main.head).toBe(2);
+    // And unquoting brings it back to the start of the now-plain line.
+    toggleQuote(view);
+    expect(view.state.doc.toString()).toBe('');
+    expect(view.state.selection.main.head).toBe(0);
+    view.destroy();
+  });
+
+  it('quotes a partly quoted selection rather than unquoting it', () => {
+    const view = mount('> one\ntwo', 0, 9);
+    toggleQuote(view);
+    expect(view.state.doc.toString()).toBe('> > one\n> two');
     view.destroy();
   });
 

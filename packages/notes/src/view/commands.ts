@@ -200,10 +200,114 @@ export function insertImage(
 }
 
 /**
+ * Insert a `<details>` / `<summary>` foldout skeleton at the cursor, leaving
+ * the caret between `<summary>` and `</summary>` so the label can be typed
+ * straight away. Deliberately not a toggle: foldouts nest, so every press
+ * inserts another one.
+ *
+ * The tags are written flush left. Indenting them (as the issue's snippet
+ * shows) would put four spaces in front of `<summary>`, and markdown-it's
+ * indented-code rule runs before the disclosure rule — the summary would
+ * render as a code block instead of a foldout.
+ */
+export function insertFoldout(view: EditorView): void {
+  const { state } = view;
+  const pos = state.selection.main.head;
+  const line = state.doc.lineAt(pos);
+  const prefix = pos === line.from ? '' : '\n';
+  const head = '<details>\n<summary>';
+  // Blank line before `</details>`: the folded body is ordinary markdown, and
+  // a block needs to start on its own line to parse as one.
+  const insert = `${prefix}${head}</summary>\n\n</details>\n`;
+
+  view.dispatch(
+    state.update({
+      changes: { from: pos, insert },
+      selection: EditorSelection.cursor(pos + prefix.length + head.length),
+      userEvent: 'input',
+      scrollIntoView: true,
+    }),
+  );
+  view.focus();
+}
+
+/**
+ * Fence the selection as a code block on its own line(s), or open an empty
+ * fence when nothing is selected. The selection lands on the fenced content so
+ * it stays highlighted (or, when empty, the caret sits inside the block).
+ */
+export function insertCodeBlock(view: EditorView): void {
+  const { state } = view;
+  const { from, to } = state.selection.main;
+  const selected = state.sliceDoc(from, to);
+  const line = state.doc.lineAt(from);
+  const prefix = from === line.from ? '' : '\n';
+  const fence = '```';
+  const insert = `${prefix}${fence}\n${selected}\n${fence}\n`;
+  const contentFrom = from + prefix.length + fence.length + 1;
+
+  view.dispatch(
+    state.update({
+      changes: { from, to, insert },
+      selection: EditorSelection.range(
+        contentFrom,
+        contentFrom + selected.length,
+      ),
+      userEvent: 'input',
+      scrollIntoView: true,
+    }),
+  );
+  view.focus();
+}
+
+const QUOTE_RE = /^\s*>\s?/;
+
+/**
+ * Prefix every line the selection touches with `> `, or strip the marker when
+ * all of them already carry one. Dispatched as a single transaction so the
+ * whole block quotes and unquotes in one undo step.
+ */
+export function toggleQuote(view: EditorView): void {
+  const { state } = view;
+  const { from, to } = state.selection.main;
+  const first = state.doc.lineAt(from).number;
+  const last = state.doc.lineAt(to).number;
+
+  const lines = [];
+  for (let n = first; n <= last; n++) lines.push(state.doc.line(n));
+  const quoted = lines.every((l) => QUOTE_RE.test(l.text));
+
+  const changes = lines.map((l) => {
+    if (!quoted) return { from: l.from, insert: '> ' };
+    const marker = QUOTE_RE.exec(l.text)![0];
+    return { from: l.from, to: l.from + marker.length, insert: '' };
+  });
+
+  // Map the selection forward (assoc 1) rather than letting it map by default:
+  // a caret sitting exactly at a line start would otherwise stay *before* the
+  // `> ` just inserted there, so the next keystroke would land ahead of the
+  // marker instead of inside the quote.
+  const changeSet = state.changes(changes);
+  view.dispatch(
+    state.update({
+      changes: changeSet,
+      selection: state.selection.map(changeSet, 1),
+      userEvent: quoted ? 'delete' : 'input',
+      scrollIntoView: true,
+    }),
+  );
+  view.focus();
+}
+
+/**
  * Insert a GFM table skeleton of `rows` × `cols` (the first row is the header,
  * so `rows` counts the header row) on its own line(s). Cells are empty.
  */
-export function insertTable(view: EditorView, rows: number, cols: number): void {
+export function insertTable(
+  view: EditorView,
+  rows: number,
+  cols: number,
+): void {
   const c = Math.max(1, Math.floor(cols));
   const r = Math.max(1, Math.floor(rows));
   const { state } = view;

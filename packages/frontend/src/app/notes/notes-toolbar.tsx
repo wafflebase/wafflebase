@@ -33,6 +33,9 @@ import {
   IconItalic,
   IconStrikethrough,
   IconLink,
+  IconBlockquote,
+  IconCode,
+  IconFold,
   IconTable,
   IconPhoto,
   IconKeyboard,
@@ -191,7 +194,8 @@ function ImageButton({ editor }: { editor: NoteEditorAPI }) {
 
 /**
  * Thin notes toolbar: a markdown-formatting group (bold / italic /
- * strikethrough toggles, link toggle, table insert) on the left when editing,
+ * strikethrough toggles, link toggle, quote / code / foldout / table inserts)
+ * on the left when editing,
  * and a view-mode dropdown (Editor / Split / Preview) pinned to the far right
  * — following the Slides toolbar's right-aligned dropdown pattern. Uses the
  * same Toggle + tooltip + tabler-icon look as the docs/sheets toolbars.
@@ -288,6 +292,19 @@ export function NotesToolbar({
           >
             <IconLink size={16} />
           </TooltipToggle>
+          <TooltipButton label="Quote" onClick={() => editor.toggleQuote()}>
+            <IconBlockquote size={16} />
+          </TooltipButton>
+          <TooltipButton
+            label="Code block"
+            onClick={() => editor.insertCodeBlock()}
+          >
+            <IconCode size={16} />
+          </TooltipButton>
+          {/* Foldout is a plain insert, not a toggle: foldouts nest. */}
+          <TooltipButton label="Foldout" onClick={() => editor.insertFoldout()}>
+            <IconFold size={16} />
+          </TooltipButton>
           <TableDropdown editor={editor} />
           {editor.canInsertImage() && <ImageButton editor={editor} />}
         </>

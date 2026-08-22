@@ -230,30 +230,38 @@
 }
 
 /*
- * Collapsible sections (`<details>`/`<summary>`). A lightweight bordered
- * disclosure so folded content reads as a distinct, clickable region. The
- * summary shows a pointer cursor and its own disclosure triangle; the default
- * marker is suppressed so the padding stays consistent across browsers.
+ * Collapsible sections (`<details>`/`<summary>`). The foldout carries no
+ * surface of its own (issue #756): it reads as ordinary outline text, marked
+ * only by the disclosure triangle beside the summary. `prose` does not style
+ * `details` at all, so the container restates the prose-sm paragraph rhythm to
+ * sit on the same vertical grid as surrounding text; the summary is plain
+ * weight with no padding of its own. The default marker is suppressed so the
+ * triangle looks the same across browsers.
  */
 .note-preview .note-details {
-  margin: 0.75rem 0;
-  padding: 0.25rem 0.75rem;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background-color: #f6f8fa;
-}
-
-.note-preview .note-details[open] {
-  padding-bottom: 0.5rem;
+  margin: 1.1428571em 0; /* prose-sm paragraph margin */
+  padding: 0;
 }
 
 .note-preview .note-summary {
-  margin: 0 -0.75rem;
-  padding: 0.25rem 0.75rem;
-  font-weight: 600;
+  margin: 0;
+  padding: 0;
   cursor: pointer;
   list-style: none;
   outline-offset: 2px;
+}
+
+/*
+ * Folded body is indented under the summary so it reads as its child — the
+ * arrow's width plus its gap, so the text lines up past the triangle. Nested
+ * foldouts are children too, so indentation compounds with depth.
+ *
+ * `margin-left`, not `padding-left`: typography's rules come through `:where()`
+ * and carry no specificity, so a padding override here would replace a nested
+ * list's `padding-inline-start` and flatten its bullets.
+ */
+.note-preview .note-details > *:not(.note-summary) {
+  margin-left: 1.25em;
 }
 
 /* Custom disclosure triangle (WebKit hides the default via ::-webkit-details-marker). */
@@ -272,16 +280,6 @@
 
 .note-preview .note-details[open] > .note-summary::before {
   transform: rotate(90deg);
-}
-
-/* Body sits below the summary; add breathing room from the summary row. */
-.note-preview .note-details[open] > .note-summary {
-  margin-bottom: 0.25rem;
-}
-
-.dark .note-preview .note-details {
-  border-color: #30363d;
-  background-color: #161b22;
 }
 
 .dark .note-preview .note-summary::before {
