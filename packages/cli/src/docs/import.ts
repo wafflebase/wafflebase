@@ -165,6 +165,8 @@ export async function runDocsImport(
     if (dryRun) {
       io.stdout(
         JSON.stringify(
+          // `seg()` for the same reason `HttpClient` encodes it: the preview
+          // has to be the path the live PUT would take.
           {
             method: 'PUT',
             path: `/documents/${seg(replace)}/content`,

@@ -51,6 +51,14 @@ export interface Block {
   type: BlockType;
   inlines: Inline[];
   style: BlockStyle;
+  /**
+   * Heading level of a `heading` block. A `list-item` also keeps the level of
+   * the heading it was made from — bulleting a heading applies the bullet *to*
+   * the heading (Google Docs / Word parity), so removing the list restores it
+   * (see `unlistedBlockType`). The level is inert while the block is a list
+   * item: every reader (export, `blockStyleId`, toolbar labels) gates on
+   * `type === 'heading'`.
+   */
   headingLevel?: HeadingLevel;
   listKind?: 'ordered' | 'unordered';
   listLevel?: number;
@@ -370,6 +378,21 @@ export function createBlock(
     block.listLevel = opts?.listLevel ?? 0;
   }
   return block;
+}
+
+/**
+ * The block type a list item returns to when its list is removed: the heading
+ * it was bulleted from, if any, else a plain paragraph. Keeps the three
+ * `toggleList` implementations (docs editor, text editor, text-box editor)
+ * from drifting.
+ */
+export function unlistedBlockType(
+  block: Block,
+): { type: BlockType; opts?: { headingLevel: HeadingLevel } } {
+  if (block.headingLevel !== undefined) {
+    return { type: 'heading', opts: { headingLevel: block.headingLevel } };
+  }
+  return { type: 'paragraph' };
 }
 
 /**

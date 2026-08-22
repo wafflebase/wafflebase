@@ -255,7 +255,18 @@ does *not* end the wait, so the real redirect can still land. The nonce
 round trip is a backend contract: the loopback redirect echoes it, so a
 CLI at this version or later needs a backend at this version or later.
 
-The nonce is the whole defense, deliberately. An earlier revision also
+One check sits in front of the nonce: a request whose `Host` header is
+not a loopback literal (`127.0.0.1`, `localhost`, `[::1]`) on this
+listener's own port is refused. Binding to `127.0.0.1` limits *who* can
+reach the listener to the local machine, but a name under an attacker's
+control that resolves to `127.0.0.1` (DNS rebinding) still reaches it,
+with the browser treating it as same-origin — and such a request carries
+the attacker's name in `Host`. It is defence in depth, not a second
+defense: a rebound page would still have to guess the nonce; this simply
+stops it from reaching the check. A missing `Host` (HTTP/1.0) is allowed
+— a browser always sends one.
+
+Beyond that the nonce is the whole defense, deliberately. An earlier revision also
 refused any request carrying an `Origin` header; a browser, extension
 or proxy can attach one (`Origin: null` among them) to the cross-origin
 redirect chain that *is* the genuine callback, and because a refusal
@@ -833,7 +844,8 @@ packages/cli/
       http-client.ts     REST API v1 wrapper (undici fetch via fetchOrThrow)
       content-disposition.ts  Filename parser for binary responses
       dry-run.ts         Dry-run request printer
-      url.ts             seg() — one-segment id encoding, shared by both builders
+      url.ts             seg() — one-segment id encoding — plus the URL
+                         builders, shared by the client and the dry-run printer
     config/
       config.ts          Config file + env + flag resolution
       session.ts         Session file read/write + token refresh
@@ -1273,6 +1285,54 @@ $ wafflebase sheets cells set abc-123 A1 "Revenue" --dry-run
 
 Per-command dry-run notes:
 
+- Reads honour the flag too, in every namespace: `docs list` / `get` /
+  `content` / `export`, `notes list` / `get` / `content` / `export`,
+  `slides list` / `get` / `content` / `export`, `files list` / `get` /
+  `download`, `sheets tabs list`, `sheets cells get`, `sheets export`, and
+  `api-keys list` print their GET without fetching, so a preview burns no
+  rate limit and emits no access log even when the command is harmless. The
+  one command the flag does not hold back is `login`: it still completes the
+  OAuth exchange and writes the session, because there is no useful preview
+  of an interactive browser handshake.
+- Credential management is no exception: `api-keys create` and
+  `api-keys revoke` preview the POST / DELETE rather than minting a live
+  key (whose secret is printed once) or irreversibly revoking one. Their
+  endpoints sit at `/workspaces/:id/api-keys`, outside the v1 API base, so
+  the preview prints that URL rather than a `/api/v1/...` one. Both the
+  preview and the live request build that URL with the same `apiKeysUrl()`
+  helper in `client/url.ts`, so a route change cannot leave the preview
+  describing a request nobody sends.
+- Identifiers are URL-encoded into the previewed path exactly as the client
+  encodes them into the real request — one `seg()` in `client/url.ts`, used
+  by both — so the printed path is the path that would be fetched. Every
+  interpolated identifier goes through it: workspace (as caller-controlled as
+  the rest, via `--workspace`, `WAFFLEBASE_WORKSPACE`, or a config profile),
+  document, tab, cell. `fetch` truncates a path at `?` and resolves dot
+  segments, so a raw `../..` would otherwise send the credentialed request
+  outside the workspace prefix.
+  Encoding alone is not sufficient for one case: `encodeURIComponent` does not
+  escape `.`, and the URL spec resolves a segment that *is* `.` or `..`
+  (`%2e` spellings included) however it is written. An identifier that is
+  exactly a dot segment is therefore **rejected**, not escaped:
+  `api-keys revoke ..` would otherwise resolve to `DELETE /workspaces/<ws>/`,
+  the workspace-delete route, and its preview would have shown the
+  unresolved `.../api-keys/..` instead. An *empty* identifier is rejected too,
+  and for a reason that is not traversal: Nest runs Express with strict routing
+  disabled, so `/documents/` matches the **collection** route — `docs get ""`
+  would list every document rather than 404 on a missing id. The workspace is
+  the one segment allowed to be empty (`workspaceSeg()`), because `''` is the
+  state `resolveConfig` returns for a workspace nobody has chosen yet and every
+  path built on it carries further segments (`/workspaces//documents` matches no
+  route), so tolerating it costs nothing and refusing it would break every
+  command and every offline preview with an `Invalid identifier ""`.
+  The `import` / `upload` previews are the one envelope
+  variation: they print a workspace-relative `path` (plus the parsed body and,
+  for `slides`, the import report) rather than the `dry_run` / `url` envelope
+  above, because their value is the parse result, not the URL. The identifier
+  encoding is the same.
+- `sheets cells get`: the printed URL is the endpoint the range selects —
+  `?range=A1:C10` for a range, `/cells/A1` for a single ref, `/cells` for
+  the whole tab.
 - `docs content`, `docs export`: print the GET request that would be issued.
 - `docs import` (default): preview both POST (create) and PUT (push content).
 - `docs import --replace`: preview the PUT only; `--yes` is ignored — the

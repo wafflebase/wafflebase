@@ -40,11 +40,22 @@ describe("blockTypeToStyleId", () => {
     expect(blockTypeToStyleId("heading", 2)).toBe("heading-2");
     expect(blockTypeToStyleId("heading")).toBe("heading-1");
   });
+
+  it("ignores the level a bulleted heading remembers", () => {
+    // A bulleted heading keeps `headingLevel` so un-listing can restore it,
+    // and `getBlockType()` hands the toolbar that level verbatim. The style id
+    // must still be Normal while the block is a list item (#783).
+    expect(blockTypeToStyleId("list-item", 2)).toBe("normal");
+  });
 });
 
 describe("getBlockLabel", () => {
   it("labels headings by level", () => {
     expect(getBlockLabel("heading", 5)).toBe("Heading 5");
     expect(getBlockLabel("paragraph")).toBe("Normal text");
+  });
+
+  it("labels a bulleted heading Normal text", () => {
+    expect(getBlockLabel("list-item", 2)).toBe("Normal text");
   });
 });

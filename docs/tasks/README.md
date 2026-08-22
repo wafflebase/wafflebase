@@ -18,8 +18,9 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| release v0.6.5 (2026-08-22) | [20260822-release-v0.6.5-todo.md](./active/20260822-release-v0.6.5-todo.md) | - |
 | pr786 conflict resolution (2026-08-20) | [20260820-pr786-conflict-resolution-todo.md](./active/20260820-pr786-conflict-resolution-todo.md) | - |
+| cli dry run read commands (2026-08-16) | [20260816-cli-dry-run-read-commands-todo.md](./active/20260816-cli-dry-run-read-commands-todo.md) | [20260816-cli-dry-run-read-commands-lessons.md](./active/20260816-cli-dry-run-read-commands-lessons.md) |
+| docs unlist restores heading (2026-08-16) | [20260816-docs-unlist-restores-heading-todo.md](./active/20260816-docs-unlist-restores-heading-todo.md) | [20260816-docs-unlist-restores-heading-lessons.md](./active/20260816-docs-unlist-restores-heading-lessons.md) |
 | claude token pool (2026-08-14) | [20260814-claude-token-pool-todo.md](./active/20260814-claude-token-pool-todo.md) | - |
 | cli login loopback binding (2026-08-12) | [20260812-cli-login-loopback-binding-todo.md](./active/20260812-cli-login-loopback-binding-todo.md) | [20260812-cli-login-loopback-binding-lessons.md](./active/20260812-cli-login-loopback-binding-lessons.md) |
 | path aware ci (2026-08-12) | [20260812-path-aware-ci-todo.md](./active/20260812-path-aware-ci-todo.md) | - |
@@ -41,7 +42,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 529
+- Archived task count: 530
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: release v0.6.5 (2026-08-22)
+Latest active task: pr786 conflict resolution (2026-08-20)

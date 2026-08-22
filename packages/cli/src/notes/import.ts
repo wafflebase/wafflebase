@@ -155,6 +155,8 @@ export async function runNotesImport(
         JSON.stringify(
           {
             method: 'PUT',
+            // `seg()` for the same reason `HttpClient` encodes it: the
+            // preview has to be the path the live PUT would take.
             path: `/documents/${seg(replace)}/content`,
             body: { content },
           },

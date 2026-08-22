@@ -35,6 +35,8 @@ import {
   applyInsertInline,
   applySplitBlock,
   applyMergeBlocks,
+  mergeDropsHeadingMemory,
+  splitMovesHeadingMemory,
   blockStyleId,
   materializeBlockSpacing,
   normalizeStyleClears,
@@ -1429,6 +1431,11 @@ export class YorkieDocStore implements DocStore {
       attrs.listKind = opts?.listKind ?? 'unordered';
       attrs.listLevel = String(opts?.listLevel ?? 0);
     }
+    // A bulleted heading remembers its level so removing the list restores the
+    // heading instead of flattening it to body text (see `Block`). The
+    // attribute is already on the node, so only the removal below changes.
+    const keepHeadingLevel =
+      type === 'list-item' && block.headingLevel !== undefined;
 
     // Applying a different named style re-materializes the block's style-owned
     // spacing into the same styleByPath write (Google Docs parity). A bullet
@@ -1446,7 +1453,7 @@ export class YorkieDocStore implements DocStore {
 
     // Determine stale attributes to remove (styleByPath merges, not replaces)
     const toRemove: string[] = [];
-    if (type !== 'heading') toRemove.push('headingLevel');
+    if (type !== 'heading' && !keepHeadingLevel) toRemove.push('headingLevel');
     if (type !== 'list-item') toRemove.push('listKind', 'listLevel');
 
     const cursorForHistory = this.consumePendingCursor();
@@ -1486,12 +1493,14 @@ export class YorkieDocStore implements DocStore {
     });
 
     // Update cache
+    const prevHeadingLevel = block.headingLevel;
     block.type = type;
     delete block.headingLevel;
     delete block.listKind;
     delete block.listLevel;
     if (type === 'heading') block.headingLevel = opts?.headingLevel ?? 1;
     if (type === 'list-item') {
+      if (keepHeadingLevel) block.headingLevel = prevHeadingLevel;
       block.listKind = opts?.listKind ?? 'unordered';
       block.listLevel = opts?.listLevel ?? 0;
     }
@@ -2048,6 +2057,11 @@ export class YorkieDocStore implements DocStore {
       throw new Error(`splitBlock does not support ${block.type} blocks`);
     }
 
+    // Splitting a bulleted heading at offset 0 moves the remembered level onto
+    // the block that takes the heading text, so the attribute has to move in
+    // the tree too (`applySplitBlock` moves it in the cache below).
+    const movesHeadingMemory = splitMovesHeadingMemory(block, offset, newBlockType);
+
     const cursorForHistory = this.consumePendingCursor();
     this.doc.update((root, p) => {
       if (cursorForHistory) {
@@ -2055,6 +2069,12 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+
+      if (movesHeadingMemory) {
+        const endPath = [...blockPath];
+        endPath[endPath.length - 1] += 1;
+        tree.removeStyleByPath(blockPath, endPath, ['headingLevel']);
+      }
 
       const treeRoot = tree.getRootTreeNode();
       const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
@@ -2085,7 +2105,10 @@ export class YorkieDocStore implements DocStore {
             afterAttrs.listLevel = String(block.listLevel);
           }
         }
-        if (newBlockType === 'heading' && block.headingLevel !== undefined) {
+        if (
+          (newBlockType === 'heading' || movesHeadingMemory) &&
+          block.headingLevel !== undefined
+        ) {
           afterAttrs.headingLevel = String(block.headingLevel);
         }
         tree.editByPath(afterPath, afterPath, buildBlockNode({
@@ -2175,7 +2198,8 @@ export class YorkieDocStore implements DocStore {
           ...(newBlockType === 'list-item' && block.listKind !== undefined
             ? { listKind: block.listKind, listLevel: block.listLevel }
             : {}),
-          ...(newBlockType === 'heading' && block.headingLevel !== undefined
+          ...((newBlockType === 'heading' || movesHeadingMemory) &&
+          block.headingLevel !== undefined
             ? { headingLevel: block.headingLevel }
             : {}),
         }));
@@ -2219,6 +2243,11 @@ export class YorkieDocStore implements DocStore {
       throw new Error('Blocks to merge must be adjacent and in order');
     }
 
+    // An emptied bulleted heading absorbing the next block's text no longer
+    // holds the heading it remembers, so the attribute has to leave the tree
+    // as well as the cache (`applyMergeBlocks` drops it there).
+    const dropHeadingMemory = mergeDropsHeadingMemory(firstBlock);
+
     const cursorForHistory = this.consumePendingCursor();
     this.doc.update((root, p) => {
       if (cursorForHistory) {
@@ -2227,6 +2256,11 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      if (dropHeadingMemory) {
+        const endPath = [...blockPath];
+        endPath[endPath.length - 1] += 1;
+        tree.removeStyleByPath(blockPath, endPath, ['headingLevel']);
+      }
       // Read inline count from the actual tree, not the cache, because
       // previous split/merge operations can leave the tree with a different
       // number of inline nodes than the cache (e.g. split fragments).

@@ -46,6 +46,12 @@ export function registerSlidesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const fmt = parseOutputFormat(opts.format);
+        if (opts.dryRun) {
+          // The `slides` filter is applied client-side, so it leaves no
+          // trace on the request the server would see.
+          printDryRun(getConfig(opts), 'GET', '/documents');
+          return;
+        }
         const res = await getClient(opts).listDocuments();
         if (!res.ok) return forwardUpstreamError(res, this);
         let data = res.data as unknown;
@@ -89,6 +95,10 @@ export function registerSlidesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       try {
         const fmt = parseOutputFormat(opts.format);
+        if (opts.dryRun) {
+          printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}`);
+          return;
+        }
         const res = await getClient(opts).getDocument(docId);
         if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);

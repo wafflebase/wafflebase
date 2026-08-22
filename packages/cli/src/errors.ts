@@ -116,8 +116,15 @@ export function redactUrl(url: string): string {
  * a scheme and whether or not it parses. `[^/?#]*` cannot cross into the
  * path, so an `@` in a path or query is left alone, and being greedy it
  * strips through the *last* `@` of the authority rather than the first.
+ *
+ * Exported for the `--dry-run` printer, which needs this half of
+ * `redactUrl` but not the other: a preview must keep its query string
+ * (`?range=A1%3AC10` is the point of the `cells get` preview, and the
+ * query is built here from the caller's own arguments rather than
+ * arriving with the server), while the userinfo is the same secret in a
+ * previewed URL as in a failed one.
  */
-function stripUserinfo(url: string): string {
+export function stripUserinfo(url: string): string {
   const withScheme = url.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
   if (withScheme !== url) return withScheme;
   return url.replace(/^(\/\/)?[^/?#]*@/, '$1');

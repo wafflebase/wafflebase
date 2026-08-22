@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 529
+Total archived tasks: 530
 
-## 2026/08 (99 tasks)
+## 2026/08 (100 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.5 (2026-08-22) | [20260822-release-v0.6.5-todo.md](./2026/08/20260822-release-v0.6.5-todo.md) | [20260822-release-v0.6.5-lessons.md](./2026/08/20260822-release-v0.6.5-lessons.md) |
 | task archive audit (2026-08-22) | [20260822-task-archive-audit-todo.md](./2026/08/20260822-task-archive-audit-todo.md) | [20260822-task-archive-audit-lessons.md](./2026/08/20260822-task-archive-audit-lessons.md) |
 | eval panel digest (2026-08-20) | [20260820-eval-panel-digest-todo.md](./2026/08/20260820-eval-panel-digest-todo.md) | - |
 | eval report section5 (2026-08-20) | [20260820-eval-report-section5-todo.md](./2026/08/20260820-eval-report-section5-todo.md) | - |
