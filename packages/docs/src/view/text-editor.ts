@@ -2846,7 +2846,10 @@ export class TextEditor {
     if (lineStart.offset < pos.offset) {
       const count = pos.offset - lineStart.offset;
       this.docDeleteText(lineStart, count);
-      this.cursor.moveTo(lineStart);
+      // Forward, as `handleHome` does for this same value: a continuation
+      // line's start IS a wrap boundary, and reading it backward would draw
+      // the caret at the end of the line above the one just emptied.
+      this.cursor.moveTo(lineStart, 'forward');
       this.markDirty(pos.blockId);
     } else if (pos.offset > 0) {
       // Cursor is at visual line start but not block start — delete to block start
@@ -4162,7 +4165,7 @@ export class TextEditor {
     if (result) {
       const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
       if (lb) {
-        const info = findVisualLine(lb, pos);
+        const info = findVisualLine(lb, pos, this.cursor.lineAffinity);
         if (info) {
           const sameBlock = result.blockId === pos.blockId;
           const isFirstLine = info.lineIndex === 0;

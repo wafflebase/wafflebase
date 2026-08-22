@@ -31,9 +31,10 @@ trailing space to trim. There, `End` lands exactly on the boundary with
 
 1. `packages/docs/src/view/visual-line.ts` — add a third
    `lineAffinity` parameter to `findVisualLine()`, defaulting to
-   `'forward'` so the existing `moveVertical()` caller and its tests keep
-   their behaviour. With `'backward'`, an offset equal to a non-last
-   line's end resolves to that line.
+   `'forward'` so the unit tests keep their behaviour. With `'backward'`,
+   an offset equal to a non-last line's end resolves to that line. Nothing
+   in `src/` relies on the default any more — `moveVertical()` passes the
+   cursor's affinity explicitly.
 2. `packages/docs/src/view/text-editor.ts` — thread `lineAffinity`
    (defaulting to `this.cursor.lineAffinity`) through
    `getVisualLineRange()` / `getVisualLineStart()` / `getVisualLineEnd()`,
@@ -56,7 +57,9 @@ trailing space to trim. There, `End` lands exactly on the boundary with
 
 ## Non-goals
 
-- Changing `moveVertical()`'s boundary resolution (it hit-tests pixels
-  with the affinity already and its `findVisualLine()` use is only a
-  first/last-line check).
+- Any broader change to `moveVertical()`. Its `findVisualLine()` call does
+  now pass the cursor's affinity: the pixel hit-test 60 lines above already
+  did, so leaving the first/last-line check on the bare default let the two
+  halves disagree at a boundary — `isFirstLine` / `isLastLine` could then
+  misfire and turn an ArrowUp/ArrowDown into a jump to block start/end.
 - Any change to the affinity model itself, or to trailing-space trimming.
