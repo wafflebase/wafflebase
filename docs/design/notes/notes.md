@@ -509,6 +509,61 @@ Multi-dash `---` and `=` setext underlines are untouched, so ordinary setext
 headings still render. This is a notes-preview-only rendering choice, not a
 change to the shared markdown model.
 
+#### Per-line author gutter — shipped (issue #814)
+
+A `git blame`-style gutter left of the line numbers, showing who last edited
+each line. Consecutive lines by one author collapse to a single label. It is
+**off by default** and toggled from the view menu, so a reader who never turns
+it on gets a note identical to before — same layout, same line width, and none
+of the per-edit bookkeeping.
+
+Authorship rides on the existing `root.content` `Text` as **per-run
+attributes**, written by `YorkieNoteStore.editText`:
+
+```ts
+root.content.edit(from, to, insert, { a: <author name>, t: <epoch ms> });
+```
+
+No new root field, so the CodePair-compatible `{ content: Text }` schema is
+untouched and a reader that ignores attributes still sees the identical string.
+`Text.values()` reads the runs back as `NoteAuthorSpan[]` (`NoteStore.getAuthorSpans`),
+which the engine turns into per-line labels: a line's author is the one who
+wrote the run with the newest `t` overlapping it — literally "the author of the
+line's most recent edit". Attributes survive undo, because Yorkie's reverse ops
+restore the nodes that carried them.
+
+Consequences that follow from that choice, all of them intended:
+
+- **No migration, no backfill.** Text written before this shipped carries no
+  attributes, reports `author: null`, and renders blank rather than a wrong
+  name. Attribution accrues from the first edit after the feature lands.
+- **Anonymous stays anonymous.** The name comes from the client's own presence
+  `name`, which anonymous share-link editors already attach as `"Anonymous"`;
+  an empty name renders as "Anonymous" too. Blame is a reading aid, not an
+  audit trail.
+- **Pure deletions record nothing** — they insert no run to attribute.
+- **Storage.** Roughly 30 bytes of attribute JSON per inserted run. Runs are
+  already the CRDT's unit of storage, so this is a constant factor on existing
+  per-run overhead rather than a new structure, and it is bounded by edit count,
+  not note length. Retention (how far back authorship is kept) is deliberately
+  unbounded for now — the issue's open question, revisited if real notes show
+  it mattering.
+
+Two CodeMirror ordering constraints shape `packages/notes/src/view/blame-gutter.ts`,
+and both are load-bearing:
+
+1. Gutters render in `activeGutters` facet order, so the gutter extension is
+   listed **before** `basicSetup` (which contributes `lineNumbers()`) to sit to
+   its left.
+2. That also fixes the shared gutter `ViewPlugin` *before* `noteSync` in the
+   plugin order, so at paint time a local edit has not reached the store yet.
+   The labels therefore come from a second plugin listed **after** `noteSync`,
+   published through a per-view map — deliberately not via `view.plugin(...)`,
+   which would force that plugin's pending update to run early and hand it the
+   same stale model. When the recomputed labels differ, it dispatches one empty
+   annotated transaction that the gutter's `lineMarkerChange` picks up, so the
+   gutter converges in two transactions and stays idle otherwise.
+
 ### P3 — CodePair → Wafflebase migration
 
 Because note content lives **only in Yorkie** and the schema is identical:

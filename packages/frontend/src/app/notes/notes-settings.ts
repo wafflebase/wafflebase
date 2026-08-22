@@ -8,6 +8,7 @@ import type { NoteViewMode, NoteKeymap } from "@wafflebase/notes";
  */
 const VIEW_MODE_KEY = "wafflebase:notes:viewMode";
 const KEYMAP_KEY = "wafflebase:notes:keymap";
+const SHOW_AUTHORS_KEY = "wafflebase:notes:showAuthors";
 
 function read(key: string): string | null {
   if (typeof window === "undefined") return null;
@@ -34,6 +35,19 @@ export function readViewMode(): NoteViewMode {
 
 export function writeViewMode(mode: NoteViewMode): void {
   write(VIEW_MODE_KEY, mode);
+}
+
+/**
+ * Whether the blame gutter (who last edited each line) is shown. Defaults to
+ * false: the feature is opt-in, so someone who never turns it on sees the note
+ * exactly as before.
+ */
+export function readShowAuthors(): boolean {
+  return read(SHOW_AUTHORS_KEY) === "true";
+}
+
+export function writeShowAuthors(show: boolean): void {
+  write(SHOW_AUTHORS_KEY, show ? "true" : "false");
 }
 
 export function readKeymap(): NoteKeymap {

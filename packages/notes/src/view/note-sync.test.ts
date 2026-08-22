@@ -16,6 +16,7 @@ function stubStore(over: Partial<NoteStore>): NoteStore {
     redo: () => null,
     canUndo: () => false,
     canRedo: () => false,
+    getAuthorSpans: () => [],
     subscribeRemote: () => () => {},
     setLocalSelection: () => {},
     getPeerSelections: () => [],

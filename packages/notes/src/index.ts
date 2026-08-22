@@ -1,6 +1,7 @@
 // Store
 export type {
   NoteStore,
+  NoteAuthorSpan,
   NoteTextChange,
   NoteRemoteChange,
   NotePeerSelection,
@@ -25,3 +26,9 @@ export {
   noteRemoteSelections,
   noteRemoteSelectionsTheme,
 } from './view/remote-selection.js';
+export {
+  ANONYMOUS_AUTHOR,
+  computeBlameLabels,
+  noteBlameGutter,
+  noteBlameTracker,
+} from './view/blame-gutter.js';

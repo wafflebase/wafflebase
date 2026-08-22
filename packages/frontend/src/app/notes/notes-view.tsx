@@ -27,6 +27,11 @@ interface NotesViewProps {
   /** Editor keybinding mode. Defaults to `default`. */
   keymap?: NoteKeymap;
   /**
+   * Show the blame gutter (who last edited each line). Defaults to false, so a
+   * mount that never passes it renders exactly as before the gutter existed.
+   */
+  showAuthors?: boolean;
+  /**
    * Upload a pasted/dropped/picked image and resolve with its URL, or `null`
    * if the upload failed and was already reported to the user. Omitted on
    * read-only mounts.
@@ -77,6 +82,7 @@ export function NotesView({
   readOnly,
   viewMode = "both",
   keymap = "default",
+  showAuthors = false,
   uploadImage,
 }: NotesViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -108,6 +114,7 @@ export function NotesView({
     const store = new YorkieNoteStore(doc);
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
     const editor = initialize(container, store, theme, readOnly, viewMode, {
+      showAuthors,
       uploadImage: uploadRef.current
         ? (file) => uploadRef.current!(file)
         : undefined,
@@ -142,6 +149,11 @@ export function NotesView({
   useEffect(() => {
     editorRef.current?.setKeymap(keymap);
   }, [keymap]);
+
+  // Show/hide the blame gutter from the view menu.
+  useEffect(() => {
+    editorRef.current?.setShowAuthors(showAuthors);
+  }, [showAuthors]);
 
   if (loading) return <Loader />;
   if (error) {

@@ -1,12 +1,21 @@
 import type { Document, Presence, TextPosStructRange } from '@yorkie-js/sdk';
 import type {
   NoteStore,
+  NoteAuthorSpan,
   NotePeerSelection,
   NoteRemoteChange,
   NoteSelection,
   Unsubscribe,
 } from '@wafflebase/notes';
 import type { YorkieNotesRoot, NotesPresence } from '@/types/notes-document';
+
+/**
+ * Per-run `Text` attributes carrying line authorship for the blame gutter
+ * (issue #814). Deliberately one-letter: they are written on every inserted
+ * run, so the key is paid for once per run in the CRDT and on the wire.
+ */
+const AUTHOR_ATTR = 'a';
+const WRITTEN_AT_ATTR = 't';
 
 /**
  * Yorkie-backed NoteStore. Holds the note's markdown in a single `Text` CRDT
@@ -74,8 +83,62 @@ export class YorkieNoteStore implements NoteStore {
 
   editText(from: number, to: number, insert: string): void {
     this.withUpdate((root) => {
-      root.content.edit(from, to, insert);
+      // Attribution rides along as attributes on the inserted run, so the blame
+      // gutter needs no second structure in the root and the CodePair-shaped
+      // `{ content: Text }` schema is untouched. A pure deletion inserts
+      // nothing, so it carries no attributes.
+      if (insert.length > 0) {
+        root.content.edit(from, to, insert, {
+          [AUTHOR_ATTR]: this.localAuthorName(),
+          [WRITTEN_AT_ATTR]: Date.now(),
+        });
+      } else {
+        root.content.edit(from, to, insert);
+      }
     });
+  }
+
+  getAuthorSpans(): NoteAuthorSpan[] {
+    const content = this.doc.getRoot().content;
+    if (!content) return [];
+    const spans: NoteAuthorSpan[] = [];
+    let index = 0;
+    for (const value of content.values()) {
+      const text = value.content ?? '';
+      if (text.length === 0) continue;
+      const attrs = value.attributes as
+        | Record<string, unknown>
+        | undefined;
+      const author = attrs?.[AUTHOR_ATTR];
+      const at = attrs?.[WRITTEN_AT_ATTR];
+      spans.push({
+        from: index,
+        to: index + text.length,
+        // Text written before per-line attribution shipped carries no
+        // attributes at all — reported as `null` so the gutter leaves those
+        // lines blank instead of guessing a name.
+        author: typeof author === 'string' ? author : null,
+        at: typeof at === 'number' ? at : 0,
+      });
+      index += text.length;
+    }
+    return spans;
+  }
+
+  /**
+   * The name recorded on text this client writes, read from its own presence —
+   * the same value peers already see on its caret. Anonymous share-link editors
+   * attach with `name: "Anonymous"`; an empty result (no presence yet) is
+   * rendered as "Anonymous" by the gutter too.
+   */
+  private localAuthorName(): string {
+    const fromPublic = this.doc.getMyPresence()?.name;
+    if (fromPublic) return fromPublic;
+    // `getMyPresence()` returns `{}` offline / in tests, same caveat as
+    // `readPresenceSelection`.
+    const actorId = this.doc.getChangeID().getActorID();
+    if (actorId) return this.doc.getPresenceForTest(actorId)?.name ?? '';
+    return '';
   }
 
   batch(fn: () => void): void {

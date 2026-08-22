@@ -16,6 +16,7 @@ function storeWithPeers(peers: NotePeerSelection[]): NoteStore & { setLocal: Ret
     redo: () => null,
     canUndo: () => false,
     canRedo: () => false,
+    getAuthorSpans: () => [],
     subscribeRemote: () => () => {},
     setLocalSelection: setLocal,
     getPeerSelections: () => peers,

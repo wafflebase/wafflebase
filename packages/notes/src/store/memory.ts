@@ -1,14 +1,20 @@
 import type {
   NoteStore,
+  NoteAuthorSpan,
   NotePeerSelection,
   NoteRemoteChange,
   NoteSelection,
 } from './store.js';
 import type { Unsubscribe } from '../types.js';
 
-/** A full editor state: the text and the selection active in it. */
+/** Who wrote one character, and when. `null` = no recorded authorship. */
+type MemAuthorMark = { author: string; at: number } | null;
+
+/** A full editor state: the text, its authorship, and the selection in it. */
 interface MemState {
   text: string;
+  /** One entry per character of `text`. */
+  authors: MemAuthorMark[];
   selection: NoteSelection | null;
 }
 
@@ -35,6 +41,18 @@ interface MemUndoEntry {
  */
 export class MemNoteStore implements NoteStore {
   private text: string;
+  /**
+   * Per-character authorship, parallel to `text`. Seeded text counts as
+   * unattributed (all `null`), mirroring a note written before per-line
+   * attribution shipped.
+   */
+  private authors: MemAuthorMark[];
+  /**
+   * Who inserted text counts as, until `setLocalAuthor` says otherwise.
+   * `null` means "record no authorship", which is what a store with no
+   * identity should do.
+   */
+  private localAuthor: string | null = null;
   private undoStack: MemUndoEntry[] = [];
   private redoStack: MemUndoEntry[] = [];
   private batchDepth = 0;
@@ -51,6 +69,16 @@ export class MemNoteStore implements NoteStore {
 
   constructor(text = '') {
     this.text = text;
+    this.authors = new Array<MemAuthorMark>(text.length).fill(null);
+  }
+
+  /**
+   * Name recorded on subsequently inserted text, or `null` for none. The
+   * Yorkie store reads this from presence; here it is set explicitly so the
+   * blame gutter is testable without a CRDT.
+   */
+  setLocalAuthor(name: string | null): void {
+    this.localAuthor = name;
   }
 
   getText(): string {
@@ -62,11 +90,49 @@ export class MemNoteStore implements NoteStore {
     // has already captured the pre-state and records a single unit on exit.
     if (this.batchDepth === 0) {
       const before = this.currentState();
-      this.text = this.text.slice(0, from) + insert + this.text.slice(to);
+      this.splice(from, to, insert);
       this.pushUndo({ before, after: this.currentState() });
       return;
     }
+    this.splice(from, to, insert);
+  }
+
+  getAuthorSpans(): NoteAuthorSpan[] {
+    const spans: NoteAuthorSpan[] = [];
+    for (let i = 0; i < this.authors.length; i++) {
+      const mark = this.authors[i];
+      const last = spans[spans.length - 1];
+      if (
+        last &&
+        last.to === i &&
+        last.author === (mark ? mark.author : null) &&
+        last.at === (mark ? mark.at : 0)
+      ) {
+        last.to = i + 1;
+        continue;
+      }
+      spans.push({
+        from: i,
+        to: i + 1,
+        author: mark ? mark.author : null,
+        at: mark ? mark.at : 0,
+      });
+    }
+    return spans;
+  }
+
+  /** Replace `[from, to)` with `insert`, keeping authorship in step. */
+  private splice(from: number, to: number, insert: string): void {
     this.text = this.text.slice(0, from) + insert + this.text.slice(to);
+    const mark: MemAuthorMark =
+      this.localAuthor === null
+        ? null
+        : { author: this.localAuthor, at: Date.now() };
+    this.authors.splice(
+      from,
+      to - from,
+      ...new Array<MemAuthorMark>(insert.length).fill(mark),
+    );
   }
 
   batch(fn: () => void): void {
@@ -85,6 +151,7 @@ export class MemNoteStore implements NoteStore {
             before: this.batchBefore,
             after: {
               text: this.text,
+              authors: this.authors.slice(),
               // The pinned post-edit selection, not the live caret, which a
               // later move would have drifted before redo.
               selection: this.batchAfterSelection ?? this.currentSelection,
@@ -150,14 +217,19 @@ export class MemNoteStore implements NoteStore {
     return () => {};
   }
 
-  /** The current editor state (text + live caret). */
+  /** The current editor state (text + authorship + live caret). */
   private currentState(): MemState {
-    return { text: this.text, selection: this.currentSelection };
+    return {
+      text: this.text,
+      authors: this.authors.slice(),
+      selection: this.currentSelection,
+    };
   }
 
   /** Apply a stored state and echo the text to remote subscribers. */
   private restore(state: MemState): void {
     this.text = state.text;
+    this.authors = state.authors.slice();
     this.currentSelection = state.selection;
     this.emit({ type: 'replace', content: this.text });
   }

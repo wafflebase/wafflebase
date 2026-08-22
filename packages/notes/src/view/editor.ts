@@ -33,6 +33,7 @@ import {
   startImageUploads,
   type UploadImage,
 } from './image-upload.js';
+import { noteBlameGutter, noteBlameTracker } from './blame-gutter.js';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -117,6 +118,15 @@ export interface NoteEditorAPI {
   setKeymap(mode: NoteKeymap): void;
   /** Current editor keybinding mode. */
   getKeymap(): NoteKeymap;
+  /**
+   * Show or hide the blame gutter (who last edited each line), to the left of
+   * the line numbers. Off unless switched on: while off the editor carries no
+   * extra gutter at all, so the layout is byte-for-byte what it was before the
+   * feature existed.
+   */
+  setShowAuthors(show: boolean): void;
+  /** Whether the blame gutter is currently shown. */
+  getShowAuthors(): boolean;
   /** Toggle `**bold**` around the selection. */
   toggleBold(): void;
   /** Toggle `*italic*` around the selection. */
@@ -175,6 +185,12 @@ export interface NoteEditorOptions {
    * insertion entirely (paste, drop, and `insertImageFiles` all become no-ops).
    */
   uploadImage?: UploadImage;
+  /**
+   * Mount with the blame gutter shown. Defaults to `false` — the feature is
+   * opt-in, and while off nothing about the editor differs from before it
+   * existed.
+   */
+  showAuthors?: boolean;
 }
 
 export function initialize(
@@ -247,6 +263,12 @@ export function initialize(
   // view state (selection, scroll, plugin state) on every toggle.
   const themeCompartment = new Compartment();
   const keymapCompartment = new Compartment();
+  // The blame gutter is two extensions with opposite ordering constraints (see
+  // blame-gutter.ts), so each gets its own compartment and both are
+  // reconfigured together.
+  const blameGutterCompartment = new Compartment();
+  const blameTrackerCompartment = new Compartment();
+  let showAuthors = options.showAuthors ?? false;
 
   // Undo/redo live in the store (Yorkie `doc.history`), not in CodeMirror, so
   // that undo reverts only this client's ops and leaves a peer's concurrent
@@ -329,6 +351,9 @@ export function initialize(
     // After the keymap compartment so vim keeps its own history keys (`u`,
     // `<C-r>`), which route to the store via `routeVimHistoryToStore`.
     historyKeymap,
+    // Before `basicSetup` (which brings the line numbers) so the blame gutter
+    // renders to their left; empty while the feature is off.
+    blameGutterCompartment.of(showAuthors ? noteBlameGutter : []),
     // CodeMirror's history is off: it can only restore a local snapshot, which
     // in a collaborative session overwrites whatever a peer typed in the
     // meantime. Yorkie's reverse-op undo is used instead.
@@ -358,6 +383,9 @@ export function initialize(
     uploadImage ? noteImageUpload(uploadImage) : [],
     noteStoreFacet.of(store),
     noteSync,
+    // After `noteSync` so it reads the store once the current local edit has
+    // reached it (see blame-gutter.ts).
+    blameTrackerCompartment.of(showAuthors ? noteBlameTracker : []),
     noteRemoteSelectionsTheme,
     noteRemoteSelections,
   ];
@@ -486,6 +514,17 @@ export function initialize(
       view.focus();
     },
     getKeymap: () => currentKeymap,
+    setShowAuthors: (show: boolean) => {
+      if (show === showAuthors) return;
+      showAuthors = show;
+      view.dispatch({
+        effects: [
+          blameGutterCompartment.reconfigure(show ? noteBlameGutter : []),
+          blameTrackerCompartment.reconfigure(show ? noteBlameTracker : []),
+        ],
+      });
+    },
+    getShowAuthors: () => showAuthors,
     toggleBold: () => toggleBold(view),
     toggleItalic: () => toggleItalic(view),
     toggleStrikethrough: () => toggleStrikethrough(view),

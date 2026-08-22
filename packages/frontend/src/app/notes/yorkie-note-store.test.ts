@@ -179,4 +179,65 @@ describe('YorkieNoteStore', () => {
       expect(store.getText()).toBe('PEER hello');
     });
   });
+
+  describe('author spans (blame gutter)', () => {
+    it('reports text written before attribution shipped as unattributed', () => {
+      const store = new YorkieNoteStore(makeDoc());
+      expect(store.getAuthorSpans()).toEqual([
+        { from: 0, to: 5, author: null, at: 0 },
+      ]);
+    });
+
+    it('attributes a local edit to the name in this client presence', () => {
+      const doc = makeDoc();
+      doc.update((_root, presence) => presence.set({ name: 'ann' }));
+      const store = new YorkieNoteStore(doc);
+      store.editText(5, 5, ' world');
+
+      const spans = store.getAuthorSpans();
+      expect(spans.map((s) => [s.from, s.to, s.author])).toEqual([
+        [0, 5, null],
+        [5, 11, 'ann'],
+      ]);
+      expect(spans[1].at).toBeGreaterThan(0);
+    });
+
+    it('records the empty name anonymous editors attach with', () => {
+      // Presence carries no name at all here; the gutter renders an empty
+      // author as "Anonymous" rather than leaving the line blank.
+      const store = new YorkieNoteStore(makeDoc());
+      store.editText(5, 5, '!');
+      expect(store.getAuthorSpans().at(-1)).toMatchObject({
+        from: 5,
+        to: 6,
+        author: '',
+      });
+    });
+
+    it('carries a peer edit author across the wire', () => {
+      const [mine, peer] = twoClients('hello');
+      peer.update((_root, presence) => presence.set({ name: 'bob' }));
+      const store = new YorkieNoteStore(mine);
+      const peerStore = new YorkieNoteStore(peer);
+      peerStore.editText(5, 5, ' there');
+      push(peer, mine);
+
+      expect(
+        store.getAuthorSpans().map((s) => [s.from, s.to, s.author]),
+      ).toEqual([
+        [0, 5, null],
+        [5, 11, 'bob'],
+      ]);
+    });
+
+    it('leaves a pure deletion unattributed', () => {
+      const doc = makeDoc();
+      doc.update((_root, presence) => presence.set({ name: 'ann' }));
+      const store = new YorkieNoteStore(doc);
+      store.editText(0, 2, '');
+      expect(store.getAuthorSpans()).toEqual([
+        { from: 0, to: 3, author: null, at: 0 },
+      ]);
+    });
+  });
 });
