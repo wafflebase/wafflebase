@@ -463,14 +463,35 @@ GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
   (a collaborator or editor-role share-link visitor authors it, someone else
   renders it), so the `html: false` "no raw note HTML" rule is not delegated to
   the engine alone: (1) `securityLevel: 'strict'` with `startOnLoad: false`
-  sanitizes labels and ignores `click` directives, and an extended `secure` key
-  list pins the theming keys; (2) `stripConfigDirectives()` removes both config
-  carriers — `%%{...}%%` directives and leading front matter — from the fence
-  body, so a note cannot push `themeCSS`/`themeVariables` into the
+  sanitizes labels and ignores `click` directives, an extended `secure` key
+  list pins the theming keys — plus `dompurifyConfig`, which would otherwise
+  relax mermaid's *own* label sanitizer, and the `flowchart`/`class` sections
+  whole — and `htmlLabels: false`, set at the root **and** on those two
+  sections, makes a node label SVG text rather than an HTML subtree
+  (issue #721, below);
+  (2) `prepareFenceSource()` bounds and cleans the fence body before the
+  engine sees it: it caps the length at mermaid's own `maxTextSize` default
+  (the engine checks that *inside* `render()`, i.e. after every scan and strip
+  here has already run on the whole body), refuses a source that carries a
+  fetch (below), and `stripConfigDirectives()` removes both config carriers —
+  `%%{...}%%` directives and leading front matter — so a note cannot push
+  `themeCSS`/`themeVariables` into the
   document-scoped `<style>` mermaid emits inside the SVG. It reuses mermaid's
   own `directiveRegex`/`frontMatterRegex` (the closing `}%%` is *optional* for
-  the engine) and drops front matter unconditionally, because `secure` pins
-  only top-level keys — a carrier the strip under-recognizes still delivers a
+  the engine), drops front matter unconditionally, and **iterates** rather than
+  running once — the front-matter pattern is `^`-anchored, so a single pass
+  *manufactures* a carrier the source did not have: removing the first `---`
+  block promotes the second into the leading position mermaid parses, and the
+  engine extracts front matter *before* it removes directives, so a `---` block
+  a directive precedes is one mermaid would never have read (directive removal
+  promotes a directive the same way, by joining the text around a match). The
+  iteration is **bounded**, not a fixpoint, and the bound is load-bearing: each
+  pass rescans the whole body but is only guaranteed to remove one leading
+  front-matter block, so an unbounded loop over a fence of stacked minimal
+  blocks is quadratic — a stored main-thread freeze for every reader. A source
+  still changing after the last pass is refused instead. Dropping front
+  matter unconditionally matters because `secure` pins only top-level
+  keys — a carrier the strip under-recognizes still delivers a
   nested override — and the copies are version-pinned
   (`MERMAID_CARRIER_PATTERNS_VERSION`, asserted against the installed
   `mermaid` in `preview.test.ts`) so an upgrade under the caret range cannot
@@ -498,9 +519,53 @@ GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
   That trade is knowingly taken, and layer 3 is **not** an equivalent
   substitute: outside sandbox mode the engine appends its own `d<id>` host div
   to `document.body` and lays the diagram out there before serializing, so its
-  output is briefly in the live document ahead of our pass. Mermaid's own
-  strict-mode sanitizing plus layer 2's carrier strip guard that window; layer
-  3 governs what persists.
+  output is briefly in the live document ahead of our pass. Layer 3 governs
+  what *persists*; it is not a fetch boundary.
+- **Why `htmlLabels: false` (issue #721).** That layout window was a real
+  disclosure while node labels were HTML: `A["<img src=…>"]` is a
+  `<foreignObject>` subtree the engine parses into the live document to measure
+  it, so the URL was fetched — handing the note's author every reader's IP,
+  User-Agent and reading time — while `sanitizeSvg()`, running strictly
+  downstream, still removed every `<img>` from what persisted. A request
+  already sent is out of reach of `FORBID_TAGS`/`ALLOWED_URI_REGEXP`; the same
+  went for a `background:url(…)` in a label's inline `style`. The exposure was
+  a fetch, not script execution — `securityLevel: 'strict'` had mermaid run
+  every label through its own DOMPurify pass first, which strips `on*`
+  handlers, so an `onerror` on that `<img>` never ran. With HTML labels off
+  there is no label subtree to lay
+  out and the payload measures and renders as literal SVG text. The cost is
+  HTML *styling* inside a label — no bold/italic or markdown formatting;
+  `<br/>` still breaks the line, since mermaid splits SVG-text labels on it —
+  and
+  the key is pinned in `secure` (root and per-diagram section) and its carriers
+  stripped so a note cannot turn it back on. It is asserted against the *real*
+  engine, not just the config we pass: one case runs the production config
+  through mermaid under jsdom (a stubbed `getBBox` is enough for its layout
+  pass) and asserts the serialized output has no `foreignObject`, with a
+  control case showing the same source does emit one at the engine's default.
+  A restrictive `img-src` CSP would fix the whole class app-wide
+  and remains the better long-term answer; the repo has no CSP today. Layer 3
+  keeps its HTML profile and `foreignobject` regardless, because several
+  diagram types (venn text nodes, architecture icons, kanban, sequence) emit a
+  `foreignObject` with no `htmlLabels` guard.
+- **Why the source is refused, not just sanitized.** `htmlLabels: false` closes
+  the label path and nothing else, so layer 2 also refuses a fence body that
+  carries a fetch at all (verified against the pinned `mermaid@11.16.0`
+  build): a fetch-capable raw HTML tag (`<img>`, `<iframe>`, `<use>`, …),
+  `img:` shape metadata — `A@{ img: "https://…" }` reaches mermaid's image
+  shape, which does `new Image(); img.src = node.img; await img.decode()` and
+  appends an SVG `<image href>` to the live layout host, with no label
+  involved — or an external CSS `url()`/`@import`. The unguarded-`foreignObject`
+  diagram types above are why the raw-tag rule matters: their labels go through
+  mermaid's own `sanitizeText()`, whose DEFAULT DOMPurify allowlist permits
+  `<img src>`. Refusing costs nothing a reader could ever have seen, since
+  layer 3 forbids every one of those in what persists (`FORBID_TAGS` covers
+  `img`/`image`, the CSS check covers `url()`); the only thing it removes is
+  the request. The block keeps its source visible with a message, the way an
+  unparseable diagram does. The rule is a tag-name list rather than "no raw
+  HTML" so `<br/>`, `<b>` and the class-diagram arrows (`<|--`, `<-->`) stay
+  usable, and entity-encoding is not a way around it — an HTML parser turns
+  `&#60;img>` into text, not an element.
 
 #### Empty nested bullet vs setext heading — shipped (issue #517)
 
