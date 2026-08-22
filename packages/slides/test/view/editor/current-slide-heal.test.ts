@@ -6,9 +6,12 @@
 // the canvas painted nothing. A peer deleting the slide the local user
 // is on leaves the same state.
 //
-// The editor now revalidates the cursor where it resolves it (inside the
-// `store.read()` snapshot `render()` / `repaintOverlay()` already hold),
-// landing on the slide just before the vanished index.
+// The editor now revalidates the cursor on the store's change channel
+// (`store.onChange`, subscribed by the editor itself), landing on the
+// slide just before the vanished index. The hook is deliberately NOT the
+// paint path: hosts without a render loop (the mobile edit shell) get the
+// same invariant, and painting stays free of cursor moves, teardown and
+// listener notifications.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import '../../../src/view/canvas/test-canvas-env';
 import { MemSlidesStore } from '../../../src/store/memory';
@@ -350,14 +353,101 @@ describe('current slide healing', () => {
     ed.enterTextEditing(textId);
     expect(ed.isTextEditing()).toBe(true);
 
-    // The heal runs inside render(), and tearing the text box down
-    // re-enters render() — the cursor is moved first so that nested
-    // resolve is a plain hit instead of a second heal.
+    // Tearing the text box down re-enters render() — the cursor is moved
+    // first so that nested resolve is a plain hit, not a second heal.
     store.batch(() => store.removeSlides([slideIds[1]]));
     frame(ed);
 
     expect(ed.isTextEditing()).toBe(false);
     expect(ed.getCurrentSlideId()).toBe(slideIds[0]);
+  });
+
+  /**
+   * The mirror of the test above. A text edit survives a slide switch on
+   * purpose (`setCurrentSlide` does not exit edit mode), so an edit whose
+   * own slide is untouched must survive some OTHER slide being removed —
+   * discarding it would throw away work the removal never invalidated.
+   */
+  it('keeps a text edit anchored to a slide that still exists', () => {
+    const { store, editor: ed, slideIds } = setup(3, mockMountTextBoxFlushing);
+    editor = ed;
+    ed.setCurrentSlide(slideIds[2]);
+    let textId = '';
+    store.batch(() => {
+      textId = store.addElement(slideIds[2], {
+        type: 'text',
+        frame: { x: 100, y: 100, w: 400, h: 120, rotation: 0 },
+        data: { blocks: [emptyBlock()] },
+      });
+    });
+    ed.enterTextEditing(textId);
+    // The user navigates away with the box still live, the way the
+    // thumbnail panel's click path leaves it.
+    ed.setCurrentSlide(slideIds[1]);
+    expect(ed.isTextEditing()).toBe(true);
+
+    // A peer removes the slide the CURSOR is on — not the edit's slide.
+    store.batch(() => store.removeSlides([slideIds[1]]));
+    frame(ed);
+
+    expect(ed.getCurrentSlideId()).toBe(slideIds[0]);
+    expect(ed.isTextEditing()).toBe(true);
+  });
+
+  /**
+   * The heal hangs off `store.onChange`, not off a paint, so a host that
+   * mounts the editor without a render loop (mobile edit mode has no RAF
+   * tick and no `onChange → markDirty` wiring) gets the invariant too.
+   * Deliberately never calls `frame()`.
+   */
+  it('heals with no render loop driving the editor', () => {
+    const { store, editor: ed, slideIds } = setup(3);
+    editor = ed;
+    ed.setCurrentSlide(slideIds[2]);
+
+    store.batch(() => store.removeSlides([slideIds[2]]));
+
+    expect(ed.getCurrentSlideId()).toBe(slideIds[1]);
+  });
+
+  /**
+   * Healing an emptied deck parks the cursor at `undefined`. That must be
+   * a resting state, not a dead end: when slides come back — undoing the
+   * delete that emptied the deck — the cursor has to be re-seeded, or the
+   * canvas stays blank forever with no way back.
+   */
+  it('re-seeds the cursor when slides come back to an emptied deck', () => {
+    const { store, editor: ed, slideIds } = setup(1);
+    editor = ed;
+    ed.setCurrentSlide(slideIds[0]);
+    frame(ed);
+
+    store.batch(() => store.removeSlides([slideIds[0]]));
+    expect(ed.getCurrentSlideId()).toBeUndefined();
+
+    store.undo();
+    frame(ed);
+
+    expect(store.read().slides).toHaveLength(1);
+    expect(ed.getCurrentSlideId()).toBe(slideIds[0]);
+  });
+
+  /** A store that publishes no changes still heals, from the paint path. */
+  it('falls back to healing during paint when the store has no onChange', () => {
+    const { store, editor: ed, slideIds } = setup(3);
+    editor = ed;
+    ed.setCurrentSlide(slideIds[2]);
+    frame(ed);
+    // Simulate a `SlidesStore` implementation that omits the optional
+    // `onChange` by silencing the one this editor subscribed to.
+    (store as unknown as { changeListeners: Set<() => void> }).changeListeners.clear();
+    (ed as unknown as { storeChangeOff: (() => void) | null }).storeChangeOff = null;
+
+    store.batch(() => store.removeSlides([slideIds[2]]));
+    expect(ed.getCurrentSlideId()).toBe(slideIds[2]);
+
+    frame(ed);
+    expect(ed.getCurrentSlideId()).toBe(slideIds[1]);
   });
 
   it('discards a crop session anchored to the removed slide', () => {

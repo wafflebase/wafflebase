@@ -722,10 +722,18 @@ class SlidesEditorImpl implements SlidesEditor {
    * Index `currentId` was last resolved at in the deck's `slides` array,
    * refreshed on every `resolveCurrentSlide` hit. When the current slide
    * disappears — undo of `Add slide`, a peer's delete — this is the only
-   * record of where it used to be, and `resolveCurrentSlide` lands the
+   * record of where it used to be, and `healCurrentSlide` lands the
    * cursor just before it rather than leaving a dangling id.
    */
   private currentIndex = 0;
+  /**
+   * Unsubscribe handle for the store's change channel, the hook the
+   * cursor invariant hangs off (see {@link healCurrentSlide}). Null when
+   * the backing store publishes no `onChange` — an optional method on
+   * `SlidesStore` — in which case `resolveCurrentSlide` falls back to
+   * healing from the paint path.
+   */
+  private storeChangeOff: (() => void) | null = null;
   /**
    * True while canvas layout-editing mode is active (PR3 theme builder).
    * Gates text-edit entry; the swapped `LayoutEditStore` already no-ops
@@ -810,6 +818,16 @@ class SlidesEditorImpl implements SlidesEditor {
    *   - clicks outside the text-box's container commit + exit edit mode
    */
   private editingElementId: string | null = null;
+  /**
+   * Slide the active text edit is anchored to, snapshotted at
+   * `enterEditMode` (the same id its `onCommit` writes through) and
+   * cleared by `finishEditMode`. The user can switch slides while a box
+   * is still being edited — `setCurrentSlide` deliberately leaves the
+   * edit alive — so "is the edit anchored to the slide that vanished?"
+   * cannot be answered from `currentId`. `healCurrentSlide` asks exactly
+   * that before discarding anything.
+   */
+  private editingSlideId: string | null = null;
   /**
    * Cell coordinates being edited when the active text-box targets a
    * TableElement cell. Set in `enterEditMode` when the dblclick path
@@ -1020,6 +1038,7 @@ class SlidesEditorImpl implements SlidesEditor {
       });
     }
     this.currentId = options.store.read().slides[0]?.id;
+    this.subscribeStoreChanges();
     this.mountTextBox = options.mountTextBox ?? mountSlidesTextBox;
     this.selection.subscribe(() => {
       // Cell-range selection is anchored to a specific table id. If
@@ -1513,63 +1532,179 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
-    for (const cb of this.currentSlideListeners) cb();
+    this.notifyCurrentSlideChange();
   }
 
   /**
-   * Resolve `currentId` against `doc`, healing a dangling id.
+   * Fan the current-slide change out to subscribers.
+   *
+   * Per-listener try/catch because these callbacks are host code that
+   * writes to the collaborative document — SlidesView's handler
+   * broadcasts presence — and this now fires from the store's change
+   * notification (`healCurrentSlide`) as well as from user-driven
+   * navigation. One host throwing there must not strand the remaining
+   * subscribers (the thumbnail highlight, the notes panel) on a slide the
+   * editor already left. Mirrors the stores' own `notifyChange`.
+   */
+  private notifyCurrentSlideChange(): void {
+    for (const cb of this.currentSlideListeners) {
+      try {
+        cb();
+      } catch {
+        /* a host listener must not abort the editor's own bookkeeping */
+      }
+    }
+  }
+
+  /**
+   * (Re)subscribe the cursor invariant to the backing store's change
+   * channel. Called from the constructor and again by `setStore` when
+   * the editor is re-pointed at a `LayoutEditStore` and back.
+   *
+   * The invariant belongs on this hook rather than on the paint path:
+   * every host drives the store, but not every host drives a render
+   * loop (the mobile edit shell mounts this editor with neither a RAF
+   * tick nor a `store.onChange → markDirty` wiring), and a heal that
+   * only ran while painting would also fire its listeners — presence
+   * writes on the desktop host — from inside a RAF frame.
+   *
+   * `onChange` is optional on `SlidesStore`; a store that omits it keeps
+   * the old paint-path fallback in `resolveCurrentSlide`.
+   *
+   * Cost is one `store.read()` per change event — the only way to ask
+   * whether a slide id still exists. It rides alongside the reads the
+   * hosts already do on the same event (`render()`, the thumbnail
+   * panel's `refreshContent()`), and `YorkieBoardStore` memoizes `read()`
+   * across a change so a board pays nothing extra.
+   */
+  private subscribeStoreChanges(): void {
+    this.storeChangeOff?.();
+    this.storeChangeOff =
+      this.options.store.onChange?.(() => {
+        this.healCurrentSlide();
+      }) ?? null;
+  }
+
+  /**
+   * Look `currentId` up in `doc`. Pure on every store that publishes
+   * `onChange` — the id was already revalidated at mutation time by
+   * `healCurrentSlide`, so painting neither moves the cursor nor
+   * notifies anyone.
+   *
+   * Callers pass their own `store.read()` snapshot — resolving must not
+   * cost an extra read, in particular not on `render()`'s idle frames.
+   *
+   * The fallback: a store with no change channel has no other moment at
+   * which to notice a removal, so for those (and only those) the miss
+   * heals here, from the caller's snapshot.
+   *
+   * Returns the slide to paint, or `undefined` when the cursor names
+   * nothing paintable (empty deck, or an unhealed dangling id).
+   */
+  private resolveCurrentSlide(doc: SlidesDocument): Slide | undefined {
+    const id = this.currentId;
+    if (id !== undefined) {
+      const idx = doc.slides.findIndex((s) => s.id === id);
+      if (idx !== -1) {
+        this.currentIndex = idx;
+        return doc.slides[idx];
+      }
+    }
+    if (this.storeChangeOff !== null) return undefined;
+    return this.healCurrentSlide(doc);
+  }
+
+  /**
+   * Revalidate `currentId` against the deck, moving the cursor when it
+   * names a slide that is gone and re-seeding it when it names nothing
+   * at all.
    *
    * `Add slide` makes the new slide current, and undoing it restores the
    * `slides` array without touching the editor's cursor — so `currentId`
    * would keep naming a slide the deck no longer holds and nothing would
    * paint (issue #883). A peer deleting the slide the local user is on
-   * leaves the same state. Both are removal paths with no local call
-   * site to fix up, so the cursor is revalidated here, at the one place
-   * the editor turns `currentId` into a slide: when the id is missing
-   * from a non-empty deck we move to the slide just before the vanished
-   * index, which for an undone insertion is the slide the user came from.
+   * leaves the same state. Neither removal path has a local call site to
+   * fix up, so the cursor is revalidated on the store's change channel:
+   * when the id is missing from a non-empty deck we move to the slide
+   * just before the vanished index, which for an undone insertion is the
+   * slide the user came from.
    *
-   * Callers pass their own `store.read()` snapshot — resolving must not
-   * cost an extra read, in particular not on `render()`'s idle frames.
+   * The mirror case matters just as much. `removeSlides` is a bare
+   * filter (only the thumbnail panel gates the last slide, and that gate
+   * is local), so a peer can empty the deck, which parks the cursor at
+   * `undefined`. Re-seeding here is what stops that from being a dead
+   * end: when slides come back — undo of the delete that emptied the
+   * deck — the cursor lands on one instead of leaving a blank canvas
+   * forever.
    *
-   * Returns the slide to paint, or `undefined` for an empty deck (or an
-   * unset `currentId`, e.g. a store that had no slides at mount).
+   * `snapshot` is the caller's `store.read()` when it already holds one
+   * (the paint-path fallback); the change channel has none and reads.
    */
-  private resolveCurrentSlide(doc: SlidesDocument): Slide | undefined {
+  private healCurrentSlide(snapshot?: SlidesDocument): Slide | undefined {
+    if (this.disposed) return undefined;
+    const doc = snapshot ?? this.options.store.read();
+    const slides = doc.slides;
     const id = this.currentId;
-    if (id === undefined) return undefined;
-    const idx = doc.slides.findIndex((s) => s.id === id);
+    const idx = id === undefined ? -1 : slides.findIndex((s) => s.id === id);
     if (idx !== -1) {
       this.currentIndex = idx;
-      return doc.slides[idx];
+      return slides[idx];
     }
-    // An empty deck gets the same teardown as any other heal. The store
-    // permits one — `removeSlides` is a bare filter, and only the thumbnail
-    // panel gates the last slide locally — so a peer can empty the deck
-    // while this client is mid-edit. Returning early would leave a live
-    // text-box editor and a crop session anchored to a slide that is gone.
-    const empty = doc.slides.length === 0;
-    const nextIdx = empty
-      ? -1
-      : Math.min(Math.max(this.currentIndex - 1, 0), doc.slides.length - 1);
-    const next = empty ? undefined : doc.slides[nextIdx];
+    // Nothing to do: no cursor, and no deck to put one on.
+    if (id === undefined && slides.length === 0) return undefined;
+    const empty = slides.length === 0;
+    // A vanished slide hands the cursor to its predecessor; a cursor
+    // that is merely unset (the deck was emptied, or the store had no
+    // slides at mount) takes the remembered index itself, so a deck that
+    // comes back whole puts the user back where they were.
+    const want = id === undefined ? this.currentIndex : this.currentIndex - 1;
+    const nextIdx = empty ? -1 : Math.min(Math.max(want, 0), slides.length - 1);
+    const next = empty ? undefined : slides[nextIdx];
     // Move the cursor BEFORE tearing down the interaction state below:
     // `exitEditMode` / `exitImageCrop` / `selection.clear()` all route
-    // back into `repaintOverlay()`, which resolves again — with the id
-    // already healed that nested resolve is a plain hit instead of a
-    // second heal.
+    // back into `render()` / `repaintOverlay()`, which resolve again —
+    // with the id already healed that nested resolve is a plain hit
+    // instead of a second heal.
     this.currentId = next?.id;
-    this.currentIndex = empty ? 0 : nextIdx;
+    // An emptied deck keeps the remembered index — that is the only
+    // record of where the user was, and it is what the re-seed above
+    // reads when the slides come back.
+    if (!empty) this.currentIndex = nextIdx;
     this.renderer.markDirty();
-    // Anything anchored to the removed slide has nowhere left to commit,
-    // so it is discarded rather than committed (the opposite of
-    // `setCurrentSlide`, which leaves a still-existing slide behind).
-    // `exitEditMode('cancel')` really discards: see `editingCancel`.
-    if (this.cropSession !== null) this.exitImageCrop(false);
-    if (this.editingElementId !== null) this.exitEditMode('cancel');
+    // Interaction state anchored to a slide that is GONE has nowhere
+    // left to commit, so it is discarded rather than committed
+    // (`exitEditMode('cancel')` really discards: see `editingCancel`).
+    // State anchored to a slide that still exists is left alone — the
+    // user can be editing a text box on one slide while the cursor sits
+    // on another (`setCurrentSlide` keeps the edit alive across a
+    // switch), and throwing that edit away because some other slide was
+    // deleted would lose work.
+    const gone = (slideId: string | null): boolean =>
+      slideId !== null && !slides.some((s) => s.id === slideId);
+    if (this.cropSession !== null && gone(this.cropSession.slideId)) {
+      this.exitImageCrop(false);
+    }
+    if (this.editingElementId !== null && gone(this.editingSlideId)) {
+      this.exitEditMode('cancel');
+    }
+    // Everything below is view-local chrome scoped to the slide the
+    // cursor just left: the drill-in group scope, the element and cell
+    // selection, the hover outline / insert ghost, and the live guide,
+    // table-resize and connector previews. All of them name geometry on
+    // the old slide, so leaving them up would paint stale chrome over
+    // the new one. (Known limitation: an in-flight pointer drag is not
+    // cancellable from here — each gesture owns its listeners inside its
+    // own closure with no handle exposed — so a removal landing mid-drag
+    // still ends with a commit aimed at the slide that went away.)
     this.setCellSelection(null);
+    this.selection.setScope([]);
     this.selection.clear();
-    for (const cb of this.currentSlideListeners) cb();
+    this.clearHoverHighlight();
+    this.hoverPreview = null;
+    this.pendingGuide = null;
+    this.pendingTableResize = null;
+    this.connectorCursor = null;
+    this.notifyCurrentSlideChange();
     return next;
   }
 
@@ -1627,6 +1762,10 @@ class SlidesEditorImpl implements SlidesEditor {
     this.setCellSelection(null);
     this.options.store = store;
     this.installKeyRules();
+    // Re-point the cursor invariant at the new store; the old store's
+    // change channel would otherwise keep healing against a deck this
+    // editor no longer paints.
+    this.subscribeStoreChanges();
     // Resolve to a slide that actually exists in the new store. A caller-
     // supplied id can be stale (e.g. a peer deleted the slide while the
     // user was in layout-edit mode); fall back to the first slide rather
@@ -1639,7 +1778,7 @@ class SlidesEditorImpl implements SlidesEditor {
     this.renderer.markDirty();
     this.render();
     this.repaintOverlay();
-    for (const cb of this.currentSlideListeners) cb();
+    this.notifyCurrentSlideChange();
   }
 
   enterLayoutEditMode(store: SlidesStore): void {
@@ -2736,6 +2875,11 @@ class SlidesEditorImpl implements SlidesEditor {
 
   detach(): void {
     this.disposed = true;
+    // Drop the cursor-invariant subscription first: a store outlives the
+    // editor (SlidesView remounts against the same Yorkie document), and
+    // a heal running after teardown would paint into a detached canvas.
+    this.storeChangeOff?.();
+    this.storeChangeOff = null;
     // The peer-cursor layer is ours, not `renderOverlay`'s — drop it
     // explicitly so a remount starts from a clean overlay.
     this.peerCursorLayer?.remove();
@@ -2744,6 +2888,7 @@ class SlidesEditorImpl implements SlidesEditor {
       this.editingTextBox.detach();
       this.editingTextBox = null;
       this.editingElementId = null;
+      this.editingSlideId = null;
     }
     // Drop any active crop session, its in-flight drag listeners, and its
     // capture-phase key listener so a SlidesView remount starts clean.
@@ -4045,6 +4190,10 @@ class SlidesEditorImpl implements SlidesEditor {
     // box's outline.
     this.selection.set([elementId]);
     this.editingElementId = elementId;
+    // Same id `onCommit` writes through, kept so `healCurrentSlide` can
+    // tell an edit anchored to a removed slide from one that is merely
+    // on a slide the user has navigated away from.
+    this.editingSlideId = slideId;
     this.editingCellCoords = target.cell ?? null;
     this.setCellSelection(null);
     // Drop any idle hover highlight and stale hover cursor; once
@@ -4606,6 +4755,7 @@ class SlidesEditorImpl implements SlidesEditor {
     this.editingTextBox = null;
     this.editingCancel = null;
     this.editingElementId = null;
+    this.editingSlideId = null;
     this.editingCellCoords = null;
     this.lastEditingContentHeight = null;
     this.editingGrowApplicable = false;

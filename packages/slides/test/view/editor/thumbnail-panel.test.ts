@@ -490,6 +490,43 @@ describe('mountThumbnailPanel — right-click context menu', () => {
     expect(editor.getCurrentSlideId()).toBe(ids[1]);
   });
 
+  /**
+   * The editor heals a cursor left naming a removed slide, and that heal
+   * fires synchronously from `store.batch()`'s change notification — so
+   * the panel must move the cursor to its chosen survivor BEFORE the
+   * removal, or the same delete moves the cursor twice: first backwards
+   * to the heal's predecessor-of-the-vanished-index, then forwards to the
+   * survivor. Three slides, deleting the middle one, is the case where
+   * the two policies disagree.
+   */
+  it('"Delete slide" moves the current slide exactly once', () => {
+    const { panel, store, editor } = makeFixture();
+    store.batch(() => store.addSlide('blank'));
+    mountThumbnailPanel(panel, store, editor);
+    const ids = store.read().slides.map((s) => s.id);
+    expect(ids).toHaveLength(3);
+    const middle = panel.querySelector<HTMLDivElement>(`[data-slide-id="${ids[1]}"]`)!;
+    middle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    expect(editor.getCurrentSlideId()).toBe(ids[1]);
+
+    let moves = 0;
+    const off = editor.onCurrentSlideChange(() => {
+      moves++;
+    });
+    rightClick(middle);
+    const delItem = Array.from(
+      document.body.querySelectorAll<HTMLLIElement>('.wfb-slides-context-menu li'),
+    ).find((li) => li.textContent === 'Delete slide')!;
+    delItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    off();
+
+    expect(store.read().slides.map((s) => s.id)).toEqual([ids[0], ids[2]]);
+    // The panel's own policy — first survivor after the anchor — wins,
+    // and it is the only cursor move the delete produces.
+    expect(editor.getCurrentSlideId()).toBe(ids[2]);
+    expect(moves).toBe(1);
+  });
+
   it('"Delete slide" is disabled when only one slide remains in the deck', () => {
     // Single-slide fixture (the real fixture has two; trim one first).
     const { panel, store, editor } = makeFixture();

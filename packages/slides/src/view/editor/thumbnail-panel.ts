@@ -317,10 +317,20 @@ export function mountThumbnailPanel(
                 (s) => doc.slides.indexOf(s) > anchorIdx,
               )?.id ?? surviving[surviving.length - 1]?.id;
           }
-          store.batch(() => store.removeSlides([...targetIds]));
+          // Move the cursor BEFORE the removal commits. The editor heals
+          // a cursor left naming a removed slide on the store's change
+          // notification, which `store.batch()` fires synchronously —
+          // so setting the survivor afterwards would move the cursor
+          // twice, first to the heal's predecessor-of-the-vanished-index
+          // and then to the survivor this panel picked. Going first
+          // leaves one move and one policy: `nextCurrent` is chosen from
+          // the pre-removal snapshot and outlives the batch, so the
+          // editor's heal sees a cursor that still resolves and does
+          // nothing.
           if (nextCurrent && nextCurrent !== currentId) {
             editor.setCurrentSlide(nextCurrent);
           }
+          store.batch(() => store.removeSlides([...targetIds]));
           selectedSlideIds = [];
           render();
         },
