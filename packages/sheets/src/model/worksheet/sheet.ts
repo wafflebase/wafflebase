@@ -133,6 +133,7 @@ import {
   tryMergeRangeStylePatches,
   sameRangeStylePatchList,
   pruneRedundantDefaultStyleKeys,
+  isDefaultStyleValue,
   toBorderPatchForPreset,
   type StyleSources,
 } from './style-mutation';
@@ -180,6 +181,12 @@ function withoutSetDefaults(
   let next = style;
   for (const key of defaultKeys) {
     if (style[key] === undefined || layer[key] === undefined) {
+      continue;
+    }
+    // A layer holding the default is not a format worth defending — see
+    // `isDefaultStyleValue`. Keeping it would drop the patch's real value
+    // and leave the layer's `nf: 'plain'` in place.
+    if (isDefaultStyleValue(key, layer[key])) {
       continue;
     }
     if (next === style) {
@@ -3838,6 +3845,11 @@ export class Sheet {
       for (const key of defaultKeys) {
         const value = effective?.[key];
         if (value === undefined || value === patch[key]) {
+          continue;
+        }
+        // Same rule as `withoutSetDefaults`: pinning the default back onto
+        // the cell would undo the patch that was just applied.
+        if (isDefaultStyleValue(key, value)) {
           continue;
         }
         (keep as Record<string, unknown>)[key] = value;

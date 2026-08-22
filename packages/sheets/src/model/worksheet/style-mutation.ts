@@ -16,7 +16,7 @@ import type { RangeStylePatch } from './range-styles';
  * state, and increase/decrease decimal places rely on telling them apart to
  * know whether a stored `dp` is theirs to remove.
  */
-const DefaultStyleValues: Partial<CellStyle> = {
+export const DefaultStyleValues: Partial<CellStyle> = {
   b: false,
   i: false,
   u: false,
@@ -271,6 +271,24 @@ export function hasConflictingStyleSourceForKey(
  * `pruneRedundantDefaultStyleKeys` removes keys from a style that are
  * at their default value and not overridden by any conflicting source.
  */
+/**
+ * Whether `value` is the declared default for `key` — i.e. carries no
+ * formatting intent at all.
+ *
+ * The `defaultKeys` machinery exists to stop a decimal step from overwriting a
+ * format the user chose (a `percent` neighbour must survive). A default is not
+ * such a format: `nf: 'plain'` *is* "no number format", and defending it means
+ * the step writes `dp` that `formatValue` never reads, so the buttons do
+ * nothing while `dp` climbs forever.
+ */
+export function isDefaultStyleValue(
+  key: keyof CellStyle,
+  value: CellStyle[keyof CellStyle] | undefined,
+): boolean {
+  const fallback = DefaultStyleValues[key];
+  return fallback !== undefined && value === fallback;
+}
+
 export function pruneRedundantDefaultStyleKeys(
   range: Range,
   style: CellStyle,

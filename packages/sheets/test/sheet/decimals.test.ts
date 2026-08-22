@@ -631,4 +631,77 @@ describe('Sheet.Decimals', () => {
       explicitDp: true,
     });
   });
+
+  /**
+   * `defaultKeys: ['nf']` exists so a decimal step cannot overwrite a format
+   * the user chose — a `percent` neighbour has to survive the step. But
+   * `nf: 'plain'` is the *declared default*: it means "no number format", and
+   * `formatValue` returns the raw value for it without ever reading `dp`.
+   * Defending it made both buttons a silent no-op while `dp` climbed forever,
+   * and nothing self-corrected. Reachable straight from the toolbar — select a
+   * column header, or Ctrl+A, then Format → Plain text.
+   *
+   * One case per layer, because the two default-key paths are different code:
+   * a column/row/sheet selection goes through `withoutSetDefaults`, a cell
+   * selection through `collectStyleValuesToPin`.
+   */
+  describe('an explicit plain number format', () => {
+    const stepped = [
+      formatValue('12.5', 'number', 2),
+      formatValue('12.5', 'number', 3),
+    ];
+
+    async function twoIncreases(sheet: Sheet): Promise<string[]> {
+      const seen: string[] = [];
+      for (let i = 0; i < 2; i++) {
+        sheet.selectStart({ r: 1, c: 1 });
+        await sheet.changeDecimals(1);
+        seen.push(await sheet.toDisplayString({ r: 1, c: 1 }));
+      }
+      return seen;
+    }
+
+    it('does not stop Increase Decimals at the column level', async () => {
+      const sheet = new Sheet(new MemStore());
+      await sheet.setData({ r: 1, c: 1 }, '12.5');
+      sheet.selectColumn(1);
+      await sheet.setRangeStyle({ nf: 'plain' });
+
+      expect(await twoIncreases(sheet)).toEqual(stepped);
+    });
+
+    it('does not stop Increase Decimals at the sheet level', async () => {
+      const sheet = new Sheet(new MemStore());
+      await sheet.setData({ r: 1, c: 1 }, '12.5');
+      sheet.selectAllCells();
+      await sheet.setRangeStyle({ nf: 'plain' });
+
+      expect(await twoIncreases(sheet)).toEqual(stepped);
+    });
+
+    it('does not stop Increase Decimals at the cell level', async () => {
+      const sheet = new Sheet(new MemStore());
+      await sheet.setData({ r: 1, c: 1 }, '12.5');
+      await sheet.setStyle({ r: 1, c: 1 }, { nf: 'plain' });
+
+      expect(await twoIncreases(sheet)).toEqual(stepped);
+    });
+
+    // The other half of the contract: a real format still wins. Without this
+    // the fix above could be "stop defending anything" and still look green.
+    it('still leaves a percent neighbour alone', async () => {
+      const sheet = new Sheet(new MemStore());
+      await sheet.setData({ r: 1, c: 1 }, '12.5');
+      await sheet.setData({ r: 2, c: 1 }, '0.5');
+      await sheet.setStyle({ r: 2, c: 1 }, { nf: 'percent', dp: 1 });
+      sheet.selectStart({ r: 1, c: 1 });
+      sheet.selectEnd({ r: 2, c: 1 });
+
+      await sheet.changeDecimals(1);
+
+      expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe(
+        formatValue('0.5', 'percent', 2),
+      );
+    });
+  });
 });
