@@ -31,7 +31,14 @@ export interface ScenePatchDeps {
   plans: Map<FrameSide, MutateRequest[]>;
   /** Lazily loaded so the engine modules are not imported until a scene mounts. */
   intentContext: () => Promise<IntentContext>;
-  stampSource: (text: string, file: string) => Promise<string>;
+  /**
+   * Returns `{ text, stamped }`, not a bare string — `stamp.mjs` reports which nodes it
+   * stamped alongside the rewritten source. Declaring it as `=> Promise<string>` was a
+   * type LIE that `tsc` could not catch: the stamper is `.mjs` under `allowJs` without
+   * `checkJs`, so the hand-written declaration in `plugin/index.ts` was trusted over the
+   * JSDoc that contradicted it. See the `load` hook for what that cost.
+   */
+  stampSource: (text: string, file: string) => Promise<{ text: string; stamped: string[] }>;
   readFile: (abs: string) => Promise<string>;
 }
 
@@ -92,7 +99,16 @@ export function scenePatch(deps: ScenePatchDeps): Plugin {
       // browser actually renders. Stamping first would number the pre-edit tree and
       // every click after an insert would select the wrong node.
       if (classifier.isStampable(abs)) {
-        text = await deps.stampSource(text, rel);
+        // `.text`, because `stampSource` returns `{ text, stamped }`. Assigning the
+        // whole object here made `load` return something Vite reads as `{ code, map }`
+        // — with no `code`, so it treated the hook as having produced NOTHING, fell
+        // back, and ultimately served the raw `.tsx` from disk as a static file: 200
+        // OK, no error, and a browser that cannot parse JSX. The frame came up blank.
+        //
+        // Shipped in 8a and invisible until 11b, because nothing had ever mounted a
+        // frame — the unit tests exercise `stampSource` directly and the live gate only
+        // drove the JSON API.
+        ({ text } = await deps.stampSource(text, rel));
       }
       return text;
     },

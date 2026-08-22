@@ -3,12 +3,53 @@ import { cn } from "@/lib/utils";
 import { WbButton } from "@/app/home/primitives/wb-button";
 
 /**
+ * What `?error=` on the login page means.
+ *
+ * `GET /auth/github/callback` refuses a callback whose OAuth state does not
+ * match the cookie that started the login, and returns the browser here with
+ * `?error=` rather than a JSON 401 it cannot act on. That is reachable with no
+ * attacker at all — the state cookie expires, and opening a second login tab
+ * can replace the first tab's — so the page has to explain it and offer the
+ * retry rather than leave the button looking untouched.
+ *
+ * A `Map` rather than an object literal because the key is a query parameter,
+ * so the lookup is over a string the URL chose. An object literal answers for
+ * its prototype too: `?error=toString` returns an inherited function, which
+ * React renders as nothing, and `?error=__proto__` returns an object, which
+ * React refuses to render at all — so the banner explaining one failed
+ * sign-in would become a second one.
+ *
+ * `login_state` is carried alongside `oauth_state` because the two names for
+ * the same refusal have both been in the callback's vocabulary; a build that
+ * only knew one would answer the other with the generic message.
+ */
+const LOGIN_ERRORS = new Map<string, string>([
+  [
+    "oauth_state",
+    "That sign-in link expired or was started in another tab. Please try again.",
+  ],
+  [
+    "login_state",
+    "That sign-in link expired or was started in another tab. Please try again.",
+  ],
+]);
+
+/** Shown for a code this build does not recognise, so none is silent. */
+const GENERIC_LOGIN_ERROR =
+  "That sign-in could not be completed. Please try again.";
+
+/**
  * Renders the LoginForm component.
  */
 export function LoginForm({
   className,
+  error,
   ...props
-}: React.ComponentPropsWithoutRef<"form">) {
+}: React.ComponentPropsWithoutRef<"form"> & { error?: string | null }) {
+  // `error` is raw query-string input, so the lookup must not walk the
+  // prototype chain — see `LOGIN_ERRORS`.
+  const message = error ? (LOGIN_ERRORS.get(error) ?? GENERIC_LOGIN_ERROR) : null;
+
   return (
     <form className={cn("flex flex-col gap-7", className)} {...props}>
       <div className="flex flex-col items-center gap-2 text-center">
@@ -22,6 +63,14 @@ export function LoginForm({
           Sign in with your GitHub account to get started.
         </p>
       </div>
+      {message && (
+        <p
+          role="alert"
+          className="text-balance text-center text-[13.5px] leading-[1.5] text-[color:var(--wb-sub)] rounded-lg border border-[color:var(--wb-rule)] px-4 py-3 m-0"
+        >
+          {message}
+        </p>
+      )}
       <WbButton asChild variant="primary" size="lg" className="w-full">
         <Link
           to={`${import.meta.env.VITE_BACKEND_API_URL}/auth/github`}

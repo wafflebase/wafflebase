@@ -133,4 +133,28 @@ describe('ApiV1TabsController create/rename', () => {
       },
     );
   });
+
+  describe('initialRoot seeds a fresh, never-opened doc', () => {
+    const lastInitialRoot = () =>
+      withDocument.mock.calls.at(-1)?.[2]?.initialRoot as
+        | SpreadsheetDocument
+        | undefined;
+
+    it('create seeds the canonical tab-1 root', async () => {
+      await controller.create(WS, DOC, { name: 'X' });
+      expect(lastInitialRoot()?.tabOrder).toEqual(['tab-1']);
+    });
+
+    it('rename seeds the canonical tab-1 root', async () => {
+      await controller.rename(WS, DOC, 'tab-1', { name: 'X' });
+      expect(lastInitialRoot()?.tabOrder).toEqual(['tab-1']);
+    });
+
+    it('list (read) is readonly and does NOT seed', async () => {
+      await controller.list(WS, DOC);
+      const opts = withDocument.mock.calls.at(-1)?.[2];
+      expect(opts?.initialRoot).toBeUndefined();
+      expect(opts?.syncMode).toBe('readonly');
+    });
+  });
 });

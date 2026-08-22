@@ -1,6 +1,6 @@
 ---
 title: notifications
-target-version: 0.7.0
+target-version: 0.6.5
 ---
 
 # Notifications

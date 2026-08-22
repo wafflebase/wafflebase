@@ -39,6 +39,21 @@ describe('migrateYorkieWorksheetShape', () => {
     });
   });
 
+  it('keeps pre-lakehouse documents compatible without optional lakehouse metadata', () => {
+    const current = createSpreadsheetDocument();
+
+    const result = migrateYorkieWorksheetShape(current);
+
+    expect(result.kind).toBe('current');
+    expect(result.changed).toBe(false);
+    expect(result.document).toEqual(current);
+    expect(result.document.tabs['tab-1']).not.toHaveProperty(
+      'lakehouseSourceId',
+    );
+    expect(result.document.tabs['tab-1']).not.toHaveProperty('lakehouseRef');
+    expect(result.document.tabs['tab-1']).not.toHaveProperty('asOf');
+  });
+
   it('wraps flat current worksheets into the canonical tabbed document', () => {
     const worksheet = createWorksheet();
     writeWorksheetCell(worksheet, parseRef('C3'), { v: 'flat-current' });
@@ -202,12 +217,57 @@ describe('migrateYorkieWorksheetShape', () => {
 
     expect(result.kind).toBe('legacy-tabbed');
     expect(result.changed).toBe(true);
-    expect(result.document.tabs['source-1']).toEqual(legacyTabbed.tabs['source-1']);
+    expect(result.document.tabs['source-1']).toEqual(
+      legacyTabbed.tabs['source-1'],
+    );
     expect(result.document.tabOrder).toEqual(['sheet-1', 'source-1']);
     expect(result.document.sheets['source-1']).toBeUndefined();
-    expect(getWorksheetEntries(worksheet)).toEqual([['A1', { v: 'legacy-tabbed' }]]);
+    expect(getWorksheetEntries(worksheet)).toEqual([
+      ['A1', { v: 'legacy-tabbed' }],
+    ]);
     expect(worksheet.frozenRows).toBe(1);
     expect(worksheet.frozenCols).toBe(1);
+  });
+
+  it('preserves lakehouse tab metadata while migrating legacy worksheets', () => {
+    const lakehouseTab = {
+      id: 'lakehouse-1',
+      name: 'Orders History',
+      type: 'lakehouse',
+      lakehouseSourceId: 'source-1',
+      lakehouseRef: {
+        metadataUri: 's3://lake/orders/metadata/00002.metadata.json',
+      },
+      asOf: {
+        kind: 'snapshot',
+        snapshotId: '918273645',
+      },
+    } satisfies TabMeta;
+    const legacyTabbed = {
+      tabs: {
+        'sheet-1': {
+          id: 'sheet-1',
+          name: 'Sheet1',
+          type: 'sheet',
+        } satisfies TabMeta,
+        'lakehouse-1': lakehouseTab,
+      },
+      tabOrder: ['sheet-1', 'lakehouse-1'],
+      sheets: {
+        'sheet-1': {
+          sheet: {
+            A1: { v: 'legacy-tabbed' },
+          },
+        },
+      },
+    };
+
+    const result = migrateYorkieWorksheetShape(legacyTabbed);
+
+    expect(result.kind).toBe('legacy-tabbed');
+    expect(result.changed).toBe(true);
+    expect(result.document.tabs['lakehouse-1']).toEqual(lakehouseTab);
+    expect(result.document.sheets['lakehouse-1']).toBeUndefined();
   });
 
   it('reconstructs tab order when a tabbed document stores Yorkie metadata instead of an array', () => {

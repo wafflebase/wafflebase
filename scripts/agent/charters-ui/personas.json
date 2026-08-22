@@ -47,6 +47,98 @@
     "verifierMaxTurns": 50
   },
   {
+    "id": "board-author",
+    "title": "Board author",
+    "surface": "board",
+    "model": "claude-opus-5",
+    "oracles": [
+      "prediction",
+      "crash",
+      "dom-invariant"
+    ],
+    "briefs": [
+      {
+        "id": "arrange-and-view",
+        "task": "Arrange things on the plane and move the view around, and keep the two straight \u2014 they are different coordinate systems and confusing them is the main way to waste a run here. FIRST read `dom.controls`, then click an element and READ IT AGAIN: the toolbar morphs from 7 controls to 12, and `Arrange`, `Border color`, `Border dash`, `Border weight` and `Fill color` only exist once something is selected. Read `board.viewport` early so you know where the window is. THE ROUND TRIPS ARE THE POINT, and a drag has an exact inverse: read `board.elements`, drag an element to a `board.pointAt(x, y)` well clear of everything, drag it back to where it came from, and predict `board.elements` EQUALS the first reading. Do the same with a `se` handle via `board.handleCenter` \u2014 out and back. Then the z-order pair, `Cmd+ArrowUp` then `Cmd+ArrowDown`, on ONE element and on SEVERAL, predicting the array returns to its earlier reading. MIND BOTH SNAPS: within 8 world pixels of another element's edge or centre the drag snaps, and the `Grid` menu has its own snap toggle. Either drag well clear and predict the exact point, or predict the snapped value. SCROLLING IS NOT AN EDIT. A plain `scroll` pans the view, so `board.viewport` changes while `board.elements` must NOT \u2014 world coordinates do not move when the window does, and predicting that they hold across a scroll is a good ground-A check. Expect `board.pointAt` and `board.elementCenter` to REFUSE for anything off-screen; that is the normal state of an unbounded plane, so scroll toward it and try again rather than reporting it."
+      },
+      {
+        "id": "content-and-undo",
+        "task": "Change what the board CONTAINS and use undo as the reversing control \u2014 it genuinely works here. Read `board.canUndo` first and confirm it is false, then make one edit and confirm it turned true. Place things with the two controls that work: `Shape` (pick one from the picker, then DRAG out a region) and `Text box` (also drag). Measured, a click alone places nothing \u2014 these need the drag. Predict `board.elementCount` grows by exactly one, then undo and predict it returns. TYPING TAKES THREE STEPS: select, press `Enter` to enter text-edit mode, type, then commit by clicking a DIFFERENT element. Skip the `Enter` and the keystrokes go to the canvas as shortcuts and nothing lands \u2014 which reads exactly like a failed commit, so get the sequence right before believing a violation. A freshly dragged-out `Text box` is already in edit mode. Escape CANCELS. Round-trip the text: read `board.elements`, type, commit, confirm it changed, undo, and predict the first reading comes back exactly. The `Grid` menu and its snap checkbox are REAL state here, so round-trip those too: change the mode and change it back, and predict nothing about the elements moved. Do NOT spend actions on `Sticky note` or `Sticky note color` \u2014 they are unwired in this harness and adding nothing is not a defect."
+      }
+    ],
+    "codeScope": [
+      "packages/board/src/**",
+      "packages/slides/src/**",
+      "packages/frontend/src/app/board/**"
+    ],
+    "docsScope": [
+      "docs/design/board/board.md",
+      "docs/design/board/board-whiteboard-elements.md",
+      "docs/design/board/board-editing-parity.md"
+    ],
+    "minCitations": 1,
+    "verifiers": 2,
+    "maxVerified": 4,
+    "maxCandidates": 8,
+    "reportableSeverities": [
+      "critical",
+      "major"
+    ],
+    "actionBudget": {
+      "maxActions": 50,
+      "perActionTimeoutMs": 30000,
+      "totalTimeoutMs": 900000
+    },
+    "explorerMaxTurns": 70,
+    "verifierMaxTurns": 50
+  },
+  {
+    "id": "slide-author",
+    "title": "Slide author",
+    "surface": "slides",
+    "model": "claude-opus-5",
+    "oracles": [
+      "prediction",
+      "crash",
+      "dom-invariant"
+    ],
+    "briefs": [
+      {
+        "id": "arrange-and-order",
+        "task": "Build up a slide's arrangement the way someone tidying a layout would, and use the operations that have EXACT INVERSES \u2014 which on this surface is most of them. FIRST read `dom.controls`, then click an element and READ `dom.controls` AGAIN: this toolbar morphs, and every object control you want (`Arrange`, `Border color`, `Border dash`, `Border weight`) only appears once something is selected. A run that reads it once at rest will think the surface has no controls. Then work the round trips, which is the only pattern that has ever found a defect here. Read `slides.elements`, select an element, press `Cmd+ArrowUp` (bring forward) then `Cmd+ArrowDown` (send back), and predict `slides.elements` EQUALS the reading you took first \u2014 z-order is the array order, so a reorder-and-reverse is a permutation you can predict exactly. Do the same with `ArrowRight` x3 then `ArrowLeft` x3, which nudges by one slide-logical pixel per press and must land back where it started, AND must move NOTHING ELSE on the slide. Try `Bring to front` on an element that is ALREADY frontmost and on one that is already at the back \u2014 a no-op that is off by one is exactly the defect this shape catches. Then do it through the `Arrange` menu as well as the keyboard, on a single element and on a MULTI-ELEMENT selection. THEN DRAG, which is exact and is new to this surface. `drag` takes a `target` for where the gesture starts and a `to` for where it ends; use `slides.elementCenter(id)`, `slides.pointAt(x, y)` in slide-logical 1920x1080 coordinates, and `slides.handleCenter(kind)` for the `nw n ne e se s sw w` resize handles, `rotate`, or a connector's `start`/`end`. Handles only exist while something is SELECTED, so click first. The round trips here are the best on this surface because the inverse is exact: read `slides.elements`, drag an element to a point, drag it back to where it came from, and predict `slides.elements` EQUALS the first reading. Same for a resize \u2014 drag a corner handle out and back. BUT MIND THE SNAP: within 8 slide-logical pixels of another element's edge or centre, the slide centre, or a guide, the element snaps there instead, and Alt does NOT disable it. So drag somewhere well clear of every edge and predict the exact point, or predict the snapped value \u2014 predicting the asked-for point next to an edge is a violated prediction with no defect behind it."
+      },
+      {
+        "id": "content-and-undo",
+        "task": "Change what the slide CONTAINS, and use undo as the reversing control \u2014 it genuinely works on this surface, unlike the sheet surface. Read `slides.canUndo` first and confirm it is false before you edit anything, then make one edit and confirm it turned true; a capability you assumed rather than checked is how the other surfaces produced false findings. Then run the round trips, and note how text COMMITS before you predict anything about it: the text editor writes back to the store on BLUR, so typing alone changes nothing `slides.elements` can see, and Escape CANCELS rather than commits. Click a DIFFERENT element to commit. So the round trip is: read `slides.elements`, enter a text box and type, click away to commit, confirm the text actually changed, then undo and predict `slides.elements` equals the first reading \u2014 the stored text must come back exactly, not approximately. A prediction made between the keystrokes and the commit is asserting against something that has not happened yet, and will hold for the wrong reason. Do the same for adding a slide (predict `slides.slideCount` returns to its earlier reading) and for deleting an element. Add a `Text box` and a `Shape` from the toolbar and check what `slides.elements` says about them: an element that reports no `text` field is a different state from one reporting `\"\"`, and predicting the wrong one of those is a mistake rather than a defect. Also move between slides and watch what follows you \u2014 `slides.elements` always describes the CURRENT slide, slide 2 of the seed is empty, and reading `[]` there is correct. The interesting predictions are about what an edit should and should NOT touch: an edit to one element must leave every other element's frame byte-identical, and a slide change must not alter the slide you left."
+      }
+    ],
+    "codeScope": [
+      "packages/slides/src/**",
+      "packages/frontend/src/app/slides/**"
+    ],
+    "docsScope": [
+      "docs/design/slides/slides.md",
+      "docs/design/slides/slides-group.md",
+      "docs/design/slides/slides-toolbar-redesign.md",
+      "docs/design/slides/slides-keyboard-shortcuts.md"
+    ],
+    "minCitations": 1,
+    "verifiers": 2,
+    "maxVerified": 4,
+    "maxCandidates": 8,
+    "reportableSeverities": [
+      "critical",
+      "major"
+    ],
+    "actionBudget": {
+      "maxActions": 50,
+      "perActionTimeoutMs": 30000,
+      "totalTimeoutMs": 900000
+    },
+    "explorerMaxTurns": 70,
+    "verifierMaxTurns": 50
+  },
+  {
     "id": "sheet-author",
     "title": "Sheet author",
     "surface": "sheet",
@@ -59,7 +151,7 @@
     "briefs": [
       {
         "id": "values-and-formulas",
-        "task": "Fill in a small table the way someone building a budget would: type values into cells, then add formulas that reference them (sums, a reference to another cell, a formula referencing a cell that is itself a formula). Change an input afterwards and check that what depends on it followed. IMPORTANT \u2014 THEN PUT THAT INPUT BACK to the value it held, and predict the dependent cell equals the reading you took BEFORE you changed it: a dependency restored must produce the old result. Do the same where the dependent cell is itself referenced by a third, and check `sheet.cellFormula` never changed while `sheet.cellValue` did. Read a cell BEFORE you change it so you have a traceable baseline, and remember that the displayed value and the stored formula are two different readers. THEN FORMAT WHAT YOU BUILT, using the toolbar above the grid. Select cells that HOLD A VALUE and click `Bold`, `Italic` and `Strikethrough`; also try `Format as percent` and `Increase decimal places` on a number. Do the toggle twice on the SAME selection and predict `sheet.activeCellStyle` equals the reading you took before the first click \u2014 a toggle applied twice must return the cell to where it started. Do it on a single cell and on a MULTI-CELL range, and read `sheet.rangeStyles` alongside it \u2014 a clean round trip leaves that list EMPTY, so do not predict it changed."
+        "task": "Spend MOST of this session on the toolbar controls NOBODY HAS EVER CLICKED, and only enough time on values to have something worth formatting. Read `dom.controls` first. Several of these controls OPEN A MENU rather than acting directly \u2014 after you click one, READ `dom.controls` AGAIN, because a menu's entries only exist while it is open and their exact names are what a click target takes. START WITH COLOUR. `Text color` and `Fill color` have never been clicked here, and their shape is where BOTH of this project's filed style defects lived on the document surface: #749 is a toggle that left `italic:false` behind, #793 is a highlight reset that stored `backgroundColor:\"\"` instead of removing it. Each was a control whose OFF state wrote a value rather than clearing one. So: select a cell that HOLDS A VALUE, read `sheet.activeCellStyle`, click `Text color` and pick a swatch, then open `Text color` again and use its reset or default entry \u2014 and predict `sheet.activeCellStyle` EQUALS the reading you took BEFORE the swatch. Do the same for `Fill color`. A round trip that leaves an explicit empty string or a falsy value behind instead of REMOVING the key is exactly the defect worth finding, and `equals` will see the difference. THEN the rest of the untouched controls, same shape wherever one has an off state or a default to return to: `Cell borders`, `Horizontal align`, `Vertical align`, `More formats`, `Functions`, `Paint format`, `Create filter`. Read `sheet.activeCellStyle` before and after each, and set alignment away from its default and back. Remember that a clean round trip leaves `sheet.rangeStyles` EMPTY on this surface because the patch is pruned \u2014 so predict against `sheet.activeCellStyle` returning to its baseline, and treat any DIFFERENCE as the interesting result rather than the sameness. Do at least one of these on a MULTI-CELL range as well as a single cell. KEEP THE VALUE WORK SHORT \u2014 just enough to have something to format. Type a few numbers, add one `=SUM(...)`, then change an input and put it back and predict the dependent cell equals the reading you took before. That round trip has held across many runs: do it once to confirm and move on rather than spending the budget there."
       },
       {
         "id": "navigation-and-selection",

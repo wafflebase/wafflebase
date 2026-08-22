@@ -28,6 +28,7 @@ const envelope = (over = {}) => ({
   config_hash: "sha256:cafe",
   panel_sha: PANEL_SHA,
   panel_sha_source: "measured",
+  panel_digest: `sha256:${"d".repeat(64)}`,
   corpus_version: "2026-08-07a",
   status: "ok",
   reason: null,

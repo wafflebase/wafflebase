@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-// Run the five merged scorers and the renderer over one stored comparison, as one
+// Run the six merged scorers and the renderer over one stored comparison, as one
 // command.
 //
 // WHY THIS IS A MODULE AND NOT SIX STEPS IN A YAML FILE. The sequence itself is not
-// interesting — five CLIs and a renderer, in order, with each payload filed through
+// interesting — six CLIs and a renderer, in order, with each payload filed through
 // `report.mjs --persist`. What is interesting is everything AROUND it, and none of it
 // can live in a workflow's `run:` block:
 //
-//   * The five scorers disagree about how to name a replicate. `volume-mix.mjs` takes
+//   * The six scorers disagree about how to name a replicate. `volume-mix.mjs` takes
 //     `--run` and scores ONE, `complementarity.mjs` / `reliability.mjs` /
 //     `segmentation.mjs` take a repeatable `--run-id`, and `cost-latency.mjs` takes a
 //     comma-separated `--runs` because `runs/` is never globbed (decision 6). A lane
-//     input is one string; translating it five ways is exactly the kind of fan-out that
+//     input is one string; translating it six ways is exactly the kind of fan-out that
 //     rots when it is copied into shell.
 //   * Every degradation available here is SILENT, and the whole value of the lane is the
 //     assertions that make it loud (see `DEGRADATION_MARKERS`, `CAPABILITIES`,
@@ -30,8 +30,8 @@
 // than the laptop did is worse than no lane, because the number it files is believed and
 // nothing on the page says it is short. So this driver refuses on any doubt — an
 // unanswered endpoint, a missing capability flag, an emptied latency figure, an API
-// budget that cannot cover the run — and files nothing rather than filing four scores
-// out of five.
+// budget that cannot cover the run — and files nothing rather than filing five scores
+// out of six.
 //
 // IT SPENDS NOTHING. No model call, no worktree, no clone: the scorers read stored JSON
 // plus read-only GitHub API. MEASURED rather than assumed — see the task doc — a full
@@ -44,6 +44,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EvalStore, REPORTS_DIR, SCORES_DIR, SCORE_SCOPE_DIRS, byConfigSegment } from "./store.mjs";
 import { comparisonIdFor } from "./report.mjs";
+import { PANEL_DIGEST_ABSENT, isPanelDigest, resolvePanelDigest } from "./panel-identity.mjs";
 import { parseArgs } from "../gh-checks.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -72,7 +73,7 @@ function isNumber(value) {
 }
 
 /**
- * The six steps, as DATA rather than as six copies of a spawn.
+ * The seven steps, as DATA rather than as seven copies of a spawn.
  *
  * `scorer_id` and `scope` are the keys `report.mjs --persist` files under, and they are
  * taken from `report.mjs`'s own `SECTIONS` vocabulary rather than restated: a typo here
@@ -82,6 +83,20 @@ function isNumber(value) {
  *
  * `per_replicate` is the one structural difference between them: `volume-mix.mjs` scores
  * ONE replicate and does not aggregate, so it runs K times and files K per-run scores.
+ *
+ * 🔴 `validity.mjs` READS THE API, and the value below is measured rather than assumed.
+ * Its own usage text says it "reads only; writes nothing, spawns nothing, adjudicates
+ * nothing and costs nothing" — which is about MONEY — and the same sentence goes on to
+ * say the CodeRabbit arm makes read-only GitHub calls. It rebuilds that arm's claim
+ * population through `adapters/coderabbit.mjs`'s `corpusRecords`, which is
+ * `fetchCodeRabbitPr` once per item, five endpoints each. So it is a cross-run API
+ * reader exactly like `complementarity` and `segmentation`, and `estimateApiCalls`
+ * counts it. Written `false` here it would understate the pass by `items x 5` calls, and
+ * the whole point of the preflight is that it refuses BEFORE a partial read files a
+ * score nobody can tell is short.
+ *
+ * `partial_exit` is `validity.mjs`'s alone and it is not a loosening of this driver's
+ * refuse-on-doubt rule — see `assertPartialIsDeclared`.
  */
 export const STEPS = Object.freeze([
   { key: "volume", module: "volume-mix.mjs", scorer_id: "volume-mix-v1", scope: "per-run", per_replicate: true, reads_api: true },
@@ -89,6 +104,7 @@ export const STEPS = Object.freeze([
   { key: "reliability", module: "reliability.mjs", scorer_id: "reliability-v1", scope: "cross-run", per_replicate: false, reads_api: false },
   { key: "cost_latency", module: "cost-latency.mjs", scorer_id: "cost-latency-v1", scope: "cross-run", per_replicate: false, reads_api: false },
   { key: "segmentation", module: "segmentation.mjs", scorer_id: "segmentation-v1", scope: "cross-run", per_replicate: false, reads_api: true },
+  { key: "validity", module: "validity.mjs", scorer_id: "validity-v1", scope: "cross-run", per_replicate: false, reads_api: true, partial_exit: 1 },
 ]);
 
 /**
@@ -208,24 +224,44 @@ export const CALLS_PER_ITEM_READ = 5;
 export const BUDGET_HEADROOM = 1.5;
 
 /**
+ * How many of the steps above read the API, split by how often they do it. DERIVED from
+ * `STEPS` rather than written down.
+ *
+ * 🔴 THE `+ 2` USED TO BE A LITERAL AND A SIXTH READER MADE IT WRONG. The model was
+ * `replicates + 2` — the per-replicate reader once per replicate, plus the two cross-run
+ * readers — and adding `validity.mjs` (a third cross-run reader) left the preflight
+ * asking for 175 calls on a pass that spends 210. That error is in the FLATTERING
+ * direction: the budget clears, the pass starts, and it meets the limit part way through,
+ * which is the one outcome this whole preflight exists to prevent — a partial CodeRabbit
+ * arm reads exactly like a clean review. Two expressions of one fact is how the second
+ * one drifts, so there is now one: `reads_api` is the declaration and this is the model.
+ */
+export const API_READERS = Object.freeze({
+  per_replicate: STEPS.filter((s) => s.reads_api && s.per_replicate).length,
+  cross_run: STEPS.filter((s) => s.reads_api && !s.per_replicate).length,
+});
+
+/**
  * How many core API calls one pass costs.
  *
- * `replicates + 2`: `volume-mix.mjs` reads the arm once PER REPLICATE, and
- * `complementarity.mjs` and `segmentation.mjs` read it once each.
- * `reliability.mjs` and `cost-latency.mjs` read no API at all — they work off stored
- * envelopes — which is why they are not in the count.
+ * `k * per_replicate + cross_run`: a per-replicate reader reads the arm once per
+ * replicate and a cross-run reader reads it once. `reliability.mjs` and
+ * `cost-latency.mjs` read no API at all — they work off stored envelopes — which is why
+ * they are not in the count.
  *
  * ⚠ This is a RESOURCE model and not a benchmark figure. Nothing about the numbers the
  * lane reports is pinned anywhere in this file; a lane that asserted an overlap
  * percentage would fail the day the benchmark improved. An API cost is the opposite: it
- * has to be a number, and it was measured — 175 calls for the 7-item pilot at K=3 on
- * 2026-08-13, which is exactly 7 * (3 + 2) * 5.
+ * has to be a number, and it was measured — **175 calls** for the 7-item pilot at K=3 on
+ * 2026-08-13, which is exactly `7 * (3 * 1 + 2) * 5` for the FIVE-step pass that existed
+ * then. The same pilot now costs `7 * (3 * 1 + 3) * 5` = **210**, because validity is a
+ * third cross-run reader. The measurement is not stale — the pass grew.
  */
 export function estimateApiCalls({ items, replicates }) {
   const n = Number(items);
   const k = Number(replicates);
   if (!Number.isFinite(n) || n < 0 || !Number.isFinite(k) || k < 0) refuse(`estimateApiCalls needs a finite item and replicate count, got ${JSON.stringify({ items, replicates })}`);
-  return n * (k + 2) * CALLS_PER_ITEM_READ;
+  return n * (k * API_READERS.per_replicate + API_READERS.cross_run) * CALLS_PER_ITEM_READ;
 }
 
 /**
@@ -386,6 +422,56 @@ export function assertPanelLatency(payload) {
   return { items: items.length, timed };
 }
 
+/**
+ * A step's non-zero exit that is an ANSWER rather than a failure, and the obligation
+ * that keeps it from becoming a swallowed error.
+ *
+ * 🔴 WHY ONE STEP NEEDS THIS AND THE OTHER FIVE DO NOT. `validity.mjs` exits 1 whenever
+ * its own `completeness.verdict` is `partial`, and on a store nobody has adjudicated
+ * that is its CORRECT answer, permanently — every precision cell is `not-computed` with
+ * a reason, which is the figure the report is meant to carry. The other scorers exit
+ * non-zero only when something went wrong. So wiring validity in under the plain
+ * exit-code rule would refuse every pass over today's store: the lane would file six
+ * scores and then abort on the one whose honest output is an absence.
+ *
+ * 🔴 IT IS NOT A LOOSENING OF THE REFUSE-ON-DOUBT RULE, and the obligation is what makes
+ * that true. The exit is accepted only if the payload PARSES and says `partial` in its
+ * own words. Three things still refuse: any other non-zero code, exit `partial_exit`
+ * over a payload that claims `complete` (the code and the payload disagree about what
+ * happened, and one of them is wrong), and a payload that carries no completeness
+ * verdict at all (a scorer whose shape moved out from under this check — lesson 7, where
+ * the check's input stops arriving). Same shape as `assertCapability`: an outcome is
+ * allowed to be either state, and each state carries a requirement that fails loudly.
+ *
+ * ⚠ AND IT IS LOGGED, WITH THE SCORER'S OWN REASONS. A tolerated failure that printed
+ * nothing would be indistinguishable from a clean pass in a job log, which is the shape
+ * of every silent degradation this file exists to catch.
+ */
+export function assertPartialIsDeclared(step, { status, payload, label, log = console.error }) {
+  if (status === 0) return { state: "complete" };
+  if (!Number.isFinite(step.partial_exit) || status !== step.partial_exit) {
+    refuse(`${label} exited ${status}. Nothing was filed`);
+  }
+  const verdict = payload?.completeness?.verdict ?? null;
+  if (verdict === null) {
+    refuse(
+      `${label} exited ${status}, which this driver treats as its declared partial state, and its payload carries no ` +
+        `completeness.verdict to confirm it (keys: ${Object.keys(payload ?? {}).join(", ") || "none"}). The exit code is then the ` +
+        `only evidence of what happened and it cannot be told from a crash, so nothing was filed`,
+    );
+  }
+  if (verdict !== "partial") {
+    refuse(
+      `${label} exited ${status} and its payload reports completeness.verdict=${JSON.stringify(verdict)} — the exit code says ` +
+        `partial and the payload says otherwise, so one of the two is wrong and nothing downstream can tell which. Nothing was filed`,
+    );
+  }
+  const reasons = Array.isArray(payload?.completeness?.reasons) ? payload.completeness.reasons : [];
+  log(`score-all: ${label} is PARTIAL by its own verdict (exit ${status}), which is its declared state and not a failure — filing it:`);
+  for (const reason of reasons) log(`score-all:   ! ${reason}`);
+  return { state: "partial", reasons: reasons.length };
+}
+
 /** Does the scorer this capability belongs to accept its flag? Read from its own usage. */
 export function probeCapability(cap, usageText) {
   return String(usageText ?? "").includes(cap.flag);
@@ -460,9 +546,9 @@ export function assertCapability(cap, { supported, payload }) {
  * the same shapes a second time — two implementations of one path is how the second one
  * drifts and files a score the renderer cannot find.
  */
-export function writtenPaths({ configHash, corpusVersion, runIds }) {
+export function writtenPaths({ configHash, panelDigest, corpusVersion, runIds }) {
   const out = [];
-  const segment = byConfigSegment(configHash, corpusVersion);
+  const segment = byConfigSegment(configHash, panelDigest, corpusVersion);
   for (const step of STEPS) {
     if (step.per_replicate) {
       for (const runId of runIds) out.push(path.posix.join(SCORES_DIR, SCORE_SCOPE_DIRS["per-run"], runId, `${step.scorer_id}.json`));
@@ -470,15 +556,15 @@ export function writtenPaths({ configHash, corpusVersion, runIds }) {
       out.push(path.posix.join(SCORES_DIR, SCORE_SCOPE_DIRS["cross-run"], segment, `${step.scorer_id}.json`));
     }
   }
-  out.push(path.posix.join(REPORTS_DIR, `${comparisonIdFor({ configHash, corpusVersion })}.md`));
+  out.push(path.posix.join(REPORTS_DIR, `${comparisonIdFor({ configHash, panelDigest, corpusVersion })}.md`));
   return out;
 }
 
 // --- argument fan-out -------------------------------------------------------
 
 /**
- * One scorer's argv. This is the fan-out the five CLIs' differing conventions force, and
- * the reason it is one function with a test rather than five shell lines.
+ * One scorer's argv. This is the fan-out the six CLIs' differing conventions force, and
+ * the reason it is one function with a test rather than six shell lines.
  */
 export function scorerArgs(step, { root, corpusVersion, runIds, capabilityFlags = [] }) {
   const args = [path.join("eval", step.module), "--root", root, "--corpus-version", corpusVersion];
@@ -494,17 +580,49 @@ export function scorerArgs(step, { root, corpusVersion, runIds, capabilityFlags 
   return args;
 }
 
-/** `report.mjs --persist`'s argv for one payload. */
-export function persistArgs(step, { root, corpusVersion, configHash, from, runId = null }) {
+/**
+ * `report.mjs --persist`'s argv for one payload.
+ *
+ * 🔴 A CROSS-RUN STEP IS PASSED EVERY REPLICATE, not none. It used to be passed no run
+ * id at all — correctly, because the score is not about one leg — but the panel a
+ * cross-run score is keyed by is read off the runs it pools, so the filing step has to
+ * know which those are. `runId` stays a per-replicate argument; `runIds` is what a
+ * cross-run step needs, and passing both would let them disagree.
+ */
+export function persistArgs(step, { root, corpusVersion, configHash, from, runId = null, runIds = [], panelDigest = null, allowMixedPanel = false }) {
   const args = [path.join("eval", "report.mjs"), "--root", root, "--persist", "--scorer-id", step.scorer_id, "--scope", step.scope, "--from", from, "--corpus-version", corpusVersion, "--config-hash", configHash];
   if (runId) args.push("--run-id", runId);
+  if (!step.per_replicate) {
+    for (const id of runIds) args.push("--run-id", id);
+    args.push(...panelFlags({ panelDigest, allowMixedPanel }));
+  }
   return args;
 }
 
 /** `report.mjs`'s render argv. */
-export function renderArgs({ root, corpusVersion, configHash, runIds }) {
+export function renderArgs({ root, corpusVersion, configHash, runIds, panelDigest = null, allowMixedPanel = false }) {
   const args = [path.join("eval", "report.mjs"), "--root", root, "--corpus-version", corpusVersion, "--config-hash", configHash];
   for (const runId of runIds) args.push("--run-id", runId);
+  args.push(...panelFlags({ panelDigest, allowMixedPanel }));
+  return args;
+}
+
+/**
+ * The two panel flags, in one place: the driver and its children must resolve the panel
+ * identically or a score is filed under a path the renderer then reads as "not
+ * computed". Built once rather than appended at each of the three call sites.
+ *
+ * ⚠ ONLY A REAL DIGEST IS HANDED DOWN. `--panel-digest` means "this IS the panel", so
+ * passing `not-recorded` or `mixed` through it would be stating a state as an identity —
+ * and `report.mjs` refuses it for exactly that reason. Those two resolve in the child
+ * from the same envelopes and the same `--allow-mixed-panel`, so it reaches the same
+ * answer; and if it ever did not, the driver's `getScore` round trip below reads the
+ * path the DRIVER expects and refuses when nothing is there.
+ */
+function panelFlags({ panelDigest, allowMixedPanel }) {
+  const args = [];
+  if (isPanelDigest(panelDigest)) args.push("--panel-digest", panelDigest);
+  if (allowMixedPanel) args.push("--allow-mixed-panel");
   return args;
 }
 
@@ -525,18 +643,20 @@ function nodeRun(args, { cwd, env, out = process.stderr }) {
  * so the tests drive the whole sequence with no network, no scorers and no store.
  */
 export async function scoreAll({
-  root,
+  root: rootArg,
   corpusVersion,
   configHash,
   runIds,
-  out,
+  panelDigest: panelDigestArg = null,
+  allowMixedPanel = false,
+  out: outArg,
   agentDir = HERE.replace(/\/eval$/, ""),
   env = process.env,
   run = null,
   probe = probeRateLimit,
   log = console.error,
 } = {}) {
-  if (!root) refuse("--root is required (no default: a scorer that fell back to a path inside this repository would commit benchmark data into wafflebase for good)");
+  if (!rootArg) refuse("--root is required (no default: a scorer that fell back to a path inside this repository would commit benchmark data into wafflebase for good)");
   if (!corpusVersion) refuse("--corpus-version is required");
   if (!configHash) refuse("--config-hash is required — a score filed under the wrong reviewer pair is unpoolable (decision 13) and there is no way to tell afterwards");
   const ids = [...(runIds ?? [])];
@@ -547,12 +667,69 @@ export async function scoreAll({
   // something knowable for free.
   if (ids.length < 2) refuse(`agreement is defined over replicates, so this needs at least two run ids; got ${ids.length}. reliability.mjs refuses fewer, and it would refuse after the API reads rather than before them`);
 
+  // 🔴 RESOLVED TO ABSOLUTE, ONCE, BEFORE ANYTHING READS THEM. This is the fix for the
+  // lane's first live failure — the scheduled tick of 2026-08-17, which refused every
+  // corpus item on a store that was sitting right there.
+  //
+  // THE BUG, because a one-line fix with no explanation is a one-line fix somebody undoes.
+  // This driver runs in one directory and its children run in ANOTHER: `scorerArgs` builds
+  // the child's argv with a relative module path (`eval/volume-mix.mjs`), so `doRun` sets
+  // `cwd` to `scripts/agent` to make that path resolvable. The cwd exists for the SCRIPT
+  // path — and it silently reparents every other relative path in the same argv. The
+  // workflow passes `--root .eval-store` from the repository root, so:
+  //
+  //   the driver    resolved it against <repo>/            -> found the corpus, 7 items
+  //   every scorer  resolved it against <repo>/scripts/agent -> "corpus version … does not
+  //                                                             exist under this root"
+  //
+  // Both answers were correct about different directories, which is why the log showed a
+  // successful preflight immediately above a total refusal.
+  //
+  // `out` has the identical defect and it bites even when the root is absolute: the driver
+  // WRITES a payload relative to its own cwd and then tells `report.mjs --from` to read it
+  // relative to `scripts/agent`. Measured — ENOENT on a file the driver had just written.
+  // CI never hit it only because the workflow happens to pass an absolute `$RUNNER_TEMP`
+  // path. Resolving both here is one fix for one bug with two mouths.
+  //
+  // An absolute path means the same thing in every working directory, so the whole class
+  // goes away rather than this instance of it. The deeper cleanup — absolute module paths,
+  // so no `cwd` is load-bearing at all — is deliberately NOT here; it is a bigger change
+  // than the failure warrants and it would hide this one inside it.
+  const root = path.resolve(rootArg);
+  const out = outArg ? path.resolve(outArg) : null;
+
   const store = new EvalStore(root);
   const corpus = store.getCorpus(corpusVersion);
-  if (corpus === null) refuse(`corpus version ${JSON.stringify(corpusVersion)} does not exist under ${root}`);
+  // The RESOLVED path in the message, not the argument. The old wording named the corpus
+  // and not the directory, so the live failure read as "the corpus was re-frozen and this
+  // schedule points at a retired version" — which is a real thing that will happen one day
+  // and is exactly what the comment above SCHEDULED_CORPUS_VERSION warns about. A message
+  // that confidently accuses the wrong suspect costs more than no message.
+  if (corpus === null) refuse(`corpus version ${JSON.stringify(corpusVersion)} does not exist under ${root} (resolved from ${JSON.stringify(rootArg)})`);
   for (const runId of ids) {
     if (store.getRun(runId) === null) refuse(`run ${JSON.stringify(runId)} does not exist under ${root} — every scorer below would refuse it, one API budget later`);
   }
+  // WHICH PANEL, RESOLVED ONCE AND BEFORE THE BUDGET IS SPENT. Every cross-run path this
+  // pass writes is keyed by it, and so is the path each child files under, so the driver
+  // and its children have to agree — hence `panelFlags`, which hands the answer down
+  // rather than letting three processes each read the store and hope.
+  //
+  // Refused HERE, on the same argument as the two-replicate check above: a mixture of
+  // panels is knowable for free from the envelopes, and meeting that refusal after
+  // volume-mix and complementarity have spent 100-odd API calls wastes the budget to
+  // learn something that was on disk the whole time.
+  if (panelDigestArg !== null && !isPanelDigest(panelDigestArg)) {
+    refuse(`--panel-digest must be sha256:<64 hex>, got ${JSON.stringify(panelDigestArg)}`);
+  }
+  // THROUGH the resolver, never around it. `--panel-digest` used to short-circuit the store
+  // entirely, which meant a pool that really did span two panels could be filed under one by
+  // passing a flag — the exact failure this key exists to prevent, reintroduced at the CLI.
+  // `resolvePanelDigest` honours a stated digest only where the records state nothing.
+  const panel = resolvePanelDigest({ records: store.panelDigestRecords(ids), allowMixed: allowMixedPanel, stated: panelDigestArg }).digest;
+  if (panel === PANEL_DIGEST_ABSENT) {
+    log(`score-all: no replicate records a panel_digest, so every cross-run path is keyed by ${JSON.stringify(PANEL_DIGEST_ABSENT)} — a named state, not a panel`);
+  }
+
   // The same refusal `assertRepoResolved` makes per-call, made once and before anything
   // is read: `gh` expands {owner}/{repo} from the working directory's remote, and this
   // driver runs from the harness checkout whose remote is the right one only by accident.
@@ -564,11 +741,17 @@ export async function scoreAll({
   const budget = assertBudget(parseRateLimit(probe()), { items: corpus.length, replicates: ids.length, log });
 
   const doRun = run ?? ((args) => nodeRun(args, { cwd: agentDir, env }));
+  // Both halves are already absolute, so `outDir` is too — and it is `outDir` that becomes
+  // `--from` on a child with a different cwd.
   const outDir = out ?? path.join(root, ".score-all");
   mkdirSync(outDir, { recursive: true });
 
   const capabilities = [];
   const filed = [];
+  // Which scorers filed a payload that calls ITSELF partial. Carried into the result and
+  // the summary rather than only into the log: a lane whose report says "not computed"
+  // in a section should be able to point at the step that said so.
+  const partial = [];
   for (const step of STEPS) {
     // The capability probe, before the step it belongs to: the flag has to be in the
     // argv, and whether it is supported changes what the payload must then contain.
@@ -585,50 +768,59 @@ export async function scoreAll({
       const payloadFile = path.join(outDir, step.per_replicate ? `${step.key}-${leg[0]}.json` : `${step.key}.json`);
       log(`score-all: ${label}`);
       const r = doRun(scorerArgs(step, { root, corpusVersion, runIds: leg, capabilityFlags: flags }));
-      // The exit code FIRST, then the log lines. Both are refusals, and a step that
-      // exited non-zero has already said why.
-      if (r.status !== 0) refuse(`${label} exited ${r.status}. Nothing was filed`);
+      // 🔴 THE EXIT CODE IS STILL CHECKED FIRST, AND FOR EVERY STEP. The only change is
+      // that a step declaring `partial_exit` has TWO acceptable codes instead of one —
+      // and the second is then checked HARDER rather than more loosely, because it must
+      // be confirmed by the payload's own completeness verdict a few lines down. An
+      // exit of 2 (bad flags) or 137 (killed) refuses here as it always did, before
+      // anything is parsed and before anything is filed.
+      const tolerated = Number.isFinite(step.partial_exit) ? step.partial_exit : null;
+      if (r.status !== 0 && r.status !== tolerated) refuse(`${label} exited ${r.status}. Nothing was filed`);
       assertNoDegradation(r.stderr, { label, rateLimit: () => parseRateLimit(probe()) });
       let payload;
       try {
         payload = JSON.parse(r.stdout);
       } catch (e) {
-        refuse(`${label} exited 0 but its --json output does not parse (${e.message}) — ${r.stdout.length} byte(s) on stdout`);
+        refuse(`${label} exited ${r.status} and its --json output does not parse (${e.message}) — ${r.stdout.length} byte(s) on stdout`);
       }
+      const completeness = assertPartialIsDeclared(step, { status: r.status, payload, label, log });
+      if (completeness.state === "partial") partial.push(step.scorer_id);
       writeFileSync(payloadFile, JSON.stringify(payload, null, 2) + "\n");
 
       if (step.key === "cost_latency") assertPanelLatency(payload);
       for (const c of mine) capabilities.push(assertCapability(c, { supported: supported.get(c.id), payload }));
 
-      const p = doRun(persistArgs(step, { root, corpusVersion, configHash, from: payloadFile, runId: step.per_replicate ? leg[0] : null }));
+      const p = doRun(persistArgs(step, { root, corpusVersion, configHash, from: payloadFile, runId: step.per_replicate ? leg[0] : null, runIds: ids, panelDigest: panel, allowMixedPanel }));
       if (p.status !== 0) refuse(`filing ${step.scorer_id} exited ${p.status}`);
       // The ROUND TRIP, against the store rather than against the log line the persist
       // step just printed. A bug at both ends of a round trip is invisible to the round
       // trip, so what is checked is that the renderer's own reader can find it.
-      const back = store.getScore({ scorerId: step.scorer_id, scope: step.scope, runId: step.per_replicate ? leg[0] : null, configHash: step.per_replicate ? null : configHash, corpusVersion: step.per_replicate ? null : corpusVersion });
+      const back = store.getScore({ scorerId: step.scorer_id, scope: step.scope, runId: step.per_replicate ? leg[0] : null, configHash: step.per_replicate ? null : configHash, panelDigest: step.per_replicate ? null : panel, corpusVersion: step.per_replicate ? null : corpusVersion });
       if (back === null) refuse(`${step.scorer_id} was filed with exit 0 and getScore cannot read it back — the renderer would print "not computed" over a score that is sitting there`);
       filed.push(step.per_replicate ? `${step.scorer_id}@${leg[0]}` : step.scorer_id);
     }
   }
 
   log("score-all: report.mjs");
-  const rendered = doRun(renderArgs({ root, corpusVersion, configHash, runIds: ids }));
+  const rendered = doRun(renderArgs({ root, corpusVersion, configHash, runIds: ids, panelDigest: panel, allowMixedPanel }));
   // 🔴 PROPAGATED, not swallowed. `report.mjs` exits 1 when any section's score file is
   // absent, which is the one check that catches a scorer this driver does not know about
   // yet — and it is also what an unmerged scorer looks like. A lane that ignored it
   // would publish a report with a section reading "not computed" and call it a success.
   if (rendered.status !== 0) refuse(`report.mjs exited ${rendered.status} — at least one section's score is missing, so the rendered comparison is not the whole comparison`);
 
-  const paths = writtenPaths({ configHash, corpusVersion, runIds: ids });
+  const paths = writtenPaths({ configHash, panelDigest: panel, corpusVersion, runIds: ids });
   const absent = paths.filter((p) => !existsSync(path.join(root, p)));
   if (absent.length > 0) refuse(`the pass reported success and ${absent.length} of the ${paths.length} path(s) it names are not on disk: ${absent.join(", ")}`);
 
   return {
     corpus_version: corpusVersion,
     config_hash: configHash,
+    panel_digest: panel,
     run_ids: ids,
     corpus_items: corpus.length,
     filed,
+    partial,
     capabilities,
     api_budget: budget,
     written_paths: paths,
@@ -647,9 +839,14 @@ export function summarise(result) {
       .join(" · ") || "none";
   return [
     `scored ${result.corpus_version} @ ${result.config_hash}`,
+    `  panel        ${result.panel_digest}`,
     `  replicates   ${result.run_ids.join(" · ")}`,
     `  corpus items ${result.corpus_items}`,
     `  filed        ${result.filed.length} score(s): ${result.filed.join(" · ")}`,
+    // ON THE SUMMARY LINE, not only in the log above it. A score that calls itself
+    // partial is filed on purpose — its absences are the figure — but a summary that did
+    // not name it would let a reader take the whole pass as complete.
+    `  partial      ${(result.partial ?? []).length ? `${result.partial.join(" · ")} — filed, and each says why in its own payload` : "none"}`,
     `  capabilities ${caps}`,
     `  report       ${result.report_path}`,
   ].join("\n");
@@ -660,8 +857,9 @@ export function summarise(result) {
 const USAGE =
   "usage: score-all.mjs --root <eval-data-root> --corpus-version <v> --config-hash <sha256:...>\n" +
   "                    --runs <id,id,id> [--out <dir>] [--emit-dir <dir>] [--json]\n" +
+  "                    [--panel-digest <sha256:...>] [--allow-mixed-panel]\n" +
   "\n" +
-  "Runs the five merged scorers over one stored comparison, files each payload through\n" +
+  "Runs the six merged scorers over one stored comparison, files each payload through\n" +
   "report.mjs --persist, and renders the report. Reads the store and read-only GitHub\n" +
   "API; spawns no model, builds no worktree and costs nothing.\n" +
   "\n" +
@@ -671,6 +869,9 @@ const USAGE =
   "\n" +
   "--runs takes EVERY replicate of one reviewer, comma-separated, matching\n" +
   "cost-latency.mjs. At least two: agreement is defined over replicates.\n" +
+  "One reviewer means one PANEL too: replicates whose recorded panel_digest disagrees\n" +
+  "are refused before the budget is spent. --allow-mixed-panel files the pass under\n" +
+  "`mixed` instead, and --panel-digest states the panel for runs that recorded none.\n" +
   "--emit-dir writes written-paths.txt, which is what a commit step stages BY PATH.\n" +
   "--root is REQUIRED and has no default; there is no --dry-run, because the only\n" +
   "irreversible step is a git commit and that belongs to the caller.\n" +
@@ -679,7 +880,7 @@ const USAGE =
   "refuses rather than reporting a corpus-wide absence that reads like a clean review.";
 
 async function main() {
-  const args = parseArgs(process.argv, { booleans: ["help", "json"] });
+  const args = parseArgs(process.argv, { booleans: ["help", "json", "allow-mixed-panel"] });
   if (args.help) {
     console.log(USAGE);
     return;
@@ -694,6 +895,8 @@ async function main() {
     corpusVersion: args["corpus-version"],
     configHash: args["config-hash"],
     runIds: String(args.runs).split(",").map((s) => s.trim()).filter(Boolean),
+    panelDigest: args["panel-digest"] ?? null,
+    allowMixedPanel: Boolean(args["allow-mixed-panel"]),
     out: args.out ?? null,
   });
   if (args["emit-dir"]) {

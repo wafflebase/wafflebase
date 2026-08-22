@@ -547,8 +547,11 @@ const quoteLiteral = (value) =>
     // U+2028/U+2029 end a line in JS source even inside a string literal.
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029')
-    // Everything else non-printable, by code point rather than by enumeration.
+    // Everything else non-printable, by code point rather than by enumeration. The control
+    // characters ARE the subject here — this is what escapes them on the way into JS source —
+    // so `no-control-regex` is inverted for this line.
     .replace(
+      // eslint-disable-next-line no-control-regex -- the control class is the subject
       /[\0-\x1f\x7f]/g,
       (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`,
     )}'`;

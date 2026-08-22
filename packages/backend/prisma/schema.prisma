@@ -8,6 +8,7 @@ model User {
   shareLinks ShareLink[]
   datasources DataSource[]
   bigquerySources BigQuerySource[]
+  lakehouseSources LakehouseSource[]
   workspaceMembers  WorkspaceMember[]
   workspaceInvites  WorkspaceInvite[]
   apiKeys           ApiKey[]
@@ -58,6 +59,39 @@ model BigQuerySource {
   updatedAt   DateTime  @updatedAt
   workspaceId String
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model LakehouseSource {
+  id          String      @id @default(uuid())
+  name        String
+  format      String // "iceberg" | "delta"
+  storage     String // "s3" | "s3-compatible" | "gcs" | "azure" | "local"
+  endpoint    String? // custom endpoint (MinIO/R2/GCS-interop)
+  region      String?
+  bucket      String?
+  basePath    String? // table root or metadata path (direct-metadata mode)
+  catalogMode CatalogMode @default(direct_metadata)
+  catalogUri  String?
+  // Credentials, AES-256-GCM encrypted (one packed JSON blob). Optional only
+  // because the blob is written in a second step after the row is created
+  // (matching the datasource create→test→save flow); a saved, usable
+  // connection always has credentials.
+  credentials String?
+  authorID    Int
+  author      User        @relation(fields: [authorID], references: [id])
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([workspaceId, name])
+}
+
+enum CatalogMode {
+  direct_metadata
+  rest_catalog
+  s3_tables
+  unity
 }
 
 model Document {
@@ -130,6 +164,7 @@ model Workspace {
   invites     WorkspaceInvite[]
   datasources DataSource[]
   bigquerySources BigQuerySource[]
+  lakehouseSources LakehouseSource[]
   apiKeys     ApiKey[]
   folders     Folder[]
   notifications Notification[]

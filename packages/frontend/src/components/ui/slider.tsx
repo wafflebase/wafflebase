@@ -4,10 +4,9 @@ import * as SliderPrimitive from "@radix-ui/react-slider"
 import { cn } from "@/lib/utils"
 
 /**
- * Single-thumb range slider built on Radix. `aria-label` is forwarded to
- * the thumb (where the `slider` role lives) so the control has an
- * accessible name. For multi-thumb usage pass a `value` array; one thumb
- * is rendered per entry.
+ * Single-thumb range slider built on Radix. Slider-specific ARIA text is
+ * forwarded to the thumb (where the `slider` role lives). For multi-thumb
+ * usage pass a `value` array; one thumb is rendered per entry.
  */
 function Slider({
   className,
@@ -16,9 +15,11 @@ function Slider({
   min = 0,
   max = 100,
   "aria-label": ariaLabel,
+  "aria-valuetext": ariaValueText,
   ...props
 }: React.ComponentProps<typeof SliderPrimitive.Root> & {
   "aria-label"?: string
+  "aria-valuetext"?: string
 }) {
   const thumbCount = Array.isArray(value)
     ? value.length
@@ -53,6 +54,7 @@ function Slider({
           data-slot="slider-thumb"
           key={i}
           aria-label={ariaLabel}
+          aria-valuetext={ariaValueText}
           className="border-primary bg-background ring-ring/50 block size-4 shrink-0 rounded-full border shadow-sm transition-[color,box-shadow] focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none"
         />
       ))}

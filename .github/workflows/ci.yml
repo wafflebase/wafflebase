@@ -78,16 +78,49 @@ jobs:
   changes:
     name: What changed
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 15, not 5, and the number is guarding the CHECKOUT rather than the resolver.
+    # The resolver runs in ~2s; the `fetch-depth: 0` fetch above it is bimodal —
+    # normally 16-43s, but with a heavy tail. Measured over 20 consecutive CI runs
+    # on 2026-08-19: four took 268-318s and THREE of those crossed the old 5-minute
+    # ceiling. Only 22 branches and 42 tags exist, so this is not ref volume; the
+    # variance is on GitHub's git endpoint and is not ours to fix.
+    #
+    # Timing out here is far more expensive than it looks, which is why the headroom
+    # is generous. This job is already fail-safe — every consumer reads
+    # `needs.changes.result != 'success' || heavy == 'true'`, so a failure here makes
+    # them run EVERYTHING — but a job cancelled by `timeout-minutes` makes the whole
+    # RUN conclude `cancelled`, and the agent pipeline gates its fix/promote jobs on
+    # `needs.ci.outputs.conclusion == 'success'`. On #899 that stopped the loop dead
+    # after round 3 with two blocking findings outstanding: all three verify lanes had
+    # PASSED, and nothing paged, because `cancelled` is handled by neither
+    # agent-iterate-ci.yml (which fires only on `failure`) nor the panel's `stalled`
+    # net (which needs a `failure` among its needs).
+    #
+    # So the cost of this ceiling being too low is a silently stalled PR, while the
+    # cost of it being too high is one runner sitting idle. Do not lower it back
+    # without re-measuring the fetch tail.
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
-      full: ${{ steps.resolve.outputs.full }}
-      heavy: ${{ steps.resolve.outputs.heavy }}
+      # `||` because the resolver may not have run at all; an unset output is the
+      # empty string, which is the only falsy string, so a real `false` from the
+      # resolver still wins over the fallback. See `Fall back to the unscoped suite`.
+      full: ${{ steps.resolve.outputs.full || steps.unresolved.outputs.full }}
+      heavy: ${{ steps.resolve.outputs.heavy || steps.unresolved.outputs.heavy }}
       ci_config: ${{ steps.resolve.outputs.ci_config }}
       areas: ${{ steps.resolve.outputs.areas }}
     steps:
+      # TWO SHORT ATTEMPTS RATHER THAN ONE LONG ONE. Measured across 30 runs, this
+      # checkout takes 13-22s and never more than 57s, while its failures all sit at
+      # the 5-minute job timeout with nothing in between: a stalled `fetch-depth: 0`
+      # of this history does not finish late, it does not finish. So 2 minutes is
+      # ~2x the worst observed success and nowhere near the stall, and a second
+      # attempt clears a transient one without paying for the unscoped suite.
       - uses: actions/checkout@v4
+        id: checkout
+        timeout-minutes: 2
+        continue-on-error: true
         with:
           fetch-depth: 0
           # This job only reads history to compute a diff, so it does not need a
@@ -96,15 +129,56 @@ jobs:
           # writable token lying around.
           persist-credentials: false
 
+      - uses: actions/checkout@v4
+        id: retry
+        if: steps.checkout.outcome != 'success'
+        timeout-minutes: 2
+        continue-on-error: true
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - uses: actions/setup-node@v4
+        if: steps.checkout.outcome == 'success' || steps.retry.outcome == 'success'
         with:
           node-version: 22.x
 
       - name: Resolve changed areas
         id: resolve
+        if: steps.checkout.outcome == 'success' || steps.retry.outcome == 'success'
         run: node ./scripts/changed-areas.mjs
 
+      # NEITHER ATTEMPT LANDED, so there is no repository to diff and no resolution.
+      # This job still SUCCEEDS: nothing is broken, the scope simply is not known,
+      # and a red check for a run that went on to verify everything reads as a
+      # failure that did not happen.
+      #
+      # `heavy` has to be said out loud. The gates below read this output, and an
+      # unset one is indistinguishable from "nothing heavy changed" — which is how
+      # `verify-browser` and `verify-integration`, both REQUIRED checks, would report
+      # green having run nothing. `scripts/test/ci-workflow.test.mjs` pins that.
+      #
+      # `areas` stays unset deliberately: `scripts/verify-self.mjs` reads an empty
+      # resolution as "run every lane", so the unscoped suite falls out of the same
+      # absence rather than out of a second copy of the decision.
+      - name: Fall back to the unscoped suite
+        id: unresolved
+        if: steps.checkout.outcome != 'success' && steps.retry.outcome != 'success'
+        run: |
+          echo "::warning::Could not check out the repository in two attempts, so CI's scope was not resolved. Every lane and both heavy jobs run."
+          {
+            echo "full=true"
+            echo "heavy=true"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## What changed"
+            echo
+            echo "**Full suite.** The checkout did not complete in two attempts, so the"
+            echo "scope was never resolved — every lane and both heavy jobs run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Explain the decision
+        if: steps.resolve.outcome == 'success'
         # On the run itself, and this is the copy that ALWAYS works: it needs no
         # token, so unlike the PR comment it survives a fork PR even if the App
         # credentials are missing. `ci-report.yml` renders the same reasons onto
@@ -153,7 +227,12 @@ jobs:
       # non-hidden path outside the workspace is the better one, and it matches
       # what docker-publish.yml already does with `runner.temp`/digests.
       - name: Save the resolution for the reporter
-        if: github.event_name == 'pull_request'
+        # `always()`: this artifact is the reporter's only input, and the run that
+        # most needs explaining is the one whose resolution failed. Both files come
+        # from the event rather than the repository, so neither needs a checkout —
+        # and an empty `areas.json` is what `ci-report.yml` already treats as
+        # "the resolution could not be read".
+        if: always() && github.event_name == 'pull_request'
         env:
           AREAS: ${{ steps.resolve.outputs.areas }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -164,7 +243,7 @@ jobs:
           printf '%s' "$PR_NUMBER" > "$CONTEXT_DIR/pr-number"
 
       - name: Upload the CI context
-        if: github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: ci-context
@@ -286,6 +365,73 @@ jobs:
           path: .harness-reports/
           include-hidden-files: true
           retention-days: 14
+
+  verify-backend-image:
+    runs-on: ubuntu-latest
+    needs: [changes, verify-self]
+    # Filtered on the steps, not the job, for the reason spelled out on
+    # verify-browser: a skipped matrix job never expands its matrix.
+    if: ${{ !cancelled() && needs.verify-self.result == 'success' }}
+    env:
+      RUN_HEAVY: >-
+        ${{ needs.changes.result != 'success' ||
+            needs.changes.outputs.heavy == 'true' ||
+            contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+          - platform: linux/arm64
+            arch: arm64
+
+    steps:
+      - name: Why this job is doing nothing
+        if: env.RUN_HEAVY != 'true'
+        run: |
+          echo "::notice::verify-backend-image had nothing to test — no workspace package or Dockerfile changed. See the 'What changed' job summary."
+
+      - uses: actions/checkout@v4
+        if: env.RUN_HEAVY == 'true'
+        with:
+          # The checkout is only a build context for `docker buildx build`;
+          # nothing in this job talks back to git, so do not leave the token in
+          # `.git/config` where the PR-controlled Dockerfile could read it.
+          persist-credentials: false
+
+      # QEMU registers binfmt handlers through a privileged container, so it is
+      # gated like everything else: a filtered run must cost a few seconds, not
+      # set up cross-architecture emulation it will never use.
+      - uses: docker/setup-qemu-action@v3
+        if: env.RUN_HEAVY == 'true'
+
+      - uses: docker/setup-buildx-action@v3
+        if: env.RUN_HEAVY == 'true'
+
+      - name: Build production backend image (${{ matrix.arch }})
+        if: env.RUN_HEAVY == 'true'
+        run: >-
+          docker buildx build
+          --load
+          --platform "${{ matrix.platform }}"
+          --tag "wafflebase-backend-smoke-${{ matrix.arch }}"
+          --file Dockerfile
+          .
+
+      # `--network none` is the assertion, not a detail: the image pre-bundles
+      # the DuckDB extensions, so initialization must not reach
+      # extensions.duckdb.org. With networking off, an image that lost the
+      # bundling step fails here instead of in an egress-restricted
+      # deployment's first lakehouse read.
+      - name: Cold-start all DuckDB extensions offline (${{ matrix.arch }})
+        if: env.RUN_HEAVY == 'true'
+        run: |
+          docker run --rm --network none --entrypoint node \
+            -v "$PWD/packages/backend/test/smoke-duckdb-runtime.cjs:/app/packages/backend/test/smoke-duckdb-runtime.cjs:ro" \
+            "wafflebase-backend-smoke-${{ matrix.arch }}" \
+            test/smoke-duckdb-runtime.cjs
 
   verify-browser:
     runs-on: ubuntu-latest
@@ -448,6 +594,14 @@ jobs:
         ${{ needs.changes.result != 'success' ||
             needs.changes.outputs.heavy == 'true' ||
             contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+      RUN_LAKEHOUSE_INTEGRATION_TESTS: "true"
+      LAKEHOUSE_MINIO_ENDPOINT: http://localhost:9000
+      LAKEHOUSE_ALLOWED_ENDPOINTS: http://localhost:9000,http://127.0.0.1:10000/devstoreaccount1
+      LAKEHOUSE_MINIO_ACCESS_KEY: minioadmin
+      LAKEHOUSE_MINIO_SECRET_KEY: minioadmin
+      LAKEHOUSE_MINIO_REGION: us-east-1
+      # Enables the azurite-azure leg of the connector-parity suite.
+      LAKEHOUSE_AZURITE_ENDPOINT: http://127.0.0.1:10000/devstoreaccount1
     services:
       postgres:
         image: postgres:16
@@ -516,6 +670,54 @@ jobs:
           pnpm slides build
           pnpm sheets build
 
+      - name: Start MinIO object storage
+        if: env.RUN_HEAVY == 'true'
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+
+      - name: Wait for MinIO to become healthy
+        if: env.RUN_HEAVY == 'true'
+        run: |
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://localhost:9000/minio/health/ready; then
+              echo "MinIO is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "MinIO did not become healthy on :9000" >&2
+          docker logs minio || true
+          exit 1
+
+      # Azure Blob emulator for the lakehouse parity suite's azurite-azure leg.
+      - name: Start Azurite blob emulator
+        if: env.RUN_HEAVY == 'true'
+        run: |
+          docker run -d --name azurite \
+            -p 10000:10000 \
+            mcr.microsoft.com/azure-storage/azurite:3.35.0 \
+            azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+
+      - name: Wait for Azurite to become healthy
+        if: env.RUN_HEAVY == 'true'
+        run: |
+          for i in $(seq 1 30); do
+            status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              'http://127.0.0.1:10000/devstoreaccount1?comp=list' || true)
+            if [ "$status" != "000" ] && [ "$status" -lt 500 ]; then
+              echo "Azurite is up after ${i}s (status $status)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Azurite did not become healthy on :10000" >&2
+          docker logs azurite || true
+          exit 1
+
       - name: Start Yorkie server
         if: env.RUN_HEAVY == 'true'
         run: |
@@ -552,3 +754,11 @@ jobs:
       - name: Yorkie logs on failure
         if: failure() && steps.integration.outcome == 'failure' && env.RUN_HEAVY == 'true'
         run: docker logs yorkie
+
+      - name: MinIO logs on failure
+        if: failure() && steps.integration.outcome == 'failure' && env.RUN_HEAVY == 'true'
+        run: docker logs minio
+
+      - name: Azurite logs on failure
+        if: failure() && steps.integration.outcome == 'failure' && env.RUN_HEAVY == 'true'
+        run: docker logs azurite

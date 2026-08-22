@@ -1,12 +1,25 @@
 import JSZip from 'jszip';
 import type { Document, Block, Inline, TableData, PageSetup, HeaderFooter } from '../model/types.js';
 import { DEFAULT_PAGE_SETUP } from '../model/types.js';
-import { buildRunPropertiesXml, buildParagraphPropertiesXml } from './docx-style-map.js';
+import {
+  buildRunPropertiesXml,
+  buildParagraphPropertiesXml,
+  toDocxHexColor,
+} from './docx-style-map.js';
 import { pxToTwips, pxToEmus } from '../import/units.js';
 import { CONTENT_TYPES, ROOT_RELS, STYLES, DOC_RELS } from './docx-templates.js';
+// The reporter's contract — "supplying it is what opts into dropping a failed
+// image" — is one rule for both exporters, so it has one definition.
+import type { ImageErrorReporter } from './pdf-image-painter.js';
 
 export type ImageFetcher = (url: string) => Promise<Blob>;
 
+/**
+ * One image collected into the zip — or, when `rId` is empty, one image the
+ * export could not fetch. A failed entry is still recorded so the src is not
+ * retried, and so `inlineToXml` can tell "this image was dropped" (emit no
+ * run) from "no fetcher ran at all" (a caller bug, which still throws).
+ */
 type ImageEntry = { rId: string; path: string; ext: string; src: string };
 
 const MIME_TO_EXT: Record<string, string> = {
@@ -30,11 +43,19 @@ export class DocxExporter {
    * @param imageFetcher - Required when the document contains image inlines.
    *   Called once per unique image src to fetch the raw image Blob. If omitted
    *   and the document contains image inlines, export will throw.
+   * @param onProgress - Progress callback, `(done, total, phase)`.
+   * @param onImageError - Opt in to surviving an image the fetcher could not
+   *   deliver: the failure is reported here and the run is omitted. Omit it —
+   *   as the browser exporter does — and a failed image fails the export, so
+   *   the caller's error path reports it instead of the user receiving a
+   *   silently incomplete document. The CLI passes one because its SSRF guard
+   *   makes a refused `src` an ordinary outcome.
    */
   static async export(
     doc: Document,
     imageFetcher?: ImageFetcher,
     onProgress?: (done: number, total: number, phase: string) => void,
+    onImageError?: ImageErrorReporter,
   ): Promise<Blob> {
     const zip = new JSZip();
     // rIds are scoped per .rels file in OOXML, so give each part its own
@@ -84,7 +105,7 @@ export class DocxExporter {
     // Collect and fetch images referenced from the main document body.
     if (fetcher) {
       for (const block of doc.blocks) {
-        await DocxExporter.collectImages(block, fetcher, zip, docImageEntries, nextDocRId, nextMediaName);
+        await DocxExporter.collectImages(block, fetcher, zip, docImageEntries, nextDocRId, nextMediaName, onImageError);
       }
     }
 
@@ -99,7 +120,7 @@ export class DocxExporter {
       headerRId = nextDocRId();
       if (fetcher) {
         for (const block of doc.header.blocks) {
-          await DocxExporter.collectImages(block, fetcher, zip, headerImageEntries, nextHeaderRId, nextMediaName);
+          await DocxExporter.collectImages(block, fetcher, zip, headerImageEntries, nextHeaderRId, nextMediaName, onImageError);
         }
       }
       const headerXml = DocxExporter.buildHeaderFooterXml(doc.header, 'header', headerImageEntries);
@@ -111,7 +132,7 @@ export class DocxExporter {
       footerRId = nextDocRId();
       if (fetcher) {
         for (const block of doc.footer.blocks) {
-          await DocxExporter.collectImages(block, fetcher, zip, footerImageEntries, nextFooterRId, nextMediaName);
+          await DocxExporter.collectImages(block, fetcher, zip, footerImageEntries, nextFooterRId, nextMediaName, onImageError);
         }
       }
       const footerXml = DocxExporter.buildHeaderFooterXml(doc.footer, 'footer', footerImageEntries);
@@ -124,7 +145,9 @@ export class DocxExporter {
     // plus any header/footer part relationships (header/footer image
     // rels live in their own .rels files, not here).
     const docRels: string[] = [];
-    for (const e of docImageEntries) {
+    // Entries with no rId are images whose fetch failed; nothing was written
+    // to `word/media`, so they get no relationship either.
+    for (const e of docImageEntries.filter((e) => e.rId)) {
       docRels.push(`  <Relationship Id="${e.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${e.path}"/>`);
     }
     if (headerRId) {
@@ -200,6 +223,9 @@ ${bodyXml}
           `Did you forget to pass an imageFetcher to DocxExporter.export()?`,
         );
       }
+      // The fetch for this src failed and was reported; emit no run rather
+      // than a picture pointing at a relationship that does not exist.
+      if (!entry.rId) return '';
       const cx = pxToEmus(inline.style.image.width);
       const cy = pxToEmus(inline.style.image.height);
       return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">
@@ -306,9 +332,15 @@ ${bodyXml}
         if (cellTwips > 0) tcPrParts.push(`<w:tcW w:w="${cellTwips}" w:type="dxa"/>`);
         if (cell.colSpan && cell.colSpan > 1) tcPrParts.push(`<w:gridSpan w:val="${cell.colSpan}"/>`);
         if (cell.rowSpan && cell.rowSpan > 1) tcPrParts.push(`<w:vMerge w:val="restart"/>`);
-        if (cell.style.backgroundColor) {
-          const hex = cell.style.backgroundColor.replace('#', '');
-          tcPrParts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${hex}"/>`);
+        // Same sink as the run-level `<w:shd w:fill>` — a cell background
+        // is an untrusted string (DOCX import copies `w:shd/@w:fill`
+        // verbatim, HTML paste copies CSS), so it goes through the shared
+        // `ST_HexColor` normalizer instead of a bare `#` strip. Anything
+        // that is not a hex color drops the attribute rather than
+        // injecting into document.xml / header1.xml / footer1.xml.
+        const cellFill = toDocxHexColor(cell.style.backgroundColor);
+        if (cellFill) {
+          tcPrParts.push(`<w:shd w:val="clear" w:color="auto" w:fill="${cellFill}"/>`);
         }
         const tcPr = tcPrParts.length > 0 ? `<w:tcPr>${tcPrParts.join('')}</w:tcPr>` : '';
 
@@ -380,6 +412,8 @@ ${blocks}
    */
   private static buildPartRelsXml(imageEntries: ImageEntry[]): string {
     const rels = imageEntries
+      // Skip entries whose fetch failed — no media file was written for them.
+      .filter((e) => e.rId)
       .map(
         (e) =>
           `  <Relationship Id="${e.rId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${e.path}"/>`,
@@ -419,13 +453,29 @@ ${rels}
     entries: ImageEntry[],
     nextRId: () => string,
     nextMediaName: (ext: string) => string,
+    onImageError?: ImageErrorReporter,
   ): Promise<void> {
     for (const inline of block.inlines) {
       if (inline.style.image) {
         const src = inline.style.image.src;
         // Skip if this src was already fetched for the same part (dedupe).
         if (entries.some((e) => e.src === src)) continue;
-        const blob = await fetcher(src);
+        // A caller that supplied `onImageError` would rather lose one image
+        // than the export — the URL is document content (stale, external, or
+        // blocked by the CLI's SSRF guard), while the export is what the user
+        // asked for. It is reported there and recorded as a failed entry so
+        // the run is omitted instead of referencing a relationship that was
+        // never written. With no reporter the failure propagates, so a caller
+        // that never opted in cannot hand its user a quietly incomplete file.
+        let blob: Blob;
+        try {
+          blob = await fetcher(src);
+        } catch (error) {
+          if (!onImageError) throw error;
+          onImageError(src, error);
+          entries.push({ rId: '', path: '', ext: '', src });
+          continue;
+        }
         const ext = deriveExt(blob);
         const rId = nextRId();
         const path = nextMediaName(ext);
@@ -438,7 +488,7 @@ ${rels}
       for (const row of block.tableData.rows) {
         for (const cell of row.cells) {
           for (const cellBlock of cell.blocks) {
-            await DocxExporter.collectImages(cellBlock, fetcher, zip, entries, nextRId, nextMediaName);
+            await DocxExporter.collectImages(cellBlock, fetcher, zip, entries, nextRId, nextMediaName, onImageError);
           }
         }
       }

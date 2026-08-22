@@ -6,15 +6,70 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 469
+Total archived tasks: 530
 
-## 2026/08 (41 tasks)
+## 2026/08 (100 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.5 (2026-08-22) | [20260822-release-v0.6.5-todo.md](./2026/08/20260822-release-v0.6.5-todo.md) | [20260822-release-v0.6.5-lessons.md](./2026/08/20260822-release-v0.6.5-lessons.md) |
+| task archive audit (2026-08-22) | [20260822-task-archive-audit-todo.md](./2026/08/20260822-task-archive-audit-todo.md) | [20260822-task-archive-audit-lessons.md](./2026/08/20260822-task-archive-audit-lessons.md) |
+| eval panel digest (2026-08-20) | [20260820-eval-panel-digest-todo.md](./2026/08/20260820-eval-panel-digest-todo.md) | - |
+| eval report section5 (2026-08-20) | [20260820-eval-report-section5-todo.md](./2026/08/20260820-eval-report-section5-todo.md) | - |
+| eval validity scorer (2026-08-20) | [20260820-eval-validity-scorer-todo.md](./2026/08/20260820-eval-validity-scorer-todo.md) | - |
+| fixer live credential (2026-08-20) | [20260820-fixer-live-credential-todo.md](./2026/08/20260820-fixer-live-credential-todo.md) | - |
+| pool select all agents (2026-08-20) | [20260820-pool-select-all-agents-todo.md](./2026/08/20260820-pool-select-all-agents-todo.md) | - |
+| citation same file match (2026-08-19) | [20260819-citation-same-file-match-todo.md](./2026/08/20260819-citation-same-file-match-todo.md) | - |
+| design editor token panels (2026-08-19) | [20260819-design-editor-token-panels-todo.md](./2026/08/20260819-design-editor-token-panels-todo.md) | [20260819-design-editor-token-panels-lessons.md](./2026/08/20260819-design-editor-token-panels-lessons.md) |
+| design sandbox canvas (2026-08-19) | [20260819-design-sandbox-canvas-todo.md](./2026/08/20260819-design-sandbox-canvas-todo.md) | [20260819-design-sandbox-canvas-lessons.md](./2026/08/20260819-design-sandbox-canvas-lessons.md) |
+| design sandbox scene half (2026-08-19) | [20260819-design-sandbox-scene-half-todo.md](./2026/08/20260819-design-sandbox-scene-half-todo.md) | [20260819-design-sandbox-scene-half-lessons.md](./2026/08/20260819-design-sandbox-scene-half-lessons.md) |
+| freeze review surface (2026-08-19) | [20260819-freeze-review-surface-todo.md](./2026/08/20260819-freeze-review-surface-todo.md) | - |
+| slides toolbar focus release (2026-08-19) | [20260819-slides-toolbar-focus-release-todo.md](./2026/08/20260819-slides-toolbar-focus-release-todo.md) | [20260819-slides-toolbar-focus-release-lessons.md](./2026/08/20260819-slides-toolbar-focus-release-lessons.md) |
+| design editor chrome (2026-08-18) | [20260818-design-editor-chrome-todo.md](./2026/08/20260818-design-editor-chrome-todo.md) | [20260818-design-editor-chrome-lessons.md](./2026/08/20260818-design-editor-chrome-lessons.md) |
+| block type toolbar refresh (2026-08-17) | [20260817-block-type-toolbar-refresh-todo.md](./2026/08/20260817-block-type-toolbar-refresh-todo.md) | [20260817-block-type-toolbar-refresh-lessons.md](./2026/08/20260817-block-type-toolbar-refresh-lessons.md) |
+| design editor shell build (2026-08-17) | [20260817-design-editor-shell-build-todo.md](./2026/08/20260817-design-editor-shell-build-todo.md) | [20260817-design-editor-shell-build-lessons.md](./2026/08/20260817-design-editor-shell-build-lessons.md) |
+| docs highlight none clear (2026-08-17) | [20260817-docs-highlight-none-clear-todo.md](./2026/08/20260817-docs-highlight-none-clear-todo.md) | [20260817-docs-highlight-none-clear-lessons.md](./2026/08/20260817-docs-highlight-none-clear-lessons.md) |
+| harness git env (2026-08-17) | [20260817-harness-git-env-todo.md](./2026/08/20260817-harness-git-env-todo.md) | - |
+| agent credential redaction (2026-08-15) | [20260815-agent-credential-redaction-todo.md](./2026/08/20260815-agent-credential-redaction-todo.md) | - |
+| agent pool failover (2026-08-15) | [20260815-agent-pool-failover-todo.md](./2026/08/20260815-agent-pool-failover-todo.md) | [20260815-agent-pool-failover-lessons.md](./2026/08/20260815-agent-pool-failover-lessons.md) |
+| design editor frame protocol (2026-08-15) | [20260815-design-editor-frame-protocol-todo.md](./2026/08/20260815-design-editor-frame-protocol-todo.md) | [20260815-design-editor-frame-protocol-lessons.md](./2026/08/20260815-design-editor-frame-protocol-lessons.md) |
+| design editor frame runtime (2026-08-15) | [20260815-design-editor-frame-runtime-todo.md](./2026/08/20260815-design-editor-frame-runtime-todo.md) | [20260815-design-editor-frame-runtime-lessons.md](./2026/08/20260815-design-editor-frame-runtime-lessons.md) |
+| image downscale (2026-08-15) | [20260815-image-downscale-todo.md](./2026/08/20260815-image-downscale-todo.md) | - |
+| design editor client (2026-08-14) | [20260814-design-editor-client-todo.md](./2026/08/20260814-design-editor-client-todo.md) | [20260814-design-editor-client-lessons.md](./2026/08/20260814-design-editor-client-lessons.md) |
+| design editor consumer gate (2026-08-14) | [20260814-design-editor-consumer-gate-todo.md](./2026/08/20260814-design-editor-consumer-gate-todo.md) | [20260814-design-editor-consumer-gate-lessons.md](./2026/08/20260814-design-editor-consumer-gate-lessons.md) |
+| design editor edits (2026-08-14) | [20260814-design-editor-edits-todo.md](./2026/08/20260814-design-editor-edits-todo.md) | [20260814-design-editor-edits-lessons.md](./2026/08/20260814-design-editor-edits-lessons.md) |
+| notes image upload (2026-08-14) | [20260814-notes-image-upload-todo.md](./2026/08/20260814-notes-image-upload-todo.md) | - |
+| doc index refresh (2026-08-13) | [20260813-doc-index-refresh-todo.md](./2026/08/20260813-doc-index-refresh-todo.md) | [20260813-doc-index-refresh-lessons.md](./2026/08/20260813-doc-index-refresh-lessons.md) |
+| document copy (2026-08-13) | [20260813-document-copy-todo.md](./2026/08/20260813-document-copy-todo.md) | [20260813-document-copy-lessons.md](./2026/08/20260813-document-copy-lessons.md) |
+| eval scoring lane (2026-08-13) | [20260813-eval-scoring-lane-todo.md](./2026/08/20260813-eval-scoring-lane-todo.md) | - |
+| pair label consumer (2026-08-13) | [20260813-pair-label-consumer-todo.md](./2026/08/20260813-pair-label-consumer-todo.md) | - |
+| visual font cache (2026-08-13) | [20260813-visual-font-cache-todo.md](./2026/08/20260813-visual-font-cache-todo.md) | [20260813-visual-font-cache-lessons.md](./2026/08/20260813-visual-font-cache-lessons.md) |
+| coderabbit latency (2026-08-12) | [20260812-coderabbit-latency-todo.md](./2026/08/20260812-coderabbit-latency-todo.md) | - |
+| coderabbit title excludes code (2026-08-12) | [20260812-coderabbit-title-excludes-code-todo.md](./2026/08/20260812-coderabbit-title-excludes-code-todo.md) | - |
+| date display format (2026-08-12) | [20260812-date-display-format-todo.md](./2026/08/20260812-date-display-format-todo.md) | [20260812-date-display-format-lessons.md](./2026/08/20260812-date-display-format-lessons.md) |
+| docs font color reset (2026-08-12) | [20260812-docs-font-color-reset-todo.md](./2026/08/20260812-docs-font-color-reset-todo.md) | [20260812-docs-font-color-reset-lessons.md](./2026/08/20260812-docs-font-color-reset-lessons.md) |
+| eval adjudication cli (2026-08-12) | [20260812-eval-adjudication-cli-todo.md](./2026/08/20260812-eval-adjudication-cli-todo.md) | - |
+| eval cost latency scorer (2026-08-12) | [20260812-eval-cost-latency-scorer-todo.md](./2026/08/20260812-eval-cost-latency-scorer-todo.md) | - |
+| eval report renderer (2026-08-12) | [20260812-eval-report-renderer-todo.md](./2026/08/20260812-eval-report-renderer-todo.md) | - |
+| eval segmentation (2026-08-12) | [20260812-eval-segmentation-todo.md](./2026/08/20260812-eval-segmentation-todo.md) | - |
+| token overlap arm aware (2026-08-12) | [20260812-token-overlap-arm-aware-todo.md](./2026/08/20260812-token-overlap-arm-aware-todo.md) | - |
+| agent tests isolate eval run (2026-08-11) | [20260811-agent-tests-isolate-eval-run-todo.md](./2026/08/20260811-agent-tests-isolate-eval-run-todo.md) | - |
+| cli usage error envelope (2026-08-11) | [20260811-cli-usage-error-envelope-todo.md](./2026/08/20260811-cli-usage-error-envelope-todo.md) | [20260811-cli-usage-error-envelope-lessons.md](./2026/08/20260811-cli-usage-error-envelope-lessons.md) |
+| coderabbit window identity (2026-08-11) | [20260811-coderabbit-window-identity-todo.md](./2026/08/20260811-coderabbit-window-identity-todo.md) | - |
+| eval complementarity scorer (2026-08-11) | [20260811-eval-complementarity-scorer-todo.md](./2026/08/20260811-eval-complementarity-scorer-todo.md) | - |
+| eval reliability scorer (2026-08-11) | [20260811-eval-reliability-scorer-todo.md](./2026/08/20260811-eval-reliability-scorer-todo.md) | - |
+| eval volume mix scorer (2026-08-11) | [20260811-eval-volume-mix-scorer-todo.md](./2026/08/20260811-eval-volume-mix-scorer-todo.md) | - |
+| visual inter font race (2026-08-11) | [20260811-visual-inter-font-race-todo.md](./2026/08/20260811-visual-inter-font-race-todo.md) | - |
 | agent loop observability phase4 (2026-08-10) | [20260810-agent-loop-observability-phase4-todo.md](./2026/08/20260810-agent-loop-observability-phase4-todo.md) | - |
+| corpus pinned review commit (2026-08-10) | [20260810-corpus-pinned-review-commit-todo.md](./2026/08/20260810-corpus-pinned-review-commit-todo.md) | - |
+| defect class grouping (2026-08-10) | [20260810-defect-class-grouping-todo.md](./2026/08/20260810-defect-class-grouping-todo.md) | - |
+| devops merge queue (2026-08-10) | [20260810-devops-merge-queue-todo.md](./2026/08/20260810-devops-merge-queue-todo.md) | - |
+| docs range aware toggles (2026-08-10) | [20260810-docs-range-aware-toggles-todo.md](./2026/08/20260810-docs-range-aware-toggles-todo.md) | [20260810-docs-range-aware-toggles-lessons.md](./2026/08/20260810-docs-range-aware-toggles-lessons.md) |
 | engine dts tsc emit (2026-08-10) | [20260810-engine-dts-tsc-emit-todo.md](./2026/08/20260810-engine-dts-tsc-emit-todo.md) | [20260810-engine-dts-tsc-emit-lessons.md](./2026/08/20260810-engine-dts-tsc-emit-lessons.md) |
+| eval replay lane (2026-08-10) | [20260810-eval-replay-lane-todo.md](./2026/08/20260810-eval-replay-lane-todo.md) | - |
 | eval run test reap (2026-08-10) | [20260810-eval-run-test-reap-todo.md](./2026/08/20260810-eval-run-test-reap-todo.md) | - |
+| notifications (2026-08-10) | [20260810-notifications-todo.md](./2026/08/20260810-notifications-todo.md) | [20260810-notifications-lessons.md](./2026/08/20260810-notifications-lessons.md) |
+| release v0.6.4 (2026-08-10) | [20260810-release-v0.6.4-todo.md](./2026/08/20260810-release-v0.6.4-todo.md) | [20260810-release-v0.6.4-lessons.md](./2026/08/20260810-release-v0.6.4-lessons.md) |
 | analytics details permission (2026-08-09) | [20260809-analytics-details-permission-todo.md](./2026/08/20260809-analytics-details-permission-todo.md) | [20260809-analytics-details-permission-lessons.md](./2026/08/20260809-analytics-details-permission-lessons.md) |
 | board snap to grid (2026-08-09) | [20260809-board-snap-to-grid-todo.md](./2026/08/20260809-board-snap-to-grid-todo.md) | [20260809-board-snap-to-grid-lessons.md](./2026/08/20260809-board-snap-to-grid-lessons.md) |
 | csv client import (2026-08-09) | [20260809-csv-client-import-todo.md](./2026/08/20260809-csv-client-import-todo.md) | [20260809-csv-client-import-lessons.md](./2026/08/20260809-csv-client-import-lessons.md) |
@@ -35,6 +90,8 @@ Total archived tasks: 469
 | ci timeouts (2026-08-06) | [20260806-ci-timeouts-todo.md](./2026/08/20260806-ci-timeouts-todo.md) | - |
 | cli file upload (2026-08-06) | [20260806-cli-file-upload-todo.md](./2026/08/20260806-cli-file-upload-todo.md) | [20260806-cli-file-upload-lessons.md](./2026/08/20260806-cli-file-upload-lessons.md) |
 | cli quiet preserves body (2026-08-06) | [20260806-cli-quiet-preserves-body-todo.md](./2026/08/20260806-cli-quiet-preserves-body-todo.md) | [20260806-cli-quiet-preserves-body-lessons.md](./2026/08/20260806-cli-quiet-preserves-body-lessons.md) |
+| cli status ctx structured output (2026-08-06) | [20260806-cli-status-ctx-structured-output-todo.md](./2026/08/20260806-cli-status-ctx-structured-output-todo.md) | [20260806-cli-status-ctx-structured-output-lessons.md](./2026/08/20260806-cli-status-ctx-structured-output-lessons.md) |
+| corpus localization scope (2026-08-06) | [20260806-corpus-localization-scope-todo.md](./2026/08/20260806-corpus-localization-scope-todo.md) | - |
 | dependabot alerts (2026-08-06) | [20260806-dependabot-alerts-todo.md](./2026/08/20260806-dependabot-alerts-todo.md) | [20260806-dependabot-alerts-lessons.md](./2026/08/20260806-dependabot-alerts-lessons.md) |
 | eval replay runner (2026-08-06) | [20260806-eval-replay-runner-todo.md](./2026/08/20260806-eval-replay-runner-todo.md) | - |
 | generic file upload (2026-08-06) | [20260806-generic-file-upload-todo.md](./2026/08/20260806-generic-file-upload-todo.md) | [20260806-generic-file-upload-lessons.md](./2026/08/20260806-generic-file-upload-lessons.md) |
@@ -46,15 +103,17 @@ Total archived tasks: 469
 | panel concurrency (2026-08-04) | [20260804-panel-concurrency-todo.md](./2026/08/20260804-panel-concurrency-todo.md) | - |
 | real fix rounds (2026-08-04) | [20260804-real-fix-rounds-todo.md](./2026/08/20260804-real-fix-rounds-todo.md) | - |
 | cli dry run confirm gate (2026-08-03) | [20260803-cli-dry-run-confirm-gate-todo.md](./2026/08/20260803-cli-dry-run-confirm-gate-todo.md) | [20260803-cli-dry-run-confirm-gate-lessons.md](./2026/08/20260803-cli-dry-run-confirm-gate-lessons.md) |
+| cli system exit code (2026-08-03) | [20260803-cli-system-exit-code-todo.md](./2026/08/20260803-cli-system-exit-code-todo.md) | [20260803-cli-system-exit-code-lessons.md](./2026/08/20260803-cli-system-exit-code-lessons.md) |
 | finding level matching (2026-08-03) | [20260803-finding-level-matching-todo.md](./2026/08/20260803-finding-level-matching-todo.md) | - |
 | notes mermaid preview (2026-08-03) | [20260803-notes-mermaid-preview-todo.md](./2026/08/20260803-notes-mermaid-preview-todo.md) | [20260803-notes-mermaid-preview-lessons.md](./2026/08/20260803-notes-mermaid-preview-lessons.md) |
+| notes undo cursor (2026-08-03) | [20260803-notes-undo-cursor-todo.md](./2026/08/20260803-notes-undo-cursor-todo.md) | - |
 | panel stage detail capture (2026-08-03) | [20260803-panel-stage-detail-capture-todo.md](./2026/08/20260803-panel-stage-detail-capture-todo.md) | - |
 | structured rebuttal (2026-08-03) | [20260803-structured-rebuttal-todo.md](./2026/08/20260803-structured-rebuttal-todo.md) | [20260803-structured-rebuttal-lessons.md](./2026/08/20260803-structured-rebuttal-lessons.md) |
 | design doc audit (2026-08-02) | [20260802-design-doc-audit-todo.md](./2026/08/20260802-design-doc-audit-todo.md) | [20260802-design-doc-audit-lessons.md](./2026/08/20260802-design-doc-audit-lessons.md) |
 | board miro import (2026-08-01) | [20260801-board-miro-import-todo.md](./2026/08/20260801-board-miro-import-todo.md) | [20260801-board-miro-import-lessons.md](./2026/08/20260801-board-miro-import-lessons.md) |
 | datasource test without save (2026-08-01) | [20260801-datasource-test-without-save-todo.md](./2026/08/20260801-datasource-test-without-save-todo.md) | - |
 
-## 2026/07 (98 tasks)
+## 2026/07 (100 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -74,6 +133,7 @@ Total archived tasks: 469
 | incremental review wiring (2026-07-29) | [20260729-incremental-review-wiring-todo.md](./2026/07/20260729-incremental-review-wiring-todo.md) | [20260729-incremental-review-wiring-lessons.md](./2026/07/20260729-incremental-review-wiring-lessons.md) |
 | json client import (2026-07-29) | [20260729-json-client-import-todo.md](./2026/07/20260729-json-client-import-todo.md) | [20260729-json-client-import-lessons.md](./2026/07/20260729-json-client-import-lessons.md) |
 | review novelty gate (2026-07-29) | [20260729-review-novelty-gate-todo.md](./2026/07/20260729-review-novelty-gate-todo.md) | - |
+| sheets lakehouse connector (2026-07-29) | [20260729-sheets-lakehouse-connector-todo.md](./2026/07/20260729-sheets-lakehouse-connector-todo.md) | [20260729-sheets-lakehouse-connector-lessons.md](./2026/07/20260729-sheets-lakehouse-connector-lessons.md) |
 | blast radius lens (2026-07-28) | [20260728-blast-radius-lens-todo.md](./2026/07/20260728-blast-radius-lens-todo.md) | [20260728-blast-radius-lens-lessons.md](./2026/07/20260728-blast-radius-lens-lessons.md) |
 | coverage first rubrics (2026-07-28) | [20260728-coverage-first-rubrics-todo.md](./2026/07/20260728-coverage-first-rubrics-todo.md) | [20260728-coverage-first-rubrics-lessons.md](./2026/07/20260728-coverage-first-rubrics-lessons.md) |
 | docs edit link in place (2026-07-28) | [20260728-docs-edit-link-in-place-todo.md](./2026/07/20260728-docs-edit-link-in-place-todo.md) | [20260728-docs-edit-link-in-place-lessons.md](./2026/07/20260728-docs-edit-link-in-place-lessons.md) |
@@ -128,6 +188,7 @@ Total archived tasks: 469
 | slides background (2026-07-12) | [20260712-slides-background-todo.md](./2026/07/20260712-slides-background-todo.md) | [20260712-slides-background-lessons.md](./2026/07/20260712-slides-background-lessons.md) |
 | slides font ooxml parity (2026-07-12) | [20260712-slides-font-ooxml-parity-todo.md](./2026/07/20260712-slides-font-ooxml-parity-todo.md) | [20260712-slides-font-ooxml-parity-lessons.md](./2026/07/20260712-slides-font-ooxml-parity-lessons.md) |
 | validation number text (2026-07-12) | [20260712-validation-number-text-todo.md](./2026/07/20260712-validation-number-text-todo.md) | - |
+| yorkie auth webhook (2026-07-12) | [20260712-yorkie-auth-webhook-todo.md](./2026/07/20260712-yorkie-auth-webhook-todo.md) | - |
 | data validation panel (2026-07-11) | [20260711-data-validation-panel-todo.md](./2026/07/20260711-data-validation-panel-todo.md) | [20260711-data-validation-panel-lessons.md](./2026/07/20260711-data-validation-panel-lessons.md) |
 | pptx inherit title align (2026-07-11) | [20260711-pptx-inherit-title-align-todo.md](./2026/07/20260711-pptx-inherit-title-align-todo.md) | [20260711-pptx-inherit-title-align-lessons.md](./2026/07/20260711-pptx-inherit-title-align-lessons.md) |
 | sheets date validation (2026-07-11) | [20260711-sheets-date-validation-todo.md](./2026/07/20260711-sheets-date-validation-todo.md) | [20260711-sheets-date-validation-lessons.md](./2026/07/20260711-sheets-date-validation-lessons.md) |

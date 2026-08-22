@@ -51,6 +51,14 @@ export interface Block {
   type: BlockType;
   inlines: Inline[];
   style: BlockStyle;
+  /**
+   * Heading level of a `heading` block. A `list-item` also keeps the level of
+   * the heading it was made from — bulleting a heading applies the bullet *to*
+   * the heading (Google Docs / Word parity), so removing the list restores it
+   * (see `unlistedBlockType`). The level is inert while the block is a list
+   * item: every reader (export, `blockStyleId`, toolbar labels) gates on
+   * `type === 'heading'`.
+   */
   headingLevel?: HeadingLevel;
   listKind?: 'ordered' | 'unordered';
   listLevel?: number;
@@ -256,6 +264,58 @@ export const CLEAR_INLINE_STYLE: Partial<InlineStyle> = {
   href: undefined,
 };
 
+/**
+ * Inline-style color keys whose "None" / "Reset" picker entry passes an empty
+ * string. See `normalizeStyleClears`.
+ */
+const CLEARABLE_COLOR_KEYS = ['color', 'backgroundColor'] as const;
+
+/**
+ * Cell-style color keys with the same "None" / "Reset" convention. See
+ * `normalizeCellStyleClears`.
+ */
+const CLEARABLE_CELL_COLOR_KEYS = ['backgroundColor'] as const;
+
+function clearEmptyStringKeys<T extends object>(
+  style: T,
+  keys: readonly (keyof T)[],
+): T {
+  let normalized: T | null = null;
+  for (const key of keys) {
+    if ((style[key] as unknown) === '') {
+      normalized ??= { ...style };
+      normalized[key] = undefined as T[keyof T];
+    }
+  }
+  return normalized ?? style;
+}
+
+/**
+ * Normalize an inline-style patch so an empty-string color means "clear this
+ * key", the same way `CLEAR_INLINE_STYLE` and `removeLink` express it: the key
+ * present with the value `undefined` (absent would mean "leave it alone").
+ *
+ * The color pickers' "None" / "Reset" entries pass `''` rather than dropping
+ * the key. Merged verbatim, that stores a dead `backgroundColor: ''` on the run:
+ * it stops painting (`''` is falsy) but never compares equal to an unset color,
+ * so `normalizeInlines` can never merge the run back into its neighbours, and
+ * anything treating a present `backgroundColor` as "there is a highlight" —
+ * export paths included — still sees one (issue #793).
+ */
+export function normalizeStyleClears(style: Partial<InlineStyle>): Partial<InlineStyle> {
+  return clearEmptyStringKeys(style, CLEARABLE_COLOR_KEYS);
+}
+
+/**
+ * The table-cell counterpart of `normalizeStyleClears`: the cell-background
+ * "Reset" entry passes `backgroundColor: ''`, which the stores must read as
+ * "clear this key" so the old color is actually removed from the CRDT node
+ * rather than merged over with a dead empty value (issue #793).
+ */
+export function normalizeCellStyleClears(style: Partial<CellStyle>): Partial<CellStyle> {
+  return clearEmptyStringKeys(style, CLEARABLE_CELL_COLOR_KEYS);
+}
+
 let counter = 0;
 
 /**
@@ -318,6 +378,21 @@ export function createBlock(
     block.listLevel = opts?.listLevel ?? 0;
   }
   return block;
+}
+
+/**
+ * The block type a list item returns to when its list is removed: the heading
+ * it was bulleted from, if any, else a plain paragraph. Keeps the three
+ * `toggleList` implementations (docs editor, text editor, text-box editor)
+ * from drifting.
+ */
+export function unlistedBlockType(
+  block: Block,
+): { type: BlockType; opts?: { headingLevel: HeadingLevel } } {
+  if (block.headingLevel !== undefined) {
+    return { type: 'heading', opts: { headingLevel: block.headingLevel } };
+  }
+  return { type: 'paragraph' };
 }
 
 /**

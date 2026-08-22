@@ -1,7 +1,7 @@
 {
   "name": "@wafflebase/frontend",
   "private": true,
-  "version": "0.6.4",
+  "version": "0.6.5",
   "type": "module",
   "license": "Apache-2.0",
   "scripts": {
@@ -59,7 +59,7 @@
     "@wafflebase/notes": "workspace:*",
     "@wafflebase/sheets": "workspace:*",
     "@wafflebase/slides": "workspace:*",
-    "@yorkie-js/react": "0.7.16",
+    "@yorkie-js/react": "0.7.17",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -90,7 +90,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^4.1.8",
     "@xmldom/xmldom": "0.9.10",
-    "@yorkie-js/sdk": "0.7.16",
+    "@yorkie-js/sdk": "0.7.17",
     "eslint": "^9.21.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.19",

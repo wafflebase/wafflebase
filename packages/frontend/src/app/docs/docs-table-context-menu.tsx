@@ -227,7 +227,12 @@ export function DocsTableContextMenu({
           <button
             className="mb-2 flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted"
             onClick={act(() =>
-              editor.applyTableCellStyle({ backgroundColor: "" }),
+              // Clear the fill rather than storing an empty string, so the
+              // attribute is removed from the CRDT node instead of merged
+              // over with a value nothing paints (issue #728). The stores
+              // fold a `""` into that same removal (issue #793), but the
+              // call site says what it means.
+              editor.applyTableCellStyle({ backgroundColor: undefined }),
             )}
           >
             <IconDropletOff size={14} />

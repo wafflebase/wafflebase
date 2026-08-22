@@ -16,6 +16,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import type { ServerResponse } from 'node:http';
 import type { Plugin } from 'vite';
 
 // Imported, not declared: the browser client needs the same value and cannot import
@@ -28,7 +29,28 @@ export { BASE };
 export interface ShellDeps {
   /** Directory holding the prebuilt `index.html`, `scene.html` and assets. */
   distDir: string;
+  /**
+   * URL the scene document should load its entry from, served by the CONSUMER's
+   * dev server rather than from `distDir`.
+   *
+   * Passed in rather than derived here, because only the caller knows where the
+   * installed package sits — and it cannot be baked into the prebuilt document at
+   * all. Measured against Vite 6.4.3 + @vitejs/plugin-react 4.3.4:
+   *
+   *   /@id/__x00__virtual:wb-scene-entry.tsx   500   plugin-react does not transform
+   *                                                  a virtual module even with a
+   *                                                  .tsx id — the JSX reaches
+   *                                                  import-analysis verbatim
+   *   a real .tsx under node_modules           200   transformed
+   *
+   * So it is a real file path, and the path depends on the consumer's package
+   * manager and whether it hoisted us above their root.
+   */
+  sceneEntryUrl: string;
 }
+
+/** The token `scene.html` ships with, replaced by `sceneEntryUrl` on the way out. */
+const SCENE_ENTRY_TOKEN = '__WB_SCENE_ENTRY__';
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -48,6 +70,25 @@ export function shellServer(deps: ShellDeps): Plugin {
 
     configureServer(server) {
       server.middlewares.use(BASE, (req, res, next) => {
+        // `serve` reads the filesystem outside its own try/catch — `statSync` can lose a
+        // race with a rebuild, `readFileSync` can fail outright. Without a terminal catch
+        // the request never gets a response and node reports an unhandled rejection.
+        void serve(req, res, next).catch((err: unknown) => {
+          server.config.logger.error(`[design-editor] shell request failed — ${String(err)}`);
+          if (res.headersSent) {
+            res.destroy();
+            return;
+          }
+          res.statusCode = 500;
+          res.end('design-editor: failed to serve a shell asset');
+        });
+      });
+
+      const serve = async (
+        req: { url?: string },
+        res: ServerResponse,
+        next: () => void,
+      ): Promise<void> => {
         // The bridge owns `/api/**` under the same base and registers its own
         // middleware; anything it does not answer must fall through rather than be
         // served as a missing asset.
@@ -92,6 +133,68 @@ export function shellServer(deps: ShellDeps): Plugin {
           return;
         }
 
+        // The scene document is the one asset that cannot be shipped final: its
+        // script src names a file whose location depends on the consumer's install.
+        // Read and substituted rather than streamed, and asserted rather than
+        // assumed — a document whose token survived would load `__WB_SCENE_ENTRY__`
+        // as a relative URL, 404 inside the frame, and read as a broken scene.
+        if (rel === 'scene.html') {
+          const html = fs.readFileSync(abs, 'utf8');
+          if (!html.includes(SCENE_ENTRY_TOKEN)) {
+            res.statusCode = 500;
+            res.end(
+              `design-editor: ${SCENE_ENTRY_TOKEN} missing from scene.html\n` +
+                `(the built shell is stale or was edited — rebuild the package)`,
+            );
+            return;
+          }
+          /**
+           * THROUGH THE CONSUMER'S OWN HTML TRANSFORMS, and this is not optional.
+           *
+           * `@vitejs/plugin-react` injects a fast-refresh PREAMBLE into every HTML
+           * entry via `transformIndexHtml`. Served as static bytes the document never
+           * reaches that hook, and every module the consumer's plugin transformed then
+           * throws at load:
+           *
+           *     @vitejs/plugin-react can't detect preamble. Something is wrong.
+           *
+           * Measured in a real browser: the scene mounted React, rendered NOTHING, and
+           * stamped zero nodes — a blank frame with a single console error. The
+           * prototype's own `scene.html` comment predicted exactly this ("being a real
+           * HTML entry is what gets the preamble injected automatically"); 11a moved the
+           * document to prebuilt bytes and dropped it silently.
+           *
+           * `transformIndexHtml` rather than a hardcoded preamble: it applies whatever
+           * the consumer's plugins do to an HTML entry — the React preamble today, and
+           * whatever else their stack needs without us enumerating it — and it injects
+           * `/@vite/client`, which the frame needs anyway for the HMR that
+           * `hmr-state.ts` exists to carry state across.
+           *
+           * `index.html` is deliberately NOT transformed: the chrome is prebuilt with its
+           * own hashed assets and its own React, and injecting the consumer's client
+           * would pull their HMR and their plugins into the shell.
+           */
+          const withEntry = html.split(SCENE_ENTRY_TOKEN).join(deps.sceneEntryUrl);
+          let out: string;
+          try {
+            out = await server.transformIndexHtml(raw, withEntry);
+          } catch (err) {
+            // A failing html transform is the consumer's plugin, not our routing. Saying
+            // which beats a blank frame with no explanation.
+            server.config.logger.error(
+              `[design-editor] transformIndexHtml failed for the scene document — ${String(err)}`,
+            );
+            res.statusCode = 500;
+            res.end(`design-editor: the scene document could not be transformed\n${String(err)}`);
+            return;
+          }
+          res.statusCode = 200;
+          res.setHeader('Content-Type', CONTENT_TYPES['.html']);
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(out);
+          return;
+        }
+
         res.statusCode = 200;
         res.setHeader('Content-Type', CONTENT_TYPES[path.extname(abs)] ?? 'application/octet-stream');
         // Never cached: the shell is dev-only and a stale one is indistinguishable
@@ -112,7 +215,7 @@ export function shellServer(deps: ShellDeps): Plugin {
         });
         res.on('close', () => stream.destroy());
         stream.pipe(res);
-      });
+      };
     },
   };
 }

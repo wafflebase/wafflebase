@@ -133,6 +133,56 @@ focused element is inside an interactive widget (`role="dialog"`,
 `role="menu"`, focused `<button>`, etc.) so the help modal's own Tab
 navigation doesn't get hijacked by the slides Tab-cycle rule.
 
+**Toolbar focus release.** The gate must hold for the *duration* of a
+toolbar interaction, not forever after it. A plain `<button>` keeps focus
+once clicked, and Radix hands focus back to the *trigger* when a dropdown
+closes — so without a counterpart the gate stays engaged and arrow keys /
+`Delete` / the z-order shortcuts stop reaching the canvas until the user
+clicks it again (issue #882). The counterpart is
+`useCanvasFocusRelease()` (`packages/frontend/src/components/toolbar-focus-release.ts`),
+called by the desktop slides toolbar, which marks its root with
+`data-canvas-toolbar`: on `focusin` inside that root it defers one task and
+then blurs the focused control back to `document.body` (via the existing
+`releaseFocusToBody()`), so the next `keydown` targets the body and the
+rules run again. It deliberately does nothing when
+
+- the focused element is not button-like (a toolbar `<input>` — zoom, font
+  size — owns the keyboard while focused),
+- the control's popup is still open (`data-state="open"` /
+  `aria-expanded="true"`; `Toggle`'s `on`/`off` states do not match),
+- the control is marked `data-text-edit-keepalive`. Those controls hold
+  focus on behalf of a still-mounted in-place text box —
+  `packages/docs/src/view/text-box-editor.ts` skips its blur-commit when
+  focus moves into one — so releasing would re-arm `Delete` /
+  type-to-edit against the very element being edited, and would break the
+  shared pickers' "dismiss restores focus to the trigger" contract. This is
+  an *explicit* exemption, not a side effect of the deferred re-read below:
+  a keepalive control that still holds focus one task later must stay
+  focused,
+- the user is navigating by keyboard — a `Tab` press sets that flag and only
+  the next `pointerdown` clears it, so tabbing into the toolbar (or tabbing
+  to a trigger and dismissing its menu with Esc) keeps focus where the user
+  put it. Note the gate is *not* "the last `pointerdown` landed inside the
+  toolbar": the most common dismissal is clicking the canvas to close an
+  open picker, and the slides pickers are **modal** Radix Popovers whose
+  `onCloseAutoFocus` puts focus back on the trigger. That `pointerdown`
+  lands outside the toolbar (on the canvas, or on `html` while the modal
+  layer neutralises the body), so an inside-hit requirement would leave
+  #882 reproducing on exactly that path,
+- focus has already moved on by the time the deferred check runs — which is
+  what makes menu triggers handing focus to their portalled content, and
+  controls that end with `editor.focus()` on the hidden textarea, no-ops.
+
+Board is deliberately **not** opted in. It carries its own copy of the same
+`<button>` branch (`packages/frontend/src/app/board/is-editable-target.ts`),
+but there that branch also exists so `Space` on a focused `BoardToolbar`
+toggle re-activates the toggle instead of entering pan mode. Blurring to the
+body would silently change board's pan-mode behaviour, so adopting the
+attribute is a board decision with its own trade-off to record (see
+[`board-editing-parity.md`](../board/board-editing-parity.md#known-limitations)),
+not part of this fix. The attribute is opt-in precisely so that can happen
+separately.
+
 Exceptions:
 
 - `Cmd+/` (help modal) bypasses the gate — help should always open.

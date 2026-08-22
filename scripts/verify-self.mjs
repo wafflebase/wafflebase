@@ -292,10 +292,8 @@ const LANES = [
     pkgs: ["slides"],
     needs: ["core:build", "docs:build"],
   },
-  // notes, design-editor and design-sandbox reach no BUILT workspace output, so they
-  // are the lanes that can run against a tree with nothing built. design-sandbox does
-  // declare `@wafflebase/design-editor`, but consumes its SOURCE through that package's
-  // `exports` map rather than a `dist/`, so it still needs no `needs:` entry.
+  // notes and design-editor reach no BUILT workspace output, so they are the lanes
+  // that can run against a tree with nothing built.
   {
     name: "notes:check",
     cmd: "pnpm --filter @wafflebase/notes typecheck && pnpm --filter @wafflebase/notes test",
@@ -303,7 +301,17 @@ const LANES = [
   },
   {
     name: "design-editor:check",
-    cmd: "pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test",
+    // The shell build joins this lane rather than earning its own. `dist/` is
+    // gitignored, so nothing else in CI would ever run it — and a broken shell build
+    // is not cosmetic: `shellServer` serves `dist/shell`, so the whole editor 404s
+    // without it. ~3s, which is well under the cost of another lane.
+    //
+    // `lint` joins it for the same reason, and because of what its absence cost: this
+    // package carried ~17 React files with no ESLint config at all, so `react-hooks`
+    // never saw it and a `useState` below an early return reached main. It runs FIRST —
+    // a lint error is the cheapest failure here, and finding it after a 3s build and a
+    // 1000-test suite wastes the difference.
+    cmd: "pnpm --filter @wafflebase/design-editor lint && pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test && pnpm --filter @wafflebase/design-editor build",
     pkgs: ["design-editor"],
     // `pkgs` alone would never select this lane: harness.config.json lists
     // packages/design-editor/** as inert, and an inert match short-circuits the
@@ -321,6 +329,15 @@ const LANES = [
     // have caught it.
     pkgs: ["design-sandbox"],
     tags: ["designEditor"],
+    // It does reach a `dist/`, one step removed and easy to miss: this package
+    // consumes `@wafflebase/design-editor` as SOURCE, but `vitest.config.ts`
+    // aliases the ENGINES to their `src/` too (the canvas seed tests must load the
+    // same copy the scenes do), and engine source imports `@wafflebase/core`
+    // through its `exports` map — `packages/sheets/src/view/theme.ts` pulls
+    // `@wafflebase/core/tokens`. Without core built that is an ERR_MODULE_NOT_FOUND
+    // inside sheets, reported against a design-sandbox test. Same shape as the
+    // frontend lanes: engines aliased to src, core resolved for real.
+    needs: ["core:build"],
   },
   {
     name: "board:check",

@@ -1,7 +1,14 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  commandPath,
+  output,
+  outputError,
+  parseOutputFormat,
+  forwardUpstreamError,
+} from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 import { runFilesUpload } from '../files/upload.js';
 import { runFilesDownload } from '../files/download.js';
 
@@ -36,12 +43,13 @@ export function registerFilesCommand(program: Command) {
             folder: local.folder,
             quiet: opts.quiet,
             dryRun: opts.dryRun,
+            command: commandPath(this),
           },
           getClient(opts),
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -56,16 +64,22 @@ export function registerFilesCommand(program: Command) {
       const local = this.opts<{ force: boolean }>();
       try {
         if (opts.dryRun) {
-          printDryRun(getConfig(opts), 'GET', `/files/${docId}`);
+          printDryRun(getConfig(opts), 'GET', `/files/${seg(docId)}`);
           return;
         }
         const result = await runFilesDownload(
-          { docId, out, force: local.force, quiet: opts.quiet },
+          {
+            docId,
+            out,
+            force: local.force,
+            quiet: opts.quiet,
+            command: commandPath(this),
+          },
           getClient(opts),
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -77,22 +91,31 @@ export function registerFilesCommand(program: Command) {
       const opts = getGlobalOpts(this);
       const local = this.opts<{ type?: string }>();
       try {
+        const fmt = parseOutputFormat(opts.format);
+        // Validated BEFORE the dry-run branch: a dry run validates inputs,
+        // so a bad `--type` must still be an error rather than a preview.
         if (local.type && !BLOB_TYPES.has(local.type)) {
           throw new Error(
             `Invalid --type "${local.type}". Expected file, pdf, or image.`,
           );
         }
+        if (opts.dryRun) {
+          // The blob-type filter is applied client-side, so it leaves no
+          // trace on the request the server would see.
+          printDryRun(getConfig(opts), 'GET', '/documents');
+          return;
+        }
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res, this);
         let data = res.data as unknown;
         if (Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter((d) =>
             local.type ? d.type === local.type : BLOB_TYPES.has(d.type ?? ''),
           );
         }
-        output(data, opts.format);
+        output(data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -102,11 +125,16 @@ export function registerFilesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       try {
+        const fmt = parseOutputFormat(opts.format);
+        if (opts.dryRun) {
+          printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}`);
+          return;
+        }
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        if (!res.ok) return forwardUpstreamError(res, this);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -116,15 +144,20 @@ export function registerFilesCommand(program: Command) {
     .action(async function (this: Command, docId: string, title: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}`, { title });
+        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, {
+          title,
+        });
         return;
       }
       try {
+        // Narrowed before the request: a rejected `--format` must not
+        // discard the response of a rename that already happened.
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        if (!res.ok) return forwardUpstreamError(res, this);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -134,15 +167,16 @@ export function registerFilesCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'DELETE', `/documents/${docId}`);
+        printDryRun(getConfig(opts), 'DELETE', `/documents/${seg(docId)}`);
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        if (!res.ok) return forwardUpstreamError(res, this);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

@@ -26,6 +26,7 @@ export async function clearDatabase(prisma: PrismaService) {
   await prisma.notification.deleteMany();
   await prisma.apiKey.deleteMany();
   await prisma.shareLink.deleteMany();
+  await prisma.lakehouseSource.deleteMany();
   await prisma.dataSource.deleteMany();
   await prisma.bigQuerySource.deleteMany();
   await prisma.document.deleteMany();

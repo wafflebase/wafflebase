@@ -146,6 +146,49 @@ jobs:
         if: steps.pr.outputs.is_agent == 'true'
         run: pnpm install --frozen-lockfile
 
+      # A TRUSTED copy of the picker, into a subdirectory. This job's workspace is the
+      # PR BRANCH, so `./scripts/agent` here is the branch's own copy — and the picker
+      # is handed all nine pool secrets. Running the branch's version of it would let a
+      # branch author read every credential the pool holds. Checked out AFTER the branch
+      # checkout above, because `actions/checkout` cleans its target path and a root
+      # checkout would delete this one.
+      - name: Check out trusted main (for the credential picker)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: .trusted-cred
+          sparse-checkout: scripts/agent
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      # WHICH POOL SLOT THIS JOB USES — see agent-implement.yml for the full rationale.
+      # Without it this step is pinned to slot zero of the pool and one dead account
+      # takes the job down (issue #883).
+      #
+      # The nine secrets reach THIS step only; the action step below gets exactly one,
+      # resolved from the slot number. That is the same split `ask.mjs::credentialEnv`
+      # keeps, and it matters more here than anywhere else in the pipeline: the step
+      # that follows runs against an untrusted checkout.
+      - name: Pick a credential from the pool
+        id: cred
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_1 }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+          CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
+          CLAUDE_CODE_OAUTH_TOKEN_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_4 }}
+          CLAUDE_CODE_OAUTH_TOKEN_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_5 }}
+          CLAUDE_CODE_OAUTH_TOKEN_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_6 }}
+          CLAUDE_CODE_OAUTH_TOKEN_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_7 }}
+          CLAUDE_CODE_OAUTH_TOKEN_8: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_8 }}
+        run: |
+          [ -f .trusted-cred/scripts/agent/pick-credential.mjs ] || {
+            echo "pick-credential.mjs is not on main yet; using the ambient credential"
+            exit 0
+          }
+          node .trusted-cred/scripts/agent/pick-credential.mjs
+
       - name: Run Claude Code
         if: steps.pr.outputs.is_agent == 'true'
         # Pinned to the v1 release commit (immutable) for supply-chain safety.
@@ -153,7 +196,7 @@ jobs:
         # context. github_token is the App token so pushes re-trigger CI.
         uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_code_oauth_token: ${{ steps.cred.outputs.slot != '' && secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.cred.outputs.slot)] || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app-token.outputs.token }}
           claude_args: >-
             --max-turns 40

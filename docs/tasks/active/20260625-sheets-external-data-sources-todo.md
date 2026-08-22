@@ -68,8 +68,8 @@ vision; not yet scoped into roadmaps):
 
 ## Cross-cutting
 
-- [ ] Design docs landed on `docs/ideation` branch.
-- [ ] Maintainer files 3 roadmap issues + subissues.
+- [x] Design docs landed on `docs/ideation` branch.
+- [x] Maintainer files 3 roadmap issues + subissues.
 - [ ] Per roadmap completion: lessons in the paired `*-lessons.md`, then
       `pnpm tasks:archive && pnpm tasks:index`.
 

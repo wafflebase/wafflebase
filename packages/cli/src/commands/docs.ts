@@ -1,8 +1,16 @@
 import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
-import { output, outputError } from '../output/formatter.js';
+import {
+  commandPath,
+  InvalidFormatError,
+  output,
+  outputError,
+  parseOutputFormat,
+  forwardUpstreamError,
+} from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 import { parseContentFormat, runDocsContent } from '../docs/content.js';
 import { exportPdf } from '../docs/pdf-export.js';
 import { exportDocx } from '../docs/docx-export.js';
@@ -35,9 +43,7 @@ type ExportFormat = (typeof VALID_EXPORT_FORMATS)[number];
 function detectExportFormat(file: string, formatFlag?: string): ExportFormat {
   if (formatFlag) {
     if (!VALID_EXPORT_FORMATS.includes(formatFlag as ExportFormat)) {
-      throw new Error(
-        `Invalid --format "${formatFlag}". Use one of: ${VALID_EXPORT_FORMATS.join(', ')}.`,
-      );
+      throw new InvalidFormatError(formatFlag, VALID_EXPORT_FORMATS);
     }
     return formatFlag as ExportFormat;
   }
@@ -71,18 +77,29 @@ export function registerDocsCommand(program: Command) {
       const opts = getGlobalOpts(this);
       const { type: typeStr } = this.opts<{ type?: string }>();
       try {
+        const fmt = parseOutputFormat(opts.format);
+        // Parsed BEFORE the dry-run branch: `--dry-run` validates inputs, so
+        // a bad `--type` must still be an error rather than a preview.
         const filterType = parseType(typeStr);
+
+        if (opts.dryRun) {
+          // `--type` filters the response client-side, so it leaves no trace
+          // on the request the server would see.
+          printDryRun(getConfig(opts), 'GET', '/documents');
+          return;
+        }
+
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) return forwardUpstreamError(res, this);
         let data = res.data as unknown;
         if (filterType && Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter(
             (d) => (d.type ?? 'sheet') === filterType,
           );
         }
-        output(data, opts.format);
+        output(data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -94,16 +111,17 @@ export function registerDocsCommand(program: Command) {
       const opts = getGlobalOpts(this);
       const { type: typeStr } = this.opts<{ type: string }>();
       try {
+        const fmt = parseOutputFormat(opts.format);
         const type = parseType(typeStr) ?? 'sheet';
         if (opts.dryRun) {
           printDryRun(getConfig(opts), 'POST', '/documents', { title, type });
           return;
         }
         const res = await getClient(opts).createDocument(title, type);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        if (!res.ok) return forwardUpstreamError(res, this);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -112,12 +130,17 @@ export function registerDocsCommand(program: Command) {
     .description('Show document metadata')
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
+      if (opts.dryRun) {
+        printDryRun(getConfig(opts), 'GET', `/documents/${seg(docId)}`);
+        return;
+      }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        if (!res.ok) return forwardUpstreamError(res, this);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -127,15 +150,18 @@ export function registerDocsCommand(program: Command) {
     .action(async function (this: Command, docId: string, title: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'PATCH', `/documents/${docId}`, { title });
+        printDryRun(getConfig(opts), 'PATCH', `/documents/${seg(docId)}`, {
+          title,
+        });
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        if (!res.ok) return forwardUpstreamError(res, this);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -145,15 +171,16 @@ export function registerDocsCommand(program: Command) {
     .action(async function (this: Command, docId: string) {
       const opts = getGlobalOpts(this);
       if (opts.dryRun) {
-        printDryRun(getConfig(opts), 'DELETE', `/documents/${docId}`);
+        printDryRun(getConfig(opts), 'DELETE', `/documents/${seg(docId)}`);
         return;
       }
       try {
+        const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        output(res.data, opts.format);
+        if (!res.ok) return forwardUpstreamError(res, this);
+        output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -181,23 +208,16 @@ export function registerDocsCommand(program: Command) {
           printDryRun(
             getConfig(opts),
             'GET',
-            `/documents/${docId}/content`,
+            `/documents/${seg(docId)}/content`,
           );
           return;
         }
 
         const res = await getClient(opts).getDocContent(docId);
-        if (!res.ok) {
-          const body = res.data as { error?: { code?: string; message?: string } } | null;
-          if (body?.error) {
-            // Surface backend-shaped errors (e.g., TYPE_MISMATCH) verbatim
-            // so agents reading stderr can act on the `code` field.
-            console.error(JSON.stringify(body, null, 2));
-            process.exitCode = 1;
-            return;
-          }
-          throw new Error(`HTTP ${res.status}`);
-        }
+        // Surfaces a backend-shaped error (e.g., TYPE_MISMATCH) verbatim so
+        // agents reading stderr can act on its `code`; anything else throws
+        // and comes back out through `outputError`.
+        if (!res.ok) return forwardUpstreamError(res, this);
 
         runDocsContent({
           doc: res.data,
@@ -210,7 +230,7 @@ export function registerDocsCommand(program: Command) {
           quiet: opts.quiet,
         });
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -243,29 +263,22 @@ export function registerDocsCommand(program: Command) {
           printDryRun(
             getConfig(opts),
             'GET',
-            `/documents/${docId}/content`,
+            `/documents/${seg(docId)}/content`,
           );
           return;
         }
 
         const res = await getClient(opts).getDocContent(docId);
-        if (!res.ok) {
-          const body = res.data as { error?: { code?: string; message?: string } } | null;
-          if (body?.error) {
-            console.error(JSON.stringify(body, null, 2));
-            process.exitCode = 1;
-            return;
-          }
-          throw new Error(`HTTP ${res.status}`);
-        }
+        if (!res.ok) return forwardUpstreamError(res, this);
         const fetchedDoc = res.data;
 
         // Image inlines reference URLs that PdfExporter and DocxExporter
         // can't resolve on their own. The fetcher walks each unique
-        // `src`, GETs it (via `globalThis.fetch`), and hands back a
-        // Blob. Relative URLs (`/images/<id>`) resolve against the
-        // configured server base so the same doc round-trips between
-        // the editor (browser-relative) and the CLI.
+        // `src`, gates it (document content is attacker-influenced, so
+        // internal addresses are refused — see `image-fetcher.ts`), GETs
+        // it, and hands back a Blob. Relative URLs (`/images/<id>`)
+        // resolve against the configured server base so the same doc
+        // round-trips between the editor (browser-relative) and the CLI.
         const imageFetcher = createImageFetcher({
           serverBase: getConfig(opts).server,
         });
@@ -316,7 +329,7 @@ export function registerDocsCommand(program: Command) {
 
         writeBinary(bytes, file, { force: local.force, quiet: opts.quiet });
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -354,12 +367,13 @@ export function registerDocsImportCommand(doc: Command) {
             yes: local.yes,
             quiet: opts.quiet,
             dryRun: opts.dryRun,
+            command: commandPath(this),
           },
           getClient(opts),
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

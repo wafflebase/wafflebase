@@ -84,11 +84,15 @@ rejected — correctly, since nothing in that window could have changed it.
   This is also where the sheet surface DIFFERS from docs, where the same round trip
   leaves an explicit `false` behind (#749, #793). Do not carry that expectation across.
   Predict the round trip on `sheet.activeCellStyle`, which returns to its baseline.
-- **FOUR TOOLBAR BUTTONS DO NOTHING HERE, BY CONSTRUCTION.** `Insert chart`,
-  `Insert image`, `Data validation` and `Conditional formatting` open panels this
-  harness does not mount, so their handlers are absent and the click is swallowed.
-  They are not broken; they are unwired in this harness only. Predict nothing about
-  them, and do not report them.
+- **FIVE TOOLBAR BUTTONS DO NOTHING HERE, BY CONSTRUCTION.** `Insert chart`,
+  `Insert image`, `Data validation`, `Conditional formatting` and `Paint format` reach the
+  toolbar through OPTIONAL callback props, and this harness supplies none of them — so their
+  handlers are absent and the click is swallowed. They are not broken; they are unwired in
+  this harness only. Predict nothing about them, and do not report them.
+  The last of those is the trap: it looks like ordinary cell formatting rather than a panel,
+  and there is no paint-format code in the sheets engine at all — it is entirely a host
+  callback. A live run proposed "copies nothing — the target cell is left completely
+  unformatted" off the back of that, and it cost two verifier sessions.
 - **`Undo` and `Redo` are visible in that toolbar and CANNOT WORK HERE** — same
   `MemStore` no-op as `sheet.canUndo`, one paragraph up. A visible button does not
   change that. This is the single most likely false finding on this surface now that

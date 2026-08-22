@@ -28,6 +28,23 @@ describe('color', () => {
     expect(colorChildXml({ kind: 'srgb', value: '#FF0000' })).toBe('<a:srgbClr val="FF0000"/>');
   });
 
+  // `ThemeColor.role` is a closed 12-value union in TypeScript, but the model
+  // holds whatever the importer or the content PUT API stored. A bare object
+  // lookup reaches `Object.prototype` for keys like `constructor` and yields
+  // `undefined` for anything else, so the scheme name must come from a closed
+  // container with a fallback — not from `ROLE_TO_SCHEME[role]`.
+  it('falls back to black for a role outside the closed set', () => {
+    for (const role of ['constructor', 'toString', '__proto__', 'nope', '"/>']) {
+      const xml = colorChildXml({ kind: 'role', role } as never);
+      expect(xml).toBe('<a:srgbClr val="000000"/>');
+    }
+  });
+
+  it('keeps the modifiers when an unknown role falls back', () => {
+    const xml = colorChildXml({ kind: 'role', role: 'constructor', alpha: 50000 } as never);
+    expect(xml).toBe('<a:srgbClr val="000000"><a:alpha val="50000"/></a:srgbClr>');
+  });
+
   it('wraps in solidFill', () => {
     expect(solidFillXml({ kind: 'srgb', value: '#00FF00' })).toBe('<a:solidFill><a:srgbClr val="00FF00"/></a:solidFill>');
   });
@@ -98,12 +115,40 @@ describe('color', () => {
     });
   });
 
-  it('escapes special chars in srgbClr val attribute', () => {
-    // A malformed hex value containing " or & must not produce raw special
-    // characters inside the XML attribute value.
-    const xml = colorChildXml({ kind: 'srgb', value: 'FF00"00' });
-    // The " must be escaped; no raw " inside the val attribute
-    expect(xml).not.toMatch(/val="[^"]*"[^/]/);
-    expect(xml).toContain('&quot;');
+  it('normalizes the srgbClr val attribute instead of escaping it', () => {
+    // `ST_HexColorRGB` is six hex digits, so a malformed value is not
+    // escaped into the attribute — it is replaced by the black fallback.
+    // The attribute can therefore only ever hold [0-9A-F]{6}, which
+    // subsumes escaping.
+    expect(colorChildXml({ kind: 'srgb', value: 'FF00"00' }))
+      .toBe('<a:srgbClr val="000000"/>');
+    expect(colorChildXml({ kind: 'srgb', value: '' }))
+      .toBe('<a:srgbClr val="000000"/>');
+  });
+
+  it('coerces the modifier attributes instead of interpolating them raw', () => {
+    // `ST_Percentage` is a number. The model holds whatever import or the
+    // content PUT API stored, so a non-numeric modifier is dropped (the base
+    // color still renders) rather than smuggled into the attribute — the hex
+    // `val` is normalized, so these are the only other attributes here.
+    const xml = colorChildXml({
+      kind: 'role',
+      role: 'accent1',
+      lumMod: '50000"/><a:alpha val="0' as unknown as number,
+      alpha: 25000,
+    });
+    expect(xml).not.toContain('lumMod');
+    expect(xml).toBe('<a:schemeClr val="accent1"><a:alpha val="25000"/></a:schemeClr>');
+    expect(colorChildXml({ kind: 'srgb', value: '#FF0000', alpha: NaN as number }))
+      .toBe('<a:srgbClr val="FF0000"/>');
+  });
+
+  it('normalizes the CSS forms the model can hold', () => {
+    // Slide text boxes are edited by the docs TextEditor, so HTML paste
+    // stores browser-normalized CSS; import/older schemas add shorthand.
+    expect(colorChildXml({ kind: 'srgb', value: 'rgb(255, 128, 0)' }))
+      .toBe('<a:srgbClr val="FF8000"/>');
+    expect(colorChildXml({ kind: 'srgb', value: '#f80' }))
+      .toBe('<a:srgbClr val="FF8800"/>');
   });
 });

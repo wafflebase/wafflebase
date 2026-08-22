@@ -135,10 +135,10 @@ any failure and accept one wasted attempt.
 - [x] `pnpm verify:fast` (exit 0) and `pnpm verify:self` (the pre-push gate)
 - [x] Update `docs/design/harness-engineering.md` with the pool, the per-job constraint, and
       the invariant it relaxes
-- [ ] Register `CLAUDE_CODE_OAUTH_TOKEN_1..N` in the `agent` environment
-- [ ] Dispatch `agent-sdk-smoke-test.yml` — every credential green, pool size as expected
-- [ ] Roll out the SDK lane: `eval-replay` → panel
-- [ ] Action lane, as its own PR: confirm composite `continue-on-error` and step-output
+- [x] Register `CLAUDE_CODE_OAUTH_TOKEN_1..N` in the `agent` environment
+- [x] Dispatch `agent-sdk-smoke-test.yml` — every credential green, pool size as expected
+- [x] Roll out the SDK lane: `eval-replay` → panel
+- [x] Action lane, as its own PR: confirm composite `continue-on-error` and step-output
       masking on a real runner, then land the wrapper wired to the six workflows
 - [ ] **Reduce the untrusted-cwd credential count from nine to two** — see Review below
 

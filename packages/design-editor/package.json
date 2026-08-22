@@ -1,26 +1,49 @@
 {
   "name": "@wafflebase/design-editor",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "private": true,
   "type": "module",
   "description": "Dev-only Vite plugin that renders a project's real routes and writes edits back into its JSX and token source.",
   "exports": {
     ".": "./src/plugin/index.ts",
     "./client": "./src/client/index.ts",
+    "./scenes": "./src/scenes/index.ts",
     "./injector": "./src/server/inject.mjs"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
     "test": "vitest --run",
-    "verify:consumer": "node ./scripts/verify-consumer.mjs"
+    "build": "vite build --config ./vite.shell.config.ts",
+    "verify:consumer": "node ./scripts/verify-consumer.mjs",
+    "verify:frame": "node ./scripts/verify-frame.mjs"
   },
   "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "@tailwindcss/vite": "^4.1.3",
     "@types/node": "^22.14.1",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "clsx": "^2.1.1",
+    "eslint": "^9.21.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "globals": "^16.0.0",
+    "jsdom": "^28.0.0",
+    "lucide-react": "^0.503.0",
+    "playwright": "^1.58.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^3.2.0",
+    "tailwindcss": "^4.1.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.8",
-    "vite": "^6.4.2"
+    "typescript-eslint": "^8.24.1",
+    "vite": "^6.4.2",
+    "vitest": "^4.1.8"
   },
   "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "vite": "^6.0.0 || ^7.0.0"
   },
   "peerDependenciesMeta": {

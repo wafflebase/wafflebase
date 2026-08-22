@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderRun } from '../../src/view/paint-layout';
 import { computeLayout } from '../../src/view/layout';
-import type { LayoutLine } from '../../src/view/layout';
+import type { LayoutLine, LayoutRun } from '../../src/view/layout';
 import { createBlock } from '../../src/model/types';
 import { ptToPx, Theme } from '../../src/view/theme';
 import { stubMeasurer } from './_stub-measurer';
@@ -143,6 +143,104 @@ describe('renderRun composing underline', () => {
     const { ctx, strokes } = makeStrokeCtx();
     renderRun(ctx, plain!, 0, 0, line.height, line.maxFontSizePx, {});
     expect(strokes.length).toBe(0);
+  });
+});
+
+/**
+ * Records the `fillStyle` in effect at each `fillText` call. Assignments
+ * are stored verbatim (a real canvas ignores invalid colors and keeps the
+ * previous value — the very failure mode issue #728 exposed), so the test
+ * pre-loads a marker color and asserts the run overwrote it.
+ */
+function makeFillStyleCtx(preset: string): {
+  ctx: CanvasRenderingContext2D;
+  fills: string[];
+} {
+  const fills: string[] = [];
+  const noop = () => {};
+  let fillStyle = preset;
+  const ctx = {
+    font: '',
+    get fillStyle() { return fillStyle; },
+    set fillStyle(v: string) { fillStyle = v; },
+    strokeStyle: '',
+    lineWidth: 1,
+    textBaseline: 'alphabetic' as CanvasTextBaseline,
+    fillText() {
+      fills.push(fillStyle);
+    },
+    save: noop,
+    restore: noop,
+    beginPath: noop,
+    moveTo: noop,
+    lineTo: noop,
+    stroke: noop,
+    setLineDash: noop,
+    fillRect: noop,
+  } as unknown as CanvasRenderingContext2D;
+  return { ctx, fills };
+}
+
+function runWithColor(color: string | undefined): { run: LayoutRun; line: LayoutLine } {
+  const block = createBlock('paragraph');
+  block.inlines = [{ text: 'Hello', style: { fontSize: 11, color } }];
+  const { layout } = computeLayout([block], stubMeasurer(), 600);
+  const line = layout.blocks[0].lines[0];
+  return { run: line.runs[0], line };
+}
+
+describe('renderRun cleared text color (issue #728)', () => {
+  it('paints an empty-string color with the theme default, not the previous fillStyle', () => {
+    const { run, line } = runWithColor('');
+    // The selection layer fills its rects right before the run pass, so
+    // this is the color a leaked empty string used to inherit.
+    const { ctx, fills } = makeFillStyleCtx(Theme.selectionColor);
+    renderRun(ctx, run, 0, 0, line.height, line.maxFontSizePx, {});
+    expect(fills[0]).toBe(Theme.defaultColor);
+  });
+
+  it('still honours an explicit color', () => {
+    const { run, line } = runWithColor('#ff0000');
+    const { ctx, fills } = makeFillStyleCtx(Theme.selectionColor);
+    renderRun(ctx, run, 0, 0, line.height, line.maxFontSizePx, {});
+    expect(fills[0]).toBe('#ff0000');
+  });
+});
+
+function underlinedRun(
+  style: { underlineColor?: string; color?: string },
+): { run: LayoutRun; line: LayoutLine } {
+  const block = createBlock('paragraph');
+  block.inlines = [{ text: 'Hello', style: { fontSize: 11, underline: true, ...style } }];
+  const { layout } = computeLayout([block], stubMeasurer(), 600);
+  const line = layout.blocks[0].lines[0];
+  return { run: line.runs[0], line };
+}
+
+describe('renderRun cleared underline color (issue #728)', () => {
+  it('strokes an empty-string underlineColor in the run\'s text color', () => {
+    // Pre-fix this assigned '' to strokeStyle. A real canvas ignores the
+    // invalid assignment and keeps whatever the previous pass left, so
+    // the underline was painted in an unrelated color.
+    const { run, line } = underlinedRun({ underlineColor: '', color: '#ff0000' });
+    const { ctx, strokes } = makeStrokeCtx();
+    renderRun(ctx, run, 0, 0, line.height, line.maxFontSizePx, {});
+    expect(strokes.length).toBe(1);
+    expect(strokes[0].color).toBe('#ff0000');
+  });
+
+  it('falls back to the theme default when the run has no color either', () => {
+    const { run, line } = underlinedRun({ underlineColor: '' });
+    const { ctx, strokes } = makeStrokeCtx();
+    renderRun(ctx, run, 0, 0, line.height, line.maxFontSizePx, {});
+    expect(strokes[0].color).toBe(Theme.defaultColor);
+  });
+
+  it('still honours an explicit underlineColor', () => {
+    const { run, line } = underlinedRun({ underlineColor: '#00ff00', color: '#ff0000' });
+    const { ctx, strokes } = makeStrokeCtx();
+    renderRun(ctx, run, 0, 0, line.height, line.maxFontSizePx, {});
+    expect(strokes[0].color).toBe('#00ff00');
   });
 });
 

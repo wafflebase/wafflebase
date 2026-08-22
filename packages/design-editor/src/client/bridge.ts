@@ -27,6 +27,8 @@ import { API_BASE } from '../base.ts';
 import type { FrameSide, MutateRequest, MutateResult, Transaction } from '../plugin/protocol.ts';
 import type { TransactionSummary } from '../plugin/transactions.ts';
 import type { ExternalChange } from '../plugin/tracked.ts';
+import type { DesignMetadata } from '../types.ts';
+import type { AliasEntry } from '../plugin/aliases.ts';
 import type { TokenFamilyMeta, TokenBindings, TokenVars } from '../tokens/adapter.ts';
 
 /** The subset of `fetch` this client uses. Injectable so tests need no server. */
@@ -48,15 +50,38 @@ export interface BridgeClientOptions {
 /** Every response carries these two; `error` is present only when `ok` is false. */
 export interface BridgeResult {
   ok: boolean;
+  /**
+   * The HTTP status, when there WAS a response. Absent means the request never completed —
+   * the dev server is down, or the network refused it.
+   *
+   * That distinction is not cosmetic and it was previously unavailable: `/mutate` reports an
+   * intent it could not locate as a 409 with `ok: false`, which is the same shape a dead
+   * server produces. A caller could therefore only say "it failed", where "this one edit no
+   * longer matches its file" and "nothing is listening" need different words and different
+   * recovery.
+   */
+  status?: number;
   error?: string;
 }
 
 export interface HealthResult extends BridgeResult {
   root?: string;
+  /**
+   * The dev server's per-process identity. The staged-edit history is persisted under
+   * it, so a change means the server restarted and the stored stack — which describes
+   * files that may have moved — is dropped instead of replayed.
+   */
+  session?: string;
   scenes?: string | null;
   providers?: string | null;
   /** `'configured'` or null — null greys the token panels rather than hiding them. */
   tokens?: 'configured' | null;
+  /**
+   * The consumer's import aliases, root-relative — what `resolveImport` needs to
+   * turn `@/components/badge` into a file. Config, so it never changes for the life
+   * of the dev server; the client reads it once.
+   */
+  aliases?: AliasEntry[];
   /**
    * Bumps once per external change to a watched file. Staged edits captured the text
    * they expect to find, so any bump means re-validate rather than trust them.
@@ -66,12 +91,30 @@ export interface HealthResult extends BridgeResult {
   safelist?: number;
 }
 
+/**
+ * `GET /metadata`. `failed` names any declared file the analyser could not read —
+ * reported rather than dropped, because a dropped scene reads as "this project has fewer
+ * scenes" instead of as a parse failure.
+ */
+export interface MetadataResult extends BridgeResult {
+  metadata?: DesignMetadata;
+  failed?: { file: string; error: string }[];
+}
+
 export interface TokensResult extends BridgeResult {
   /** null when the consumer configured no `TokenAdapter`; `reason` says so. */
   adapter?: 'configured' | null;
   reason?: string;
   sources?: string[];
-  vars?: TokenVars;
+  /**
+   * PER THEME, as `TokenTree.vars` is — `/tokens` spreads the adapter's tree straight onto
+   * the response. Typed as a flat `TokenVars` this read as `Record<string, string>` whose
+   * only keys were `light` and `dark`, so every lookup of a variable name missed silently.
+   *
+   * `light` is the base (`:root`) and `dark` the override: a property absent from `dark`
+   * INHERITS rather than being empty, which is what a reader must render.
+   */
+  vars?: { light: TokenVars; dark: TokenVars };
   utilities?: string[];
   families?: TokenFamilyMeta[];
   bindings?: TokenBindings;
@@ -107,8 +150,30 @@ export interface MutateResponse extends BridgeResult {
   parentPath?: number[];
 }
 
+/**
+ * One intent's outcome inside a batch, as `/validate` and `/commit` actually send it.
+ *
+ * NOT `MutateResult`, and the difference is load-bearing: both routes return
+ * `composeIntents`' own rows, which carry `located`, `reason`, `label` and `file` — the
+ * four fields a caller needs to report WHICH edit failed and why. Typing them as
+ * `MutateResult` hid all four, so a client could only say "the batch failed". The rows
+ * are in intent order, because `composeIntents` iterates the batch sequentially.
+ */
+export interface BatchOutcome {
+  located: boolean;
+  reason?: string;
+  /** A short human label for the edit, e.g. `token-value --primary`. */
+  label: string;
+  /** Root-relative, and correct for a layout intent (whose file is on its anchor). */
+  file: string;
+  /** `layout-remove` echoes the span it cut, so the client can store the inverse. */
+  removedText?: string;
+  removedIndex?: number;
+  parentPath?: number[];
+}
+
 export interface ValidateResult extends BridgeResult {
-  results?: MutateResult[];
+  results?: BatchOutcome[];
   fsRevision?: number;
 }
 
@@ -117,7 +182,7 @@ export interface CommitResult extends BridgeResult {
   files?: string[];
   backup?: string | null;
   txnId?: number;
-  results?: MutateResult[];
+  results?: BatchOutcome[];
   regenerated?: boolean;
   regenError?: string;
 }
@@ -155,6 +220,13 @@ export interface PlanResult extends BridgeResult {
 
 export interface BridgeClient {
   health(): Promise<HealthResult>;
+  /**
+   * The outline's data — every declared scene and component, analysed.
+   *
+   * RE-READ, NEVER CACHED, by the client too: a `layout-insert` renumbers every following
+   * sibling, so a client holding a pre-write tree fails on all of them at the next save.
+   */
+  metadata(): Promise<MetadataResult>;
   tokens(): Promise<TokensResult>;
   previewTokens(intents: MutateRequest[]): Promise<PreviewTokensResult>;
   /** One intent. `dryRun` returns the diff and writes nothing. */
@@ -200,13 +272,14 @@ export function createBridgeClient(options: BridgeClientOptions = {}): BridgeCli
       return { ok: false, error: err instanceof Error ? err.message : 'bridge unreachable' } as T;
     }
     try {
-      // Parsed whatever the status: see rule 2 — a 409 body is the useful part.
-      return (await res.json()) as T;
+      // Parsed whatever the status: see rule 2 — a 409 body is the useful part. The status
+      // rides along so the caller can tell a refusal from an outage.
+      return { status: res.status, ...((await res.json()) as T) };
     } catch {
       // A dev server that is up but not serving the bridge answers HTML here. The
       // status is the only thing worth reporting, and it is worth reporting: it
       // distinguishes "plugin not installed" (404) from "bridge threw" (500).
-      return { ok: false, error: `unexpected response (${res.status})` } as T;
+      return { ok: false, status: res.status, error: `unexpected response (${res.status})` } as T;
     }
   };
 
@@ -219,6 +292,7 @@ export function createBridgeClient(options: BridgeClientOptions = {}): BridgeCli
 
   return {
     health: () => request<HealthResult>('/health'),
+    metadata: () => request<MetadataResult>('/metadata'),
     tokens: () => request<TokensResult>('/tokens'),
     previewTokens: (intents) => post<PreviewTokensResult>('/preview-tokens', { intents }),
     // `?? intent.dryRun`, not a bare override: `dryRun` is part of `MutateRequest`, so

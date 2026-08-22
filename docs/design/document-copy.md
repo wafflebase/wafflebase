@@ -1,6 +1,6 @@
 ---
 title: document-copy
-target-version: 0.7.0
+target-version: 0.6.5
 ---
 
 # Make a Copy — Document Duplication

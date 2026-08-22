@@ -4,11 +4,19 @@ import { pxToEmu, pxToEmuX, pxToEmuY } from './units.js';
 import { solidFillXml, colorFromStringOrTheme } from './color.js';
 import { escapeXmlAttr } from './xml.js';
 
-const ROUTING_PRST: Record<ConnectorRouting, string> = {
-  straight: 'line',
-  elbow: 'bentConnector3',
-  curved: 'curvedConnector3',
-};
+/**
+ * `ConnectorElement.routing` → OOXML `<a:prstGeom prst>`.
+ *
+ * A `Map` (and read with an explicit fallback below) because `routing` is
+ * persisted JSON like every other attribute source here: an object lookup
+ * would resolve `constructor` through the prototype chain straight into the
+ * `prst` attribute, and an unknown own key would emit `prst="undefined"`.
+ */
+const ROUTING_PRST = new Map<ConnectorRouting, string>([
+  ['straight', 'line'],
+  ['elbow', 'bentConnector3'],
+  ['curved', 'curvedConnector3'],
+]);
 
 /**
  * Map ArrowheadKind to the OOXML `type` attribute for `<a:headEnd>`/`<a:tailEnd>`.
@@ -26,34 +34,43 @@ const ROUTING_PRST: Record<ConnectorRouting, string> = {
  * Kinds without a distinct OOXML type (`diamond-open`, `circle-open`,
  * `square`, `square-open`) fall back to the closest available OOXML value
  * so they round-trip to the nearest-match kind.
+ *
+ * A `Map`, not an object literal: `arrowheads.start.kind` is persisted JSON
+ * that the content PUT API lets a caller set to any string, and an object
+ * lookup consults the prototype chain — a kind of `constructor` would resolve
+ * to an inherited `Object.prototype` member, survive the `?? 'triangle'`
+ * fallback and be stringified into the `type` attribute. `Map.get` only ever
+ * returns an own entry.
  */
-const KIND_TO_OOXML: Record<string, string> = {
-  triangle: 'triangle',
-  'triangle-open': 'stealth',
-  diamond: 'diamond',
-  'diamond-open': 'diamond',
-  circle: 'oval',
-  'circle-open': 'oval',
-  square: 'oval',
-  'square-open': 'oval',
-};
+const KIND_TO_OOXML = new Map<string, string>([
+  ['triangle', 'triangle'],
+  ['triangle-open', 'stealth'],
+  ['diamond', 'diamond'],
+  ['diamond-open', 'diamond'],
+  ['circle', 'oval'],
+  ['circle-open', 'oval'],
+  ['square', 'oval'],
+  ['square-open', 'oval'],
+]);
 
 /**
  * Map ArrowheadStyle size to the OOXML `w`/`len` attribute value.
  *
  * The importer reads `len` first (falling back to `w`), so we emit both
  * attributes with the same value for a faithful round-trip.
+ *
+ * A `Map` for the same prototype-chain reason as {@link KIND_TO_OOXML}.
  */
-const SIZE_TO_OOXML: Record<string, string> = {
-  sm: 'sm',
-  md: 'med',
-  lg: 'lg',
-};
+const SIZE_TO_OOXML = new Map<string, string>([
+  ['sm', 'sm'],
+  ['md', 'med'],
+  ['lg', 'lg'],
+]);
 
 export function arrowXml(tag: 'headEnd' | 'tailEnd', a: ArrowheadStyle | undefined): string {
   if (!a) return '';
-  const type = KIND_TO_OOXML[a.kind] ?? 'triangle';
-  const sz = SIZE_TO_OOXML[a.size] ?? 'med';
+  const type = KIND_TO_OOXML.get(a.kind) ?? 'triangle';
+  const sz = SIZE_TO_OOXML.get(a.size) ?? 'med';
   return `<a:${tag} type="${type}" w="${sz}" len="${sz}"/>`;
 }
 
@@ -73,7 +90,7 @@ export function arrowXml(tag: 'headEnd' | 'tailEnd', a: ArrowheadStyle | undefin
  * - arrowhead `len`+`w` both emitted (importer reads `len` first)
  */
 export function connectorToXml(el: ConnectorElement, frame: Frame): string {
-  const prst = ROUTING_PRST[el.routing];
+  const prst = ROUTING_PRST.get(el.routing) ?? 'line';
   const name = escapeXmlAttr(el.id);
 
   const xfrm =

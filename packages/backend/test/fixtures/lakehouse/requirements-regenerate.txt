@@ -1,0 +1,4 @@
+deltalake==1.6.2
+pyarrow==25.0.0
+pyiceberg[pyarrow,sql-sqlite]==0.11.1
+SQLAlchemy==2.0.51
