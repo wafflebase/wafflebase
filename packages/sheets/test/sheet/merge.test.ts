@@ -140,6 +140,55 @@ describe('Sheet merge + drag-move', () => {
     expect(await sheet.toDisplayString({ r: 3, c: 3 })).toBe('10');
   });
 
+  it('should persist the propagated merge to the store', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 2 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    const stored = await store.getMerges();
+    expect(stored.size).toBe(1);
+    expect(stored.get('A3')).toEqual({ rs: 1, cs: 2 });
+    expect(stored.has('A1')).toBe(false);
+  });
+
+  it('should recalculate dependants of a merge the move removed', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 3, c: 1 }, '20');
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    await sheet.mergeSelection();
+
+    await sheet.setData({ r: 1, c: 4 }, '=B3+1');
+    expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('21');
+
+    // A1:B1 fully covers the A3:B3 merge, so the merge is dropped and B3 stops
+    // aliasing A3 — the dependant must not keep the aliased value.
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 2 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    expect(sheet.getMerges().size).toBe(0);
+    expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('1');
+  });
+
   it('should clear destination cells covered by the moved merge', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '10');

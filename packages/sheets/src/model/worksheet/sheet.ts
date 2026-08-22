@@ -2363,6 +2363,13 @@ export class Sheet {
       // through merge aliases and so must see the new layout.
       if (movedMerges.length > 0 || overwrittenMerges.length > 0) {
         for (const merge of [...movedMerges, ...overwrittenMerges]) {
+          // Every cell the block covered stops aliasing to its anchor, so
+          // formulas reading through the alias have to be recalculated even
+          // where no cell object changed — the same invalidation
+          // `unmergeSelection` performs.
+          for (const sref of this.mergeCoveredSrefs(merge.anchor, merge.span)) {
+            changedSrefs.add(sref);
+          }
           await this.store.deleteMerge(merge.anchor);
           this.merges.delete(merge.anchorSref);
         }
@@ -2380,16 +2387,37 @@ export class Sheet {
           // cleared — otherwise they stay hidden under the merge and reappear
           // when it is removed.
           for (const sref of this.mergeCoveredSrefs(anchor, merge.span)) {
+            // The block now aliases these cells to the new anchor.
+            changedSrefs.add(sref);
             if (sref === anchorSref || movedGrid.has(sref)) continue;
             const ref = parseRef(sref);
             const cell = await this.store.get(ref);
             if (!cell) continue;
+            // Ghost cells are read-only; their anchor owns their lifetime.
+            if (cell.spillAnchor) continue;
+            // Clearing a spill anchor would orphan its ghosts, so drop them
+            // first — the same cleanup contract `removeData` follows.
+            if (cell.spillRows && cell.spillCols && !cell.spillBlocked) {
+              this.clearSpillBlockers(sref);
+              for (let dr = 0; dr < cell.spillRows; dr++) {
+                for (let dc = 0; dc < cell.spillCols; dc++) {
+                  if (dr === 0 && dc === 0) continue;
+                  const ghostRef = { r: ref.r + dr, c: ref.c + dc };
+                  const ghostCell = await this.store.get(ghostRef);
+                  if (ghostCell?.spillAnchor === sref) {
+                    await this.store.delete(ghostRef);
+                    changedSrefs.add(toSref(ghostRef));
+                  }
+                }
+              }
+            } else if (cell.spillBlocked) {
+              this.clearSpillBlockers(sref);
+            }
             if (cell.s && Object.keys(cell.s).length > 0) {
               await this.store.set(ref, { s: cell.s });
             } else {
               await this.store.delete(ref);
             }
-            changedSrefs.add(sref);
           }
         }
         this.rebuildMergeCoverMap();
