@@ -198,17 +198,26 @@ describe('EditorAPI.onCursorMove', () => {
     editor.setBlockType('heading', { headingLevel: 2 });
 
     const seen: string[] = [];
+    const levels: Array<number | undefined> = [];
     editor.onCursorMove(() => {
-      seen.push(editor.getBlockType().type);
+      const bt = editor.getBlockType();
+      seen.push(bt.type);
+      levels.push(bt.headingLevel);
     });
 
     editor.toggleList('unordered');
     expect(seen).toContain('list-item');
 
-    // ...and back off again.
+    // ...and back off again. Removing the list restores the heading the
+    // block was bulleted from (`unlistedBlockType`, issue #783) rather than
+    // dropping it to body text, so the label goes back to "Heading 2". What
+    // this test guards is unchanged: the callbacks fire with the *new* type
+    // already readable.
     seen.length = 0;
+    levels.length = 0;
     editor.toggleList('unordered');
-    expect(seen).toContain('paragraph');
+    expect(seen).toContain('heading');
+    expect(levels).toContain(2);
 
     editor.dispose();
   });

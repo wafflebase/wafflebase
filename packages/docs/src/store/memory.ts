@@ -246,6 +246,7 @@ export class MemDocStore implements DocStore {
   ): void {
     const block = this.findBlock(blockId);
     const prevStyleId = blockStyleId(block);
+    const prevHeadingLevel = block.headingLevel;
     block.type = type;
     delete block.headingLevel;
     delete block.listKind;
@@ -254,6 +255,9 @@ export class MemDocStore implements DocStore {
       block.headingLevel = opts?.headingLevel ?? 1;
     }
     if (type === 'list-item') {
+      // A bulleted heading remembers its level so removing the list restores
+      // the heading instead of flattening it to body text (see `Block`).
+      if (prevHeadingLevel !== undefined) block.headingLevel = prevHeadingLevel;
       block.listKind = opts?.listKind ?? 'unordered';
       block.listLevel = opts?.listLevel ?? 0;
     }

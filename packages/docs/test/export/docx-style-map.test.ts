@@ -135,6 +135,15 @@ describe('toDocxHexColor', () => {
   });
 });
 
+const BODY_STYLE = {
+  alignment: 'left' as const,
+  lineHeight: 1.5,
+  marginTop: 0,
+  marginBottom: 8,
+  textIndent: 0,
+  marginLeft: 0,
+};
+
 describe('buildParagraphPropertiesXml', () => {
   it('should generate center alignment', () => {
     const xml = buildParagraphPropertiesXml({ alignment: 'center', lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 });
@@ -144,6 +153,11 @@ describe('buildParagraphPropertiesXml', () => {
   it('should generate justify as "both"', () => {
     const xml = buildParagraphPropertiesXml({ alignment: 'justify', lineHeight: 1.5, marginTop: 0, marginBottom: 8, textIndent: 0, marginLeft: 0 });
     expect(xml).toContain('<w:jc w:val="both"/>');
+  });
+
+  it('emits the heading style for a real level', () => {
+    const xml = buildParagraphPropertiesXml(BODY_STYLE, 3);
+    expect(xml).toContain('<w:pStyle w:val="Heading3"/>');
   });
 
   it('drops an alignment that is not an ST_Jc token instead of interpolating it', () => {

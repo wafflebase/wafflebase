@@ -99,6 +99,8 @@ export {
   applyInsertInline,
   applySplitBlock,
   applyMergeBlocks,
+  mergeDropsHeadingMemory,
+  splitMovesHeadingMemory,
   resolveOffsetForSplit,
 } from './store/block-helpers.js';
 export type { InlinePosition, InlineSegment } from './store/block-helpers.js';

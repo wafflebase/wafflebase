@@ -1229,6 +1229,58 @@ describe('YorkieDocStore', () => {
       store.setDocument({ blocks: [block] });
       expect(() => store.mergeBlock(block.id, block.id)).toThrow(/Cannot merge/);
     });
+
+    it('should drop a bulleted headings remembered level when it holds no text', () => {
+      // An emptied bulleted heading that absorbs the next bullet's body text
+      // no longer holds the heading it remembers, so the level must leave both
+      // the cache and the tree — otherwise un-listing promotes body text
+      // that was never a heading (#783 follow-up).
+      const emptied: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        listKind: 'unordered',
+        listLevel: 0,
+        headingLevel: 2,
+        inlines: [{ text: '', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      const next: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        listKind: 'unordered',
+        listLevel: 0,
+        inlines: [{ text: 'body text', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [emptied, next] });
+      store.mergeBlock(emptied.id, next.id);
+
+      const merged = store.getBlock(emptied.id)!;
+      expect(merged.inlines.map((i) => i.text).join('')).toBe('body text');
+      expect(merged.headingLevel).toBe(undefined);
+      // Re-read from the tree, not the cache.
+      expect(new YorkieDocStore(doc).getBlock(emptied.id)!.headingLevel).toBe(undefined);
+    });
+
+    it('should keep the remembered level when the bulleted heading keeps its text', () => {
+      const bulleted: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        listKind: 'unordered',
+        listLevel: 0,
+        headingLevel: 2,
+        inlines: [{ text: 'Title', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      const next = makeBlock(' addendum');
+      store.setDocument({ blocks: [bulleted, next] });
+      store.mergeBlock(bulleted.id, next.id);
+
+      const merged = store.getBlock(bulleted.id)!;
+      expect(merged.inlines.map((i) => i.text).join('')).toBe('Title addendum');
+      expect(merged.headingLevel).toBe(2);
+      expect(new YorkieDocStore(doc).getBlock(bulleted.id)!.headingLevel).toBe(2);
+    });
   });
 
   describe('applyStyle', () => {
@@ -1548,6 +1600,53 @@ describe('YorkieDocStore', () => {
       expect(result.blocks[1].type).toBe('list-item');
       expect(result.blocks[1].listKind).toBe('ordered');
       expect(result.blocks[1].listLevel).toBe(1);
+    });
+
+    it('should not carry a bulleted heading level onto the split-off list-item', () => {
+      // The remembered heading belongs to the block that was bulleted; the
+      // new bullet is body text and must exit the list as a paragraph (#783).
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        listKind: 'unordered',
+        listLevel: 0,
+        headingLevel: 2,
+        inlines: [{ text: 'HelloWorld', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 5, 'new-id', 'list-item');
+      const result = store.getDocument();
+      expect(result.blocks[1].type).toBe('list-item');
+      expect(result.blocks[1].headingLevel).toBe(undefined);
+      // Re-read from the tree, not the cache.
+      const fromTree = new YorkieDocStore(doc).getBlock('new-id')!;
+      expect(fromTree.headingLevel).toBe(undefined);
+    });
+
+    it('should move a bulleted heading level onto the split-off block at offset 0', () => {
+      // A split at the very start hands the whole heading text to the new
+      // block, so the memory travels with it instead of stranding on the
+      // empty leading bullet (#783 follow-up).
+      const block: Block = {
+        id: generateBlockId(),
+        type: 'list-item',
+        listKind: 'unordered',
+        listLevel: 0,
+        headingLevel: 2,
+        inlines: [{ text: 'HelloWorld', style: {} }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      };
+      store.setDocument({ blocks: [block] });
+      store.splitBlock(block.id, 0, 'new-id', 'list-item');
+
+      const result = store.getDocument();
+      expect(result.blocks[0].headingLevel).toBe(undefined);
+      expect(result.blocks[1].headingLevel).toBe(2);
+      // Re-read from the tree, not the cache.
+      const fresh = new YorkieDocStore(doc);
+      expect(fresh.getBlock(block.id)!.headingLevel).toBe(undefined);
+      expect(fresh.getBlock('new-id')!.headingLevel).toBe(2);
     });
   });
 
@@ -1917,7 +2016,9 @@ describe('YorkieDocStore', () => {
       expect(result.headingLevel).toBe(undefined);
     });
 
-    it('should remove stale headingLevel from tree when changing to list-item', () => {
+    it('should keep headingLevel in the tree when changing to list-item', () => {
+      // Bulleting a heading applies the bullet *to* the heading, so the level
+      // survives in the tree and un-listing can restore it (#783).
       const block: Block = {
         id: generateBlockId(),
         type: 'heading',
@@ -1929,8 +2030,16 @@ describe('YorkieDocStore', () => {
       store.setBlockType(block.id, 'list-item', { listKind: 'ordered', listLevel: 0 });
       const result = store.getBlock(block.id)!;
       expect(result.type).toBe('list-item');
-      expect(result.headingLevel, 'headingLevel should be removed').toBe(undefined);
+      expect(result.headingLevel, 'headingLevel should be remembered').toBe(2);
       expect(result.listKind).toBe('ordered');
+      // Re-read from the tree, not the cache.
+      const fromTree = new YorkieDocStore(doc).getBlock(block.id)!;
+      expect(fromTree.headingLevel).toBe(2);
+
+      // An explicit "Normal text" still clears it.
+      store.setBlockType(block.id, 'paragraph');
+      expect(store.getBlock(block.id)!.headingLevel).toBe(undefined);
+      expect(new YorkieDocStore(doc).getBlock(block.id)!.headingLevel).toBe(undefined);
     });
 
     it('should remove stale listKind/listLevel from tree when changing to paragraph', () => {
