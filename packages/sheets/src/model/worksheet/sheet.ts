@@ -2257,7 +2257,9 @@ export class Sheet {
    * Unlike copy-paste, drag-move preserves formula text as-is (Google Sheets
    * behavior). For example, `=SUM(A10:I10)` stays `=SUM(A10:I10)` after move.
    * Other cells that referenced the moved cells are redirected to the new
-   * positions.
+   * positions. Merged blocks travel with the move: a merge fully inside the
+   * source range is re-created at the destination (Google Sheets merge
+   * propagation).
    */
   async moveRangeTo(sourceRange: Range, destStart: Ref): Promise<void> {
     if (this.pivotDefinition) return;
@@ -2277,6 +2279,28 @@ export class Sheet {
 
     // No-op if destination is same as source
     if (deltaRow === 0 && deltaCol === 0) return;
+
+    const destEnd: Ref = {
+      r: destStart.r + (srcMaxR - srcMinR),
+      c: destStart.c + (srcMaxC - srcMinC),
+    };
+    const destRange: Range = [destStart, destEnd];
+
+    // Merged blocks fully inside the source travel with the move; blocks the
+    // move would only partially cover — split at the source, or partially
+    // overwritten at the destination — would corrupt the merge state, so the
+    // whole move is rejected instead.
+    const movedMerges = this.getMergesIntersecting(normalizedSource);
+    if (movedMerges.some((m) => !isRangeInRange(m.range, normalizedSource))) {
+      return;
+    }
+    const movedAnchors = new Set(movedMerges.map((m) => m.anchorSref));
+    const overwrittenMerges = this.getMergesIntersecting(destRange).filter(
+      (m) => !movedAnchors.has(m.anchorSref),
+    );
+    if (overwrittenMerges.some((m) => !isRangeInRange(m.range, destRange))) {
+      return;
+    }
 
     const grid = await this.fetchGrid(normalizedSource);
 
@@ -2333,6 +2357,26 @@ export class Sheet {
 
       await this.store.setRangeStyles(this.rangeStyles);
 
+      // Propagate merges: drop them at the source and at the overwritten
+      // destination, then re-create the source layout at the destination.
+      // This runs before the recalculation below, which expands changed refs
+      // through merge aliases and so must see the new layout.
+      if (movedMerges.length > 0 || overwrittenMerges.length > 0) {
+        for (const merge of [...movedMerges, ...overwrittenMerges]) {
+          await this.store.deleteMerge(merge.anchor);
+          this.merges.delete(merge.anchorSref);
+        }
+        for (const merge of movedMerges) {
+          const anchor: Ref = {
+            r: merge.anchor.r + deltaRow,
+            c: merge.anchor.c + deltaCol,
+          };
+          await this.store.setMerge(anchor, merge.span);
+          this.merges.set(toSref(anchor), merge.span);
+        }
+        this.rebuildMergeCoverMap();
+      }
+
       // Redirect formula references that pointed to moved cells
       await this.redirectFormulasForCut(cutRefMap);
 
@@ -2351,10 +2395,6 @@ export class Sheet {
     }
 
     // Select the destination range
-    const destEnd: Ref = {
-      r: destStart.r + (srcMaxR - srcMinR),
-      c: destStart.c + (srcMaxC - srcMinC),
-    };
     this.selectionType = 'cell';
     this.activeCell = destStart;
     this.ranges = [[destStart, destEnd]];

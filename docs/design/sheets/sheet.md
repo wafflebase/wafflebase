@@ -109,8 +109,14 @@ all cell, selection, and navigation operations.
   stays `=SUM(A10:I10)` after the move), matching Google Sheets behavior.
   Other cells that referenced the moved cells are redirected to the new
   positions. Range styles are translated to the destination and the source
-  area is cleared. The overlay renders a dashed preview rectangle at the
-  prospective drop location during the drag.
+  area is cleared. Merged blocks propagate: a merge fully inside the source
+  range is removed there and re-created at the destination, and any merge
+  fully covered by the destination range is dropped (it is overwritten by the
+  moved content). A move that would only partially cover a merged block —
+  splitting one at the source, or overwriting part of one at the destination —
+  is rejected as a no-op rather than corrupting the merge state. The overlay
+  renders a dashed preview rectangle at the prospective drop location during
+  the drag.
 - **Filtering** — `createFilterFromSelection`, `setColumnFilter`, and
   `clearFilter` persist filter metadata and compute hidden row indices.
   If the selection is header-only (single row), filter creation auto-expands
