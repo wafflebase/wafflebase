@@ -6,15 +6,15 @@ menu. Nothing changes for someone who never turns it on.
 
 ## Acceptance criteria (from the issue)
 
-- [ ] A blame gutter sits **left of the line numbers**; each line shows the
+- [x] A blame gutter sits **left of the line numbers**; each line shows the
       author of its most recent edit.
-- [ ] Consecutive lines by the same author collapse into one label.
-- [ ] **Off by default**, toggled from the view menu. With it off the note
+- [x] Consecutive lines by the same author collapse into one label.
+- [x] **Off by default**, toggled from the view menu. With it off the note
       renders exactly as today (same layout, same line width).
-- [ ] Notes written before this ships have no per-line authorship: those
+- [x] Notes written before this ships have no per-line authorship: those
       lines show **blank**, not a wrong name. No migration, no backfill —
       attribution accrues from the first edit after the feature lands.
-- [ ] Anonymous editing keeps working; anonymous lines fall back to
+- [x] Anonymous editing keeps working; anonymous lines fall back to
       **"Anonymous"**.
 
 ## Design
@@ -47,8 +47,8 @@ line's most recent edit".
 
 ## Steps
 
-- [ ] Store: `NoteAuthorSpan` + `getAuthorSpans()` (interface, memory, Yorkie).
-- [ ] Engine: blame gutter extension + compartment + editor API.
-- [ ] Frontend: view-menu toggle, persisted preference, prop wiring.
-- [ ] Tests: memory store spans, gutter labels/collapsing/blank/Anonymous.
-- [ ] Design doc subsection in `docs/design/notes/notes.md`.
+- [x] Store: `NoteAuthorSpan` + `getAuthorSpans()` (interface, memory, Yorkie).
+- [x] Engine: blame gutter extension + compartment + editor API.
+- [x] Frontend: view-menu toggle, persisted preference, prop wiring.
+- [x] Tests: memory store spans, gutter labels/collapsing/blank/Anonymous.
+- [x] Design doc subsection in `docs/design/notes/notes.md`.

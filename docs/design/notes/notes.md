@@ -514,23 +514,29 @@ change to the shared markdown model.
 A `git blame`-style gutter left of the line numbers, showing who last edited
 each line. Consecutive lines by one author collapse to a single label. It is
 **off by default** and toggled from the view menu, so a reader who never turns
-it on gets a note identical to before — same layout, same line width, and none
-of the per-edit bookkeeping.
+it on gets a note identical to before — same layout, same line width, and no
+gutter extension in the editor at all.
 
-The toggle is **one switch for both halves of the feature**: while it is on the
-client shows other people's names *and* records its own on the text it writes
-(`YorkieNoteStore` takes `{ recordAuthorship }` and exposes
-`setRecordAuthorship`, wired to the same `wafflebase:notes:showAuthors`
-preference). Recording is not a side effect of being attached, because it is not
-symmetrical with the caret label it is copied from: a caret name is presence and
-evaporates on detach, whereas an author attribute goes into `root.content` and
-stays for the life of the note, readable by anyone who can read the note at all
-— including anonymous viewer-role share-link visitors. Making it follow the
-visible toggle is what turns it into a decision the user made: opting out stops
-recording on the next keystroke, and the menu item says in as many words that
-the name is recorded and who can see it. Runs already written keep their
-attributes; rewriting a shared document's runs to erase a name is not something
-one client may do to it.
+The toggle is **display only**. Recording is unconditional: every attached
+client stamps the text it writes, whether or not its user has the gutter
+switched on. That asymmetry is deliberate, and it is what makes the gutter
+answer the question it exists for — authorship is a property of the *note*, not
+of the reader, and a per-writer recording switch would mean someone who turns
+the gutter on sees blank labels for every line written by collaborators who did
+not, which for most notes is every line.
+
+The disclosure that follows is real: unlike the caret label it is copied from —
+presence, which evaporates on detach — an author attribute goes into
+`root.content` and stays for the life of the note, readable by anyone who can
+read the note at all, including anonymous viewer-role share-link visitors. It is
+the same display name those readers already see on the caret, and the view menu
+says in as many words that names are recorded and who can see them. Nothing is
+erased retroactively: rewriting a shared document's runs to strip a name is not
+something one client may do to it.
+
+Both `NotesView` mounts pass the preference — the authenticated note page from
+its view menu, the share-link page (which has no menu) from the same
+per-browser `wafflebase:notes:showAuthors` value, read once at mount.
 
 Authorship rides on the existing `root.content` `Text` as **per-run
 attributes**, written by `YorkieNoteStore.editText`:

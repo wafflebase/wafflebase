@@ -191,7 +191,7 @@ describe('YorkieNoteStore', () => {
     it('attributes a local edit to the name in this client presence', () => {
       const doc = makeDoc();
       doc.update((_root, presence) => presence.set({ name: 'ann' }));
-      const store = new YorkieNoteStore(doc, { recordAuthorship: true });
+      const store = new YorkieNoteStore(doc);
       store.editText(5, 5, ' world');
 
       const spans = store.getAuthorSpans();
@@ -205,7 +205,7 @@ describe('YorkieNoteStore', () => {
     it('records the empty name anonymous editors attach with', () => {
       // Presence carries no name at all here; the gutter renders an empty
       // author as "Anonymous" rather than leaving the line blank.
-      const store = new YorkieNoteStore(makeDoc(), { recordAuthorship: true });
+      const store = new YorkieNoteStore(makeDoc());
       store.editText(5, 5, '!');
       expect(store.getAuthorSpans().at(-1)).toMatchObject({
         from: 5,
@@ -218,7 +218,7 @@ describe('YorkieNoteStore', () => {
       const [mine, peer] = twoClients('hello');
       peer.update((_root, presence) => presence.set({ name: 'bob' }));
       const store = new YorkieNoteStore(mine);
-      const peerStore = new YorkieNoteStore(peer, { recordAuthorship: true });
+      const peerStore = new YorkieNoteStore(peer);
       peerStore.editText(5, 5, ' there');
       push(peer, mine);
 
@@ -253,7 +253,7 @@ describe('YorkieNoteStore', () => {
         root.content.edit(0, 0, 'X', { a: 'forged', t: 4e15 });
       });
       doc.update((_root, presence) => presence.set({ name: 'ann' }));
-      const store = new YorkieNoteStore(doc, { recordAuthorship: true });
+      const store = new YorkieNoteStore(doc);
       store.editText(6, 6, '!');
 
       const spans = store.getAuthorSpans();
@@ -296,54 +296,23 @@ describe('YorkieNoteStore', () => {
       expect(store.getAuthorSpans().at(-1)!.author).toBe('x'.repeat(64));
     });
 
-    it('records no name unless the user opted in', () => {
-      // Recording is a durable disclosure into the note's own content, so it
-      // does not happen just because a client is attached and knows its name.
+    it('records the local name without any per-user opt-in', () => {
+      // Recording is unconditional: authorship is a property of the note, not
+      // of the reader. If it followed the display toggle, a user who turned
+      // the gutter on would see blank labels for every line written by the
+      // collaborators who had not — for most notes, every line.
       const doc = makeDoc();
       doc.update((_root, presence) => presence.set({ name: 'ann' }));
       const store = new YorkieNoteStore(doc);
       store.editText(5, 5, ' world');
 
-      // The run boundary is still there (an edit is its own run), but no run
-      // carries a name — the text is indistinguishable from text written
-      // before the feature existed.
       expect(store.getText()).toBe('hello world');
-      expect(store.getAuthorSpans().every((s) => s.author === null)).toBe(true);
-      expect(store.getAuthorSpans().every((s) => s.at === 0)).toBe(true);
-    });
-
-    it('stops recording as soon as the user opts back out', () => {
-      // Toggling the preference off has to take effect on the next keystroke,
-      // not the next mount — the store is long-lived.
-      const doc = makeDoc();
-      doc.update((_root, presence) => presence.set({ name: 'ann' }));
-      const store = new YorkieNoteStore(doc, { recordAuthorship: true });
-      store.editText(5, 5, 'A');
-      store.setRecordAuthorship(false);
-      store.editText(6, 6, 'B');
-
       expect(
         store.getAuthorSpans().map((s) => [s.from, s.to, s.author]),
       ).toEqual([
         [0, 5, null],
-        [5, 6, 'ann'],
-        [6, 7, null],
+        [5, 11, 'ann'],
       ]);
-    });
-
-    it('starts recording when the user opts in mid-session', () => {
-      const doc = makeDoc();
-      doc.update((_root, presence) => presence.set({ name: 'ann' }));
-      const store = new YorkieNoteStore(doc);
-      store.editText(5, 5, 'A');
-      store.setRecordAuthorship(true);
-      store.editText(6, 6, 'B');
-
-      expect(store.getAuthorSpans().at(-1)).toMatchObject({
-        from: 6,
-        to: 7,
-        author: 'ann',
-      });
     });
 
     it('restores authorship through undo and redo', () => {
@@ -352,7 +321,7 @@ describe('YorkieNoteStore', () => {
       // text coming back without its authorship would relabel every line.
       const doc = makeDoc();
       doc.update((_root, presence) => presence.set({ name: 'ann' }));
-      const store = new YorkieNoteStore(doc, { recordAuthorship: true });
+      const store = new YorkieNoteStore(doc);
       store.batch(() => store.editText(5, 5, ' world'));
       const before = store
         .getAuthorSpans()
@@ -379,8 +348,8 @@ describe('YorkieNoteStore', () => {
       const [mine, peer] = twoClients('hello');
       peer.update((_root, presence) => presence.set({ name: 'bob' }));
       mine.update((_root, presence) => presence.set({ name: 'ann' }));
-      const store = new YorkieNoteStore(mine, { recordAuthorship: true });
-      const peerStore = new YorkieNoteStore(peer, { recordAuthorship: true });
+      const store = new YorkieNoteStore(mine);
+      const peerStore = new YorkieNoteStore(peer);
 
       store.batch(() => store.editText(5, 5, ' mine'));
       peerStore.editText(5, 5, ' theirs');
@@ -396,7 +365,7 @@ describe('YorkieNoteStore', () => {
     it('leaves a pure deletion unattributed', () => {
       const doc = makeDoc();
       doc.update((_root, presence) => presence.set({ name: 'ann' }));
-      const store = new YorkieNoteStore(doc, { recordAuthorship: true });
+      const store = new YorkieNoteStore(doc);
       store.editText(0, 2, '');
       expect(store.getAuthorSpans()).toEqual([
         { from: 0, to: 3, author: null, at: 0 },

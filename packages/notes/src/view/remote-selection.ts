@@ -54,8 +54,23 @@ const remoteSelAnnotation: cmState.AnnotationType<Array<number>> =
  * function whose arguments are numbers. Nothing else: no quotes, no `url(`, no
  * semicolon, no closing brace.
  */
-const SAFE_COLOR_RE =
-  /^(?:#[0-9a-f]{3,8}|[a-z]{3,20}|(?:rgb|rgba|hsl|hsla)\((?:\s*[-+]?[0-9]*\.?[0-9]+(?:%|deg|rad|grad|turn)?\s*[,/]?\s*){3,4}\))$/i;
+const COLOR_NUM = String.raw`[-+]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:%|deg|rad|grad|turn)?`;
+/**
+ * A separator is REQUIRED between arguments, and each argument matches exactly
+ * one way. Both are what keep the pattern linear: with an optional separator
+ * and an ambiguous `[0-9]*\.?[0-9]+`, a run of digits could be partitioned
+ * across the argument groups in combinatorially many ways, and a peer-supplied
+ * `hsl(` + digits with no closing paren would make every viewer's tab walk all
+ * of them before failing.
+ */
+const COLOR_SEP = String.raw`(?:\s*[,/]\s*|\s+)`;
+const SAFE_COLOR_RE = new RegExp(
+  String.raw`^(?:#[0-9a-f]{3,8}|[a-z]{3,20}|(?:rgb|rgba|hsl|hsla)\(\s*` +
+    COLOR_NUM +
+    `(?:${COLOR_SEP}${COLOR_NUM}){2,3}` +
+    String.raw`\s*\))$`,
+  'i',
+);
 
 /** Rendered in place of a color that is not recognizably one. */
 export const FALLBACK_PEER_COLOR = '#9ca3af';

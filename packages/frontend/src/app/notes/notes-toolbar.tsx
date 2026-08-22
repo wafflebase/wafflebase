@@ -356,18 +356,18 @@ export function NotesToolbar({
             ))}
             <DropdownMenuSeparator />
             {/*
-              One switch for both halves of the feature: turning it on shows
-              who wrote each line AND records your own name on the lines you
-              write. The recording is the part a user cannot see, and it is
-              durable (it goes into the note's content, readable by anyone who
-              can read the note), so the control says so rather than presenting
-              itself as a display-only toggle.
+              Display only: every client records authorship, so this decides
+              what you see, not what you leave behind. The title still says
+              that a name is recorded — it is the part a user cannot see, and
+              it is durable (it goes into the note's content, readable by
+              anyone who can read the note), so this menu is where they find
+              out.
             */}
             <DropdownMenuCheckboxItem
               checked={showAuthors}
               onCheckedChange={(next) => onShowAuthorsChange(next)}
               className="gap-2"
-              title="Show who last edited each line. While this is on, your display name is recorded on the lines you edit and is visible to everyone who can read this note."
+              title="Show who last edited each line. Names are self-reported: everyone editing this note records their display name on the text they write, and it is visible to everyone who can read the note."
             >
               <IconUserCode size={16} />
               Show authors

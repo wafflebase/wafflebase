@@ -78,6 +78,21 @@ describe('computeBlameLabels', () => {
     expect(labels).toEqual([ANONYMOUS_AUTHOR]);
   });
 
+  it('strips a hostile name a store handed it unsanitized', () => {
+    // The gutter sanitizes at the render boundary rather than trusting any
+    // store to have cleaned its own output — spans arrive from a CRDT every
+    // attached client may write. Remove that call and this fails: the label
+    // would carry a bidi override (which reorders the text around it) and run
+    // unbounded.
+    const doc = Text.of(['line']);
+    const [label] = computeBlameLabels(doc, [
+      span(0, 4, `a‮b​c${'d'.repeat(200)}`, 1),
+    ]);
+    expect(label).not.toMatch(/[‪-‮​⁦-⁩]/);
+    expect(label.length).toBeLessThanOrEqual(64);
+    expect(label.startsWith('abc')).toBe(true);
+  });
+
   it('attributes an empty line to whoever typed the newline ending it', () => {
     const doc = Text.of(['a', '', 'b']);
     // "a\n" by ann, "\n" by bob, "b" by ann.

@@ -140,6 +140,20 @@ describe('noteRemoteSelections', () => {
     }
   });
 
+  it('refuses a near-miss color in linear time', () => {
+    // `color` is peer-controlled and this runs per peer on every ViewUpdate,
+    // so the pattern matching it must not backtrack. The earlier version had
+    // an optional separator around an ambiguous `[0-9]*\.?[0-9]+`, which let
+    // a digit run be partitioned across the argument groups combinatorially:
+    // this input took ~17s to reject and froze every other viewer's tab.
+    const nearMiss = `hsl(${'9'.repeat(60)}`;
+    const started = performance.now();
+    for (let i = 0; i < 500; i++) {
+      expect(sanitizePeerColor(nearMiss)).toBe(FALLBACK_PEER_COLOR);
+    }
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it('renders decorations for a multi-line peer selection without throwing', () => {
     const docText = 'line one\nline two\nline three\nline four';
     const store = storeWithPeers([
