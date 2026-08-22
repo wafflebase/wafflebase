@@ -38,6 +38,28 @@ export function poolEnvNames() {
 }
 
 /**
+ * The env-var suffix for a slot name: `CLAUDE_CODE_OAUTH_TOKEN_3` → `"3"`, and the
+ * unsuffixed slot-zero name → `""`. Anything that is not one of THIS pool's names →
+ * `null`.
+ *
+ * Lives here because this module owns `TOKEN_ENV` and `MAX_SLOTS`, so it is the only
+ * place that can answer without a second copy of the naming rule drifting from it.
+ *
+ * The `null` matters. Callers interpolate the result into a `secrets[...]` lookup in a
+ * workflow, so a name arriving from an artifact — or from anywhere else — must not be
+ * able to aim that lookup at a different secret. The suffix is re-derived from the
+ * KNOWN slot list rather than parsed off whatever string turned up.
+ */
+export function slotSuffix(name) {
+  if (typeof name !== "string") return null;
+  if (name === TOKEN_ENV) return "";
+  for (let i = 1; i <= MAX_SLOTS; i++) {
+    if (name === `${TOKEN_ENV}_${i}`) return String(i);
+  }
+  return null;
+}
+
+/**
  * Collect the configured tokens, in slot order.
  *
  * Every workflow passes all MAX_SLOTS variables so that registering a new secret
@@ -163,6 +185,23 @@ export function createTokenPool({
     retiredSlotNames: () => slots.filter((_, i) => retired.has(i)).map((slot) => slot.name),
     /** Every configured slot name, in order — the denominator for a capacity report. */
     slotNames: () => slots.map((slot) => slot.name),
+
+    /**
+     * The env var NAME of the slot `current()` would hand out, or null.
+     *
+     * Exactly `current()`, returning the name instead of the credential. It exists so
+     * a workflow can be TOLD which slot to use without the token ever entering a step
+     * output: the caller emits the name's suffix and the workflow resolves it through
+     * the `secrets` context, so the value stays inside GitHub's masking.
+     *
+     * This is what lets the `claude-code-action` steps share the pool at all. They
+     * take one credential and cannot import this module, so before this they were
+     * hardcoded to `secrets.CLAUDE_CODE_OAUTH_TOKEN` — slot ZERO — which pinned every
+     * one of them to a single account. Issue #883's implement runs died on it twice
+     * (`is_error:true`, 432ms, $0) while the pool-driven fixer was spending 5.7M
+     * tokens through a live slot in the same hour.
+     */
+    currentSlotName: () => (tokens.length && !retired.has(index) ? slots[index].name : null),
 
     /**
      * Has a CONFIGURED pool been used up?

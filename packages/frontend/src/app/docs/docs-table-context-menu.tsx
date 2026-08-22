@@ -229,7 +229,9 @@ export function DocsTableContextMenu({
             onClick={act(() =>
               // Clear the fill rather than storing an empty string, so the
               // attribute is removed from the CRDT node instead of merged
-              // over with a value nothing paints (issue #728).
+              // over with a value nothing paints (issue #728). The stores
+              // fold a `""` into that same removal (issue #793), but the
+              // call site says what it means.
               editor.applyTableCellStyle({ backgroundColor: undefined }),
             )}
           >

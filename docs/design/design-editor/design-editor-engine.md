@@ -159,14 +159,14 @@ All endpoints are served by the `mutationBridge()` Vite plugin
 (`configureServer` middleware) under the `/__design-editor/` prefix. They exist
 **only in dev**.
 
-### 3.1 `GET /__design-editor/health`
+### 3.1 `GET /__design-editor/api/health`
 
 Liveness probe for the UI's bridge-health indicator. Side-effect free and
 GET-only, so the client can poll it without the `405` that hitting the
 POST-only `/mutate` with GET produces.
 
 ```http
-→ GET /__design-editor/health
+→ GET /__design-editor/api/health
 ← 200 {
     "ok": true,
     "sessionId": "30eb-ms5gu43c",
@@ -196,7 +196,7 @@ detection mechanism for "someone edited a file my staged edits depend on".
 newest-first log. A staged edit remembers the text it expects to find, so any bump
 means the client must re-validate (§3.5) rather than trust its plan.
 
-### 3.2 `GET /__design-editor/introspect`
+### 3.2 `GET /__design-editor/api/introspect`
 
 Parses the four token sources plus the frontend's Tailwind theme block
 server-side (the browser cannot parse TypeScript) and returns each semantic
@@ -204,7 +204,7 @@ token's **current binding form**, the palette's colour leaves, the raw scale
 values, and which tokens are reachable as utility classes.
 
 ```http
-→ GET /__design-editor/introspect
+→ GET /__design-editor/api/introspect
 ← 200 {
     "ok": true,
     "sessionId": "30eb-ms5gu43c",
@@ -261,7 +261,7 @@ declared there. The editor uses this to flag tokens that reach `tokens.css` but
 have no utility class ("no utility" badge), and §5.5 keeps the alias in step
 automatically when a token is created.
 
-### 3.3 `POST /__design-editor/mutate`
+### 3.3 `POST /__design-editor/api/mutate`
 
 The single-intent endpoint. A **discriminated request** by `kind`. `dryRun: true`
 computes the edit + a unified diff **without touching disk** (drives the Review
@@ -371,7 +371,7 @@ approval flow go through `/commit`**, which records an undoable transaction.
 > guards against out-of-band drift), while ⌘Z is "I didn't mean that edit" and
 > expresses itself as inverse intents in the *next* save.
 
-- **`POST /__design-editor/commit`** — body `{ intents: MutationIntent[] }`. Applies
+- **`POST /__design-editor/api/commit`** — body `{ intents: MutationIntent[] }`. Applies
   the whole batch as **one undo unit** against an in-memory per-file text cache
   (so multiple edits to the same file compose), writes only files that actually
   changed (each backed up to `.bak` first), regenerates `tokens.css` if any
@@ -380,7 +380,7 @@ approval flow go through `/commit`**, which records an undoable transaction.
   `{ ok, results: [{ located, reason?, label, file }], regenerated,
   transactionId, undoDepth, redoDepth }`. Intents that don't locate are skipped
   and reported (consistent with the modal's per-intent behavior).
-- **`POST /__design-editor/undo`** / **`/redo`** — restore the top transaction.
+- **`POST /__design-editor/api/undo`** / **`/redo`** — restore the top transaction.
   Undo writes each file's `before`; redo writes `after`. **Drift guard:** before
   writing, each file's current on-disk content must equal the side it's expected
   to be on (undo expects `after`, redo expects `before`); if any file drifted
@@ -397,13 +397,13 @@ approval flow go through `/commit`**, which records an undoable transaction.
 `before`/`after` are full file contents the commit already computed. `.bak`
 remains the separate, coarser session-pristine escape hatch.
 
-### 3.5 `POST /__design-editor/validate` — "would a save succeed right now?"
+### 3.5 `POST /__design-editor/api/validate` — "would a save succeed right now?"
 
 Body `{ intents: MutationIntent[] }` → `{ ok, results: [{ located, reason?,
 label, file }], fsRevision }`. **Writes nothing.**
 
 ```http
-→ POST /__design-editor/validate
+→ POST /__design-editor/api/validate
   { "intents": [ { "kind": "class-rewrite", "file": "…/button.tsx",
                    "cvaName": "buttonVariants", "axis": "variant", "value": "default",
                    "replacements": [{ "from": "bg-primary", "to": "bg-secondary" }] } ] }
@@ -424,12 +424,12 @@ every change to its plan. The second call is not redundant: reading a file is wh
 puts it in the sweep's tracked set (§7.6), so validating the plan is also how the
 bridge learns which component sources to watch.
 
-### 3.6 `POST /__design-editor/candidates` — Tailwind candidate registration
+### 3.6 `POST /__design-editor/api/candidates` — Tailwind candidate registration
 
 Body `{ classes: string[] }` → `{ ok, added, rejected, hmr?, total, cap }`.
 
 ```http
-→ POST /__design-editor/candidates  { "classes": ["hover:bg-chart-4/45", "BAD Class!"] }
+→ POST /__design-editor/api/candidates  { "classes": ["hover:bg-chart-4/45", "BAD Class!"] }
 ← 200 { "ok": true, "added": ["hover:bg-chart-4/45"], "rejected": ["BAD Class!"],
         "hmr": "packages/design-editor/src/sandbox.css", "total": 1, "cap": 4000 }
 ```
@@ -467,7 +467,7 @@ class is a no-op: the file is only rewritten when the set actually grows, so a
 Tailwind rebuild happens on genuinely new combinations rather than on every mouse
 move.
 
-### 3.7 `GET /__design-editor/metadata` — component + scene AST metadata
+### 3.7 `GET /__design-editor/api/metadata` — component + scene AST metadata
 
 Returns the `DesignMetadata` document (contract unchanged) plus a `scenes` array
 of `SceneMeta`, a `revs` map of `file → mtimeMs at parse time`, and `fsRevision`.
@@ -505,7 +505,7 @@ Three invalidation paths, all required:
    where inotify does not, would never watch the scene sources layout edits
    depend on.
 
-### 3.8 `POST /__design-editor/preview-tokens` — the emitter, run on staged edits
+### 3.8 `POST /__design-editor/api/preview-tokens` — the emitter, run on staged edits
 
 Body `{ intents }` → `{ ok, light: {var→value}, dark: {…}, base: { light, dark } }`.
 **Writes nothing.**
@@ -551,15 +551,44 @@ cascade — so `SandboxLayout` sends the same delta over
 Until CP3.4 that channel did not exist, and the visible symptom was exact: a
 token edit repainted the button preview and left every scene untouched.
 
-### 3.9 `POST /__design-editor/scene-preview` — the staged plan, as served bytes
+### 3.9 `POST /__design-editor/api/plan` — the staged plan, as served bytes
 
-Body `{ frame: "before" | "after", intents }` →
-`{ ok, frame, applied, reloaded }`. **Writes nothing.**
+> **SHIPPED AS `POST /plan`, AND INCOMPLETE.** The route exists under the shorter name
+> and everything below about WHY it patches a module still describes it. Two pieces of
+> the sequence did not come across, and between them the preview never appears:
+>
+> 1. **Nothing calls it.** `bridge.plan(side, intents)` exists on the client and the
+>    shell never invokes it, so a staged class edit is never published to the server.
+> 2. **It stages without invalidating.** The handler sets `plans` and returns; the
+>    reload loop over the union of the old and new plan's files — the paragraph below
+>    this one, the case it warns a naive implementation gets wrong — is absent, so the
+>    frame keeps serving the module it already transformed.
+>
+> **What that costs today.** Token edits preview live (`/preview-tokens` →
+> `wb:set-token-vars` pushes custom properties into the frame, which works because a CSS
+> variable can be overridden from outside). A class edit has no equivalent: it stages in
+> the shell and appears only once Approve writes it and Vite's HMR reloads. The
+> two-altitude history (edits vs writes) exists so you can try something before writing
+> it — for classes you can currently try it without seeing it.
+>
+> The module-patching half IS shipped: `plugin/scene-patch.ts` takes the same
+> `plans: Map<FrameSide, MutateRequest[]>` and applies it when serving a `?wbFrame=`
+> module. Restoring the preview is wiring those two ends together, not rebuilding this.
 
-Stores the layout half of a plan for one frame side and invalidates the modules
-that plan touches, so the frame re-imports them with the patch applied. Non-layout
-kinds are dropped server-side: token edits preview through §3.8 instead, and
-letting both paths claim the same module would have them fighting over it.
+
+Body `{ side: "before" | "after", intents }` → `{ ok, side, count }`.
+**Writes nothing.**
+
+Stores the layout half of a plan for one frame side, so `scene-patch` serves that
+side's modules with the patch applied. Non-layout kinds are dropped server-side:
+token edits preview through §3.8 instead, and letting both paths claim the same
+module would have them fighting over it.
+
+> **The two paragraphs below describe the intended behaviour, not the shipped
+> handler.** It stores the plan and returns; it does not invalidate, and there is
+> no `reloaded` in its response — which is the second of the two gaps named above.
+> They are kept as the contract to restore, because the union rule is the part a
+> reimplementation gets wrong.
 
 **Why a patched MODULE and not an override channel.** A class override works for
 a component preview because the preview owns the render and passes a
@@ -1554,46 +1583,46 @@ gives for deferring canvas-specific shims until a scene needs them).
 
 ```bash
 # Bridge liveness (+ the session id the client keys its history on)
-curl -s localhost:5173/__design-editor/health                                     # {"ok":true,"sessionId":…}
-curl -s -o /dev/null -w '%{http_code}\n' localhost:5173/__design-editor/mutate    # 405 (POST-only)
+curl -s localhost:5173/__design-editor/api/health                                     # {"ok":true,"sessionId":…}
+curl -s -o /dev/null -w '%{http_code}\n' localhost:5173/__design-editor/api/mutate    # 405 (POST-only)
 
 # Introspection: bindings + palette + scales + themeMappings
-curl -s localhost:5173/__design-editor/introspect | python3 -m json.tool
+curl -s localhost:5173/__design-editor/api/introspect | python3 -m json.tool
 
 # Dry-run a palette rebind (writes an EXPRESSION, not a hex)
-curl -s -X POST localhost:5173/__design-editor/mutate -H 'Content-Type: application/json' \
+curl -s -X POST localhost:5173/__design-editor/api/mutate -H 'Content-Type: application/json' \
   -d '{"kind":"token-rebind","file":"packages/core/src/tokens/semantic.ts","constName":"light","path":["primary"],"tokenValue":"palette.butter","dryRun":true}'
 
 # Dry-run a palette cascade
-curl -s -X POST localhost:5173/__design-editor/mutate -H 'Content-Type: application/json' \
+curl -s -X POST localhost:5173/__design-editor/api/mutate -H 'Content-Type: application/json' \
   -d '{"kind":"palette-value","file":"packages/core/src/tokens/palette.ts","path":["syrup"],"tokenValue":"#B865aa","dryRun":true}'
 
 # Dry-run token creation in each family (3 files each; check the diff sections)
-curl -s -X POST localhost:5173/__design-editor/mutate -H 'Content-Type: application/json' \
+curl -s -X POST localhost:5173/__design-editor/api/mutate -H 'Content-Type: application/json' \
   -d '{"kind":"member-add","family":"palette","camelKey":"mocha","kebabKey":"mocha","tokenValue":"#6F4E37","dryRun":true}'
-curl -s -X POST localhost:5173/__design-editor/mutate -H 'Content-Type: application/json' \
+curl -s -X POST localhost:5173/__design-editor/api/mutate -H 'Content-Type: application/json' \
   -d '{"kind":"member-add","family":"radius","camelKey":"pill","kebabKey":"pill","tokenValue":"9999px","dryRun":true}'
 
 # Dry-run introducing an interaction state (additions) and un-introducing it
-curl -s -X POST localhost:5173/__design-editor/mutate -H 'Content-Type: application/json' \
+curl -s -X POST localhost:5173/__design-editor/api/mutate -H 'Content-Type: application/json' \
   -d '{"kind":"class-rewrite","file":"packages/frontend/src/components/ui/button.tsx","cvaName":"buttonVariants","axis":"variant","value":"default","replacements":[],"additions":["active:bg-primary/80"],"dryRun":true}'
 
 # "none — use resting colour": delete a state class the source declares
-curl -s -X POST localhost:5173/__design-editor/mutate -H 'Content-Type: application/json' \
+curl -s -X POST localhost:5173/__design-editor/api/mutate -H 'Content-Type: application/json' \
   -d '{"kind":"class-rewrite","file":"packages/frontend/src/components/ui/button.tsx","cvaName":"buttonVariants","axis":"variant","value":"default","replacements":[],"removals":["hover:bg-primary/90"],"dryRun":true}'
 
 # Would a save succeed? (writes nothing; shares composeIntents with /commit)
-curl -s -X POST localhost:5173/__design-editor/validate -H 'Content-Type: application/json' \
+curl -s -X POST localhost:5173/__design-editor/api/validate -H 'Content-Type: application/json' \
   -d '{"intents":[{"kind":"class-rewrite","file":"packages/frontend/src/components/ui/button.tsx","cvaName":"buttonVariants","axis":"variant","value":"default","replacements":[{"from":"bg-primary","to":"bg-secondary"}]}]}'
 
 # Tailwind candidate registration (unsafe strings must land in `rejected`)
-curl -s -X POST localhost:5173/__design-editor/candidates -H 'Content-Type: application/json' \
+curl -s -X POST localhost:5173/__design-editor/api/candidates -H 'Content-Type: application/json' \
   -d '{"classes":["hover:bg-chart-4/45","BAD Class!","a\"); content: url(evil"]}'
 
 # --- Phase 3 -----------------------------------------------------------------
 
 # The scene node trees (paths + fingerprints the client anchors on)
-curl -s localhost:5173/__design-editor/metadata | python3 -c \
+curl -s localhost:5173/__design-editor/api/metadata | python3 -c \
   'import json,sys; d=json.load(sys.stdin); [print(s["id"], s["kind"], list(s["roots"])) for s in d["scenes"]]'
 
 # The frame module: real path + ?wbFrame=, stamped, NOT a `virtual:` id (§7.8)
@@ -1601,26 +1630,26 @@ curl -s "localhost:5173/@fs$PWD/packages/frontend/src/app/login/page.tsx?wbFrame
   | grep -o '"data-wb-file": "[^"]*"' | sort -u
 
 # Publish a staged plan to the AFTER frame, then diff the two sides (§3.9)
-curl -s -X POST localhost:5173/__design-editor/scene-preview -H 'Content-Type: application/json' \
-  -d '{"frame":"after","intents":[{"kind":"layout-props","anchor":{...},"classOps":{"replacements":[{"from":"text-[19px]","to":"text-[21px]"}]}}]}'
+curl -s -X POST localhost:5173/__design-editor/api/plan -H 'Content-Type: application/json' \
+  -d '{"side":"after","intents":[{"kind":"layout-props","anchor":{...},"classOps":{"replacements":[{"from":"text-[19px]","to":"text-[21px]"}]}}]}'
 # …then re-fetch both frames; only `after` carries text-[21px]. Nothing is on disk.
 # An empty `intents` reverts it — that is the union-invalidation case.
 
 # Drill-in: the node tree of a file the manifest never listed
-curl -s 'localhost:5173/__design-editor/metadata?file=packages/frontend/src/app/documents/document-list.tsx' \
+curl -s 'localhost:5173/__design-editor/api/metadata?file=packages/frontend/src/app/documents/document-list.tsx' \
   | python3 -c 'import json,sys; print(list(json.load(sys.stdin)["nodes"]["roots"]))'
 
 # Staged token preview — the `--wb-*` path a client-side cascade cannot compute
-curl -s -X POST localhost:5173/__design-editor/preview-tokens -H 'Content-Type: application/json' \
+curl -s -X POST localhost:5173/__design-editor/api/preview-tokens -H 'Content-Type: application/json' \
   -d '{"intents":[{"kind":"palette-value","file":"packages/core/src/tokens/palette.ts","path":["neutrals","light","bg"],"tokenValue":"#F5E6D3"}]}' \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["base"]["light"]["--wb-bg"], "→", d["light"]["--wb-bg"])'
 
 # A layout class edit (anchor fields come from /metadata)
-curl -s -X POST localhost:5173/__design-editor/mutate -H 'Content-Type: application/json' \
+curl -s -X POST localhost:5173/__design-editor/api/mutate -H 'Content-Type: application/json' \
   -d '{"kind":"layout-props","anchor":{"file":"packages/frontend/src/app/login/page.tsx","component":"LoginPage","path":[0,0,0,0],"tag":"Link","fp":"<fp>","fpx":"<fpx>"},"classOps":{"replacements":[{"from":"text-[19px]","to":"text-[21px]"}]},"dryRun":true}'
 
 # A removal — note `removedText` in the response: that span IS the inverse payload
-curl -s -X POST localhost:5173/__design-editor/mutate -H 'Content-Type: application/json' \
+curl -s -X POST localhost:5173/__design-editor/api/mutate -H 'Content-Type: application/json' \
   -d '{"kind":"layout-remove","anchor":{"file":"packages/frontend/src/app/login/page.tsx","component":"LoginPage","path":[0,1,1,1,3],"tag":"span","fp":"<fp>"},"dryRun":true}'
 ```
 
@@ -1713,7 +1742,8 @@ covered here is whether the scene PAINTS; that list is in §9.
     scene-preview, `?wbFrame=after` serves `text-[21px]` while `?wbFrame=before`
     still serves `text-[19px]`. This is §7.8's premise reduced to an assertion.
 19. **An emptied plan un-patches the module** — the union-invalidation drop case
-    (§3.9), and the one a naive implementation gets wrong.
+    (§3.9), and the one a naive implementation gets wrong. *Cannot pass today:
+    the shipped handler stages without invalidating, so nothing re-serves.*
 20. **Propagation reaches a drilled-into file and stops at `node_modules`.**
 21. **The whole scene-preview sequence writes nothing** (`git diff` clean).
 22. **Every stamp says which file it came from.** The scene module emits exactly

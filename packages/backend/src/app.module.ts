@@ -20,6 +20,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { FolderModule } from './folder/folder.module';
 import { MiroModule } from './miro/miro.module';
 import { NotificationModule } from './notification/notification.module';
+import { LakehouseModule } from './lakehouse/lakehouse.module';
 
 @Module({
   imports: [
@@ -116,6 +117,7 @@ import { NotificationModule } from './notification/notification.module';
     FolderModule,
     MiroModule,
     NotificationModule,
+    LakehouseModule,
   ],
   controllers: [],
   providers: [

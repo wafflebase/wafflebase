@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import type { TableCell } from '../../src/model/types.js';
+import { createTableBlock } from '../../src/model/types.js';
 import { serializeClipboard, deserializeClipboard, cloneTableCells, serializeBlocks, deserializeBlocks, parseHtmlToInlines, parseHtmlToBlocks, parseHtmlTableToTableCells, parseMarkdownTableToTableCells, parseMarkdownWithTables } from '../../src/view/clipboard.js';
 
 describe('clipboard JSON serialization', () => {
@@ -164,6 +165,176 @@ describe('clipboard JSON serialization', () => {
     expect(style.superscript).toBe(true);
     expect(style.href).toBe('https://example.com');
     expect(parsed[0].style.alignment).toBe('center');
+  });
+});
+
+/**
+ * The internal flavour is JSON any page can put on the system clipboard, and
+ * the paste handler prefers it over text/html — so the payload is untrusted
+ * input, not our own model. It must be rebuilt key by key rather than cast to
+ * `Block[]`, or a hostile page writes arbitrary values into the shared CRDT
+ * and the exporters (`headingLevel` reaches an unescaped DOCX attribute).
+ */
+describe('clipboard payload validation', () => {
+  function parseOne(block: unknown) {
+    return deserializeBlocks(JSON.stringify({ version: 1, blocks: [block] }))[0];
+  }
+
+  it('drops a non-numeric headingLevel', () => {
+    const block = parseOne({
+      type: 'heading',
+      headingLevel: '1" w:customStyle="1',
+      inlines: [{ text: 'x', style: {} }],
+    });
+    expect(block.headingLevel).toBe(1);
+  });
+
+  it('drops an out-of-range headingLevel on a bulleted heading', () => {
+    const block = parseOne({
+      type: 'list-item',
+      headingLevel: 99,
+      inlines: [{ text: 'x', style: {} }],
+    });
+    expect(block.type).toBe('list-item');
+    expect(block.headingLevel).toBeUndefined();
+  });
+
+  it('keeps a valid remembered level on a bulleted heading', () => {
+    const block = parseOne({
+      type: 'list-item',
+      headingLevel: 2,
+      listKind: 'ordered',
+      listLevel: 1,
+      inlines: [{ text: 'x', style: {} }],
+    });
+    expect(block.headingLevel).toBe(2);
+    expect(block.listKind).toBe('ordered');
+    expect(block.listLevel).toBe(1);
+  });
+
+  it('falls back to a paragraph for an unknown block type', () => {
+    const block = parseOne({ type: 'script', inlines: [{ text: 'x', style: {} }] });
+    expect(block.type).toBe('paragraph');
+  });
+
+  it('drops unknown keys and wrongly-typed known keys', () => {
+    const block = parseOne({
+      type: 'paragraph',
+      inlines: [{ text: 'x', style: { bold: 'yes', fontSize: 'huge', evil: 1 } }],
+      style: { alignment: 'drop-table', lineHeight: 'tall', marginLeft: 12 },
+      onload: 'alert(1)',
+    });
+    expect((block as unknown as Record<string, unknown>).onload).toBeUndefined();
+    expect((block.inlines[0].style as unknown as Record<string, unknown>).evil).toBeUndefined();
+    expect(block.inlines[0].style.bold).toBeUndefined();
+    expect(block.inlines[0].style.fontSize).toBeUndefined();
+    // Bad values fall back to the defaults; good ones survive.
+    expect(block.style.alignment).toBe('left');
+    expect(block.style.lineHeight).toBe(1.5);
+    expect(block.style.marginLeft).toBe(12);
+  });
+
+  it('drops a listLevel outside the indent range', () => {
+    expect(parseOne({ type: 'list-item', listLevel: 5000 }).listLevel).toBe(8);
+    expect(parseOne({ type: 'list-item', listLevel: -4 }).listLevel).toBe(0);
+  });
+
+  it('survives structurally broken payloads', () => {
+    expect(deserializeBlocks(JSON.stringify({ version: 1, blocks: 'nope' }))).toEqual([]);
+    expect(deserializeBlocks(JSON.stringify({ version: 1, blocks: [null, 7] }))).toHaveLength(2);
+    expect(deserializeBlocks('not json')).toEqual([]);
+    // A table block with no recoverable tableData is dropped, not rendered.
+    expect(deserializeBlocks(JSON.stringify({ version: 1, blocks: [{ type: 'table' }] }))).toEqual([]);
+  });
+
+  // The cases above all assert what the sanitizer throws away. These assert
+  // what it must let through: the rebuild is on the required path for every
+  // internal paste, so a sanitizer that silently dropped every pasted table or
+  // image would keep the rest of this file green.
+  it('round-trips a real table block, merges included', () => {
+    const table = createTableBlock(2, 3);
+    table.tableData!.rows[0].cells[0].blocks[0].inlines = [{ text: 'top left', style: {} }];
+    table.tableData!.rows[0].cells[0].style.backgroundColor = '#ff0000';
+    // A 2-wide anchor, so cell [0][1] is a covered cell the layout must skip.
+    table.tableData!.rows[0].cells[0].colSpan = 2;
+    table.tableData!.rows[0].cells[1].colSpan = 0;
+
+    const parsed = deserializeBlocks(serializeBlocks([table]));
+    expect(parsed).toHaveLength(1);
+    const td = parsed[0].tableData!;
+    expect(td.rows).toHaveLength(2);
+    expect(td.rows[0].cells).toHaveLength(3);
+    expect(td.columnWidths).toEqual([1 / 3, 1 / 3, 1 / 3]);
+    expect(td.rows[0].cells[0].blocks[0].inlines[0].text).toBe('top left');
+    expect(td.rows[0].cells[0].style.backgroundColor).toBe('#ff0000');
+    expect(td.rows[0].cells[0].colSpan).toBe(2);
+    expect(td.rows[0].cells[1].colSpan).toBe(0);
+  });
+
+  it('round-trips an inline image', () => {
+    const block = parseOne({
+      type: 'paragraph',
+      inlines: [{
+        text: '￼',
+        style: {
+          image: {
+            src: 'https://example.com/a.png',
+            width: 120, height: 80,
+            alt: 'a picture', rotation: 90,
+            cropLeft: 0.1, cropRight: 0.2, cropTop: 0.3, cropBottom: 0.4,
+            originalWidth: 600, originalHeight: 400,
+          },
+        },
+      }],
+    });
+    expect(block.inlines[0].style.image).toEqual({
+      src: 'https://example.com/a.png',
+      width: 120, height: 80,
+      alt: 'a picture', rotation: 90,
+      cropLeft: 0.1, cropRight: 0.2, cropTop: 0.3, cropBottom: 0.4,
+      originalWidth: 600, originalHeight: 400,
+    });
+  });
+
+  it('drops an image with no usable geometry', () => {
+    const block = parseOne({
+      type: 'paragraph',
+      inlines: [{ text: '￼', style: { image: { src: 'https://example.com/a.png' } } }],
+    });
+    expect(block.inlines[0].style.image).toBeUndefined();
+  });
+
+  // `columnWidths` are fractions of the table width. A truncated payload used
+  // to default the missing entries to `100`, i.e. 100 content-widths each.
+  it('defaults a missing column width to an even share, not to pixels', () => {
+    const block = parseOne({
+      type: 'table',
+      tableData: { rows: [{ cells: [{}, {}, {}, {}] }], columnWidths: [0.4] },
+    });
+    expect(block.tableData!.columnWidths).toEqual([0.4, 0.25, 0.25, 0.25]);
+  });
+
+  it('pads a short row and clamps a span that runs off the grid', () => {
+    const block = parseOne({
+      type: 'table',
+      tableData: { rows: [{ cells: [{ colSpan: 99 }, {}, {}] }, { cells: [{}] }] },
+    });
+    const td = block.tableData!;
+    expect(td.rows[1].cells).toHaveLength(3);
+    expect(td.rows[0].cells[0].colSpan).toBe(3);
+    expect(td.rows[0].cells[1].colSpan).toBe(0);
+    expect(td.rows[0].cells[2].colSpan).toBe(0);
+  });
+
+  it('validates the tableCells half of the payload too', () => {
+    const json = JSON.stringify({
+      version: 1,
+      blocks: [],
+      tableCells: [[{ blocks: [{ type: 'heading', headingLevel: 'x' }], style: { padding: 'wide' } }]],
+    });
+    const cells = deserializeClipboard(json).tableCells!;
+    expect(cells[0][0].blocks[0].headingLevel).toBe(1);
+    expect(cells[0][0].style.padding).toBe(4);
   });
 });
 

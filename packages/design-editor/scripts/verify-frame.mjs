@@ -419,6 +419,19 @@ async function main() {
              */
             const abs = path.join(PROJECT, SCENE_SRC);
             const before = await fs.readFile(abs, 'utf8');
+            /*
+             * CLEARED BEFORE THE WRITE. `PathGuard.backup` is once-per-file-per-session, so a
+             * cached copy left by an interrupted run makes it skip writing — and the presence
+             * check below would then pass on that leftover, exactly the way the old
+             * beside-the-source check passed on its own cleanup. The assertion is only worth
+             * anything if the file it looks for cannot predate the run.
+             */
+            const cached = path.join(
+              PROJECT,
+              'node_modules/.cache/wafflebase-design-editor',
+              `${SCENE_SRC}.bak`,
+            );
+            await fs.rm(cached, { force: true });
             try {
               const approve = (await page.$$('[role="dialog"] button')).at(-1);
               await approve?.click();
@@ -440,23 +453,42 @@ async function main() {
               check('and the file is byte-identical again', (await fs.readFile(abs, 'utf8')) === before);
 
               /*
-               * OBSERVED BEFORE IT IS CLEANED UP. This used to `unlink` first and set `left`
-               * only if the unlink FAILED — so the check passed exactly when a backup had been
-               * left, as long as deleting it worked. It asserted the cleanup, not the finding.
+               * BOTH HALVES, because the first alone goes vacuous. Backups moved into
+               * `node_modules/.cache/`, so "nothing beside the source" is now true by
+               * construction — asserting only that would pass even if backups stopped being
+               * written at all. The second check is the one with content.
+               *
+               * Observed before cleanup, too: this used to `unlink` first and report a
+               * leftover only if the DELETE failed, so it passed exactly when one had been
+               * left behind.
                */
-              const bak = `${abs}.bak`;
-              let left = false;
+              let beside = false;
               try {
-                await fs.access(bak);
-                left = true;
+                await fs.access(`${abs}.bak`);
+                beside = true;
               } catch {
-                /* never created */
+                /* correct: nothing beside the source */
               }
-              check('no backup was left in the fixture', !left, `${SCENE_SRC}.bak`);
-              if (left) {
-                await fs.unlink(bak).catch(() => {});
-                console.log(`       removed ${SCENE_SRC}.bak (see the Risks section)`);
+              check('no backup beside the consumer’s source', !beside, `${SCENE_SRC}.bak`);
+
+              let inCache = false;
+              try {
+                await fs.access(cached);
+                inCache = true;
+              } catch {
+                /* the escape hatch was never written */
               }
+              check('and one WAS written into node_modules/.cache', inCache, cached);
+              // Reported, not swallowed: a cleanup that fails silently leaves the file that
+              // makes the NEXT run's check pass without a write.
+              let cleaned = true;
+              try {
+                await fs.rm(cached, { force: true });
+              } catch (err) {
+                cleaned = false;
+                check('and the cached backup could be cleaned up', false, String(err));
+              }
+              if (cleaned && inCache) console.log(`       removed the cached backup for ${SCENE_SRC}`);
             } finally {
               /*
                * In `finally`, not after the undo check: anything above can throw — a missing

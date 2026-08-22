@@ -94,6 +94,9 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
   it('rejects protected routes without JWT cookie', async () => {
     await request(app.getHttpServer()).get('/documents').expect(401);
     await request(app.getHttpServer()).get('/datasources').expect(401);
+    await request(app.getHttpServer())
+      .get('/workspaces/test/lakehouse-sources')
+      .expect(401);
   });
 
   it('enforces document ownership through JWT-authenticated endpoints', async () => {
@@ -441,5 +444,62 @@ describeDb('Authenticated HTTP integration (JWT + controllers + Prisma)', () => 
     expect(
       await prisma.bigQuerySource.count({ where: { workspaceId: workspace.id } }),
     ).toBe(0);
+  });
+
+  it('persists masked lakehouse credentials and enforces workspace membership', async () => {
+    const owner = await createUser();
+    const other = await createUser();
+    const workspace = await createWorkspace(prisma, owner.id);
+    const secretAccessKey = 'lakehouse-secret';
+
+    const createResponse = await request(app.getHttpServer())
+      .post(`/workspaces/${workspace.id}/lakehouse-sources`)
+      .set('Cookie', authCookie(owner))
+      .send({
+        name: 'events',
+        format: 'delta',
+        storage: 's3',
+        region: 'us-east-1',
+        bucket: 'analytics',
+        basePath: 'events',
+        credentials: {
+          accessKeyId: 'lakehouse-access',
+          secretAccessKey,
+        },
+      })
+      .expect(201);
+
+    const sourceId = createResponse.body.id as string;
+    expect(createResponse.body.credentials).toBe('********');
+
+    const persisted = await prisma.lakehouseSource.findUniqueOrThrow({
+      where: { id: sourceId },
+    });
+    // The column is nullable (the blob is written after the row exists), so
+    // pin that a saved connection actually carries a packed iv:tag:cipher.
+    expect(persisted.credentials).toEqual(expect.any(String));
+    expect(persisted.credentials).not.toContain(secretAccessKey);
+    expect(persisted.credentials?.split(':')).toHaveLength(3);
+
+    const listResponse = await request(app.getHttpServer())
+      .get(`/workspaces/${workspace.id}/lakehouse-sources`)
+      .set('Cookie', authCookie(owner))
+      .expect(200);
+    expect(listResponse.body).toEqual([
+      expect.objectContaining({
+        id: sourceId,
+        credentials: '********',
+      }),
+    ]);
+
+    await request(app.getHttpServer())
+      .get(`/workspaces/${workspace.id}/lakehouse-sources`)
+      .set('Cookie', authCookie(other))
+      .expect(403);
+    await request(app.getHttpServer())
+      .post(`/lakehouse-sources/${sourceId}/read`)
+      .set('Cookie', authCookie(other))
+      .send({})
+      .expect(403);
   });
 });

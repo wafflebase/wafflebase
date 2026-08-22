@@ -236,9 +236,10 @@ test("classify", async (t) => {
   });
 
   await t.test("a package directory with no manifest is unmapped, not a leaf", () => {
-    // packages/design-sdk/ was untracked work-in-progress when this was
-    // written: it matches `packages/**` but is in no graph, so it must force a
-    // full run rather than quietly resolving to an empty closure.
+    // A path under `packages/**` that is in no workspace graph must force a full run
+    // rather than quietly resolving to an empty closure. `packages/design-sdk/` was the
+    // real instance when this was written; it is no longer tracked, so the path below is
+    // now a stand-in for any future unmapped directory — which is what the rule is for.
     const out = classify(["packages/design-sdk/src/index.ts"], CI, GRAPH);
     assert.equal(out.full, true);
   });
@@ -733,9 +734,22 @@ test("resolve fail-safes", async (t) => {
     // object would yield `{ full: undefined }`, which `selectLaneNames` reads as
     // "not full" and would select ZERO lanes: a green run that tested nothing.
     // It must instead be ignored so resolution continues and fails safe.
-    const out = resolve({ WAFFLEBASE_CHANGED_AREAS: "" }, REPO_ROOT);
+    // The push-to-`main` deploy gate is the one fall-through whose answer does
+    // not depend on what this checkout happens to have changed. Asserting the
+    // bare empty string against the real repo instead asserted "the working
+    // tree matches main", so the test failed on any branch that had actually
+    // changed a classified package — the normal case for the branch running it.
+    const out = resolve(
+      {
+        WAFFLEBASE_CHANGED_AREAS: "",
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_REF_NAME: "main",
+      },
+      REPO_ROOT,
+    );
     assert.equal(out.full, true);
     assert.notEqual(out.reasons?.length, 0, "a full run must say why");
+    assert.match(out.reasons.join(" "), /push to main/);
   });
 });
 

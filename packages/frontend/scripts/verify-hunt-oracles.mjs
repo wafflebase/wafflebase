@@ -642,38 +642,67 @@ async function checkSlidesTargeting(page, baseUrl) {
   // slide), reproduced it 3 times out of 3 by hand, and the run reported nothing because
   // this reader's refusal named the slide's uuid.
   //
-  // THIS CHECK RETIRES ITSELF LOUDLY. It needs the #883 state to exist, so once that is
-  // fixed the reader will answer instead of refusing — and rather than passing on a
-  // precondition that has silently vanished, it fails and says to remove it.
-  // TWO SEPARATE NAVIGATIONS, because that is what replay does. Comparing two reads inside
-  // ONE page load proves nothing: the slide keeps its id for the life of that page, so the
-  // message is trivially identical and the check passes while the bug is present. The id is
-  // regenerated per mount, so only a fresh setup exposes it. (The first version of this
-  // check made exactly that mistake.)
+  // WHY THIS CHECK EXISTS, and it is worth stating because the reason is a real miss.
+  // `uiObservedKey` keys an observation on its VALUE, so a refusal that embeds a
+  // per-mount identifier makes every attempt look different, replay calls the candidate
+  // non-deterministic, and the gate drops it. That is not hypothetical: the slides
+  // surface's first run found #883 (undoing `Add slide` left the editor on the removed
+  // slide), reproduced it 3 times out of 3 by hand, and the run reported NOTHING —
+  // because `currentSlide`'s refusal named the slide's uuid.
+  //
+  // RE-AIMED. This check used to set up #883's own broken state to obtain a refusal, and
+  // said so: "once that is fixed the reader will answer instead of refusing", so it
+  // failed loudly asking to be removed or re-aimed. #883 is now fixed, and
+  // `currentSlide`'s refusal no longer carries the uuid either — so both halves of its
+  // original setup are gone. The PROPERTY is not: refusal text must stay free of
+  // per-mount values, and nothing else guards that.
+  //
+  // So it now drives a refusal that does not depend on any bug — asking
+  // `slides.elementCenter` for an id that is not on the slide — and asserts the two
+  // things the #883 miss taught, directly:
+  //   1. the message is byte-identical across two SEPARATE mounts, and
+  //   2. it contains no uuid-shaped token at all.
+  //
+  // (2) is the durable half. (1) alone passes for a message that embeds a value which
+  // merely happens to be stable, and it is what the harness's fixed seed ids buy: the
+  // `Available:` list this refusal prints is `card, badge, title, body` precisely because
+  // the seed pins them. Should someone make those ids generated, (1) catches it.
+  //
+  // TWO SEPARATE NAVIGATIONS, because that is what replay does. Comparing two reads
+  // inside ONE page load proves nothing — ids live as long as the page, so the message is
+  // trivially identical. Only a fresh mount can expose a per-mount value. (The first
+  // version of the old check made exactly that mistake.)
+  const UUID_SHAPED = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+  const ABSENT_ID = "no-such-element-id";
   const refusals = [];
   for (const attempt of [0, 1]) {
     await page.goto(`${baseUrl}/harness/hunt?surface=slides`, { waitUntil: "networkidle" });
     await page.waitForSelector(READY_SELECTOR, { timeout: 20_000 });
-    const addSlide = page.getByRole("button", { name: "Add slide" });
-    if ((await addSlide.count()) === 0) {
-      problems.push(`no \`Add slide\` control on attempt ${attempt} — the refusal-stability check cannot set up its state`);
-      break;
-    }
-    await addSlide.first().click();
-    await page.keyboard.press("Meta+z");
-    refusals.push(await readReader(page, "slides.elements", []));
+    refusals.push(await readReader(page, "slides.elementCenter", [ABSENT_ID]));
   }
   if (refusals.length === 2) {
-    if (refusals[0].ok || refusals[1].ok) {
+    const answered = refusals.filter((r) => r.ok).length;
+    if (answered > 0) {
+      // Not a lost precondition this time — a reader that ANSWERS for an id the slide does
+      // not have is a straightforward defect, and one that would hand the hunter a
+      // fabricated click target.
       problems.push(
-        "slides.elements no longer refuses after undoing `Add slide` — #883 appears fixed, so " +
-          "this refusal-stability check has lost its precondition and should be removed or re-aimed",
+        `slides.elementCenter(${JSON.stringify(ABSENT_ID)}) answered instead of refusing ` +
+          `(${answered} of 2 attempts) — a reader must refuse an id that is not on the slide, ` +
+          "or a caller clicks a point that means nothing",
       );
     } else if (refusals[0].error !== refusals[1].error) {
       problems.push(
         "a refused slides reader must read identically across attempts, got " +
           `${JSON.stringify(refusals[0].error.slice(0, 90))} vs ${JSON.stringify(refusals[1].error.slice(0, 90))} — ` +
           "a volatile value here makes replay call every candidate non-deterministic",
+      );
+    } else if (UUID_SHAPED.test(refusals[0].error)) {
+      problems.push(
+        "a refused slides reader embeds a uuid: " +
+          `${JSON.stringify(refusals[0].error.slice(0, 120))} — this is the shape that hid #883, ` +
+          "because uiObservedKey keys on the message and a per-mount id makes replay call " +
+          "every candidate non-deterministic. Name the state, not the identifier.",
       );
     }
   }

@@ -52,13 +52,13 @@ Design doc: [harness-engineering.md](../../design/harness-engineering.md) → Ph
 
 ## Step 4: Backend tier (not started)
 
-- [ ] `round-trip` charter — import→export identity, `--pages` partition,
+- [x] `round-trip` charter — import→export identity, `--pages` partition,
       `cells batch` ≡ N× `cells set`, `--dry-run` mutates nothing
-- [ ] `state` charter — create→delete→list, rename twice, revoke twice
-- [ ] `checkStack()` — charter SKIPPED (never failed) when the stack is down
-- [ ] **`WAFFLEBASE_HUNT_WORKSPACE` safety rail** — refuse to run if it equals the
+- [x] `state` charter — create→delete→list, rename twice, revoke twice
+- [x] `checkStack()` — charter SKIPPED (never failed) when the stack is down
+- [x] **`WAFFLEBASE_HUNT_WORKSPACE` safety rail** — refuse to run if it equals the
       developer's resolved workspace; seed `hunt-<runId>-<n>`; `cleanup --run <id>`
-- [ ] Do NOT reimplement docker lifecycle — `verify-integration-docker.mjs` owns it
+- [x] Do NOT reimplement docker lifecycle — `verify-integration-docker.mjs` owns it
 
 ## Step 5: Promote to filing (not started)
 

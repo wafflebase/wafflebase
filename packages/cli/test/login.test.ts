@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { request as httpRequest } from 'node:http';
 import {
   LoginError,
   classifyLoginFailure,
   createLoginNonce,
   createPkcePair,
   fetchLoginSession,
+  isLoopbackHost,
   nonceMatches,
   runLogin,
   startCallbackServer,
@@ -77,6 +79,28 @@ async function failureOf(
   return fetchLoginSession('https://api.example', 'code-1', 'verifier-1', impl)
     .then(() => null)
     .catch((e: unknown) => e);
+}
+
+/**
+ * A request built by hand, so the `Host` header is ours to set — `fetch`
+ * treats `Host` as forbidden and rewrites it.
+ */
+function rawHit(
+  port: number,
+  path: string,
+  host: string,
+): Promise<{ status: number }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      { host: '127.0.0.1', port, path, method: 'GET', headers: { Host: host } },
+      (res) => {
+        res.resume();
+        res.on('end', () => resolve({ status: res.statusCode ?? 0 }));
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
 }
 
 describe('createLoginNonce', () => {
@@ -168,6 +192,20 @@ describe('fetchLoginSession', () => {
     expect(err).toBeInstanceOf(SystemError);
     expect((err as SystemError).code).toBe('NETWORK_ERROR');
     expect(exitCodeFor(err)).toBe(EXIT_SYSTEM_ERROR);
+  });
+});
+
+describe('isLoopbackHost', () => {
+  it('accepts only a loopback literal addressing this listener', () => {
+    expect(isLoopbackHost('127.0.0.1:4321', 4321)).toBe(true);
+    expect(isLoopbackHost('localhost:4321', 4321)).toBe(true);
+    expect(isLoopbackHost('[::1]:4321', 4321)).toBe(true);
+    expect(isLoopbackHost('127.0.0.1', 4321)).toBe(true);
+    // HTTP/1.0 sends no Host; a browser always does.
+    expect(isLoopbackHost(undefined, 4321)).toBe(true);
+    expect(isLoopbackHost('rebind.example.com:4321', 4321)).toBe(false);
+    expect(isLoopbackHost('127.0.0.1.nip.io:4321', 4321)).toBe(false);
+    expect(isLoopbackHost('127.0.0.1:4322', 4321)).toBe(false);
   });
 });
 
@@ -327,6 +365,34 @@ describe('startCallbackServer', () => {
       expect(err).toBeInstanceOf(LoginError);
       expect((err as Error).message).toMatch(/Login timed out\./);
       expect(exitCodeFor(err)).toBe(EXIT_USER_ERROR);
+    } finally {
+      close();
+    }
+  });
+
+  /**
+   * A name under an attacker's control that resolves to `127.0.0.1` (DNS
+   * rebinding) lets a remote page's requests reach this listener. The
+   * nonce still guards the code, but such a request never addressed this
+   * listener directly, so it is refused before it gets that far — and,
+   * like every refusal, without settling the wait.
+   */
+  it('refuses a request addressed to a rebound host', async () => {
+    const nonce = createLoginNonce();
+    const { port, waitForCallback, close } = await startCallbackServer(nonce);
+    try {
+      const rebound = await rawHit(
+        port,
+        `/callback?code=rebound&state=${nonce}`,
+        'attacker.example.com',
+      );
+      expect(rebound.status).toBe(403);
+
+      const real = await fetch(
+        `http://127.0.0.1:${port}/callback?code=real-code&state=${nonce}`,
+      );
+      expect(real.status).toBe(200);
+      await expect(waitForCallback()).resolves.toBe('real-code');
     } finally {
       close();
     }

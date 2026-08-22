@@ -1,5 +1,12 @@
-import type { Block, BlockType, Inline, InlineStyle, HeadingLevel, TableCell, CellStyle } from '../model/types.js';
-import { generateBlockId, DEFAULT_BLOCK_STYLE, inlineStylesEqual, createTableBlock } from '../model/types.js';
+import type {
+  Block, BlockMarker, BlockStyle, BlockType, BorderStyle, ImageData, Inline, InlineStyle,
+  HeadingLevel, TableCell, TableData, CellStyle,
+} from '../model/types.js';
+import type { StoredColor } from '../model/color.js';
+import {
+  generateBlockId, DEFAULT_BLOCK_STYLE, DEFAULT_BORDER_STYLE, DEFAULT_CELL_STYLE,
+  inlineStylesEqual, createTableBlock, normalizeTableMerges,
+} from '../model/types.js';
 
 interface ClipboardPayload {
   version: 1;
@@ -14,12 +21,335 @@ export function serializeBlocks(blocks: Block[]): string {
 
 export function deserializeBlocks(json: string): Block[] {
   try {
-    const payload = JSON.parse(json) as Partial<ClipboardPayload>;
-    if (payload.version !== 1 || !Array.isArray(payload.blocks)) return [];
-    return payload.blocks as Block[];
+    const payload: unknown = JSON.parse(json);
+    if (!isRecord(payload) || payload.version !== 1) return [];
+    return sanitizeBlocks(payload.blocks);
   } catch {
     return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Internal-clipboard payload validation
+// ---------------------------------------------------------------------------
+//
+// The `WAFFLEDOCS_MIME` flavour is JSON that *any* page can put on the system
+// clipboard from its own `copy` handler, and `handlePaste` prefers it over
+// text/html and text/plain. So the parsed payload is untrusted input, not our
+// own model: casting it to `Block[]` would let a hostile page write arbitrary
+// values (a non-numeric `headingLevel`, an unknown block `type`, junk keys)
+// straight into the shared Yorkie tree, the renderer, and the DOCX/PDF
+// exporters. Everything below rebuilds the model from scratch instead —
+// known keys only, each value shape-checked, anything else dropped.
+
+const BLOCK_TYPES = [
+  'paragraph', 'title', 'subtitle', 'heading', 'list-item',
+  'horizontal-rule', 'table', 'page-break',
+] as const;
+const ALIGNMENTS = ['left', 'center', 'right', 'justify'] as const;
+const LIST_KINDS = ['ordered', 'unordered'] as const;
+const UNDERLINE_STYLES = ['single', 'double', 'heavy', 'dotted', 'dashed', 'wavy'] as const;
+const STRIKE_STYLES = ['single', 'double'] as const;
+const VERTICAL_ALIGNS = ['top', 'middle', 'bottom'] as const;
+const BORDER_KINDS = ['solid', 'none'] as const;
+
+/** Matches the editors' indent ceiling; keeps a payload from inventing a level. */
+const MAX_LIST_LEVEL = 8;
+/** Nested tables are legal but a payload could nest them without bound. */
+const MAX_TABLE_DEPTH = 8;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function asOneOf<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value)
+    ? (value as T)
+    : undefined;
+}
+
+/** Only the six levels `HeadingLevel` declares — everything else is dropped. */
+function asHeadingLevel(value: unknown): HeadingLevel | undefined {
+  const n = asNumber(value);
+  if (n === undefined || !Number.isInteger(n) || n < 1 || n > 6) return undefined;
+  return n as HeadingLevel;
+}
+
+function asStoredColor(value: unknown): StoredColor | undefined {
+  if (typeof value === 'string') return value;
+  if (!isRecord(value)) return undefined;
+  if (value.kind === 'srgb') {
+    const hex = asString(value.value);
+    return hex === undefined ? undefined : { kind: 'srgb', value: hex };
+  }
+  if (value.kind === 'role') {
+    const role = asString(value.role);
+    if (role === undefined) return undefined;
+    const color: StoredColor = { kind: 'role', role };
+    const tint = asNumber(value.tint);
+    if (tint !== undefined) color.tint = tint;
+    const shade = asNumber(value.shade);
+    if (shade !== undefined) color.shade = shade;
+    return color;
+  }
+  return undefined;
+}
+
+function sanitizeImageData(value: unknown): ImageData | undefined {
+  if (!isRecord(value)) return undefined;
+  const src = asString(value.src);
+  const width = asNumber(value.width);
+  const height = asNumber(value.height);
+  if (src === undefined || width === undefined || height === undefined) return undefined;
+  const image: ImageData = { src, width, height };
+  const alt = asString(value.alt);
+  if (alt !== undefined) image.alt = alt;
+  const numericKeys = [
+    'rotation', 'cropLeft', 'cropRight', 'cropTop', 'cropBottom',
+    'originalWidth', 'originalHeight',
+  ] as const;
+  for (const key of numericKeys) {
+    const n = asNumber(value[key]);
+    if (n !== undefined) image[key] = n;
+  }
+  return image;
+}
+
+function sanitizeInlineStyle(value: unknown): InlineStyle {
+  const style: InlineStyle = {};
+  if (!isRecord(value)) return style;
+
+  const booleanKeys = [
+    'bold', 'italic', 'underline', 'strikethrough', 'superscript', 'subscript', 'pageNumber',
+  ] as const;
+  for (const key of booleanKeys) {
+    const flag = asBoolean(value[key]);
+    if (flag !== undefined) style[key] = flag;
+  }
+  const numericKeys = ['letterSpacing', 'fontSize'] as const;
+  for (const key of numericKeys) {
+    const n = asNumber(value[key]);
+    if (n !== undefined) style[key] = n;
+  }
+  const fontFamily = asString(value.fontFamily);
+  if (fontFamily !== undefined) style.fontFamily = fontFamily;
+  const href = asString(value.href);
+  if (href !== undefined) style.href = href;
+  const underlineStyle = asOneOf(value.underlineStyle, UNDERLINE_STYLES);
+  if (underlineStyle !== undefined) style.underlineStyle = underlineStyle;
+  const strikeStyle = asOneOf(value.strikeStyle, STRIKE_STYLES);
+  if (strikeStyle !== undefined) style.strikeStyle = strikeStyle;
+  const color = asStoredColor(value.color);
+  if (color !== undefined) style.color = color;
+  const backgroundColor = asStoredColor(value.backgroundColor);
+  if (backgroundColor !== undefined) style.backgroundColor = backgroundColor;
+  const underlineColor = asStoredColor(value.underlineColor);
+  if (underlineColor !== undefined) style.underlineColor = underlineColor;
+  const image = sanitizeImageData(value.image);
+  if (image !== undefined) style.image = image;
+
+  return style;
+}
+
+function sanitizeInlines(value: unknown): Inline[] {
+  if (!Array.isArray(value)) return [{ text: '', style: {} }];
+  const inlines: Inline[] = [];
+  for (const raw of value) {
+    if (!isRecord(raw)) continue;
+    const text = asString(raw.text);
+    if (text === undefined) continue;
+    inlines.push({ text, style: sanitizeInlineStyle(raw.style) });
+  }
+  return inlines.length > 0 ? inlines : [{ text: '', style: {} }];
+}
+
+function sanitizeBlockStyle(value: unknown): BlockStyle {
+  const style: BlockStyle = { ...DEFAULT_BLOCK_STYLE };
+  if (!isRecord(value)) return style;
+  const alignment = asOneOf(value.alignment, ALIGNMENTS);
+  if (alignment !== undefined) style.alignment = alignment;
+  const numericKeys = [
+    'lineHeight', 'marginTop', 'marginBottom', 'textIndent', 'marginLeft',
+  ] as const;
+  for (const key of numericKeys) {
+    const n = asNumber(value[key]);
+    if (n !== undefined) style[key] = n;
+  }
+  return style;
+}
+
+function sanitizeMarker(value: unknown): BlockMarker | undefined {
+  if (!isRecord(value)) return undefined;
+  const marker: BlockMarker = {};
+  const fontFamily = asString(value.fontFamily);
+  if (fontFamily !== undefined) marker.fontFamily = fontFamily;
+  const fontSize = asNumber(value.fontSize);
+  if (fontSize !== undefined) marker.fontSize = fontSize;
+  const color = asStoredColor(value.color);
+  if (color !== undefined) marker.color = color;
+  return Object.keys(marker).length > 0 ? marker : undefined;
+}
+
+function sanitizeBorder(value: unknown): BorderStyle | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    width: asNumber(value.width) ?? DEFAULT_BORDER_STYLE.width,
+    color: asString(value.color) ?? DEFAULT_BORDER_STYLE.color,
+    style: asOneOf(value.style, BORDER_KINDS) ?? DEFAULT_BORDER_STYLE.style,
+  };
+}
+
+function sanitizeCellStyle(value: unknown): CellStyle {
+  const style: CellStyle = { ...DEFAULT_CELL_STYLE };
+  if (!isRecord(value)) return style;
+  const backgroundColor = asString(value.backgroundColor);
+  if (backgroundColor !== undefined) style.backgroundColor = backgroundColor;
+  const verticalAlign = asOneOf(value.verticalAlign, VERTICAL_ALIGNS);
+  if (verticalAlign !== undefined) style.verticalAlign = verticalAlign;
+  const padding = asNumber(value.padding);
+  if (padding !== undefined) style.padding = padding;
+  const borderKeys = ['borderTop', 'borderBottom', 'borderLeft', 'borderRight'] as const;
+  for (const key of borderKeys) {
+    const border = sanitizeBorder(value[key]);
+    if (border !== undefined) style[key] = border;
+  }
+  return style;
+}
+
+function sanitizeCell(value: unknown, depth: number): TableCell {
+  const record = isRecord(value) ? value : {};
+  const cell: TableCell = {
+    blocks: sanitizeBlocks(record.blocks, depth),
+    style: sanitizeCellStyle(record.style),
+  };
+  if (cell.blocks.length === 0) cell.blocks = [sanitizeBlock({}, depth)!];
+  const colSpan = asNumber(record.colSpan);
+  if (colSpan !== undefined && colSpan > 1) cell.colSpan = Math.trunc(colSpan);
+  const rowSpan = asNumber(record.rowSpan);
+  if (rowSpan !== undefined && rowSpan > 1) cell.rowSpan = Math.trunc(rowSpan);
+  return cell;
+}
+
+function sanitizeCellRows(value: unknown, depth: number): TableCell[][] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const rows: TableCell[][] = [];
+  for (const rawRow of value) {
+    if (!Array.isArray(rawRow)) continue;
+    rows.push(rawRow.map((cell) => sanitizeCell(cell, depth)));
+  }
+  return rows.length > 0 ? rows : undefined;
+}
+
+function sanitizeTableData(value: unknown, depth: number): TableData | undefined {
+  if (!isRecord(value) || depth >= MAX_TABLE_DEPTH) return undefined;
+  const rawRows = Array.isArray(value.rows) ? value.rows : undefined;
+  if (!rawRows) return undefined;
+  const rows = [];
+  // Track which entry of `rawRows` each kept row came from, so a dropped row
+  // does not shift every later `rowHeights` entry onto the wrong row.
+  const sourceIndices: number[] = [];
+  for (let i = 0; i < rawRows.length; i++) {
+    const rawRow: unknown = rawRows[i];
+    if (!isRecord(rawRow) || !Array.isArray(rawRow.cells)) continue;
+    rows.push({ cells: rawRow.cells.map((cell) => sanitizeCell(cell, depth + 1)) });
+    sourceIndices.push(i);
+  }
+  if (rows.length === 0) return undefined;
+  const cols = Math.max(...rows.map((r) => r.cells.length));
+  // The layout and `normalizeTableMerges` both index the grid as a rectangle;
+  // a short row from a truncated payload would otherwise leave holes.
+  for (const row of rows) {
+    while (row.cells.length < cols) row.cells.push(sanitizeCell({}, depth + 1));
+  }
+  const rawWidths = Array.isArray(value.columnWidths) ? value.columnWidths : [];
+  const columnWidths: number[] = [];
+  // `columnWidths` are fractions of the table width, not pixels — `createTableBlock`
+  // fills `1 / cols` and the layout multiplies by the content width. A missing
+  // entry defaults to an even share, not to 100 content-widths.
+  for (let c = 0; c < cols; c++) columnWidths.push(asNumber(rawWidths[c]) ?? 1 / cols);
+  const table: TableData = { rows, columnWidths };
+  if (Array.isArray(value.rowHeights)) {
+    const rawHeights = value.rowHeights as unknown[];
+    table.rowHeights = sourceIndices.map((i) => asNumber(rawHeights[i]));
+  }
+  // Restore the `colSpan: 0` covered-cell markers from the surviving anchors.
+  // `sanitizeCell` keeps only spans `> 1`, and the whole-table paste path
+  // (`insertBlocks`) never normalizes, so without this a copied merged table
+  // comes apart on paste — `computeTableLayout` skips a cell only on
+  // `colSpan === 0`. Regenerating beats trusting the payload's own markers:
+  // this also clamps out-of-grid spans and resolves overlapping anchors.
+  normalizeTableMerges(table);
+  return table;
+}
+
+/**
+ * Rebuild one block from untrusted JSON. Returns null only for a `table`
+ * block whose `tableData` cannot be recovered — the renderer requires it.
+ */
+function sanitizeBlock(value: unknown, depth: number): Block | null {
+  const record = isRecord(value) ? value : {};
+  const type = asOneOf(record.type, BLOCK_TYPES) ?? 'paragraph';
+  // Ids are regenerated rather than trusted: a payload could otherwise collide
+  // with a live block id, and every paste path already reassigns them.
+  const block: Block = {
+    id: generateBlockId(),
+    type,
+    inlines: sanitizeInlines(record.inlines),
+    style: sanitizeBlockStyle(record.style),
+  };
+
+  if (type === 'table') {
+    const tableData = sanitizeTableData(record.tableData, depth);
+    if (!tableData) return null;
+    block.tableData = tableData;
+    block.inlines = [];
+    return block;
+  }
+  if (type === 'horizontal-rule' || type === 'page-break') {
+    block.inlines = [];
+    return block;
+  }
+
+  // `headingLevel` is a real heading's level or the level a bulleted heading
+  // remembers (see `Block.headingLevel`); on any other type it is meaningless.
+  if (type === 'heading') {
+    block.headingLevel = asHeadingLevel(record.headingLevel) ?? 1;
+  } else if (type === 'list-item') {
+    const remembered = asHeadingLevel(record.headingLevel);
+    if (remembered !== undefined) block.headingLevel = remembered;
+  }
+  if (type === 'list-item') {
+    block.listKind = asOneOf(record.listKind, LIST_KINDS) ?? 'unordered';
+    const level = asNumber(record.listLevel);
+    block.listLevel = level === undefined
+      ? 0
+      : Math.min(MAX_LIST_LEVEL, Math.max(0, Math.trunc(level)));
+    const marker = sanitizeMarker(record.marker);
+    if (marker !== undefined) block.marker = marker;
+  }
+  return block;
+}
+
+function sanitizeBlocks(value: unknown, depth = 0): Block[] {
+  if (!Array.isArray(value)) return [];
+  const blocks: Block[] = [];
+  for (const raw of value) {
+    const block = sanitizeBlock(raw, depth);
+    if (block) blocks.push(block);
+  }
+  return blocks;
 }
 
 export interface ClipboardData {
@@ -37,11 +367,13 @@ export function serializeClipboard(data: ClipboardData): string {
 
 export function deserializeClipboard(json: string): ClipboardData {
   try {
-    const payload = JSON.parse(json) as Partial<ClipboardPayload>;
-    if (payload.version !== 1) return { blocks: [] };
+    const payload: unknown = JSON.parse(json);
+    if (!isRecord(payload) || payload.version !== 1) return { blocks: [] };
+    // Both halves go through the same validation as `deserializeBlocks` —
+    // this payload is attacker-reachable (see the section below).
     return {
-      blocks: Array.isArray(payload.blocks) ? payload.blocks : [],
-      tableCells: Array.isArray(payload.tableCells) ? payload.tableCells : undefined,
+      blocks: sanitizeBlocks(payload.blocks),
+      tableCells: sanitizeCellRows(payload.tableCells, 0),
     };
   } catch {
     return { blocks: [] };

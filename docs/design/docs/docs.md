@@ -114,6 +114,24 @@ interface InlineStyle {
   `'paragraph'`. `BlockType` in `packages/docs/src/model/types.ts` is now
   `'paragraph' | 'title' | 'subtitle' | 'heading' | 'list-item' |
   'horizontal-rule' | 'table' | 'page-break'`.
+- **`headingLevel` on a `list-item`**: `headingLevel` no longer implies
+  `type === 'heading'`. Bulleting a heading applies the bullet *to* the
+  heading (Google Docs / Word parity), so a `list-item` **retains** the
+  level of the heading it was made from, and removing the list restores
+  that heading instead of flattening it to body text. The level is inert
+  while the block is a list item — every reader (DOCX / PDF / markdown
+  export, `blockStyleId`, the toolbar label and style id, layout) gates on
+  `type === 'heading'` — but it is real model state: it round-trips
+  through the Yorkie tree node attributes and the backend `docs-tree`
+  serializer like any other block attribute. Writers must therefore treat
+  "leave the list" as a *restore*, not a conversion to `'paragraph'`:
+  every such path goes through `unlistedBlockType(block)`
+  (`packages/docs/src/model/types.ts`), which returns the heading (with
+  its level) if one is remembered and a paragraph otherwise. The three
+  `toggleList` implementations (docs editor, text editor, text-box editor)
+  and the two keyboard exits below all share it. An explicit
+  "Normal text" / paragraph command still clears the level, because it
+  sets the type directly rather than exiting a list.
 
 ### Document manipulation
 
@@ -134,16 +152,87 @@ offset is the character index within the block's concatenated inline text.
 
 #### Empty list-item Backspace exits the list
 
-Backspace at offset 0 of an **empty** `list-item` converts it to a
-`paragraph` (exiting the list) rather than merging into the previous
-block — even when it is the first/only block — mirroring what Enter
-(`splitBlock`) already does and matching Google Docs / Notion. In
-`deleteBackward()` (`packages/docs/src/model/document.ts`) this branch
-sits after the `offset > 0` early return and **before** the
-`if (blockIndex <= 0) return pos` guard, so it also fires for the first
-block. Non-empty list items and non-list blocks are unchanged. It
-operates on `getContextBlocks()` (body / header / footer); table-cell
-Backspace is handled in the view layer.
+Backspace at offset 0 of an **empty** `list-item` exits the list rather
+than merging into the previous block — even when it is the first/only
+block — mirroring what Enter (`splitBlock`) already does and matching
+Google Docs / Notion. In `deleteBackward()`
+(`packages/docs/src/model/document.ts`) this branch sits after the
+`offset > 0` early return and **before** the `if (blockIndex <= 0)
+return pos` guard, so it also fires for the first block. Non-empty list
+items and non-list blocks are unchanged. It operates on
+`getContextBlocks()` (body / header / footer); table-cell Backspace is
+handled in the view layer.
+
+Both keyboard exits — this one and the empty-list-item branch of
+`splitBlock()` — resolve their target type through `unlistedBlockType()`
+rather than hardcoding `'paragraph'`, so emptying a bulleted Heading 2
+and pressing Backspace or Enter leaves a Heading 2, the same result the
+toolbar list toggle gives (see the `headingLevel` design decision above).
+
+Splitting a *non-empty* bulleted heading deliberately does **not** copy
+the remembered level onto the new list item (`applySplitBlock` in
+`packages/docs/src/store/block-helpers.ts` drops `headingLevel` for any
+non-`heading` split half). The memory belongs to the one block that was
+bulleted; propagating it would turn the body-text bullets typed after it
+into headings the moment the list is toggled off.
+
+The single exception is a split at **offset 0**, which hands *every*
+character of the heading to the new block: there the memory moves with
+the text rather than staying on the now-empty leading bullet, or Enter at
+the start of a bulleted Heading 2 would leave the heading text as plain
+body text and put the Heading 2 on the empty bullet above it.
+`splitMovesHeadingMemory(block, offset, newBlockType)`
+(`packages/docs/src/store/block-helpers.ts`) is the shared predicate, and
+both writers honour it: `applySplitBlock` moves the attribute in the
+cache, and `YorkieDocStore.splitBlock` `removeStyleByPath`s it off the
+original tree node while stamping it onto the new one.
+
+For the same reason a **merge** can invalidate the memory: Backspace at
+the start of a bullet appends its text into the previous block, so an
+emptied bulleted heading absorbing that text no longer holds any of the
+heading it remembers. `mergeDropsHeadingMemory(block)`
+(`packages/docs/src/store/block-helpers.ts`) is the shared predicate —
+list item, has a remembered level, no text of its own — and both merge
+paths honour it: `applyMergeBlocks` deletes the attribute (covering
+`MemDocStore` and the `YorkieDocStore` cache), and
+`YorkieDocStore.mergeBlock` additionally `removeStyleByPath`s
+`headingLevel` off the tree node so the CRDT and the cache agree. A
+bulleted heading that still has its own text keeps the memory — the
+heading text survives the merge, so exiting the list still restores it.
+
+**Paste folds blocks together the same way**, so `insertBlocks`
+(`packages/docs/src/view/text-editor.ts`) obeys the same provenance rule
+in both of its shapes. A single-block paste splices the pasted inlines
+into the caret's block without adopting any of the pasted block's
+block-level attrs — that is a merge into the destination, so it runs
+`mergeDropsHeadingMemory` on the destination. A multi-block paste splits
+at the caret and lets the first and last pasted blocks overwrite the head
+and tail blocks' attrs; there the memory travels *in*, so
+`foldedHeadingLevel()` withholds a `list-item`'s remembered level whenever
+the destination keeps text of its own on the other side of the caret —
+and, symmetrically, keeps the *destination's* own memory in that case, so
+a paste into a bulleted heading does not flatten it. A whole-block paste
+into an empty destination still carries the pasted memory across, and a
+real `heading` block always keeps its level (dropping it would leave a
+heading with no level at all).
+
+The multi-block branch also cannot use `Doc.splitBlock` blindly: on an
+**empty** list item that call short-circuits into the list exit above and
+returns the *same* block id, which would make the head and the tail one
+block and interleave the pasted content. `insertBlocks` detects that case
+and inserts the empty tail block the split would have produced instead.
+
+Because those attrs come off the clipboard, the internal
+`application/x-waffledocs` payload is treated as **untrusted input**: any
+page can populate that flavour from its own `copy` handler and the paste
+handler prefers it over `text/html`. `deserializeBlocks` /
+`deserializeClipboard` (`packages/docs/src/view/clipboard.ts`) therefore
+rebuild the model key by key — known keys only, each value shape-checked,
+`headingLevel` narrowed to the integer range 1–6 — instead of casting the
+parsed JSON to `Block[]`. That is what keeps a hand-authored payload from
+reaching the shared Yorkie tree or an exporter that interpolates the
+value into markup (`buildParagraphPropertiesXml`'s `<w:pStyle>`, which
+clamps the level again on its own side).
 
 ## Store Abstraction
 

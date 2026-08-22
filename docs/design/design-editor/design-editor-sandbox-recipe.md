@@ -101,7 +101,7 @@ React re-render *is* the subscription model — there is no state library.
 - A **`{N} stale` pill** (destructive) when re-validation says some staged edits no
   longer match the code. Opens a popover listing each one with its reason, a
   per-item **Discard**, **Re-check**, and **Discard all stale** (§6.6).
-- **Bridge health dot** — polls `GET /__design-editor/health` every 10s; emerald =
+- **Bridge health dot** — polls `GET /__design-editor/api/health` every 10s; emerald =
   up, destructive = down, muted = checking. Also the source of `sessionId`, which
   keys the persisted history.
 - **Theme toggle** — flips a `dark` boolean that adds/removes the `.dark` class
@@ -115,6 +115,13 @@ React re-render *is* the subscription model — there is no state library.
   empty; badge = plan size. Bound to `⌘S`.
 
 **Panes:**
+> **Shipped, with one substitution.** The modes, the left-pane switch and the
+> right-pane split are what the editor does today. The `components` centre is NOT
+> `PreviewPane` — it keeps the real scene, because the preview registry is a
+> hand-written renderer per component and the prototype's held two of twenty-five.
+> See 13d in
+> [design-editor-local-plugin.md](design-editor-local-plugin.md).
+
 **There are two MODES**, switched from the top of the left pane:
 `components` edits one primitive's CVA; `scenes` edits a whole route file. They
 are modes rather than two lists in one tree because they differ in every
@@ -125,7 +132,7 @@ usefully say.
 | Pane | `components` | `scenes` |
 |---|---|---|
 | **Left** | `ComponentList` — searchable list from the AST metadata; a dashed icon marks components with no live preview. | The scene list from `scenes.config.json`, each showing its route. |
-| **Center** | `PreviewPane` — live render of the selected component + variant with all overrides applied, plus the interaction-state simulator (§2.3). Right-click summons the `AgentPopover`. | `SceneHost` — the iframe, viewport buttons, zoom, and the picking toggle (§2.11). |
+| **Center** | `SceneHost`, the same real scene as the other mode — **not** the `PreviewPane` this table originally specified (see the note above). The interaction-state simulator went with it; `states.ts` survives as the ADDRESSING for CVA state slots in `TokenBindingPanel`, not as a way to force a component into `:hover`. | `SceneHost` — the iframe, viewport buttons, zoom, and the picking toggle (§2.11). |
 | **Right tab 1** | **Token bindings** → `TokenBindingPanel`. Its `TabsContent` carries `style={tokenStyle}` so token-value/palette edits reflect live in the binding swatches. | **Layout** → `SceneOutline` over `SceneNodeDetail` (§2.13). |
 | **Right tab 2** | **Token Editor** → `TokenEditorPanel`. | **Token Editor** → the same panel. |
 
@@ -935,7 +942,7 @@ component sources to watch in the first place.
 **Closed in Phase 3 CP2.** This used to end "component metadata is a build-time
 snapshot, so an externally-edited component leaves the panel's class strings
 behind the source; the sandbox detects it but cannot refresh itself." It can now:
-`GET /__design-editor/metadata` is re-read on every `design-editor:metadata-change`
+`GET /__design-editor/api/metadata` is re-read on every `design-editor:metadata-change`
 push — which the bridge sends after its own writes AND after an external change —
 and `history.rebaseAnchors` re-points the staged layout anchors (§6.3b).
 `mock-metadata.ts` remains only as the bridge-offline fallback.
@@ -1062,7 +1069,7 @@ when instructed.
 ### Remaining current-phase gaps
 
 - ~~**Metadata is a static import**~~ — **closed in Phase 3 CP2.** The live tree
-  comes from `GET /__design-editor/metadata` and is re-read after every write and
+  comes from `GET /__design-editor/api/metadata` and is re-read after every write and
   every external change; `mock-metadata.ts` is now only the bridge-offline
   fallback. The `DesignMetadata` contract gained `scenes` and `revs`; nothing
   existing changed.

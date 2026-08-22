@@ -2,7 +2,10 @@ import type { Document } from '@wafflebase/docs';
 import type { SlidesDocument } from '@wafflebase/slides/node';
 import type { CliConfig } from '../config/config.js';
 import { parseContentDispositionFilename } from './content-disposition.js';
-import { seg } from './url.js';
+// Every identifier interpolated into a request path goes through `seg()`,
+// and the two non-v1 URL shapes come from the same builders the `--dry-run`
+// preview prints — see `./url.js` for why escaping alone is not enough.
+import { apiKeysUrl, apiV1Base, seg } from './url.js';
 import {
   loadSession,
   saveSession,
@@ -82,8 +85,7 @@ export class HttpClient {
   }
 
   private get base(): string {
-    const server = this.config.server.replace(/\/$/, '');
-    return `${server}/api/v1/workspaces/${seg(this.config.workspace)}`;
+    return apiV1Base(this.config);
   }
 
   /**
@@ -399,20 +401,18 @@ export class HttpClient {
     );
   }
 
-  // API Keys (management endpoints sit outside the `/api/v1` base, but go
-  // through the same authenticated round trip — see `sendJson` — so the 401
-  // refresh and the SESSION_EXPIRED envelope apply here too).
-  private get apiKeysBase(): string {
-    const server = this.config.server.replace(/\/$/, '');
-    return `${server}/workspaces/${seg(this.config.workspace)}/api-keys`;
-  }
+  // API Keys. These management endpoints sit outside the `/api/v1` base, but
+  // go through the same authenticated round trip (see `sendJson`), so the 401
+  // refresh and the SESSION_EXPIRED envelope apply here too. The URL comes
+  // from `apiKeysUrl()`, shared with the `--dry-run` preview so the two
+  // cannot drift.
   listApiKeys() {
-    return this.sendJson('GET', this.apiKeysBase);
+    return this.sendJson('GET', apiKeysUrl(this.config));
   }
   createApiKey(name: string) {
-    return this.sendJson('POST', this.apiKeysBase, { name });
+    return this.sendJson('POST', apiKeysUrl(this.config), { name });
   }
   revokeApiKey(id: string) {
-    return this.sendJson('DELETE', `${this.apiKeysBase}/${seg(id)}`);
+    return this.sendJson('DELETE', apiKeysUrl(this.config, id));
   }
 }

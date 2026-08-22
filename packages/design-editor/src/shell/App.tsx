@@ -93,6 +93,7 @@ const VIEW_KEY = 'design-editor:view:v1';
 interface ViewState {
   dark: boolean;
   scene: string;
+  mode: 'components' | 'scenes';
 }
 const readView = (): Partial<ViewState> => {
   try {
@@ -217,6 +218,25 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   /** Dismissed without deselecting — e.g. to see the frame underneath. */
   const [classEditorClosed, setClassEditorClosed] = useState(false);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  /*
+   * Deliberately NOT persisted in `readView()`, unlike `dark` and `scene`. Those two are
+   * "where you are" and should survive a reload; this is "what am I inspecting right now".
+   * Restoring it would reopen the editor on empty lists with no memory of having asked for
+   * them, which reads as fixtures that broke overnight.
+   */
+  const [mockDataEmpty, setMockDataEmpty] = useState(false);
+  /*
+   * Which SUBJECT the panes are addressing — the recipe's two modes (§ "There are two
+   * MODES"). They differ in addressing (a CVA value vs a `NodeAnchor`) and in what the
+   * right pane can usefully say, which is why they are modes and not two lists in one
+   * tree: `TokenBindingPanel` takes a component, so while a whole route is under edit it
+   * would be describing a Button nobody is looking at.
+   *
+   * Persisted, unlike `mockDataEmpty` and like `dark`/`scene`: it is "where you are".
+   */
+  const [mode, setMode] = useState<'components' | 'scenes'>(
+    () => readView().mode ?? 'scenes',
+  );
   const [selectable, setSelectable] = useState<Set<string>>(new Set());
   const [drillTrail, setDrillTrail] = useState<string[]>([]);
   /** The staged edits a refresh says can no longer be applied, `map|key` → why. */
@@ -245,11 +265,11 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(VIEW_KEY, JSON.stringify({ dark, scene: sceneId } satisfies ViewState));
+      window.localStorage.setItem(VIEW_KEY, JSON.stringify({ dark, scene: sceneId, mode } satisfies ViewState));
     } catch {
       /* a disabled store just means the view does not survive a reload */
     }
-  }, [dark, sceneId]);
+  }, [dark, sceneId, mode]);
 
   // ---------------------------------------------------------------------------
   // Metadata. Re-read after every write, because it is derived from source: a
@@ -290,7 +310,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
         return next;
       });
     }
-  }, []);
+  }, [bridge]);
 
   const refreshTokens = useCallback(async () => {
     setTokens(await bridge.tokens());
@@ -303,17 +323,54 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
     setWriteDepth(h.undo?.length ?? 0);
     setReapplyDepth(h.redo?.length ?? 0);
     setWriteLog(h.undo ?? []);
-  }, []);
+  }, [bridge]);
 
+  /**
+   * The initial load, as ONE awaited sequence guarded by a generation.
+   *
+   * The guard is hardening rather than a fix: `main.tsx` renders `<App />` with no `bridge`
+   * prop, so it is the module-level default and never changes, and the shell deliberately
+   * runs without `StrictMode` — so there is no second mount to race against today. What
+   * makes it worth the four lines is that this effect now names `bridge` in its
+   * dependencies: the day a caller passes a different one, a slow answer from the old
+   * bridge would otherwise land on the new session's state.
+   *
+   * `await`, not `.then`, per the repo's convention. Two things this deliberately does NOT
+   * do. There is no try/catch: `BridgeClient`'s first documented rule is that nothing throws
+   * — every method resolves to `{ ok: false, error }` precisely so a caller does not need one
+   * — so it would add a branch no failure can reach. And the guard covers `setHealth` only:
+   * the three `refresh*` callbacks set their own state internally, and guarding those would
+   * mean threading a generation through each. Worth doing if a caller ever does swap the
+   * bridge; not worth it for a race nothing can currently start.
+   */
   useEffect(() => {
-    bridge.health().then(setHealth);
-    refreshMetadata();
-    refreshTokens();
-    refreshWriteLog();
-  }, [refreshMetadata, refreshTokens, refreshWriteLog]);
+    let live = true;
+    void (async () => {
+      // CONCURRENT, as before. Awaiting them in sequence would turn one round trip into
+      // four and slow the first paint for a guard that has nothing to catch yet.
+      const [h] = await Promise.all([
+        bridge.health(),
+        refreshMetadata(),
+        refreshTokens(),
+        refreshWriteLog(),
+      ]);
+      if (live) setHealth(h);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [bridge, refreshMetadata, refreshTokens, refreshWriteLog]);
 
-  const scenes: SceneMeta[] = meta?.metadata?.scenes ?? [];
-  const files: FileMeta[] = meta?.metadata?.files ?? [];
+  /*
+   * MEMOISED, and the reason is narrower than it looks. `meta?.metadata?.scenes ?? []`
+   * returns the SAME array off `meta` once the manifest has loaded — measured, not assumed —
+   * so the identity churn this looks like does not happen in the state that matters. What
+   * does allocate is the `?? []` before `meta` arrives, and `exhaustive-deps` cannot tell the
+   * two apart, so it flags five hooks downstream. Wrapping costs nothing, holds in both
+   * states, and stops the question being re-litigated from the shape of the expression.
+   */
+  const scenes: SceneMeta[] = useMemo(() => meta?.metadata?.scenes ?? [], [meta]);
+  const files: FileMeta[] = useMemo(() => meta?.metadata?.files ?? [], [meta]);
   /**
    * The manifest decides the default, and it has to be re-decided when the manifest
    * arrives: the persisted id may name a scene this project no longer has, and the
@@ -350,6 +407,18 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
     [files],
   );
   const component = allComponents.find((c) => c.name === componentName) ?? allComponents[0];
+  /*
+   * A PERSISTED MODE THE PROJECT CANNOT OFFER. Same shape as the scene id that vanishes
+   * above: the view survives a reload, the project it describes may not. Restored as-is,
+   * the editor opens on `components` with its own switch disabled, showing `Bindings`
+   * with nothing to bind.
+   *
+   * Runs after metadata, because before it arrives `allComponents` is legitimately empty
+   * and switching then would override a mode the project does support.
+   */
+  useEffect(() => {
+    if (meta && allComponents.length === 0) setMode('scenes');
+  }, [meta, allComponents.length]);
   /** Re-seed the variant axes when the selection changes; edits are keyed per component. */
   const selectComponent = (name: string) => {
     const next = allComponents.find((c) => c.name === name);
@@ -883,10 +952,38 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
 
         <div className="grid min-h-0 flex-1 grid-cols-[220px_1fr_340px] gap-3 p-3">
           <aside className="flex min-h-0 flex-col gap-2 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-3">
-            <p className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-wb-muted">
-              Scenes
-            </p>
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            {/*
+              THE MODE SWITCH. Which subject the editor is addressing — see `mode`.
+              A component with no CVA still lists, because "no variants" is a fact about
+              the component worth seeing, not a reason to hide it from its own list.
+            */}
+            <div className="flex shrink-0 gap-1 rounded-md bg-wb-bg p-0.5">
+              {(['scenes', 'components'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  disabled={m === 'components' && allComponents.length === 0}
+                  title={
+                    m === 'components' && allComponents.length === 0
+                      ? 'No components with extractable metadata in this project'
+                      : undefined
+                  }
+                  className={cn(
+                    'flex-1 rounded px-2 py-1 font-mono text-[10px] uppercase tracking-wide transition-colors',
+                    m === mode
+                      ? 'bg-wb-accent text-wb-accent-fg'
+                      : 'text-wb-muted enabled:hover:text-wb-fg disabled:opacity-40',
+                  )}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+            <div
+              className="min-h-0 flex-1 overflow-y-auto"
+              hidden={mode !== 'scenes'}
+            >
               {scenes.length === 0 ? (
                 <p className="px-1 text-[11px] leading-relaxed text-wb-muted">
                   {meta && !meta.ok
@@ -939,26 +1036,27 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
               )}
             </div>
             {/*
-              THE COMPONENT LIST IS HERE, not behind a mode toggle.
-              
-              The prototype made components a MODE that replaced the centre pane with an
-              isolated preview of one primitive. That preview needs a hand-written renderer
-              per component and is not part of this rollout, so the centre stays the real
-              page — which is the better surface for judging a token change anyway. What the
-              list is for is giving "Token bindings" a subject: it edits one component's CVA
-              values, and nothing else on screen names a component.
+              THE COMPONENT LIST — the whole left pane in `components` mode.
+
+              ONE DELIBERATE DIVERGENCE from the recipe, which pairs this mode with a
+              `PreviewPane` rendering the selected primitive in isolation. That preview
+              needs a hand-written renderer PER COMPONENT: the prototype's registry
+              carried two of them (Button, Badge) against 25 ui components, so shipping
+              the mode that way would show a preview for 2 and an empty frame for the
+              rest — a coverage gap dressed as a feature.
+
+              So the centre keeps the real page in BOTH modes. The mode still earns its
+              place, because the right pane genuinely differs: a CVA value and a
+              `NodeAnchor` are not the same address, and `TokenBindingPanel` describing a
+              Button while a route is under edit is the thing the recipe removes it for.
             */}
-            {allComponents.length > 0 && (
-              <div className="min-h-0 shrink-0 border-t border-wb-border pt-2" style={{ maxHeight: '45%' }}>
-                <div className="max-h-40 overflow-y-auto">
-                  <ComponentList
-                    components={allComponents}
-                    selected={component?.name ?? ''}
-                    onSelect={selectComponent}
-                  />
-                </div>
-              </div>
-            )}
+            <div className="min-h-0 flex-1 overflow-y-auto" hidden={mode !== 'components'}>
+              <ComponentList
+                components={allComponents}
+                selected={component?.name ?? ''}
+                onSelect={selectComponent}
+              />
+            </div>
           </aside>
 
           <main className="min-h-0 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-3">
@@ -975,6 +1073,8 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 onClasses={registerCandidates}
                 onMeasured={setSelectionRect}
                 onSelectionHostRect={setSelectionHostRect}
+                mockDataEmpty={mockDataEmpty}
+                onMockDataEmptyChange={setMockDataEmpty}
               />
             ) : scenes.length > 0 ? (
               // The manifest DID arrive; every scene in it is deferred. Saying "waiting"
@@ -1034,20 +1134,42 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
           />
 
           <aside className="min-h-0 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-3">
-            <Tabs defaultValue="layout" className="flex h-full flex-col gap-3">
+            {/*
+              TWO TABS PER MODE, not three in one group.
+
+              `Layout` addresses a `NodeAnchor` in the scene under edit and `Bindings`
+              addresses one component's CVA, so exactly one of them has a subject at any
+              moment; offering both left the other describing something nobody selected.
+              `Tokens` is in both on purpose — it edits the stylesheet, whose blast radius
+              is every scene as much as every component, and judging a semantic colour on
+              a real page is the most valuable thing this tool does.
+
+              KEYED BY MODE so the group remounts: `defaultValue` is read once, and
+              switching modes retires the active tab's trigger. Without the key the group
+              would hold a `value` naming a tab that no longer exists and render no
+              content at all.
+            */}
+            <Tabs
+              key={mode}
+              defaultValue={mode === 'scenes' ? 'layout' : 'bindings'}
+              className="flex h-full flex-col gap-3"
+            >
               <TabsList className="w-full">
-                <TabsTrigger
-                  value="layout"
-                  className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
-                >
-                  Layout
-                </TabsTrigger>
-                <TabsTrigger
-                  value="bindings"
-                  className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
-                >
-                  Bindings
-                </TabsTrigger>
+                {mode === 'scenes' ? (
+                  <TabsTrigger
+                    value="layout"
+                    className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
+                  >
+                    Layout
+                  </TabsTrigger>
+                ) : (
+                  <TabsTrigger
+                    value="bindings"
+                    className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
+                  >
+                    Bindings
+                  </TabsTrigger>
+                )}
                 <TabsTrigger
                   value="tokens"
                   className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"

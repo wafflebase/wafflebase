@@ -366,6 +366,73 @@ jobs:
           include-hidden-files: true
           retention-days: 14
 
+  verify-backend-image:
+    runs-on: ubuntu-latest
+    needs: [changes, verify-self]
+    # Filtered on the steps, not the job, for the reason spelled out on
+    # verify-browser: a skipped matrix job never expands its matrix.
+    if: ${{ !cancelled() && needs.verify-self.result == 'success' }}
+    env:
+      RUN_HEAVY: >-
+        ${{ needs.changes.result != 'success' ||
+            needs.changes.outputs.heavy == 'true' ||
+            contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+          - platform: linux/arm64
+            arch: arm64
+
+    steps:
+      - name: Why this job is doing nothing
+        if: env.RUN_HEAVY != 'true'
+        run: |
+          echo "::notice::verify-backend-image had nothing to test — no workspace package or Dockerfile changed. See the 'What changed' job summary."
+
+      - uses: actions/checkout@v4
+        if: env.RUN_HEAVY == 'true'
+        with:
+          # The checkout is only a build context for `docker buildx build`;
+          # nothing in this job talks back to git, so do not leave the token in
+          # `.git/config` where the PR-controlled Dockerfile could read it.
+          persist-credentials: false
+
+      # QEMU registers binfmt handlers through a privileged container, so it is
+      # gated like everything else: a filtered run must cost a few seconds, not
+      # set up cross-architecture emulation it will never use.
+      - uses: docker/setup-qemu-action@v3
+        if: env.RUN_HEAVY == 'true'
+
+      - uses: docker/setup-buildx-action@v3
+        if: env.RUN_HEAVY == 'true'
+
+      - name: Build production backend image (${{ matrix.arch }})
+        if: env.RUN_HEAVY == 'true'
+        run: >-
+          docker buildx build
+          --load
+          --platform "${{ matrix.platform }}"
+          --tag "wafflebase-backend-smoke-${{ matrix.arch }}"
+          --file Dockerfile
+          .
+
+      # `--network none` is the assertion, not a detail: the image pre-bundles
+      # the DuckDB extensions, so initialization must not reach
+      # extensions.duckdb.org. With networking off, an image that lost the
+      # bundling step fails here instead of in an egress-restricted
+      # deployment's first lakehouse read.
+      - name: Cold-start all DuckDB extensions offline (${{ matrix.arch }})
+        if: env.RUN_HEAVY == 'true'
+        run: |
+          docker run --rm --network none --entrypoint node \
+            -v "$PWD/packages/backend/test/smoke-duckdb-runtime.cjs:/app/packages/backend/test/smoke-duckdb-runtime.cjs:ro" \
+            "wafflebase-backend-smoke-${{ matrix.arch }}" \
+            test/smoke-duckdb-runtime.cjs
+
   verify-browser:
     runs-on: ubuntu-latest
     needs: [changes, verify-self]
@@ -527,6 +594,14 @@ jobs:
         ${{ needs.changes.result != 'success' ||
             needs.changes.outputs.heavy == 'true' ||
             contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+      RUN_LAKEHOUSE_INTEGRATION_TESTS: "true"
+      LAKEHOUSE_MINIO_ENDPOINT: http://localhost:9000
+      LAKEHOUSE_ALLOWED_ENDPOINTS: http://localhost:9000,http://127.0.0.1:10000/devstoreaccount1
+      LAKEHOUSE_MINIO_ACCESS_KEY: minioadmin
+      LAKEHOUSE_MINIO_SECRET_KEY: minioadmin
+      LAKEHOUSE_MINIO_REGION: us-east-1
+      # Enables the azurite-azure leg of the connector-parity suite.
+      LAKEHOUSE_AZURITE_ENDPOINT: http://127.0.0.1:10000/devstoreaccount1
     services:
       postgres:
         image: postgres:16
@@ -595,6 +670,54 @@ jobs:
           pnpm slides build
           pnpm sheets build
 
+      - name: Start MinIO object storage
+        if: env.RUN_HEAVY == 'true'
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+
+      - name: Wait for MinIO to become healthy
+        if: env.RUN_HEAVY == 'true'
+        run: |
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://localhost:9000/minio/health/ready; then
+              echo "MinIO is up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "MinIO did not become healthy on :9000" >&2
+          docker logs minio || true
+          exit 1
+
+      # Azure Blob emulator for the lakehouse parity suite's azurite-azure leg.
+      - name: Start Azurite blob emulator
+        if: env.RUN_HEAVY == 'true'
+        run: |
+          docker run -d --name azurite \
+            -p 10000:10000 \
+            mcr.microsoft.com/azure-storage/azurite:3.35.0 \
+            azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+
+      - name: Wait for Azurite to become healthy
+        if: env.RUN_HEAVY == 'true'
+        run: |
+          for i in $(seq 1 30); do
+            status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              'http://127.0.0.1:10000/devstoreaccount1?comp=list' || true)
+            if [ "$status" != "000" ] && [ "$status" -lt 500 ]; then
+              echo "Azurite is up after ${i}s (status $status)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Azurite did not become healthy on :10000" >&2
+          docker logs azurite || true
+          exit 1
+
       - name: Start Yorkie server
         if: env.RUN_HEAVY == 'true'
         run: |
@@ -631,3 +754,11 @@ jobs:
       - name: Yorkie logs on failure
         if: failure() && steps.integration.outcome == 'failure' && env.RUN_HEAVY == 'true'
         run: docker logs yorkie
+
+      - name: MinIO logs on failure
+        if: failure() && steps.integration.outcome == 'failure' && env.RUN_HEAVY == 'true'
+        run: docker logs minio
+
+      - name: Azurite logs on failure
+        if: failure() && steps.integration.outcome == 'failure' && env.RUN_HEAVY == 'true'
+        run: docker logs azurite

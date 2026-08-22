@@ -1,5 +1,5 @@
 import type { Block, BlockStyle, CellStyle, Document, HeadingLevel, HeaderFooter, Inline, InlineStyle, PageSetup, TableRow, TableCell, BlockType } from '../model/types.js';
-import { resolvePageSetup, normalizeBlockStyle } from '../model/types.js';
+import { resolvePageSetup, normalizeBlockStyle, normalizeCellStyleClears } from '../model/types.js';
 import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
 import { blockStyleId, materializeBlockSpacing, rematerializeDocSpacing } from '../model/named-styles.js';
 import type { DocStore } from './store.js';
@@ -246,6 +246,7 @@ export class MemDocStore implements DocStore {
   ): void {
     const block = this.findBlock(blockId);
     const prevStyleId = blockStyleId(block);
+    const prevHeadingLevel = block.headingLevel;
     block.type = type;
     delete block.headingLevel;
     delete block.listKind;
@@ -254,6 +255,9 @@ export class MemDocStore implements DocStore {
       block.headingLevel = opts?.headingLevel ?? 1;
     }
     if (type === 'list-item') {
+      // A bulleted heading remembers its level so removing the list restores
+      // the heading instead of flattening it to body text (see `Block`).
+      if (prevHeadingLevel !== undefined) block.headingLevel = prevHeadingLevel;
       block.listKind = opts?.listKind ?? 'unordered';
       block.listLevel = opts?.listLevel ?? 0;
     }
@@ -281,7 +285,17 @@ export class MemDocStore implements DocStore {
   ): void {
     const block = this.findBlock(tableBlockId);
     const cell = block.tableData!.rows[rowIndex].cells[colIndex];
-    cell.style = { ...cell.style, ...style };
+    // The cell-background "Reset" entry passes `''`; normalizing it to an
+    // explicit `undefined` and then dropping the key keeps this cache in step
+    // with the Yorkie store, which removes the attribute outright (#793).
+    // Spreading alone would leave the key present holding `undefined`, so
+    // `'backgroundColor' in cell.style` would answer true here and false there.
+    const cleared = normalizeCellStyleClears(style);
+    const merged: CellStyle = { ...cell.style, ...cleared };
+    for (const key of Object.keys(cleared) as Array<keyof CellStyle>) {
+      if (cleared[key] === undefined) delete merged[key];
+    }
+    cell.style = merged;
   }
 
   applyCellSpan(

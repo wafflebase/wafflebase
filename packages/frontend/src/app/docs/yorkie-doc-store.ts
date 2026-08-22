@@ -35,8 +35,12 @@ import {
   applyInsertInline,
   applySplitBlock,
   applyMergeBlocks,
+  mergeDropsHeadingMemory,
+  splitMovesHeadingMemory,
   blockStyleId,
   materializeBlockSpacing,
+  normalizeStyleClears,
+  normalizeCellStyleClears,
   serializeBlockStyleAttrs,
   parseBlockStyleAttrs,
   serializeMarginFromEdgeAttrs,
@@ -243,16 +247,20 @@ function serializeCellStyle(cell: TableCell): Record<string, string> {
 /**
  * Cell-style counterpart of `removedInlineStyleAttrs`: the Yorkie attribute
  * names to hand `removeNodeStyle` when the caller cleared a key by
- * passing it explicitly as `undefined` (e.g. the cell "No fill" reset).
+ * passing it explicitly as `undefined` (the cell "No fill" reset, or the
+ * `''` sentinel `normalizeCellStyleClears` folds into that same form).
  * `serializeCellStyle` drops those keys, and `styleByPath` only merges, so
  * without this the previous value stays on the Tree node.
  */
+const CELL_STYLE_ATTR_KEYS = [
+  'backgroundColor', 'verticalAlign', 'padding',
+  'borderTop', 'borderBottom', 'borderLeft', 'borderRight',
+] as const satisfies readonly (keyof CellStyle)[];
+
 function removedCellStyleAttrs(style: Partial<CellStyle>): string[] {
-  const keys = [
-    'backgroundColor', 'verticalAlign', 'padding',
-    'borderTop', 'borderBottom', 'borderLeft', 'borderRight',
-  ] as const;
-  return keys.filter((key) => key in style && style[key] === undefined);
+  return CELL_STYLE_ATTR_KEYS.filter(
+    (key) => key in style && style[key] === undefined,
+  );
 }
 
 /**
@@ -1423,6 +1431,11 @@ export class YorkieDocStore implements DocStore {
       attrs.listKind = opts?.listKind ?? 'unordered';
       attrs.listLevel = String(opts?.listLevel ?? 0);
     }
+    // A bulleted heading remembers its level so removing the list restores the
+    // heading instead of flattening it to body text (see `Block`). The
+    // attribute is already on the node, so only the removal below changes.
+    const keepHeadingLevel =
+      type === 'list-item' && block.headingLevel !== undefined;
 
     // Applying a different named style re-materializes the block's style-owned
     // spacing into the same styleByPath write (Google Docs parity). A bullet
@@ -1440,7 +1453,7 @@ export class YorkieDocStore implements DocStore {
 
     // Determine stale attributes to remove (styleByPath merges, not replaces)
     const toRemove: string[] = [];
-    if (type !== 'heading') toRemove.push('headingLevel');
+    if (type !== 'heading' && !keepHeadingLevel) toRemove.push('headingLevel');
     if (type !== 'list-item') toRemove.push('listKind', 'listLevel');
 
     const cursorForHistory = this.consumePendingCursor();
@@ -1480,12 +1493,14 @@ export class YorkieDocStore implements DocStore {
     });
 
     // Update cache
+    const prevHeadingLevel = block.headingLevel;
     block.type = type;
     delete block.headingLevel;
     delete block.listKind;
     delete block.listLevel;
     if (type === 'heading') block.headingLevel = opts?.headingLevel ?? 1;
     if (type === 'list-item') {
+      if (keepHeadingLevel) block.headingLevel = prevHeadingLevel;
       block.listKind = opts?.listKind ?? 'unordered';
       block.listLevel = opts?.listLevel ?? 0;
     }
@@ -1909,8 +1924,11 @@ export class YorkieDocStore implements DocStore {
     // styleByPath only merges, so keys explicitly cleared to `undefined`
     // (e.g. removeLink → { href: undefined }) must also be removed via
     // removeStyleByPath; otherwise the old attribute survives on the node.
-    const styleAttrs = serializeInlineStyle(style as InlineStyle);
-    const removeAttrs = removedInlineStyleAttrs(style);
+    // `normalizeStyleClears` routes a color picker's "None" (`''`) into that
+    // same removal path instead of writing an empty attribute (#793).
+    const clearedStyle = normalizeStyleClears(style);
+    const styleAttrs = serializeInlineStyle(clearedStyle as InlineStyle);
+    const removeAttrs = removedInlineStyleAttrs(clearedStyle);
     for (let i = startIdx; i < endIdx; i++) {
       const existingAttrs = inlines[i].attributes ?? {};
       tree.styleByPath([...blockPath, i], { ...existingAttrs, ...styleAttrs });
@@ -2039,6 +2057,11 @@ export class YorkieDocStore implements DocStore {
       throw new Error(`splitBlock does not support ${block.type} blocks`);
     }
 
+    // Splitting a bulleted heading at offset 0 moves the remembered level onto
+    // the block that takes the heading text, so the attribute has to move in
+    // the tree too (`applySplitBlock` moves it in the cache below).
+    const movesHeadingMemory = splitMovesHeadingMemory(block, offset, newBlockType);
+
     const cursorForHistory = this.consumePendingCursor();
     this.doc.update((root, p) => {
       if (cursorForHistory) {
@@ -2046,6 +2069,12 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+
+      if (movesHeadingMemory) {
+        const endPath = [...blockPath];
+        endPath[endPath.length - 1] += 1;
+        tree.removeStyleByPath(blockPath, endPath, ['headingLevel']);
+      }
 
       const treeRoot = tree.getRootTreeNode();
       const blockNode = this.getTreeBlockNode(treeRoot, blockPath);
@@ -2076,7 +2105,10 @@ export class YorkieDocStore implements DocStore {
             afterAttrs.listLevel = String(block.listLevel);
           }
         }
-        if (newBlockType === 'heading' && block.headingLevel !== undefined) {
+        if (
+          (newBlockType === 'heading' || movesHeadingMemory) &&
+          block.headingLevel !== undefined
+        ) {
           afterAttrs.headingLevel = String(block.headingLevel);
         }
         tree.editByPath(afterPath, afterPath, buildBlockNode({
@@ -2166,7 +2198,8 @@ export class YorkieDocStore implements DocStore {
           ...(newBlockType === 'list-item' && block.listKind !== undefined
             ? { listKind: block.listKind, listLevel: block.listLevel }
             : {}),
-          ...(newBlockType === 'heading' && block.headingLevel !== undefined
+          ...((newBlockType === 'heading' || movesHeadingMemory) &&
+          block.headingLevel !== undefined
             ? { headingLevel: block.headingLevel }
             : {}),
         }));
@@ -2210,6 +2243,11 @@ export class YorkieDocStore implements DocStore {
       throw new Error('Blocks to merge must be adjacent and in order');
     }
 
+    // An emptied bulleted heading absorbing the next block's text no longer
+    // holds the heading it remembers, so the attribute has to leave the tree
+    // as well as the cache (`applyMergeBlocks` drops it there).
+    const dropHeadingMemory = mergeDropsHeadingMemory(firstBlock);
+
     const cursorForHistory = this.consumePendingCursor();
     this.doc.update((root, p) => {
       if (cursorForHistory) {
@@ -2218,6 +2256,11 @@ export class YorkieDocStore implements DocStore {
       }
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      if (dropHeadingMemory) {
+        const endPath = [...blockPath];
+        endPath[endPath.length - 1] += 1;
+        tree.removeStyleByPath(blockPath, endPath, ['headingLevel']);
+      }
       // Read inline count from the actual tree, not the cache, because
       // previous split/merge operations can leave the tree with a different
       // number of inline nodes than the cache (e.g. split fragments).
@@ -2448,15 +2491,22 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const block = this.resolveTableBlock(tablePath, currentDoc);
     const cell = block.tableData!.rows[rowIndex].cells[colIndex];
-    const merged = { ...cell.style, ...style };
-
-    // Build serialized attributes for the cell node
-    const attrs = serializeCellStyle({ ...cell, style: merged });
     // `styleByPath` only merges, so a key cleared by passing it explicitly
     // as `undefined` (the "No fill" reset of issue #728) is dropped by
     // `serializeCellStyle` and the stale attribute survives on the node.
     // Remove those keys the same way the inline-style path does.
-    const removeAttrs = removedCellStyleAttrs(style);
+    // `normalizeCellStyleClears` folds the picker's `''` sentinel into that
+    // same explicitly-undefined form first, so both spellings of "clear"
+    // take the one removal path (issue #793).
+    const clearedStyle = normalizeCellStyleClears(style);
+    const removeAttrs = removedCellStyleAttrs(clearedStyle);
+    const merged: CellStyle = { ...cell.style, ...clearedStyle };
+    // Keep the local cache in step with the node: an explicitly-undefined key
+    // would otherwise survive the spread as a present-but-undefined property.
+    for (const key of removeAttrs) delete merged[key as keyof CellStyle];
+
+    // Build serialized attributes for the cell node
+    const attrs = serializeCellStyle({ ...cell, style: merged });
 
     const cursorForHistory = this.consumePendingCursor();
     this.doc.update((root, p) => {
@@ -2466,7 +2516,14 @@ export class YorkieDocStore implements DocStore {
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       const cellPath = [...tablePath, rowIndex, colIndex];
-      tree.styleByPath(cellPath, attrs);
+      // A clear-only edit on an otherwise unstyled cell serializes to nothing;
+      // don't spend an op setting an empty attribute map. `applyCellSpan`
+      // guards the same call.
+      if (Object.keys(attrs).length > 0) {
+        tree.styleByPath(cellPath, attrs);
+      }
+      // Node-scoped: a path range would also strip the highlight of every
+      // inline in the cell and the fill of every nested-table cell inside it.
       removeNodeStyle(tree, cellPath, removeAttrs);
     });
 
