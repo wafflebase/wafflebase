@@ -11,6 +11,28 @@ const ZOOM_STEP = 0.25;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 5;
 
+/**
+ * Markup Radix renders for an open dismissable layer: the header's
+ * ShareDialog, the mobile sidebar Sheet, the notification Popover, any
+ * dropdown/select content. Every one of them closes on Esc from a
+ * *document*-level listener and none stops propagation, so an Esc meant for
+ * the overlay would otherwise also reach the viewer's key handler and
+ * navigate the user out from behind the closing overlay.
+ */
+const OPEN_OVERLAY_SELECTOR = [
+  // Poppers (select, dropdown, popover, tooltip) — the wrapper only exists
+  // while the content is mounted.
+  "[data-radix-popper-content-wrapper]",
+  '[role="dialog"][data-state="open"]',
+  '[role="alertdialog"][data-state="open"]',
+  '[role="menu"][data-state="open"]',
+  '[role="listbox"][data-state="open"]',
+].join(",");
+
+function hasOpenOverlay(): boolean {
+  return document.querySelector(OPEN_OVERLAY_SELECTOR) !== null;
+}
+
 export function ImageViewer({
   documentId,
   token,
@@ -110,6 +132,9 @@ export function ImageViewer({
     [navigate],
   );
 
+  // Registered in the capture phase on purpose: an overlay can only be
+  // recognised as open *before* Radix's own document-level handler unmounts
+  // it, and window-capture runs ahead of document-bubble.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -121,12 +146,14 @@ export function ImageViewer({
       ) {
         return;
       }
+      // The keystroke belongs to whatever is layered over the viewer.
+      if (hasOpenOverlay()) return;
       if (e.key === "ArrowLeft") go(prevId);
       else if (e.key === "ArrowRight") go(nextId);
       else if (e.key === "Escape" && onClose) onClose();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [go, prevId, nextId, onClose]);
 
   return (
