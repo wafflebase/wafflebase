@@ -34,7 +34,13 @@ vi.mock("@/api/documents", () => ({
     type: "image",
     workspaceId: "w1",
   })),
-  fetchDocuments: vi.fn(async () => []),
+  // Two siblings so ←/→ have somewhere to go. With an empty list `prevId`
+  // and `nextId` are undefined and `navigate` is unreachable, which made
+  // every arrow-key assertion pass for the wrong reason.
+  fetchDocuments: vi.fn(async () => [
+    { id: "d1", title: "cat.png", type: "image", workspaceId: "w1" },
+    { id: "d2", title: "dog.png", type: "image", workspaceId: "w1" },
+  ]),
 }));
 vi.mock("@/api/files", () => ({ fileUrl: () => "/documents/d1/file" }));
 
@@ -136,6 +142,21 @@ describe("ImageViewer Esc handling (issue #840)", () => {
     ).not.toBeNull();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // The arrows are the other half of what a hovered nav item used to kill,
+  // and they fail differently: Esc has `onClose` to observe, while prev/next
+  // needs a populated neighbour list before `navigate` is reachable at all.
+  it("still navigates with the arrows while that tooltip is mounted", async () => {
+    renderViewer({ onClose: vi.fn() }, "tooltip");
+    await waitFor(() =>
+      expect(
+        document.querySelector("[data-radix-popper-content-wrapper]"),
+      ).not.toBeNull(),
+    );
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/f/d2"));
   });
 
   // The share mount passes a token and no `onClose`: an anonymous viewer has
