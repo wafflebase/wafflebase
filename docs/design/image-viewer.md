@@ -172,7 +172,15 @@ type-dispatcher:
   `/documents` — shared with `FileShell`'s not-found redirect. Esc obeys the
   same input/contenteditable guard as ←/→ (so the header's rename field keeps
   Esc for cancel), and the anonymous share-link mount passes no `onClose`, so
-  Esc is inert for a viewer who has no documents list.
+  Esc is inert for a viewer who has no documents list. Both Esc and ←/→ also
+  stand down while a *dismissable* layer is open above the viewer (ShareDialog,
+  mobile sidebar Sheet, notification Popover, any dropdown/select), since those
+  close on Esc from a document-level listener without stopping propagation. The
+  check keys off an open overlay's own content element (`data-state="open"` plus
+  the dialog/menu/listbox roles), never off the Radix popper wrapper: tooltips
+  share that wrapper and open on plain hover or focus — the sidebar's nav
+  tooltips stay `hidden` on an expanded desktop sidebar — so a wrapper-level
+  check would kill the viewer's keys with nothing visible on screen.
 
 ### Documents list — inline row thumbnails (D1)
 

@@ -20,13 +20,21 @@ const MAX_ZOOM = 5;
  * navigate the user out from behind the closing overlay.
  */
 const OPEN_OVERLAY_SELECTOR = [
-  // Poppers (select, dropdown, popover, tooltip) — the wrapper only exists
-  // while the content is mounted.
-  "[data-radix-popper-content-wrapper]",
   '[role="dialog"][data-state="open"]',
   '[role="alertdialog"][data-state="open"]',
   '[role="menu"][data-state="open"]',
   '[role="listbox"][data-state="open"]',
+  // Anything else Radix hosts in a popper (hover card, combobox content).
+  // Matched on the *content* element, never the wrapper: the wrapper is also
+  // what a tooltip mounts into, and tooltips open on plain hover or keyboard
+  // focus — including the sidebar's nav tooltips, which stay invisible on an
+  // expanded desktop sidebar (`hidden` on TooltipContent) — so keying off the
+  // wrapper would let a hovered nav item silently kill Esc and prev/next.
+  // Requiring `data-state="open"` excludes them twice over: a tooltip reports
+  // `instant-open`/`delayed-open`, never `open`. It also disarms the guard as
+  // soon as a real overlay starts closing, instead of holding it through the
+  // exit animation.
+  '[data-radix-popper-content-wrapper] > [data-state="open"]:not([data-slot="tooltip-content"])',
 ].join(",");
 
 function hasOpenOverlay(): boolean {

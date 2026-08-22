@@ -5,6 +5,12 @@ import { MemoryRouter } from "react-router-dom";
 
 import { ImageViewer } from "@/app/files/image-viewer";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const navigate = vi.fn();
 vi.mock("react-router-dom", async () => {
@@ -38,7 +44,7 @@ URL.revokeObjectURL = vi.fn();
 
 function renderViewer(
   props: { onClose?: () => void; token?: string } = {},
-  overlay = false,
+  overlay: boolean | "tooltip" = false,
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -52,12 +58,24 @@ function renderViewer(
             hand-written stand-in. Controlled + always open: Esc asks it to
             close but it stays mounted, which is exactly the instant the
             viewer must not act on. */}
-        {overlay && (
+        {overlay === true && (
           <Dialog open>
             <DialogContent>
               <DialogTitle>Share</DialogTitle>
             </DialogContent>
           </Dialog>
+        )}
+        {/* A real sidebar-style nav tooltip: portaled into a Radix popper
+            wrapper, and `hidden` because that is how SidebarMenuButton renders
+            it on an expanded desktop sidebar. Nothing is on screen, so the
+            viewer's keys must keep working. */}
+        {overlay === "tooltip" && (
+          <TooltipProvider>
+            <Tooltip open>
+              <TooltipTrigger>Documents</TooltipTrigger>
+              <TooltipContent hidden>Documents</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
       </MemoryRouter>
     </QueryClientProvider>,
@@ -102,6 +120,20 @@ describe("ImageViewer Esc handling (issue #840)", () => {
     // With no overlay mounted the very same keystroke does leave the viewer,
     // so the guard above is not just suppressing Esc outright.
     renderViewer({ onClose });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // A hovered or focused sidebar nav item opens a Radix tooltip whose content
+  // is `hidden` on an expanded sidebar. It mounts a popper wrapper all the
+  // same, so treating every wrapper as an open overlay left Esc and the arrow
+  // keys dead with nothing visible to explain it.
+  it("still handles keys while an invisible nav tooltip is mounted", () => {
+    const onClose = vi.fn();
+    renderViewer({ onClose }, "tooltip");
+    expect(
+      document.querySelector("[data-radix-popper-content-wrapper]"),
+    ).not.toBeNull();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
