@@ -1974,7 +1974,14 @@ export function initialize(
     const clampPos = (pos: DocPosition): DocPosition => {
       const b = doc.getBlock(pos.blockId);
       const maxOffset = b.inlines.reduce((sum, i) => sum + i.text.length, 0);
-      return { blockId: pos.blockId, offset: Math.min(pos.offset, maxOffset) };
+      // Carry the endpoint's affinity: rebuilding without it would drop the
+      // wrap-boundary reading on every undo/redo, which is the one thing
+      // endpoints are supposed to keep.
+      return {
+        blockId: pos.blockId,
+        offset: Math.min(pos.offset, maxOffset),
+        ...(pos.lineAffinity ? { lineAffinity: pos.lineAffinity } : {}),
+      };
     };
     const blocksExist = restoredSel
       ? !!doc.findBlock(restoredSel.anchor.blockId) &&
