@@ -11,10 +11,17 @@ export interface VisualLineInfo {
 /**
  * Find which visual (wrapped) line a position falls on within a layout block.
  * Returns line index, total line count, and the character range of that line.
+ *
+ * An offset at a soft-wrap boundary belongs to two lines at once — it is
+ * both the end of line `i` and the start of line `i + 1` — so the caller's
+ * `lineAffinity` decides: `'backward'` resolves it to line `i` (where the
+ * caret is drawn), `'forward'` to line `i + 1`. The default is `'forward'`,
+ * which is how this helper resolved boundaries before affinity existed.
  */
 export function findVisualLine(
   lb: LayoutBlock,
   pos: DocPosition,
+  lineAffinity: 'forward' | 'backward' = 'forward',
 ): VisualLineInfo | undefined {
   if (lb.lines.length === 0) return undefined;
 
@@ -26,8 +33,10 @@ export function findVisualLine(
     }
     const lineStart = charsBefore;
     const lineEnd = charsBefore + lineChars;
-    const isLastLine = i === lb.lines.length - 1;
-    if (pos.offset >= lineStart && (pos.offset < lineEnd || (isLastLine && pos.offset <= lineEnd))) {
+    // The last line has no following line to hand the boundary to, so it
+    // always keeps its end offset regardless of affinity.
+    const ownsLineEnd = i === lb.lines.length - 1 || lineAffinity === 'backward';
+    if (pos.offset >= lineStart && (pos.offset < lineEnd || (ownsLineEnd && pos.offset <= lineEnd))) {
       return { lineIndex: i, totalLines: lb.lines.length, lineStart, lineEnd };
     }
     charsBefore = lineEnd;
