@@ -734,6 +734,49 @@ describe('NotePreview mermaid fences', () => {
     });
   });
 
+  it('lays out no external URL in any attribute, across diagram types', async () => {
+    // A broader oracle than the label check above: whatever the engine
+    // serializes, no attribute may hold an off-site URL. `htmlLabels: false`
+    // only covers labels, and mermaid has fetch carriers spelled in pure
+    // diagram syntax — a sequence actor's `properties … icon` emits an
+    // `<image xlink:href>` per occurrence with no htmlLabels/securityLevel
+    // guard. This scans the output rather than naming one construct, so the
+    // next carrier an engine upgrade introduces fails here too.
+    const sources = [
+      'sequenceDiagram\n  participant A\n  properties A: {"icon": "https://evil.example/b.png"}\n  A->>A: hi\n',
+      'flowchart LR\n  A["plain"] --> B\n',
+    ];
+    for (const src of sources) {
+      await withRealEngine(async (engine, rawSvg) => {
+        const root = document.createElement('div');
+        document.body.appendChild(root);
+        root.innerHTML = mermaidFenceHtml(src, (t) =>
+          t.replace(/&/g, '&amp;').replace(/</g, '&lt;'),
+        );
+        await renderMermaidBlocks(root, { load: async () => engine });
+        // Either the source was refused before the engine ran, or the engine
+        // ran and emitted nothing that points off-site.
+        expect(rawSvg()).not.toMatch(/https?:\/\/evil\.example/);
+        root.remove();
+      });
+    }
+  });
+
+  it('refuses a sequence actor icon before the engine can fetch it', async () => {
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\nsequenceDiagram\n  participant A\n' +
+        '  properties A: {"icon": "https://evil.example/b.png"}\n  A->>A: hi\n```',
+    );
+    await flush();
+
+    expect(engine.render).not.toHaveBeenCalled();
+    expect(
+      preview.el.querySelector('.note-mermaid-message')?.textContent,
+    ).toContain('actor icons are not allowed');
+  });
+
   it('would have laid out an HTML label subtree without that key', async () => {
     // The control for the case above: the same engine, the same source, only
     // `htmlLabels` left at its default. Without this, a build in which no

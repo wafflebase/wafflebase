@@ -18,14 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| image viewer back button (2026-08-22) | [20260822-image-viewer-back-button-todo.md](./active/20260822-image-viewer-back-button-todo.md) | [20260822-image-viewer-back-button-lessons.md](./active/20260822-image-viewer-back-button-lessons.md) |
-| notes blame gutter (2026-08-22) | [20260822-notes-blame-gutter-todo.md](./active/20260822-notes-blame-gutter-todo.md) | [20260822-notes-blame-gutter-lessons.md](./active/20260822-notes-blame-gutter-lessons.md) |
-| notes foldout toolbar (2026-08-22) | [20260822-notes-foldout-toolbar-todo.md](./active/20260822-notes-foldout-toolbar-todo.md) | [20260822-notes-foldout-toolbar-lessons.md](./active/20260822-notes-foldout-toolbar-lessons.md) |
-| notes mermaid label beacon (2026-08-22) | [20260822-notes-mermaid-label-beacon-todo.md](./active/20260822-notes-mermaid-label-beacon-todo.md) | [20260822-notes-mermaid-label-beacon-lessons.md](./active/20260822-notes-mermaid-label-beacon-lessons.md) |
-| sheets clear borders prune (2026-08-22) | [20260822-sheets-clear-borders-prune-todo.md](./active/20260822-sheets-clear-borders-prune-todo.md) | [20260822-sheets-clear-borders-prune-lessons.md](./active/20260822-sheets-clear-borders-prune-lessons.md) |
 | pr786 conflict resolution (2026-08-20) | [20260820-pr786-conflict-resolution-todo.md](./active/20260820-pr786-conflict-resolution-todo.md) | - |
-| slides undo add slide current (2026-08-20) | [20260820-slides-undo-add-slide-current-todo.md](./active/20260820-slides-undo-add-slide-current-todo.md) | [20260820-slides-undo-add-slide-current-lessons.md](./active/20260820-slides-undo-add-slide-current-lessons.md) |
-| docs inline style off clears key (2026-08-19) | [20260819-docs-inline-style-off-clears-key-todo.md](./active/20260819-docs-inline-style-off-clears-key-todo.md) | [20260819-docs-inline-style-off-clears-key-lessons.md](./active/20260819-docs-inline-style-off-clears-key-lessons.md) |
 | sheets decimal round trip (2026-08-18) | [20260818-sheets-decimal-round-trip-todo.md](./active/20260818-sheets-decimal-round-trip-todo.md) | [20260818-sheets-decimal-round-trip-lessons.md](./active/20260818-sheets-decimal-round-trip-lessons.md) |
 | cli dry run read commands (2026-08-16) | [20260816-cli-dry-run-read-commands-todo.md](./active/20260816-cli-dry-run-read-commands-todo.md) | [20260816-cli-dry-run-read-commands-lessons.md](./active/20260816-cli-dry-run-read-commands-lessons.md) |
 | docs unlist restores heading (2026-08-16) | [20260816-docs-unlist-restores-heading-todo.md](./active/20260816-docs-unlist-restores-heading-todo.md) | [20260816-docs-unlist-restores-heading-lessons.md](./active/20260816-docs-unlist-restores-heading-lessons.md) |
@@ -53,4 +46,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 530
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: image viewer back button (2026-08-22)
+Latest active task: pr786 conflict resolution (2026-08-20)

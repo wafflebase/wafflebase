@@ -351,6 +351,19 @@ const FETCH_TAG_RE =
 const IMAGE_METADATA_RE = /@\s*\{[\s\S]*?["']?img["']?\s*:/i;
 
 /**
+ * A sequence-diagram actor's `properties` block — `properties A: {"icon": … }`.
+ * Spelled in pure diagram syntax, so it carries no `<`, no `@{` and no `url(`
+ * and trips none of the other carriers, yet `drawImage()` appends an
+ * `<image xlink:href>` per actor occurrence into the layout host during the
+ * pass that runs in the reader's document. The renderer guards it with
+ * neither `htmlLabels` nor `securityLevel`, and mermaid's own `sanitizeUrl`
+ * passes `https:` through, so refusing the source is the only layer that
+ * reaches it. Bounded to one line, unlike `IMAGE_METADATA_RE`, because that
+ * is how the syntax is written — no `[\s\S]` span to over-match across.
+ */
+const ACTOR_ICON_RE = /^\s*properties\b.*?["']?icon["']?\s*:/im;
+
+/**
  * A CSS fetch spelled in the fence SOURCE — a `style`/`classDef` declaration
  * reaches a label's `style` attribute, and in the label paths that stay HTML
  * regardless of `htmlLabels` the browser resolves it during layout.
@@ -403,6 +416,9 @@ export function prepareFenceSource(source: string): Prepared {
   }
   if (IMAGE_METADATA_RE.test(stripped)) {
     return { error: 'Diagram error: image shapes are not allowed' };
+  }
+  if (ACTOR_ICON_RE.test(stripped)) {
+    return { error: 'Diagram error: actor icons are not allowed' };
   }
   if (hasCssFetch(stripped)) {
     return { error: 'Diagram error: CSS that loads a URL is not allowed' };
