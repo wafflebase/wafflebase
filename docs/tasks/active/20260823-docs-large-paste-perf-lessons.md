@@ -74,18 +74,6 @@ The same 200 blocks as N `editByPath` calls inside **one** `doc.update()`:
 Linear and cheap. The full relayout a paste triggers costs tens of ms, not
 seconds — do **not** spend effort on incremental layout for this task.
 
-## Conclusions
-
-1. The freeze is ~90 % the per-block CRDT insert loop, and ~2/3 of *that* is a
-   full-document deep clone repeated once per block. Batching is the fix;
-   a progress bar would have papered over a quadratic.
-2. `DocStore.snapshot()` is a no-op because Yorkie counts one `doc.update()`
-   as one undo unit — so a 1000-block paste is currently **1000 undo steps**
-   and **1000 CRDT changes on the wire**. Batching fixes all three at once.
-3. Measure before designing UI for slowness. The progress-bar idea was
-   reasonable, but the numbers moved the work from "report the wait" to
-   "delete the wait", leaving only ~0.6 s to report.
-
 ### ⑦ Post-fix scaling (paste of N blocks into an N-block doc)
 
 | N    | parse   | insert  | total   |
@@ -125,6 +113,23 @@ This does not make the existing export use of `yieldToPaint()` wrong: in a
 loop, a missed rendering opportunity just lands on the next iteration. It is
 only fatal before a *single* long block.
 
+## Conclusions
+
+1. The freeze is ~90 % the per-block CRDT insert loop, and ~2/3 of *that* is a
+   full-document deep clone repeated once per block. Batching is the fix;
+   a progress bar would have papered over a quadratic.
+2. `DocStore.snapshot()` is a no-op because Yorkie counts one `doc.update()`
+   as one undo unit — so a 1000-block paste was **1000 undo steps** and
+   **1000 CRDT changes on the wire**. Batching makes both *constant*
+   (measured: 4 undo units for any multi-block paste), not 1 — the
+   surrounding split / head-rewrite / tail-rewrite remain separate writes,
+   and collapsing them would need a `DocStore` transaction primitive that
+   does not exist.
+3. Measure before designing UI for slowness. The progress-bar idea was
+   reasonable, but the numbers moved the work from "report the wait" to
+   "delete the wait": a 1000-block paste went from 3.2 s to ~0.2 s, leaving
+   an indicator worth showing only past ~4000 blocks.
+
 ## Rules for next time
 
 - When a store method starts with a read that clones whole state, check
@@ -140,3 +145,15 @@ only fatal before a *single* long block.
 - Re-measure after the fix before designing the UI that depends on it. The
   Phase 2 threshold, its unit (characters, not blocks), and where the gate
   sits in the pipeline all changed once the write got 51× faster.
+- Say what you measured, not the tidy version of it. "One undo unit" was
+  true of `insertBlocksAfter` and got restated as a property of the whole
+  paste in three comments, where it was wrong (it is 4) — and the
+  indeterminate-indicator argument was then built on that wrong claim. The
+  real number was one test away the whole time; it is now pinned by
+  `paste-undo-units.test.ts`.
+- `requestAnimationFrame` is paused, not throttled, in a backgrounded tab.
+  Anything that awaits a frame before doing work needs a timeout fallback,
+  or backgrounding the tab stalls the work indefinitely.
+- When a test passes both with and without the fix, it is not a test of the
+  fix. Mutation-check anything subtle: reverting `yieldToPaintedFrame` to
+  `yieldToPaint` left every original test green.

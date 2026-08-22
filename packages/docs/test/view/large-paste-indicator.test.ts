@@ -209,4 +209,96 @@ describe('large paste busy indicator', () => {
 
     expect(store.getDocument().blocks.length).toBeGreaterThan(100);
   });
+
+  /**
+   * Pins `yieldToPaintedFrame` against a "simplification" back to
+   * `yieldToPaint`. Measured in Chromium, a bare `MessageChannel` macrotask
+   * renders zero frames before a long synchronous block, so that swap would
+   * ship an indicator nobody can see — and every other test here would stay
+   * green, because a macrotask resolves either way. jsdom cannot prove a
+   * paint, but it can prove rAF is in the chain: stub it out and the write
+   * must not happen.
+   */
+  test('the wait goes through requestAnimationFrame, not just a macrotask', async () => {
+    const realRaf = globalThis.requestAnimationFrame;
+    const pending: FrameRequestCallback[] = [];
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      pending.push(cb);
+      return pending.length;
+    }) as typeof globalThis.requestAnimationFrame;
+    try {
+      const { editor, textarea, store } = setupEditor();
+      editor.onLargePaste(() => () => {});
+
+      dispatchHtmlPaste(textarea, htmlOfSize(THRESHOLD));
+
+      // Drain every macrotask a MessageChannel-only wait would need.
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(pending.length).toBeGreaterThan(0);
+      expect(store.getDocument().blocks.length).toBe(1);
+
+      // Releasing the frame lets the paste through.
+      for (const cb of pending.splice(0)) cb(0);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(store.getDocument().blocks.length).toBeGreaterThan(100);
+    } finally {
+      globalThis.requestAnimationFrame = realRaf;
+    }
+  });
+
+  /**
+   * Browsers pause rAF in a backgrounded tab — and backgrounding is exactly
+   * what a user does when they expect a wait. Without the timeout fallback
+   * the paste would never apply, the indicator would never come down, and
+   * `pasting` would swallow input until the tab was refocused.
+   */
+  test('a frame that never arrives (hidden tab) still lets the paste through', async () => {
+    const realRaf = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = (() =>
+      0) as unknown as typeof globalThis.requestAnimationFrame;
+    try {
+      const { editor, textarea, store } = setupEditor();
+      let dismissed = 0;
+      editor.onLargePaste(() => () => {
+        dismissed++;
+      });
+
+      dispatchHtmlPaste(textarea, htmlOfSize(THRESHOLD));
+      await new Promise((r) => setTimeout(r, 250));
+
+      expect(store.getDocument().blocks.length).toBeGreaterThan(100);
+      expect(dismissed).toBe(1);
+    } finally {
+      globalThis.requestAnimationFrame = realRaf;
+    }
+  });
+
+  /**
+   * `handleKeyDown`'s `preventDefault()` does not suppress an IME: the
+   * browser dispatches keydown with keyCode 229 and composes anyway. An
+   * unguarded `compositionstart` runs `deleteSelection()` on the range the
+   * pending paste is about to replace.
+   */
+  test('an IME composition started during the yield is refused', async () => {
+    const { editor, textarea, store } = setupEditor();
+    editor.onLargePaste(() => () => {});
+
+    dispatchHtmlPaste(textarea, htmlOfSize(THRESHOLD));
+
+    textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    textarea.dispatchEvent(
+      new CompositionEvent('compositionend', { data: '한', bubbles: true }),
+    );
+
+    await flushPaintedFrame();
+
+    const text = store
+      .getDocument()
+      .blocks.map((b) => b.inlines.map((i) => i.text).join(''))
+      .join('\n');
+    expect(text).not.toContain('한');
+    expect(store.getDocument().blocks.length).toBeGreaterThan(100);
+  });
 });

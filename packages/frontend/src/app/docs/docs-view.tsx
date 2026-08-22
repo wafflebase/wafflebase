@@ -436,10 +436,11 @@ export function DocsView({
     });
 
     // Busy indicator for pastes big enough to block the tab (thousands of
-    // blocks). Deliberately indeterminate: the write is a single atomic
-    // transaction — one undo unit, one CRDT change — so there is no fraction
-    // to report without giving that up. The editor waits for a painted frame
-    // after this returns, which is what lets the toast appear at all.
+    // blocks). Deliberately indeterminate: the work is a short run of
+    // synchronous store writes with no interruption point, and splitting
+    // them to report a fraction would reintroduce the per-block cost this
+    // was fixed to remove. The editor waits for a painted frame after this
+    // returns, which is what lets the toast appear at all.
     editor.onLargePaste(() => {
       const id = toast.loading("Pasting a large document…");
       return () => toast.dismiss(id);

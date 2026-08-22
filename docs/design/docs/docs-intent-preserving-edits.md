@@ -280,11 +280,20 @@ to handle cell-internal blocks.
 
 ```typescript
 insertBlockAfter(siblingBlockId: string, block: Block): void;
+insertBlocksAfter(siblingBlockId: string, blocks: Block[]): void;
 ```
 
 - `resolveBlockTreePath(siblingBlockId)` resolves the sibling path
 - YorkieDocStore: `editByPath([...path+1], [...path+1], buildBlockNode(block))`
 - MemDocStore: `findBlockInAnyArray(siblingBlockId)` → `splice(index+1, 0, block)`
+
+`insertBlocksAfter` is the batched form, and the one every multi-block
+insertion (paste, import) must use. It resolves the sibling path **once** and
+writes all N nodes in a single `editBulkByPath` inside one `doc.update()`.
+Looping the single-block form instead is quadratic — each call deep-clones the
+whole document through `getDocument()` — and, because Yorkie counts one
+`doc.update()` as one undo unit, costs one undo step and one CRDT change per
+block. Same relationship as `applyStyles` to `applyStyle`.
 
 **Migrated call sites:**
 
