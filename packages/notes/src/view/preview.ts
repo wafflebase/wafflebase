@@ -17,6 +17,12 @@ import {
   type MermaidTheme,
 } from './mermaid.js';
 
+/** Class `markdown-it-task-lists` puts on a task `<li>`. */
+const TASK_ITEM_CLASS = 'task-list-item';
+/** Attribute carrying a task item's 0-based source line. */
+const TASK_LINE_ATTR = 'data-source-line';
+const TASK_CHECKBOX_SELECTOR = 'input.task-list-item-checkbox';
+
 const md: MarkdownIt = new MarkdownIt({
   html: false,
   linkify: true,
@@ -37,9 +43,29 @@ const md: MarkdownIt = new MarkdownIt({
   },
 });
 
-// Read-only task-list checkboxes (`- [ ] foo` / `- [x] foo`): the preview is
-// not editable, so checkboxes render disabled rather than interactive.
-md.use(taskLists, { label: true, enabled: false });
+// Task-list checkboxes (`- [ ] foo` / `- [x] foo`). Rendered enabled so a
+// preview wired with an `onToggleTask` callback can be ticked directly; a
+// preview without one re-disables them after each render (see `render`).
+//
+// No `<label>` wrapper around the item text: the whole item is already a click
+// target (`onTaskClick`), and a label would also forward its click to the
+// checkbox inside it — the same tick reported twice.
+md.use(taskLists, { enabled: true });
+
+// Tag every task item with the source line its `- [ ]` sits on, so a click in
+// the preview knows which line to flip. `list_item_open.map` is the item's
+// source range and its first entry is that line (0-based).
+md.core.ruler.push('note-task-source-line', (state) => {
+  for (const token of state.tokens) {
+    if (
+      token.type === 'list_item_open' &&
+      token.attrGet('class')?.includes(TASK_ITEM_CLASS) &&
+      token.map
+    ) {
+      token.attrSet(TASK_LINE_ATTR, String(token.map[0]));
+    }
+  }
+});
 
 // KaTeX math (`$inline$` and `$$block$$`).
 md.use(katexPlugin);
@@ -127,6 +153,27 @@ const COPY_BUTTON_SELECTOR = '.note-copy-btn';
 const COPY_RESET_DELAY_MS = 1500;
 
 /**
+ * Whether a live text selection covers any part of `item`.
+ *
+ * A plain click collapses the selection on mousedown, so a non-collapsed range
+ * still standing when the `click` arrives means the pointer was dragging over
+ * text — a read/copy gesture, not a tick.
+ */
+function selectionTouches(item: Element): boolean {
+  const selection = item.ownerDocument.defaultView?.getSelection?.();
+  if (!selection || selection.isCollapsed) return false;
+  for (let i = 0; i < selection.rangeCount; i++) {
+    const range = selection.getRangeAt(i);
+    if (range.collapsed) continue;
+    const container = range.commonAncestorContainer;
+    // Inside the item, or spanning it (the selection's common ancestor is then
+    // one of the item's own ancestors).
+    if (item.contains(container) || container.contains(item)) return true;
+  }
+  return false;
+}
+
+/**
  * A lightweight, framework-free markdown preview pane. Renders `markdown-it`
  * HTML into a container element on demand.
  *
@@ -147,15 +194,33 @@ export class NotePreview {
   /** Injectable in tests; production uses `mermaid.ts`'s lazy import. */
   private readonly mermaidLoader: MermaidLoader | undefined;
 
+  /**
+   * Writes a task item's new checked state back to the source. Absent (a
+   * read-only mount) makes the rendered checkboxes inert.
+   */
+  private readonly onToggleTask:
+    | ((line: number, checked: boolean) => void)
+    | undefined;
+
   constructor(
-    options: { theme?: 'light' | 'dark'; mermaidLoader?: MermaidLoader } = {},
+    options: {
+      theme?: 'light' | 'dark';
+      mermaidLoader?: MermaidLoader;
+      onToggleTask?: (line: number, checked: boolean) => void;
+    } = {},
   ) {
     this.mermaidTheme = options.theme === 'dark' ? 'dark' : 'default';
     this.mermaidLoader = options.mermaidLoader;
+    this.onToggleTask = options.onToggleTask;
 
     this.el = document.createElement('div');
     this.el.dataset.role = 'note-preview';
-    this.el.className = 'note-preview markdown-body';
+    // The interactive marker is what the stylesheet keys the task item's
+    // pointer cursor off — the class is on the root, so it says "this preview
+    // can be ticked" without a selector that has to inspect each checkbox.
+    this.el.className = `note-preview markdown-body${
+      this.onToggleTask ? ' note-tasks-interactive' : ''
+    }`;
 
     // One delegated listener survives `render()`'s innerHTML replacement, so
     // copy buttons work without per-render listener churn/leaks.
@@ -183,7 +248,83 @@ export class NotePreview {
           // button simply stays as "Copy" and the user can select manually.
         });
     });
+
+    // Click-to-toggle for task items, delegated for the same reason. The whole
+    // item is the target — the checkbox and the text beside it — so a task can
+    // be ticked without hitting the small box, which matters most on touch.
+    if (this.onToggleTask) this.el.addEventListener('click', this.onTaskClick);
   }
+
+  /**
+   * Toggle the task item a click landed in. Clicks on a link or button inside
+   * the item belong to that control, not to the checkbox.
+   *
+   * The DOM is not updated here: the callback rewrites the source line, and
+   * the resulting document change re-renders the preview from it. That keeps
+   * the checkbox showing what the note actually says, including when a peer
+   * ticks the same item concurrently.
+   */
+  private readonly onTaskClick = (e: MouseEvent): void => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    const item = target.closest(`.${TASK_ITEM_CLASS}`);
+    if (!item || !this.el.contains(item)) return;
+    // Controls that own their own click. `details` matters here because the
+    // preview renders foldouts, and one nested in a task item would otherwise
+    // be cancelled below — the disclosure would not open and the click would
+    // rewrite the source line instead. The whole disclosure is exempt, not
+    // just its `summary`: its body is content of its own, and a click there
+    // points at no task either.
+    //
+    // It has to be a control INSIDE the item, though. A task list nested in a
+    // foldout body puts the `details` *above* the item, where `closest()`
+    // finds it just the same — bailing there would make every task inside a
+    // foldout dead, and (since this is before the cancel below) leave its box
+    // flipped against a source that never changed.
+    const control = target.closest('a, button, details');
+    if (control && item.contains(control)) return;
+    const checkbox = item.querySelector(TASK_CHECKBOX_SELECTOR);
+    if (!(checkbox instanceof HTMLInputElement)) return;
+    const onCheckbox = checkbox.contains(target);
+
+    // The browser has already flipped a real checkbox by the time this runs,
+    // and only cancelling reverts it. Cancel before the guards below: any of
+    // them bailing would otherwise leave the preview showing a state the note
+    // does not have, with no re-render to correct it (the preview repaints on
+    // `docChanged`, and a bail-out changes no document).
+    if (onCheckbox) e.preventDefault();
+
+    // A repeated click is a selection gesture — double-click selects a word,
+    // triple-click the line — and browsers still deliver a `click` for each.
+    // Selecting a task's text must not rewrite it. A click landing on the
+    // checkbox itself is never such a gesture, though, and dropping it would
+    // swallow a quick tick-then-untick.
+    if (!onCheckbox && e.detail > 1) return;
+    // A nested list item under a task owns its own text; `closest()` would
+    // otherwise resolve a click on a plain child bullet to the ancestor task
+    // and tick a line the user never pointed at.
+    const clickedItem = target.closest('li');
+    if (clickedItem && clickedItem !== item) return;
+    // The `click` that ends a drag-select lands here too, so a user merely
+    // selecting a task's text (to read or copy it) would silently rewrite the
+    // source line and sync that edit to peers.
+    if (!onCheckbox && selectionTouches(item)) return;
+
+    // A missing (or blank) attribute must not be read as line 0: `Number(null)`
+    // and `Number('')` are both 0, which passes the integer guard and would
+    // flip whatever task sits on the note's first line instead.
+    const raw = item.getAttribute(TASK_LINE_ATTR);
+    const line = raw !== null && raw.trim() !== '' ? Number(raw) : Number.NaN;
+    if (!Number.isInteger(line) || line < 0) return;
+
+    // A click on the checkbox itself has already flipped `checked` (the
+    // cancellation above only takes effect once dispatch finishes); anywhere
+    // else in the item leaves it as rendered, so read the intent from the
+    // element the click landed on.
+    const checked = onCheckbox ? checkbox.checked : !checkbox.checked;
+    e.preventDefault();
+    this.onToggleTask?.(line, checked);
+  };
 
   /**
    * Switches the mermaid palette. Diagrams already on screen keep their old
@@ -196,6 +337,13 @@ export class NotePreview {
 
   render(markdown: string): void {
     this.el.innerHTML = md.render(markdown);
+    // Without a way to write the change back (a read-only mount), the
+    // checkboxes are display only — disabled rather than clickable-looking.
+    if (!this.onToggleTask) {
+      for (const box of this.el.querySelectorAll(TASK_CHECKBOX_SELECTOR)) {
+        box.setAttribute('disabled', '');
+      }
+    }
     // Mermaid diagrams render asynchronously (the engine is lazily imported);
     // cached ones land inside this call, the rest arrive shortly after.
     //

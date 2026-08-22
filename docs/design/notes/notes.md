@@ -651,6 +651,36 @@ it", and the difference is load-bearing:
   proportion for a reading aid; if authorship ever needs to be relied on, that
   is the work, not a tightening of this path.
 
+#### List controls and interactive checkboxes — shipped (issue #754)
+
+Three pieces, all line-level rewrites of the markdown source — there is no
+block model to keep in step, and every path lands as an ordinary CodeMirror
+transaction, so sync, undo, and presence apply unchanged:
+
+- `packages/notes/src/view/checkbox-input.ts` — an `inputHandler` that inserts
+  the missing `- ` when the user types the space after a line-leading `[ ]` /
+  `[x]`. Normalizing the *source* (rather than teaching the preview to render
+  bare boxes) keeps the note canonical GFM, so it stays a checklist wherever
+  else it is read.
+- `packages/notes/src/view/list-commands.ts` — the toolbar's bullet / numbered
+  / checkbox toggles, indent, outdent, and the `computeListState()` reader that
+  drives their pressed and disabled states. Every command applies to all lines
+  the selection covers, blank lines excepted, and rewrites only each line's
+  marker prefix so the caret keeps its place in the text. One indent step is
+  the width of the item above's content column, not a fixed two spaces —
+  `1. ` needs three columns before a child nests under it — and indenting is
+  refused when there is no item above at the same level to nest under (the
+  first item of a list has no parent to join).
+- `preview.ts` — task checkboxes render enabled and each task `<li>` carries
+  its source line (`data-source-line`, from the markdown-it token map); a
+  delegated click anywhere on the item flips that line. The preview never
+  updates its own DOM: the source change re-renders it, so the box always
+  shows what the note says even when a peer ticks it concurrently. A read-only
+  mount passes no callback and its checkboxes are re-disabled after each
+  render. The `<label>` wrapper `markdown-it-task-lists` can add is
+  deliberately off — it would forward its click to the checkbox inside it and
+  report the same tick twice.
+
 ### P3 — CodePair → Wafflebase migration
 
 Because note content lives **only in Yorkie** and the schema is identical:

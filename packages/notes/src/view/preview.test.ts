@@ -45,7 +45,7 @@ describe('NotePreview', () => {
     expect(pre?.contains(button)).toBe(false);
   });
 
-  it('renders a disabled checkbox for task-list items', () => {
+  it('renders a disabled checkbox for task-list items without a toggle', () => {
     const preview = new NotePreview();
     preview.render('- [x] done\n- [ ] todo');
 
@@ -58,6 +58,248 @@ describe('NotePreview', () => {
     }
     expect(checkboxes[0].hasAttribute('checked')).toBe(true);
     expect(checkboxes[1].hasAttribute('checked')).toBe(false);
+  });
+
+  it('renders enabled checkboxes when a toggle callback is supplied', () => {
+    const preview = new NotePreview({ onToggleTask: () => {} });
+    preview.render('- [ ] todo');
+
+    const checkbox = preview.el.querySelector('input.task-list-item-checkbox');
+    expect(checkbox?.hasAttribute('disabled')).toBe(false);
+    // The root marker is the CSS hook for the task item's pointer cursor.
+    expect(preview.el.classList.contains('note-tasks-interactive')).toBe(true);
+  });
+
+  it('toggles from a click on the checkbox and on the text beside it', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('# notes\n\n- [ ] todo\n- [x] done');
+
+    const items = preview.el.querySelectorAll('li.task-list-item');
+    expect(items.length).toBe(2);
+
+    // The checkbox itself: clicking an unticked box flips its DOM state before
+    // the click event, so the reported state is the one it now shows.
+    items[0]
+      .querySelector('input')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    // The adjacent text: `- [x] done` is ticked, so the click means "untick".
+    // It is the fourth line of the source, i.e. index 3.
+    items[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(toggles).toEqual([
+      [2, true],
+      [3, false],
+    ]);
+  });
+
+  it('leaves a link inside a task item to the link', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('- [ ] see [docs](https://example.com)');
+
+    preview.el
+      .querySelector('a')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(toggles).toEqual([]);
+  });
+
+  it('does not claim a task click without a callback', () => {
+    const preview = new NotePreview();
+    preview.render('- [ ] todo');
+    // No listener is attached at all, so the click passes straight through:
+    // the toggling path cancels the event (see the checkbox test below) and
+    // the root carries none of the interactive markers.
+    expect(preview.el.classList.contains('note-tasks-interactive')).toBe(false);
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    preview.el.querySelector('input')!.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('cancels the click it turns into a toggle', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('- [ ] todo');
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    preview.el.querySelector('input')!.dispatchEvent(event);
+    // The DOM checkbox is never the source of truth — the re-render from the
+    // rewritten source is — so the browser's own tick is cancelled.
+    expect(event.defaultPrevented).toBe(true);
+    expect(toggles).toEqual([[0, true]]);
+  });
+
+  it('treats a double-click as selecting text, not ticking', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('- [ ] todo');
+
+    // Word-select delivers a second `click` with `detail: 2`; rewriting the
+    // line there would edit the note (and sync it) on a read gesture.
+    preview.el
+      .querySelector('li.task-list-item')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }));
+    expect(toggles).toEqual([]);
+  });
+
+  it('still ticks a rapid second click on the checkbox itself', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('- [ ] todo');
+
+    // Ticking and immediately unticking is two clicks inside the double-click
+    // interval, so the second carries `detail: 2` — but a click landing on the
+    // checkbox is never a text-selection gesture, and dropping it would
+    // swallow the untick.
+    const box = preview.el.querySelector('input')!;
+    box.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    box.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 }));
+    expect(toggles.length).toBe(2);
+  });
+
+  it('cancels a checkbox click it refuses, so the box matches the source', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('- [ ] todo');
+
+    // Drop the source line, which is a refusal path — but the browser has
+    // already ticked the box, and no document changed, so nothing re-renders
+    // to put it back. Cancelling is the only thing that keeps the preview
+    // honest about what the note says.
+    const item = preview.el.querySelector('li.task-list-item')!;
+    item.removeAttribute('data-source-line');
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    item.querySelector('input')!.dispatchEvent(event);
+    expect(toggles).toEqual([]);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('lets a foldout summary inside a task item open instead of ticking', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render(
+      '- [ ] todo\n\n  <details>\n  <summary>More</summary>\n\n  body\n\n  </details>',
+    );
+
+    const summary = preview.el.querySelector('summary.note-summary')!;
+    expect(summary.closest('li.task-list-item')).not.toBeNull();
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    summary.dispatchEvent(event);
+    // The disclosure owns this click: cancelling it would stop the <details>
+    // opening, and toggling would edit a line nobody pointed at.
+    expect(event.defaultPrevented).toBe(false);
+    expect(toggles).toEqual([]);
+
+    // Its body is content of its own, so a click there points at no task
+    // either — exempting only the summary would still tick the line.
+    const body = Array.from(
+      preview.el.querySelectorAll('details.note-details p'),
+    ).find((el) => el.textContent?.includes('body'))!;
+    const bodyEvent = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+    });
+    body.dispatchEvent(bodyEvent);
+    expect(bodyEvent.defaultPrevented).toBe(false);
+    expect(toggles).toEqual([]);
+  });
+
+  it('still ticks a task nested inside a foldout body', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    // The foldout is the task's ANCESTOR here, the mirror of the case above.
+    // Exempting it would make every task inside a foldout dead — and leave its
+    // box flipped against a source that never changed.
+    preview.render(
+      '<details>\n<summary>More</summary>\n\n- [ ] inner task\n\n</details>',
+    );
+
+    const box = preview.el.querySelector('li.task-list-item input')!;
+    expect(box.closest('details')).not.toBeNull();
+    box.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(toggles.length).toBe(1);
+  });
+
+  it('does not toggle when the click ends a text-selection drag', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    document.body.appendChild(preview.el);
+    preview.render('- [ ] todo');
+
+    const item = preview.el.querySelector('li.task-list-item')!;
+    const range = document.createRange();
+    range.selectNodeContents(item);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    item.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(toggles).toEqual([]);
+
+    // With the selection released the same click ticks the item, so the guard
+    // above is the selection and not the item being unreachable.
+    selection.removeAllRanges();
+    item.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(toggles).toEqual([[0, true]]);
+
+    preview.el.remove();
+  });
+
+  it('leaves a plain nested item under a task to that item', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('- [ ] parent\n  - plain child');
+
+    const child = preview.el.querySelector('li.task-list-item li')!;
+    expect(child.textContent).toContain('plain child');
+    // `closest('.task-list-item')` resolves to the ancestor task, which would
+    // tick the parent line from a click on an unrelated bullet.
+    child.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(toggles).toEqual([]);
+  });
+
+  it('ignores a task item that carries no source line', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('- [x] first\n- [ ] second');
+
+    // `Number(null)` is 0, so an item without the attribute used to report a
+    // toggle of line 0 — flipping the note's first task instead of nothing.
+    const item = preview.el.querySelectorAll('li.task-list-item')[1]!;
+    item.removeAttribute('data-source-line');
+    item.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(toggles).toEqual([]);
+
+    // Blank is the same non-answer as absent.
+    item.setAttribute('data-source-line', '   ');
+    item.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(toggles).toEqual([]);
   });
 
   it('renders KaTeX markup for inline math', () => {
