@@ -1933,9 +1933,11 @@ export class YorkieDocStore implements DocStore {
     // Guarded by 'applyStyle clearing a key → undo → key restored' in
     // tests/app/docs/yorkie-doc-store.test.ts.
     //
-    // Three normalizations, in order and all required. `normalizeStyleClears`
-    // routes a colour picker's "None" (`''`) into that same removal path
-    // instead of writing an empty attribute (#793). `resolveScriptExclusion`
+    // Two normalizations, both required and independent — their key sets are
+    // disjoint (colours vs the two script flags), so the order is not
+    // load-bearing. `normalizeStyleClears` routes a colour picker's "None"
+    // (`''`) into that same removal path instead of writing an empty
+    // attribute (#793). `resolveScriptExclusion`
     // then applies the same resolution `applyInlineStyleHelper` applies to the
     // local cache: without it, `{ superscript: true }` left `subscript`
     // standing on the Tree node while the cache had dropped it, so the two
