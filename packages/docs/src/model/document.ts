@@ -379,6 +379,13 @@ export class Doc {
   mergeBlocks(blockId: string, nextBlockId: string): void {
     this.store.mergeBlock(blockId, nextBlockId);
     this.refresh();
+    // Backspace at the start of a Heading 6 lands its runs in the previous
+    // block, and an `italic: false` that was a live override there — because
+    // Heading 6 supplies italic — is a dead flag in a paragraph. Same hazard
+    // as a block-type change, same sweep. Without it the invariant this
+    // branch asserts ("a stored `false` is only ever a live override") is
+    // broken by the hottest editing path there is.
+    if (this.dropStaleStyleOff(blockId)) this.refresh();
   }
 
   /**

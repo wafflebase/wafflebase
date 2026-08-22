@@ -387,6 +387,59 @@ describe('Doc', () => {
   // A block-type change is not the only way the layer under a run stops
   // supplying the key its `false` was written against — redefining or
   // resetting the named style does it without touching the run at all.
+  /**
+   * Backspace at the start of a Heading 6 merges its runs into the previous
+   * block. An `italic: false` those runs legitimately carry — Heading 6
+   * supplies italic, so only an explicit `false` turns it off — is a dead
+   * flag once it lands in a paragraph, and a dead flag is what #749 exists
+   * to remove: it blocks run re-merging, and if the user later redefines
+   * Normal to italic the sweep would then read it as a *live* override and
+   * silently refuse the redefinition on that run.
+   */
+  describe('mergeBlocks', () => {
+    function headingSixWithItalicOff() {
+      const store = new MemDocStore();
+      store.setDocument({ blocks: [createEmptyBlock(), createEmptyBlock()] });
+      const doc = new Doc(store);
+      const [first, second] = doc.document.blocks.map((b) => b.id);
+      doc.insertText({ blockId: first, offset: 0 }, 'para');
+      doc.insertText({ blockId: second, offset: 0 }, 'head');
+      doc.setBlockType(second, 'heading', { headingLevel: 6 });
+      doc.applyInlineStyle(
+        { anchor: { blockId: second, offset: 0 }, focus: { blockId: second, offset: 4 } },
+        { italic: false },
+      );
+      return { doc, first, second };
+    }
+
+    it('drops a style-off flag the merge strands in a paragraph', () => {
+      const { doc, first, second } = headingSixWithItalicOff();
+
+      doc.mergeBlocks(first, second);
+
+      // One run, no dead flag: the merged block is a paragraph, which
+      // supplies no italic for the `false` to override.
+      expect(doc.document.blocks[0].inlines).toEqual([
+        { text: 'parahead', style: {} },
+      ]);
+    });
+
+    it('keeps the flag when the merged block still supplies the style', () => {
+      const { doc, first, second } = headingSixWithItalicOff();
+      // Now the destination is a Heading 6 too, so the override is live and
+      // must survive — the sweep is not "strip every false".
+      doc.setBlockType(first, 'heading', { headingLevel: 6 });
+
+      doc.mergeBlocks(first, second);
+
+      const italicOff = doc.document.blocks[0].inlines.filter(
+        (i) => i.style.italic === false,
+      );
+      expect(italicOff).toHaveLength(1);
+      expect(italicOff[0].text).toBe('head');
+    });
+  });
+
   describe('dropStaleStyleOffAll', () => {
     it('drops a style-off override a style redefinition stranded', () => {
       const store = new MemDocStore();
