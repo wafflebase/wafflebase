@@ -852,6 +852,19 @@ class SlidesEditorImpl implements SlidesEditor {
     | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
   /**
+   * Discards the active edit's pending store write.
+   *
+   * `enterEditMode` keeps its `cancelled` flag in a closure and `onCancel`
+   * is the only thing that sets it — but `detach()` flushes a final
+   * `onCommit` for a still-focused box, so tearing an edit down without
+   * going through Escape writes anyway. That write is not merely an
+   * unwanted value: `store.batch()` pushes an undo entry and clears the
+   * redo stack *before* it runs, so a "discard" would silently cost the
+   * user their redo. Exposing the setter is what lets
+   * `exitEditMode('cancel')` mean what it says.
+   */
+  private editingCancel: (() => void) | null = null;
+  /**
    * Latest content height (logical px) reported by the active text-box
    * editor via onContentHeightChange. Null when not editing or when the
    * editor has not reported yet. Read at commit to fit the frame height.
@@ -1530,23 +1543,28 @@ class SlidesEditorImpl implements SlidesEditor {
       this.currentIndex = idx;
       return doc.slides[idx];
     }
-    if (doc.slides.length === 0) return undefined;
-    const nextIdx = Math.min(
-      Math.max(this.currentIndex - 1, 0),
-      doc.slides.length - 1,
-    );
-    const next = doc.slides[nextIdx];
+    // An empty deck gets the same teardown as any other heal. The store
+    // permits one — `removeSlides` is a bare filter, and only the thumbnail
+    // panel gates the last slide locally — so a peer can empty the deck
+    // while this client is mid-edit. Returning early would leave a live
+    // text-box editor and a crop session anchored to a slide that is gone.
+    const empty = doc.slides.length === 0;
+    const nextIdx = empty
+      ? -1
+      : Math.min(Math.max(this.currentIndex - 1, 0), doc.slides.length - 1);
+    const next = empty ? undefined : doc.slides[nextIdx];
     // Move the cursor BEFORE tearing down the interaction state below:
     // `exitEditMode` / `exitImageCrop` / `selection.clear()` all route
     // back into `repaintOverlay()`, which resolves again — with the id
     // already healed that nested resolve is a plain hit instead of a
     // second heal.
-    this.currentId = next.id;
-    this.currentIndex = nextIdx;
+    this.currentId = next?.id;
+    this.currentIndex = empty ? 0 : nextIdx;
     this.renderer.markDirty();
     // Anything anchored to the removed slide has nowhere left to commit,
     // so it is discarded rather than committed (the opposite of
     // `setCurrentSlide`, which leaves a still-existing slide behind).
+    // `exitEditMode('cancel')` really discards: see `editingCancel`.
     if (this.cropSession !== null) this.exitImageCrop(false);
     if (this.editingElementId !== null) this.exitEditMode('cancel');
     this.setCellSelection(null);
@@ -4168,6 +4186,12 @@ class SlidesEditorImpl implements SlidesEditor {
       },
     });
     this.editingTextBox = tb;
+    // See the field's comment: `detach()` flushes a final commit for a
+    // focused box, so a teardown that is not an Escape needs a way to say
+    // "discard" first.
+    this.editingCancel = () => {
+      cancelled = true;
+    };
     this.activeTextEditor = tb;
     for (const cb of this.textEditingListeners) cb();
     // Repaint the slide canvas so the element being edited disappears
@@ -4336,6 +4360,10 @@ class SlidesEditorImpl implements SlidesEditor {
     // detach without committing. finishEditMode is idempotent in
     // either case.
     if (reason === 'cancel') {
+      // Before detaching, not after: `detach()` synchronously flushes
+      // `onCommit` for a still-focused box, and that write would push an
+      // undo entry and clear the redo stack on the way out.
+      this.editingCancel?.();
       this.finishEditMode();
     }
   }
@@ -4576,6 +4604,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private finishEditMode(): void {
     const tb = this.editingTextBox;
     this.editingTextBox = null;
+    this.editingCancel = null;
     this.editingElementId = null;
     this.editingCellCoords = null;
     this.lastEditingContentHeight = null;

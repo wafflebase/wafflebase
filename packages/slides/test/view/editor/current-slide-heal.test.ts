@@ -57,6 +57,36 @@ function mockMountTextBox(opts: MountSlidesTextBoxOptions): SlidesTextBoxEditor 
   };
 }
 
+/**
+ * Same stub, but reproducing the one behaviour of the real editor that
+ * makes the heal's "discard" claim testable: `detach()` flushes a final
+ * `onCommit` when the box still has focus
+ * (`packages/docs/src/view/text-box-editor.ts` — `if (focused &&
+ * !committedOnce)`). The plain stub above detaches silently, so a teardown
+ * that writes to the store looks identical to one that does not.
+ */
+function mockMountTextBoxFlushing(
+  opts: MountSlidesTextBoxOptions,
+): SlidesTextBoxEditor {
+  const tb = mockMountTextBox(opts);
+  let committedOnce = false;
+  return {
+    ...tb,
+    commit: () => {
+      if (committedOnce) return;
+      committedOnce = true;
+      opts.onCommit(opts.blocks);
+    },
+    detach: () => {
+      if (!committedOnce) {
+        committedOnce = true;
+        opts.onCommit(opts.blocks);
+      }
+      tb.detach();
+    },
+  };
+}
+
 /** Minimal blank paragraph for a text element. */
 function emptyBlock(): Block {
   return {
@@ -67,7 +97,10 @@ function emptyBlock(): Block {
   } as Block;
 }
 
-function setup(slideCount: number) {
+function setup(
+  slideCount: number,
+  mountTextBox: typeof mockMountTextBox = mockMountTextBox,
+) {
   const canvas = document.createElement('canvas');
   canvas.width = 1920;
   canvas.height = 1080;
@@ -87,7 +120,7 @@ function setup(slideCount: number) {
     hostWidth: 1920,
     hostHeight: 1080,
     dpr: 1,
-    mountTextBox: mockMountTextBox,
+    mountTextBox,
   });
   return { store, editor, slideIds };
 }
@@ -213,15 +246,93 @@ describe('current slide healing', () => {
   });
 
   it('settles after one heal and stays on the healed slide', () => {
-    const { store, editor: ed, slideIds } = setup(2);
+    // Three slides, not two: with two, `Math.min(Math.max(i - 1, 0), 0)`
+    // pins the answer to the first slide however many times the heal runs,
+    // so the claim this test makes cannot fail. Removing the last of three
+    // heals to index 1, and a heal that re-ran every frame would walk on to
+    // index 0 — which is what the loop below actually rules out.
+    const { store, editor: ed, slideIds } = setup(3);
+    editor = ed;
+    ed.setCurrentSlide(slideIds[2]);
+    frame(ed);
+    store.batch(() => store.removeSlides([slideIds[2]]));
+
+    for (let i = 0; i < 3; i++) frame(ed);
+    expect(ed.getCurrentSlideId()).toBe(slideIds[1]);
+  });
+
+  /**
+   * The heal tears an anchored text edit down with `exitEditMode('cancel')`
+   * and its comment says the edit "is discarded rather than committed". It
+   * was not: `detach()` flushes a final `onCommit` for a still-focused box,
+   * and that write goes through `store.batch()`, which pushes an undo entry
+   * before running — so the teardown left a phantom step on the undo stack
+   * from inside `render()`, and the user's next Ctrl+Z spent itself on it
+   * instead of bringing the slide back.
+   *
+   * Asserted through undo rather than through the redo stack: the removal
+   * that triggers the heal already clears redo on its own, so redo cannot
+   * tell the two behaviours apart.
+   */
+  it('discards the anchored edit without leaving a phantom undo step', () => {
+    const { store, editor: ed, slideIds } = setup(2, mockMountTextBoxFlushing);
     editor = ed;
     ed.setCurrentSlide(slideIds[1]);
+    let textId = '';
+    store.batch(() => {
+      textId = store.addElement(slideIds[1], {
+        type: 'text',
+        frame: { x: 100, y: 100, w: 400, h: 120, rotation: 0 },
+        data: { blocks: [emptyBlock()] },
+      });
+    });
+    ed.enterTextEditing(textId);
     frame(ed);
-    store.batch(() => store.removeSlides([slideIds[1]]));
+    expect(ed.isTextEditing()).toBe(true);
 
-    // Repeated frames must not keep walking the cursor backwards.
-    for (let i = 0; i < 3; i++) frame(ed);
+    // A peer removes the slide the edit is anchored to.
+    store.batch(() => store.removeSlides([slideIds[1]]));
+    frame(ed);
     expect(ed.getCurrentSlideId()).toBe(slideIds[0]);
+    expect(ed.isTextEditing()).toBe(false);
+
+    // The removal is the last thing that happened, so one undo must undo it.
+    store.undo();
+    expect(store.read().slides.map((s) => s.id)).toEqual(slideIds);
+  });
+
+  /**
+   * `removeSlides` is a bare filter with no non-empty guard — only the
+   * thumbnail panel stops you deleting the last slide, and that gate is
+   * local — so a peer can empty the deck. The heal used to return early on
+   * an empty deck, above the teardown, leaving a live text-box editor
+   * anchored to a slide that no longer existed.
+   */
+  it('tears the anchored edit down even when the deck is emptied', () => {
+    const { store, editor: ed, slideIds } = setup(1, mockMountTextBoxFlushing);
+    editor = ed;
+    ed.setCurrentSlide(slideIds[0]);
+    let textId = '';
+    store.batch(() => {
+      textId = store.addElement(slideIds[0], {
+        type: 'text',
+        frame: { x: 100, y: 100, w: 400, h: 120, rotation: 0 },
+        data: { blocks: [emptyBlock()] },
+      });
+    });
+    ed.enterTextEditing(textId);
+    frame(ed);
+    expect(ed.isTextEditing()).toBe(true);
+
+    store.batch(() => store.removeSlides([slideIds[0]]));
+    frame(ed);
+
+    expect(store.read().slides).toHaveLength(0);
+    expect(ed.getCurrentSlideId()).toBeUndefined();
+    expect(ed.isTextEditing()).toBe(false);
+    // And no phantom step: one undo brings the deck back.
+    store.undo();
+    expect(store.read().slides).toHaveLength(1);
   });
 
   it('cancels a text edit anchored to the removed slide', () => {
