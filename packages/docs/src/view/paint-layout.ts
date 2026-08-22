@@ -382,6 +382,13 @@ export function renderRun(
     : style.fontSize;
 
   // Link defaults: blue text + underline (user-set values take precedence).
+  //
+  // On an `href` run the *absence* of `underline` therefore means "underlined"
+  // and only an explicit `underline: false` turns it off — this run style is
+  // the second implicit default layer (the first being named styles), so
+  // `Doc.styleOffAsClear` keeps that `false` instead of clearing the key.
+  // Clearing it here would make underline-off on a link a permanent no-op.
+  //
   // `resolveStoredColor` (not a bare `resolveColor`) because a cleared color
   // can reach here as an empty string — see issue #728 and the helper's
   // comment for why the normalization has to straddle the resolver.

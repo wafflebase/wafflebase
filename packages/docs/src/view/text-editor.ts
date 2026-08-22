@@ -906,7 +906,7 @@ export class TextEditor {
         // Cmd/Ctrl+Shift+C: copy formatting (format painter)
         if (mod && shiftKey) {
           e.preventDefault();
-          this.styleBuffer = { ...this.getStyleAtCursor() };
+          this.styleBuffer = this.captureFormatAtCursor();
         }
         break;
       case 'b':
@@ -1248,6 +1248,12 @@ export class TextEditor {
         this.saveSnapshot();
         this.deleteSelection();
         this.pasteTableCells(data.tableCells);
+        // Same cleanup as the block branch below. `cloneTableCells` carries
+        // each block's `type`/`headingLevel`, so a same-document paste keeps
+        // its overrides live and this is a no-op — but a paste from a
+        // document whose Heading 6 is not italic strands the flag exactly as
+        // a block-type change would.
+        this.doc.dropStaleStyleOffAll();
         this.selection.setRange(null);
         this.requestRender();
         return;
@@ -1256,6 +1262,12 @@ export class TextEditor {
         this.saveSnapshot();
         this.deleteSelection();
         this.insertBlocks(data.blocks);
+        // The internal clipboard is the one paste payload that preserves an
+        // explicit `italic: false` (the HTML/markdown parsers only ever write
+        // `true`), so a run copied out of a Heading 6 can land in a block
+        // whose named style does not supply italic — a dead flag (#749). Same
+        // cleanup a block-type change runs; a no-op when nothing is stale.
+        this.doc.dropStaleStyleOffAll();
         this.selection.setRange(null);
         this.requestRender();
         return;
@@ -2989,6 +3001,37 @@ export class TextEditor {
    */
   private getStyleAtCursor(): Partial<InlineStyle> {
     return caretInlineStyle(this.doc, this.cursor.position);
+  }
+
+  /**
+   * The format the painter (Cmd/Ctrl+Shift+C) copies.
+   *
+   * Applied as a *merge patch* over the target runs, so an absent key means
+   * "leave the target's value alone" — a buffer holding only the flags the
+   * source happens to have can add bold but can never take it away. Every
+   * boolean is therefore made explicit: `true` where the source shows the
+   * flag, `false` where it does not, which is exactly the "turn it off"
+   * patch `Doc.applyInlineStyle` already knows how to write.
+   *
+   * The value read is the *effective* one — the run's own flag, else the
+   * block's named-style default — so painting from an italic Heading 6 makes
+   * the target italic instead of clearing it. Only the booleans are baked
+   * this way; the other keys stay raw, keeping the lazy cascade intact.
+   */
+  private captureFormatAtCursor(): Partial<InlineStyle> {
+    const raw = this.getStyleAtCursor();
+    const defaults = this.styleDefaultsAtCursor();
+    const on = (key: keyof InlineStyle): boolean =>
+      ((raw[key] ?? defaults[key]) as boolean | undefined) === true;
+    return {
+      ...raw,
+      bold: on('bold'),
+      italic: on('italic'),
+      underline: on('underline'),
+      strikethrough: on('strikethrough'),
+      superscript: on('superscript'),
+      subscript: on('subscript'),
+    };
   }
 
   /**

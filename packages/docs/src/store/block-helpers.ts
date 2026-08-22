@@ -1,6 +1,11 @@
 // packages/docs/src/store/block-helpers.ts
 import type { Block, Inline, InlineStyle, BlockType } from '../model/types.js';
-import { inlineStylesEqual, generateBlockId, normalizeStyleClears } from '../model/types.js';
+import {
+  inlineStylesEqual,
+  generateBlockId,
+  isStructuralInline,
+  normalizeStyleClears,
+} from '../model/types.js';
 
 export interface InlinePosition {
   inlineIndex: number;
@@ -72,13 +77,26 @@ export function resolveDeleteRange(
 /**
  * Merge adjacent inlines with identical styles and remove empty inlines.
  * Always returns at least one inline.
+ *
+ * Structural inlines (images, page numbers) never merge, however equal they
+ * compare: one such inline describes exactly one object, so concatenating two
+ * of them silently drops the second while the offsets keep counting both.
+ * Two *identical* images pasted side by side are exactly that case, and
+ * `inlineStylesEqual` compares images by value — so equality is not the test
+ * here. Same rule as `isStructuralInline`'s contract and the paste path's
+ * `TextEditor.normalizeInlineList`.
  */
 export function normalizeInlines(inlines: Inline[]): Inline[] {
   const merged: Inline[] = [];
   for (const inline of inlines) {
     if (inline.text.length === 0) continue;
     const last = merged[merged.length - 1];
-    if (last && inlineStylesEqual(last.style, inline.style)) {
+    if (
+      last &&
+      !isStructuralInline(last) &&
+      !isStructuralInline(inline) &&
+      inlineStylesEqual(last.style, inline.style)
+    ) {
       last.text += inline.text;
     } else {
       merged.push({ text: inline.text, style: { ...inline.style } });
@@ -360,6 +378,48 @@ export function applyInsertInline(block: Block, offset: number, inline: Inline):
 }
 
 /**
+ * Merge a style patch over a run's style, treating a key set to `undefined`
+ * as "remove it" rather than "store it as undefined".
+ *
+ * A plain spread would leave the key present with an `undefined` value, which
+ * reads the same everywhere but keeps a phantom entry in the stored run (and
+ * in anything that enumerates it). Clearing is how `CLEAR_INLINE_STYLE` and
+ * the boolean toggle-off path express themselves, so it is the one merge both
+ * go through.
+ */
+function mergeInlineStyle(
+  base: InlineStyle,
+  patch: Partial<InlineStyle>,
+): InlineStyle {
+  const merged: InlineStyle = { ...base, ...patch };
+  for (const key of Object.keys(patch) as (keyof InlineStyle)[]) {
+    if (patch[key] === undefined) delete merged[key];
+  }
+  return merged;
+}
+
+/**
+ * Enforce the one rule a style patch cannot express on its own: superscript
+ * and subscript are mutually exclusive, so turning one on clears the other.
+ *
+ * Exported because a store may have to write the same patch twice — the
+ * Yorkie store applies it to its local `Block` cache *and* to the Tree CRDT.
+ * Both writes must resolve the exclusion identically, or the CRDT keeps both
+ * flags while the cache shows one.
+ */
+export function resolveScriptExclusion(
+  style: Partial<InlineStyle>,
+): Partial<InlineStyle> {
+  const resolved: Partial<InlineStyle> = { ...style };
+  if (resolved.superscript) {
+    resolved.subscript = undefined;
+  } else if (resolved.subscript) {
+    resolved.superscript = undefined;
+  }
+  return resolved;
+}
+
+/**
  * Apply inline style to a range within a block. Returns new Block.
  * Splits inlines as needed and normalizes the result.
  */
@@ -369,15 +429,12 @@ export function applyInlineStyle(
   to: number,
   style: Partial<InlineStyle>,
 ): Block {
-  // `''` from a color picker's "None" / "Reset" means clear, not "store an
-  // empty color" — normalize before merging so the key is dropped instead.
-  const resolvedStyle: Partial<InlineStyle> = { ...normalizeStyleClears(style) };
-  // Enforce mutual exclusion: superscript and subscript cannot coexist
-  if (resolvedStyle.superscript) {
-    resolvedStyle.subscript = undefined;
-  } else if (resolvedStyle.subscript) {
-    resolvedStyle.superscript = undefined;
-  }
+  // Two normalizations, both required and independent. `normalizeStyleClears`
+  // turns a colour picker's `''` into the key-present-undefined shape that
+  // means "clear" (#793); `resolveScriptExclusion` drops the opposite script
+  // flag. The latter is this file's extraction of the exclusion that used to
+  // be spelled inline here, so it replaces that copy rather than adding to it.
+  const resolvedStyle = resolveScriptExclusion(normalizeStyleClears(style));
 
   const newBlock = cloneBlock(block);
   const newInlines: Inline[] = [];
@@ -401,7 +458,7 @@ export function applyInlineStyle(
 
       newInlines.push({
         text: inline.text.slice(overlapStart, overlapEnd),
-        style: { ...inline.style, ...resolvedStyle },
+        style: mergeInlineStyle(inline.style, resolvedStyle),
       });
 
       if (overlapEnd < inline.text.length) {

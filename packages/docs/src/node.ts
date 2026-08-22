@@ -136,6 +136,7 @@ export {
   mergeDropsHeadingMemory,
   splitMovesHeadingMemory,
   resolveOffsetForSplit,
+  resolveScriptExclusion,
 } from './store/block-helpers.js';
 export type { InlinePosition, InlineSegment } from './store/block-helpers.js';
 

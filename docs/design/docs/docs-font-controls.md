@@ -310,6 +310,114 @@ migrating `''` values already stored in existing documents. Those are
 normalized on write from this fix forward, and tolerated on read by
 `resolveStoredColor` / `toRgbHexColor` above.
 
+### Storage invariant: a boolean turned off is *cleared*, not stored as `false`
+
+Clearing is not only how "Clear formatting" expresses itself — since
+issue #749 it is how **every** boolean toggle-off is stored. The
+invariant, which holds across the docs engine, the slides text-box
+editor (which drives the same `Doc`), and the Yorkie store:
+
+> A boolean inline key the user turns off is removed from the run's
+> style — **unless some layer under the run style supplies it truthy**,
+> where an explicit `false` is the override that makes the toggle
+> visible at all.
+
+There are exactly two such under-layers, and both are exceptions:
+
+1. **The block's named style** — Heading 6 is italic, so `italic:
+   false` is kept on a Heading 6 run.
+2. **The hyperlink default** — `renderRun` underlines an `href` run
+   whose `underline` is *absent* (`view/paint-layout.ts`), so on a link
+   the absent key means underlined and `underline: false` is kept.
+   Decided per slice: if any run the write touches is a link, the
+   slice's `underline: false` survives. A dead flag on the plain runs
+   beside a link is strictly better than an underline that cannot be
+   turned off.
+
+Exception 1 is *conditional on the named-style layer under the run*, so
+it can go stale three ways, and each one sweeps:
+
+- **The block's type changes** — the `italic: false` a Heading 6 run
+  legitimately stores is a dead flag the moment the block becomes a
+  paragraph. `Doc.setBlockType` re-normalises the block it just retyped
+  (`dropStaleStyleOff`).
+- **The style registry changes under an untouched run** — redefining,
+  resetting, or replacing the document's styles moves the layer without
+  the run being edited. Every such entry point (`setDocStyles`,
+  `updateStyleToMatch`, `resetNamedStyle`, `resetAllNamedStyles`) runs
+  `Doc.dropStaleStyleOffAll` over the whole document — body, header,
+  footer, and every nested table cell — via `afterNamedStyleChange`.
+- **A run is pasted into a differently-styled block** — the internal
+  clipboard is the only paste payload that preserves an explicit
+  `false` (the HTML and markdown parsers only ever write `true`), so
+  that branch sweeps too.
+
+Both sweeps write through `DocStore.applyStyles`, so however many runs
+one strands it costs a single write. That write is still separate from
+the action that caused it: `YorkieDocStore.snapshot()` is a no-op
+because Yorkie takes its undo units from `doc.update()`, so under the
+collaborative store a redefinition that strands a flag takes two Cmd+Z,
+the first of which looks like it did nothing. Folding them needs a
+`DocStore.batch()` seam that does not exist yet — the slides store has
+one ([slides-native-undo.md](../slides/slides-native-undo.md)). That
+cost is also why **block merge is not a fourth sweep site**: Backspace
+at the start of a Heading 6 does strand the flag, but paying two Cmd+Z
+on the hottest editing path is the worse trade, so `Doc.mergeBlocks`
+knowingly leaves it (pinned by a test) until the seam lands.
+
+Exception 2 needs no sweep — its under-layer is the run's own `href`,
+which none of the three can remove.
+
+A stored `false` is a dead flag. `inlineStylesEqual` compares strictly,
+so `false !== undefined` and `normalizeInlines` can never re-merge the
+run with the identical-looking neighbour it was split from — bold-then-
+unbold left the paragraph permanently fragmented. It also pins the run
+against a later redefinition of the block's named style, the same
+lazy-cascade hazard `getSelectionStyleImpl` documents.
+
+Three pieces implement it, none of which any caller has to know about:
+
+- `Doc.applyInlineStyle` / `applyInlineStyleToCells` demote a boolean
+  `false` to `undefined` (`styleOffAsClear`), consulting
+  `resolveStyleInline` for the named-style exception. Every toggle
+  caller — the keyboard `toggleStyle`, both docs toolbars, the slides
+  text box, the pending-inline-style flush — funnels through these two,
+  so the demotion happens once.
+- `store/block-helpers.applyInlineStyle` merges a patch such that **a
+  key set to `undefined` deletes the key** rather than storing a
+  phantom `undefined` entry. This is the merge semantic
+  `CLEAR_INLINE_STYLE` and the toggle-off path share.
+- `YorkieDocStore` already turned an `undefined` key into
+  `removeStyleByPath` (see above), so the CRDT attribute is dropped
+  too. Undo is unaffected: Yorkie's `TreeStyleOperation` builds the
+  reverse of a remove from the attributes it displaced. The tree write
+  sends *only* the patch's own attributes — re-asserting the node's
+  existing ones would make every toggle-off a full rewrite that
+  clobbers a concurrent remote change to an unrelated attribute.
+
+Two consumers of the old "off is stored as `false`" shape had to change
+with it:
+
+- **The format painter** (Cmd+Shift+C / Cmd+Alt+V) applies its buffer as
+  a merge patch, so it used to get "remove bold from the target" for
+  free from the source run's `bold: false`. It now bakes every boolean
+  explicitly when copying (`captureFormatAtCursor`), reading the
+  *effective* value so painting from an italic Heading 6 makes the
+  target italic rather than clearing it.
+- **`normalizeInlines`** merges any two adjacent runs whose styles
+  compare equal, and clearing a key is exactly what can make two runs
+  equal. Structural inlines (images, page numbers) are now excluded
+  from that merge, matching `isStructuralInline`'s contract: two
+  *identical* images are still two images, and concatenating them
+  loses one. `Doc.mergeCells` had its own copy of the merge rule; it
+  now calls `normalizeInlines`, so the table-merge path cannot drift
+  from the exception again.
+
+Out of scope: `false` flags already stored by older builds are left
+alone — they resolve identically and are cleared the next time the user
+toggles that key. Non-boolean keys (colors, font size) are untouched;
+only `CLEAR_INLINE_STYLE` clears those.
+
 ### Editor API additions
 
 Two additions to the `EditorAPI` surface exposed by

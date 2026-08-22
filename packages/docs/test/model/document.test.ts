@@ -299,9 +299,188 @@ describe('Doc', () => {
       expect(doc.document.blocks[1].inlines[0].text).toBe('Wor');
       expect(doc.document.blocks[1].inlines[0].style.underline).toBe(true);
     });
+
+    // Issue #749 — turning a boolean style off used to store an explicit
+    // `false`, which `inlineStylesEqual` can never match against a neighbour
+    // that simply lacks the key, so the run stayed split forever and the dead
+    // flag also pinned it against a later style redefinition.
+    it('restores a single run when a boolean style is toggled on and off', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      const range = {
+        anchor: { blockId, offset: 2 },
+        focus: { blockId, offset: 4 },
+      };
+
+      doc.applyInlineStyle(range, { italic: true });
+      expect(doc.document.blocks[0].inlines).toHaveLength(3);
+
+      doc.applyInlineStyle(range, { italic: false });
+
+      const inlines = doc.document.blocks[0].inlines;
+      expect(inlines).toHaveLength(1);
+      expect(inlines[0].text).toBe('abcdef');
+      expect('italic' in inlines[0].style).toBe(false);
+    });
+
+    it('clears the key for every boolean toggle, not just italic', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      const range = {
+        anchor: { blockId, offset: 2 },
+        focus: { blockId, offset: 4 },
+      };
+
+      for (const key of ['bold', 'underline', 'strikethrough', 'superscript', 'subscript'] as const) {
+        doc.applyInlineStyle(range, { [key]: true });
+        doc.applyInlineStyle(range, { [key]: false });
+        const inlines = doc.document.blocks[0].inlines;
+        expect(inlines).toHaveLength(1);
+        expect(key in inlines[0].style).toBe(false);
+      }
+    });
+
+    it('keeps an explicit false where the named style supplies the flag', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      // Heading 6's built-in style is italic, so only an explicit `false` can
+      // turn it off — clearing the key would be a visual no-op.
+      doc.setBlockType(blockId, 'heading', { headingLevel: 6 });
+
+      // One write carrying both a style-supplied key (italic) and a key the
+      // style does not supply (bold): the first keeps its explicit `false`,
+      // the second is cleared — the mixed branch of `styleOffAsClear`.
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
+        { italic: false, bold: false },
+      );
+
+      const cd = doc.document.blocks[0].inlines.find((i) => i.text === 'cd');
+      expect(cd?.style.italic).toBe(false);
+      expect('bold' in (cd?.style ?? {})).toBe(false);
+    });
+
+    // `renderRun` underlines an `href` run whose `underline` is absent, so on
+    // a link the absent key means *underlined* and clearing it would make
+    // underline-off a permanent no-op.
+    it('keeps an explicit false when the range carries a hyperlink', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      const range = {
+        anchor: { blockId, offset: 0 },
+        focus: { blockId, offset: 6 },
+      };
+      doc.applyInlineStyle(range, { href: 'https://example.com' });
+
+      doc.applyInlineStyle(range, { underline: false, bold: false });
+
+      const style = doc.document.blocks[0].inlines[0].style;
+      expect(style.underline).toBe(false);
+      expect('bold' in style).toBe(false);
+    });
+  });
+
+  /**
+   * The one place a stale flag is knowingly left behind. Backspace at the
+   * start of a Heading 6 lands its `italic: false` in a paragraph, where no
+   * layer supplies italic any more — but sweeping it costs a second store
+   * write, which under `YorkieDocStore` is a second undo unit on the hottest
+   * editing path. This pins the trade so it cannot be reversed silently; the
+   * sweep returns once `DocStore.batch()` exists.
+   */
+  describe('mergeBlocks', () => {
+    it('leaves the style-off flag a merge strands (no sweep on the hot path)', () => {
+      const store = new MemDocStore();
+      store.setDocument({ blocks: [createEmptyBlock(), createEmptyBlock()] });
+      const doc = new Doc(store);
+      const [first, second] = doc.document.blocks.map((b) => b.id);
+      doc.insertText({ blockId: first, offset: 0 }, 'para');
+      doc.insertText({ blockId: second, offset: 0 }, 'head');
+      doc.setBlockType(second, 'heading', { headingLevel: 6 });
+      doc.applyInlineStyle(
+        { anchor: { blockId: second, offset: 0 }, focus: { blockId: second, offset: 4 } },
+        { italic: false },
+      );
+
+      doc.mergeBlocks(first, second);
+
+      const italicOff = doc.document.blocks[0].inlines.filter(
+        (i) => i.style.italic === false,
+      );
+      expect(italicOff).toHaveLength(1);
+      expect(italicOff[0].text).toBe('head');
+    });
+  });
+
+  // A block-type change is not the only way the layer under a run stops
+  // supplying the key its `false` was written against — redefining or
+  // resetting the named style does it without touching the run at all.
+  describe('dropStaleStyleOffAll', () => {
+    it('drops a style-off override a style redefinition stranded', () => {
+      const store = new MemDocStore();
+      store.setDocument({ blocks: [createEmptyBlock()] });
+      const doc = new Doc(store);
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      doc.setBlockType(blockId, 'heading', { headingLevel: 6 });
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
+        { italic: false },
+      );
+      // Heading 6 is italic, so the explicit `false` is still meaningful here.
+      expect(doc.document.blocks[0].inlines).toHaveLength(3);
+
+      store.updateStyleDefinition('heading-6', { inline: { italic: false }, block: {} });
+
+      expect(doc.dropStaleStyleOffAll()).toBe(true);
+      const inlines = doc.document.blocks[0].inlines;
+      expect(inlines).toHaveLength(1);
+      expect(inlines[0].text).toBe('abcdef');
+      expect('italic' in inlines[0].style).toBe(false);
+    });
+
+    it('leaves an override its style still supplies, and writes nothing', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      doc.setBlockType(blockId, 'heading', { headingLevel: 6 });
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
+        { italic: false },
+      );
+
+      expect(doc.dropStaleStyleOffAll()).toBe(false);
+      expect(doc.document.blocks[0].inlines.find((i) => i.text === 'cd')?.style.italic).toBe(false);
+    });
   });
 
   describe('setBlockType', () => {
+    // The `italic: false` a Heading 6 run legitimately stores is a dead flag
+    // the moment the block stops being a Heading 6 — the same #749 hazard,
+    // just reached through a block-type change instead of a toggle.
+    it('drops a style-off override the new block type no longer defaults', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      doc.setBlockType(blockId, 'heading', { headingLevel: 6 });
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
+        { italic: false },
+      );
+      expect(doc.document.blocks[0].inlines).toHaveLength(3);
+
+      doc.setBlockType(blockId, 'paragraph');
+
+      const inlines = doc.document.blocks[0].inlines;
+      expect(inlines).toHaveLength(1);
+      expect(inlines[0].text).toBe('abcdef');
+      expect('italic' in inlines[0].style).toBe(false);
+    });
+
     it('should change a paragraph to heading', () => {
       const doc = Doc.create();
       const blockId = doc.document.blocks[0].id;

@@ -1037,6 +1037,36 @@ export function initialize(
   }
 
   /**
+   * Tail shared by every named-style redefinition entry point
+   * (`setDocStyles`, `updateStyleToMatch`, `resetNamedStyle`,
+   * `resetAllNamedStyles`).
+   *
+   * Redefining a style moves the layer *underneath* runs the user never
+   * touched, so an `italic: false` that `styleOffAsClear` legitimately kept
+   * because the block's named style supplied italic becomes a dead flag the
+   * moment that style no longer does — the same #749 hazard a block-type
+   * change creates, and `Doc.dropStaleStyleOffAll` clears it the same way.
+   * The cleanup batches its own writes into a single `applyStyles`, so it
+   * costs one undo unit however many runs it strands. It is *not* folded
+   * into the redefinition: `YorkieDocStore.snapshot()` is a no-op because
+   * Yorkie takes its undo units from `doc.update()`, and the cleanup opens
+   * its own. So under the Yorkie store a redefinition that strands a flag
+   * takes two Cmd+Z, the first of which looks like it did nothing. Folding
+   * them needs a `batch()` seam on `DocStore` that does not exist yet —
+   * the slides store has one (`slides-native-undo.md`); this is a
+   * follow-up, not something to assert away in a comment.
+   */
+  function afterNamedStyleChange(): void {
+    // `dropStaleStyleOffAll` re-reads the store before deciding (so it sees
+    // the new style table) and again after any write, which is the refresh
+    // these paths used to do by hand.
+    doc.dropStaleStyleOffAll();
+    invalidateLayout();
+    render();
+    notifyStyleApplied();
+  }
+
+  /**
    * Step the font size of every inline run intersecting the current
    * selection by `delta`, relative to each run's own effective size.
    * See the `EditorAPI.stepSelectionFontSize` doc comment and
@@ -2814,10 +2844,7 @@ export function initialize(
     setDocStyles(styles: DocStyles) {
       docStore.snapshot();
       docStore.setDocStyles(styles);
-      doc.refresh();
-      invalidateLayout();
-      render();
-      notifyStyleApplied();
+      afterNamedStyleChange();
     },
     updateStyleToMatch(styleId: StyleId) {
       const block = doc.findBlock(cursor.position.blockId);
@@ -2847,26 +2874,17 @@ export function initialize(
       };
       docStore.snapshot();
       docStore.updateStyleDefinition(styleId, def);
-      doc.refresh();
-      invalidateLayout();
-      render();
-      notifyStyleApplied();
+      afterNamedStyleChange();
     },
     resetNamedStyle(styleId: StyleId) {
       docStore.snapshot();
       docStore.resetStyle(styleId);
-      doc.refresh();
-      invalidateLayout();
-      render();
-      notifyStyleApplied();
+      afterNamedStyleChange();
     },
     resetAllNamedStyles() {
       docStore.snapshot();
       docStore.resetAllStyles();
-      doc.refresh();
-      invalidateLayout();
-      render();
-      notifyStyleApplied();
+      afterNamedStyleChange();
     },
     toggleList(kind: 'ordered' | 'unordered') {
       docStore.snapshot();

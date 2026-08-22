@@ -1,6 +1,6 @@
 // packages/docs/test/store/block-helpers.test.ts
 import { describe, it, expect } from 'vitest';
-import { resolveOffset, resolveDeleteRange, applyInsertText, applyDeleteText, resolveStyleRange, applyInlineStyle, applySplitBlock, applyMergeBlocks, resolveOffsetForSplit } from '../../src/store/block-helpers.js';
+import { resolveOffset, resolveDeleteRange, applyInsertText, applyDeleteText, resolveStyleRange, applyInlineStyle, applySplitBlock, applyMergeBlocks, resolveOffsetForSplit, normalizeInlines } from '../../src/store/block-helpers.js';
 import type { Block, ImageData } from '../../src/model/types.js';
 import { DEFAULT_BLOCK_STYLE } from '../../src/model/types.js';
 
@@ -455,5 +455,52 @@ describe('applyMergeBlocks', () => {
     expect(result.inlines).toHaveLength(2);
     expect(result.inlines[0]).toEqual({ text: 'AB', style: { bold: true } });
     expect(result.inlines[1]).toEqual({ text: 'CD', style: { italic: true } });
+  });
+});
+
+describe('normalizeInlines — structural inlines never merge', () => {
+  const IMG: ImageData = { src: 'img.png', width: 100, height: 80 };
+
+  it('keeps two identical adjacent images as two runs', () => {
+    // Copy an image and paste it beside itself: the two runs compare EQUAL
+    // (`imageDataEqual` is by value), and merging them would give a
+    // two-character run under one `style.image` — one image lost while the
+    // offsets still count both.
+    const inlines = normalizeInlines([
+      { text: '\uFFFC', style: { image: IMG } },
+      { text: '\uFFFC', style: { image: IMG } },
+    ]);
+    expect(inlines).toHaveLength(2);
+  });
+
+  it('does not let a style write merge an image into its identical neighbour', () => {
+    // The write is a pure clear of `bold`, which makes the first image run
+    // byte-identical to the second. Reached through applyInlineStyle because
+    // that is the path a B/I/U/S toggle-off takes.
+    const block = makeBlock(
+      { text: '\uFFFC', style: { image: IMG, bold: true } },
+      { text: '\uFFFC', style: { image: IMG } },
+    );
+    const result = applyInlineStyle(block, 0, 1, { bold: undefined });
+    expect(result.inlines).toHaveLength(2);
+    expect(result.inlines[0].style.image).toEqual(IMG);
+    expect(result.inlines[1].style.image).toEqual(IMG);
+  });
+
+  it('keeps two page-number inlines separate', () => {
+    const inlines = normalizeInlines([
+      { text: '1', style: { pageNumber: true } },
+      { text: '1', style: { pageNumber: true } },
+    ]);
+    expect(inlines).toHaveLength(2);
+  });
+
+  it('still merges plain text runs', () => {
+    const inlines = normalizeInlines([
+      { text: 'AB', style: { bold: true } },
+      { text: 'CD', style: { bold: true } },
+    ]);
+    expect(inlines).toHaveLength(1);
+    expect(inlines[0].text).toBe('ABCD');
   });
 });
