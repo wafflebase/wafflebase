@@ -222,6 +222,24 @@ describe('NotePreview', () => {
     expect(toggles).toEqual([]);
   });
 
+  it('still ticks a task nested inside a foldout body', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    // The foldout is the task's ANCESTOR here, the mirror of the case above.
+    // Exempting it would make every task inside a foldout dead — and leave its
+    // box flipped against a source that never changed.
+    preview.render(
+      '<details>\n<summary>More</summary>\n\n- [ ] inner task\n\n</details>',
+    );
+
+    const box = preview.el.querySelector('li.task-list-item input')!;
+    expect(box.closest('details')).not.toBeNull();
+    box.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(toggles.length).toBe(1);
+  });
+
   it('does not toggle when the click ends a text-selection drag', () => {
     const toggles: Array<[number, boolean]> = [];
     const preview = new NotePreview({

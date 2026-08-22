@@ -27,7 +27,17 @@ interface ParsedLine {
   check: string | null;
   /** Everything after the marker and checkbox. */
   content: string;
+  /**
+   * The line sits inside a blockquote. `LIST_RE` does not admit a `>` prefix,
+   * so such a line parses as an ordinary paragraph whose "content" is the
+   * whole line, `> ` included — writing a marker in front of that would
+   * produce `- > - x`. The list commands leave these lines alone until
+   * blockquoted lists are supported properly.
+   */
+  quoted: boolean;
 }
+
+const QUOTED_RE = /^\s*>/;
 
 const LIST_RE = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)(?:\[([ xX])\]\s)?([\s\S]*)$/;
 
@@ -42,6 +52,7 @@ function parseLine(line: Line): ParsedLine {
       gap: '',
       check: null,
       content: line.text.slice(indent.length),
+      quoted: QUOTED_RE.test(line.text),
     };
   }
   return {
@@ -51,6 +62,7 @@ function parseLine(line: Line): ParsedLine {
     gap: m[3],
     check: m[4] === undefined ? null : m[4].toLowerCase(),
     content: m[5],
+    quoted: QUOTED_RE.test(line.text),
   };
 }
 
@@ -197,6 +209,9 @@ function replacePrefixes(
 ): void {
   const changes = [];
   for (const p of lines) {
+    // Rewriting a blockquoted line's prefix would corrupt it, so it is left
+    // untouched rather than mangled — see `ParsedLine.quoted`.
+    if (p.quoted) continue;
     const from = p.line.from;
     const to = p.line.to - p.content.length;
     const insert = next(p);

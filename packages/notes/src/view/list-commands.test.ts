@@ -37,6 +37,17 @@ describe('list toggles', () => {
     view.destroy();
   });
 
+  it('leaves a blockquoted line alone instead of corrupting it', () => {
+    // `LIST_RE` has no `>` alternative, so a quoted line parses as a plain
+    // paragraph whose content is the whole line — writing a marker in front
+    // of that produced `- > - quoted item`. Blockquoted lists are not
+    // supported yet; not touching them is the floor.
+    const view = mount('> - quoted item', 8);
+    toggleBulletList(view);
+    expect(view.state.doc.toString()).toBe('> - quoted item');
+    view.destroy();
+  });
+
   it('puts the caret after the marker when the line was empty', () => {
     // A caret at a line start maps to the same offset by default, i.e. in
     // front of the marker just written — the next keystroke would then land

@@ -275,7 +275,14 @@ export class NotePreview {
     // rewrite the source line instead. The whole disclosure is exempt, not
     // just its `summary`: its body is content of its own, and a click there
     // points at no task either.
-    if (target.closest('a, button, details')) return;
+    //
+    // It has to be a control INSIDE the item, though. A task list nested in a
+    // foldout body puts the `details` *above* the item, where `closest()`
+    // finds it just the same — bailing there would make every task inside a
+    // foldout dead, and (since this is before the cancel below) leave its box
+    // flipped against a source that never changed.
+    const control = target.closest('a, button, details');
+    if (control && item.contains(control)) return;
     const checkbox = item.querySelector(TASK_CHECKBOX_SELECTOR);
     if (!(checkbox instanceof HTMLInputElement)) return;
     const onCheckbox = checkbox.contains(target);
