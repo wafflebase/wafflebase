@@ -19,6 +19,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | pr786 conflict resolution (2026-08-20) | [20260820-pr786-conflict-resolution-todo.md](./active/20260820-pr786-conflict-resolution-todo.md) | - |
+| sheets decimal round trip (2026-08-18) | [20260818-sheets-decimal-round-trip-todo.md](./active/20260818-sheets-decimal-round-trip-todo.md) | [20260818-sheets-decimal-round-trip-lessons.md](./active/20260818-sheets-decimal-round-trip-lessons.md) |
 | cli dry run read commands (2026-08-16) | [20260816-cli-dry-run-read-commands-todo.md](./active/20260816-cli-dry-run-read-commands-todo.md) | [20260816-cli-dry-run-read-commands-lessons.md](./active/20260816-cli-dry-run-read-commands-lessons.md) |
 | docs unlist restores heading (2026-08-16) | [20260816-docs-unlist-restores-heading-todo.md](./active/20260816-docs-unlist-restores-heading-todo.md) | [20260816-docs-unlist-restores-heading-lessons.md](./active/20260816-docs-unlist-restores-heading-lessons.md) |
 | claude token pool (2026-08-14) | [20260814-claude-token-pool-todo.md](./active/20260814-claude-token-pool-todo.md) | - |
