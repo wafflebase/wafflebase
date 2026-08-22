@@ -26,7 +26,7 @@ vi.mock("@/api/files", () => ({ fileUrl: () => "/documents/d1/file" }));
 URL.createObjectURL = vi.fn(() => "blob:image");
 URL.revokeObjectURL = vi.fn();
 
-function renderViewer(props: { onClose?: () => void } = {}) {
+function renderViewer(props: { onClose?: () => void; token?: string } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -59,10 +59,10 @@ describe("ImageViewer Esc handling (issue #840)", () => {
     input.remove();
   });
 
+  // The share mount passes a token and no `onClose`: an anonymous viewer has
+  // no documents list, so Esc must stay inert rather than navigate anywhere.
   it("does nothing on Esc for a share-link viewer, which has no list", () => {
-    renderViewer();
-    expect(() =>
-      fireEvent.keyDown(window, { key: "Escape" }),
-    ).not.toThrow();
+    renderViewer({ token: "share-token" });
+    expect(() => fireEvent.keyDown(window, { key: "Escape" })).not.toThrow();
   });
 });
