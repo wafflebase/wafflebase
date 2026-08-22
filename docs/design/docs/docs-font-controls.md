@@ -352,10 +352,21 @@ it can go stale three ways, and each one sweeps:
   `false` (the HTML and markdown parsers only ever write `true`), so
   that branch sweeps too.
 
-Both sweeps write through `DocStore.applyStyles`, so a redefinition
-stays one undo unit however many runs it strands. Exception 2 needs no
-sweep — its under-layer is the run's own `href`, which none of the three
-can remove.
+Both sweeps write through `DocStore.applyStyles`, so however many runs
+one strands it costs a single write. That write is still separate from
+the action that caused it: `YorkieDocStore.snapshot()` is a no-op
+because Yorkie takes its undo units from `doc.update()`, so under the
+collaborative store a redefinition that strands a flag takes two Cmd+Z,
+the first of which looks like it did nothing. Folding them needs a
+`DocStore.batch()` seam that does not exist yet — the slides store has
+one ([slides-native-undo.md](../slides/slides-native-undo.md)). That
+cost is also why **block merge is not a fourth sweep site**: Backspace
+at the start of a Heading 6 does strand the flag, but paying two Cmd+Z
+on the hottest editing path is the worse trade, so `Doc.mergeBlocks`
+knowingly leaves it (pinned by a test) until the seam lands.
+
+Exception 2 needs no sweep — its under-layer is the run's own `href`,
+which none of the three can remove.
 
 A stored `false` is a dead flag. `inlineStylesEqual` compares strictly,
 so `false !== undefined` and `normalizeInlines` can never re-merge the

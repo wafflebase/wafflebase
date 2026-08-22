@@ -1248,6 +1248,12 @@ export class TextEditor {
         this.saveSnapshot();
         this.deleteSelection();
         this.pasteTableCells(data.tableCells);
+        // Same cleanup as the block branch below. `cloneTableCells` carries
+        // each block's `type`/`headingLevel`, so a same-document paste keeps
+        // its overrides live and this is a no-op — but a paste from a
+        // document whose Heading 6 is not italic strands the flag exactly as
+        // a block-type change would.
+        this.doc.dropStaleStyleOffAll();
         this.selection.setRange(null);
         this.requestRender();
         return;

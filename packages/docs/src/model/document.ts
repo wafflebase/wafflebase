@@ -375,17 +375,20 @@ export class Doc {
 
   /**
    * Merge two adjacent blocks. The second block is removed.
+   *
+   * Deliberately *not* swept for stale style-off flags. Backspace at the
+   * start of a Heading 6 does land its `italic: false` in a paragraph that
+   * supplies no italic, so the flag goes dead — but the sweep costs a second
+   * `store.applyStyles`, and under `YorkieDocStore` (where `snapshot()` is a
+   * no-op and undo granularity is per `doc.update()`) that turns one
+   * Backspace into two Cmd+Z on the hottest editing path there is, the first
+   * of which looks like it did nothing. Trading a merge-fragmentation flag
+   * for broken undo is the worse deal. Sweeping here is a follow-up behind
+   * the `DocStore.batch()` seam — see the task file.
    */
   mergeBlocks(blockId: string, nextBlockId: string): void {
     this.store.mergeBlock(blockId, nextBlockId);
     this.refresh();
-    // Backspace at the start of a Heading 6 lands its runs in the previous
-    // block, and an `italic: false` that was a live override there — because
-    // Heading 6 supplies italic — is a dead flag in a paragraph. Same hazard
-    // as a block-type change, same sweep. Without it the invariant this
-    // branch asserts ("a stored `false` is only ever a live override") is
-    // broken by the hottest editing path there is.
-    if (this.dropStaleStyleOff(blockId)) this.refresh();
   }
 
   /**

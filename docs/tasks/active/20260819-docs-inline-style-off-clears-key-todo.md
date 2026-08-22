@@ -56,6 +56,39 @@ information.
       *removed* rather than present-with-`undefined`.
 - [x] Tests: on/off round-trip restores a single run with no dead flag;
       the named-style case still stores `false`; cell rectangles too.
+- [x] Sweep the `false` that exception 1 keeps once its named-style layer stops
+      supplying the key: `Doc.setBlockType` (the block it just retyped), the
+      four named-style redefinition entry points via `afterNamedStyleChange`,
+      and both internal-clipboard paste branches
+      (`dropStaleStyleOff` / `dropStaleStyleOffAll`).
+- [x] Fold `Doc.mergeCells`' private inline-merge copy into `normalizeInlines`,
+      which is the one rule that knows structural inlines never merge.
+
+## Follow-ups
+
+Deliberately deferred rather than forgotten. Each is a consequence of the
+same missing seam, so they are cheapest done together.
+
+- [ ] **`DocStore.batch()` seam.** Every sweep is a second store write, and
+      `YorkieDocStore.snapshot()` is a no-op (Yorkie takes undo units from
+      `doc.update()`), so a redefinition that strands a flag costs two Cmd+Z.
+      The slides store already has the seam
+      (`docs/design/slides/slides-native-undo.md`).
+- [ ] **Sweep on block merge**, behind that seam. Backspace at the start of a
+      Heading 6 strands the flag in a paragraph; the sweep is one line, but
+      unbatched it doubles the undo units on the hottest editing path, so it
+      is off until batching lands. Pinned by the `mergeBlocks` test.
+- [ ] **Sweep on block split.** `applySplitBlock` copies the split-point style
+      onto the empty side, so Enter at the end of a Heading 6 carries
+      `italic: false` into the new paragraph's zero-length run — which
+      `collectStaleStyleOff` skips, since a style patch over an empty range
+      writes nothing. Needs the caret/pending-style path, not a range patch.
+- [ ] **Two more copies of the adjacent-inline merge rule.**
+      `clipboard.ts:mergeInlines` (no structural guard; reachable only from
+      the HTML/markdown parsers, which never emit `style.image`) and
+      `TextEditor.normalizeInlineList` (its own `inlineStylesMatch` compares a
+      key subset, so it can disagree with `inlineStylesEqual` about a cleared
+      key). Both should reduce to `normalizeInlines`.
 
 ## Non-goals
 
