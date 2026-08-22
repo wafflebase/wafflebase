@@ -24,6 +24,7 @@ export {
   type NoteKeymap,
 } from './view/editor.js';
 export type { NoteInlineFormats } from './view/commands.js';
+export type { NoteListKind } from './view/list-commands.js';
 export type { UploadImage } from './view/image-upload.js';
 export { noteStoreFacet, noteSync } from './view/note-sync.js';
 export {

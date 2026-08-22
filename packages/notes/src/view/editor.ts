@@ -37,6 +37,15 @@ import {
   type UploadImage,
 } from './image-upload.js';
 import { noteBlameGutter, noteBlameTracker } from './blame-gutter.js';
+import {
+  indentList,
+  outdentList,
+  setTaskChecked,
+  toggleBulletList,
+  toggleOrderedList,
+  toggleTaskList,
+} from './list-commands.js';
+import { noteCheckboxInput } from './checkbox-input.js';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -150,6 +159,20 @@ export interface NoteEditorAPI {
   /** Insert a `rows`×`cols` markdown table skeleton at the cursor. */
   insertTable(rows: number, cols: number): void;
   /**
+   * Toggle `- ` bullets over every line the selection covers. All four list
+   * commands below apply to the whole selected block, and toggling a kind that
+   * is already on every line turns those lines back into plain paragraphs.
+   */
+  toggleBulletList(): void;
+  /** Toggle `1. ` numbering over every line the selection covers. */
+  toggleOrderedList(): void;
+  /** Toggle `- [ ] ` checkboxes over every line the selection covers. */
+  toggleTaskList(): void;
+  /** Nest the selected list lines one level deeper. */
+  indentList(): void;
+  /** Move the selected list lines one level out. */
+  outdentList(): void;
+  /**
    * Upload the image files and insert each as `![alt](url)` at the cursor.
    * Non-image files are ignored. A no-op unless the editor was mounted with an
    * `uploadImage` option (read-only mounts never have one).
@@ -227,7 +250,15 @@ export function initialize(
   editorEl.style.overflow = 'hidden';
   editorEl.style.minWidth = '0';
 
-  const preview = new NotePreview({ theme });
+  // Preview checkboxes write straight back into the source line, so ticking a
+  // task in the preview is an ordinary document edit (synced, undoable). A
+  // read-only mount passes no callback, leaving the checkboxes disabled.
+  const preview = new NotePreview({
+    theme,
+    onToggleTask: readOnly
+      ? undefined
+      : (line, checked) => setTaskChecked(view, line + 1, checked),
+  });
   preview.el.style.flex = '1 1 50%';
   preview.el.style.overflow = 'auto';
   // Vertical padding matters: `prose` zeroes the first child's margin-top
@@ -375,6 +406,8 @@ export function initialize(
       historyKeymap: false,
     }),
     markdown(),
+    // `[ ]` at the start of a line becomes a task item as the user types.
+    noteCheckboxInput,
     themeCompartment.of(themeExt(mode)),
     EditorView.lineWrapping,
     EditorView.editable.of(!readOnly),
@@ -545,6 +578,11 @@ export function initialize(
     insertCodeBlock: () => insertCodeBlock(view),
     insertFoldout: () => insertFoldout(view),
     insertTable: (rows, cols) => insertTable(view, rows, cols),
+    toggleBulletList: () => toggleBulletList(view),
+    toggleOrderedList: () => toggleOrderedList(view),
+    toggleTaskList: () => toggleTaskList(view),
+    indentList: () => indentList(view),
+    outdentList: () => outdentList(view),
     insertImageFiles: (files) => {
       if (!uploadImage) return;
       const images = imageFilesOf(files);

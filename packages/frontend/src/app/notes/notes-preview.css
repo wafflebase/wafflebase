@@ -334,3 +334,14 @@
 .dark .note-preview .note-mermaid-message {
   color: #ff7b72;
 }
+
+/*
+ * Task items are clickable as a whole — the checkbox and the text beside it
+ * both toggle it (see `NotePreview.onTaskClick`). `note-tasks-interactive` is
+ * on the preview root only when it was mounted with a toggle callback, so a
+ * read-only preview (disabled checkboxes) keeps the default cursor.
+ */
+.note-preview.note-tasks-interactive li.task-list-item,
+.note-preview.note-tasks-interactive input.task-list-item-checkbox {
+  cursor: pointer;
+}
