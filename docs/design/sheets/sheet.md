@@ -114,7 +114,11 @@ all cell, selection, and navigation operations.
   fully covered by the destination range is dropped (it is overwritten by the
   moved content). A move that would only partially cover a merged block —
   splitting one at the source, or overwriting part of one at the destination —
-  is rejected as a no-op rather than corrupting the merge state. The overlay
+  is rejected rather than corrupting the merge state; the model reports a
+  `RangeOpRefusal` reason through `Sheet.setOnRefusal`, which the view turns
+  into a message on the host's `Spreadsheet.onNotice` channel so the drag
+  explains itself instead of looking like a no-op (`autofill`'s refusal to
+  fill across a merged block travels the same path). The overlay
   renders a dashed preview rectangle at the prospective drop location during
   the drag.
 - **Filtering** — `createFilterFromSelection`, `setColumnFilter`, and
