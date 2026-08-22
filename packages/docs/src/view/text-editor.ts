@@ -2846,7 +2846,10 @@ export class TextEditor {
     if (lineStart.offset < pos.offset) {
       const count = pos.offset - lineStart.offset;
       this.docDeleteText(lineStart, count);
-      this.cursor.moveTo(lineStart);
+      // Forward, as `handleHome` does for this same value: a continuation
+      // line's start IS a wrap boundary, and reading it backward would draw
+      // the caret at the end of the line above the one just emptied.
+      this.cursor.moveTo(lineStart, 'forward');
       this.markDirty(pos.blockId);
     } else if (pos.offset > 0) {
       // Cursor is at visual line start but not block start — delete to block start
@@ -3987,7 +3990,19 @@ export class TextEditor {
     return this.getLayout();
   }
 
-  private getVisualLineRange(pos: DocPosition): [number, number] {
+  /**
+   * Character range [start, end] of the visual line `pos` falls on.
+   *
+   * At a soft-wrap boundary the offset belongs to two visual lines at
+   * once, so `lineAffinity` picks the one the caret is drawn on:
+   * `'backward'` (the cursor's default) means the line that *ends* there,
+   * `'forward'` the line that *starts* there. Defaults to the cursor's
+   * own affinity, since every caller resolves the cursor position.
+   */
+  private getVisualLineRange(
+    pos: DocPosition,
+    lineAffinity: 'forward' | 'backward' = this.cursor.lineAffinity,
+  ): [number, number] {
     const layout = this.getActiveLayout();
 
     // Cell block: find lines from the table layout
@@ -4011,8 +4026,11 @@ export class TextEditor {
             }
             const lineStart = charsBefore;
             const lineEnd = charsBefore + lineChars;
-            const isLast = li === endLine - 1;
-            if (pos.offset >= lineStart && (pos.offset < lineEnd || (isLast && pos.offset <= lineEnd))) {
+            // Same boundary rule as findVisualLine: the cell's last line
+            // always keeps its end offset, earlier lines only under
+            // 'backward' affinity.
+            const ownsLineEnd = li === endLine - 1 || lineAffinity === 'backward';
+            if (pos.offset >= lineStart && (pos.offset < lineEnd || (ownsLineEnd && pos.offset <= lineEnd))) {
               return [lineStart, lineEnd];
             }
             charsBefore = lineEnd;
@@ -4026,20 +4044,26 @@ export class TextEditor {
     const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
     if (!lb) return [0, 0];
 
-    const info = findVisualLine(lb, pos);
+    const info = findVisualLine(lb, pos, lineAffinity);
     if (info) return [info.lineStart, info.lineEnd];
 
     const total = getBlockTextLength(lb.block);
     return [0, total];
   }
 
-  private getVisualLineStart(pos: DocPosition): DocPosition {
-    const [start] = this.getVisualLineRange(pos);
+  private getVisualLineStart(
+    pos: DocPosition,
+    lineAffinity: 'forward' | 'backward' = this.cursor.lineAffinity,
+  ): DocPosition {
+    const [start] = this.getVisualLineRange(pos, lineAffinity);
     return { blockId: pos.blockId, offset: start };
   }
 
-  private getVisualLineEnd(pos: DocPosition): DocPosition {
-    const [lineStart, lineEnd] = this.getVisualLineRange(pos);
+  private getVisualLineEnd(
+    pos: DocPosition,
+    lineAffinity: 'forward' | 'backward' = this.cursor.lineAffinity,
+  ): DocPosition {
+    const [lineStart, lineEnd] = this.getVisualLineRange(pos, lineAffinity);
     const block = this.doc.getBlock(pos.blockId);
     const totalLen = getBlockTextLength(block);
 
@@ -4141,7 +4165,7 @@ export class TextEditor {
     if (result) {
       const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
       if (lb) {
-        const info = findVisualLine(lb, pos);
+        const info = findVisualLine(lb, pos, this.cursor.lineAffinity);
         if (info) {
           const sameBlock = result.blockId === pos.blockId;
           const isFirstLine = info.lineIndex === 0;
