@@ -105,8 +105,11 @@ class BlameMarker extends cmView.GutterMarker {
     span.className = 'cm-noteBlameLabel';
     span.textContent = this.label;
     // The gutter is narrow and names are elided with an ellipsis, so keep the
-    // full name reachable on hover.
-    span.title = this.label;
+    // full name reachable on hover. Qualified as self-reported because it is:
+    // the name comes from whichever client wrote the run and no server verifies
+    // it (see the trust-boundary note in `yorkie-note-store.ts`), so presenting
+    // it bare would present a claim as a fact.
+    span.title = `${this.label} (self-reported)`;
     return span;
   }
 }

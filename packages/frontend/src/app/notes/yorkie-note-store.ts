@@ -18,6 +18,56 @@ const AUTHOR_ATTR = 'a';
 const WRITTEN_AT_ATTR = 't';
 
 /**
+ * Line authorship is SELF-REPORTED, and is deliberately treated as such.
+ *
+ * It lives in `root.content`'s per-run attributes, which every attached client
+ * writes for itself: Yorkie validates nothing inside a change, and the backend
+ * never sees a note edit (its auth webhook authorizes docKey + verb, not
+ * content). A client speaking to Yorkie directly can therefore claim any name
+ * on any run — including restyling a run it never wrote — and nothing in this
+ * file can prevent that. So:
+ *
+ * - The gutter is a reading aid ("who most likely wrote this line"), never an
+ *   audit trail and never an input to an access decision. It is rendered as
+ *   self-reported rather than as verified fact (see `blame-gutter.ts`).
+ * - What is read back is sanitized here instead of trusted, so a forged
+ *   attribute cannot do more than claim a name: a future `t` cannot outrank
+ *   every genuine edit (clamped to now), and a name cannot smuggle control /
+ *   zero-width / bidi characters or run unbounded.
+ * - Verified provenance would need the backend to sign each run's authorship,
+ *   or Yorkie to expose a change's server-assigned actor per run; both are out
+ *   of proportion for a reading aid. Recorded in `docs/design/notes/notes.md`.
+ */
+const MAX_AUTHOR_LENGTH = 64;
+
+/**
+ * The author name of a run, as it is safe to display: control, zero-width and
+ * bidi-override characters removed (those are exactly what one would use to
+ * make a forged name render as somebody else's, or to break the gutter out of
+ * its single line) and length-capped. `null` for a run with no `a` attribute at
+ * all — text written before attribution shipped.
+ */
+function sanitizeAuthor(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return value.replace(/[\p{Cc}\p{Cf}]/gu, '').slice(0, MAX_AUTHOR_LENGTH);
+}
+
+/**
+ * The write timestamp of a run, clamped into the past. "Newest run wins" is what
+ * decides a line's label, so an unclamped client-supplied value would let one
+ * run outrank every real edit on its line forever; clamping to `now` reduces a
+ * forged timestamp to a tie, which document order then breaks. Anything that is
+ * not a positive finite number reads as unknown (`0`), which any real edit
+ * outranks.
+ */
+function sanitizeWrittenAt(value: unknown, now: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+  return Math.min(value, now);
+}
+
+/**
  * Yorkie-backed NoteStore. Holds the note's markdown in a single `Text` CRDT
  * at `root.content` and drives peer carets through Yorkie presence. Ported
  * from CodePair's yorkieSync/remoteSelection, relocated behind NoteStore so
@@ -89,7 +139,10 @@ export class YorkieNoteStore implements NoteStore {
       // nothing, so it carries no attributes.
       if (insert.length > 0) {
         root.content.edit(from, to, insert, {
-          [AUTHOR_ATTR]: this.localAuthorName(),
+          // Sanitized on the way in as well as on the way out, so a well-behaved
+          // client never puts a name in the CRDT that its own reader would have
+          // to strip.
+          [AUTHOR_ATTR]: sanitizeAuthor(this.localAuthorName()) ?? '',
           [WRITTEN_AT_ATTR]: Date.now(),
         });
       } else {
@@ -103,22 +156,25 @@ export class YorkieNoteStore implements NoteStore {
     if (!content) return [];
     const spans: NoteAuthorSpan[] = [];
     let index = 0;
+    // One reading for the whole walk, so runs are clamped against a single
+    // instant rather than a drifting one.
+    const now = Date.now();
     for (const value of content.values()) {
       const text = value.content ?? '';
       if (text.length === 0) continue;
       const attrs = value.attributes as
         | Record<string, unknown>
         | undefined;
-      const author = attrs?.[AUTHOR_ATTR];
-      const at = attrs?.[WRITTEN_AT_ATTR];
       spans.push({
         from: index,
         to: index + text.length,
-        // Text written before per-line attribution shipped carries no
-        // attributes at all — reported as `null` so the gutter leaves those
-        // lines blank instead of guessing a name.
-        author: typeof author === 'string' ? author : null,
-        at: typeof at === 'number' ? at : 0,
+        // Every attribute here was written by some client and is not verifiable
+        // (see the trust-boundary note at the top of this file), so it is
+        // sanitized, not trusted. Text written before per-line attribution
+        // shipped carries no attributes at all — reported as `null` so the
+        // gutter leaves those lines blank instead of guessing a name.
+        author: sanitizeAuthor(attrs?.[AUTHOR_ATTR]),
+        at: sanitizeWrittenAt(attrs?.[WRITTEN_AT_ATTR], now),
       });
       index += text.length;
     }
@@ -130,6 +186,10 @@ export class YorkieNoteStore implements NoteStore {
    * the same value peers already see on its caret. Anonymous share-link editors
    * attach with `name: "Anonymous"`; an empty result (no presence yet) is
    * rendered as "Anonymous" by the gutter too.
+   *
+   * Presence is client-set and unverified, which is why what this produces is a
+   * claim rather than an identity — see the trust-boundary note at the top of
+   * this file.
    */
   private localAuthorName(): string {
     const fromPublic = this.doc.getMyPresence()?.name;

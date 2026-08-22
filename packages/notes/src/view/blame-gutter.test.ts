@@ -103,6 +103,43 @@ describe('blame gutter in the editor', () => {
     container.remove();
   });
 
+  it('switches the gutter on after mount, the way the view menu does', async () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemNoteStore();
+    store.setLocalAuthor('ann');
+    store.editText(0, 0, 'first\nsecond\n');
+    store.setLocalAuthor('bob');
+    store.editText(13, 13, 'third');
+
+    // The production path never mounts with `showAuthors: true`: the hosts
+    // mount with the persisted preference (false by default) and flip it with
+    // `setShowAuthors` when the user checks "Show authors" in the view menu.
+    const api = initialize(container, store, 'light', false, 'edit');
+    await tick();
+    expect(container.querySelector('.cm-noteBlame')).toBeNull();
+
+    api.setShowAuthors(true);
+    await tick();
+
+    expect(api.getShowAuthors()).toBe(true);
+    expect(gutterLabels(container)).toEqual(['ann', '', 'bob']);
+
+    // ...and typing afterwards keeps being attributed, i.e. the tracker the
+    // reconfigure installed is live, not a one-shot paint.
+    store.setLocalAuthor('cal');
+    const view = EditorView.findFromDOM(container)!;
+    view.dispatch({
+      changes: { from: 18, insert: '\nfourth' },
+      userEvent: 'input.type',
+    });
+    await tick();
+    expect(gutterLabels(container)).toEqual(['ann', '', 'bob', 'cal']);
+
+    api.dispose();
+    container.remove();
+  });
+
   it('shows author labels once enabled, and removes them again', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);

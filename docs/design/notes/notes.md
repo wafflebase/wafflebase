@@ -540,7 +540,7 @@ Consequences that follow from that choice, all of them intended:
 - **Anonymous stays anonymous.** The name comes from the client's own presence
   `name`, which anonymous share-link editors already attach as `"Anonymous"`;
   an empty name renders as "Anonymous" too. Blame is a reading aid, not an
-  audit trail.
+  audit trail — see the trust boundary below.
 - **Pure deletions record nothing** — they insert no run to attribute.
 - **Storage.** Roughly 30 bytes of attribute JSON per inserted run. Runs are
   already the CRDT's unit of storage, so this is a constant factor on existing
@@ -563,6 +563,33 @@ and both are load-bearing:
    same stale model. When the recomputed labels differ, it dispatches one empty
    annotated transaction that the gutter's `lineMarkerChange` picks up, so the
    gutter converges in two transactions and stays idle otherwise.
+
+##### Trust boundary — attribution is self-reported
+
+The gutter answers "who most likely wrote this line", not "who provably wrote
+it", and the difference is load-bearing:
+
+- The name comes from the writing client's own presence, and the attributes live
+  inside the CRDT that every attached client may write. Yorkie validates nothing
+  inside a change, and the backend never sees a note edit at all — its auth
+  webhook authorizes a docKey and a verb, not content. A client speaking to
+  Yorkie directly can therefore claim any name on any run, including restyling a
+  run it never wrote.
+- So blame is **never** an audit trail and **never** an input to an access
+  decision. Nothing reads `getAuthorSpans()` except the gutter's label
+  computation.
+- What is enforced is the blast radius of a forged attribute, in
+  `YorkieNoteStore.getAuthorSpans()`: `t` is clamped to `Date.now()` (so a
+  future timestamp cannot outrank every genuine edit on its line — it becomes a
+  tie that document order breaks), and the name has control, zero-width and
+  bidi-override characters stripped and is capped at 64 characters (so a forged
+  name cannot render as somebody else's through invisible characters, nor break
+  the gutter out of its one-line column). The gutter's hover title says
+  "(self-reported)" for the same reason.
+- Verified provenance would need the backend to sign each run's authorship, or
+  Yorkie to expose a change's server-assigned actor per run. Both are out of
+  proportion for a reading aid; if authorship ever needs to be relied on, that
+  is the work, not a tightening of this path.
 
 ### P3 — CodePair → Wafflebase migration
 

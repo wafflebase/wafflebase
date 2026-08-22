@@ -230,6 +230,39 @@ describe('YorkieNoteStore', () => {
       ]);
     });
 
+    it('clamps a run claiming a future write time back to now', () => {
+      // A hostile client can write any attribute it likes (nothing verifies
+      // them), and "newest run wins" decides the label — so an unclamped `t`
+      // would let one run outrank every genuine edit on its line forever.
+      const doc = makeDoc();
+      doc.update((root) => {
+        root.content.edit(5, 5, '!', { a: 'forged', t: 4e15 });
+      });
+      const store = new YorkieNoteStore(doc);
+      const forged = store.getAuthorSpans().at(-1)!;
+      expect(forged.author).toBe('forged');
+      expect(forged.at).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('strips control and bidi characters out of a claimed name', () => {
+      const doc = makeDoc();
+      doc.update((root) => {
+        // The characters used to make one name render as another's.
+        root.content.edit(5, 5, '!', { a: 'a\u202End\nnb\u200B', t: 5 });
+      });
+      const store = new YorkieNoteStore(doc);
+      expect(store.getAuthorSpans().at(-1)!.author).toBe('andnb');
+    });
+
+    it('caps a claimed name at a displayable length', () => {
+      const doc = makeDoc();
+      doc.update((root) => {
+        root.content.edit(5, 5, '!', { a: 'x'.repeat(500), t: 5 });
+      });
+      const store = new YorkieNoteStore(doc);
+      expect(store.getAuthorSpans().at(-1)!.author).toBe('x'.repeat(64));
+    });
+
     it('leaves a pure deletion unattributed', () => {
       const doc = makeDoc();
       doc.update((_root, presence) => presence.set({ name: 'ann' }));
