@@ -36,3 +36,38 @@ is in the diagram. Grepping the installed engine showed several diagram types
 silently emptied those labels while the security posture stayed the same —
 `img`/`image` are already forbidden. Verify what the engine *actually* emits
 before narrowing an allowlist to what it is supposed to emit.
+
+## Closing one carrier of a class is not closing the class
+
+Review pushed back that `htmlLabels: false` closes only the *label* path, and
+reading the pinned engine confirmed it: `imageSquare()` fetches
+`A@{ img: "…" }` twice (`new Image().decode()` plus an SVG `<image href>` in
+the layout host) with no label involved, and the diagram types that emit a
+`foreignObject` regardless hand their label to mermaid's own `sanitizeText()`,
+whose default DOMPurify allowlist permits `<img src>`. The durable answer was
+to stop describing the fix as "no label subtree" and instead refuse a fence
+whose *source* carries a fetch at all — a rule that is indifferent to which
+label path a future release uses. That refusal costs nothing visible: layer 3
+already forbade every one of those constructs in what persists, so the only
+thing removed is the request.
+
+## "Run to a fixpoint" needs a bound when the input is attacker-controlled
+
+The fixpoint loop above was the right shape and the wrong contract. Each pass
+rescans the whole body but removes at most one leading front-matter block, so a
+fence of stacked minimal blocks is quadratic — a stored freeze of every
+reader's main thread. Mermaid's `maxTextSize` is no help: the engine enforces it
+inside `render()`, after the strip has already run. Cap the length *and* the
+passes, and refuse a source still changing at the bound.
+
+## A config round-trip is not an engine assertion
+
+The first attempt at "the real engine honors `htmlLabels`" re-initialized
+mermaid with a hardcoded literal and read the key back — it would have passed
+with the production call deleted. Real mermaid does run its layout pass under
+jsdom once `SVGElement.prototype.getBBox` is stubbed, so the honest test drives
+the production config through the real engine and asserts the *outcome* (no
+`foreignObject` in the serialized output), with a control case proving the same
+source emits one at the engine's default. Both singletons it borrows — the
+prototype and mermaid's global config (`mermaidAPI.globalReset()`) — have to be
+put back, or every later case inherits them.

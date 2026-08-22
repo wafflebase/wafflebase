@@ -5,6 +5,7 @@ import { EditorView } from '@codemirror/view';
 import { NotePreview } from './preview.js';
 import { insertFoldout } from './commands.js';
 import {
+  MAX_FENCE_CHARS,
   MERMAID_CARRIER_PATTERNS_VERSION,
   mermaidFenceHtml,
   renderMermaidBlocks,
@@ -628,21 +629,238 @@ describe('NotePreview mermaid fences', () => {
     );
   });
 
-  it('sets an htmlLabels key the real engine actually honors', async () => {
-    // The case above asserts what we ASK for; this asserts the engine keeps
-    // it. `htmlLabels` is the root-level key (the per-diagram
-    // `flowchart.htmlLabels` is deprecated upstream), and the whole fix rests
-    // on the engine resolving labels through it — a rename or a config
-    // sanitizer that dropped it would silently reopen the beacon while every
-    // stubbed-engine case above still passed. Real mermaid cannot RENDER under
-    // jsdom, but it can be configured and read back.
+  it('pins htmlLabels per diagram section as well as at the root', async () => {
+    // A few renderers read `flowchart.htmlLabels` / `class.htmlLabels`
+    // directly instead of through mermaid's root-first resolver, so the root
+    // key alone leaves those paths resting on a per-diagram default.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(DIAGRAM);
+    await flush();
+
+    expect(engine.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        htmlLabels: false,
+        flowchart: { htmlLabels: false },
+        class: { htmlLabels: false },
+      }),
+    );
+  });
+
+  it('pins the config keys a directive could use to widen the engine', async () => {
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(DIAGRAM);
+    await flush();
+
+    const [config] = vi.mocked(engine.initialize).mock.calls[0] as [
+      { secure: string[]; maxTextSize: number },
+    ];
+    // `dompurifyConfig` goes to mermaid's OWN label sanitizer, so a value
+    // there (`ADD_TAGS: ['script']`) turns a surviving HTML label path from a
+    // beacon into script execution. `flowchart`/`class` are pinned whole
+    // because `secure` matches nested keys by name only at their own level.
+    expect(config.secure).toContain('dompurifyConfig');
+    expect(config.secure).toContain('htmlLabels');
+    expect(config.secure).toContain('flowchart');
+    expect(config.secure).toContain('class');
+    expect(config.maxTextSize).toBe(MAX_FENCE_CHARS);
+  });
+
+  /**
+   * Runs `body` against REAL mermaid. Two singletons have to be borrowed and
+   * put back: jsdom implements no SVG measurement APIs (stubbing `getBBox` is
+   * enough to run the engine's whole layout pass, which is what makes the case
+   * below an outcome test rather than a config round-trip), and mermaid's
+   * config is process-global — without `globalReset()` the config this leaves
+   * behind would follow every later case in the file.
+   */
+  async function withRealEngine(
+    body: (engine: MermaidLike, rawSvg: () => string) => Promise<void>,
+  ): Promise<void> {
     const mermaid = (await import('mermaid')).default;
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: 'strict',
-      htmlLabels: false,
+    const proto = SVGElement.prototype as unknown as Record<string, unknown>;
+    const saved = {
+      bbox: proto.getBBox,
+      length: proto.getComputedTextLength,
+    };
+    proto.getBBox = () => ({ x: 0, y: 0, width: 40, height: 16 });
+    proto.getComputedTextLength = () => 40;
+
+    let raw = '';
+    const engine: MermaidLike = {
+      initialize: (config) => mermaid.initialize(config),
+      render: async (id, text) => {
+        const result = await mermaid.render(id, text);
+        raw = result.svg;
+        return result;
+      },
+    };
+    try {
+      await body(engine, () => raw);
+    } finally {
+      proto.getBBox = saved.bbox;
+      proto.getComputedTextLength = saved.length;
+      mermaid.mermaidAPI.globalReset();
+    }
+  }
+
+  it('lays a real diagram out with no HTML label subtree', async () => {
+    // The cases above assert what we ASK the engine for. This one runs the
+    // production config through REAL mermaid and asserts the outcome the fix
+    // is actually about: no `<foreignObject>` is created while the engine lays
+    // the diagram out in the live document, and the label's markup is text.
+    // A rename, a dropped key, or an engine that stopped resolving labels
+    // through it fails here while every stubbed case still passes.
+    await withRealEngine(async (engine, rawSvg) => {
+      const root = document.createElement('div');
+      document.body.appendChild(root);
+      root.innerHTML = mermaidFenceHtml(
+        'flowchart LR\n  A["<b>bold</b> label"] --> B\n',
+        (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;'),
+      );
+      await renderMermaidBlocks(root, { load: async () => engine });
+
+      // The engine's own serialized output, i.e. what it had just laid out in
+      // the live document — upstream of sanitizeSvg().
+      expect(rawSvg()).toContain('<svg');
+      expect(rawSvg()).not.toContain('foreignObject');
+      expect(root.querySelector('.note-mermaid svg text')).toBeTruthy();
+      expect(root.querySelector('.note-mermaid foreignObject')).toBeNull();
+      root.remove();
     });
-    expect(mermaid.mermaidAPI.getConfig().htmlLabels).toBe(false);
+  });
+
+  it('would have laid out an HTML label subtree without that key', async () => {
+    // The control for the case above: the same engine, the same source, only
+    // `htmlLabels` left at its default. Without this, a build in which no
+    // label is ever an HTML subtree — a broken layout pass, say — would let
+    // the assertion above pass for the wrong reason.
+    await withRealEngine(async () => {
+      const mermaid = (await import('mermaid')).default;
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+      const { svg } = await mermaid.render(
+        'control-html-labels',
+        'flowchart LR\n  A["<b>bold</b> label"] --> B\n',
+      );
+      expect(svg).toContain('foreignObject');
+    });
+  });
+
+  it('refuses a fence whose shape metadata carries an image URL', async () => {
+    // `htmlLabels: false` does not reach this one: mermaid's image shape does
+    // `new Image(); img.src = node.img; await img.decode()` and appends an SVG
+    // <image href> to the live layout host, with no label involved. Both
+    // requests are gone by the time sanitizeSvg() runs, so the source is
+    // refused instead.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\nflowchart LR\n  A@{ img: "https://evil.example/beacon.png" }\n```',
+    );
+    await flush();
+
+    expect(engine.render).not.toHaveBeenCalled();
+    const block = preview.el.querySelector('.note-mermaid')!;
+    expect(block.getAttribute('data-mermaid-error')).toBe('true');
+    expect(block.querySelector('.note-mermaid-message')?.textContent).toContain(
+      'image shapes are not allowed',
+    );
+    // The source stays readable, the way an unparseable diagram does.
+    expect(block.querySelector('.note-mermaid-source')?.textContent).toContain(
+      'evil.example',
+    );
+  });
+
+  it('refuses a fence carrying raw HTML that loads a URL', async () => {
+    // The diagram types that emit a `foreignObject` regardless of
+    // `htmlLabels` (venn, architecture, kanban, sequence) hand their label to
+    // mermaid's own sanitizer, whose DEFAULT allowlist permits `<img src>` —
+    // so a raw <img> in one of those labels is still laid out, and fetched, in
+    // the live document. Refusing the source covers every label path at once.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\nsequenceDiagram\n  A->>B: <img src="https://evil.example/b.png">\n```',
+    );
+    await flush();
+
+    expect(engine.render).not.toHaveBeenCalled();
+    expect(
+      preview.el.querySelector('.note-mermaid-message')?.textContent,
+    ).toContain('HTML that loads a URL is not allowed');
+  });
+
+  it('refuses a fence whose CSS loads an external URL', async () => {
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\nflowchart LR\n  A-->B\n' +
+        '  style A background:url("https://evil.example/b.png")\n```',
+    );
+    await flush();
+
+    expect(engine.render).not.toHaveBeenCalled();
+    expect(
+      preview.el.querySelector('.note-mermaid-message')?.textContent,
+    ).toContain('CSS that loads a URL is not allowed');
+  });
+
+  it('still renders the label markup that reaches no network', async () => {
+    // The guard is a tag-name list, not "no raw HTML": `<br/>`, `<b>` and the
+    // class-diagram arrows have to keep working, `url(#id)` is how mermaid
+    // references its own markers, and a prose label that happens to say
+    // `image(s)` is not a CSS fetch.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\nflowchart LR\n  A["<b>x</b><br/>Resize image(s)"] --> B\n' +
+        '  style A fill:url(#grad)\n```\n\n' +
+        '```mermaid\nclassDiagram\n  A <|-- B : <i>label</i>\n```',
+    );
+    await flush();
+
+    expect(engine.render).toHaveBeenCalledTimes(2);
+    expect(preview.el.querySelector('.note-mermaid-message')).toBeNull();
+    expect(preview.el.querySelectorAll('.note-mermaid svg').length).toBe(2);
+  });
+
+  it('refuses a fence longer than the engine bound rather than scanning it', async () => {
+    // Nothing upstream caps a fence body, and mermaid's own `maxTextSize` is
+    // enforced INSIDE render() — after every scan and strip here has already
+    // run on the whole thing. The cap is what bounds that work.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    const body = `flowchart LR\n${'  A-->B\n'.repeat(8000)}`;
+    expect(body.length).toBeGreaterThan(MAX_FENCE_CHARS);
+    preview.render(`\`\`\`mermaid\n${body}\`\`\``);
+    await flush();
+
+    expect(engine.render).not.toHaveBeenCalled();
+    expect(
+      preview.el.querySelector('.note-mermaid-message')?.textContent,
+    ).toContain('longer than');
+  });
+
+  it('refuses a fence that stacks more carriers than the strip bound', async () => {
+    // Each strip pass removes at most ONE leading front-matter block while
+    // rescanning the whole body, so an unbounded fixpoint loop is quadratic in
+    // a hostile fence — a stored main-thread freeze for every reader. The pass
+    // bound turns that into a refusal; a diagram needs one pass, or two when
+    // it is front-matter-titled.
+    const engine = stubEngine();
+    const preview = new NotePreview({ mermaidLoader: async () => engine });
+    preview.render(
+      '```mermaid\n' +
+        '---\nx: 1\n---\n'.repeat(40) +
+        'flowchart LR\n  A-->B\n```',
+    );
+    await flush();
+
+    expect(engine.render).not.toHaveBeenCalled();
+    expect(
+      preview.el.querySelector('.note-mermaid-message')?.textContent,
+    ).toContain('too many stacked config directives');
   });
 
   it('strips a second front matter block the first strip would promote', async () => {

@@ -23,16 +23,20 @@
  *
  *   - `securityLevel: 'strict'` plus an extended `secure` key list, so
  *     mermaid sanitizes labels and ignores `click` directives, and
- *     `htmlLabels: false`, so a node label is SVG text rather than an HTML
- *     subtree (issue #721 — see the note on the layout window below).
- *   - `stripConfigDirectives()` removes the two config carriers — `%%{...}%%`
- *     directives and leading front matter — from the fence body, so a note
- *     cannot push per-diagram config (notably `themeCSS`) into the `<style>`
- *     block mermaid emits. It uses mermaid's own carrier patterns, because
- *     `secure` only pins TOP-LEVEL keys: anything the strip misses but the
- *     engine still recognizes reaches the config as a nested override.
- *     `securityLevel` is directive-protected by mermaid itself; `themeCSS`
- *     and friends are only protected because we strip and pin them.
+ *     `htmlLabels: false` (root *and* per-diagram), so a node label is SVG
+ *     text rather than an HTML subtree (issue #721 — see the note on the
+ *     layout window below).
+ *   - `prepareFenceSource()` bounds and cleans the fence body before the
+ *     engine sees it: it caps its length, refuses the sources that make the
+ *     engine fetch a URL while it lays the diagram out (see below), and
+ *     `stripConfigDirectives()` removes the two config carriers — `%%{...}%%`
+ *     directives and leading front matter — so a note cannot push per-diagram
+ *     config (notably `themeCSS`) into the `<style>` block mermaid emits. The
+ *     strip uses mermaid's own carrier patterns, because `secure` only pins
+ *     TOP-LEVEL keys: anything the strip misses but the engine still
+ *     recognizes reaches the config as a nested override. `securityLevel` is
+ *     directive-protected by mermaid itself; `themeCSS` and friends are only
+ *     protected because we strip and pin them.
  *   - `sanitizeSvg()` runs the engine's output through DOMPurify (allowlist,
  *     SVG+HTML profiles) and hands `apply()` a `DocumentFragment`, so the tree
  *     that was inspected is the tree that reaches the document — no
@@ -57,10 +61,36 @@
  * every `<img>` from what persisted. No `FORBID_TAGS`/`ALLOWED_URI_REGEXP`
  * tuning reaches a request that has already gone out. With HTML labels off
  * there is no label subtree to lay out: the same payload measures and renders
- * as literal SVG text. The cost is HTML inside a label — no rich text, no
- * `<br/>`, no markdown formatting — and it is the whole reason the key is
- * pinned in `SECURE_KEYS` and the carriers stripped, so a note cannot turn it
- * back on.
+ * as literal SVG text. The cost is HTML *styling* inside a label — no bold,
+ * italic or markdown formatting; `<br/>` still breaks the line, because
+ * mermaid splits SVG-text labels on it itself (verified under the pinned
+ * build). It is the whole reason the key is pinned in `SECURE_KEYS` and the
+ * carriers stripped, so a note cannot turn it back on.
+ *
+ * `htmlLabels: false` alone does NOT close that window, because not every
+ * fetch in it runs through a label (verified against the pinned
+ * `mermaid@11.16.0` build, `dist/chunks/mermaid.core/`):
+ *
+ *   - Shape metadata carries an image independently of label mode:
+ *     `A@{ img: "https://attacker.example/beacon.png" }` reaches
+ *     `imageSquare()`, which does `new Image(); img.src = node.img; await
+ *     img.decode()` and then appends an SVG `<image href>` to the live layout
+ *     host. Two requests, no label involved.
+ *   - Several diagram types (venn text nodes, architecture icons, kanban,
+ *     sequence) append a `foreignObject` with no `htmlLabels` guard, and
+ *     mermaid's own strict-mode `sanitizeText()` runs DOMPurify with its
+ *     DEFAULT allowlist, which permits `<img src>`. A raw `<img>` in such a
+ *     label is therefore laid out — and fetched — in the live document too.
+ *
+ * So `prepareFenceSource()` refuses a fence whose SOURCE carries a fetch:
+ * a fetch-capable raw HTML tag, `img:` shape metadata, or an external CSS
+ * `url()`/`@import`. That costs nothing a reader could ever see, because
+ * layer 3 already forbids every one of those in what persists (`FORBID_TAGS`
+ * covers `img`/`image`, `isSafeCss()` covers the CSS) — the only thing the
+ * refusal removes is the request itself. Entity-encoding is not a way around
+ * it: an HTML parser turns `&#60;img>` into text, not an element. A
+ * restrictive `img-src` CSP would fix the whole class app-wide and remains the
+ * better long-term answer; the repo has no CSP today.
  */
 
 import type { Config as PurifyConfig, DOMPurify as Purifier } from 'dompurify';
@@ -192,6 +222,18 @@ const SECURE_KEYS = [
   'htmlLabels',
   'layout',
   'look',
+  // Mermaid's strict-mode `sanitizeText()` hands `dompurifyConfig` straight to
+  // DOMPurify, so a value here relaxes the engine's OWN label sanitizer —
+  // `{"ADD_TAGS":["script"],"ADD_ATTR":["onerror"]}` would turn a surviving
+  // HTML label path from a beacon into script execution.
+  'dompurifyConfig',
+  // The per-diagram sections that carry their own `htmlLabels`. Pinning the
+  // root key is not enough: a few renderers read `flowchart.htmlLabels` /
+  // `class.htmlLabels` directly (see the `initialize()` call below), and
+  // `secure` pins TOP-LEVEL keys only, so the whole section has to be pinned
+  // to keep a nested override from re-enabling HTML labels there.
+  'flowchart',
+  'class',
 ];
 
 /**
@@ -222,6 +264,20 @@ const DIRECTIVE_RE =
 const FRONTMATTER_RE = /^([^\S\n\r]*)-{3}\s*[\n\r](.*?)[\n\r]\1-{3}\s*[\n\r]+/s;
 
 /**
+ * Longest fence body handed to the engine. It is mermaid's own default
+ * `maxTextSize`, pinned here as well because the engine checks it INSIDE
+ * `render()` — after `prepareFenceSource()` has already scanned and stripped
+ * the whole body — so it bounds nothing this module does.
+ */
+export const MAX_FENCE_CHARS = 50_000;
+
+/**
+ * Passes `stripConfigDirectives()` may take. See its doc comment: the bound is
+ * what keeps a hostile fence from making the strip quadratic.
+ */
+const MAX_STRIP_PASSES = 8;
+
+/**
  * Removes note-supplied mermaid configuration from a fence body. `secure`
  * blocks the keys listed above, but only at the TOP level of the config, so a
  * carrier that survives here can still deliver a nested override; this strips
@@ -234,25 +290,117 @@ const FRONTMATTER_RE = /^([^\S\n\r]*)-{3}\s*[\n\r](.*?)[\n\r]\1-{3}\s*[\n\r]+/s;
  * mermaid's front-matter `title:`/`displayMode:`, which the preview does not
  * advertise; the alternative is a rule that can be spelled around.
  *
- * Runs to a FIXPOINT rather than once, because `FRONTMATTER_RE` is `^`-anchored
+ * Iterates rather than running once, because `FRONTMATTER_RE` is `^`-anchored
  * and a single pass therefore *manufactures* a carrier the source did not have
  * (issue #721): removing the first `---` block promotes the second to leading
  * front matter, which mermaid then parses, and removing a leading `%%{init}%%`
- * directive promotes a `---` block that followed it the same way. The loop
- * terminates for free — an iteration that changes anything strictly shortens
- * the string — and its iteration count is the number of *stacked leading*
- * carriers, which only a deliberately hostile fence has more than one of.
- * Measured on stacked minimal front-matter blocks: 29 ms for a 50 kB fence
- * (mermaid's own pinned `maxTextSize` default), 1.5 ms for 10 kB, and the
- * outcome is then cached per source.
+ * directive promotes a `---` block that followed it the same way. Directive
+ * removal can promote a directive too, by joining text around the match
+ * (`%` + `%%{a}%%` + `%{b}%%` leaves a fresh `%%{b}%%`).
+ *
+ * The iteration is BOUNDED rather than run to a fixpoint, and the bound is
+ * load-bearing: the fence body is attacker-controlled and unbounded, each pass
+ * rescans all of it, and each pass is only guaranteed to remove ONE leading
+ * front-matter block — a fence of stacked minimal blocks is quadratic, i.e. a
+ * stored main-thread freeze for every reader. Mermaid's `maxTextSize` does not
+ * help, because the engine enforces it inside `render()`, strictly after this
+ * has already run. `prepareFenceSource()` caps the length first and this caps
+ * the passes, so the work is bounded by `MAX_FENCE_CHARS * MAX_STRIP_PASSES`
+ * (a few hundred kB of scanning) no matter what a note contains.
+ *
+ * Returns `null` when the source is still changing after the last pass: a
+ * source that stacks that many carriers is hostile, and refusing it is
+ * strictly safer than handing the engine a body we know we have not finished
+ * stripping. Legitimate sources need one pass, or two if they are
+ * front-matter-titled.
  */
-export function stripConfigDirectives(source: string): string {
+export function stripConfigDirectives(source: string): string | null {
   let stripped = source;
-  for (;;) {
+  for (let pass = 0; pass < MAX_STRIP_PASSES; pass++) {
     const next = stripped.replace(FRONTMATTER_RE, '').replace(DIRECTIVE_RE, '');
     if (next === stripped) return stripped;
     stripped = next;
   }
+  return null;
+}
+
+/**
+ * Source constructs that make the engine fetch a URL while it lays the diagram
+ * out in the live document — i.e. upstream of `sanitizeSvg()`, which is why
+ * they are refused rather than sanitized. See the SECURITY note at the top of
+ * this file for why `htmlLabels: false` does not cover them.
+ *
+ * `FETCH_TAG_RE` is deliberately a tag-name list rather than "any raw HTML":
+ * `<br/>`, `<b>`, `<i>` and the class-diagram arrows (`<|--`, `<-->`) stay
+ * usable, since none of them reaches the network. It matches on a literal `<`
+ * only, which is all an HTML parser can turn into an element.
+ */
+const FETCH_TAG_RE =
+  /<\s*\/?\s*(?:img|image|iframe|embed|object|video|audio|source|track|input|link|script|use|svg|math|base|meta|frame|frameset|portal)\b/i;
+
+/**
+ * `img:` inside a `@{ … }` shape-metadata block — mermaid's image shape, whose
+ * renderer fetches the URL twice (`new Image().decode()` plus an SVG
+ * `<image href>` in the layout host). The gap to the closing `}` is
+ * unconstrained on purpose: a `}` inside a quoted metadata value would
+ * otherwise hide the key from a `[^}]*` scan, and recognizing LESS than the
+ * engine does is the failure mode here. The cost is a false positive on a
+ * label that says `img:` after some other metadata block, which degrades to a
+ * message on the block rather than to a beacon.
+ */
+const IMAGE_METADATA_RE = /@\s*\{[\s\S]*?["']?img["']?\s*:/i;
+
+/**
+ * A CSS fetch spelled in the fence SOURCE — a `style`/`classDef` declaration
+ * reaches a label's `style` attribute, and in the label paths that stay HTML
+ * regardless of `htmlLabels` the browser resolves it during layout.
+ *
+ * Narrower than `CSS_EXTERNAL_RE`, which guards mermaid's *output*: the bare
+ * `image(` / `src(` functions are left out here because a diagram source is
+ * mostly prose and `A["Resize image(s)"]` must not be refused. Neither is a
+ * loss — no browser ships CSS `image()`, and both are still rejected by
+ * `isSafeCss()` in whatever the engine emits.
+ */
+const CSS_SOURCE_FETCH_RE =
+  /@import|(?:image-set|cross-fade)\s*\(|url\(\s*['"]?\s*(?!#)/i;
+
+/** As `isSafeCss()`: escapes are resolved for DETECTION, never rewritten. */
+function hasCssFetch(source: string): boolean {
+  return (
+    CSS_SOURCE_FETCH_RE.test(source) ||
+    CSS_SOURCE_FETCH_RE.test(decodeCssEscapes(source))
+  );
+}
+
+/** The fence body prepared for the engine, or the message to show instead. */
+export type Prepared = { text: string } | { error: string };
+
+/**
+ * Bounds and cleans a fence body before the engine sees it. Layer 2 of the
+ * SECURITY note above; every check here exists because the engine's own
+ * pre-serialize layout pass happens in the reader's live document, where
+ * neither `sanitizeSvg()` nor mermaid's `maxTextSize` can reach it.
+ */
+export function prepareFenceSource(source: string): Prepared {
+  if (source.length > MAX_FENCE_CHARS) {
+    return {
+      error: `Diagram error: source is longer than ${MAX_FENCE_CHARS} characters`,
+    };
+  }
+  if (FETCH_TAG_RE.test(source)) {
+    return { error: 'Diagram error: HTML that loads a URL is not allowed' };
+  }
+  if (IMAGE_METADATA_RE.test(source)) {
+    return { error: 'Diagram error: image shapes are not allowed' };
+  }
+  if (hasCssFetch(source)) {
+    return { error: 'Diagram error: CSS that loads a URL is not allowed' };
+  }
+  const stripped = stripConfigDirectives(source);
+  if (stripped === null) {
+    return { error: 'Diagram error: too many stacked config directives' };
+  }
+  return { text: stripped };
 }
 
 const PURIFY_CONFIG: PurifyConfig & { RETURN_DOM_FRAGMENT: true } = {
@@ -467,14 +615,27 @@ async function renderPass(
     // letting mermaid scan the whole document. `securityLevel: 'strict'` plus
     // the extended `secure` list and `htmlLabels: false` keep the preview's
     // no-raw-HTML posture (see the SECURITY note at the top of this file).
-    // `htmlLabels` is the TOP-LEVEL key on purpose: the engine resolves labels
-    // through `config.htmlLabels ?? config.flowchart?.htmlLabels ?? true`, and
-    // setting the per-diagram `flowchart.htmlLabels` instead is deprecated.
+    //
+    // `htmlLabels` is set at BOTH altitudes on purpose. The root key is the
+    // one mermaid documents (the per-diagram `flowchart.htmlLabels` is
+    // deprecated) and its resolver is root-first —
+    // `evaluate(config.htmlLabels ?? config.flowchart?.htmlLabels ?? true)` in
+    // `getEffectiveHtmlLabels`, verified in the pinned 11.16.0 build. But not
+    // every renderer goes through that resolver: `swimlane` reads
+    // `evaluate(siteConfig.flowchart.htmlLabels)` and one shape reads
+    // `evaluate(getConfig().flowchart?.htmlLabels)`, both of which ignore the
+    // root key entirely. Setting the sections too makes the answer `false`
+    // under either reading rather than resting on which one a given release
+    // happens to use, and costs only a deduplicated deprecation warning that
+    // mermaid's default `logLevel: 5` suppresses.
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: 'strict',
       secure: SECURE_KEYS,
+      maxTextSize: MAX_FENCE_CHARS,
       htmlLabels: false,
+      flowchart: { htmlLabels: false },
+      class: { htmlLabels: false },
       theme,
     });
     initializedTheme = theme;
@@ -498,26 +659,34 @@ async function renderPass(
       continue;
     }
 
-    const id = `note-mermaid-${++renderSeq}`;
     let result: Rendered;
-    try {
-      const { svg } = await mermaid.render(id, stripConfigDirectives(source));
-      result = { node: sanitizeSvg(purify, svg) };
-    } catch (err) {
-      result = {
-        error:
-          err instanceof Error && err.message
-            ? `Diagram error: ${err.message}`
-            : 'Diagram error',
-      };
-    } finally {
-      // Outside sandbox mode mermaid lays the diagram out in a `d<id>` host
-      // div it appends to `document.body` (see the SECURITY note above), and
-      // removes it only on the success path. Clean up unconditionally: on a
-      // failed parse it would otherwise leak one host — with the engine's
-      // un-DOMPurified output still in it — per keystroke, since a diagram is
-      // unparseable for most of the time it is being typed.
-      document.getElementById(`d${id}`)?.remove();
+    const prepared = prepareFenceSource(source);
+    if ('error' in prepared) {
+      // Refused before the engine ever sees it — the point of every check in
+      // `prepareFenceSource()` is that the engine's layout pass runs in the
+      // reader's live document, so there is no undoing it afterwards.
+      result = prepared;
+    } else {
+      const id = `note-mermaid-${++renderSeq}`;
+      try {
+        const { svg } = await mermaid.render(id, prepared.text);
+        result = { node: sanitizeSvg(purify, svg) };
+      } catch (err) {
+        result = {
+          error:
+            err instanceof Error && err.message
+              ? `Diagram error: ${err.message}`
+              : 'Diagram error',
+        };
+      } finally {
+        // Outside sandbox mode mermaid lays the diagram out in a `d<id>` host
+        // div it appends to `document.body` (see the SECURITY note above), and
+        // removes it only on the success path. Clean up unconditionally: on a
+        // failed parse it would otherwise leak one host — with the engine's
+        // un-DOMPurified output still in it — per keystroke, since a diagram
+        // is unparseable for most of the time it is being typed.
+        document.getElementById(`d${id}`)?.remove();
+      }
     }
     remember(key, result);
     if (!superseded() && root.contains(el)) apply(el, result);
