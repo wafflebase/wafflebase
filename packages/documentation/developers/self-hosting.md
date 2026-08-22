@@ -121,6 +121,27 @@ document through a share link to emit events, then visit the workspace
 3. Set the **Authorization callback URL** to `http://your-domain:3000/auth/github/callback`
 4. Copy the Client ID and Client Secret into your `.env` file
 
+Serve it over **https** once it leaves your machine. `GITHUB_CALLBACK_URL`'s
+scheme is what tells the backend its public scheme, and only an `https://`
+one lets the login cookies carry `Secure` and the `__Host-` prefix — the
+control that stops anything else on the origin from writing them. Because
+`wafflebase login`'s consent step is exactly such a cookie, CLI sign-in
+answers `400 Command-line sign-in requires an https server` on a plain-http
+deployment that is not `localhost`; the browser login still works there, but
+it, and the token the CLI would have received, are travelling in the clear.
+Leaving `GITHUB_CALLBACK_URL` unset is refused the same way: GitHub then uses
+the callback URL registered on the OAuth app, so the deployment works but its
+scheme is invisible to the backend, and it will not assume the safe answer.
+Set the variable (or `COOKIE_SECURE=true` behind a TLS-terminating proxy).
+
+If you terminate TLS at a proxy and still hand the backend an `http://`
+callback URL, that same rule reads your https origin as cleartext and drops
+`Secure` from the **session** cookie. Set `GITHUB_CALLBACK_URL` to the https
+URL your users actually reach (the right fix), or set `COOKIE_SECURE=true` to
+state the origin's scheme directly. Running with `NODE_ENV=production` on a
+non-loopback `http://` callback URL logs a warning at the first login for this
+reason.
+
 ## Architecture
 
 ```

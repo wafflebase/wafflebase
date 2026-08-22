@@ -2,6 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createProgram } from '../src/commands/root.js';
 import { registerLoginCommand } from '../src/commands/login.js';
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { rmSync } from 'node:fs';
+
+/**
+ * The action leaves the login URL in an owner-only file next to the config
+ * when stderr is not a terminal (which it is not under vitest), so the
+ * config is pointed at a temporary directory rather than the real one.
+ */
+const configDir = join(tmpdir(), `wb-login-cmd-${process.pid}`);
+const configPath = join(configDir, 'config.yaml');
 
 /**
  * The loopback callback has to be driven with the *real* fetch: the test
@@ -18,7 +29,15 @@ vi.mock('../src/config/session.js', () => ({
   decodeJwtExpiry: () => 0,
 }));
 
-/** Stands in for the browser: receives the OAuth URL the action built. */
+/**
+ * Stands in for the browser.
+ *
+ * What `open()` receives is the *loopback launch link*, not the
+ * authorization URL: opening a URL spawns a child process with it in argv,
+ * which any local user can read, and the authorization URL carries this
+ * login's nonce and PKCE challenge. The browser follows one redirect to
+ * reach the real URL, so this stand-in does the same.
+ */
 let onOpen: ((url: string) => Promise<void>) | undefined;
 const openedUrls: string[] = [];
 vi.mock('open', () => ({
@@ -27,6 +46,16 @@ vi.mock('open', () => ({
     await onOpen?.(url);
   },
 }));
+
+/** Resolve a launch link to the authorization URL behind it. */
+async function followLaunch(launch: string): Promise<string> {
+  expect(new URL(launch).hostname).toBe('127.0.0.1');
+  // The launch link itself must give nothing away — that is why it exists.
+  expect(launch).not.toContain('nonce=');
+  const res = await realFetch(launch, { redirect: 'manual' });
+  expect(res.status).toBe(302);
+  return res.headers.get('location')!;
+}
 
 const SERVER = 'http://oauth.test';
 
@@ -112,6 +141,7 @@ describe('login command wiring', () => {
     onOpen = undefined;
     onRefusal = undefined;
     refusalsToIgnore = 0;
+    process.env.WAFFLEBASE_CONFIG = configPath;
     stubBackend();
     vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
       const line = args.map(String).join(' ');
@@ -130,13 +160,15 @@ describe('login command wiring', () => {
     vi.restoreAllMocks();
     onOpen = undefined;
     onRefusal = undefined;
+    delete process.env.WAFFLEBASE_CONFIG;
+    rmSync(configDir, { recursive: true, force: true });
   });
 
   it('binds the OAuth URL nonce to the callback server it started', async () => {
     let seen: URL | undefined;
 
     onOpen = async (raw) => {
-      const url = new URL(raw);
+      const url = new URL(await followLaunch(raw));
       seen = url;
       const nonce = url.searchParams.get('nonce');
       const port = url.searchParams.get('port');
@@ -185,7 +217,7 @@ describe('login command wiring', () => {
     // second would mean the genuine callback was refused too.
     refusalsToIgnore = 1;
     onOpen = async (raw) => {
-      const url = new URL(raw);
+      const url = new URL(await followLaunch(raw));
       const nonce = url.searchParams.get('nonce')!;
       const port = url.searchParams.get('port');
 

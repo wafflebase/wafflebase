@@ -18,8 +18,13 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| pr786 conflict resolution (2026-08-20) | [20260820-pr786-conflict-resolution-todo.md](./active/20260820-pr786-conflict-resolution-todo.md) | - |
+| cli dry run read commands (2026-08-16) | [20260816-cli-dry-run-read-commands-todo.md](./active/20260816-cli-dry-run-read-commands-todo.md) | [20260816-cli-dry-run-read-commands-lessons.md](./active/20260816-cli-dry-run-read-commands-lessons.md) |
+| docs unlist restores heading (2026-08-16) | [20260816-docs-unlist-restores-heading-todo.md](./active/20260816-docs-unlist-restores-heading-todo.md) | [20260816-docs-unlist-restores-heading-lessons.md](./active/20260816-docs-unlist-restores-heading-lessons.md) |
 | claude token pool (2026-08-14) | [20260814-claude-token-pool-todo.md](./active/20260814-claude-token-pool-todo.md) | - |
+| cli login loopback binding (2026-08-12) | [20260812-cli-login-loopback-binding-todo.md](./active/20260812-cli-login-loopback-binding-todo.md) | [20260812-cli-login-loopback-binding-lessons.md](./active/20260812-cli-login-loopback-binding-lessons.md) |
 | path aware ci (2026-08-12) | [20260812-path-aware-ci-todo.md](./active/20260812-path-aware-ci-todo.md) | - |
+| cli error envelope command (2026-08-11) | [20260811-cli-error-envelope-command-todo.md](./active/20260811-cli-error-envelope-command-todo.md) | [20260811-cli-error-envelope-command-lessons.md](./active/20260811-cli-error-envelope-command-lessons.md) |
 | cli upstream error envelope (2026-08-11) | [20260811-cli-upstream-error-envelope-todo.md](./active/20260811-cli-upstream-error-envelope-todo.md) | [20260811-cli-upstream-error-envelope-lessons.md](./active/20260811-cli-upstream-error-envelope-lessons.md) |
 | docs sync (2026-08-01) | [20260801-docs-sync-todo.md](./active/20260801-docs-sync-todo.md) | - |
 | autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
@@ -40,4 +45,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 530
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: claude token pool (2026-08-14)
+Latest active task: pr786 conflict resolution (2026-08-20)

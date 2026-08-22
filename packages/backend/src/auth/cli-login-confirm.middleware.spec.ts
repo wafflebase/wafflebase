@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import {
   cliConfirmCookieName,
+  cliConfirmToken,
   CliLoginConfirmMiddleware,
 } from './cli-login-confirm.middleware';
 
@@ -14,6 +15,29 @@ import {
  */
 describe('CliLoginConfirmMiddleware', () => {
   const middleware = new CliLoginConfirmMiddleware();
+
+  // The middleware shows nothing at all where the confirm cookie is
+  // plantable (`cliLoginAvailable`), and that now needs positive evidence of
+  // a trustworthy origin rather than merely the absence of a cleartext one.
+  // Loopback is that evidence, and it is where the flow is actually run;
+  // pinning it also keeps a developer's own `.env` out of the verdict.
+  const originalEnv = {
+    GITHUB_CALLBACK_URL: process.env.GITHUB_CALLBACK_URL,
+    COOKIE_SECURE: process.env.COOKIE_SECURE,
+  };
+
+  beforeEach(() => {
+    process.env.GITHUB_CALLBACK_URL =
+      'http://localhost:3000/auth/github/callback';
+    delete process.env.COOKIE_SECURE;
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
 
   function run(
     query: Record<string, unknown>,
@@ -49,10 +73,15 @@ describe('CliLoginConfirmMiddleware', () => {
     expect(html).toContain('Continue');
     // Clickjacking would turn the confirmation back into a silent click.
     expect(res.setHeader).toHaveBeenCalledWith('X-Frame-Options', 'DENY');
-    // The secret in the page is also the cookie: an attacker who mints
-    // one against their own cookie cannot pass the victim's check.
+    // The `?confirm=` in the page is derived from the cookie *and* the
+    // parameters displayed: an attacker who mints one against their own
+    // cookie cannot pass the victim's check, and a token minted for one
+    // port does not verify against another (see `cliConfirmToken`).
     const [, secret] = res.cookie.mock.calls[0] as [string, string];
-    expect(html).toContain(`confirm=${encodeURIComponent(secret)}`);
+    expect(html).toContain(
+      `confirm=${encodeURIComponent(cliConfirmToken(secret, 49152))}`,
+    );
+    expect(html).not.toContain(encodeURIComponent(secret));
   });
 
   /**
@@ -90,7 +119,12 @@ describe('CliLoginConfirmMiddleware', () => {
   it('proceeds when the confirm param matches the cookie', () => {
     const nonce = 'a'.repeat(64);
     const { req, res, next } = run(
-      { mode: 'cli', port: '49152', nonce, confirm: 'secret-value' },
+      {
+        mode: 'cli',
+        port: '49152',
+        nonce,
+        confirm: cliConfirmToken('secret-value', 49152, nonce),
+      },
       { [cliConfirmCookieName()]: 'secret-value' },
     );
 
@@ -117,6 +151,44 @@ describe('CliLoginConfirmMiddleware', () => {
     expect(res.send).toHaveBeenCalled();
   });
 
+  /**
+   * The whole defence is that a person read the port on the page they
+   * clicked. A confirmation that verified against *any* parameters would
+   * let an attacker who obtained one legitimate click re-point the same
+   * link at a loopback listener of their own without the victim ever
+   * being shown the new port.
+   */
+  it('re-prompts when a confirmation is replayed against another port', () => {
+    const nonce = 'a'.repeat(64);
+    const confirm = cliConfirmToken('secret-value', 49152, nonce);
+    const { req, res, next } = run(
+      { mode: 'cli', port: '49153', nonce, confirm },
+      { [cliConfirmCookieName()]: 'secret-value' },
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(req.__cliConfirmed).toBeUndefined();
+    expect(res.send).toHaveBeenCalled();
+  });
+
+  it('re-prompts when a confirmation is replayed against another challenge', () => {
+    const nonce = 'a'.repeat(64);
+    const confirm = cliConfirmToken('secret-value', 49152, nonce, 'c'.repeat(43));
+    const { req, next } = run(
+      {
+        mode: 'cli',
+        port: '49152',
+        nonce,
+        challenge: 'd'.repeat(43),
+        confirm,
+      },
+      { [cliConfirmCookieName()]: 'secret-value' },
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(req.__cliConfirmed).toBeUndefined();
+  });
+
   it('re-prompts when the confirm param arrives with no cookie', () => {
     const { req, next } = run({
       mode: 'cli',
@@ -136,6 +208,29 @@ describe('CliLoginConfirmMiddleware', () => {
   });
 
   /**
+   * On a cleartext non-loopback origin this cookie cannot be `Secure`, so
+   * anything on the path or on a sibling subdomain can plant it and walk
+   * itself through the gate. There is no consent to obtain there: the
+   * request falls through to `GitHubAuthGuard`, which refuses the CLI login
+   * outright, rather than being shown a page that proves nothing.
+   */
+  it('shows no confirmation page where the cookie is plantable', () => {
+    const previousUrl = process.env.GITHUB_CALLBACK_URL;
+    process.env.GITHUB_CALLBACK_URL =
+      'http://wafflebase.example.com/auth/github/callback';
+    try {
+      const { res, next } = run({ mode: 'cli', port: '49152' });
+
+      expect(next).toHaveBeenCalled();
+      expect(res.send).not.toHaveBeenCalled();
+      expect(res.cookie).not.toHaveBeenCalled();
+    } finally {
+      if (previousUrl === undefined) delete process.env.GITHUB_CALLBACK_URL;
+      else process.env.GITHUB_CALLBACK_URL = previousUrl;
+    }
+  });
+
+  /**
    * The click is proven by possession of this cookie alone, so it needs
    * the same host binding as the OAuth state cookie: without `__Host-`,
    * a foothold on any sibling subdomain can write one with `Domain=` set
@@ -146,7 +241,12 @@ describe('CliLoginConfirmMiddleware', () => {
    */
   it('prefixes the confirm cookie with __Host- where cookies are Secure', () => {
     const previous = process.env.NODE_ENV;
+    const previousUrl = process.env.GITHUB_CALLBACK_URL;
     process.env.NODE_ENV = 'production';
+    // `useSecureCookies()` reads the callback URL ahead of `NODE_ENV`, so a
+    // developer's own `.env` (`http://localhost:3000/...`) would otherwise
+    // decide this assertion and the suite would pass only in CI.
+    delete process.env.GITHUB_CALLBACK_URL;
     try {
       const { res } = run({ mode: 'cli', port: '49152' });
 
@@ -168,6 +268,8 @@ describe('CliLoginConfirmMiddleware', () => {
       expect(options.domain).toBeUndefined();
     } finally {
       process.env.NODE_ENV = previous;
+      if (previousUrl === undefined) delete process.env.GITHUB_CALLBACK_URL;
+      else process.env.GITHUB_CALLBACK_URL = previousUrl;
     }
   });
 });

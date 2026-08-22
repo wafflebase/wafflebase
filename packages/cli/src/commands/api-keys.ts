@@ -43,10 +43,10 @@ export function registerApiKeysCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).createApiKey(name);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -62,10 +62,10 @@ export function registerApiKeysCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).listApiKeys();
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -83,10 +83,10 @@ export function registerApiKeysCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).revokeApiKey(keyId);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

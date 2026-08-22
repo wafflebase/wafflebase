@@ -1,12 +1,17 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import type { CookieOptions, NextFunction, Request, Response } from 'express';
 import {
+  cliLoginAvailable,
   parseCliChallenge,
   parseCliNonce,
   parseCliPort,
 } from './github-auth.guard';
-import { hostPrefixedCookieName, timingSafeEqualStr } from './oauth-state';
+import {
+  hostPrefixedCookieName,
+  timingSafeEqualStr,
+  useSecureCookies,
+} from './oauth-state';
 
 /**
  * Confirmation gate in front of `GET /auth/github?mode=cli`.
@@ -51,7 +56,10 @@ const CONFIRM_COOKIE_MAX_AGE_MS = 5 * 60 * 1000;
 function confirmCookieOptions(): CookieOptions {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    // Must agree with `cliConfirmCookieName()`, which takes the `__Host-`
+    // prefix on exactly the same condition — a browser rejects a prefixed
+    // cookie set without `Secure`, so the two answers come from one place.
+    secure: useSecureCookies(),
     sameSite: 'lax',
     // `/`, not `/auth`: `__Host-` is honoured only with `Path=/`. The
     // cookie is httpOnly, single-use and lives five minutes.
@@ -65,10 +73,52 @@ export interface CliConfirmedRequest extends Request {
   __cliConfirmed?: boolean;
 }
 
+/**
+ * The `?confirm=` value that belongs to one confirmation page.
+ *
+ * Deliberately not a bare copy of the cookie. A bare copy proves only that
+ * this browser was shown *some* confirmation page in the last five minutes —
+ * not the page naming port 49152. That is the wrong claim: the entire
+ * defence is that a person read the port on the page they clicked, so a
+ * confirmation obtained for one set of parameters must not be spendable
+ * against another (an attacker-owned loopback listener, say) without a
+ * second page being shown. Signing the parameters into the token binds it to
+ * what was displayed, and the middleware recomputes it from the *request's
+ * own* `port`, `nonce` and `challenge`, so changing any of them invalidates
+ * the confirmation.
+ *
+ * The cookie secret is the key, so there is no server key to configure or
+ * rotate: a crafted link still cannot pre-supply the token, because
+ * computing it needs the httpOnly cookie the page itself set.
+ *
+ * Each part is length-prefixed so no combination of values can be re-cut
+ * into a different one that signs the same (`"9|87,6"` vs `"98|7,6"`).
+ */
+export function cliConfirmToken(
+  cookieSecret: string,
+  port: number,
+  nonce?: string,
+  challenge?: string,
+): string {
+  const parts = [String(port), nonce ?? '', challenge ?? ''];
+  return createHmac('sha256', cookieSecret)
+    .update(parts.map((part) => `${part.length}:${part}`).join('|'))
+    .digest('base64url');
+}
+
 @Injectable()
 export class CliLoginConfirmMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
     if (req.query?.mode !== 'cli') {
+      return next();
+    }
+
+    // A deployment whose cookies cannot be `Secure` has no consent gate to
+    // show — this cookie is the gate, and there it is plantable
+    // (`cliLoginAvailable`). Falling through hands the request to
+    // `GitHubAuthGuard`, which answers the documented 400 instead of walking
+    // someone through a page that proves nothing.
+    if (!cliLoginAvailable()) {
       return next();
     }
 
@@ -91,7 +141,13 @@ export class CliLoginConfirmMiddleware implements NestMiddleware {
     if (
       typeof confirm === 'string' &&
       typeof cookie === 'string' &&
-      timingSafeEqualStr(confirm, cookie)
+      // Recomputed from *this* request's parameters, so a click consented
+      // for one loopback port does not authorize another — see
+      // `cliConfirmToken`.
+      timingSafeEqualStr(
+        confirm,
+        cliConfirmToken(cookie, port, nonce, challenge),
+      )
     ) {
       // Single use: the cookie is what makes the secret unforgeable, so
       // it is spent here rather than left to be replayed.
@@ -105,36 +161,39 @@ export class CliLoginConfirmMiddleware implements NestMiddleware {
 
     const secret = randomBytes(32).toString('base64url');
     res.cookie(confirmCookie, secret, confirmCookieOptions());
+    const confirmToken = cliConfirmToken(secret, port, nonce, challenge);
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.status(200).send(renderConfirmPage(port, nonce, secret, challenge));
+    res.status(200).send(renderConfirmPage(port, nonce, confirmToken, challenge));
   }
 }
 
 /**
  * Every value interpolated below is already constrained — `port` is an
  * integer, `nonce` is `[0-9a-f]{32,128}`, `challenge` is a 43-character
- * base64url digest, `secret` is base64url — but they are escaped anyway:
- * the page must stay inert even if a future caller loosens one of those
- * parsers.
+ * base64url digest, `confirmToken` is base64url — but they are escaped
+ * anyway: the page must stay inert even if a future caller loosens one of
+ * those parsers.
  *
  * `challenge` has to survive this hop: the guard reads it off the request
  * that gets through the gate, and dropping it here would leave every
- * confirmed CLI login without the binding `cliExchange` requires.
+ * confirmed CLI login without the binding `cliExchange` requires. It is
+ * also signed into `confirmToken`, so the link cannot be re-pointed at
+ * another port or another challenge without a second page being shown.
  */
 export function renderConfirmPage(
   port: number,
   nonce: string | undefined,
-  secret: string,
+  confirmToken: string,
   challenge?: string,
 ): string {
   const params = new URLSearchParams({ mode: 'cli', port: String(port) });
   if (nonce) params.set('nonce', nonce);
   if (challenge) params.set('challenge', challenge);
-  params.set('confirm', secret);
+  params.set('confirm', confirmToken);
   const href = `/auth/github?${params.toString()}`;
 
   return `<!DOCTYPE html>

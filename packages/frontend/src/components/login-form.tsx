@@ -3,22 +3,40 @@ import { cn } from "@/lib/utils";
 import { WbButton } from "@/app/home/primitives/wb-button";
 
 /**
- * What the backend can send a browser back here with.
+ * What `?error=` on the login page means.
  *
- * `GET /auth/github/callback` refuses a callback whose OAuth state does
- * not match the cookie that started the login, and returns the browser
- * to this page with `?error=`. That is reachable with no attacker at
- * all — the state cookie expires after ten minutes, and opening a second
- * login tab replaces the first tab's — so the page has to explain it and
- * offer the retry rather than leave the button looking untouched.
+ * `GET /auth/github/callback` refuses a callback whose OAuth state does not
+ * match the cookie that started the login, and returns the browser here with
+ * `?error=` rather than a JSON 401 it cannot act on. That is reachable with no
+ * attacker at all — the state cookie expires, and opening a second login tab
+ * can replace the first tab's — so the page has to explain it and offer the
+ * retry rather than leave the button looking untouched.
+ *
+ * A `Map` rather than an object literal because the key is a query parameter,
+ * so the lookup is over a string the URL chose. An object literal answers for
+ * its prototype too: `?error=toString` returns an inherited function, which
+ * React renders as nothing, and `?error=__proto__` returns an object, which
+ * React refuses to render at all — so the banner explaining one failed
+ * sign-in would become a second one.
+ *
+ * `login_state` is carried alongside `oauth_state` because the two names for
+ * the same refusal have both been in the callback's vocabulary; a build that
+ * only knew one would answer the other with the generic message.
  */
-const LOGIN_ERRORS: Record<string, string> = {
-  oauth_state:
+const LOGIN_ERRORS = new Map<string, string>([
+  [
+    "oauth_state",
     "That sign-in link expired or was started in another tab. Please try again.",
-};
+  ],
+  [
+    "login_state",
+    "That sign-in link expired or was started in another tab. Please try again.",
+  ],
+]);
 
 /** Shown for a code this build does not recognise, so none is silent. */
-const GENERIC_LOGIN_ERROR = "That sign-in could not be completed. Please try again.";
+const GENERIC_LOGIN_ERROR =
+  "That sign-in could not be completed. Please try again.";
 
 /**
  * Renders the LoginForm component.
@@ -28,14 +46,9 @@ export function LoginForm({
   error,
   ...props
 }: React.ComponentPropsWithoutRef<"form"> & { error?: string | null }) {
-  // `hasOwn`, not a bare index: `error` comes off the query string, and
-  // `?error=constructor` would otherwise pull a function off the
-  // prototype chain and hand it to React as the message.
-  const message = error
-    ? Object.hasOwn(LOGIN_ERRORS, error)
-      ? LOGIN_ERRORS[error]
-      : GENERIC_LOGIN_ERROR
-    : null;
+  // `error` is raw query-string input, so the lookup must not walk the
+  // prototype chain — see `LOGIN_ERRORS`.
+  const message = error ? (LOGIN_ERRORS.get(error) ?? GENERIC_LOGIN_ERROR) : null;
 
   return (
     <form className={cn("flex flex-col gap-7", className)} {...props}>

@@ -24,10 +24,10 @@ export function registerTabsCommand(parent: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).listTabs(docId);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -45,6 +45,7 @@ export function registerTabsCommand(parent: Command) {
       if (type !== 'sheet') {
         outputError(
           new Error(`Unsupported tab type "${type}"; only "sheet" is supported.`),
+          this,
         );
         return;
       }
@@ -65,10 +66,10 @@ export function registerTabsCommand(parent: Command) {
         // discard the response of a tab that already exists server-side.
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).createTab(docId, body);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -95,10 +96,10 @@ export function registerTabsCommand(parent: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).renameTab(docId, tabId, name);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

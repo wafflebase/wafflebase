@@ -139,7 +139,9 @@ wafflebase schema cell.get          # → sheets.cells.get
 - **Binary results** (pdf/docx): positional `<file>`; `-` writes to stdout.
   `--force` is required to overwrite an existing target.
 - **Errors**: a single JSON line on stderr —
-  `{"error":{"code":"…","message":"…"}}`. Typed errors (e.g.,
+  `{"error":{"code":"…","message":"…","command":"docs.content"}}`. `command`
+  is the dotted command name (the same string `schema` indexes on), so a
+  caller running several commands can tell which one failed. Typed errors (e.g.,
   `INVALID_DOCX`, `TYPE_MISMATCH`, `CONFIRMATION_REQ`) carry a
   command-specific `code` agents can branch on; argument-parsing
   failures (missing argument, unknown option, unknown command) report
@@ -158,10 +160,12 @@ wafflebase schema cell.get          # → sheets.cells.get
   because it is upstream-controlled content going straight into an
   agent's stderr: `code` is truncated at 80 characters, `message` at 500
   (with a trailing `…`), a `message` that is an HTML document is replaced
-  by `"HTTP <status>"`, and any extra fields the backend attached
-  (`command`, a request id) are dropped once the whole body exceeds
-  4,000 bytes, leaving `{code, message}`. Treat `message` as a display string,
-  not a parseable payload.
+  by `"HTTP <status>"`, and any extra field the backend attached (a
+  request id) is dropped once the whole body exceeds 4,000 bytes, leaving
+  `{code, message}`. Treat `message` as a display string, not a parseable
+  payload. `command` is the one field never forwarded: attribution is the
+  CLI's statement about which command *it* ran, so a server cannot
+  relabel which call failed.
 - **Exit codes**: `0` success, `1` user error (bad input, 404, type
   mismatch), `2` system error — an unreachable server
   (`NETWORK_ERROR`), rejected credentials (`AUTH_ERROR`, HTTP 401/403),

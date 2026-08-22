@@ -120,7 +120,9 @@ All CLI state lives under `~/.wafflebase/`:
 ```text
 ~/.wafflebase/
 ├── config.yaml        # Profile settings (server, API key, workspace)
-└── session.json       # OAuth session (JWT tokens + active workspace)
+├── session.json       # OAuth session (JWT tokens + active workspace)
+└── login-url.txt      # Transient: the login URL when stderr is not a TTY,
+                       # written 0600 and deleted when the login settles
 ```
 
 **Migration:** if `~/.wafflebase/config.yaml` does not exist but
@@ -182,9 +184,12 @@ wafflebase login
   ├─ 2. CLI starts temporary HTTP server on 127.0.0.1:<random-port>,
   │     generates a per-attempt nonce (32 random bytes, hex) and a PKCE
   │     verifier (32 random bytes, base64url) it keeps in memory
-  ├─ 3. Opens browser: GET /auth/github?mode=cli&port=<port>&nonce=<nonce>
-  │     &challenge=<sha256(verifier), base64url>
-  │     (also prints URL for copy-paste in headless environments)
+  ├─ 3. Opens browser at http://127.0.0.1:<port>/launch/<token>, a
+  │     single-use loopback redirect to
+  │       GET /auth/github?mode=cli&port=<port>&nonce=<nonce>
+  │         &challenge=<sha256(verifier), base64url>
+  │     (the authorization URL itself never goes into a child process's
+  │      argv; it is announced separately for copy-paste — see below)
   ├─ 3b. Backend answers with a confirmation page; the user clicks
   │     Continue (one-time secret + httpOnly cookie) → OAuth starts
   ├─ 4. GitHub OAuth consent screen (existing flow)
@@ -204,12 +209,38 @@ wafflebase login
   └─ 12. Writes ~/.wafflebase/session.json
 ```
 
-The local server binds to `127.0.0.1` only, accepts only `GET
-/callback`, and shuts down after a single request with a three-minute
-timeout — the browser leg now includes a confirmation click (step 3b)
-and, on a cold browser, a full GitHub sign-in, and the wait still ends
-inside the backend's five-minute state TTL. On timeout it prints:
-"Login timed out. Try again with `wafflebase login`."
+The local server binds to `127.0.0.1` only, accepts only `GET /callback`
+and the single-use `GET /launch/<token>` redirect that starts the login, and
+shuts down after a single accepted callback with a five-minute timeout. On
+timeout it prints: "Login timed out. Try again with `wafflebase login`.",
+followed by the last refusal when there was one.
+
+Five minutes, not thirty seconds, because the browser leg is no longer
+GitHub's consent screen alone: the server stops a CLI start on an
+interstitial naming the loopback port (step 3b) and waits for a deliberate
+click, and on a cold browser a full GitHub sign-in follows. Five minutes is
+also the server's own budget for one login (the CLI state cookie and the
+`CliAuthStore` state entry), so the two ends expire together instead of the
+CLI abandoning logins the server still holds open.
+
+**The authorization URL never reaches argv or a log.** It carries this
+login's nonce and PKCE challenge, so an observer of it can start their own
+login under the same pair and push the resulting code at the port. Opening a
+URL puts it in a child process's argv, which any local user can read (`ps`,
+`/proc/<pid>/cmdline`) on exactly the shared host these bindings are for, so
+`open()` is handed `http://127.0.0.1:<port>/launch/<32-byte token>` instead;
+it redirects once and is then spent. A second visit answers `410` with a page
+saying the link was already used and to re-run `wafflebase login` — the link
+goes to an arbitrary system opener, so a prefetch or a link scanner can win
+the race, and a bare 404 left the person nothing to act on but the timeout.
+It never re-offers the authorization URL, and a token that is not this
+login's stays a bare `404`. `open()` resolving is not evidence a browser
+appeared — it only means the child was spawned — so the URL is announced
+either way, through whichever channel is safe: stderr when it is a terminal
+(the only reader is the person logging in), and otherwise a `login-url.txt`
+beside the config file, written `0600` and deleted as soon as the login
+settles. Server-side, the access log redacts `/auth` query strings for the
+same reason (4xx there is logged at `warn`).
 
 The callback is bound to the login attempt by the nonce: the CLI
 accepts a `code` only when the request carries that nonce back as
@@ -891,13 +922,11 @@ under the stable code `USAGE`:
 
 ```console
 $ wafflebase docs content
-{
-  "error": {
-    "code": "USAGE",
-    "message": "missing required argument 'doc-id'"
-  }
-}
+{"error":{"code":"USAGE","message":"missing required argument 'doc-id'"}}
 ```
+
+It carries no `command`: commander throws before any action handler runs,
+so there is no acting command to attribute it to (§9).
 
 `--help`, `--version`, and bare `wafflebase` travel the same throw path
 (`commander.helpDisplayed` / `commander.version` / `commander.help`) but
@@ -1203,16 +1232,13 @@ PKCE pair:
   is refused with a message telling it to update, rather than handed a
   weaker credential.
 
-**The printed OAuth URL is a credential while the login is pending.**
-The nonce travels in it, and in the browser's argv, so anything that
-captures the CLI's stderr — a shared terminal, an agent transcript, a CI
-log — captures the nonce too. What it does *not* leak is remote access:
-the callback is `127.0.0.1`, so completing the fixation also requires
-reaching the victim machine's loopback within the listener's lifetime,
-i.e. already running code there. The URL is printed regardless because
-it is the only fallback when the browser fails to open (`open()`
-resolves when the child process spawns, not when a browser appears), so
-the CLI says so on the line beneath it rather than printing it silently.
+**The OAuth URL is a credential while the login is pending**, which is
+why it reaches neither argv nor a log — see "The authorization URL never
+reaches argv or a log" above for the launch-token indirection and the
+`0600` `login-url.txt` fallback. What it does *not* leak, even when it is
+read, is remote access: the callback is `127.0.0.1`, so completing the
+fixation also requires reaching the victim machine's loopback within the
+listener's lifetime, i.e. already running code there.
 
 The timeout message names the last refusal but never prescribes the
 downgrade. An earlier version pointed at `--allow-unbound-callback`
@@ -1529,13 +1555,38 @@ is the agent interface. This approach has key advantages:
   either stream leaves the caller with nothing to act on. Only progress
   notices are display output; the envelope is the machine-readable
   failure signal, and stderr already survives stdout redirection.
+  Every emitter builds it in `packages/cli/src/output/formatter.ts` —
+  `outputError` for the throwing commands, `forwardUpstreamError` for a
+  backend body that already *is* the envelope, and `errorEnvelope` /
+  `upstreamErrorJson` for the paths that never throw — so "one line,
+  attributed" holds on those too: the import/upload/download
+  orchestrators, the backend-error passthroughs on `docs`/`notes`/`slides`
+  content and export, `schema`'s lookup miss, and `ctx switch`. The prose
+  they used to print was the first thing an agent hit and the one thing it
+  could not parse. Their *prompts* and success notices stay prose: those go
+  to a human at a terminal, and only failures are the machine-readable
+  signal. `login` is the deliberate exception — it is an interactive,
+  browser-driven flow whose failures are read by the person at the
+  terminal, so it reports prose and carries the contract in its exit code
+  instead (§10).
+  A backend error body keeps its `code` and any extra context — agents
+  branch on it — but never its `command`: attribution is the CLI's
+  statement about which command *it* ran, so a server cannot forge it. A
+  body that is *not* envelope-shaped still keeps its text: `message` (and
+  a `message[]` of validation errors) is read off the top level too, which
+  is where Nest's default `{statusCode, message, error}` puts it, so
+  converting these paths to the envelope never costs the server's reason.
+  What it *can* put on stderr is bounded, since it is upstream-controlled
+  content: `code` is capped at 80 characters, `message` at 500, an HTML
+  document in `message` is dropped for `HTTP <status>`, and sibling fields
+  go once the whole body passes 4,000 bytes.
 
 ### 10. Error Matrix
 
 | Case                                                | Exit | Code                | Message                                                            |
 | --------------------------------------------------- | ---- | ------------------- | ------------------------------------------------------------------ |
 | Unsupported `--format` value (any command)          | 1    | INVALID_FORMAT      | "Invalid --format \"<input>\". Use one of: <that command's list>." |
-| `ctx list` without a session (`ctx switch` still prints prose — out of scope for #635) | 1 | NOT_LOGGED_IN | "Not logged in. Run `wafflebase login`."          |
+| `ctx list` / `ctx switch` without a session         | 1    | NOT_LOGGED_IN       | "Not logged in. Run `wafflebase login`."                           |
 | Malformed `--data` / stdin JSON (`sheets cells batch`) | 1  | ERROR               | "Invalid JSON cell data in --data: <parser message>"               |
 | `docs.content` on sheet document                    | 1    | TYPE_MISMATCH       | "Use `sheets cells get` for spreadsheet documents"                 |
 | `sheets.cells.get` on doc                           | 1    | TYPE_MISMATCH       | "Use `docs content` for document files"                            |
@@ -1557,7 +1608,10 @@ is the agent interface. This approach has key advantages:
 | Unparseable `--server` / image URL                  | 1    | INVALID_URL         | "Invalid URL \"<url>\". Check --server / WAFFLEBASE_SERVER."       |
 | Image `src` the CLI refuses to dereference          | 1    | IMAGE_URL_BLOCKED   | "Refusing to fetch …"                                              |
 | Create returned 2xx with no `id`                    | 2    | INVALID_RESPONSE    | "Server did not return an id"                                      |
-| Download returned 2xx with no bytes                 | 2    | HTTP_ERROR          | (backend body, else `{ error: { code: "HTTP_ERROR" } }`)           |
+| Download returned 2xx with no bytes                 | 2    | HTTP_ERROR          | "HTTP <status> carried no file content for document <id>"          |
+| `ctx switch` with no session / unknown workspace    | 1    | NOT_LOGGED_IN / NOT_FOUND | "Not logged in. Run `wafflebase login`." / "Workspace not found: <q>" |
+| `schema` for an unknown command                     | 1    | NOT_FOUND           | "Unknown command: <name>"                                          |
+| `login`: exchange / `me` / `workspaces` rejected    | 1/2  | (prose, status-derived exit) | "Token exchange failed (HTTP <status>). …"                 |
 | Yorkie attach failure                               | 2    | YORKIE_ERROR        | "Failed to attach to document <id>"                                |
 | DOCX parse failure                                  | 1    | INVALID_DOCX        | (DocxImporter message)                                             |
 | Font CDN unreachable (DNS, refused, TLS)            | 2    | NETWORK_ERROR       | "Request to <url> failed: <cause>"                                 |

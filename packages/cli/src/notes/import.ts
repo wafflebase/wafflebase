@@ -3,7 +3,7 @@ import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { NoteContent } from '../client/http-client.js';
 import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
-import { upstreamErrorJson } from '../output/formatter.js';
+import { errorEnvelope, upstreamErrorJson } from '../output/formatter.js';
 import { seg } from '../client/url.js';
 
 /**
@@ -88,6 +88,12 @@ export interface RunNotesImportArgs {
   quiet?: boolean;
   /** Print the request that *would* fire instead of issuing it. */
   dryRun?: boolean;
+  /**
+   * Dotted name of the command driving this run (`notes.import`), stamped
+   * into every error envelope so an agent running several calls can tell
+   * which one failed. The action passes `commandPath(this)`.
+   */
+  command?: string;
 }
 
 export interface RunNotesImportResult {
@@ -108,7 +114,14 @@ export async function runNotesImport(
   client: NotesImportClient,
   io: NotesImportIO = defaultNotesImportIO,
 ): Promise<RunNotesImportResult> {
-  const { file, replace, yes = false, quiet = false, dryRun = false } = args;
+  const {
+    file,
+    replace,
+    yes = false,
+    quiet = false,
+    dryRun = false,
+    command,
+  } = args;
 
   const inferredTitle = args.title ?? defaultTitleFor(file);
 
@@ -120,15 +133,10 @@ export async function runNotesImport(
     if (!yes && !dryRun) {
       if (!io.isTTY) {
         io.stderr(
-          JSON.stringify(
-            {
-              error: {
-                code: 'CONFIRMATION_REQ',
-                message: `Pass --yes to confirm replacing note "${replace}".`,
-              },
-            },
-            null,
-            2,
+          errorEnvelope(
+            'CONFIRMATION_REQ',
+            `Pass --yes to confirm replacing note "${replace}".`,
+            command,
           ),
         );
         return { exitCode: 1 };
@@ -160,7 +168,7 @@ export async function runNotesImport(
     }
     const res = await client.putNoteContent(replace, { content });
     if (!res.ok) {
-      io.stderr(upstreamErrorJson(res));
+      io.stderr(upstreamErrorJson(res, command));
       return { exitCode: exitCodeForStatus(res.status) };
     }
     io.stdout(JSON.stringify({ id: replace, replaced: true }, null, 2));
@@ -187,22 +195,13 @@ export async function runNotesImport(
 
   const created = await client.createDocument(inferredTitle, 'note');
   if (!created.ok) {
-    io.stderr(upstreamErrorJson(created));
+    io.stderr(upstreamErrorJson(created, command));
     return { exitCode: exitCodeForStatus(created.status) };
   }
   const newId = (created.data as { id?: string } | null)?.id;
   if (!newId) {
     io.stderr(
-      JSON.stringify(
-        {
-          error: {
-            code: 'INVALID_RESPONSE',
-            message: 'Server did not return an id',
-          },
-        },
-        null,
-        2,
-      ),
+      errorEnvelope('INVALID_RESPONSE', 'Server did not return an id', command),
     );
     // A 2xx that omitted the id is the server contradicting itself —
     // nothing the caller can retype, so it exits with the system class
@@ -212,7 +211,7 @@ export async function runNotesImport(
 
   const put = await client.putNoteContent(newId, { content });
   if (!put.ok) {
-    io.stderr(upstreamErrorJson(put));
+    io.stderr(upstreamErrorJson(put, command));
     return { exitCode: exitCodeForStatus(put.status) };
   }
 
