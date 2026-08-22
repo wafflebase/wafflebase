@@ -915,7 +915,7 @@ export class YorkieDocStore implements DocStore {
 
   private anchorDocPosition(
     pos: DocPosition,
-    lineAffinity: 'forward' | 'backward' = 'backward',
+    lineAffinity?: 'forward' | 'backward',
   ): AnchoredDocPosition | null {
     const root = this.doc.getRoot();
     const tree = root.content;
@@ -961,7 +961,16 @@ export class YorkieDocStore implements DocStore {
       const block = this.getBlockByRegion(currentDoc, path, region);
       if (!block) return pos;
       const len = this.blockTextLength(block);
-      return { blockId: pos.blockId, offset: Math.max(0, Math.min(pos.offset, len)) };
+      // Spread rather than assign, here and on every other resolve path: a
+      // position that carries no affinity has to come back the exact shape it
+      // went in as. `lineAffinity: undefined` is an OWN property, which
+      // `deepStrictEqual` — what the caret-anchoring integration tests use —
+      // reads as different from an absent one.
+      return {
+        blockId: pos.blockId,
+        offset: Math.max(0, Math.min(pos.offset, len)),
+        ...(pos.lineAffinity ? { lineAffinity: pos.lineAffinity } : {}),
+      };
     } catch {
       return pos;
     }
@@ -984,8 +993,15 @@ export class YorkieDocStore implements DocStore {
 
   private anchorDocRange(selection: DocRange | null | undefined): AnchoredDocRange | null {
     if (!selection) return null;
-    const anchor = this.anchorDocPosition(selection.anchor, 'backward');
-    const focus = this.anchorDocPosition(selection.focus, 'backward');
+    // Endpoints carry their own wrap-boundary affinity when a click or
+    // caret move produced one. Left unset, the endpoint keeps the
+    // default reading once it is resolved back and painted.
+    const anchor = this.anchorDocPosition(
+      selection.anchor, selection.anchor.lineAffinity,
+    );
+    const focus = this.anchorDocPosition(
+      selection.focus, selection.focus.lineAffinity,
+    );
     if (!anchor || !focus) return null;
     return {
       anchor,
@@ -1037,7 +1053,11 @@ export class YorkieDocStore implements DocStore {
     const root = this.doc.getRoot();
     const tree = root.content;
     if (!tree || typeof tree.getRootTreeNode !== 'function') {
-      return { blockId: anchor.blockId, offset: anchor.offset };
+      return {
+        blockId: anchor.blockId,
+        offset: anchor.offset,
+        ...(anchor.lineAffinity ? { lineAffinity: anchor.lineAffinity } : {}),
+      };
     }
 
     try {
@@ -1054,6 +1074,7 @@ export class YorkieDocStore implements DocStore {
       return {
         blockId,
         offset: this.blockOffsetFromPath(blockNode, path.slice(blockPath.length)),
+        ...(anchor.lineAffinity ? { lineAffinity: anchor.lineAffinity } : {}),
       };
     } catch {
       return this.fallbackAnchoredDocPosition(anchor);
@@ -1105,6 +1126,7 @@ export class YorkieDocStore implements DocStore {
       return {
         blockId: anchor.blockId,
         offset: Math.min(anchor.offset, this.blockTextLength(sameBlock)),
+        ...(anchor.lineAffinity ? { lineAffinity: anchor.lineAffinity } : {}),
       };
     }
 
@@ -1184,7 +1206,7 @@ export class YorkieDocStore implements DocStore {
    * composition anchor.
    */
   setCompositionStart(pos: DocPosition | null): void {
-    this.compositionStartAnchor = pos ? this.anchorDocPosition(pos, 'backward') : null;
+    this.compositionStartAnchor = pos ? this.anchorDocPosition(pos) : null;
   }
 
   /**
@@ -2948,7 +2970,7 @@ export class YorkieDocStore implements DocStore {
    * Called from DocsView when the local cursor moves.
    */
   updateCursorPos(
-    pos: { blockId: string; offset: number } | null,
+    pos: { blockId: string; offset: number; lineAffinity?: 'forward' | 'backward' } | null,
     selection?: DocsSelection | null,
   ): void {
     // Skip entirely while a composition is in progress. `pos` may be a
@@ -2973,7 +2995,9 @@ export class YorkieDocStore implements DocStore {
           focus: this.clampPosToModel(selection.focus),
         }
       : selection;
-    this.localCursorAnchor = clampedPos ? this.anchorDocPosition(clampedPos, 'backward') : null;
+    this.localCursorAnchor = clampedPos
+      ? this.anchorDocPosition(clampedPos, clampedPos.lineAffinity)
+      : null;
     this.localSelectionAnchor = this.anchorDocRange(clampedSelection ?? null);
     this.doc.update((_, p) => {
       p.set({

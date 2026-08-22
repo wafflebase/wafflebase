@@ -438,6 +438,39 @@ describe('YorkieDocStore local caret anchoring', { skip: !shouldRun }, () => {
     }
   });
 
+  it('carries a caret lineAffinity across an upstream edit, and adds none when absent', async () => {
+    // The affinity has to survive anchor -> resolve, and a caret that has none
+    // has to resolve without the key at all: `lineAffinity: undefined` is an
+    // own property, so materializing it changes the resolved shape for every
+    // caller that compares strictly.
+    const block = makeBlock('HelloWorld');
+    const ctx = await createTwoUserDocs('caret-anchor-affinity', [block]);
+    try {
+      ctx.storeB.updateCursorPos({
+        blockId: block.id,
+        offset: 5,
+        lineAffinity: 'forward',
+      });
+
+      ctx.storeA.insertText(block.id, 0, 'Hey ');
+      await ctx.sync();
+
+      assert.deepEqual(ctx.storeB.resolveAnchoredLocalCursor().cursor, {
+        blockId: block.id,
+        offset: 9,
+        lineAffinity: 'forward',
+      });
+
+      ctx.storeB.updateCursorPos({ blockId: block.id, offset: 5 });
+      assert.deepEqual(ctx.storeB.resolveAnchoredLocalCursor().cursor, {
+        blockId: block.id,
+        offset: 5,
+      });
+    } finally {
+      await ctx.cleanup();
+    }
+  });
+
   it('keeps both User B selection endpoints anchored across upstream edits', async () => {
     const block = makeBlock('HelloWorld');
     const ctx = await createTwoUserDocs('selection-anchor-insert-delete', [block]);
