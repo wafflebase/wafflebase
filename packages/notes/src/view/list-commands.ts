@@ -221,7 +221,12 @@ function toggleKind(view: EditorView, kind: NoteListKind): void {
   const all = lines.every((p) => kindOf(p) === kind);
   const counters = new Map<number, number>();
   replacePrefixes(view, lines, (p) => {
-    if (all) return p.indent;
+    // Turning a list off drops the indent with the marker. Keeping it would
+    // leave a nested item's content indented under the item above, which
+    // markdown reads as that item's lazy continuation (or, at four spaces
+    // outside a list, as a code block) — the line visually disappears into
+    // its former parent instead of becoming the paragraph it now is.
+    if (all) return '';
     if (kind === 'ordered') {
       const n = (counters.get(p.indent.length) ?? 0) + 1;
       counters.set(p.indent.length, n);

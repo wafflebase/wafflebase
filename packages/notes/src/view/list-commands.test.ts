@@ -37,6 +37,15 @@ describe('list toggles', () => {
     view.destroy();
   });
 
+  it('drops the indent when a nested item is turned back into text', () => {
+    // Keeping the indent would leave "b" as a lazy continuation of "a" — the
+    // line reads as part of the item above instead of as its own paragraph.
+    const view = mount('- a\n    - b', 10);
+    toggleBulletList(view);
+    expect(view.state.doc.toString()).toBe('- a\nb');
+    view.destroy();
+  });
+
   it('keeps the caret in the text as the marker is added', () => {
     const view = mount('milk', 2);
     toggleBulletList(view);
