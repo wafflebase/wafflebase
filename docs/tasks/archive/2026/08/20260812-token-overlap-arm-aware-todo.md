@@ -164,7 +164,7 @@ It shows recall is not silently destroyed; it is not a recall measurement.
   | bar → 0.25 | 1 |
   | drop the floor in `crossArmTokenOverlap` | 1 |
 
-- [ ] **not verified: whether the one changed verdict is correct.** There is no adjudicated pair
-      set. This PR does not claim the new metric is more accurate — it claims the containment
-      rationale is applied to the population it was written for, and that same-arm scoring is
-      provably unchanged.
+- **not verified: whether the one changed verdict is correct.** There is no adjudicated pair
+  set. This PR does not claim the new metric is more accurate — it claims the containment
+  rationale is applied to the population it was written for, and that same-arm scoring is
+  provably unchanged.

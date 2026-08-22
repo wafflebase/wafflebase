@@ -205,10 +205,10 @@ vintage, so none of them could show it.
       0 findings gained or lost.
 - [x] Verified from the **committed tree** (`git archive` of the branch), not the
       working copy.
-- [ ] **Not verified: whether any of the 29 repaired titles changes a downstream
-      score.** Nothing consumes a CodeRabbit finding record yet on the scoring side
-      except `volume-mix`, which reads counts and never `summary`. This is expected
-      to move no published number today.
+- **Not verified: whether any of the 29 repaired titles changes a downstream
+  score.** Nothing consumes a CodeRabbit finding record yet on the scoring side
+  except `volume-mix`, which reads counts and never `summary`. This is expected
+  to move no published number today.
 
 ---
 
@@ -301,9 +301,9 @@ machinery-looking entry is the signal.
 - [x] `--audit` recovery counts still identical to upstream, per PR and in total.
 - [x] Corpus: **1 of 30** summaries changes, **all 3 empty details fill in**, census
       still `30 / 0 / 0`, no record gains an empty summary.
-- [ ] **Not verified:** whether the 38 repaired titles move a downstream score. Nothing
-      under `eval/` reads a CodeRabbit finding's `summary` in a published number today,
-      and `volume-mix` reads counts only.
+- **Not verified:** whether the 38 repaired titles move a downstream score. Nothing
+  under `eval/` reads a CodeRabbit finding's `summary` in a published number today,
+  and `volume-mix` reads counts only.
 
 ## Appended: correction to a number this doc previously stated
 

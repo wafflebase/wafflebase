@@ -55,7 +55,8 @@ its weaknesses fixed:
       with the shipped design
 - [x] `pnpm verify:fast` green
 - [x] Self review over the branch diff — 3 findings, all fixed (see Review)
-- [ ] Manual smoke in `pnpm dev` (paste, drop, toolbar, failure, undo)
+- Not verified: manual smoke in `pnpm dev` (paste, drop, toolbar, failure,
+  undo). Code and unit tests are green; no human run was performed.
 
 ## Out of scope
 

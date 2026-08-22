@@ -427,23 +427,23 @@ None is fixed here; all are edits to merged files this change has no other reaso
 - [x] The undecided queue's score distribution and the 17 pairs at or above 0.70 **read by
       hand** on k1, and the severity-stratified churn re-derived from the three replicates'
       payloads directly rather than through this module.
-- [ ] **Not verified: an `after-window` record on real data.** The corpus is frozen at the
-      reviewed commit, so the assertion is exercised by fixtures only. The same is true of
-      an `absent` arm, an `error` item, an unstated CodeRabbit severity and a coerced panel
-      severity — every one of them is unit-tested and none occurs in this store.
+- **Not verified: an `after-window` record on real data.** The corpus is frozen at the
+  reviewed commit, so the assertion is exercised by fixtures only. The same is true of
+  an `absent` arm, an `error` item, an unstated CodeRabbit severity and a coerced panel
+  severity — every one of them is unit-tested and none occurs in this store.
 - [x] The duplicate-`--run-id` guard exercised end to end: `--run-id k1 --run-id k2 --run-id
       k1` exits **2** with `--run-id must name distinct runs; repeated: k1`, and two distinct
       ids pass it and reach the store. Observed, not unit-tested — see the box below.
-- [ ] **Not verified by a test: `main()`.** The sibling adapters in this directory test their
-      exported functions and not their CLIs, and a CLI test here would need a store to write
-      to, which these tests deliberately do not have. So the duplicate-run-id guard and the
-      non-zero exit on a partial result are **observed by running the CLI** rather than
-      pinned. The complete case was observed exiting **0**; the partial path is read but
-      unrun.
-- [ ] **Not verified: more than three replicates**, or a corpus other than the pilot.
-- [ ] **Not run:** `verify:self`, `verify`, `verify:fast`, `verify:browser`,
-      `verify:integration`, `build`. This diff is `scripts/agent/**` and a task doc; nothing
-      here can affect them, and CI runs them on the PR regardless.
+- **Not verified by a test: `main()`.** The sibling adapters in this directory test their
+  exported functions and not their CLIs, and a CLI test here would need a store to write
+  to, which these tests deliberately do not have. So the duplicate-run-id guard and the
+  non-zero exit on a partial result are **observed by running the CLI** rather than
+  pinned. The complete case was observed exiting **0**; the partial path is read but
+  unrun.
+- **Not verified: more than three replicates**, or a corpus other than the pilot.
+- **Not run:** `verify:self`, `verify`, `verify:fast`, `verify:browser`,
+  `verify:integration`, `build`. This diff is `scripts/agent/**` and a task doc; nothing
+  here can affect them, and CI runs them on the PR regardless.
 
 ---
 

@@ -351,16 +351,16 @@ direction. Worth its own PR with the ceiling defined over *distinct panel partne
       test that names the behaviour. One survivor was proven ineffective, then closed with a
       new test — see *Corrected while building* 6.
 - [x] **Verified from the committed tree**, not the working copy.
-- [ ] **Not verified: a `distant` label.** None exists. `gold` and `silver` are both now
-      exercised on real data — see the tier box above. An unreadable label file, a key collision
-      and a stale `diff_sha256` also occur nowhere in the store, so those three remain
-      fixture-only.
+- **Not verified: a `distant` label.** None exists. `gold` and `silver` are both now
+  exercised on real data — see the tier box above. An unreadable label file, a key collision
+  and a stale `diff_sha256` also occur nowhere in the store, so those three remain
+  fixture-only.
 - [x] **A class finished apart, on real data.** Not reachable when this was written — the 23
       gold labels finish none of the 175 pairs owned by the 12 CodeRabbit findings they touch —
       but the silver batch finishes **4**, so the ceiling-moving path is now exercised end to
       end as well as by fixtures. It remains unreachable in the **gold** band, which is the
       correct state of that evidence rather than a gap in the tests.
-- [ ] **Not verified: more than three replicates**, or a corpus other than the pilot.
-- [ ] **Not run:** `verify:self`, `verify`, `verify:fast`, `verify:browser`,
-      `verify:integration`, `build`. This diff is `scripts/agent/**` plus two task docs;
-      nothing here can affect them, and CI runs them on the PR regardless.
+- **Not verified: more than three replicates**, or a corpus other than the pilot.
+- **Not run:** `verify:self`, `verify`, `verify:fast`, `verify:browser`,
+  `verify:integration`, `build`. This diff is `scripts/agent/**` plus two task docs;
+  nothing here can affect them, and CI runs them on the PR regardless.

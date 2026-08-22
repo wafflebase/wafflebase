@@ -396,19 +396,19 @@ order coverage · preview — nothing will be written
       Counted directly after a run: **0 `eval-adjudicate-test-*` directories left in
       `os.tmpdir()`**, against 3 before the helper awaited.
 
-- [ ] **Not verified: the atomic-write property.** `writeFileAtomic` writes to a
-      `.part-<pid>` file and renames, so a destination is only ever absent or complete.
-      Reproducing a crash between the two is not something a `node --test` case can do
-      honestly, so it is asserted by construction and by being the third copy of a
-      pattern `capture-store.mjs` and `store.mjs` already carry.
+- **Not verified: the atomic-write property.** `writeFileAtomic` writes to a
+  `.part-<pid>` file and renames, so a destination is only ever absent or complete.
+  Reproducing a crash between the two is not something a `node --test` case can do
+  honestly, so it is asserted by construction and by being the third copy of a
+  pattern `capture-store.mjs` and `store.mjs` already carry.
 
-- [ ] **Not verified: that the blinding holds for prose.** The word scan proves the four
-      signals of a constructed record do not survive the projection. It cannot prove
-      that a reviewer's own evidence text never contains the word "major" — and that
-      would be the reviewer's word rather than a leak. The structural guarantee is the
-      allowlist; the scan is a check on top of it.
+- **Not verified: that the blinding holds for prose.** The word scan proves the four
+  signals of a constructed record do not survive the projection. It cannot prove
+  that a reviewer's own evidence text never contains the word "major" — and that
+  would be the reviewer's word rather than a leak. The structural guarantee is the
+  allowlist; the scan is a check on top of it.
 
-- [ ] **Not verified: any label.** No judgement is produced by this change, so the
-      schema is exercised only against constructed records and the real store's
-      `meta.json`. The first real labels will be written by a human session using this
-      tool.
+- **Not verified: any label.** No judgement is produced by this change, so the
+  schema is exercised only against constructed records and the real store's
+  `meta.json`. The first real labels will be written by a human session using this
+  tool.

@@ -400,8 +400,8 @@ other reason to touch.
       real data**, not just unit-tested: each of `pilot-01__k1/k2/k3` scores on its
       own and the run id is on every row. What remains unverified is any AGGREGATION
       across them, deliberately — that is the reliability scorer's.
-- [ ] **Not verified: any item with `status: "error"`, an absent population, or an
-      unstated CodeRabbit severity.** All three paths are unit-tested; all seven
-      pilot items are `ok`, so the corpus exercises the happy subset of each.
-- [ ] **Not run:** `verify:fast`, `verify:browser`, `verify:integration`. Nothing
-      here can affect them and CI runs them regardless.
+- **Not verified: any item with `status: "error"`, an absent population, or an
+  unstated CodeRabbit severity.** All three paths are unit-tested; all seven
+  pilot items are `ok`, so the corpus exercises the happy subset of each.
+- **Not run:** `verify:fast`, `verify:browser`, `verify:integration`. Nothing
+  here can affect them and CI runs them regardless.

@@ -217,12 +217,12 @@ with `git archive` and given the same `node_modules` (pinned `eslint@9.24.0`,
   adjudicated.** The CodeRabbit census reproduces the corpus's measured 30 / 0 / 3 / 13 / 14
   independently.
 
-- [ ] **No precision figure has been produced from real labels**, because none exist yet.
-      The `critical`-versus-`major` distinction, the stale-vintage join and the
-      bundled-reading count are exercised against fixtures built to the pilot's measured
-      shape, not against the store.
-- [ ] **426 distinct finding keys is not 245 defect classes.** The panel arm's claim census
-      counts distinct `finding_key`s across the three replicates and gets 426 of 428
-      records — exact key equality merges almost nothing, and the corpus's 245 comes from
-      `groupFindings`' matching instead. The field name says which level it is; the gap
-      between the two numbers is unverified beyond this observation.
+- **No precision figure has been produced from real labels**, because none exist yet.
+  The `critical`-versus-`major` distinction, the stale-vintage join and the
+  bundled-reading count are exercised against fixtures built to the pilot's measured
+  shape, not against the store.
+- **426 distinct finding keys is not 245 defect classes.** The panel arm's claim census
+  counts distinct `finding_key`s across the three replicates and gets 426 of 428
+  records — exact key equality merges almost nothing, and the corpus's 245 comes from
+  `groupFindings`' matching instead. The field name says which level it is; the gap
+  between the two numbers is unverified beyond this observation.

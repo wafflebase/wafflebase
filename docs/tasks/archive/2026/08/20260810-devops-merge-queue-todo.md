@@ -67,11 +67,11 @@ Contributor-visible change: click **Merge when ready** instead of rebasing.
 
 ## Maintainer decision needed
 
-- [ ] Enable **Require merge queue** for `main` (Settings → Branches → rule for
+- [x] Enable **Require merge queue** for `main` (Settings → Branches → rule for
       `main`; the repo uses classic branch protection, not a ruleset).
       Recommended parameters and the verify/rollback steps are in
       [MAINTAINING.md](../../../MAINTAINING.md#merge-queue).
-- [ ] **Accept that this costs CI time rather than saving it.** Roughly one extra
+- [x] **Accept that this costs CI time rather than saving it.** Roughly one extra
       run per queued PR, on top of what its own pushes trigger, at ~18 min each.
       There is no grouping discount: per GitHub's docs, "Merge limits do not
       combine `merge_group` builds", and Build concurrency only throttles how many
@@ -79,7 +79,7 @@ Contributor-visible change: click **Merge when ready** instead of rebasing.
       the rebase loop) and correctness (semantic conflicts caught pre-merge). If
       runner minutes are the binding constraint, this is the wrong trade and the
       proposal should be declined.
-- [ ] Accept the residual risk: a `merge_group` run executes PR code in this
+- [x] Accept the residual risk: a `merge_group` run executes PR code in this
       repository rather than a fork's sandbox, so it runs alongside a
       `GITHUB_TOKEN` carrying `ci.yml`'s workflow-level `pull-requests: write` /
       `issues: write`, and alongside any secret the workflow references — here

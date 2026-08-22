@@ -312,12 +312,12 @@ plan for:
 
 **Not verified, and why:**
 
-- [ ] **Nothing has been grouped across ARMS on real data.** Every measurement above is
-      panel-only, because the CodeRabbit side of the blocking-inline population is 16
-      comments across 50 pull requests. The cross-arm path is covered by fixtures only.
-- [ ] **No consumer exercises this.** See below.
-- [ ] **The `maybe` queue's usefulness is unmeasured.** 9,448 links is a count, not a
-      judgement; whether a curator can work that queue is unknown until one tries.
+- **Nothing has been grouped across ARMS on real data.** Every measurement above is
+  panel-only, because the CodeRabbit side of the blocking-inline population is 16
+  comments across 50 pull requests. The cross-arm path is covered by fixtures only.
+- **No consumer exercises this.** See below.
+- **The `maybe` queue's usefulness is unmeasured.** 9,448 links is a count, not a
+  judgement; whether a curator can work that queue is unknown until one tries.
 
 ## What has no consumer today
 
@@ -545,10 +545,10 @@ distinguished an absent lens from two equal ones.**
 
 **Not verified, and why:**
 
-- [ ] **#779's own scorer was not run.** `eval/complementarity.mjs` is not on `main`, so there
-      is nothing to execute. The property its numbers depend on — byte-identical output for a
-      top-level `lens` — was measured directly instead, on the same three replicates it reads.
-- [ ] **The 166/173/164 figures were not reproduced as stated.** They are a both-arms
-      population; reproducing them needs the CodeRabbit arm, which `corpusRecords` fetches from
-      the GitHub API. The panel half and the deltas are measured above.
-- [ ] **Whether cross-lens restatement should collapse is still open.** Reported, not decided.
+- **#779's own scorer was not run.** `eval/complementarity.mjs` is not on `main`, so there
+  is nothing to execute. The property its numbers depend on — byte-identical output for a
+  top-level `lens` — was measured directly instead, on the same three replicates it reads.
+- **The 166/173/164 figures were not reproduced as stated.** They are a both-arms
+  population; reproducing them needs the CodeRabbit arm, which `corpusRecords` fetches from
+  the GitHub API. The panel half and the deltas are measured above.
+- **Whether cross-lens restatement should collapse is still open.** Reported, not decided.
