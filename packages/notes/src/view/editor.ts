@@ -24,6 +24,9 @@ import {
   toggleItalic,
   toggleStrikethrough,
   toggleLink,
+  toggleQuote,
+  insertCodeBlock,
+  insertFoldout,
   insertTable,
   type NoteInlineFormats,
 } from './commands.js';
@@ -125,6 +128,15 @@ export interface NoteEditorAPI {
   toggleStrikethrough(): void;
   /** Wrap the selection as a `[text](url)` link, or unwrap the link at cursor. */
   toggleLink(): void;
+  /** Prefix the selected lines with `> `, or strip it when all are quoted. */
+  toggleQuote(): void;
+  /** Fence the selection as a ``` code block, or open an empty fence. */
+  insertCodeBlock(): void;
+  /**
+   * Insert a `<details>`/`<summary>` foldout skeleton at the cursor, caret
+   * inside the summary. Not a toggle — foldouts nest.
+   */
+  insertFoldout(): void;
   /** Insert a `rows`×`cols` markdown table skeleton at the cursor. */
   insertTable(rows: number, cols: number): void;
   /**
@@ -490,6 +502,9 @@ export function initialize(
     toggleItalic: () => toggleItalic(view),
     toggleStrikethrough: () => toggleStrikethrough(view),
     toggleLink: () => toggleLink(view),
+    toggleQuote: () => toggleQuote(view),
+    insertCodeBlock: () => insertCodeBlock(view),
+    insertFoldout: () => insertFoldout(view),
     insertTable: (rows, cols) => insertTable(view, rows, cols),
     insertImageFiles: (files) => {
       if (!uploadImage) return;

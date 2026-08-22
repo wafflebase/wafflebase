@@ -1,6 +1,9 @@
 import { createRequire } from 'node:module';
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { EditorState } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import { NotePreview } from './preview.js';
+import { insertFoldout } from './commands.js';
 import {
   MERMAID_CARRIER_PATTERNS_VERSION,
   mermaidFenceHtml,
@@ -93,6 +96,22 @@ describe('NotePreview', () => {
     expect(details?.hasAttribute('open')).toBe(false);
     // Body markdown is rendered inside the disclosure.
     expect(details?.textContent).toContain('Hidden body');
+  });
+
+  // The toolbar's Foldout button and this renderer have to agree on the source
+  // shape: four-space-indented tags would parse as an indented code block.
+  it('renders the toolbar-inserted foldout skeleton as a disclosure', () => {
+    const view = new EditorView({ state: EditorState.create({ doc: '' }) });
+    insertFoldout(view);
+    const source = view.state.doc.toString();
+    view.destroy();
+
+    const preview = new NotePreview();
+    preview.render(source);
+    expect(
+      preview.el.querySelector('details.note-details > summary.note-summary'),
+    ).toBeTruthy();
+    expect(preview.el.querySelector('pre')).toBeNull();
   });
 
   it('renders <details open> expanded by default', () => {

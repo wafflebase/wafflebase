@@ -403,6 +403,24 @@ is ever produced. `<details open>` renders expanded by default; a stray
 `</details>` with no matching open falls through and is escaped as literal
 text. Styling lives in `packages/frontend/src/app/notes/notes-preview.css`.
 
+The toolbar's **Foldout** button (issue #756) inserts the skeleton at the
+caret and leaves it between `<summary>` and `</summary>`. It is a plain
+insert, not a toggle, because foldouts nest. The tags are written flush left:
+`markdown-it`'s indented-code rule runs *before* the disclosure rule, so a
+four-space-indented `<summary>` would render as a code block —
+`preview.test.ts` renders the command's own output to keep the two in step.
+The same group adds **Quote** (line-wise `> ` toggle over the selection) and
+**Code block** (fences the selection, or opens an empty fence).
+
+Rendering is deliberately flat: no border, no background, and the prose-sm
+paragraph margin on the container, so a foldout sits on the same vertical
+grid as ordinary text and is marked only by the disclosure triangle. Every
+non-summary child is indented by `margin-left`, so the folded body reads as a
+child of the summary and nesting compounds the indent. `margin-left` rather
+than `padding-left` because typography's rules come through `:where()` and
+carry no specificity — a padding override would replace a nested list's
+`padding-inline-start`.
+
 #### Mermaid diagrams — shipped (issue #625)
 
 A ` ```mermaid ` fence renders as a diagram rather than a code block, matching
