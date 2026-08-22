@@ -283,9 +283,15 @@ export function toggleQuote(view: EditorView): void {
     return { from: l.from, to: l.from + marker.length, insert: '' };
   });
 
+  // Map the selection forward (assoc 1) rather than letting it map by default:
+  // a caret sitting exactly at a line start would otherwise stay *before* the
+  // `> ` just inserted there, so the next keystroke would land ahead of the
+  // marker instead of inside the quote.
+  const changeSet = state.changes(changes);
   view.dispatch(
     state.update({
-      changes,
+      changes: changeSet,
+      selection: state.selection.map(changeSet, 1),
       userEvent: quoted ? 'delete' : 'input',
       scrollIntoView: true,
     }),

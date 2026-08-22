@@ -134,6 +134,19 @@ describe('markdown commands', () => {
     view.destroy();
   });
 
+  it('keeps the caret after the marker when quoting from a line start', () => {
+    const view = mount('', 0);
+    toggleQuote(view);
+    expect(view.state.doc.toString()).toBe('> ');
+    // Not 0: typing next must land inside the quote, not ahead of the marker.
+    expect(view.state.selection.main.head).toBe(2);
+    // And unquoting brings it back to the start of the now-plain line.
+    toggleQuote(view);
+    expect(view.state.doc.toString()).toBe('');
+    expect(view.state.selection.main.head).toBe(0);
+    view.destroy();
+  });
+
   it('quotes a partly quoted selection rather than unquoting it', () => {
     const view = mount('> one\ntwo', 0, 9);
     toggleQuote(view);
