@@ -90,6 +90,11 @@ Behavior depends on selection type:
   untouched.
 - This is why the preset path does not use `setStyle`, whose contract is to
   preserve an explicit `false`.
+- The per-cell rewrite goes through `compactCell`, which now carries a cell's
+  spill fields (`spillRows`/`spillCols` on a dynamic-array anchor,
+  `spillAnchor`/`spillBlocked` on a ghost) over the write. Any style-only
+  rewrite — `setStyle`, clear-formatting, a border preset — would otherwise
+  orphan the spill range it touched.
 
 ### `toggleRangeStyle(prop)`
 

@@ -3989,6 +3989,10 @@ export class Sheet {
    * the same defaults table and conflict check as the range-style path
    * (`setRangeStyle` -> `addRangeStylePatch`), so a `false` that is needed to
    * override a sheet/column/row/range-style layer is still written.
+   *
+   * The rewrite goes through `compactCell`, which carries the cell's spill
+   * fields over, so bordering a dynamic-array formula's anchor or ghost does
+   * not orphan its spill range.
    */
   private async applyBorderPatch(
     anchor: Ref,

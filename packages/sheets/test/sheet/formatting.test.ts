@@ -377,6 +377,78 @@ describe('Sheet.Formatting', () => {
     expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({ bt: false });
   });
 
+  it('should keep non-border style across a border apply and clear', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setStyle({ r: 1, c: 1 }, { b: true, bg: '#ff0000', al: 'center' });
+    sheet.selectStart({ r: 1, c: 1 });
+
+    expect(await sheet.setRangeBorders('all')).toBe(true);
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      b: true,
+      bg: '#ff0000',
+      al: 'center',
+      bt: true,
+      bl: true,
+      br: true,
+      bb: true,
+    });
+
+    // Pruning the border keys must not take the unrelated keys with them.
+    expect(await sheet.setRangeBorders('clear')).toBe(true);
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
+      b: true,
+      bg: '#ff0000',
+      al: 'center',
+    });
+  });
+
+  it('should keep non-border style when a border preset prunes to nothing', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, 'Label');
+    await sheet.setStyle({ r: 1, c: 1 }, { b: true });
+    sheet.selectStart({ r: 1, c: 1 });
+
+    // `clear` on a cell that never had borders prunes every patched key away,
+    // so the cell must be left exactly as it was rather than emptied.
+    expect(await sheet.setRangeBorders('clear')).toBe(true);
+    expect((await sheet.fetchGrid([{ r: 1, c: 1 }, { r: 1, c: 1 }])).get('A1'))
+      .toEqual({ v: 'Label', s: { b: true } });
+  });
+
+  it('should keep spill metadata across a border apply and clear', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+    // A dynamic-array anchor and one of its ghost cells.
+    await store.set({ r: 1, c: 1 }, { f: '=MUNIT(2)', spillRows: 2, spillCols: 2 });
+    await store.set({ r: 1, c: 2 }, { v: '0', spillAnchor: 'A1' });
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    expect(await sheet.setRangeBorders('all')).toBe(true);
+
+    expect(await store.get({ r: 1, c: 1 })).toMatchObject({
+      f: '=MUNIT(2)',
+      spillRows: 2,
+      spillCols: 2,
+    });
+    expect(await store.get({ r: 1, c: 2 })).toMatchObject({
+      v: '0',
+      spillAnchor: 'A1',
+    });
+
+    expect(await sheet.setRangeBorders('clear')).toBe(true);
+
+    expect(await store.get({ r: 1, c: 1 })).toEqual({
+      f: '=MUNIT(2)',
+      spillRows: 2,
+      spillCols: 2,
+    });
+    expect(await store.get({ r: 1, c: 2 })).toEqual({
+      v: '0',
+      spillAnchor: 'A1',
+    });
+  });
+
   it('should reject border presets for non-cell selections', async () => {
     const sheet = new Sheet(new MemStore());
     sheet.selectColumn(1);
