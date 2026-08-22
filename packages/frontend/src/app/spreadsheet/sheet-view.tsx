@@ -1015,6 +1015,12 @@ export function SheetView({
         toast.error(message);
       });
 
+      // Surface refused gestures (e.g. a drag-move that would corrupt a merged
+      // block) so they don't look like the drag simply did nothing.
+      s.onNotice((message) => {
+        toast.error(message);
+      });
+
       if (isMobileRef.current && !readOnly) {
         s.setMobileEditCallback((cellRef, value) => {
           mobileEditValueRef.current = value;

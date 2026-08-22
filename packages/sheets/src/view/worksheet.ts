@@ -18,7 +18,7 @@ import {
 } from '../formula/formula';
 import { anchorToRef } from '../model/workbook/anchor-conversion';
 import { DimensionIndex } from '../model/worksheet/dimensions';
-import { Sheet } from '../model/worksheet/sheet';
+import { RangeOpRefusal, Sheet } from '../model/worksheet/sheet';
 import { Theme, getThemeColor } from './theme';
 import { cellHyperlink } from './url-detect';
 import { FormulaBar } from './formulabar';
@@ -88,6 +88,24 @@ function validationRuleDetail(rule: DataValidationRule): string {
       return `${describeTextRule(rule)}.`;
     default:
       return 'does not match a value in the dropdown list.';
+  }
+}
+
+/**
+ * `refusalMessage` returns the text shown when the model declines a range
+ * gesture, so the user learns why the drag or fill did nothing.
+ */
+function refusalMessage(refusal: RangeOpRefusal): string {
+  switch (refusal) {
+    case 'merge-source-split':
+      return "Can't move part of a merged cell. Select the whole merge first.";
+    case 'merge-dest-partial':
+      return (
+        "Can't drop onto part of a merged cell. " +
+        'Unmerge the destination first.'
+      );
+    default:
+      return "Can't autofill across merged cells. Unmerge them first.";
   }
 }
 
@@ -181,6 +199,7 @@ export class Worksheet {
   private validationTooltip: HTMLDivElement;
   private hoveredValidationCandidate: string | null = null;
   private onValidationErrorCallback?: (message: string) => void;
+  private onNoticeCallback?: (message: string) => void;
 
   private rowDim: DimensionIndex;
   private colDim: DimensionIndex;
@@ -395,6 +414,9 @@ export class Worksheet {
 
   public async initialize(sheet: Sheet) {
     this.sheet = sheet;
+    this.sheet.setOnRefusal((refusal) => {
+      this.onNoticeCallback?.(refusalMessage(refusal));
+    });
     this.sheet.setDimensions(this.rowDim, this.colDim);
     await this.sheet.loadDimensions();
     await this.sheet.loadStyles();
@@ -824,6 +846,14 @@ export class Worksheet {
    */
   public setOnValidationError(callback: (message: string) => void): void {
     this.onValidationErrorCallback = callback;
+  }
+
+  /**
+   * `setOnNotice` registers a callback fired when a gesture the user made
+   * could not be carried out (used to surface a toast in the host).
+   */
+  public setOnNotice(callback: (message: string) => void): void {
+    this.onNoticeCallback = callback;
   }
 
   /**

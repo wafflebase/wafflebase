@@ -199,6 +199,31 @@ describe('Sheet.Calcuation', () => {
     expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('BLOCKER');
   });
 
+  it('spill recovers when a drag-move carries the blocking cell away', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1'); await sheet.setData({ r: 1, c: 2 }, '0');
+    await sheet.setData({ r: 2, c: 1 }, '0'); await sheet.setData({ r: 2, c: 2 }, '1');
+    await sheet.setData({ r: 5, c: 1 }, 'BLOCKER');
+    await sheet.setData({ r: 4, c: 1 }, '=MINVERSE(A1:B2)');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('#REF!');
+
+    // Dragging the blocker to D8 clears A5, which must re-queue the anchor
+    // just as clearing it any other way does.
+    await sheet.moveRangeTo(
+      [
+        { r: 5, c: 1 },
+        { r: 5, c: 1 },
+      ],
+      { r: 8, c: 4 },
+    );
+
+    expect(await sheet.toDisplayString({ r: 8, c: 4 })).toBe('BLOCKER');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 4, c: 2 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 5, c: 2 })).toBe('1');
+  });
+
   it('MUNIT spills identity matrix into adjacent cells', async () => {
     const sheet = new Sheet(new MemStore());
     // =MUNIT(3) at A1 should spill a 3×3 identity matrix

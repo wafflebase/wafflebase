@@ -203,6 +203,34 @@ describe('Sheet.autofill', () => {
     expect(changed).toBe(false);
     expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('');
   });
+
+  it('reports why an autofill across merged cells is refused', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, 'merged');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.toggleMergeSelection();
+
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.autofill({ r: 2, c: 1 });
+
+    expect(refusals).toEqual(['merge-autofill']);
+  });
+
+  it('reports nothing when there is no fill range to apply', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.autofill({ r: 1, c: 1 });
+
+    expect(refusals).toEqual([]);
+  });
 });
 
 describe('computeLinearTrend', () => {
