@@ -102,6 +102,7 @@ jobs:
         if: github.event_name == 'issue_comment'
         uses: actions/github-script@v7
         with:
+          retries: 3
           script: |
             const actor = context.payload.comment.user.login;
             const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
@@ -126,6 +127,7 @@ jobs:
       - name: Require branch protection on main
         uses: actions/github-script@v7
         with:
+          retries: 3
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const owner = context.repo.owner, repo = context.repo.repo;
@@ -172,6 +174,7 @@ jobs:
         continue-on-error: true # a failed ack must never block the actual work
         uses: actions/github-script@v7
         with:
+          retries: 3
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
@@ -413,6 +416,7 @@ jobs:
         continue-on-error: true
         uses: actions/github-script@v7
         with:
+          retries: 3
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const issue = context.payload.issue.number;
@@ -470,6 +474,7 @@ jobs:
       - name: Reply with command help
         uses: actions/github-script@v7
         with:
+          retries: 3
           script: |
             await github.rest.issues.createComment({
               owner: context.repo.owner, repo: context.repo.repo,

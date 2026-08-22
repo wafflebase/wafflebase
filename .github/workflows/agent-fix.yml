@@ -92,6 +92,7 @@ jobs:
       - name: Verify commenter has write access
         uses: actions/github-script@v7
         with:
+          retries: 3
           script: |
             const actor = context.payload.comment.user.login;
             const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
@@ -132,6 +133,7 @@ jobs:
         id: placeholder
         uses: actions/github-script@v7
         with:
+          retries: 3
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const { data } = await github.rest.issues.createComment({
@@ -172,6 +174,7 @@ jobs:
           REASON: ${{ steps.eligible.outputs.reason }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
+          retries: 3
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             // Guarded: a failed placeholder leaves this empty, and `Number('')` is
@@ -230,6 +233,7 @@ jobs:
         if: steps.eligible.outputs.eligible == 'true'
         uses: actions/github-script@v7
         with:
+          retries: 3
           script: |
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner, repo: context.repo.repo,
@@ -500,6 +504,7 @@ jobs:
           AGENT: ${{ steps.agent.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
+          retries: 3
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const owner = context.repo.owner, repo = context.repo.repo;
