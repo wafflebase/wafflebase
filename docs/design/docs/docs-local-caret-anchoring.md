@@ -73,8 +73,21 @@ editing, layout, hit-testing, and rendering:
 interface DocPosition {
   blockId: string;
   offset: number;
+  lineAffinity?: 'forward' | 'backward';
 }
 ```
+
+`lineAffinity` disambiguates an offset that sits exactly on a visual wrap
+boundary, where the same offset is both the end of one line and the start of the
+next. It is view-level metadata — model operations read only `blockId` and
+`offset` — and it is optional, so a position without one keeps the historical
+backward reading. Because `DocRange.anchor` / `.focus` are `DocPosition`s,
+selection endpoints carry it too: `selection.ts` passes the endpoint affinity
+into `findPageForPosition` (and `resolvePositionPixel` for cell-internal
+selections) so a highlight that begins at a wrap boundary starts on the line the
+user clicked instead of the previous line's end. Only the two real endpoints can
+be ambiguous; interior blocks of a multi-block selection run from offset `0` to
+their text length, so they keep the default.
 
 The Yorkie-backed frontend integration owns the anchored representation. The
 shipped types in `yorkie-doc-store.ts` also carry `blockId`, `offset`, and

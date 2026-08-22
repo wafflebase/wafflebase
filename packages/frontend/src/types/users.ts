@@ -23,8 +23,11 @@ export type DocsPresence = {
     offset: number;
   };
   activeSelection?: {
-    anchor: { blockId: string; offset: number };
-    focus: { blockId: string; offset: number };
+    // `lineAffinity` disambiguates an endpoint sitting on a visual wrap
+    // boundary, so a peer's highlight starts on the line they clicked.
+    // Optional: a mixed-version peer publishes endpoints without it.
+    anchor: { blockId: string; offset: number; lineAffinity?: 'forward' | 'backward' };
+    focus: { blockId: string; offset: number; lineAffinity?: 'forward' | 'backward' };
     tableCellRange?: {
       blockId: string;
       start: { rowIndex: number; colIndex: number };

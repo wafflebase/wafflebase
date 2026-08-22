@@ -196,10 +196,18 @@ export interface InlineStyle {
 /**
  * A position within the document: block ID + character offset
  * within the block's concatenated inline text.
+ *
+ * `lineAffinity` disambiguates an offset that sits exactly on a visual
+ * wrap boundary, where the same offset is both the end of one line and
+ * the start of the next: `'forward'` means the next line, `'backward'`
+ * the previous one. It is view-level metadata — model operations use only
+ * `blockId` and `offset` — and is optional, so a position that carries no
+ * affinity keeps the default backward reading.
  */
 export interface DocPosition {
   blockId: string;
   offset: number;
+  lineAffinity?: 'forward' | 'backward';
 }
 
 /**

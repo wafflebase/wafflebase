@@ -1514,8 +1514,15 @@ export class TextEditor {
     const result = this.getPositionFromMouse(e);
     if (!result) return;
 
-    const pos: DocPosition = { blockId: result.blockId, offset: result.offset };
     const { lineAffinity } = result;
+    // Carry the hit's affinity on the position: at a visual wrap boundary
+    // it is the only record of which line the user actually clicked, and
+    // selection painting needs it as much as the caret does.
+    const pos: DocPosition = {
+      blockId: result.blockId,
+      offset: result.offset,
+      lineAffinity,
+    };
 
     // Table cell click detection: resolve which cell was clicked
     const clickedBlock = this.doc.document.blocks.find((b) => b.id === pos.blockId);
@@ -1763,9 +1770,13 @@ export class TextEditor {
       const fakeEvent = { clientX, clientY, target: this.container } as unknown as MouseEvent;
       const result = this.getHFPositionFromMouse(fakeEvent);
       if (result && this.selection.range) {
-        const pos: DocPosition = { blockId: result.blockId, offset: result.offset };
+        const pos: DocPosition = {
+          blockId: result.blockId,
+          offset: result.offset,
+          lineAffinity: result.lineAffinity,
+        };
         this.selection.setRange({ anchor: this.selection.range.anchor, focus: pos });
-        this.cursor.moveTo(pos);
+        this.cursor.moveTo(pos, result.lineAffinity);
         this.requestRender();
       }
       return;
@@ -1781,7 +1792,11 @@ export class TextEditor {
     );
     if (result && this.selection.range) {
       const anchor = this.selection.range.anchor;
-      let pos: DocPosition = { blockId: result.blockId, offset: result.offset };
+      let pos: DocPosition = {
+        blockId: result.blockId,
+        offset: result.offset,
+        lineAffinity: result.lineAffinity,
+      };
       let tableCellRange: DocRange['tableCellRange'] = undefined;
 
       const anchorCellInfo = this.getCellInfo(anchor.blockId);
@@ -2757,8 +2772,12 @@ export class TextEditor {
     if (shiftKey) {
       const newPos = move(pos);
       const anchor = this.selection.range?.anchor ?? pos;
-      this.selection.setRange({ anchor, focus: newPos });
-      this.cursor.moveTo(newPos, isVertical ? this.cursor.lineAffinity : hAffinity);
+      const focusAffinity = isVertical ? this.cursor.lineAffinity : hAffinity;
+      this.selection.setRange({
+        anchor,
+        focus: { ...newPos, lineAffinity: focusAffinity },
+      });
+      this.cursor.moveTo(newPos, focusAffinity);
     } else if (this.selection.hasSelection() && this.selection.range) {
       // Collapse selection to the appropriate boundary
       const layout = this.getActiveLayout();
@@ -2786,7 +2805,13 @@ export class TextEditor {
     const newPos = this.getVisualLineStart(this.cursor.position);
     if (shiftKey) {
       const anchor = this.selection.range?.anchor ?? this.cursor.position;
-      this.selection.setRange({ anchor, focus: newPos });
+      // A visual line start is a wrap boundary whenever the line is a
+      // continuation, so the focus needs the same forward affinity the
+      // caret gets — otherwise the highlight paints on the line above.
+      this.selection.setRange({
+        anchor,
+        focus: { ...newPos, lineAffinity: 'forward' },
+      });
     } else {
       this.selection.setRange(null);
     }
