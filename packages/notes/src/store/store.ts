@@ -25,7 +25,35 @@ export interface NoteSelection {
   head: number;
 }
 
-/** A peer's selection, in CodeMirror index coordinates. */
+/**
+ * One contiguous run of characters written by a single author, in CodeMirror
+ * index coordinates. Feeds the blame gutter (issue #814).
+ *
+ * `author` is a CLAIM, not a verified identity: every store gets it from a
+ * client's own self-report, and no store is trusted to have cleaned it — the
+ * gutter runs it through `sanitizeDisplayName` before it becomes DOM.
+ */
+export interface NoteAuthorSpan {
+  /** Start index, inclusive. */
+  from: number;
+  /** End index, exclusive. */
+  to: number;
+  /**
+   * Display name of whoever wrote the run, or `null` when the run carries no
+   * recorded authorship — text written before per-line attribution shipped.
+   * An empty string means the writer had no name (anonymous editing).
+   */
+  author: string | null;
+  /** Epoch ms the run was written; `0` when unknown (unattributed text). */
+  at: number;
+}
+
+/**
+ * A peer's selection, in CodeMirror index coordinates. `name` is the peer's
+ * self-reported presence name — the same unverified value as
+ * `NoteAuthorSpan.author`, and sanitized at the same boundary (the caret widget
+ * in `remote-selection.ts`).
+ */
 export interface NotePeerSelection {
   clientID: string;
   from: number;
@@ -85,6 +113,13 @@ export interface NoteStore {
   canUndo(): boolean;
   /** Whether there is an undone local unit to redo. */
   canRedo(): boolean;
+  /**
+   * Authorship of the current text, as contiguous runs covering the document
+   * in order. Runs written before per-line attribution shipped report
+   * `author: null` — the blame gutter leaves those lines blank rather than
+   * guessing a name. Called only while the blame gutter is enabled.
+   */
+  getAuthorSpans(): NoteAuthorSpan[];
   /**
    * Subscribe to out-of-band changes: a peer's edit, a CRDT snapshot, or the
    * result of a local `undo()`/`redo()`. The listener receives changes already

@@ -12,6 +12,8 @@ import {
   writeViewMode,
   readKeymap,
   writeKeymap,
+  readShowAuthors,
+  writeShowAuthors,
 } from "./notes-settings";
 import { fetchMe, isAuthExpiredError } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
@@ -41,6 +43,13 @@ function NotesLayout({ documentId }: { documentId: string }) {
   // per-document — they persist across notes and reloads.
   const [viewMode, setViewMode] = useState<NoteViewMode>(readViewMode);
   const [keymap, setKeymap] = useState<NoteKeymap>(readKeymap);
+  // The blame gutter is opt-in and, like the other two, a per-user preference.
+  const [showAuthors, setShowAuthors] = useState<boolean>(readShowAuthors);
+
+  const handleShowAuthorsChange = useCallback((next: boolean) => {
+    setShowAuthors(next);
+    writeShowAuthors(next);
+  }, []);
 
   const handleViewModeChange = useCallback((next: NoteViewMode) => {
     setViewMode(next);
@@ -191,11 +200,14 @@ function NotesLayout({ documentId }: { documentId: string }) {
             onModeChange={handleViewModeChange}
             keymap={keymap}
             onKeymapChange={handleKeymapChange}
+            showAuthors={showAuthors}
+            onShowAuthorsChange={handleShowAuthorsChange}
             editor={editor}
           />
           <NotesView
             viewMode={viewMode}
             keymap={keymap}
+            showAuthors={showAuthors}
             onEditorReady={setEditor}
             uploadImage={handleUploadImage}
           />

@@ -509,6 +509,130 @@ Multi-dash `---` and `=` setext underlines are untouched, so ordinary setext
 headings still render. This is a notes-preview-only rendering choice, not a
 change to the shared markdown model.
 
+#### Per-line author gutter — shipped (issue #814)
+
+A `git blame`-style gutter left of the line numbers, showing who last edited
+each line. Consecutive lines by one author collapse to a single label. It is
+**off by default** and toggled from the view menu, so a reader who never turns
+it on gets a note identical to before — same layout, same line width, and no
+gutter extension in the editor at all.
+
+The toggle is **display only**. Recording is unconditional: every attached
+client stamps the text it writes, whether or not its user has the gutter
+switched on. That asymmetry is deliberate, and it is what makes the gutter
+answer the question it exists for — authorship is a property of the *note*, not
+of the reader, and a per-writer recording switch would mean someone who turns
+the gutter on sees blank labels for every line written by collaborators who did
+not, which for most notes is every line.
+
+The disclosure that follows is real: unlike the caret label it is copied from —
+presence, which evaporates on detach — an author attribute goes into
+`root.content` and stays for the life of the note, readable by anyone who can
+read the note at all, including anonymous viewer-role share-link visitors. It is
+the same display name those readers already see on the caret, and the view menu
+says in as many words that names are recorded and who can see them. Nothing is
+erased retroactively: rewriting a shared document's runs to strip a name is not
+something one client may do to it.
+
+Both `NotesView` mounts pass the preference — the authenticated note page from
+its view menu, the share-link page (which has no menu) from the same
+per-browser `wafflebase:notes:showAuthors` value, read once at mount.
+
+Authorship rides on the existing `root.content` `Text` as **per-run
+attributes**, written by `YorkieNoteStore.editText`:
+
+```ts
+root.content.edit(from, to, insert, { a: <author name>, t: <epoch ms> });
+```
+
+No new root field, so the CodePair-compatible `{ content: Text }` schema is
+untouched and a reader that ignores attributes still sees the identical string.
+`Text.values()` reads the runs back as `NoteAuthorSpan[]` (`NoteStore.getAuthorSpans`),
+which the engine turns into per-line labels: a line's author is the one who
+wrote the run with the newest `t` overlapping it — literally "the author of the
+line's most recent edit". Attributes survive undo, because Yorkie's reverse ops
+restore the nodes that carried them.
+
+Consequences that follow from that choice, all of them intended:
+
+- **No migration, no backfill.** Text written before this shipped carries no
+  attributes, reports `author: null`, and renders blank rather than a wrong
+  name. Attribution accrues from the first edit after the feature lands.
+- **Anonymous stays anonymous.** The name comes from the client's own presence
+  `name`, which anonymous share-link editors already attach as `"Anonymous"`;
+  an empty name renders as "Anonymous" too. Blame is a reading aid, not an
+  audit trail — see the trust boundary below.
+- **Pure deletions record nothing** — they insert no run to attribute.
+- **Storage.** Roughly 30 bytes of attribute JSON per inserted run. Runs are
+  already the CRDT's unit of storage, so this is a constant factor on existing
+  per-run overhead rather than a new structure, and it is bounded by edit count,
+  not note length. Retention (how far back authorship is kept) is deliberately
+  unbounded for now — the issue's open question, revisited if real notes show
+  it mattering.
+
+Two CodeMirror ordering constraints shape `packages/notes/src/view/blame-gutter.ts`,
+and both are load-bearing:
+
+1. Gutters render in `activeGutters` facet order, so the gutter extension is
+   listed **before** `basicSetup` (which contributes `lineNumbers()`) to sit to
+   its left.
+2. That also fixes the shared gutter `ViewPlugin` *before* `noteSync` in the
+   plugin order, so at paint time a local edit has not reached the store yet.
+   The labels therefore come from a second plugin listed **after** `noteSync`,
+   published through a per-view map — deliberately not via `view.plugin(...)`,
+   which would force that plugin's pending update to run early and hand it the
+   same stale model. When the recomputed labels differ, it dispatches one empty
+   annotated transaction that the gutter's `lineMarkerChange` picks up, so the
+   gutter converges in two transactions and stays idle otherwise.
+
+##### Trust boundary — attribution is self-reported
+
+The gutter answers "who most likely wrote this line", not "who provably wrote
+it", and the difference is load-bearing:
+
+- The name comes from the writing client's own presence, and the attributes live
+  inside the CRDT that every attached client may write. Yorkie validates nothing
+  inside a change, and the backend never sees a note edit at all — its auth
+  webhook authorizes a docKey and a verb, not content. A client speaking to
+  Yorkie directly can therefore claim any name on any run, including restyling a
+  run it never wrote.
+- So blame is **never** an audit trail and **never** an input to an access
+  decision. Nothing reads `getAuthorSpans()` except the gutter's label
+  computation.
+- What is enforced is the blast radius of a forged attribute:
+  - **Time.** `YorkieNoteStore.getAuthorSpans()` discards a `t` further ahead
+    than clock skew explains (5 minutes) instead of clamping it. Clamping was
+    not a bound: `Date.now()` is re-read on every call, so a run claiming the
+    year 3000 clamped to "now" stayed the newest run on its line forever — which
+    is exactly the outranking the clamp was meant to prevent. Discarded, it
+    reads as unknown (`0`) and loses to every real edit; within skew it is still
+    clamped to now, so the most it can win is a tie that document order breaks.
+  - **Name.** Both places a self-reported name reaches the DOM — the gutter
+    label and the peer caret label — run it through
+    `sanitizeDisplayName()` (`packages/notes/src/display-name.ts`), which strips
+    invisible and direction-changing characters (controls, format characters,
+    line/paragraph separators, and the invisible-but-not-`Cf` code points that a
+    `\p{Cc}\p{Cf}` strip alone misses), folds exotic spaces, and caps at 64
+    characters. It lives at the render boundary rather than in one store, so no
+    store implementation has to be trusted to have cleaned its own output.
+  - **Color.** The peer caret's `color` is presence too, and unlike a name it
+    is not text content: it is interpolated into a `style` *attribute*, which
+    the browser parses as a declaration list, so a color carrying `;` stops
+    being a color and becomes whatever declarations its author chose (`position:
+    fixed; inset: 0; background-image: url(…)` — a full-viewport overlay and an
+    outbound request on every other viewer's screen). `sanitizePeerColor()`
+    (`packages/notes/src/view/remote-selection.ts`) therefore *recognizes*
+    rather than escapes: `#hex`, a bare CSS keyword, or an
+    `rgb()/rgba()/hsl()/hsla()` whose arguments are numbers — the shapes
+    `noteUserColor` actually produces — pass, and anything else is replaced with
+    a neutral fallback. There is no character to neutralize here, only a value
+    to refuse.
+  - The gutter's hover title says "(self-reported)" for the same reason.
+- Verified provenance would need the backend to sign each run's authorship, or
+  Yorkie to expose a change's server-assigned actor per run. Both are out of
+  proportion for a reading aid; if authorship ever needs to be relied on, that
+  is the work, not a tightening of this path.
+
 ### P3 — CodePair → Wafflebase migration
 
 Because note content lives **only in Yorkie** and the schema is identical:

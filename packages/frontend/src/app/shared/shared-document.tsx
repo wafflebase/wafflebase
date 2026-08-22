@@ -342,6 +342,13 @@ function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
         <UserPresence />
       </header>
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+        {/*
+          No `showAuthors`: this surface has no view menu, so `NotesView` falls
+          back to the visitor's own stored preference. Passing it from here
+          would mean importing `notes-settings` into this route too, which
+          makes Rollup hoist it — and the notes engine with it — into a shared
+          chunk well past the chunk-size gate.
+        */}
         <NotesView readOnly={readOnly} viewMode={readOnly ? "view" : "both"} />
       </div>
     </div>

@@ -1,6 +1,7 @@
 // Store
 export type {
   NoteStore,
+  NoteAuthorSpan,
   NoteTextChange,
   NoteRemoteChange,
   NotePeerSelection,
@@ -8,6 +9,10 @@ export type {
 } from './store/store.js';
 export { MemNoteStore } from './store/memory.js';
 export type { Unsubscribe } from './types.js';
+export {
+  MAX_DISPLAY_NAME_LENGTH,
+  sanitizeDisplayName,
+} from './display-name.js';
 
 // View
 export {
@@ -25,3 +30,9 @@ export {
   noteRemoteSelections,
   noteRemoteSelectionsTheme,
 } from './view/remote-selection.js';
+export {
+  ANONYMOUS_AUTHOR,
+  computeBlameLabels,
+  noteBlameGutter,
+  noteBlameTracker,
+} from './view/blame-gutter.js';

@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   Toolbar,
@@ -37,6 +38,7 @@ import {
   IconKeyboard,
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconUserCode,
 } from "@tabler/icons-react";
 
 const KEYMAPS: { key: NoteKeymap; label: string }[] = [
@@ -199,6 +201,8 @@ export function NotesToolbar({
   onModeChange,
   keymap,
   onKeymapChange,
+  showAuthors,
+  onShowAuthorsChange,
   editor,
   readOnly,
 }: {
@@ -206,6 +210,9 @@ export function NotesToolbar({
   onModeChange: (mode: NoteViewMode) => void;
   keymap: NoteKeymap;
   onKeymapChange: (keymap: NoteKeymap) => void;
+  /** Whether the blame gutter (who last edited each line) is shown. */
+  showAuthors: boolean;
+  onShowAuthorsChange: (show: boolean) => void;
   editor: NoteEditorAPI | null;
   readOnly?: boolean;
 }) {
@@ -347,6 +354,24 @@ export function NotesToolbar({
                 {label}
               </DropdownMenuCheckboxItem>
             ))}
+            <DropdownMenuSeparator />
+            {/*
+              Display only: every client records authorship, so this decides
+              what you see, not what you leave behind. The title still says
+              that a name is recorded — it is the part a user cannot see, and
+              it is durable (it goes into the note's content, readable by
+              anyone who can read the note), so this menu is where they find
+              out.
+            */}
+            <DropdownMenuCheckboxItem
+              checked={showAuthors}
+              onCheckedChange={(next) => onShowAuthorsChange(next)}
+              className="gap-2"
+              title="Show who last edited each line. Names are self-reported: everyone editing this note records their display name on the text they write, and it is visible to everyone who can read the note."
+            >
+              <IconUserCode size={16} />
+              Show authors
+            </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

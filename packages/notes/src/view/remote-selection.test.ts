@@ -3,7 +3,12 @@ import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import type { NoteStore, NotePeerSelection } from '../store/store.js';
 import { noteStoreFacet } from './note-sync.js';
-import { noteRemoteSelections, noteRemoteSelectionsTheme } from './remote-selection.js';
+import {
+  noteRemoteSelections,
+  noteRemoteSelectionsTheme,
+  sanitizePeerColor,
+  FALLBACK_PEER_COLOR,
+} from './remote-selection.js';
 
 function storeWithPeers(peers: NotePeerSelection[]): NoteStore & { setLocal: ReturnType<typeof vi.fn> } {
   const setLocal = vi.fn();
@@ -16,6 +21,7 @@ function storeWithPeers(peers: NotePeerSelection[]): NoteStore & { setLocal: Ret
     redo: () => null,
     canUndo: () => false,
     canRedo: () => false,
+    getAuthorSpans: () => [],
     subscribeRemote: () => () => {},
     setLocalSelection: setLocal,
     getPeerSelections: () => peers,
@@ -42,6 +48,110 @@ describe('noteRemoteSelections', () => {
     expect(view.dom.textContent).toContain('Ada');
     view.destroy();
     parent.remove();
+  });
+
+  it('sanitizes the self-reported name on a peer caret label', () => {
+    // A peer's presence `name` is a claim: nothing verifies it, so the caret
+    // label gets the same treatment as the blame gutter's label — invisible and
+    // direction-changing characters stripped, length capped.
+    const store = storeWithPeers([
+      {
+        clientID: 'c1',
+        from: 3,
+        to: 3,
+        color: '#f00',
+        name: `A\u202Eda\u200B${'x'.repeat(200)}`,
+      },
+    ]);
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: store.getText(),
+        extensions: [noteStoreFacet.of(store), noteRemoteSelectionsTheme, noteRemoteSelections],
+      }),
+    });
+    const label = view.dom.querySelector('.cm-ySelectionInfo')!.textContent!;
+    expect(label).toBe(`Ada${'x'.repeat(61)}`);
+    expect(label).not.toContain('\u202E');
+    view.destroy();
+    parent.remove();
+  });
+
+  it('refuses a peer color that is not recognizably a color', () => {
+    // `color` is peer-controlled presence, exactly like `name`, but it lands in
+    // a `style` ATTRIBUTE — a declaration list. A value carrying `;` would stop
+    // being a color and become declarations of the peer's choosing (here a
+    // full-viewport overlay with an outbound request), painted on every other
+    // viewer's screen.
+    const store = storeWithPeers([
+      {
+        clientID: 'c1',
+        from: 0,
+        to: 5,
+        color:
+          'red; position: fixed; inset: 0; z-index: 9999; background-image: url(https://evil.example/x.png)',
+        name: 'Mallory',
+      },
+    ]);
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: store.getText(),
+        extensions: [
+          noteStoreFacet.of(store),
+          noteRemoteSelectionsTheme,
+          noteRemoteSelections,
+        ],
+      }),
+    });
+    const mark = view.dom.querySelector('.cm-ySelection') as HTMLElement;
+    // The attribute is re-serialized by the DOM, so assert on the parsed
+    // declarations: exactly one, and not one of the injected ones.
+    expect(mark.style.length).toBe(1);
+    expect(mark.style.item(0)).toBe('background-color');
+    expect(mark.style.position).toBe('');
+    expect(mark.style.backgroundImage).toBe('');
+    expect(mark.getAttribute('style')).not.toContain('url(');
+    view.destroy();
+    parent.remove();
+  });
+
+  it('passes through the colors a real peer reports', () => {
+    // The application's own `noteUserColor` produces `hsl(...)`; refusing that
+    // would trade an injection for every caret rendering the same grey.
+    for (const color of ['hsl(210, 70%, 55%)', '#f00', '#ff0000', 'rebeccapurple']) {
+      expect(sanitizePeerColor(color)).toBe(color);
+    }
+    for (const bad of [
+      'red;color:blue',
+      'url(https://evil.example/x.png)',
+      'hsl(210, 70%, 55%); position: fixed',
+      '#fff}.cm-content{display:none',
+      'x'.repeat(200),
+      '',
+      undefined,
+      42,
+    ]) {
+      expect(sanitizePeerColor(bad)).toBe(FALLBACK_PEER_COLOR);
+    }
+  });
+
+  it('refuses a near-miss color in linear time', () => {
+    // `color` is peer-controlled and this runs per peer on every ViewUpdate,
+    // so the pattern matching it must not backtrack. The earlier version had
+    // an optional separator around an ambiguous `[0-9]*\.?[0-9]+`, which let
+    // a digit run be partitioned across the argument groups combinatorially:
+    // this input took ~17s to reject and froze every other viewer's tab.
+    const nearMiss = `hsl(${'9'.repeat(60)}`;
+    const started = performance.now();
+    for (let i = 0; i < 500; i++) {
+      expect(sanitizePeerColor(nearMiss)).toBe(FALLBACK_PEER_COLOR);
+    }
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 
   it('renders decorations for a multi-line peer selection without throwing', () => {

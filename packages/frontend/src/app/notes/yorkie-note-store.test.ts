@@ -179,4 +179,197 @@ describe('YorkieNoteStore', () => {
       expect(store.getText()).toBe('PEER hello');
     });
   });
+
+  describe('author spans (blame gutter)', () => {
+    it('reports text written before attribution shipped as unattributed', () => {
+      const store = new YorkieNoteStore(makeDoc());
+      expect(store.getAuthorSpans()).toEqual([
+        { from: 0, to: 5, author: null, at: 0 },
+      ]);
+    });
+
+    it('attributes a local edit to the name in this client presence', () => {
+      const doc = makeDoc();
+      doc.update((_root, presence) => presence.set({ name: 'ann' }));
+      const store = new YorkieNoteStore(doc);
+      store.editText(5, 5, ' world');
+
+      const spans = store.getAuthorSpans();
+      expect(spans.map((s) => [s.from, s.to, s.author])).toEqual([
+        [0, 5, null],
+        [5, 11, 'ann'],
+      ]);
+      expect(spans[1].at).toBeGreaterThan(0);
+    });
+
+    it('records the empty name anonymous editors attach with', () => {
+      // Presence carries no name at all here; the gutter renders an empty
+      // author as "Anonymous" rather than leaving the line blank.
+      const store = new YorkieNoteStore(makeDoc());
+      store.editText(5, 5, '!');
+      expect(store.getAuthorSpans().at(-1)).toMatchObject({
+        from: 5,
+        to: 6,
+        author: '',
+      });
+    });
+
+    it('carries a peer edit author across the wire', () => {
+      const [mine, peer] = twoClients('hello');
+      peer.update((_root, presence) => presence.set({ name: 'bob' }));
+      const store = new YorkieNoteStore(mine);
+      const peerStore = new YorkieNoteStore(peer);
+      peerStore.editText(5, 5, ' there');
+      push(peer, mine);
+
+      expect(
+        store.getAuthorSpans().map((s) => [s.from, s.to, s.author]),
+      ).toEqual([
+        [0, 5, null],
+        [5, 11, 'bob'],
+      ]);
+    });
+
+    it('discards a write time further ahead than clock skew explains', () => {
+      // A hostile client can write any attribute it likes (nothing verifies
+      // them), and "newest run wins" decides the label — so a `t` in the year
+      // 3000 would outrank every genuine edit on its line. Clamping it to `now`
+      // is not enough: `now` is re-read on every call, so the clamped value
+      // stays the newest one forever. It has to read as unknown (`0`).
+      const doc = makeDoc();
+      doc.update((root) => {
+        root.content.edit(5, 5, '!', { a: 'forged', t: 4e15 });
+      });
+      const store = new YorkieNoteStore(doc);
+      const forged = store.getAuthorSpans().at(-1)!;
+      expect(forged.author).toBe('forged');
+      expect(forged.at).toBe(0);
+    });
+
+    it('outranks a forged future write time with a genuine edit', () => {
+      // The whole point of discarding it: the real author of the line wins.
+      const doc = makeDoc();
+      doc.update((root) => {
+        root.content.edit(0, 0, 'X', { a: 'forged', t: 4e15 });
+      });
+      doc.update((_root, presence) => presence.set({ name: 'ann' }));
+      const store = new YorkieNoteStore(doc);
+      store.editText(6, 6, '!');
+
+      const spans = store.getAuthorSpans();
+      const forged = spans.find((s) => s.author === 'forged')!;
+      const genuine = spans.find((s) => s.author === 'ann')!;
+      expect(forged.at).toBe(0);
+      expect(genuine.at).toBeGreaterThan(forged.at);
+    });
+
+    it('clamps a write time inside clock skew back to now', () => {
+      // A peer whose clock runs a little fast is not an attacker; its run stays
+      // attributed, just no newer than this client's own clock.
+      const doc = makeDoc();
+      const skewed = Date.now() + 30_000;
+      doc.update((root) => {
+        root.content.edit(5, 5, '!', { a: 'ann', t: skewed });
+      });
+      const store = new YorkieNoteStore(doc);
+      const span = store.getAuthorSpans().at(-1)!;
+      expect(span.at).toBeGreaterThan(0);
+      expect(span.at).toBeLessThan(skewed);
+    });
+
+    it('strips control and bidi characters out of a claimed name', () => {
+      const doc = makeDoc();
+      doc.update((root) => {
+        // The characters used to make one name render as another's.
+        root.content.edit(5, 5, '!', { a: 'a\u202End\nnb\u200B', t: 5 });
+      });
+      const store = new YorkieNoteStore(doc);
+      expect(store.getAuthorSpans().at(-1)!.author).toBe('andnb');
+    });
+
+    it('caps a claimed name at a displayable length', () => {
+      const doc = makeDoc();
+      doc.update((root) => {
+        root.content.edit(5, 5, '!', { a: 'x'.repeat(500), t: 5 });
+      });
+      const store = new YorkieNoteStore(doc);
+      expect(store.getAuthorSpans().at(-1)!.author).toBe('x'.repeat(64));
+    });
+
+    it('records the local name without any per-user opt-in', () => {
+      // Recording is unconditional: authorship is a property of the note, not
+      // of the reader. If it followed the display toggle, a user who turned
+      // the gutter on would see blank labels for every line written by the
+      // collaborators who had not — for most notes, every line.
+      const doc = makeDoc();
+      doc.update((_root, presence) => presence.set({ name: 'ann' }));
+      const store = new YorkieNoteStore(doc);
+      store.editText(5, 5, ' world');
+
+      expect(store.getText()).toBe('hello world');
+      expect(
+        store.getAuthorSpans().map((s) => [s.from, s.to, s.author]),
+      ).toEqual([
+        [0, 5, null],
+        [5, 11, 'ann'],
+      ]);
+    });
+
+    it('restores authorship through undo and redo', () => {
+      // Yorkie's reverse ops restore the nodes that carried the attributes, so
+      // the gutter must read the same labels after an undo/redo round trip —
+      // text coming back without its authorship would relabel every line.
+      const doc = makeDoc();
+      doc.update((_root, presence) => presence.set({ name: 'ann' }));
+      const store = new YorkieNoteStore(doc);
+      store.batch(() => store.editText(5, 5, ' world'));
+      const before = store
+        .getAuthorSpans()
+        .map((s) => [s.from, s.to, s.author]);
+      expect(before).toEqual([
+        [0, 5, null],
+        [5, 11, 'ann'],
+      ]);
+
+      store.undo();
+      expect(store.getText()).toBe('hello');
+      expect(store.getAuthorSpans()).toEqual([
+        { from: 0, to: 5, author: null, at: 0 },
+      ]);
+
+      store.redo();
+      expect(store.getText()).toBe('hello world');
+      expect(
+        store.getAuthorSpans().map((s) => [s.from, s.to, s.author]),
+      ).toEqual(before);
+    });
+
+    it('keeps a peer edit attributed when a local change is undone', () => {
+      const [mine, peer] = twoClients('hello');
+      peer.update((_root, presence) => presence.set({ name: 'bob' }));
+      mine.update((_root, presence) => presence.set({ name: 'ann' }));
+      const store = new YorkieNoteStore(mine);
+      const peerStore = new YorkieNoteStore(peer);
+
+      store.batch(() => store.editText(5, 5, ' mine'));
+      peerStore.editText(5, 5, ' theirs');
+      push(peer, mine);
+      store.undo();
+
+      const spans = store.getAuthorSpans();
+      expect(spans.some((s) => s.author === 'ann')).toBe(false);
+      expect(spans.some((s) => s.author === 'bob')).toBe(true);
+      expect(store.getText()).toBe('hello theirs');
+    });
+
+    it('leaves a pure deletion unattributed', () => {
+      const doc = makeDoc();
+      doc.update((_root, presence) => presence.set({ name: 'ann' }));
+      const store = new YorkieNoteStore(doc);
+      store.editText(0, 2, '');
+      expect(store.getAuthorSpans()).toEqual([
+        { from: 0, to: 3, author: null, at: 0 },
+      ]);
+    });
+  });
 });

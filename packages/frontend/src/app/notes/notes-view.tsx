@@ -16,6 +16,7 @@ import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import type { YorkieNotesRoot, NotesPresence } from "@/types/notes-document";
 import { YorkieNoteStore } from "./yorkie-note-store";
+import { readShowAuthors } from "./notes-settings";
 
 export type { NoteEditorAPI } from "@wafflebase/notes";
 
@@ -26,6 +27,14 @@ interface NotesViewProps {
   viewMode?: NoteViewMode;
   /** Editor keybinding mode. Defaults to `default`. */
   keymap?: NoteKeymap;
+  /**
+   * Show the blame gutter (who last edited each line). Display only — every
+   * client records authorship regardless, so what one reader sees does not
+   * depend on what the writers had switched on. Omitted, it falls back to the
+   * viewer's own stored preference, which is how the share-link mount (no view
+   * menu of its own) gets the gutter at all.
+   */
+  showAuthors?: boolean;
   /**
    * Upload a pasted/dropped/picked image and resolve with its URL, or `null`
    * if the upload failed and was already reported to the user. Omitted on
@@ -77,8 +86,13 @@ export function NotesView({
   readOnly,
   viewMode = "both",
   keymap = "default",
+  showAuthors,
   uploadImage,
 }: NotesViewProps) {
+  // A mount that does not own a view menu still honours the preference the
+  // user set in one that does — same per-browser key, read once.
+  const [storedShowAuthors] = useState(readShowAuthors);
+  const gutterOn = showAuthors ?? storedShowAuthors;
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorAPI | null>(null);
   // The editor is initialized once (see the [didMount, doc] effect below), but
@@ -108,6 +122,7 @@ export function NotesView({
     const store = new YorkieNoteStore(doc);
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
     const editor = initialize(container, store, theme, readOnly, viewMode, {
+      showAuthors: gutterOn,
       uploadImage: uploadRef.current
         ? (file) => uploadRef.current!(file)
         : undefined,
@@ -142,6 +157,12 @@ export function NotesView({
   useEffect(() => {
     editorRef.current?.setKeymap(keymap);
   }, [keymap]);
+
+  // Show/hide the blame gutter from the view menu. Display only — the store
+  // records authorship whether or not anyone is looking at the gutter.
+  useEffect(() => {
+    editorRef.current?.setShowAuthors(gutterOn);
+  }, [gutterOn]);
 
   if (loading) return <Loader />;
   if (error) {

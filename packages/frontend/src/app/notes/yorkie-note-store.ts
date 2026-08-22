@@ -1,12 +1,92 @@
 import type { Document, Presence, TextPosStructRange } from '@yorkie-js/sdk';
 import type {
   NoteStore,
+  NoteAuthorSpan,
   NotePeerSelection,
   NoteRemoteChange,
   NoteSelection,
   Unsubscribe,
 } from '@wafflebase/notes';
+import { sanitizeDisplayName } from '@wafflebase/notes';
 import type { YorkieNotesRoot, NotesPresence } from '@/types/notes-document';
+
+/**
+ * Per-run `Text` attributes carrying line authorship for the blame gutter
+ * (issue #814). Deliberately one-letter: they are written on every inserted
+ * run, so the key is paid for once per run in the CRDT and on the wire.
+ */
+const AUTHOR_ATTR = 'a';
+const WRITTEN_AT_ATTR = 't';
+
+/**
+ * Line authorship is SELF-REPORTED, and is deliberately treated as such.
+ *
+ * It lives in `root.content`'s per-run attributes, which every attached client
+ * writes for itself: Yorkie validates nothing inside a change, and the backend
+ * never sees a note edit (its auth webhook authorizes docKey + verb, not
+ * content). A client speaking to Yorkie directly can therefore claim any name
+ * on any run — including restyling a run it never wrote — and nothing in this
+ * file can prevent that. So:
+ *
+ * - The gutter is a reading aid ("who most likely wrote this line"), never an
+ *   audit trail and never an input to an access decision. It is rendered as
+ *   self-reported rather than as verified fact (see `blame-gutter.ts`).
+ * - What is read back is sanitized here instead of trusted, so a forged
+ *   attribute cannot do more than claim a name: a `t` further in the future
+ *   than clock skew explains is discarded, so it cannot outrank the genuine
+ *   edits on its line, and a name cannot smuggle invisible / bidi characters or
+ *   run unbounded (`sanitizeDisplayName`, shared with the peer caret label —
+ *   the other place the same unverified presence name reaches the DOM).
+ * - Verified provenance would need the backend to sign each run's authorship,
+ *   or Yorkie to expose a change's server-assigned actor per run; both are out
+ *   of proportion for a reading aid. Recorded in `docs/design/notes/notes.md`.
+ *
+ * Recording is unconditional — every client attached to the note stamps the
+ * text it writes, whether or not its user has the gutter switched on. That is
+ * what makes the gutter answer the question it is for: authorship is a
+ * property of the *note*, and a per-reader recording switch would mean a
+ * reader who turns the gutter on sees blank labels for every line written by
+ * the collaborators who did not, which for most notes is every line. The
+ * display toggle stays per-user; what is written does not depend on it.
+ *
+ * The disclosure that follows is real and is stated where the user can see it:
+ * unlike the peer caret label — presence, which evaporates on detach — an
+ * author attribute goes into `root.content` and stays for the life of the
+ * note, readable by anyone who can read the note at all, including anonymous
+ * viewer-role share-link visitors. It is the same display name those readers
+ * already see on the caret, and it is never erased retroactively: rewriting a
+ * peer's runs to strip a name is not something one client may do to a shared
+ * document.
+ */
+
+/**
+ * How far ahead of us a peer's clock may legitimately be. Real clocks disagree
+ * by seconds, so a run written a moment ago by a skewed peer reads as slightly
+ * future; past this, a timestamp is not skew, it is a claim.
+ */
+const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+/**
+ * The write timestamp of a run, bounded. "Newest run wins" is what decides a
+ * line's label, so a client-supplied value is what a forgery would reach for:
+ * one run outranking every real edit on its line.
+ *
+ * A value beyond `now + MAX_CLOCK_SKEW_MS` is therefore DISCARDED rather than
+ * clamped. Clamping it re-reads `now` on every call, so a run claiming the year
+ * 3000 would keep reading as the newest run on its line forever — a control
+ * that looks like a bound and is not one. Reporting it as unknown (`0`) puts it
+ * below every real edit instead. Within skew the value is clamped to `now`,
+ * which caps what it can win to a tie that document order breaks, and only
+ * until the wall clock passes it. Anything that is not a positive finite number
+ * is unknown too.
+ */
+function sanitizeWrittenAt(value: unknown, now: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+  if (value > now + MAX_CLOCK_SKEW_MS) return 0;
+  return Math.min(value, now);
+}
 
 /**
  * Yorkie-backed NoteStore. Holds the note's markdown in a single `Text` CRDT
@@ -74,8 +154,73 @@ export class YorkieNoteStore implements NoteStore {
 
   editText(from: number, to: number, insert: string): void {
     this.withUpdate((root) => {
-      root.content.edit(from, to, insert);
+      // Attribution rides along as attributes on the inserted run, so the blame
+      // gutter needs no second structure in the root and the CodePair-shaped
+      // `{ content: Text }` schema is untouched. A pure deletion inserts
+      // nothing, so it carries no attributes — the only text that stays
+      // unattributed is what was written before this shipped.
+      if (insert.length > 0) {
+        root.content.edit(from, to, insert, {
+          // Sanitized on the way in as well as on the way out, so a well-behaved
+          // client never puts a name in the CRDT that its own reader would have
+          // to strip.
+          [AUTHOR_ATTR]: sanitizeDisplayName(this.localAuthorName()) ?? '',
+          [WRITTEN_AT_ATTR]: Date.now(),
+        });
+      } else {
+        root.content.edit(from, to, insert);
+      }
     });
+  }
+
+  getAuthorSpans(): NoteAuthorSpan[] {
+    const content = this.doc.getRoot().content;
+    if (!content) return [];
+    const spans: NoteAuthorSpan[] = [];
+    let index = 0;
+    // One reading for the whole walk, so runs are clamped against a single
+    // instant rather than a drifting one.
+    const now = Date.now();
+    for (const value of content.values()) {
+      const text = value.content ?? '';
+      if (text.length === 0) continue;
+      const attrs = value.attributes as
+        | Record<string, unknown>
+        | undefined;
+      spans.push({
+        from: index,
+        to: index + text.length,
+        // Every attribute here was written by some client and is not verifiable
+        // (see the trust-boundary note at the top of this file), so it is
+        // sanitized, not trusted. Text written before per-line attribution
+        // shipped carries no attributes at all — reported as `null` so the
+        // gutter leaves those lines blank instead of guessing a name.
+        author: sanitizeDisplayName(attrs?.[AUTHOR_ATTR]),
+        at: sanitizeWrittenAt(attrs?.[WRITTEN_AT_ATTR], now),
+      });
+      index += text.length;
+    }
+    return spans;
+  }
+
+  /**
+   * The name recorded on text this client writes, read from its own presence —
+   * the same value peers already see on its caret. Anonymous share-link editors
+   * attach with `name: "Anonymous"`; an empty result (no presence yet) is
+   * rendered as "Anonymous" by the gutter too.
+   *
+   * Presence is client-set and unverified, which is why what this produces is a
+   * claim rather than an identity — see the trust-boundary note at the top of
+   * this file.
+   */
+  private localAuthorName(): string {
+    const fromPublic = this.doc.getMyPresence()?.name;
+    if (fromPublic) return fromPublic;
+    // `getMyPresence()` returns `{}` offline / in tests, same caveat as
+    // `readPresenceSelection`.
+    const actorId = this.doc.getChangeID().getActorID();
+    if (actorId) return this.doc.getPresenceForTest(actorId)?.name ?? '';
+    return '';
   }
 
   batch(fn: () => void): void {

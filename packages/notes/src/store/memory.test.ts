@@ -122,6 +122,91 @@ describe('MemNoteStore', () => {
     expect(new MemNoteStore('x').undo()).toBeNull();
     expect(new MemNoteStore('x').redo()).toBeNull();
   });
+  describe('authorship', () => {
+    /** The author of every character of the store's text, in order. */
+    const perChar = (s: MemNoteStore): (string | null)[] => {
+      const out: (string | null)[] = [];
+      for (const span of s.getAuthorSpans()) {
+        for (let i = span.from; i < span.to; i++) out.push(span.author);
+      }
+      return out;
+    };
+
+    it('records nothing until a local author is set', () => {
+      const s = new MemNoteStore('hi');
+      s.editText(2, 2, '!');
+      expect(perChar(s)).toEqual([null, null, null]);
+    });
+
+    it('attributes inserted text to the current local author', () => {
+      const s = new MemNoteStore('hi');
+      s.setLocalAuthor('ann');
+      s.editText(2, 2, 'A');
+      s.setLocalAuthor('bob');
+      s.editText(3, 3, 'B');
+      expect(perChar(s)).toEqual([null, null, 'ann', 'bob']);
+    });
+
+    it('restores authorship on undo and redo, not just text', () => {
+      // The gutter reads authorship, not text, so a restore that only puts the
+      // characters back leaves every label after an undo attributed to whoever
+      // happened to occupy that offset before.
+      const s = new MemNoteStore('hi');
+      s.setLocalAuthor('ann');
+      s.editText(2, 2, 'A');
+      s.setLocalAuthor('bob');
+      s.editText(3, 3, 'B');
+
+      s.undo();
+      expect(s.getText()).toBe('hiA');
+      expect(perChar(s)).toEqual([null, null, 'ann']);
+
+      s.redo();
+      expect(s.getText()).toBe('hiAB');
+      expect(perChar(s)).toEqual([null, null, 'ann', 'bob']);
+    });
+
+    it('restores the authorship a batch replaced', () => {
+      const s = new MemNoteStore('hi');
+      s.setLocalAuthor('ann');
+      s.editText(0, 2, 'AA');
+      s.setLocalAuthor('bob');
+      s.batch(() => {
+        s.editText(0, 1, 'B');
+        s.editText(1, 2, 'B');
+      });
+      expect(perChar(s)).toEqual(['bob', 'bob']);
+      s.undo();
+      expect(perChar(s)).toEqual(['ann', 'ann']);
+      s.redo();
+      expect(perChar(s)).toEqual(['bob', 'bob']);
+    });
+
+    it('attributes an edit made after an undo to the current author', () => {
+      // The restored state is the base the next edit splices into, so the
+      // authorship it carries has to be the restored one, not the live array
+      // that was current before the undo.
+      const s = new MemNoteStore('');
+      s.setLocalAuthor('ann');
+      s.editText(0, 0, 'a');
+      s.setLocalAuthor('bob');
+      s.editText(1, 1, 'b');
+      s.undo(); // back to 'a' by ann
+      s.setLocalAuthor('cid');
+      s.editText(1, 1, 'c'); // a fresh edit onto the restored state
+      expect(perChar(s)).toEqual(['ann', 'cid']);
+      s.undo();
+      expect(perChar(s)).toEqual(['ann']);
+    });
+
+    it('leaves a pure deletion unattributed', () => {
+      const s = new MemNoteStore('hi');
+      s.setLocalAuthor('ann');
+      s.editText(0, 1, '');
+      expect(perChar(s)).toEqual([null]);
+    });
+  });
+
   it('has no peers and no-op presence', () => {
     const s = new MemNoteStore('x');
     expect(s.getPeerSelections()).toEqual([]);
