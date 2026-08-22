@@ -76,6 +76,16 @@ export interface FileMeta {
   module: string;
   components: ComponentMeta[];
   orphanCva: string[];
+  /**
+   * The JSX node tree, present when the file was analysed for the outline as well as for
+   * its variant tables. `analyzeFile` alone does not produce one — `analyzeNodes` does,
+   * and `GET /metadata` merges both for every declared component, because a drill-in
+   * target with no tree renders as a component with no nodes.
+   */
+  roots?: Record<string, SceneNodeMeta>;
+  imports?: { module: string; named: string[]; default?: string }[];
+  /** Names two JSX-returning functions both claim; unaddressable, so omitted from `roots`. */
+  ambiguous?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +165,15 @@ export interface SceneMeta {
   fixtures?: Record<string, string>;
   viewports?: string[];
   readOnly?: boolean;
+  /**
+   * Declared but not mountable yet — the frame's loader table excludes it.
+   *
+   * A real intent, not a mistake: the scene names a file the metadata sweep checks, and its
+   * node tree is analysed, but something it needs at runtime (providers, a mocked store) is
+   * not in place. The shell must show it as unavailable rather than omit it — omitting it
+   * would make a declared scene look undeclared — and must not offer it as a selection.
+   */
+  deferred?: boolean;
   /**
    * One walkable root per JSX-returning function — the component PLUS local
    * helpers like `renderRow`. That is what makes `items.map(renderRow)` a

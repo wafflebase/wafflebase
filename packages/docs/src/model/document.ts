@@ -25,6 +25,7 @@ import {
   getBlockTextLength,
   inlineStylesEqual,
   generateBlockId,
+  unlistedBlockType,
 } from './types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
@@ -292,7 +293,10 @@ export class Doc {
 
     const curBlock = this.getBlock(pos.blockId);
     if (curBlock.type === 'list-item' && getBlockTextLength(curBlock) === 0) {
-      this.setBlockType(pos.blockId, 'paragraph');
+      // Same exit as the toolbar toggle: a bulleted heading returns to its
+      // heading, everything else to a paragraph.
+      const exit = unlistedBlockType(curBlock);
+      this.setBlockType(pos.blockId, exit.type, exit.opts);
       return pos;
     }
 
@@ -325,9 +329,11 @@ export class Doc {
     const block = this.getBlock(blockId);
     const blockText = getBlockText(block);
 
-    // Empty list-item: exit list by converting to paragraph
+    // Empty list-item: exit the list, restoring the heading it was bulleted
+    // from (`unlistedBlockType`) so Enter matches Backspace and the toggle.
     if (block.type === 'list-item' && blockText.length === 0) {
-      this.setBlockType(blockId, 'paragraph');
+      const exit = unlistedBlockType(block);
+      this.setBlockType(blockId, exit.type, exit.opts);
       return blockId;
     }
 

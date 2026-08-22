@@ -168,6 +168,51 @@ describe('tabs commands', () => {
     });
   });
 
+  // `format()` throws on an unsupported `--format`. If that throw fires
+  // after the request, a completed write reports exit 1 / INVALID_FORMAT
+  // with the server's response discarded — so the guard has to run first,
+  // for the same reason the `--type` check precedes the dry-run branch.
+  describe('--format validation ordering', () => {
+    it('rejects a bad --format before creating the tab', async () => {
+      await run([
+        'sheets',
+        'tabs',
+        'create',
+        'doc-1',
+        'Budget',
+        '--format',
+        'bogus',
+      ]);
+
+      expect(createTab).not.toHaveBeenCalled();
+      expect(
+        (JSON.parse(stderr.join('\n')) as { error: { code: string } }).error
+          .code,
+      ).toBe('INVALID_FORMAT');
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('rejects a bad --format before renaming the tab', async () => {
+      await run([
+        'sheets',
+        'tabs',
+        'rename',
+        'doc-1',
+        'tab-1',
+        'Q3',
+        '--format',
+        'bogus',
+      ]);
+
+      expect(renameTab).not.toHaveBeenCalled();
+      expect(
+        (JSON.parse(stderr.join('\n')) as { error: { code: string } }).error
+          .code,
+      ).toBe('INVALID_FORMAT');
+      expect(process.exitCode).toBe(1);
+    });
+  });
+
   describe('list', () => {
     it('reads the tabs endpoint', async () => {
       listTabs.mockResolvedValue({
@@ -180,6 +225,17 @@ describe('tabs commands', () => {
 
       expect(listTabs).toHaveBeenCalledWith('doc-1');
       expect(JSON.parse(stdout.join('\n'))).toHaveLength(1);
+    });
+
+    it('prints the request without sending it under --dry-run', async () => {
+      await run(['sheets', 'tabs', 'list', 'doc-1', '--dry-run']);
+
+      expect(listTabs).not.toHaveBeenCalled();
+      expect(JSON.parse(stdout.join('\n'))).toEqual({
+        dry_run: true,
+        method: 'GET',
+        url: `${SERVER}/api/v1/workspaces/${WORKSPACE}/documents/doc-1/tabs`,
+      });
     });
   });
 });

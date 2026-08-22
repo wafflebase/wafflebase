@@ -77,8 +77,21 @@ export const SELECTION_SHAPES = Object.freeze([
   "element-multi",
 ]);
 
-/** Readers whose value describes the current selection, by surface. */
-const SELECTION_READERS = new Set(["doc.selection", "sheet.selectionRange", "sheet.activeCell"]);
+/**
+ * Readers whose value describes the current selection, by surface.
+ *
+ * A surface missing from here keys EVERY action as `none`, which is the state
+ * `sheet.activeCell` spent a year in and #847 fixed. `selectionShape` learning the array
+ * shape was only half of that: a shape nothing feeds it classifies nothing, so a new
+ * surface has to be listed here as well as understood there.
+ */
+const SELECTION_READERS = new Set([
+  "doc.selection",
+  "sheet.selectionRange",
+  "sheet.activeCell",
+  "slides.selection",
+  "board.selection",
+]);
 
 /**
  * Classify a selection reading. Unknown shapes answer `"none"` rather than throwing:
@@ -147,7 +160,11 @@ function controlOf(action) {
 /** Did this action change the document, as opposed to observing or navigating it? */
 function isMutation(action) {
   const type = action?.type;
-  if (type === "type" || type === "key") return true;
+  // A DRAG CHANGES THE DOCUMENT, so it breaks a run of clicks like typing does. Without this
+  // a drag between two clicks of the same control reads as apply-then-reverse with nothing in
+  // between, and the memory records a round trip that never happened — then steers the next
+  // run away from the reversal it thinks was already tested.
+  if (type === "type" || type === "key" || type === "drag") return true;
   return type === "click" && controlOf(action) !== "";
 }
 
@@ -175,6 +192,10 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
   let lastControl = "";
   let lastMutationControl = "";
   let mutationPendingRead = "";
+  // The most recent click on a NAMED control — the candidate opener for anything a later
+  // `dom.controls` reading turns up for the first time. Reader-targeted clicks (a cell, a
+  // slide element) deliberately do not set it; see the note where it is consumed.
+  let lastOpener = "";
 
   for (const e of entries) {
     const action = e?.action;
@@ -212,7 +233,25 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
         // `button` would hand the explorer a name it cannot click, which is the exact
         // failure this reader exists to prevent.
         if (typeof c.role !== "string" || c.role.trim() === "") continue;
-        inventory.set(`${c.role.trim()}|${c.name.trim()}`, sha);
+        const key = `${c.role.trim()}|${c.name.trim()}`;
+        // WHICH CONTROL REVEALED THIS ONE, recorded on FIRST SIGHTING only.
+        //
+        // #843 demoted a picker's contents by ROLE, which worked while every picker was
+        // built from `menuitem`s and stopped working the moment one was not. The slides
+        // `Shape` picker is 136 controls of role `button`, so the role test files all 136
+        // as top-level capabilities and buries the handful that are real. Provenance is
+        // the property the role was standing in for: a control that only appeared AFTER
+        // another control was clicked is that control's option.
+        //
+        // Only a NAMED CONTROL counts as an opener, never a canvas click. That
+        // distinction is the whole reason this works on the slides surface, where
+        // selecting an element morphs the toolbar and reveals `Arrange`, `Border color`
+        // and friends. Those are genuinely new capabilities, not options inside anything,
+        // and attributing them to `slides.elementCenter` would hide them exactly as the
+        // role test hides the shapes.
+        if (!inventory.has(key)) {
+          inventory.set(key, { sha, openedBy: lastOpener || null });
+        }
       }
     }
 
@@ -272,20 +311,42 @@ export function coverageFromJournal(journal, { sha = null } = {}) {
     lastControl = control;
     lastMutationControl = control;
     mutationPendingRead = control;
+    // `target.name` present means a role-based control click; a reader-based one carries
+    // `target.reader` instead and must not be treated as opening anything.
+    if (typeof action.target?.name === "string" && action.target.name.trim() !== "") {
+      lastOpener = action.target.name.trim();
+    }
   }
 
   return {
     keyVersion: COVERAGE_KEY_VERSION,
     sha,
+    // WHICH CONTROLS HAVE BEEN CLICKED AT ALL, independent of the shape key.
+    //
+    // Derivable from `shapes` today, and recorded separately anyway, because the two
+    // survive a key bump differently: a `control|shape` entry cannot claim coverage once
+    // `shape` changes meaning, but "this control has been clicked" never stops being
+    // true. `mergeCoverage` carries this across a bump for that reason.
+    usedControls: [...new Set([...shapes.values()].map((x) => x.control))].sort(),
     shapes: [...shapes.values()].sort((a, b) => `${a.control}${a.shape}`.localeCompare(`${b.control}${b.shape}`)),
     pairs: [...pairs].map(([pair, at]) => ({ pair, sha: at })).sort((a, b) => a.pair.localeCompare(b.pair)),
     readAfterMutation: [...readAfterMutation]
       .map(([control, at]) => ({ control, sha: at }))
       .sort((a, b) => a.control.localeCompare(b.control)),
     inventory: [...inventory]
-      .map(([key, at]) => {
+      .map(([key, seen]) => {
         const cut = key.indexOf("|");
-        return { role: key.slice(0, cut), control: key.slice(cut + 1), sha: at };
+        // ALWAYS EMITTED, `null` included. An absent key means "recorded before provenance
+        // existed"; an explicit `null` means "observed with nothing open, so it is genuinely
+        // top-level". `mergeCoverage` needs to tell those apart — without it, every legacy
+        // entry outranks correct attribution for ever, and the 72 top-level entries the live
+        // sheet memory is currently carrying could never be reclassified.
+        return {
+          role: key.slice(0, cut),
+          control: key.slice(cut + 1),
+          sha: seen?.sha ?? null,
+          openedBy: seen?.openedBy ?? null,
+        };
       })
       .sort((a, b) => `${a.control}${a.role}`.localeCompare(`${b.control}${b.role}`)),
   };
@@ -345,7 +406,35 @@ export function mergeCoverage(prev, next) {
         if (!x || typeof x !== "object") continue;
         if (typeof x.control !== "string" || x.control === "") continue;
         if (typeof x.role !== "string" || x.role === "") continue;
-        out.set(`${x.role}|${x.control}`, { role: x.role, control: x.control, sha: x.sha ?? null });
+        const key = `${x.role}|${x.control}`;
+        const prior = out.get(key);
+        // TOP-LEVEL WINS over an attributed opener. A control seen with no opener was
+        // reachable directly at least once, and a list of never-tried opportunities should
+        // err toward SHOWING a control rather than filing it inside something. `openedBy`
+        // is otherwise sticky, so a picker's contents stay demoted across runs.
+        // An EXPLICIT null on either side means the control was seen with nothing open, so
+        // it is reachable directly and stays a control. A MISSING key is not that claim —
+        // it is a record written before provenance existed, and it must yield to a side that
+        // actually observed something.
+        // THREE STATES, not two: attributed, explicitly top-level (`null`), and UNKNOWN
+        // (key absent, i.e. written before provenance existed). Unknown must survive a merge
+        // as unknown — collapsing it to an explicit `null` makes the first legacy entry look
+        // like a real top-level observation, which then outranks the attributed entry that
+        // arrives next. That is not hypothetical: it is what this code did until the test
+        // for `absent + attributed` caught it.
+        const priorExplicit = prior && "openedBy" in prior;
+        const xExplicit = "openedBy" in x;
+        let openedBy;
+        if ((priorExplicit && prior.openedBy === null) || (xExplicit && x.openedBy === null)) {
+          openedBy = null;
+        } else if (xExplicit && x.openedBy) {
+          openedBy = x.openedBy;
+        } else if (priorExplicit && prior.openedBy) {
+          openedBy = prior.openedBy;
+        }
+        const entry = { role: x.role, control: x.control, sha: x.sha ?? prior?.sha ?? null };
+        if (openedBy !== undefined) entry.openedBy = openedBy;
+        out.set(key, entry);
       }
     }
     return [...out.values()].sort((p, q) => `${p.control}${p.role}`.localeCompare(`${q.control}${q.role}`));
@@ -378,6 +467,27 @@ export function mergeCoverage(prev, next) {
     // name, and collapsing them loses one control and leaves the survivor's role a coin
     // toss.
     inventory: unionInventory([prev?.inventory, next?.inventory]),
+    // CARRIED ACROSS A KEY BUMP, like the inventory and for the same reason: a control
+    // NAME does not change meaning when the shape key does.
+    //
+    // Keeping the inventory without this was strictly worse than keeping neither.
+    // `untried` is `inventory` MINUS the controls already used, so an inventory that
+    // survives while the used-set is dropped reports the whole surface as never tried.
+    // Measured on the live sheet memory at the 3 -> 4 bump: the brief listed all 22
+    // controls under "NEVER TRIED — these exist on this surface and no run has ever
+    // clicked them", including `Bold` and `Italic` (round-tripped many times), the two
+    // decimal-places controls (already filed as #845), the four buttons the rubric names
+    // as unwired, and `Undo`/`Redo`, which that same rubric calls the single most likely
+    // false finding on the surface. Before the inventory was carried the section was
+    // simply absent, which is a worse memory but an honest one; this makes it both.
+    usedControls: [
+      ...new Set([
+        ...(Array.isArray(prev?.usedControls) ? prev.usedControls : []),
+        ...(Array.isArray(next?.usedControls) ? next.usedControls : []),
+        ...(Array.isArray(prev?.shapes) ? prev.shapes : []).map((x) => x?.control),
+        ...(Array.isArray(next?.shapes) ? next.shapes : []).map((x) => x?.control),
+      ].filter((n) => typeof n === "string" && n !== "")),
+    ].sort(),
   };
 }
 
@@ -456,7 +566,15 @@ export function renderCoverageBrief(coverage, { sha = null } = {}) {
   // This is what the memory could not say before: past journals give what WAS used, and
   // a control nobody touched appears in none of them, so it was invisible. `Clear
   // formatting` sat unclicked for eight doc runs for exactly this reason.
-  const usedControls = new Set(shapes.map((x) => x.control));
+  // BOTH sources: the shape entries this key version can still read, AND the names
+  // carried across any earlier bump. Using `shapes` alone is what made a bumped memory
+  // announce the entire surface as untried.
+  const usedControls = new Set([
+    ...shapes.map((x) => x.control),
+    ...(Array.isArray(coverage.usedControls) ? coverage.usedControls : []).filter(
+      (n) => typeof n === "string" && n !== "",
+    ),
+  ]);
   const untried = inventory.filter((x) => !usedControls.has(x.control));
 
   // MENU LEAVES ARE NOT OPPORTUNITIES, and listing them as such drowned the list that
@@ -477,9 +595,20 @@ export function renderCoverageBrief(coverage, { sha = null } = {}) {
   // They are COUNTED, never silently dropped. A count plus a sample says "this is a long
   // tail of options" without pretending the tail is not there — and if a menu leaf ever
   // is the interesting thing, the number is the invitation to go look.
+  // TWO SIGNALS, because neither alone is enough.
+  //
+  // The ROLE test came first and still earns its place: a `menuitem` is an option whether
+  // or not this journal happened to record what opened it, which covers inventories written
+  // before provenance existed.
+  //
+  // PROVENANCE covers what the role test cannot. The slides `Shape` picker is 136 controls
+  // of role `button`; by role they are 136 top-level capabilities, and they bury the five
+  // that are real. Measured against the real renderer: 141 lines offered, 136 of them shape
+  // names, sorted first so a length cap would hide the real ones instead.
   const TOP_LEVEL_ROLES = new Set(["button", "tab", "link"]);
-  const untriedTop = untried.filter((x) => TOP_LEVEL_ROLES.has(x.role));
-  const untriedLeaves = untried.filter((x) => !TOP_LEVEL_ROLES.has(x.role));
+  const isLeaf = (x) => !TOP_LEVEL_ROLES.has(x.role) || Boolean(x.openedBy);
+  const untriedTop = untried.filter((x) => !isLeaf(x));
+  const untriedLeaves = untried.filter(isLeaf);
 
   if (untriedTop.length > 0) {
     lines.push(

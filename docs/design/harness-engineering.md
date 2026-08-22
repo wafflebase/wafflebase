@@ -305,9 +305,13 @@ reached a public PR as a diff appearing to delete every file in the repo.
 - **`.github/workflows/ci.yml` itself is read-only** (`permissions: contents: read`). Every write to
   a pull request happens in `.github/workflows/ci-report.yml`; see
   [Reporting onto a fork PR](#reporting-onto-a-fork-pr).
-- On PRs, `.github/workflows/ci-report.yml` posts one verification comment
-  covering `verify-self`, `verify-browser`, `verify-integration` and the per-lane
-  detail, and applies `ci-config-changed` when the mapping was touched.
+- On PRs, `.github/workflows/ci-report.yml` posts one comment reporting CI's
+  **scope** — which heavy jobs were skipped and why, which changed file forced
+  the full suite, how many lanes were filtered — and applies `ci-config-changed`
+  when the mapping was touched. It deliberately does not repeat pass/fail: the
+  PR's own checks list already shows that, and `scripts/agent/mark-ready.mjs`
+  reads the Actions API rather than this comment precisely because a comment is
+  author-writable.
 - CI triggers on `push` to `main`, `pull_request` targeting `main`, and
   `merge_group` (see below).
 
@@ -340,6 +344,18 @@ pull-request code, runs no `pnpm`, and executes nothing from the triggering run.
 It reads two artifacts as *data* and calls the API. Adding a checkout of
 `head_sha` or a build step there would hand the token to the fork.
 
+**The invariant that follows from it:** reads run in their own
+`actions/github-script` step on the ambient token, writes in a second step on the
+App token — never both in one step. `github-script` binds exactly one client per
+step, and because there is no checkout there is no `node_modules`, so a second
+client cannot be built inside a step body: `require('@actions/github')` throws
+`Cannot find module` before the first API call. #831 did exactly that, and since a
+`workflow_run` workflow cannot fail its own pull request, it silently cost every
+PR both the comment and the `ci-config-changed` label until the split.
+`scripts/test/ci-workflow.test.mjs` holds both halves — inline scripts may
+`require` only Node builtins, and the read endpoints never appear in the
+App-token step.
+
 Consequences worth knowing:
 
 - The resolution and the PR number travel in a `ci-context` artifact, because
@@ -348,11 +364,26 @@ Consequences worth knowing:
 - Artifact contents are attacker-controlled (lane names come from the PR's own
   `scripts/verify-self.mjs`, reasons embed its diff paths). They are only interpolated
   into markdown, never executed, but are still collapsed for `|`, backticks,
-  angle brackets and newlines so a crafted name cannot forge table rows or
-  smuggle HTML, and length-capped so it cannot flood the comment.
+  angle brackets and newlines so a crafted name cannot smuggle HTML or forge the
+  `<!-- harness-verification -->` marker under the bot's identity, and
+  length-capped so it cannot flood the comment. The lane counts take the same
+  risk through a different door and so are coerced to numbers rather than
+  collapsed: a count that is not a number is a `.harness-reports/` summary written
+  to smuggle markup, and the line is dropped.
 - Heavy-job outcomes are read from the run's job list rather than a second
   artifact, so *skipped* is distinguishable from *never wrote a file*. That is
-  also what collapses the old two-phase "⏳ pending…" comment into one.
+  also what collapses the old two-phase "⏳ pending…" comment into one. What it
+  reads is the **gate-marker step**, not the job's conclusion: `ci.yml` gates the
+  steps and never the job, because a job-level `if:` renames the check run away
+  from the required context — so a heavy job that did nothing still concludes
+  `success`, and believing the job would report every reduced run as a full one.
+- The comment reports CI's **scope** — what was skipped, which changed file forced
+  the whole suite, how many lanes were filtered — and not pass/fail, which the
+  PR's checks list already shows. Its heading is always what the run did; the
+  gating-file list is recomputed independently and can only ever be a reason
+  appended to that. Nothing machine-reads the comment:
+  `scripts/agent/mark-ready.mjs` takes the run conclusion from the Actions API,
+  because a comment is author-writable.
 - Without the App configured the reporter degrades to the ambient token, which
   still works for same-repo PRs. The `changes` job's **run summary** needs no
   token at all, so it remains the copy that always survives.
@@ -571,13 +602,29 @@ some unrelated merge the branch happens to end on.
 | --- | --- | --- |
 | `full` | whether filtering happens at all | `true` disables selection entirely: every `verify:self` lane runs. Set by a `push` to `main`, a `ciConfig` change, and every fail-safe route |
 | `packages` | which lanes run **when `full` is false** | reverse-dependency closure of the changed workspace packages |
-| `heavy` | `verify-browser`, `verify-integration`, the coverage steps | **any** workspace package changed |
+| `heavy` | `verify-browser`, `verify-integration`, the coverage steps | **any** workspace package changed — or the scope was never resolved, below |
 
 `full` and `packages` are separate because they answer different questions —
 "is selection on?" and "select what?" — and conflating them is how a fail-safe
 turns into a no-op: a resolution with `full: false` and no usable `packages`
 selects *nothing*, which is why `resolve()` validates the shape of a handed-off
 resolution rather than trusting that it parsed.
+
+**A job that cannot resolve anything still succeeds.** `What changed` clones at
+full depth, and that checkout occasionally stalls: measured across 30 runs it takes
+13–22s and never more than 57s, while every failure sits at the job timeout with
+nothing in between — a stalled clone of this history does not finish late, it does
+not finish. So it gets two short attempts instead of one long one, and if neither
+lands the job reports success having set `full` and `heavy` itself. Nothing is
+broken on that path; the scope is simply unknown, and a red check on a run that
+went on to measure everything reads as a failure that did not happen.
+
+Succeeding is what makes that explicit `heavy` load-bearing. The gates downstream
+read `needs.changes.result != 'success' || needs.changes.outputs.heavy == 'true'`,
+so a job that succeeds with `heavy` unset satisfies neither term — and
+`verify-browser` and `verify-integration` are required checks, which would then
+report green having run nothing. That is the no-op failure mode above wearing a
+different hat, and `scripts/test/ci-workflow.test.mjs` is what holds it shut.
 
 The closure is derived from each `packages/*/package.json`, so it cannot go stale
 when someone adds a dependency — the dependency *is* the mapping. The two heavy
@@ -1433,6 +1480,89 @@ Components:
   `scripts/agent/metrics.mjs` renders it; read `unknownOrigin` first, since a zero `backlog`
   beside a high `unknownOrigin` means the gate ran blind rather than that nothing
   was relocated.
+  **Placing a finding** is the shared input both gates depend on, and it was quietly
+  losing most of them. `novelty.mjs::findingLocation` takes the finding's own `line`
+  when a lens supplied one, and otherwise the first `file:line` citation in its
+  evidence that NAMES THE SAME FILE — the same-file rule being what stops a foreign
+  file's offset from inventing a location that exists but means nothing. Two bugs
+  made that rule lose locations it should have found. It read only the FIRST citation
+  and discarded it on a file mismatch, while lenses habitually open their evidence
+  with the call site or the violated contract and cite the filed file second; and
+  `CITATION`'s permissive leading `[^\s:]+` swallowed whatever punctuation abutted
+  the citation, so the extremely common `(auth.controller.ts:130)` parsed as the file
+  `(auth.controller.ts` and could never match anything. Measured over the 44 blocking
+  findings banked on the open agent PRs: 24 carried a same-file citation, 7 were
+  being placed. Scanning for the first AGREEING citation and trimming characters that
+  cannot begin a path took that to 23 placed, and the surface gate's share of the
+  backlog from 9% to 25%. `CITATION` itself is deliberately not tightened — its other
+  importers only ask `.test()` ("does this cite anything at all"), and narrowing that
+  predicate could turn a grounded verdict ungrounded.
+
+  **The surface gate** (`scripts/agent/review-surface.mjs`) answers the sibling
+  question: *did a FIX ROUND put this line here?* It exists because the loop could
+  not converge. Measured over 88 scored rounds on the 8 non-converging draft agent
+  PRs of 2026-08: **79% of every round's blocking findings were newly discovered
+  rather than re-raised** (373 new against 97 carried, matched with the panel's own
+  `findingSimilarity`), the reviewed diff never shrank (+228..+358 lines per round;
+  #786 went 15 files/+218 at round 1 to 47 files/+5,595 at round 16, #810 8/+251 to
+  61/+5,059), and the finding count stayed flat at ~6 per round throughout. That is
+  roughly one blocking finding per 50 new lines: the fixer wrote ~300 lines to clear
+  ~6 findings and those lines minted ~6 more, so **the loop's fixed point was ~6
+  findings rather than 0**. `detectStalledRounds` could not see it — it requires
+  findings to REPEAT (`repeatRatio >= 0.30` twice consecutively with a non-falling
+  count) and these did not, so it reported `progressing`; replayed fresh at every
+  round it fires on exactly one of the eight, at that PR's LAST round. Seven of
+  eight ran to the round cap, paged, and `@claude rerun` granted a fresh budget
+  without changing the dynamic. The findings were mostly legitimate; the defect was
+  that nothing bounded what the PR was allowed to grow into.
+  So the review surface **freezes**. A blocking finding on a line a fix round wrote
+  stops gating: it is still reported, but it stops failing the lens check and stops
+  reaching the fixer, which is what breaks the cycle. The anchor is the head sha at
+  the moment the fixer was FIRST dispatched — the `from` field of the first
+  `<!-- agent-fix-dispatch -->` record, i.e. the PR exactly as the implement job
+  left it. That ledger is already author-gated to `github-actions[bot]`, so a branch
+  cannot move its own freeze point, and the **rerun floor is deliberately not
+  applied**: `fixRoundsUsed` cuts records before a `@claude rerun` because a
+  hand-back grants a fresh *budget*, but the surface is not a budget, and
+  re-freezing around whatever the fixer has since written would let the treadmill
+  back in one rerun at a time.
+  The rule needs **two** blames, exactly as novelty does but with the content test
+  INVERTED. Novelty demotes when the content is old; this demotes when the content
+  is new. Both are required because a fix round that RELOCATED original
+  implement-diff code into a new file gets plain-blamed to the fix commit while its
+  content predates the freeze — that is the PR's own code and must keep gating. Only
+  a line whose plain blame AND move-aware blame both land after the freeze point is
+  `out-of-scope`. There is deliberately no file-level test: "this file did not exist
+  at freeze time" is cheaper and worse, because the fixer legitimately grows
+  original files and the out-of-diff mandate carried by blast-radius, correctness
+  and security routinely cites untouched ones.
+  `critical` is **carved out on severity alone** and never demotes on scope. The
+  argument for demoting is "this is not what the PR was scoped to fix", which is a
+  scheduling claim, and it stops being worth making when the alternative is shipping
+  a critical bug; the cost is bounded because critical is rare beside major in this
+  corpus. Demotion routes through the same `backlog` lane novelty uses, so
+  out-of-scope findings inherit its whole downstream treatment for free — dropped
+  from the check's machine-readable findings, therefore invisible to the
+  carry-forward and to the non-convergence detector — and `clusterFindings` still
+  promotes a demoted survivor back to `blocking` when any other wording of the same
+  defect gated, so a lens reporting one defect twice cannot demote it by citing the
+  fixer's copy. The two demotion reasons render under separate headings, because
+  "the code already existed" and "a fix round wrote this" are opposite claims and a
+  shared heading would make one of them a false audit line.
+  FAIL DIRECTION, as everywhere here: every uncertain path yields `unknown`, which
+  keeps the finding blocking — no `--frozen-sha`, no citation, an unresolvable sha, a
+  failed or timed-out blame, a shallow clone. One case is checked **once and
+  loudly** rather than inferred per finding: a freeze point that resolves but is not
+  an ancestor of `HEAD` (a rebase, force-push or amend) would make every line look
+  post-freeze and demote the entire PR off the gate at once, so `freezeResolves`
+  refuses it and turns the gate off. Carried-forward prior findings are not routed,
+  for a reason that binds harder here than for novelty: a stale offset landing inside
+  fixer-written code would demote a still-open blocker permanently, a fail-open
+  produced by nothing but line drift. Filing the demoted findings as follow-up issues
+  is deliberately NOT part of this — they are reported in the check body where
+  `relocated` demotions already live, and issue-filing from the panel job is a larger
+  blast radius that belongs in its own change.
+
   **Token attribution.** Every SDK call is stamped with `{ lens, role }`
   (`role` ∈ `detection` | `verifier`) as `scripts/agent/ask.mjs` pushes its result
   to the shared execution log, so `scripts/agent/metrics.mjs`'s

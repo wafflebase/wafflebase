@@ -11,6 +11,9 @@ import {
   type CliPptxImportOptions,
 } from './pptx-import.js';
 import type { ImportReport } from '@wafflebase/slides/node';
+import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
+import { errorEnvelope, upstreamErrorJson } from '../output/formatter.js';
+import { seg } from '../client/url.js';
 
 /**
  * Parsing surface — split out so tests can inject a stub that returns
@@ -110,6 +113,12 @@ export interface RunSlidesImportArgs {
   dryRun?: boolean;
   /** Override the .pptx parser — primarily for tests. */
   parser?: SlidesImportParser;
+  /**
+   * Dotted name of the command driving this run (`slides.import`), stamped
+   * into every error envelope so an agent running several calls can tell
+   * which one failed. The action passes `commandPath(this)`.
+   */
+  command?: string;
 }
 
 export interface RunSlidesImportResult {
@@ -137,6 +146,7 @@ export async function runSlidesImport(
     quiet = false,
     dryRun = false,
     parser = defaultImportPptx,
+    command,
   } = args;
 
   const inferredTitle = args.title ?? defaultTitleFor(file);
@@ -149,15 +159,10 @@ export async function runSlidesImport(
     if (!yes && !dryRun) {
       if (!io.isTTY) {
         io.stderr(
-          JSON.stringify(
-            {
-              error: {
-                code: 'CONFIRMATION_REQ',
-                message: `Pass --yes to confirm replacing deck "${replace}".`,
-              },
-            },
-            null,
-            2,
+          errorEnvelope(
+            'CONFIRMATION_REQ',
+            `Pass --yes to confirm replacing deck "${replace}".`,
+            command,
           ),
         );
         return { exitCode: 1 };
@@ -171,7 +176,7 @@ export async function runSlidesImport(
       }
     }
     const buf = await io.readBytes(file);
-    const parsed = await safeImportPptx(buf, uploadImage, io, parser);
+    const parsed = await safeImportPptx(buf, uploadImage, io, parser, command);
     if (parsed === null) return { exitCode: 1 };
     const { document: deck, report } = parsed;
     if (dryRun) {
@@ -179,7 +184,9 @@ export async function runSlidesImport(
         JSON.stringify(
           {
             method: 'PUT',
-            path: `/documents/${replace}/content`,
+            // `seg()` for the same reason `HttpClient` encodes it: the
+            // preview has to be the path the live PUT would take.
+            path: `/documents/${seg(replace)}/content`,
             body: deck,
             report: summariseReport(report),
           },
@@ -191,8 +198,8 @@ export async function runSlidesImport(
     }
     const res = await client.putSlidesContent(replace, deck);
     if (!res.ok) {
-      io.stderr(JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
-      return { exitCode: 1 };
+      io.stderr(upstreamErrorJson(res, command));
+      return { exitCode: exitCodeForStatus(res.status) };
     }
     io.stdout(
       JSON.stringify(
@@ -206,7 +213,7 @@ export async function runSlidesImport(
 
   // Default flow: POST + PUT.
   const buf = await io.readBytes(file);
-  const parsedNew = await safeImportPptx(buf, uploadImage, io, parser);
+  const parsedNew = await safeImportPptx(buf, uploadImage, io, parser, command);
   if (parsedNew === null) return { exitCode: 1 };
   const { document: deck, report } = parsedNew;
   // The parser fills `meta.title` with whatever string the .pptx carries
@@ -234,25 +241,24 @@ export async function runSlidesImport(
 
   const created = await client.createDocument(inferredTitle, 'slides');
   if (!created.ok) {
-    io.stderr(JSON.stringify(created.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
-    return { exitCode: 1 };
+    io.stderr(upstreamErrorJson(created, command));
+    return { exitCode: exitCodeForStatus(created.status) };
   }
   const newId = (created.data as { id?: string } | null)?.id;
   if (!newId) {
     io.stderr(
-      JSON.stringify(
-        { error: { code: 'INVALID_RESPONSE', message: 'Server did not return an id' } },
-        null,
-        2,
-      ),
+      errorEnvelope('INVALID_RESPONSE', 'Server did not return an id', command),
     );
-    return { exitCode: 1 };
+    // A 2xx that omitted the id is the server contradicting itself —
+    // nothing the caller can retype, so it exits with the system class
+    // like every other server fault.
+    return { exitCode: EXIT_SYSTEM_ERROR };
   }
 
   const put = await client.putSlidesContent(newId, deck);
   if (!put.ok) {
-    io.stderr(JSON.stringify(put.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2));
-    return { exitCode: 1 };
+    io.stderr(upstreamErrorJson(put, command));
+    return { exitCode: exitCodeForStatus(put.status) };
   }
 
   io.stdout(
@@ -302,18 +308,13 @@ async function safeImportPptx(
   uploadImage: UploadImage | undefined,
   io: SlidesImportIO,
   parser: SlidesImportParser,
+  command?: string,
 ): Promise<{ document: SlidesDocument; report: ImportReport } | null> {
   try {
     return await parser(buf, { uploadImage });
   } catch (e) {
     if (e instanceof InvalidPptxError) {
-      io.stderr(
-        JSON.stringify(
-          { error: { code: e.code, message: e.message } },
-          null,
-          2,
-        ),
-      );
+      io.stderr(errorEnvelope(e.code, e.message, command));
       return null;
     }
     throw e;

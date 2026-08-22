@@ -1,5 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { IconPlus, IconTable, IconDatabase } from "@tabler/icons-react";
+import {
+  IconBuildingWarehouse,
+  IconDatabase,
+  IconPlus,
+  IconTable,
+} from "@tabler/icons-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -91,6 +96,7 @@ function SortableTab({
           ? "border-primary bg-background text-foreground font-medium"
           : "border-transparent text-muted-foreground",
       )}
+      aria-current={isActive ? "page" : undefined}
       onClick={onSelect}
       onDoubleClick={onStartRename}
       {...attributes}
@@ -98,6 +104,8 @@ function SortableTab({
     >
       {tab.type === "datasource" ? (
         <IconDatabase className="size-3.5" />
+      ) : tab.type === "lakehouse" ? (
+        <IconBuildingWarehouse className="size-3.5" />
       ) : (
         <IconTable className="size-3.5" />
       )}
@@ -284,6 +292,10 @@ export function TabBar({
             <DropdownMenuItem onClick={() => onAddTab("datasource")}>
               <IconDatabase className="size-4" />
               New DataSource
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onAddTab("lakehouse")}>
+              <IconBuildingWarehouse className="size-4" />
+              New Lakehouse
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

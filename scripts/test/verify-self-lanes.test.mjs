@@ -93,7 +93,8 @@ test("the lane graph", async (t) => {
   await t.test("every workspace package is covered by some lane", () => {
     // A package with no lane naming it would be typechecked and tested by
     // nothing on a filtered run, while still looking covered because the full
-    // run tests it. `design-sdk` has no manifest yet, so it is not in the graph.
+    // run tests it. Only packages with a manifest are in the graph, which is why a
+    // manifest-less directory (`packages/design-sdk` was one) cannot appear here.
     const graph = readWorkspaceGraph(REPO_ROOT);
     const covered = new Set(LANES.flatMap((l) => l.pkgs));
     for (const pkg of Object.keys(graph)) {

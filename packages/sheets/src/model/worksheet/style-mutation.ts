@@ -10,8 +10,13 @@ import type { RangeStylePatch } from './range-styles';
 
 /**
  * Default style values used to determine if a key is redundant.
+ *
+ * `dp` is deliberately absent even though `formatValue` renders 2 decimals
+ * without it: pruning `dp: 2` would make "no stored dp" and "dp: 2" the same
+ * state, and increase/decrease decimal places rely on telling them apart to
+ * know whether a stored `dp` is theirs to remove.
  */
-const DefaultStyleValues: Partial<CellStyle> = {
+export const DefaultStyleValues: Partial<CellStyle> = {
   b: false,
   i: false,
   u: false,
@@ -24,7 +29,6 @@ const DefaultStyleValues: Partial<CellStyle> = {
   bg: '',
   va: 'top',
   nf: 'plain',
-  dp: 2,
 };
 
 /**
@@ -49,6 +53,10 @@ export function isEmptyCell(cell: Cell): boolean {
 
 /**
  * `compactCell` removes undefined fields to keep persisted cell payload minimal.
+ *
+ * The spill fields travel with the base cell: a style-only rewrite must not
+ * detach a dynamic-array anchor from its ghosts, which is what the calculator
+ * reads them for.
  */
 export function compactCell(base: Cell, style?: CellStyle): Cell {
   const cell: Cell = {};
@@ -57,6 +65,18 @@ export function compactCell(base: Cell, style?: CellStyle): Cell {
   }
   if (base.f !== undefined) {
     cell.f = base.f;
+  }
+  if (base.spillRows !== undefined) {
+    cell.spillRows = base.spillRows;
+  }
+  if (base.spillCols !== undefined) {
+    cell.spillCols = base.spillCols;
+  }
+  if (base.spillAnchor !== undefined) {
+    cell.spillAnchor = base.spillAnchor;
+  }
+  if (base.spillBlocked !== undefined) {
+    cell.spillBlocked = base.spillBlocked;
   }
   if (style && Object.keys(style).length > 0) {
     cell.s = style;
@@ -251,6 +271,24 @@ export function hasConflictingStyleSourceForKey(
  * `pruneRedundantDefaultStyleKeys` removes keys from a style that are
  * at their default value and not overridden by any conflicting source.
  */
+/**
+ * Whether `value` is the declared default for `key` — i.e. carries no
+ * formatting intent at all.
+ *
+ * The `defaultKeys` machinery exists to stop a decimal step from overwriting a
+ * format the user chose (a `percent` neighbour must survive). A default is not
+ * such a format: `nf: 'plain'` *is* "no number format", and defending it means
+ * the step writes `dp` that `formatValue` never reads, so the buttons do
+ * nothing while `dp` climbs forever.
+ */
+export function isDefaultStyleValue(
+  key: keyof CellStyle,
+  value: CellStyle[keyof CellStyle] | undefined,
+): boolean {
+  const fallback = DefaultStyleValues[key];
+  return fallback !== undefined && value === fallback;
+}
+
 export function pruneRedundantDefaultStyleKeys(
   range: Range,
   style: CellStyle,

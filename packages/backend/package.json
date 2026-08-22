@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/backend",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "",
   "private": true,
   "license": "Apache-2.0",
@@ -21,12 +21,14 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-e2e.json",
+    "fixtures:lakehouse:seed": "tsx test/seed-lakehouse-fixtures.ts",
     "migrate": "prisma migrate dev --name init",
     "migrate:yorkie:worksheet-shape": "tsx scripts/migrate-yorkie-worksheet-shape.ts",
     "migrate:yorkie:cf-ranges": "tsx scripts/migrate-yorkie-cf-ranges.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1028.0",
+    "@duckdb/node-api": "1.5.5-r.2",
     "@google-cloud/bigquery": "^9.0.1",
     "@nestjs/common": "^11.1.0",
     "@nestjs/config": "^4.0.2",
@@ -40,7 +42,7 @@
     "@wafflebase/docs": "workspace:^",
     "@wafflebase/sheets": "workspace:^",
     "@wafflebase/slides": "workspace:*",
-    "@yorkie-js/sdk": "0.7.16",
+    "@yorkie-js/sdk": "0.7.17",
     "body-parser": "^1.20.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
@@ -61,6 +63,7 @@
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
+    "@azure/storage-blob": "^12.33.0",
     "@eslint/eslintrc": "^3.2.0",
     "@eslint/js": "^9.18.0",
     "@nestjs/cli": "^11.0.16",

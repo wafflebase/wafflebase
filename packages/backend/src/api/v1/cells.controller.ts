@@ -12,11 +12,13 @@ import {
 } from '@nestjs/common';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
+import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { DocumentService } from '../../document/document.service';
 import {
   getWorksheetCell,
   getWorksheetEntries,
+  initialSpreadsheetDocument,
   parseRef,
   updateWorksheetCell,
   writeWorksheetCell,
@@ -25,7 +27,7 @@ import {
 @Controller(
   'api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId/cells',
 )
-@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
+@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
 export class ApiV1CellsController {
   constructor(
     private readonly yorkieService: YorkieService,
@@ -111,21 +113,25 @@ export class ApiV1CellsController {
     @Body() body: { value?: string; formula?: string },
   ) {
     await this.assertDocumentInWorkspace(documentId, workspaceId);
-    return this.yorkieService.withDocument(documentId, (doc) => {
-      doc.update((root) => {
-        const worksheet = root.sheets?.[tabId];
-        if (!worksheet) throw new NotFoundException('Tab not found');
+    return this.yorkieService.withDocument(
+      documentId,
+      (doc) => {
+        doc.update((root) => {
+          const worksheet = root.sheets?.[tabId];
+          if (!worksheet) throw new NotFoundException('Tab not found');
 
-        const ref = parseRef(sref);
-        updateWorksheetCell(worksheet, ref, (existing) => ({
-          ...(existing ?? {}),
-          v: body.value ?? existing?.v ?? '',
-          f: body.formula ?? existing?.f,
-        }));
-      });
+          const ref = parseRef(sref);
+          updateWorksheetCell(worksheet, ref, (existing) => ({
+            ...(existing ?? {}),
+            v: body.value ?? existing?.v ?? '',
+            f: body.formula ?? existing?.f,
+          }));
+        });
 
-      return { ref: sref, value: body.value, formula: body.formula };
-    });
+        return { ref: sref, value: body.value, formula: body.formula };
+      },
+      { initialRoot: initialSpreadsheetDocument() },
+    );
   }
 
   @Delete(':sref')
@@ -136,15 +142,19 @@ export class ApiV1CellsController {
     @Param('sref') sref: string,
   ) {
     await this.assertDocumentInWorkspace(documentId, workspaceId);
-    return this.yorkieService.withDocument(documentId, (doc) => {
-      doc.update((root) => {
-        const worksheet = root.sheets?.[tabId];
-        if (!worksheet) throw new NotFoundException('Tab not found');
-        writeWorksheetCell(worksheet, parseRef(sref), undefined);
-      });
+    return this.yorkieService.withDocument(
+      documentId,
+      (doc) => {
+        doc.update((root) => {
+          const worksheet = root.sheets?.[tabId];
+          if (!worksheet) throw new NotFoundException('Tab not found');
+          writeWorksheetCell(worksheet, parseRef(sref), undefined);
+        });
 
-      return { ref: sref, deleted: true };
-    });
+        return { ref: sref, deleted: true };
+      },
+      { initialRoot: initialSpreadsheetDocument() },
+    );
   }
 
   @Patch()
@@ -155,27 +165,31 @@ export class ApiV1CellsController {
     @Body() body: { cells: Record<string, { value?: string; formula?: string } | null> },
   ) {
     await this.assertDocumentInWorkspace(documentId, workspaceId);
-    return this.yorkieService.withDocument(documentId, (doc) => {
-      doc.update((root) => {
-        const worksheet = root.sheets?.[tabId];
-        if (!worksheet) throw new NotFoundException('Tab not found');
+    return this.yorkieService.withDocument(
+      documentId,
+      (doc) => {
+        doc.update((root) => {
+          const worksheet = root.sheets?.[tabId];
+          if (!worksheet) throw new NotFoundException('Tab not found');
 
-        for (const [ref, cellData] of Object.entries(body.cells)) {
-          const parsedRef = parseRef(ref);
-          if (cellData === null) {
-            writeWorksheetCell(worksheet, parsedRef, undefined);
-          } else {
-            updateWorksheetCell(worksheet, parsedRef, (existing) => ({
-              ...(existing ?? {}),
-              v: cellData.value ?? existing?.v ?? '',
-              f: cellData.formula ?? existing?.f,
-            }));
+          for (const [ref, cellData] of Object.entries(body.cells)) {
+            const parsedRef = parseRef(ref);
+            if (cellData === null) {
+              writeWorksheetCell(worksheet, parsedRef, undefined);
+            } else {
+              updateWorksheetCell(worksheet, parsedRef, (existing) => ({
+                ...(existing ?? {}),
+                v: cellData.value ?? existing?.v ?? '',
+                f: cellData.formula ?? existing?.f,
+              }));
+            }
           }
-        }
-      });
+        });
 
-      return { updated: Object.keys(body.cells).length };
-    });
+        return { updated: Object.keys(body.cells).length };
+      },
+      { initialRoot: initialSpreadsheetDocument() },
+    );
   }
 }
 

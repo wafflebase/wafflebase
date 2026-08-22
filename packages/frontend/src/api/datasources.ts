@@ -1,5 +1,6 @@
 import { fetchWithAuth } from "./auth";
 import { assertOk } from "./http-error";
+import { seg } from "./url";
 import type {
   DataSource,
   QueryResult,
@@ -42,7 +43,7 @@ export async function fetchDataSources(): Promise<DataSource[]> {
  * Fetches data source.
  */
 export async function fetchDataSource(id: string): Promise<DataSource> {
-  const res = await fetchWithAuth(`${BASE}/${id}`);
+  const res = await fetchWithAuth(`${BASE}/${seg(id)}`);
   await assertOk(res, "Failed to fetch datasource");
   return res.json();
 }
@@ -62,7 +63,7 @@ export async function updateDataSource(
     sslEnabled: boolean;
   }>
 ): Promise<DataSource> {
-  const res = await fetchWithAuth(`${BASE}/${id}`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(id)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -75,7 +76,7 @@ export async function updateDataSource(
  * Deletes data source.
  */
 export async function deleteDataSource(id: string): Promise<void> {
-  const res = await fetchWithAuth(`${BASE}/${id}`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(id)}`, {
     method: "DELETE",
   });
   await assertOk(res, "Failed to delete datasource");
@@ -87,7 +88,7 @@ export async function deleteDataSource(id: string): Promise<void> {
 export async function testDataSourceConnection(
   id: string
 ): Promise<TestConnectionResult> {
-  const res = await fetchWithAuth(`${BASE}/${id}/test`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(id)}/test`, {
     method: "POST",
   });
   await assertOk(res, "Failed to test connection");
@@ -101,7 +102,7 @@ export async function executeDataSourceQuery(
   id: string,
   query: string
 ): Promise<QueryResult> {
-  const res = await fetchWithAuth(`${BASE}/${id}/query`, {
+  const res = await fetchWithAuth(`${BASE}/${seg(id)}/query`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query }),

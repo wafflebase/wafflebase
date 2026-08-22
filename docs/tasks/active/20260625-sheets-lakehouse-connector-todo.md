@@ -39,17 +39,17 @@ Delta on MinIO, with time-travel syntax pinned.
   Files: scratch script + a temporary MinIO `docker-compose` service.
   Done: findings (syntax + version pins) written back into the design doc; no
   product code committed.
-- [ ] **DuckDB singleton + connection pool.**
+- [x] **DuckDB singleton + connection pool.**
   Scope: a `DuckDbService` owning one DuckDB instance and lending pooled
   connections; `INSTALL`/`LOAD iceberg, delta, httpfs, azure` once on module
   init (never per request). Add `@duckdb/node-api` dependency.
   Files: `packages/backend/src/lakehouse/duckdb.service.ts`, `package.json`.
   Done: service injectable; a unit test runs `SELECT 42` through a pooled conn.
-- [ ] **Extension loading for CI/locked networks.**
+- [x] **Extension loading for CI/locked networks.**
   Scope: ensure extensions auto-load offline (pre-bundle or vendored path);
   document the env for air-gapped deploys.
   Done: integration runs with no network extension fetch.
-- [ ] **DuckDB binary in the backend image.**
+- [x] **DuckDB binary in the backend image.**
   Scope: add the native binary to the backend Docker build; match runtime platform.
   Files: backend `Dockerfile` / CI image step.
   Done: container boots and loads extensions.
@@ -70,26 +70,26 @@ read-only in a new tab.
 `packages/frontend/src/components/{lakehouse-dialog,lakehouse-selector,tab-bar}.tsx`,
 `packages/frontend/src/api/lakehouse.ts`.
 
-- [ ] **`LakehouseSource` Prisma model + migration.**
+- [x] **`LakehouseSource` Prisma model + migration.**
   Scope: model per design §2 (name, format, storage, endpoint, region, bucket,
   basePath, catalogMode, catalogUri, credentials, workspaceId, authorID).
   Reuse: `src/datasource/crypto.util.ts` to encrypt `credentials`. Run
   `pnpm backend migrate`.
   Done: CRUD persists; `credentials` stored encrypted, masked in API responses.
-- [ ] **Lakehouse backend module (service/controller/dto).**
+- [x] **Lakehouse backend module (service/controller/dto).**
   Scope: mirror `src/datasource/`; endpoints `POST|GET|PATCH|DELETE
   /workspaces/:wid/lakehouse-sources`, `POST /:id/test`, `POST /:id/read`;
   workspace-membership guard.
   Reuse: datasource controller/dto patterns, `combined-auth` guard.
   Done: controller-contract e2e green; non-members get 403.
-- [ ] **Iceberg read via `iceberg_scan`.**
+- [x] **Iceberg read via `iceberg_scan`.**
   Scope: `read` executes direct-metadata Iceberg through `DuckDbService`; wrap
   `SELECT * FROM (...) LIMIT 10001`, set 10k truncation flag + statement/connection
   timeouts; scan-only validation.
   Reuse: `src/datasource/sql-validator.ts`. Output the shared
   `{ columns:[{name,dataTypeID}], rows, rowCount, truncated, executionTime }`.
   Done: returns correct rows for the Iceberg fixture.
-- [ ] **Sheets: lakehouse tab type + `TabMeta` fields + Yorkie migration.**
+- [x] **Sheets: lakehouse tab type + `TabMeta` fields + Yorkie migration.**
   Scope: add `"lakehouse"` to `TabType`; add `lakehouseSourceId`,
   `lakehouseRef`, `asOf` to `TabMeta` (design §1). Make
   `worksheet-shape-migration.ts` tolerate old documents missing these fields
@@ -98,7 +98,7 @@ read-only in a new tab.
   `packages/backend/src/yorkie/worksheet-shape-migration.ts` (+ its `.spec.ts`).
   Done: types compile; old docs migrate cleanly; a lakehouse tab round-trips
   through Yorkie.
-- [ ] **Frontend: dialog + selector + view + tab entry.**
+- [x] **Frontend: dialog + selector + view + tab entry.**
   Scope: `LakehouseDialog` (create/edit connection + Test), `LakehouseSelector`
   (pick when adding a tab), `LakehouseView` (loads `/read` results into a
   `ReadOnlyStore` and renders), "New Lakehouse" item in `tab-bar.tsx`, and an
@@ -137,11 +137,11 @@ clearly; `pnpm verify:fast`.
 **Goal:** read Delta tables, reusing all LH-1 infrastructure.
 **Primary files:** `packages/backend/src/lakehouse/lakehouse.service.ts`, test fixtures.
 
-- [ ] **`delta_scan` read path.**
+- [x] **`delta_scan` read path.**
   Scope: `format=delta` branch calling `delta_scan(...)` through `DuckDbService`;
   same wrap/limit/timeout/response as Iceberg.
   Done: a Delta fixture renders read-only.
-- [ ] **Delta test fixtures.**
+- [x] **Delta test fixtures.**
   Scope: commit a tiny Delta table (≥3 versions) under test fixtures + a regen note.
   Done: used by LH-8 parity/time-travel tests.
 
@@ -154,11 +154,11 @@ clearly; `pnpm verify:fast`.
 **Goal:** connect to a managed catalog and list its tables.
 **Primary files:** `packages/backend/src/lakehouse/lakehouse.service.ts` + controller.
 
-- [ ] **Attach Iceberg REST catalog / S3 Tables.**
+- [x] **Attach Iceberg REST catalog / S3 Tables.**
   Scope: when `catalogMode != direct-metadata`, `ATTACH` the catalog (OAuth2/ARN
   via stored creds) and read `<ns>.<table>`.
   Done: a REST-catalog table renders.
-- [ ] **`GET /:id/tables` (catalog listing).**
+- [x] **`GET /:id/tables` (catalog listing).**
   Scope: list namespaces/tables from the catalog for the picker.
   Done: endpoint returns the table list for a test catalog.
 
@@ -173,16 +173,16 @@ clearly; `pnpm verify:fast`.
 `packages/frontend/src/app/spreadsheet/lakehouse-view.tsx` + a new
 `TimeTravelSlider` component, `packages/sheets/.../worksheet-document.ts` (asOf persist).
 
-- [ ] **History endpoint `GET /:id/history`.**
+- [x] **History endpoint `GET /:id/history`.**
   Scope: return `[{ ref, timestamp, operation, summary? }]` from
   `iceberg_snapshots(...)` (Iceberg) / Delta history.
   Done: ordered timeline for a ≥3-commit fixture.
-- [ ] **`/read` accepts `asOf` → time-travel SQL.**
+- [x] **`/read` accepts `asOf` → time-travel SQL.**
   Scope: emit `delta_scan(version=>N)` / `TIMESTAMP AS OF` / Iceberg snapshot
   selection per `TimeTravelPoint`.
   Done: `asOf` version N returns the historical row set; timestamp resolves to
   commit-at-or-before.
-- [ ] **`TimeTravelSlider` UI + Yorkie persistence.**
+- [x] **`TimeTravelSlider` UI + Yorkie persistence.**
   Scope: discrete stops = commits (label = timestamp + operation), "Latest" at
   the right; on change call `/read` with the new `asOf`, reload the
   `ReadOnlyStore`, and write `asOf` to `TabMeta`.
@@ -198,10 +198,10 @@ via Yorkie; `pnpm verify:fast`.
 **Goal:** mint DuckDB secrets for each storage backend. Shared with File Import FI-4.
 **Primary files:** `packages/backend/src/lakehouse/duckdb.service.ts` (secret minting).
 
-- [ ] **S3 + S3-compatible (MinIO/R2).** Scope: `CREATE SECRET (TYPE s3)` from
+- [x] **S3 + S3-compatible (MinIO/R2).** Scope: `CREATE SECRET (TYPE s3)` from
   decrypted creds; custom endpoint + path-style for compatibles. Done: reads from MinIO.
-- [ ] **Azure Blob / ADLS.** Scope: `azure` extension + Azure secret. Done: reads from Azurite.
-- [ ] **GCS (S3-interop / HMAC).** Scope: HMAC-key secret via httpfs. Done: reads a GCS-interop fixture.
+- [x] **Azure Blob / ADLS.** Scope: `azure` extension + Azure secret. Done: reads from Azurite.
+- [x] **GCS (S3-interop / HMAC).** Scope: HMAC-key secret via httpfs. Done: reads a GCS-interop fixture.
 
 **Acceptance:** the same fixture reads from each backend (verified by LH-8 parity
 suite); `pnpm verify:fast`.
@@ -216,7 +216,7 @@ suite); `pnpm verify:fast`.
 
 - [ ] **Table browser.** Scope: flat list + namespace navigation from
   `GET /:id/tables`; select to set `lakehouseRef`. Done: pick a table, tab loads it.
-- [ ] **Connection-test UX + states.** Scope: surface test result, loading,
+- [x] **Connection-test UX + states.** Scope: surface test result, loading,
   unreachable/credential errors. Done: clear messages for bad creds / unreachable storage.
 
 **Acceptance:** select a catalog table end-to-end; clear errors; `pnpm verify:fast`;
@@ -231,12 +231,12 @@ Detail: design [§8](../../design/sheets/lakehouse-connected-sheet.md#8-test-str
 **Primary files:** root `docker-compose.yml`, `.github/workflows/ci.yml`,
 `packages/backend/test/lakehouse-*.e2e-spec.ts`, committed fixtures.
 
-- [ ] **Emulator services + fixture seeding.** Scope: MinIO + Azurite in
+- [x] **Emulator services + fixture seeding.** Scope: MinIO + Azurite in
   docker-compose; seed committed Iceberg/Delta fixtures at test setup. Done: emulators reachable in CI.
-- [ ] **Parameterized connector-parity suite.** Scope: one suite over
+- [x] **Parameterized connector-parity suite.** Scope: one suite over
   `[minio-s3, azurite-azure, gcs-interop, local-fs]` asserting secret mint →
   list → read N rows → history length → `asOf(version K)`. Done: green for all backends.
-- [ ] **CI gate + wiring.** Scope: `RUN_LAKEHOUSE_INTEGRATION_TESTS` gate; run
+- [x] **CI gate + wiring.** Scope: `RUN_LAKEHOUSE_INTEGRATION_TESTS` gate; run
   per PR like the existing Postgres/Yorkie services. Done: CI runs the suite on PRs.
 - [ ] **(optional) R2 free-tier smoke.** Scope: scheduled/manual job, repo
   secrets, never fork PRs. Done: real S3-compatible read passes off the hot path.
@@ -257,7 +257,7 @@ Detail: design [§8](../../design/sheets/lakehouse-connected-sheet.md#8-test-str
 
 ## Cross-cutting
 
-- [ ] `docs/design/README.md` Sheets section updated (done on ideation branch)
+- [x] `docs/design/README.md` Sheets section updated (done on ideation branch)
 - [ ] Lessons in paired `20260625-sheets-lakehouse-connector-lessons.md`
 - [ ] After all merged: `pnpm tasks:archive && pnpm tasks:index`
 

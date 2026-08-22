@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
+import { sessionCookieName } from './oauth-state';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -10,7 +11,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         (request: Request) => {
-          return request?.cookies?.wafflebase_session;
+          // Only the name this deployment mints, never an unprefixed
+          // leftover: accepting `wafflebase_session` where
+          // `__Host-wafflebase_session` is what gets written would hand back
+          // the sibling-subdomain session planting the prefix exists to stop
+          // (`oauth-state.ts`).
+          return request?.cookies?.[sessionCookieName()];
         },
         ExtractJwt.fromAuthHeaderAsBearerToken(),
       ]),

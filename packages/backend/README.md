@@ -22,6 +22,16 @@ FRONTEND_URL=http://localhost:5173
 DATABASE_URL=postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
 JWT_SECRET=your_jwt_secret
 JWT_REFRESH_SECRET=your_refresh_secret   # Optional, defaults to JWT_SECRET
+OAUTH_STATE_SECRET=                      # Optional. Key the OAuth login
+                                        # bindings are signed with. Unset
+                                        # (default) it is HKDF-derived from
+                                        # JWT_SECRET, so nothing has to be
+                                        # configured; set it to an
+                                        # independent high-entropy value if
+                                        # you want the `state` published by
+                                        # the unauthenticated
+                                        # GET /auth/github to carry no
+                                        # relation to the session key at all.
 JWT_ACCESS_EXPIRES_IN=1h                # Optional
 JWT_REFRESH_EXPIRES_IN=7d               # Optional
 JWT_ACCESS_COOKIE_MAX_AGE_MS=3600000    # Optional
@@ -41,6 +51,23 @@ GITHUB_USER_EMAIL_URL=                   #   https://<host>/login/oauth/authoriz
                                         # otherwise fetches emails from
                                         # api.github.com and a GHE token fails
                                         # there with "Bad credentials".
+COOKIE_SECURE=                          # Optional. Whether session and login
+                                        # cookies carry `Secure` (and so the
+                                        # `__Host-` prefix). Unset — the normal
+                                        # case — derives it from
+                                        # GITHUB_CALLBACK_URL's scheme, since
+                                        # that is where GitHub redirects the
+                                        # login and so is this server's public
+                                        # scheme; with no callback URL set at
+                                        # all it falls back to
+                                        # NODE_ENV=production. Set it to `true`
+                                        # only when TLS terminates at an edge
+                                        # and the callback URL is `http://`
+                                        # anyway, which would otherwise
+                                        # downgrade the session cookie.
+                                        # `NODE_ENV=production` with a
+                                        # non-loopback `http://` callback URL
+                                        # logs a warning for that reason.
 PORT=3000
 LOG_LEVEL=info                          # Optional, Pino level
 BACKEND_TRUST_PROXY=0                   # Optional, set to 1 behind a proxy
@@ -57,6 +84,19 @@ FILE_STORAGE_PREFIX=                    # Optional, object-key prefix for the
 IMAGE_STORAGE_PREFIX=                   # Optional, the same for the image
                                         # bucket. Composes outside the
                                         # per-workspace key prefix.
+DATASOURCE_ENCRYPTION_KEY=              # Required for datasource/lakehouse
+                                        # credentials: 64 hex characters
+LAKEHOUSE_ALLOWED_ENDPOINTS=            # Optional comma-separated exact HTTP(S)
+                                        # origins for custom S3/Azure/GCS-interop
+                                        # endpoints and Iceberg REST catalogs
+LAKEHOUSE_QUERY_TIMEOUT_MS=30000         # Optional, 100..300000
+LAKEHOUSE_DUCKDB_MEMORY_LIMIT=512MB      # Optional, integer KB/MB/GB
+LAKEHOUSE_DUCKDB_THREADS=2               # Optional, 1..32
+LAKEHOUSE_DUCKDB_POOL_SIZE=2             # Optional, 1..8; operations remain
+                                        # globally serialized for secret safety
+LAKEHOUSE_DUCKDB_MAX_PENDING=64          # Optional, 1..1000
+LAKEHOUSE_ALLOW_LOCAL_PATHS=false        # Optional, trusted-admin feature
+LAKEHOUSE_LOCAL_ROOT=                    # Required when local paths are enabled
 YORKIE_RPC_ADDR=http://localhost:8080   # Optional, Yorkie RPC/admin endpoint
 YORKIE_PUBLIC_KEY=                      # Optional, project public key (SDK)
 YORKIE_SECRET_KEY=                      # Optional, project secret key; enables
@@ -86,6 +126,41 @@ WAFFLEBASE_STARROCKS_DSN=               # Optional, StarRocks DSN
                                         # analytics dashboard (returns
                                         # `enabled: false`).
 ```
+
+`GITHUB_CALLBACK_URL`'s scheme is read as the deployment's public scheme: it
+decides whether the login cookies are `Secure` (and so `__Host-`-prefixed), and
+with it whether `wafflebase login` is available at all. CLI sign-in answers
+`400 Command-line sign-in requires an https server` unless it can see that its
+consent cookie is trustworthy — an `https://` callback URL (or
+`COOKIE_SECURE=true`), or a loopback one. A plain-http non-loopback origin is
+refused because anything on such an origin can plant that cookie, and so is a
+deployment that configures **no** callback URL at all: GitHub falls back to the
+URL registered on the OAuth app, so the scheme is real but invisible here, and
+guessing "secure" would be guessing in the unsafe direction. Serve over https
+(or keep it on `localhost`) to use it.
+
+### Lakehouse: DuckDB extensions are bundled into the image
+
+The lakehouse connector needs four DuckDB extensions (`httpfs`, `iceberg`,
+`delta`, `azure`, plus `avro` which `iceberg` pulls in). The production image
+downloads them **at build time** into `LAKEHOUSE_DUCKDB_EXTENSION_DIR`
+(`/app/.duckdb-extensions`) for the platform it will run on, so a deployment
+needs no egress to `extensions.duckdb.org`:
+
+- `verify-backend-image` in CI builds the image for amd64 and arm64 and runs
+  `packages/backend/test/smoke-duckdb-runtime.cjs` inside it with
+  `--network none`. That is the real assertion — an image that lost the
+  bundling step fails there rather than on a deployment's first read.
+- The build step also `LOAD`s each extension, so a platform whose binary is
+  missing (the reason the image is glibc-based: DuckDB publishes no `delta`
+  build for `linux_arm64_musl`) fails the build instead of production.
+- Cost: roughly 170 MB of extension binaries, most of it `delta` (73 MB) and
+  `iceberg` (44 MB).
+
+Outside the image — a developer machine, or an image built without that step —
+`LAKEHOUSE_DUCKDB_EXTENSION_DIR` is unset, DuckDB falls back to `~/.duckdb`,
+and the service downloads any extension whose `LOAD` fails. Loading is always
+tried first, so nothing hits the network when the binaries are already there.
 
 ### Yorkie auth webhook (per-document access control)
 
@@ -151,6 +226,14 @@ before running it.
 It covers both DB-backed service integration and authenticated HTTP integration
 through JWT guards/controllers for core datasource/share-link/document flows.
 
+`RUN_LAKEHOUSE_INTEGRATION_TESTS=true` enables the lakehouse connector-parity
+suite (`test/lakehouse-parity.e2e-spec.ts`): real DuckDB against MinIO S3,
+GCS-interop (HMAC through MinIO), Azurite Azure (set
+`LAKEHOUSE_AZURITE_ENDPOINT`, e.g. `http://127.0.0.1:10000/devstoreaccount1`),
+and the local filesystem. `docker compose up -d minio azurite` provides both
+emulators; see `test/fixtures/lakehouse/README.md` for the fixture contract
+and the opt-in real-cloud smoke.
+
 A separate gate `RUN_YORKIE_INTEGRATION_TESTS=true` enables tests that
 attach to a running Yorkie server (e.g.,
 `packages/backend/test/docs-tree-attached.e2e-spec.ts` and
@@ -181,8 +264,8 @@ pnpm --filter @wafflebase/backend exec prisma migrate deploy
 
 | Method | Route | Auth | Description |
 |--------|-------|------|-------------|
-| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow |
-| `GET` | `/auth/github/callback` | - | OAuth callback, sets access/refresh cookies, redirects to frontend |
+| `GET` | `/auth/github` | - | Initiate GitHub OAuth flow (mints the OAuth `state`; `?mode=cli` is gated on a confirmation click) |
+| `GET` | `/auth/github/callback` | - | OAuth callback; requires a matching `state`, sets access/refresh cookies, redirects to frontend |
 | `GET` | `/auth/me` | JWT | Get current authenticated user |
 | `POST` | `/auth/refresh` | Refresh cookie | Rotate access/refresh cookies |
 | `POST` | `/auth/logout` | - | Clear session cookies |
@@ -335,6 +418,11 @@ All API key endpoints require JWT authentication.
 
 All v1 endpoints accept both JWT cookies and `Authorization: Bearer wfb_...` API key auth.
 
+Every mutating v1 route (`POST` / `PUT` / `PATCH` / `DELETE`) additionally
+requires the `write` scope from an API-key caller — enforced for the whole
+surface by `ApiKeyWriteScopeGuard`, not per handler. JWT callers are
+unaffected; their authority is workspace membership and document ownership.
+
 #### Documents
 
 | Method | Route | Description |
@@ -388,15 +476,35 @@ stored, so a rejected value costs no upload.
 
 ```
 1. Frontend links to GET /auth/github
-2. Passport redirects to GitHub OAuth consent screen
-3. GitHub redirects to GET /auth/github/callback
-4. GitHubStrategy validates profile, calls UserService.findOrCreateUser()
-5. AuthService signs access and refresh JWTs with { sub, username, email, photo }
-6. Tokens are set as httpOnly cookies (`wafflebase_session`, `wafflebase_refresh`)
-7. Response redirects to FRONTEND_URL
-8. Frontend calls GET /auth/me on subsequent loads to verify session
-9. If access token expires, frontend calls POST /auth/refresh and retries once
+2. GitHubAuthGuard mints an OAuth `state` and attaches it as __oauthState:
+   a double-submit pair for the browser (secret in the
+   `__Host-wafflebase_oauth_state` cookie, its SHA-256 sent as
+   `web.<hash>`), or
+   a CliAuthStore token for `?mode=cli`, paired with a secret in the
+   `__Host-wafflebase_cli_state` cookie so the CLI state is bound to
+   this browser too
+3. Passport redirects to GitHub OAuth consent screen, carrying `state`
+4. GitHub redirects to GET /auth/github/callback
+5. GitHubStrategy validates profile, calls UserService.findOrCreateUser()
+6. The callback requires `state`: the browser's must match its cookie
+   (cleared on use), a CLI token must match its own
+   `__Host-wafflebase_cli_state` cookie before it is consumed and
+   redirected to the loopback port. A stateless or mismatched callback
+   issues no session and returns the browser to
+   FRONTEND_URL/login?error=oauth_state
+7. AuthService signs access and refresh JWTs with { sub, username, email, photo }
+8. Tokens are set as httpOnly cookies (`wafflebase_session`, `wafflebase_refresh`)
+9. Response redirects to FRONTEND_URL
+10. Frontend calls GET /auth/me on subsequent loads to verify session
+11. If access token expires, frontend calls POST /auth/refresh and retries once
 ```
+
+A CLI login (`GET /auth/github?mode=cli&port=…`) is unauthenticated and
+takes its redirect target off the query string, so `CliLoginConfirmMiddleware`
+answers it with a confirmation page first; only the click through it
+(which carries the `__Host-wafflebase_cli_confirm` cookie secret back as
+`?confirm=`) reaches the guard. Design:
+[`docs/design/backend.md`](../../docs/design/backend.md).
 
 ## Database Schema
 
@@ -476,6 +584,10 @@ src/
 │   ├── auth.controller.ts     # OAuth + session endpoints
 │   ├── auth.service.ts        # JWT token creation
 │   ├── github.strategy.ts     # Passport GitHub OAuth2 strategy
+│   ├── github-auth.guard.ts   # Mints the OAuth `state` (web + CLI)
+│   ├── oauth-state.ts         # Browser double-submit state cookie
+│   ├── cli-auth.store.ts      # CLI login state/code store
+│   ├── cli-login-confirm.middleware.ts # Consent gate for ?mode=cli
 │   ├── jwt.strategy.ts        # Passport JWT-from-cookie strategy
 │   └── jwt-auth.guard.ts      # Route guard
 ├── user/
@@ -502,7 +614,8 @@ src/
 │   ├── tabs.controller.ts     # Tab listing via Yorkie
 │   ├── cells.controller.ts    # Cell CRUD via Yorkie
 │   ├── files.controller.ts    # Blob document upload/download (any file)
-│   └── workspace-scope.guard.ts # Workspace access verification
+│   ├── workspace-scope.guard.ts # Workspace access verification
+│   └── api-key-write-scope.guard.ts # `write` scope on mutating routes
 ├── workspace/                 # Workspaces + members + sharing roles
 ├── folder/                    # Workspace folder tree (folder.md / workspace-folders.md)
 ├── share-link/                # URL-based token sharing (sharing.md)

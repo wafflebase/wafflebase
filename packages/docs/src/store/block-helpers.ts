@@ -1,6 +1,11 @@
 // packages/docs/src/store/block-helpers.ts
 import type { Block, Inline, InlineStyle, BlockType } from '../model/types.js';
-import { inlineStylesEqual, generateBlockId, isStructuralInline } from '../model/types.js';
+import {
+  inlineStylesEqual,
+  generateBlockId,
+  isStructuralInline,
+  normalizeStyleClears,
+} from '../model/types.js';
 
 export interface InlinePosition {
   inlineIndex: number;
@@ -266,8 +271,16 @@ export function applySplitBlock(
 
   // Remove block-specific attrs from after block
   delete after.tableData;
-  if (newBlockType !== 'heading') {
+  // A bulleted heading's remembered level describes that block's own text, so
+  // a split at offset 0 — which hands *all* of that text to the new block —
+  // moves the memory across instead of stranding it on the empty leading
+  // bullet (which would otherwise be the half `unlistedBlockType` promotes).
+  const movesMemory = splitMovesHeadingMemory(block, offset, newBlockType);
+  if (newBlockType !== 'heading' && !movesMemory) {
     delete after.headingLevel;
+  }
+  if (movesMemory) {
+    delete before.headingLevel;
   }
   // Preserve list attrs when the new block is also a list-item
   if (newBlockType !== 'list-item') {
@@ -279,11 +292,59 @@ export function applySplitBlock(
 }
 
 /**
+ * Whether splitting `block` at `offset` hands the heading level a bulleted
+ * heading remembers to the split-off block instead of leaving it behind.
+ *
+ * The memory only describes the text the block that was bulleted holds, and a
+ * split at offset 0 moves every character of it into the new block — leaving
+ * the level on the now-empty leading bullet would make the wrong half restore
+ * a heading, and would strip it from the text that actually was one. Any other
+ * offset keeps the memory where it is: the heading text starts in `before`, so
+ * the new bullet is body text (see `Block.headingLevel`).
+ *
+ * Shared by `applySplitBlock` and `YorkieDocStore.splitBlock`, which has to
+ * move the same attribute in the Yorkie tree to stay in sync.
+ */
+export function splitMovesHeadingMemory(
+  block: Block,
+  offset: number,
+  newBlockType: BlockType,
+): boolean {
+  return (
+    offset === 0 &&
+    newBlockType === 'list-item' &&
+    block.type === 'list-item' &&
+    block.headingLevel !== undefined &&
+    block.inlines.some((inline) => inline.text.length > 0)
+  );
+}
+
+/**
+ * Whether a merge into `block` invalidates the heading level a bulleted
+ * heading remembers (see `Block`). A merge appends another block's text into
+ * `block`; when `block` is a list item that has no text of its own, none of
+ * the remembered heading survives, so the level must not travel onto the
+ * incoming body text — otherwise removing the list promotes text that was
+ * never a heading.
+ *
+ * Shared by `applyMergeBlocks` and `YorkieDocStore.mergeBlock`, which has to
+ * drop the same attribute from the Yorkie tree to stay in sync.
+ */
+export function mergeDropsHeadingMemory(block: Block): boolean {
+  return (
+    block.type === 'list-item' &&
+    block.headingLevel !== undefined &&
+    block.inlines.every((inline) => inline.text.length === 0)
+  );
+}
+
+/**
  * Merge nextBlock into block. Returns the merged block.
  */
 export function applyMergeBlocks(block: Block, nextBlock: Block): Block {
   const merged = cloneBlock(block);
   const nextClone = cloneBlock(nextBlock);
+  if (mergeDropsHeadingMemory(merged)) delete merged.headingLevel;
   merged.inlines = normalizeInlines([...merged.inlines, ...nextClone.inlines]);
   return merged;
 }
@@ -368,7 +429,12 @@ export function applyInlineStyle(
   to: number,
   style: Partial<InlineStyle>,
 ): Block {
-  const resolvedStyle = resolveScriptExclusion(style);
+  // Two normalizations, both required and independent. `normalizeStyleClears`
+  // turns a colour picker's `''` into the key-present-undefined shape that
+  // means "clear" (#793); `resolveScriptExclusion` drops the opposite script
+  // flag. The latter is this file's extraction of the exclusion that used to
+  // be spelled inline here, so it replaces that copy rather than adding to it.
+  const resolvedStyle = resolveScriptExclusion(normalizeStyleClears(style));
 
   const newBlock = cloneBlock(block);
   const newInlines: Inline[] = [];

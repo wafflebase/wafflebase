@@ -20,6 +20,8 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { FolderModule } from './folder/folder.module';
 import { MiroModule } from './miro/miro.module';
 import { NotificationModule } from './notification/notification.module';
+import { logSafeUrl } from './logging/log-safe-url';
+import { LakehouseModule } from './lakehouse/lakehouse.module';
 
 @Module({
   imports: [
@@ -66,7 +68,7 @@ import { NotificationModule } from './notification/notification.module';
           req: (req) => ({
             id: req.id,
             method: req.method,
-            url: req.url,
+            url: logSafeUrl(req.url),
             remoteAddress: req.remoteAddress,
             userAgent: req.headers?.['user-agent'],
           }),
@@ -116,6 +118,7 @@ import { NotificationModule } from './notification/notification.module';
     FolderModule,
     MiroModule,
     NotificationModule,
+    LakehouseModule,
   ],
   controllers: [],
   providers: [

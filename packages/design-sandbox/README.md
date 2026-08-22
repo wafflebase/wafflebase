@@ -33,11 +33,16 @@ in one stylesheet) in a fraction of the code.
 
 ## What is not here yet
 
-The scene runtime: `providers.tsx`, the fixtures, the offline Yorkie shim and the
-canvas seeds, plus the aliases and shims that exist to serve them. Those are PRs
-10–12, and every scene in `scenes.config.json` is marked `deferred` until they
-land — the flag keeps each entry and its reasoning while generating no loader for
-a scene that cannot mount.
+One scene. `pdf-viewer` is `deferred` — the flag keeps its entry and its curation
+notes while generating no loader for a scene that cannot mount. The other ten
+render: the scene runtime (`providers.tsx`, the fixtures, the offline Yorkie shim,
+the canvas seeds and the aliases that serve them) landed across PRs 11c–13.
+
+The editor has no isolated component preview, and that is a decision rather than a
+gap — see 13d in [the plan](../../docs/design/design-editor/design-editor-local-plugin.md).
+A staged *class* edit previews live, like a token edit does — `POST /plan` publishes
+it and the frame re-serves the patched module. See `design-editor-engine.md` §3.9 for
+why it patches a module rather than pushing an override.
 
 ## Commands
 

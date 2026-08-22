@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { CombinedAuthGuard } from '../../api-key/combined-auth.guard';
 import { WorkspaceScopeGuard } from './workspace-scope.guard';
+import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { DocumentService } from '../../document/document.service';
 import { isDocumentManager } from '../../document/document-access';
 import { WorkspaceService } from '../../workspace/workspace.service';
@@ -22,7 +23,7 @@ import { FileService } from '../../file/file.service';
 import { VALID_FILE_ID_PATTERN } from '../../file/file.constants';
 
 @Controller('api/v1/workspaces/:workspaceId/documents')
-@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard)
+@UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
 export class ApiV1DocumentsController {
   constructor(
     private readonly documentService: DocumentService,
@@ -102,13 +103,10 @@ export class ApiV1DocumentsController {
       id: documentId,
       workspaceId,
     });
-    if (req.user.isApiKey) {
-      // API keys are workspace-scoped credentials minted by an owner; they act
-      // with workspace authority but must carry the `write` scope to mutate.
-      if (!req.user.scopes?.includes('write')) {
-        throw new ForbiddenException('This API key does not have write access');
-      }
-    } else {
+    // API keys are workspace-scoped credentials minted by an owner; they act
+    // with workspace authority, and `ApiKeyWriteScopeGuard` has already
+    // rejected one without the `write` scope before this handler runs.
+    if (!req.user.isApiKey) {
       // A human (JWT) caller may only delete a document they manage — as the
       // workspace owner or the document's author.
       const userId = Number(req.user.id);

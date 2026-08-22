@@ -404,12 +404,15 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
         underline: !isStyleOn(editor.getRangeStyleSummary().underline),
       });
     };
-    const handleTextColor = (color: string) => {
+    // `undefined` — not `""` — clears the color: the store turns an
+    // explicitly-undefined key into an attribute removal, while an empty
+    // string would be stored as a real (invalid) color. See issue #728.
+    const handleTextColor = (color: string | undefined) => {
       editor?.applyStyle({ color });
       slimTextColorMenu.markSwatchClicked();
       setSlimTextColorOpen(false);
     };
-    const handleHighlightColor = (backgroundColor: string) => {
+    const handleHighlightColor = (backgroundColor: string | undefined) => {
       editor?.applyStyle({ backgroundColor });
       slimHighlightMenu.markSwatchClicked();
       setSlimHighlightOpen(false);
@@ -494,7 +497,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
             className="w-auto p-2"
             onCloseAutoFocus={slimTextColorMenu.onCloseAutoFocus}
           >
-            <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={() => handleTextColor("")} />
+            <ColorPickerGrid colors={TEXT_COLORS} onSelect={handleTextColor} onReset={() => handleTextColor(undefined)} />
           </PopoverContent>
         </Popover>
 
@@ -516,7 +519,7 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
             className="w-auto p-2"
             onCloseAutoFocus={slimHighlightMenu.onCloseAutoFocus}
           >
-            <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor("")} noneLabel="None" />
+            <ColorPickerGrid colors={BG_COLORS} onSelect={handleHighlightColor} onReset={() => handleHighlightColor(undefined)} noneLabel="None" />
           </PopoverContent>
         </Popover>
 

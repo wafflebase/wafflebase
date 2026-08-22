@@ -117,3 +117,63 @@ describe('GitHubStrategy endpoints', () => {
     expect(e.profile).toBe(DEFAULTS.profile);
   });
 });
+
+/**
+ * The one hinge of the OAuth CSRF design.
+ *
+ * `GitHubAuthGuard` attaches the state it minted to the request as
+ * `__oauthState`; this is the only place that reads it back out and puts
+ * it on the wire. Both login paths depend on it — the CLI's
+ * `CliAuthStore` token and the browser's double-submit hash — and the
+ * callback now refuses anything arriving without a `state`. If the two
+ * sides ever spelled the key differently, every login would reach GitHub
+ * stateless and every callback would be rejected, while the guard spec
+ * (which asserts only that the guard *sets* the key) stayed green.
+ */
+describe('GitHubStrategy state forwarding', () => {
+  // `super.authenticate` resolves up the prototype chain to whichever
+  // ancestor passport defines it on. Spy on that owner so the real
+  // redirect never runs and the options it was handed are observable.
+  function authenticateOwner(): { authenticate: (...a: unknown[]) => void } {
+    let proto: unknown = Object.getPrototypeOf(GitHubStrategy.prototype);
+    while (
+      proto &&
+      !Object.prototype.hasOwnProperty.call(proto, 'authenticate')
+    ) {
+      proto = Object.getPrototypeOf(proto);
+    }
+    return proto as { authenticate: (...a: unknown[]) => void };
+  }
+
+  let spy: jest.SpyInstance;
+
+  beforeEach(() => {
+    spy = jest
+      .spyOn(authenticateOwner(), 'authenticate')
+      .mockImplementation(() => undefined);
+  });
+
+  afterEach(() => spy.mockRestore());
+
+  function optionsFor(req: Record<string, unknown>) {
+    makeStrategy(BASE).authenticate(
+      req as unknown as Parameters<GitHubStrategy['authenticate']>[0],
+      { scope: ['user:email'] },
+    );
+    return spy.mock.calls[0][1] as Record<string, unknown> | undefined;
+  }
+
+  it('forwards the state the guard attached as the OAuth `state`', () => {
+    const opts = optionsFor({ __oauthState: 'web.deadbeef' });
+
+    expect(opts?.state).toBe('web.deadbeef');
+    // The caller's own options have to survive alongside it.
+    expect(opts?.scope).toEqual(['user:email']);
+  });
+
+  it('sets no state when no guard ran', () => {
+    const opts = optionsFor({});
+
+    expect(opts).not.toHaveProperty('state');
+  });
+});

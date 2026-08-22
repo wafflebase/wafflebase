@@ -1,6 +1,8 @@
 import { readFileSync, statSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import type { FileDocument } from '../client/http-client.js';
+import { exitCodeForStatus } from '../errors.js';
+import { errorEnvelope, upstreamErrorJson } from '../output/formatter.js';
 
 /** Mirrors `MAX_FILE_UPLOAD_BYTES` in the backend's `file.constants.ts`. */
 export const MAX_FILE_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -114,6 +116,12 @@ export interface RunFilesUploadArgs {
   folder?: string;
   quiet?: boolean;
   dryRun?: boolean;
+  /**
+   * Dotted name of the command driving this run (`files.upload`), stamped
+   * into every error envelope so an agent running several calls can tell
+   * which one failed. The action passes `commandPath(this)`.
+   */
+  command?: string;
 }
 
 export interface RunFilesUploadResult {
@@ -130,7 +138,7 @@ export async function runFilesUpload(
   client: FilesUploadClient,
   io: FilesUploadIO = defaultFilesUploadIO,
 ): Promise<RunFilesUploadResult> {
-  const { file, title, folder, quiet = false, dryRun = false } = args;
+  const { file, title, folder, quiet = false, dryRun = false, command } = args;
   const fields: FileDocumentFields = {
     ...(title ? { title } : {}),
     ...(folder ? { folderId: folder } : {}),
@@ -138,9 +146,10 @@ export async function runFilesUpload(
 
   if (file === '-') {
     io.stderr(
-      errorJson(
+      errorEnvelope(
         'STDIN_UNSUPPORTED',
         'files upload needs a real path: the document type and download extension are derived from the filename.',
+        command,
       ),
     );
     return { exitCode: 1 };
@@ -153,16 +162,19 @@ export async function runFilesUpload(
   try {
     size = io.sizeOf(file);
   } catch {
-    io.stderr(errorJson('FILE_NOT_FOUND', `Cannot read "${file}".`));
+    io.stderr(
+      errorEnvelope('FILE_NOT_FOUND', `Cannot read "${file}".`, command),
+    );
     return { exitCode: 1 };
   }
 
   const cap = uploadSizeCap(fileName);
   if (size > cap) {
     io.stderr(
-      errorJson(
+      errorEnvelope(
         'FILE_TOO_LARGE',
         `"${fileName}" is ${mb(size)} MB; the limit is ${mb(cap)} MB.`,
+        command,
       ),
     );
     return { exitCode: 1 };
@@ -203,9 +215,10 @@ export async function runFilesUpload(
     bytes = io.readBytes(file);
   } catch (err) {
     io.stderr(
-      errorJson(
+      errorEnvelope(
         'FILE_READ_FAILED',
         `Cannot read "${file}": ${err instanceof Error ? err.message : String(err)}`,
+        command,
       ),
     );
     return { exitCode: 1 };
@@ -213,18 +226,12 @@ export async function runFilesUpload(
 
   const res = await client.uploadFileDocument(bytes, fileName, mimeType, fields);
   if (!res.ok) {
-    io.stderr(
-      JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
-    );
-    return { exitCode: 1 };
+    io.stderr(upstreamErrorJson(res, command));
+    return { exitCode: exitCodeForStatus(res.status) };
   }
 
   io.stdout(JSON.stringify(res.data, null, 2));
   return { exitCode: 0 };
-}
-
-function errorJson(code: string, message: string): string {
-  return JSON.stringify({ error: { code, message } }, null, 2);
 }
 
 function mb(bytes: number): string {

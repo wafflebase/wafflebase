@@ -130,8 +130,11 @@ export function TextFormatGroup({
   // from wherever the user actually clicked next.
   const textColorMenu = useMenuCloseHandlers(() => editor?.focus());
 
+  // `undefined` — not `""` — clears the color: the store turns an
+  // explicitly-undefined key into an attribute removal, while an empty
+  // string would be stored as a real (invalid) color. See issue #728.
   const handleTextColor = useCallback(
-    (color: string) => {
+    (color: string | undefined) => {
       if (!editor) return;
       editor.applyStyle({ color });
       textColorMenu.markSwatchClicked();
@@ -255,7 +258,7 @@ export function TextFormatGroup({
             colors={TEXT_COLORS}
             colorKind="text color"
             onSelect={handleTextColor}
-            onReset={() => handleTextColor("")}
+            onReset={() => handleTextColor(undefined)}
           />
         </PopoverContent>
       </Popover>
@@ -316,7 +319,7 @@ function HighlightSwatch({
   const [open, setOpen] = useState(false);
   const menu = useMenuCloseHandlers(() => editor?.focus());
   const handleColor = useCallback(
-    (backgroundColor: string) => {
+    (backgroundColor: string | undefined) => {
       if (!editor) return;
       editor.applyStyle({ backgroundColor });
       menu.markSwatchClicked();
@@ -350,7 +353,7 @@ function HighlightSwatch({
           colors={BG_COLORS}
           colorKind="highlight color"
           onSelect={handleColor}
-          onReset={() => handleColor("")}
+          onReset={() => handleColor(undefined)}
           noneLabel="None"
         />
       </PopoverContent>

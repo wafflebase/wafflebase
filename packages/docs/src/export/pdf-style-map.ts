@@ -1,6 +1,6 @@
 import type { InlineStyle } from '../model/types.js';
 import type { StoredColor } from '../model/color.js';
-import { defaultColorResolver } from '../model/color.js';
+import { defaultColorResolver, toRgbHexColor } from '../model/color.js';
 import { customFontKey, type PdfFontKey } from './pdf-fonts.js';
 
 // "Latin-safe" character class: code points pdf-lib's WinAnsi-encoded
@@ -135,17 +135,23 @@ export function isItalicShim(
 }
 
 /**
- * Parse a "#RRGGBB" color into pdf-lib `rgb()` components in [0, 1].
+ * Parse a color into pdf-lib `rgb()` components in [0, 1].
  * Returns black for invalid or missing values. Accepts a `StoredColor`
  * for callers that read from `InlineStyle.color`/`backgroundColor`; the
  * legacy `string | undefined` shape stays valid because `string ⊂ StoredColor`.
+ *
+ * Routed through the same `toRgbHexColor` the DOCX and PPTX sinks use, so
+ * the CSS shapes the model actually holds — `rgb(255, 0, 0)` from the
+ * HTML-paste path, `#abc` shorthand, `#RRGGBBAA` — export in their real
+ * color instead of silently collapsing to black (issue #728). Only values
+ * that carry no color at all (unset, the legacy `''` reset, a fully
+ * transparent `rgba(…, 0)`) still fall back to black, which is what an
+ * uncolored run paints on screen.
  */
 export function styleColor(hex: StoredColor | undefined): { r: number; g: number; b: number } {
-  const resolved = defaultColorResolver(hex);
-  if (!resolved) return { r: 0, g: 0, b: 0 };
-  const m = /^#?([0-9a-f]{6})$/i.exec(resolved.trim());
-  if (!m) return { r: 0, g: 0, b: 0 };
-  const n = parseInt(m[1], 16);
+  const normalized = toRgbHexColor(defaultColorResolver(hex));
+  if (!normalized) return { r: 0, g: 0, b: 0 };
+  const n = parseInt(normalized, 16);
   return {
     r: ((n >> 16) & 0xff) / 255,
     g: ((n >> 8) & 0xff) / 255,

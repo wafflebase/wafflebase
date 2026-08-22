@@ -1,8 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { Command } from 'commander';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { rmSync, writeFileSync } from 'node:fs';
 import {
-  formatWorkspaceList,
+  buildWorkspaceList,
   findWorkspace,
+  registerCtxCommand,
 } from '../src/commands/ctx.js';
+import { format } from '../src/output/formatter.js';
 import type { WorkspaceInfo } from '../src/config/session.js';
 
 const workspaces: WorkspaceInfo[] = [
@@ -10,27 +16,42 @@ const workspaces: WorkspaceInfo[] = [
   { id: 'abc12345-aaaa-bbbb-cccc-dddddddddddd', name: 'Team Workspace' },
 ];
 
-describe('formatWorkspaceList', () => {
-  it('marks the active workspace with *', () => {
-    const output = formatWorkspaceList(workspaces, workspaces[0].id);
-    const lines = output.split('\n');
-    expect(lines[0]).toMatch(/^\*/);
-    expect(lines[1]).toMatch(/^ /);
+describe('buildWorkspaceList', () => {
+  it('flags the active workspace', () => {
+    const rows = buildWorkspaceList(workspaces, workspaces[0].id);
+    expect(rows[0].active).toBe(true);
+    expect(rows[1].active).toBe(false);
   });
 
-  it('shows truncated IDs and workspace names', () => {
-    const output = formatWorkspaceList(workspaces, workspaces[0].id);
-    expect(output).toContain('e98ff707');
-    expect(output).toContain("hackerwins's Workspace");
-    expect(output).toContain('abc12345');
-    expect(output).toContain('Team Workspace');
+  it('flags the second workspace when it is active', () => {
+    const rows = buildWorkspaceList(workspaces, workspaces[1].id);
+    expect(rows[0].active).toBe(false);
+    expect(rows[1].active).toBe(true);
   });
 
-  it('marks the second workspace when it is active', () => {
-    const output = formatWorkspaceList(workspaces, workspaces[1].id);
-    const lines = output.split('\n');
-    expect(lines[0]).toMatch(/^ /);
-    expect(lines[1]).toMatch(/^\*/);
+  it('emits full IDs and names in session order', () => {
+    const rows = buildWorkspaceList(workspaces, workspaces[0].id);
+    expect(rows).toEqual([
+      {
+        id: 'e98ff707-1111-2222-3333-444444444444',
+        name: "hackerwins's Workspace",
+        active: true,
+      },
+      {
+        id: 'abc12345-aaaa-bbbb-cccc-dddddddddddd',
+        name: 'Team Workspace',
+        active: false,
+      },
+    ]);
+  });
+
+  it('returns an empty array when there are no workspaces', () => {
+    expect(buildWorkspaceList([], 'none')).toEqual([]);
+  });
+
+  it('is JSON-parseable as emitted by the default format', () => {
+    const rows = buildWorkspaceList(workspaces, workspaces[0].id);
+    expect(JSON.parse(format(rows, 'json'))).toEqual(rows);
   });
 });
 
@@ -67,5 +88,94 @@ describe('findWorkspace', () => {
     ];
     const ws = findWorkspace(ambiguous, 'aabbccdd');
     expect(ws).toBeUndefined();
+  });
+});
+
+// `ctx switch` used to print prose here. It is on the session path an agent
+// walks before anything else, so its failures carry the same one-line,
+// `command`-attributed envelope as the data commands (docs/design/cli.md §9).
+describe('ctx switch failures', () => {
+  const sessionPath = join(tmpdir(), `wb-ctx-test-${process.pid}.json`);
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.WAFFLEBASE_SESSION;
+    process.exitCode = undefined;
+    rmSync(sessionPath, { force: true });
+  });
+
+  /**
+   * Run `ctx switch <query>` to completion, returning stderr.
+   *
+   * To *completion* — never through `process.exit()`. `process.exit` does
+   * not flush a stderr write that is still buffered, and stderr is
+   * buffered whenever it is a pipe rather than a TTY, which is how an
+   * agent runs this. A truncated envelope is worse than none, since it is
+   * what the agent then tries to `JSON.parse`. So the failure has to go
+   * out through `outputError`, which sets `process.exitCode` and lets the
+   * process end on its own once the line is written.
+   */
+  async function runSwitch(query: string): Promise<string[]> {
+    const errs: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      errs.push(args.map(String).join(' '));
+    });
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('process.exit');
+    }) as never);
+
+    const program = new Command();
+    program.name('wafflebase').exitOverride();
+    registerCtxCommand(program);
+
+    await program.parseAsync(['ctx', 'switch', query], { from: 'user' });
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    return errs;
+  }
+
+  // Same code `ctx list` reports for the same condition — the matrix has
+  // no `UNAUTHORIZED` (docs/design/cli.md §10), and the code an agent
+  // branches on must not depend on which `ctx` subcommand it ran.
+  it('reports a missing session as a NOT_LOGGED_IN envelope', async () => {
+    process.env.WAFFLEBASE_SESSION = sessionPath;
+
+    const errs = await runSwitch('anything');
+
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).not.toContain('\n');
+    expect(JSON.parse(errs[0])).toEqual({
+      error: {
+        code: 'NOT_LOGGED_IN',
+        message: 'Not logged in. Run `wafflebase login`.',
+        command: 'ctx.switch',
+      },
+    });
+  });
+
+  it('reports an unknown workspace as a NOT_FOUND envelope', async () => {
+    process.env.WAFFLEBASE_SESSION = sessionPath;
+    writeFileSync(
+      sessionPath,
+      JSON.stringify({
+        server: 'http://localhost:3000',
+        user: { id: 1, username: 'bob', email: 'b@e.com', photo: null },
+        accessToken: 'at',
+        refreshToken: 'rt',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        activeWorkspace: workspaces[0].id,
+        workspaces,
+      }),
+    );
+
+    const errs = await runSwitch('nope');
+
+    expect(JSON.parse(errs[0])).toEqual({
+      error: {
+        code: 'NOT_FOUND',
+        message: 'Workspace not found: nope',
+        command: 'ctx.switch',
+      },
+    });
   });
 });

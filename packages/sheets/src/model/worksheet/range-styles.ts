@@ -57,6 +57,25 @@ export function mergeStylePatch(
 }
 
 /**
+ * Removes the given keys from a style. Returns undefined when the style carries
+ * none of them, so callers can skip a redundant write; an empty style means
+ * every key it had was removed.
+ */
+export function omitStyleKeys(
+  style: CellStyle,
+  keys: Array<keyof CellStyle>,
+): CellStyle | undefined {
+  if (!keys.some((key) => style[key] !== undefined)) {
+    return undefined;
+  }
+  const next: CellStyle = { ...style };
+  for (const key of keys) {
+    delete next[key];
+  }
+  return next;
+}
+
+/**
  * Creates a deep copy of a range-style patch with normalized coordinates.
  */
 export function cloneRangeStylePatch(patch: RangeStylePatch): RangeStylePatch {

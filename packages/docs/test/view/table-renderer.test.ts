@@ -11,8 +11,12 @@ import {
 import type { TableData } from '../../src/model/types.js';
 import { DEFAULT_BLOCK_STYLE, DEFAULT_CELL_STYLE } from '../../src/model/types.js';
 import type { LayoutTable } from '../../src/view/table-layout.js';
+import { Theme } from '../../src/view/theme.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Stand-in for the selection highlight the editor paints before cell text. */
+const SELECTION_FILL = 'rgba(1, 2, 3, 0.5)';
 
 /**
  * Minimal canvas stub that records method calls in the order they
@@ -260,6 +264,136 @@ describe('inline run backgroundColor render order', () => {
     // pass must not redraw it, otherwise it would cover the selection
     // layer that the editor draws between the two passes.
     expect(fillRect).not.toHaveBeenCalled();
+  });
+});
+
+describe('renderTableContent cleared text color (issue #728)', () => {
+  /**
+   * Records the `fillStyle` in effect at each `fillText`. Assignments are
+   * stored verbatim; a real canvas silently ignores an invalid color and
+   * keeps the previous value, which is exactly the failure mode #728
+   * exposed — so the stub is pre-loaded with the selection fill the editor
+   * paints between the background and content passes.
+   */
+  function makeFillStyleCtx(preset: string): {
+    ctx: CanvasRenderingContext2D;
+    fills: string[];
+  } {
+    const fills: string[] = [];
+    const noop = () => {};
+    let fillStyle = preset;
+    const ctx = {
+      font: '',
+      get fillStyle() { return fillStyle; },
+      set fillStyle(v: string) { fillStyle = v; },
+      strokeStyle: '',
+      lineWidth: 0,
+      textBaseline: 'alphabetic' as const,
+      save: noop,
+      restore: noop,
+      beginPath: noop,
+      moveTo: noop,
+      lineTo: noop,
+      setLineDash: noop,
+      measureText: () => ({ width: 10 }) as TextMetrics,
+      fillRect: noop,
+      fillText(text: string) { fills.push(`${text}:${fillStyle}`); },
+      stroke: noop,
+      drawImage: noop,
+    } as unknown as CanvasRenderingContext2D;
+    return { ctx, fills };
+  }
+
+  /** One cell holding one run (and optionally a list marker) at `color`. */
+  function makeColoredCellTable(
+    color: string | undefined,
+    listKind?: 'ordered' | 'unordered',
+  ): { tableData: TableData; layout: LayoutTable } {
+    const style = { color };
+    const tableData: TableData = {
+      rows: [
+        {
+          cells: [
+            {
+              blocks: [
+                {
+                  id: 'b1',
+                  type: listKind ? ('list-item' as const) : ('paragraph' as const),
+                  inlines: [{ text: 'hi', style }],
+                  style: { ...DEFAULT_BLOCK_STYLE },
+                  ...(listKind ? { listKind, listLevel: 0 } : {}),
+                },
+              ],
+              style: { ...DEFAULT_CELL_STYLE },
+            },
+          ],
+        },
+      ],
+      columnWidths: [1],
+    };
+    const layout: LayoutTable = {
+      cells: [
+        [
+          {
+            lines: [
+              {
+                y: 0,
+                height: 16,
+                width: 40,
+                runs: [
+                  {
+                    inline: { text: 'hi', style },
+                    text: 'hi',
+                    x: 0,
+                    width: 20,
+                    inlineIndex: 0,
+                    charStart: 0,
+                    charEnd: 2,
+                    charOffsets: [10, 20],
+                  },
+                ],
+              },
+            ],
+            blockBoundaries: [0],
+            width: 40,
+            height: 16,
+            merged: false,
+          },
+        ],
+      ],
+      columnXOffsets: [0],
+      columnPixelWidths: [40],
+      rowYOffsets: [0],
+      rowHeights: [16],
+      totalWidth: 40,
+      totalHeight: 16,
+      blockParentMap: new Map(),
+    };
+    return { tableData, layout };
+  }
+
+  it('paints an empty-string cell color with the theme default, not the previous fillStyle', () => {
+    const { ctx, fills } = makeFillStyleCtx(SELECTION_FILL);
+    const { tableData, layout } = makeColoredCellTable('');
+    renderTableContent(ctx, tableData, layout, 0, 0);
+    expect(fills).toContain(`hi:${Theme.defaultColor}`);
+    expect(fills).not.toContain(`hi:${SELECTION_FILL}`);
+  });
+
+  it('still honours an explicit cell color', () => {
+    const { ctx, fills } = makeFillStyleCtx(SELECTION_FILL);
+    const { tableData, layout } = makeColoredCellTable('#ff0000');
+    renderTableContent(ctx, tableData, layout, 0, 0);
+    expect(fills).toContain('hi:#ff0000');
+  });
+
+  it('paints an in-cell list marker with the theme default for an empty-string color', () => {
+    const { ctx, fills } = makeFillStyleCtx(SELECTION_FILL);
+    const { tableData, layout } = makeColoredCellTable('', 'unordered');
+    renderTableContent(ctx, tableData, layout, 0, 0);
+    const marker = fills.find((f) => !f.startsWith('hi:'));
+    expect(marker).toBeDefined();
+    expect(marker!.endsWith(`:${Theme.defaultColor}`)).toBe(true);
   });
 });
 

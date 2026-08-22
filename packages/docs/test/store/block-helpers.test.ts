@@ -226,6 +226,35 @@ describe('applyInlineStyle', () => {
     expect(result.inlines).toHaveLength(1);
     expect(result.inlines[0]).toEqual({ text: 'ABCDEF', style: { bold: true } });
   });
+
+  // Issue #793: the highlight picker's "None" passes `''`. Stored verbatim it
+  // is a dead value — invisible, but the run can never re-merge.
+  it('clears backgroundColor when the highlight picker passes an empty string', () => {
+    const block = makeBlock({ text: 'abcdef' });
+    const on = applyInlineStyle(block, 2, 4, { backgroundColor: '#FFF176' });
+    expect(on.inlines).toHaveLength(3);
+
+    const off = applyInlineStyle(on, 2, 4, { backgroundColor: '' });
+    expect(off.inlines).toHaveLength(1);
+    expect(off.inlines[0].text).toBe('abcdef');
+    expect('backgroundColor' in off.inlines[0].style).toBe(false);
+  });
+
+  it('clears color when the text-color picker resets to an empty string', () => {
+    const block = makeBlock({ text: 'abcdef' });
+    const on = applyInlineStyle(block, 2, 4, { color: '#FF0000' });
+    const off = applyInlineStyle(on, 2, 4, { color: '' });
+    expect(off.inlines).toHaveLength(1);
+    expect('color' in off.inlines[0].style).toBe(false);
+  });
+
+  it('clearing one color leaves the other styles on the run', () => {
+    const block = makeBlock({ text: 'abcdef' });
+    const on = applyInlineStyle(block, 2, 4, { backgroundColor: '#FFF176', bold: true });
+    const off = applyInlineStyle(on, 2, 4, { backgroundColor: '' });
+    expect(off.inlines).toHaveLength(3);
+    expect(off.inlines[1]).toEqual({ text: 'cd', style: { bold: true } });
+  });
 });
 
 describe('applySplitBlock', () => {

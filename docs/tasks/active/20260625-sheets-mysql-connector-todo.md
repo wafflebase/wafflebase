@@ -78,7 +78,7 @@ one extra driver.
 
 ## Cross-cutting
 
-- [ ] `docs/design/README.md` updated (done on ideation branch)
+- [x] `docs/design/README.md` updated (done on ideation branch)
 - [ ] Consider updating root `README.md` "coming soon" copy when shipped
 - [ ] Lessons in `20260625-sheets-mysql-connector-lessons.md`
 - [ ] After merge: `pnpm tasks:archive && pnpm tasks:index`

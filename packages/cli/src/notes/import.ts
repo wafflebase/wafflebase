@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { NoteContent } from '../client/http-client.js';
+import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
+import { errorEnvelope, upstreamErrorJson } from '../output/formatter.js';
+import { seg } from '../client/url.js';
 
 /**
  * Minimal HTTP surface `runNotesImport` needs from the CLI's `HttpClient`.
@@ -85,6 +88,12 @@ export interface RunNotesImportArgs {
   quiet?: boolean;
   /** Print the request that *would* fire instead of issuing it. */
   dryRun?: boolean;
+  /**
+   * Dotted name of the command driving this run (`notes.import`), stamped
+   * into every error envelope so an agent running several calls can tell
+   * which one failed. The action passes `commandPath(this)`.
+   */
+  command?: string;
 }
 
 export interface RunNotesImportResult {
@@ -105,7 +114,14 @@ export async function runNotesImport(
   client: NotesImportClient,
   io: NotesImportIO = defaultNotesImportIO,
 ): Promise<RunNotesImportResult> {
-  const { file, replace, yes = false, quiet = false, dryRun = false } = args;
+  const {
+    file,
+    replace,
+    yes = false,
+    quiet = false,
+    dryRun = false,
+    command,
+  } = args;
 
   const inferredTitle = args.title ?? defaultTitleFor(file);
 
@@ -117,15 +133,10 @@ export async function runNotesImport(
     if (!yes && !dryRun) {
       if (!io.isTTY) {
         io.stderr(
-          JSON.stringify(
-            {
-              error: {
-                code: 'CONFIRMATION_REQ',
-                message: `Pass --yes to confirm replacing note "${replace}".`,
-              },
-            },
-            null,
-            2,
+          errorEnvelope(
+            'CONFIRMATION_REQ',
+            `Pass --yes to confirm replacing note "${replace}".`,
+            command,
           ),
         );
         return { exitCode: 1 };
@@ -144,7 +155,9 @@ export async function runNotesImport(
         JSON.stringify(
           {
             method: 'PUT',
-            path: `/documents/${replace}/content`,
+            // `seg()` for the same reason `HttpClient` encodes it: the
+            // preview has to be the path the live PUT would take.
+            path: `/documents/${seg(replace)}/content`,
             body: { content },
           },
           null,
@@ -155,10 +168,8 @@ export async function runNotesImport(
     }
     const res = await client.putNoteContent(replace, { content });
     if (!res.ok) {
-      io.stderr(
-        JSON.stringify(res.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
-      );
-      return { exitCode: 1 };
+      io.stderr(upstreamErrorJson(res, command));
+      return { exitCode: exitCodeForStatus(res.status) };
     }
     io.stdout(JSON.stringify({ id: replace, replaced: true }, null, 2));
     return { exitCode: 0 };
@@ -184,34 +195,24 @@ export async function runNotesImport(
 
   const created = await client.createDocument(inferredTitle, 'note');
   if (!created.ok) {
-    io.stderr(
-      JSON.stringify(created.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
-    );
-    return { exitCode: 1 };
+    io.stderr(upstreamErrorJson(created, command));
+    return { exitCode: exitCodeForStatus(created.status) };
   }
   const newId = (created.data as { id?: string } | null)?.id;
   if (!newId) {
     io.stderr(
-      JSON.stringify(
-        {
-          error: {
-            code: 'INVALID_RESPONSE',
-            message: 'Server did not return an id',
-          },
-        },
-        null,
-        2,
-      ),
+      errorEnvelope('INVALID_RESPONSE', 'Server did not return an id', command),
     );
-    return { exitCode: 1 };
+    // A 2xx that omitted the id is the server contradicting itself —
+    // nothing the caller can retype, so it exits with the system class
+    // like every other server fault.
+    return { exitCode: EXIT_SYSTEM_ERROR };
   }
 
   const put = await client.putNoteContent(newId, { content });
   if (!put.ok) {
-    io.stderr(
-      JSON.stringify(put.data ?? { error: { code: 'HTTP_ERROR' } }, null, 2),
-    );
-    return { exitCode: 1 };
+    io.stderr(upstreamErrorJson(put, command));
+    return { exitCode: exitCodeForStatus(put.status) };
   }
 
   io.stdout(JSON.stringify({ id: newId, title: inferredTitle }, null, 2));

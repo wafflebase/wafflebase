@@ -44,7 +44,8 @@ import { attachOracles, scanDomInvariants } from "./hunt-ui-oracles.mjs";
 // drift. They did drift once: this file promised the protocol treated markers as
 // unevaluable and the protocol had never heard of them. Importing across the boundary
 // is safe and cheap — the module is pure, and its transitive chain is guarded (~9ms).
-import { boundValue } from "../../../scripts/agent/hunt-ui-expect.mjs";
+import { boundValue, unsettledValue } from "../../../scripts/agent/hunt-ui-expect.mjs";
+import { readSettled } from "../../../scripts/agent/hunt-ui-settle.mjs";
 // One definition of a valid fault id, shared with the two agent-side boundaries.
 // All node builtins behind it (~15ms), and this file already reaches across for
 // `boundValue` for the same reason: a duplicated rule is a rule that drifts.
@@ -56,6 +57,7 @@ const frontendRoot = path.resolve(__dirname, "..");
 
 const HOST = "127.0.0.1";
 import { domControls } from "./hunt-ui-dom.mjs";
+import { performDrag } from "./hunt-ui-gesture.mjs";
 
 const BRIDGE_KEY = "__WB_HUNT__";
 const READY_SELECTOR = "[data-testid='hunt-harness-root'][data-hunt-harness-ready='true']";
@@ -137,42 +139,17 @@ async function loadPlaywright() {
  * lives in an out-of-process validator is not actually bounded. Cheap defence in
  * depth; the authoritative reader list is still the bridge's.
  */
-const READER_PREFIXES = ["doc.", "sheet.", "dom."];
+// Derived, not restated. This was the SIXTH copy of the surface vocabulary and the last
+// one to be found — the slides surface mounted, the mounted-surface guard passed, the plan
+// validator accepted the plan, and then every read was refused here as a typo. Both of the
+// remaining prefix checks now follow `UI_SURFACES`; only `dom.` is spelled out, because it
+// belongs to no surface.
+const READER_PREFIXES = [...UI_SURFACES.map((s) => `${s}.`), "dom."];
 
 function assertReaderName(name) {
   if (typeof name !== "string" || !READER_PREFIXES.some((p) => name.startsWith(p))) {
     throw new Error(`reader ${JSON.stringify(name)} must start with one of ${READER_PREFIXES.join(", ")}`);
   }
-}
-
-/**
- * Read a value once the UI has stopped changing.
- *
- * A single fixed sleep was the only settling window, and a prediction read is not a
- * display concern — a stale value read a few milliseconds early becomes `violated`,
- * which becomes an eligible candidate. Because the prediction is deliberately bundled
- * with its action (so the caller cannot look before committing), the caller has no way
- * to insert a wait of its own, so the settling has to happen here.
- *
- * Two consecutive equal reads is the signal, not a longer sleep: it returns as soon as
- * the value is stable rather than always paying the worst case, and it does not
- * silently pass a value that is still moving when the deadline expires — the caller
- * gets the last read either way, but a still-moving value will then diverge across
- * replay attempts and be dropped as non-deterministic, which is the correct outcome.
- */
-async function readSettled(page, name, args, deadlineMs) {
-  const deadline = Date.now() + deadlineMs;
-  let previous = await readValue(page, name, args);
-  let serialized = JSON.stringify(previous ?? null);
-  while (Date.now() < deadline) {
-    await page.waitForTimeout(25);
-    const next = await readValue(page, name, args);
-    const nextSerialized = JSON.stringify(next ?? null);
-    if (nextSerialized === serialized) return next;
-    previous = next;
-    serialized = nextSerialized;
-  }
-  return previous;
 }
 
 async function readValue(page, name, args) {
@@ -287,6 +264,28 @@ async function runAction(page, action, baseUrl, timeoutMs, fault = null) {
       else await page.mouse.click(target.point.x, target.point.y, opts);
       return { value: null };
     }
+    case "drag": {
+      const from = await resolveTarget(page, action.target);
+      const to = await resolveTarget(page, action.to);
+      // Both ends may be a role locator or a named reader's point; a locator is reduced to
+      // its own centre, which is what `click` already does to one.
+      //
+      // WAITS, AND REFUSES A BOX THAT IS NOT THERE. `boundingBox()` answers `null` for an
+      // element that is not rendered, so reading `.x` off it throws a TypeError naming a
+      // property rather than the target that could not be measured — the same opaque failure
+      // `resolveTarget` refuses NaN coordinates to avoid. And the per-action timeout is the
+      // budget every other action honours; without `waitFor` a drag would resolve against
+      // whatever the locator happened to be at that instant instead of waiting for it.
+      const at = async (t) => {
+        if (t.kind === "point") return t.point;
+        await t.locator.waitFor({ state: "visible", timeout: timeoutMs });
+        const box = await t.locator.boundingBox({ timeout: timeoutMs });
+        if (!box) throw new Error("drag target resolved to a locator with no bounding box — it is not rendered");
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      };
+      await performDrag(page, await at(from), await at(to));
+      return { value: null };
+    }
     case "type": {
       await page.keyboard.type(String(action.text ?? ""), { delay: 0 });
       return { value: null };
@@ -391,7 +390,19 @@ async function observeAction(page, action, { baseUrl, timeoutMs, oracles, index,
       let actualError = null;
       if (action.expect && typeof action.expect.read === "string") {
         try {
-          actual = await readSettled(page, action.expect.read, action.expect.args ?? [], timeoutMs);
+          // Prediction-blind by construction: `readSettled` is handed a reader, never
+          // the expectation. A settle that could see `expect` would wait for the
+          // predicted value to appear and report `held` for everything.
+          const settle = await readSettled({
+            read: () => readValue(page, action.expect.read, action.expect.args ?? []),
+            sleep: (ms) => page.waitForTimeout(ms),
+            now: () => Date.now(),
+            deadlineMs: timeoutMs,
+          });
+          // A value still in motion at the deadline is NOT reported as the reading.
+          // Handing it over as if it were settled is how a correct prediction became
+          // `violated`; the marker scores `unevaluable` instead.
+          actual = settle.settled ? settle.value : unsettledValue();
         } catch (err) {
           // A failed prediction read is not a failed action, and must not be
           // reported as one — the action may well have succeeded. It leaves `actual`

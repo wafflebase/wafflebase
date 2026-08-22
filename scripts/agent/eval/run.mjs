@@ -66,6 +66,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EvalStore } from "./store.mjs";
 import { buildConfig, materializeLenses, pinnedSdkVersion } from "./config-build.mjs";
+import { PANEL_DIGEST_VERSION, isPanelDigest, panelDigestOf } from "./panel-identity.mjs";
 import { reviewerAdapter, GATE_STATES } from "./adapters/reviewer.mjs";
 import { sumExecutions } from "../metrics.mjs";
 import { sampleCountFor } from "../review-panel.mjs";
@@ -558,6 +559,49 @@ export function resolvePanelSha({ panelScript, override, git = gitLines }) {
 }
 
 /**
+ * Which PANEL is about to run, by content, and refuse if that cannot be said either.
+ *
+ * Named for the RUN deliberately: `panel-identity.mjs` exports a `resolvePanelDigest` too and
+ * it answers a different question — which panel a set of stored records agrees on. This one
+ * hashes the panel that is about to be spawned. Two exported functions with one name in one
+ * directory is a reader mistaking one contract for the other.
+ *
+ * `resolvePanelSha` above records which COMMIT ran; this records which panel. They are
+ * not the same fact and neither substitutes for the other — measured on the ingested
+ * agent-PR data, 16 items carry 16 distinct `panel_sha` values and are 5 panels by
+ * content, and #830/#850 deleted and restored the panel byte-for-byte. `panel_sha`
+ * stays because it is the provenance a human checks against `git log`; the digest is
+ * what a cross-run score may be keyed by, because it is the one that is equal exactly
+ * when the reviewer is the same.
+ *
+ * COMPUTED HERE, ONCE, AND THEN ONLY EVER READ. A scorer must never derive a digest —
+ * see `panel-identity.mjs`'s CLI header — so this is the single place the files are
+ * hashed, and the envelope is the record. The mirror of `--panel-sha` applies for the
+ * same reason: `--panel-digest` is REQUIRED, not merely allowed, when `--panel-script`
+ * points somewhere other than the sibling, because the digest is over the sibling's
+ * files and stamping it on a run of some other script is exactly the mislabelling both
+ * fields exist to prevent. `adapters/stub-panel.mjs` is that case.
+ */
+export function resolveRunPanelDigest({ panelScript, override, digestOf = panelDigestOf }) {
+  if (override !== undefined && override !== null && override !== "") {
+    if (!isPanelDigest(override)) {
+      throw new Error(`run: --panel-digest must be sha256:<64 hex>, got ${JSON.stringify(override)}`);
+    }
+    // `reconstructed`, not `flag`: the operator states this when the panel's files cannot
+    // be hashed here — a stub panel, or a past panel digested out of git — and either way
+    // nobody observed it at run time. See `PANEL_DIGEST_SOURCES`.
+    return { panelDigest: String(override), source: "reconstructed" };
+  }
+  if (path.resolve(panelScript) !== path.resolve(DEFAULT_PANEL_SCRIPT)) {
+    throw new Error(
+      `run: --panel-script points at ${panelScript}, which is not this checkout's review-panel.mjs, so the panel's files ` +
+        "cannot be hashed. Pass --panel-digest to say which panel this is; a run that cannot name its reviewer is not poolable with any other.",
+    );
+  }
+  return { panelDigest: digestOf(path.dirname(path.resolve(DEFAULT_PANEL_SCRIPT))), source: "files" };
+}
+
+/**
  * The injected side effect `resolvePanelSha` and the worktree cleanup need, as
  * lines.
  *
@@ -628,8 +672,10 @@ the ceiling is in the synopsis and not in the option list: it has no default.
   --lenses-dir <dir>      Default: scripts/agent/lenses.
   --sdk-version <v>       Default: the pin in scripts/agent/package.json.
   --panel-script <f>      Default: this checkout's review-panel.mjs. Anything else
-                          requires --panel-sha.
+                          requires --panel-sha and --panel-digest.
   --panel-sha <sha>       Record this panel commit instead of reading it from git.
+  --panel-digest <d>      Record this panel CONTENT digest (sha256:<64 hex>) instead
+                          of hashing the panel's files. See eval/panel-identity.mjs.
   --repo-source <dir>     Clone to materialise the review worktree from (default:
                           this repository). Must hold each item's review_commit.
   --no-repo-context       Replay diff-only: hand the panel an empty --repo, and
@@ -751,6 +797,7 @@ export function resolveRunOptions(argv, { readFile } = {}) {
     sdkVersion: args["sdk-version"] ?? pinnedSdkVersion(readFile ? { readFile } : {}),
     panelScript: path.resolve(args["panel-script"] ?? DEFAULT_PANEL_SCRIPT),
     panelShaOverride: args["panel-sha"] ?? null,
+    panelDigestOverride: args["panel-digest"] ?? null,
     repoSource: noRepoContext ? null : path.resolve(args["repo-source"] ?? path.join(HERE, "..", "..", "..")),
     noRepoContext,
     // Default ON. `--no-repo-context` is not a contradiction of it, it removes the
@@ -807,6 +854,10 @@ export async function main(argv) {
     panelScript: opts.panelScript,
     override: opts.panelShaOverride,
   });
+  const { panelDigest, source: panelDigestSource } = resolveRunPanelDigest({
+    panelScript: opts.panelScript,
+    override: opts.panelDigestOverride,
+  });
 
   const store = new EvalStore(opts.root);
   const { manifest, snapshot, config_hash } = buildConfig(opts.lensesDir, {
@@ -835,6 +886,13 @@ export async function main(argv) {
     config_hash,
     panel_sha: panelSha,
     panel_sha_source: panelShaSource,
+    // The CONTENT identity beside the commit one. `panel_digest_version` travels as
+    // provenance and is deliberately not hashed into the digest, the same decision
+    // `CONFIG_HASH_VERSION` argues for: an algorithm bump already changes every digest
+    // by construction, so feeding it in would make each bump look like a panel change.
+    panel_digest: panelDigest,
+    panel_digest_source: panelDigestSource,
+    panel_digest_version: PANEL_DIGEST_VERSION,
     corpus_version: opts.corpusVersion,
     sdk_version: manifest.sdk_version,
     diff_content_requested: opts.diffContent,
@@ -868,7 +926,7 @@ export async function main(argv) {
   const matLenses = materializeLenses(snapshot, mkdtempSync(path.join(tmpdir(), "eval-lenses-")));
   const totalSamples = snapshot.lenses.reduce((n, l) => n + sampleCountFor(l), 0);
   console.log(
-    `run ${runId}: ${plannedIds.length} item(s) · config_hash=${config_hash} · panel=${panelSha.slice(0, 12)} (${panelShaSource}) · ` +
+    `run ${runId}: ${plannedIds.length} item(s) · config_hash=${config_hash} · panel=${panelSha.slice(0, 12)} (${panelShaSource}) · digest=${panelDigest.slice(7, 19)} (${panelDigestSource}) · ` +
       `${snapshot.lenses.length} lenses / ${totalSamples} samples`,
   );
   // An absent cap is a fact about this run, and it is said out loud for the same
@@ -945,6 +1003,7 @@ export async function main(argv) {
       let envelope, payload;
       const base = {
         run_id: runId, item_id: itemId, config_hash, panel_sha: panelSha, panel_sha_source: panelShaSource,
+        panel_digest: panelDigest, panel_digest_source: panelDigestSource, panel_digest_version: PANEL_DIGEST_VERSION,
         corpus_version: opts.corpusVersion, timestamp: nowIso(),
         // The pointer PR 3's store decided on: a NAMED state, never null and never
         // "". Transcripts are 10–30 MB no metric reads and spec §8 keeps them out of

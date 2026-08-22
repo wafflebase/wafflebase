@@ -1,8 +1,10 @@
 import { Command } from 'commander';
 import { writeFileSync } from 'node:fs';
 import { extname } from 'node:path';
-import { getGlobalOpts, getClient } from './root.js';
-import { outputError } from '../output/formatter.js';
+import { getGlobalOpts, getClient, getConfig } from './root.js';
+import { outputError, forwardUpstreamError } from '../output/formatter.js';
+import { printDryRun } from '../client/dry-run.js';
+import { seg } from '../client/url.js';
 import { formatCsv } from '../output/csv.js';
 import { formatJson } from '../output/json.js';
 
@@ -27,23 +29,59 @@ export function registerSheetsExportCommand(parent: Command) {
     .option('--tab <tab-id>', 'Source tab', 'tab-1')
     .option('--range <range>', 'Cell range to export (e.g. A1:D100)')
     .option('--file-format <fmt>', 'File format (csv, json)')
+    .option(
+      '--raw',
+      'CSV only: write cell text verbatim, without the leading-quote ' +
+        'formula guard, so `sheets import` round-trips formulas',
+    )
     .action(async function (this: Command, docId: string, file: string) {
       const opts = getGlobalOpts(this);
       const localOpts = this.opts<{
         tab: string;
         range?: string;
         fileFormat?: string;
+        raw?: boolean;
       }>();
 
       try {
-        const res = await getClient(opts).getCells(docId, localOpts.tab, localOpts.range);
-        if (!res.ok) {
-          const msg = (res.data as { error?: { message?: string } })?.error?.message;
-          throw new Error(msg ?? `HTTP ${res.status}`);
+        // Validated BEFORE the dry-run branch: a dry run validates inputs,
+        // so an unsupported `--file-format` is still an error, not a preview.
+        detectFormat(file, localOpts.fileFormat);
+
+        if (opts.dryRun) {
+          // Mirrors `HttpClient.getCells`, including the range encoding, so
+          // the printed URL is the URL that would have been fetched.
+          const query = localOpts.range
+            ? `?range=${encodeURIComponent(localOpts.range)}`
+            : '';
+          printDryRun(
+            getConfig(opts),
+            'GET',
+            `/documents/${seg(docId)}/tabs/${seg(localOpts.tab)}/cells${query}`,
+          );
+          return;
         }
 
+        const res = await getClient(opts).getCells(docId, localOpts.tab, localOpts.range);
+        // Forwards a backend envelope verbatim rather than lifting its
+        // `message` out and dropping the `code` — the code is the part an
+        // agent branches on.
+        if (!res.ok) return forwardUpstreamError(res, this);
+
         const fmt = detectFormat(file, localOpts.fileFormat);
-        const formatted = fmt === 'csv' ? formatCsv(res.data) : formatJson(res.data);
+        // This writes the one CSV a user is most likely to open in a
+        // spreadsheet app, and every cell in it was settable by any other
+        // member of the workspace, so the formula guard is *on* by
+        // default: an exported `=HYPERLINK("http://evil","x")` must not
+        // execute on open. `--raw` opts out for the round-trip pipeline
+        // (skills/recipe-csv-pipeline.md), where an exported
+        // `=SUM(B2:B100)` has to re-import as that formula rather than as
+        // the literal text `'=SUM(B2:B100)`. Opting out is the caller
+        // saying they trust the sheet, which is not ours to assume.
+        const formatted =
+          fmt === 'csv'
+            ? formatCsv(res.data, { neutralizeFormulas: !localOpts.raw })
+            : formatJson(res.data);
 
         if (file === '-') {
           process.stdout.write(formatted + '\n');
@@ -54,7 +92,7 @@ export function registerSheetsExportCommand(parent: Command) {
           }
         }
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

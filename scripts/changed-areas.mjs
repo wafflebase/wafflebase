@@ -110,9 +110,10 @@ export function readWorkspaceGraph(repoRoot = REPO_ROOT) {
   const graph = {};
   for (const dir of readdirSync(pkgDir)) {
     const manifest = path.join(pkgDir, dir, "package.json");
-    // design-sdk-style work in progress: a directory with no manifest yet is
-    // not a package. It still matches `packages/**`, so a change there is
-    // unmapped and forces a full run.
+    // Work in progress: a directory with no manifest yet is not a package. It still
+    // matches `packages/**`, so a change there is unmapped and forces a full run.
+    // `packages/design-sdk` was the example this was written for; it holds no tracked
+    // files any more, so the rule now guards the next such directory rather than that one.
     if (!existsSync(manifest)) continue;
     const pkg = JSON.parse(readFileSync(manifest, "utf8"));
     const deps = {

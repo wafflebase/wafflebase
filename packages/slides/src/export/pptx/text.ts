@@ -1,5 +1,6 @@
 import type { Block, BlockMarker, Inline } from '@wafflebase/docs';
 import type { StoredColor } from '@wafflebase/docs';
+import { toRgbHexColor } from '@wafflebase/docs';
 import type { AutofitMode, TextBody, VerticalAnchorMode } from '../../model/element.js';
 import type { ColorRole, ThemeColor } from '../../model/theme.js';
 import { escapeXmlText, escapeXmlAttr } from './xml.js';
@@ -57,12 +58,32 @@ function bodyPrXml(
   return `<a:bodyPr${anchorAttr}>${fit}</a:bodyPr>`;
 }
 
-const ALGN: Record<string, string> = {
-  left: 'l',
-  center: 'ctr',
-  right: 'r',
-  justify: 'just',
-};
+/**
+ * `BlockStyle.alignment` → OOXML `ST_TextAlignType`. A `Map`, not an object
+ * literal: an object lookup walks the prototype chain, so an alignment of
+ * `toString` / `constructor` would resolve to an inherited member, survive
+ * the `?? 'l'` fallback and be stringified into `<a:pPr algn>`. Slide text
+ * bodies are plain JSON persisted verbatim by the content PUT API, so the
+ * value is untrusted at this sink.
+ */
+const ALGN = new Map<string, string>([
+  ['left', 'l'],
+  ['center', 'ctr'],
+  ['right', 'r'],
+  ['justify', 'just'],
+]);
+
+/**
+ * `<a:pPr lvl>` is `ST_TextIndentLevelType` — an integer in `[0, 8]`. The
+ * model value is untrusted (content PUT API, PPTX import), so it is coerced
+ * and clamped rather than interpolated; anything non-numeric drops the
+ * attribute and the paragraph renders at the outermost level.
+ */
+function listLevelAttr(listLevel: number | undefined): string {
+  const n = Math.trunc(Number(listLevel));
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return ` lvl="${Math.min(8, n)}"`;
+}
 
 /**
  * EMU per pixel at 96 dpi (914400 EMU/in ÷ 96 px/in = 9525).
@@ -75,8 +96,8 @@ function blockToXml(
   block: Block,
   resolveHyperlinkRId?: HyperlinkRIdResolver,
 ): string {
-  const algn = ALGN[block.style.alignment] ?? 'l';
-  const lvl = block.listLevel ? ` lvl="${block.listLevel}"` : '';
+  const algn = ALGN.get(block.style.alignment) ?? 'l';
+  const lvl = listLevelAttr(block.listLevel);
 
   // marL / indent — importer reads attrInt(pPr,'marL') / 'indent' then
   // divides by 9525 (EMU→px). Invert: multiply by 9525 and emit only when non-zero.
@@ -131,10 +152,9 @@ function markerToXml(marker: BlockMarker | undefined): string {
   const parts: string[] = [];
 
   // buClr — importer reads parseColorFromContainer(buClr, clrMap) → marker.color
-  if (marker.color != null) {
-    parts.push(
-      `<a:buClr>${colorChildXml(storedColorToThemeColor(marker.color))}</a:buClr>`,
-    );
+  const buClr = storedColorToThemeColor(marker.color);
+  if (buClr) {
+    parts.push(`<a:buClr>${colorChildXml(buClr)}</a:buClr>`);
   }
 
   // buSzPts — importer reads attrInt(buSzPts,'val') / 100 → marker.fontSize (pts)
@@ -152,14 +172,27 @@ function markerToXml(marker: BlockMarker | undefined): string {
 }
 
 /**
- * Convert a `StoredColor` (which may be a plain hex string, an `{kind:'srgb'}`
- * object, or a `{kind:'role'}` theme reference) to the `ThemeColor` expected
- * by `colorChildXml`.
+ * Convert a `StoredColor` (which may be a plain color string, an
+ * `{kind:'srgb'}` object, or a `{kind:'role'}` theme reference) to the
+ * `ThemeColor` expected by `colorChildXml`, or `undefined` when the value
+ * carries no color that can be written as OOXML — in which case the caller
+ * omits the color child entirely and the run inherits the placeholder /
+ * theme color, matching what the canvas painters do.
  *
  * The inverse of what `src/import/pptx/text.ts` does:
  *   - `<a:srgbClr val="…">` → `{ kind: 'srgb', value: '#RRGGBB' }` or a bare
  *     hex string (`'#RRGGBB'`).
  *   - `<a:schemeClr val="…">` → `{ kind: 'role', role: '…' }`.
+ *
+ * Concrete values are normalized through the docs package's shared
+ * `toRgbHexColor` rather than trusted: slide text boxes are edited by the
+ * docs `TextEditor`, so HTML paste writes browser-normalized CSS
+ * (`rgb(255, 0, 0)`) into `Inline.style.color`, and the legacy `''` reset
+ * of issue #728 reaches here both as the bare string and as
+ * `{ kind: 'srgb', value: '' }`. `colorChildXml` only strips `#` and
+ * upper-cases, so any of those would land in `<a:srgbClr val>` as an
+ * invalid `ST_HexColorRGB` and PowerPoint would reject the deck. Anything
+ * the normalizer cannot express as six hex digits is dropped instead.
  *
  * `StoredColor`'s role arm uses `role: string` (open), while `ThemeColor`'s
  * role arm uses `role: ColorRole` (closed, 12 values). An out-of-set role
@@ -167,9 +200,14 @@ function markerToXml(marker: BlockMarker | undefined): string {
  * We validate the role against `ROLE_TO_SCHEME` keys and fall back to black
  * for any unrecognised value.
  */
-function storedColorToThemeColor(c: StoredColor): ThemeColor {
-  if (typeof c === 'string') return colorFromStringOrTheme(c);
-  if (c.kind === 'srgb') return { kind: 'srgb', value: c.value };
+function storedColorToThemeColor(
+  c: StoredColor | undefined,
+): ThemeColor | undefined {
+  if (c == null) return undefined;
+  if (typeof c === 'string' || c.kind === 'srgb') {
+    const hex = toRgbHexColor(typeof c === 'string' ? c : c.value);
+    return hex ? colorFromStringOrTheme(`#${hex}`) : undefined;
+  }
   // role arm: validate against the closed ColorRole set before casting
   if ((Object.keys(ROLE_TO_SCHEME) as string[]).includes(c.role)) {
     const out: ThemeColor = { kind: 'role', role: c.role as ColorRole };
@@ -206,15 +244,20 @@ function runToXml(
 // into an exported deck even if present in the model (defense-in-depth).
 const UNSAFE_HREF_SCHEMES = new Set(['javascript', 'data', 'vbscript', 'file']);
 
-/** `InlineStyle.underlineStyle` → OOXML `@u` value (inverse of the import map). */
-const UNDERLINE_STYLE_TO_U: Record<string, string> = {
-  single: 'sng',
-  double: 'dbl',
-  heavy: 'heavy',
-  dotted: 'dotted',
-  dashed: 'dash',
-  wavy: 'wavy',
-};
+/**
+ * `InlineStyle.underlineStyle` → OOXML `@u` value (inverse of the import
+ * map). A `Map` for the same reason as `ALGN`: an object lookup would let a
+ * persisted `constructor` / `toString` resolve through the prototype chain
+ * into the attribute.
+ */
+const UNDERLINE_STYLE_TO_U = new Map<string, string>([
+  ['single', 'sng'],
+  ['double', 'dbl'],
+  ['heavy', 'heavy'],
+  ['dotted', 'dotted'],
+  ['dashed', 'dash'],
+  ['wavy', 'wavy'],
+]);
 
 /**
  * Whether an `href` should be written as an `<a:hlinkClick>` **external**
@@ -247,7 +290,7 @@ function rPrXml(
   const attrs: string[] = [];
   if (s.bold) attrs.push('b="1"');
   if (s.italic) attrs.push('i="1"');
-  if (s.underline) attrs.push(`u="${UNDERLINE_STYLE_TO_U[s.underlineStyle ?? 'single'] ?? 'sng'}"`);
+  if (s.underline) attrs.push(`u="${UNDERLINE_STYLE_TO_U.get(s.underlineStyle ?? 'single') ?? 'sng'}"`);
   if (s.strikethrough) {
     attrs.push(s.strikeStyle === 'double' ? 'strike="dblStrike"' : 'strike="sngStrike"');
   }
@@ -260,23 +303,22 @@ function rPrXml(
   // Letter spacing → `@spc` (points → hundredths of a point; may be negative).
   if (s.letterSpacing) attrs.push(`spc="${Math.round(s.letterSpacing * 100)}"`);
   const children: string[] = [];
-  if (s.color != null) {
-    children.push(
-      `<a:solidFill>${colorChildXml(storedColorToThemeColor(s.color))}</a:solidFill>`,
-    );
+  const fill = storedColorToThemeColor(s.color);
+  if (fill) {
+    children.push(`<a:solidFill>${colorChildXml(fill)}</a:solidFill>`);
   }
   // backgroundColor → <a:highlight> — importer reads parseColorFromContainer(highlight, clrMap)
   // → style.backgroundColor. Use the same colorChildXml bridge already used for style.color.
-  if (s.backgroundColor != null) {
-    children.push(
-      `<a:highlight>${colorChildXml(storedColorToThemeColor(s.backgroundColor))}</a:highlight>`,
-    );
+  const highlight = storedColorToThemeColor(s.backgroundColor);
+  if (highlight) {
+    children.push(`<a:highlight>${colorChildXml(highlight)}</a:highlight>`);
   }
   // underlineColor → <a:uFill>. Per CT_TextCharacterProperties child order,
   // uFill precedes the typeface children, so push it before <a:latin>.
-  if (s.underline && s.underlineColor != null) {
+  const uFill = s.underline ? storedColorToThemeColor(s.underlineColor) : undefined;
+  if (uFill) {
     children.push(
-      `<a:uFill><a:solidFill>${colorChildXml(storedColorToThemeColor(s.underlineColor))}</a:solidFill></a:uFill>`,
+      `<a:uFill><a:solidFill>${colorChildXml(uFill)}</a:solidFill></a:uFill>`,
     );
   }
   if (s.fontFamily) {

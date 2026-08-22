@@ -307,6 +307,42 @@ jobs:
             echo "HARNESS_EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # WHICH POOL SLOT THIS JOB USES. `claude-code-action` takes one credential and
+      # cannot consult `token-pool.mjs`, so without this the step below is pinned to
+      # `secrets.CLAUDE_CODE_OAUTH_TOKEN` — slot ZERO of that pool — and one dead
+      # account takes down every action-based agent step. Issue #883's implement runs
+      # died on exactly that twice (`is_error:true`, 432ms, $0) while the pool-driven
+      # fixer was spending 5.7M tokens through a live slot the same hour.
+      #
+      # The nine secrets are handed to THIS step only. The action step below receives
+      # exactly one, resolved from the slot number through the `secrets` context — the
+      # same discipline `ask.mjs::credentialEnv` applies when it subtracts the pool from
+      # a child that reads an untrusted checkout: a process gets the one credential it
+      # needs, never the other eight.
+      #
+      # `continue-on-error` with a fail-open default: an empty `slot` resolves to the
+      # unsuffixed secret, which is precisely how this step behaved before, so a broken
+      # picker can never be worse than not having one.
+      - name: Pick a credential from the pool
+        id: cred
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN_1: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_1 }}
+          CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+          CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
+          CLAUDE_CODE_OAUTH_TOKEN_4: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_4 }}
+          CLAUDE_CODE_OAUTH_TOKEN_5: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_5 }}
+          CLAUDE_CODE_OAUTH_TOKEN_6: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_6 }}
+          CLAUDE_CODE_OAUTH_TOKEN_7: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_7 }}
+          CLAUDE_CODE_OAUTH_TOKEN_8: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_8 }}
+        run: |
+          [ -f "scripts/agent/pick-credential.mjs" ] || {
+            echo "pick-credential.mjs is not on main yet; using the ambient credential"
+            exit 0
+          }
+          node "scripts/agent/pick-credential.mjs"
+
       - name: Run Claude Code
         # Pinned to the v1 release commit (immutable) for supply-chain safety.
         # Re-check input names against https://code.claude.com/docs/en/github-actions
@@ -314,7 +350,7 @@ jobs:
         id: agent
         uses: anthropics/claude-code-action@af0559ee4f514d1ef21826982bed13f7edc3c35e # v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_code_oauth_token: ${{ steps.cred.outputs.slot != '' && secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.cred.outputs.slot)] || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ steps.app-token.outputs.token }}
           prompt: ${{ steps.prep.outputs.prompt }}
           claude_args: >-
