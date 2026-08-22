@@ -66,10 +66,13 @@ describe('list toggles', () => {
   });
 
   it('numbers an ordered list per indent level', () => {
-    const view = mount('a\nb\nc');
-    selectLines(view, 1, 3);
+    // The fixture has to be nested, or a single flat counter would satisfy it
+    // and the per-level restart would go untested: the child list starts at 1
+    // again, and the parent resumes at 2 across it.
+    const view = mount('a\n  b\n  c\nd');
+    selectLines(view, 1, 4);
     toggleOrderedList(view);
-    expect(view.state.doc.toString()).toBe('1. a\n2. b\n3. c');
+    expect(view.state.doc.toString()).toBe('1. a\n  1. b\n  2. c\n2. d');
     view.destroy();
   });
 

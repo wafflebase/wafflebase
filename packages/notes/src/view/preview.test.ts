@@ -207,6 +207,19 @@ describe('NotePreview', () => {
     // opening, and toggling would edit a line nobody pointed at.
     expect(event.defaultPrevented).toBe(false);
     expect(toggles).toEqual([]);
+
+    // Its body is content of its own, so a click there points at no task
+    // either — exempting only the summary would still tick the line.
+    const body = Array.from(
+      preview.el.querySelectorAll('details.note-details p'),
+    ).find((el) => el.textContent?.includes('body'))!;
+    const bodyEvent = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+    });
+    body.dispatchEvent(bodyEvent);
+    expect(bodyEvent.defaultPrevented).toBe(false);
+    expect(toggles).toEqual([]);
   });
 
   it('does not toggle when the click ends a text-selection drag', () => {

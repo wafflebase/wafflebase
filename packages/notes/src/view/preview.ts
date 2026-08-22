@@ -269,11 +269,13 @@ export class NotePreview {
     if (!(target instanceof Element)) return;
     const item = target.closest(`.${TASK_ITEM_CLASS}`);
     if (!item || !this.el.contains(item)) return;
-    // Controls that own their own click. `summary` matters here because the
+    // Controls that own their own click. `details` matters here because the
     // preview renders foldouts, and one nested in a task item would otherwise
     // be cancelled below — the disclosure would not open and the click would
-    // rewrite the source line instead.
-    if (target.closest('a, button, summary')) return;
+    // rewrite the source line instead. The whole disclosure is exempt, not
+    // just its `summary`: its body is content of its own, and a click there
+    // points at no task either.
+    if (target.closest('a, button, details')) return;
     const checkbox = item.querySelector(TASK_CHECKBOX_SELECTOR);
     if (!(checkbox instanceof HTMLInputElement)) return;
     const onCheckbox = checkbox.contains(target);
