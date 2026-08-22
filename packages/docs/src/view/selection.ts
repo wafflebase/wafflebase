@@ -187,8 +187,9 @@ function positionToPagePixel(
   canvasWidth: number,
   blockId: string,
   offset: number,
+  lineAffinity: 'forward' | 'backward' = 'backward',
 ): { x: number; y: number; height: number } | undefined {
-  const found = findPageForPosition(paginatedLayout, blockId, offset, layout);
+  const found = findPageForPosition(paginatedLayout, blockId, offset, layout, lineAffinity);
   if (!found) return undefined;
 
   const { pageIndex, pageLine } = found;
@@ -251,13 +252,21 @@ function buildRects(
   measurer: TextMeasurer,
   canvasWidth: number,
 ): Array<{ x: number; y: number; width: number; height: number }> {
+  // A selection endpoint that landed on a visual wrap boundary carries the
+  // affinity of the click (or caret move) that produced it. Without one,
+  // keep the historical reading: the start looks forward (the highlight
+  // begins on the line the offset opens) and the end looks backward (it
+  // ends on the line the offset closes).
+  const startAffinity = start.lineAffinity ?? 'forward';
+  const endAffinity = end.lineAffinity ?? 'backward';
+
   // Cell-internal selection
   const startCellInfo = layout.blockParentMap.get(start.blockId);
   const endCellInfo = layout.blockParentMap.get(end.blockId);
 
   if (startCellInfo && endCellInfo) {
-    const startPixel = resolvePositionPixel(start, 'forward', paginatedLayout, layout, measurer, canvasWidth);
-    const endPixel = resolvePositionPixel(end, 'backward', paginatedLayout, layout, measurer, canvasWidth);
+    const startPixel = resolvePositionPixel(start, startAffinity, paginatedLayout, layout, measurer, canvasWidth);
+    const endPixel = resolvePositionPixel(end, endAffinity, paginatedLayout, layout, measurer, canvasWidth);
 
     if (!startPixel || !endPixel) return [];
 
@@ -320,9 +329,9 @@ function buildRects(
 
     // Find the cell-internal line index for a given offset. At a visual
     // wrap boundary (offset === cumulative chars) forward affinity
-    // belongs to the next line (matching how `resolvePositionPixel` uses
-    // 'forward' for `start`), while backward affinity stays on the
-    // current line (matching `end`). Without this bias a wrapped cell
+    // belongs to the next line, while backward affinity stays on the
+    // current line — the same reading `resolvePositionPixel` is given
+    // above, so the rect and the pixel agree. Without this bias a wrapped cell
     // selection can render an extra rect on the previous line or miss
     // the first rect on the next one.
     const lineIdxForOffset = (
@@ -353,8 +362,8 @@ function buildRects(
       return Math.max(lineStart, lineEnd - 1);
     };
 
-    const startLineIdx = lineIdxForOffset(startCbiEff, start.offset, 'forward');
-    const endLineIdx = lineIdxForOffset(endCbiEff, end.offset, 'backward');
+    const startLineIdx = lineIdxForOffset(startCbiEff, start.offset, startAffinity);
+    const endLineIdx = lineIdxForOffset(endCbiEff, end.offset, endAffinity);
 
     const lineLayouts = computeMergedCellLineLayouts(
       layoutCell.lines,
@@ -457,11 +466,19 @@ function buildRects(
 
     if (blockStart >= blockEnd) continue;
 
+    // Only the real endpoints can sit on an ambiguous wrap boundary. An
+    // interior block runs from offset 0 to its text length, and neither of
+    // those is shared by two visual lines, so they keep the default.
+    const blockStartAffinity = bi === startBlockIdx ? startAffinity : 'backward';
+    const blockEndAffinity = bi === endBlockIdx ? endAffinity : 'backward';
+
     const startPixel = positionToPagePixel(
       paginatedLayout, layout, measurer, canvasWidth, lb.block.id, blockStart,
+      blockStartAffinity,
     );
     const endPixel = positionToPagePixel(
       paginatedLayout, layout, measurer, canvasWidth, lb.block.id, blockEnd,
+      blockEndAffinity,
     );
 
     if (!startPixel || !endPixel) continue;
@@ -475,8 +492,12 @@ function buildRects(
       });
     } else {
       const pageX = getPageXOffset(paginatedLayout, canvasWidth);
-      const startFound = findPageForPosition(paginatedLayout, lb.block.id, blockStart, layout);
-      const endFound = findPageForPosition(paginatedLayout, lb.block.id, blockEnd, layout);
+      const startFound = findPageForPosition(
+        paginatedLayout, lb.block.id, blockStart, layout, blockStartAffinity,
+      );
+      const endFound = findPageForPosition(
+        paginatedLayout, lb.block.id, blockEnd, layout, blockEndAffinity,
+      );
       if (!startFound || !endFound) continue;
 
       const firstLineEnd = getLineEndX(startFound.pageLine.line, pageX + startFound.pageLine.x);
@@ -661,6 +682,11 @@ function buildCellRangeRects(
 export class Selection {
   range: DocRange | null = null;
 
+  /**
+   * Store a range. Endpoints are kept as given, so an endpoint that
+   * carries a `lineAffinity` (a click or caret move that landed on a
+   * visual wrap boundary) keeps it all the way to `buildRects`.
+   */
   setRange(range: DocRange | null): void {
     this.range = range;
   }
@@ -674,6 +700,11 @@ export class Selection {
     );
   }
 
+  /**
+   * Order the range into `{ start, end }`. Only the ordering changes —
+   * each endpoint (and so its `lineAffinity`) is returned as stored, so a
+   * backwards selection carries the focus's affinity into `start`.
+   */
   getNormalizedRange(
     layout: DocumentLayout,
   ): NormalizedRange | null {

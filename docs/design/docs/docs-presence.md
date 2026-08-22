@@ -88,11 +88,12 @@ type DocsPresence = {
   activeCursorPos?: {
     blockId: string;
     offset: number;
+    lineAffinity?: 'forward' | 'backward';
   };
   // Remote selection highlight payload (shipped).
   activeSelection?: {
-    anchor: { blockId: string; offset: number };
-    focus: { blockId: string; offset: number };
+    anchor: { blockId: string; offset: number; lineAffinity?: 'forward' | 'backward' };
+    focus: { blockId: string; offset: number; lineAffinity?: 'forward' | 'backward' };
     tableCellRange?: {
       blockId: string;
       start: { rowIndex: number; colIndex: number };
@@ -185,10 +186,15 @@ helper (`packages/docs/src/view/peer-cursor.ts`), which converts any
 - Skip rendering if the resulting position is outside the current
   viewport.
 
-For remote cursors, `lineAffinity` is not in the presence payload.
-Default to `'backward'`, which places the cursor at the end of the
-previous visual line at wrap boundaries — a minor visual offset that
-is acceptable for peer display.
+Selection endpoints now publish `lineAffinity` (it rides along on the
+`DocPosition`s in `activeSelection`), so a peer's highlight brackets the
+same wrapped line the author sees. The peer *caret* still resolves
+`'backward'`: the field rides along on `activeCursorPos`, but peer caret
+rendering hard-codes the backward reading (`editor.ts:1563`), so a wrap
+boundary places the caret at the end of the previous visual line — a minor
+visual offset that is acceptable for peer display, and the one place where
+a peer's caret and their highlight can sit a visual line apart. Honouring
+it there is a follow-up, not part of this change.
 
 **Caret style:**
 
@@ -378,8 +384,9 @@ scrollToPosition: (pos: DocPosition) => {
 
 - Reuses `resolvePositionPixel`, already exercised by peer cursor
   rendering and Cmd+F result jumps. No new coordinate math.
-- Default `lineAffinity` is `'backward'`, matching peer cursor
-  rendering for visual consistency at line-wrap boundaries.
+- `lineAffinity` defaults to `'backward'` here, matching peer *caret*
+  rendering at line-wrap boundaries. Peer selection endpoints carry their
+  own affinity instead (see above).
 - `* scaleFactor` converts the logical Y returned by
   `resolvePositionPixel` to scaled (mobile zoom-to-fit) coordinates,
   the same way the find-bar jump does.

@@ -1974,7 +1974,14 @@ export function initialize(
     const clampPos = (pos: DocPosition): DocPosition => {
       const b = doc.getBlock(pos.blockId);
       const maxOffset = b.inlines.reduce((sum, i) => sum + i.text.length, 0);
-      return { blockId: pos.blockId, offset: Math.min(pos.offset, maxOffset) };
+      // Carry the endpoint's affinity: rebuilding without it would drop the
+      // wrap-boundary reading on every undo/redo, which is the one thing
+      // endpoints are supposed to keep.
+      return {
+        blockId: pos.blockId,
+        offset: Math.min(pos.offset, maxOffset),
+        ...(pos.lineAffinity ? { lineAffinity: pos.lineAffinity } : {}),
+      };
     };
     const blocksExist = restoredSel
       ? !!doc.findBlock(restoredSel.anchor.blockId) &&
@@ -3592,10 +3599,20 @@ export function initialize(
     restoreLocalCursor: (cursorPos, range) => {
       if (cursorPos && doc.findBlock(cursorPos.blockId)) {
         const block = doc.getBlock(cursorPos.blockId);
-        cursor.moveTo({
-          blockId: cursorPos.blockId,
-          offset: Math.min(cursorPos.offset, getBlockTextLength(block)),
-        });
+        // Carry the affinity: this runs on every remote change with a
+        // freshly resolved position, so dropping it here would undo the
+        // anchor round-trip and re-collapse the caret onto the previous
+        // visual line at a wrap boundary. `moveTo` defaults it when absent.
+        cursor.moveTo(
+          {
+            blockId: cursorPos.blockId,
+            offset: Math.min(cursorPos.offset, getBlockTextLength(block)),
+            ...(cursorPos.lineAffinity
+              ? { lineAffinity: cursorPos.lineAffinity }
+              : {}),
+          },
+          cursorPos.lineAffinity,
+        );
       }
       selection.setRange(range ?? null);
     },

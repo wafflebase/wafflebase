@@ -21,10 +21,17 @@ export type DocsPresence = {
   activeCursorPos?: {
     blockId: string;
     offset: number;
+    // Published by `updateCursorPos` when the caret carries one. Peer caret
+    // rendering still resolves `'backward'`; typing it keeps the wire shape
+    // honest rather than dropping a field the store already sends.
+    lineAffinity?: 'forward' | 'backward';
   };
   activeSelection?: {
-    anchor: { blockId: string; offset: number };
-    focus: { blockId: string; offset: number };
+    // `lineAffinity` disambiguates an endpoint sitting on a visual wrap
+    // boundary, so a peer's highlight starts on the line they clicked.
+    // Optional: a mixed-version peer publishes endpoints without it.
+    anchor: { blockId: string; offset: number; lineAffinity?: 'forward' | 'backward' };
+    focus: { blockId: string; offset: number; lineAffinity?: 'forward' | 'backward' };
     tableCellRange?: {
       blockId: string;
       start: { rowIndex: number; colIndex: number };
