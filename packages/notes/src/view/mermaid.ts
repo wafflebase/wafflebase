@@ -387,18 +387,25 @@ export function prepareFenceSource(source: string): Prepared {
       error: `Diagram error: source is longer than ${MAX_FENCE_CHARS} characters`,
     };
   }
-  if (FETCH_TAG_RE.test(source)) {
-    return { error: 'Diagram error: HTML that loads a URL is not allowed' };
-  }
-  if (IMAGE_METADATA_RE.test(source)) {
-    return { error: 'Diagram error: image shapes are not allowed' };
-  }
-  if (hasCssFetch(source)) {
-    return { error: 'Diagram error: CSS that loads a URL is not allowed' };
-  }
+  // Strip BEFORE scanning, so the refusals below see exactly the text the
+  // engine will. `stripConfigDirectives()` joins the text around each removed
+  // carrier, so a construct can be assembled by a directive that splits it:
+  // `A@%%{x}%%{ img: … }` matches nothing while the `%%{x}%%` is still in it,
+  // and is a beacon the moment the strip closes the gap. Scanning the raw
+  // source recognizes LESS than the engine does, which is the failure mode
+  // this layer exists to avoid.
   const stripped = stripConfigDirectives(source);
   if (stripped === null) {
     return { error: 'Diagram error: too many stacked config directives' };
+  }
+  if (FETCH_TAG_RE.test(stripped)) {
+    return { error: 'Diagram error: HTML that loads a URL is not allowed' };
+  }
+  if (IMAGE_METADATA_RE.test(stripped)) {
+    return { error: 'Diagram error: image shapes are not allowed' };
+  }
+  if (hasCssFetch(stripped)) {
+    return { error: 'Diagram error: CSS that loads a URL is not allowed' };
   }
   return { text: stripped };
 }

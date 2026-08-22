@@ -38,13 +38,21 @@ Not option 2 (a CSP) — app-wide and far larger than this feature; not option 3
 `htmlLabels` is already pinned in `SECURE_KEYS`, and `stripConfigDirectives()`
 removes both config carriers, so a note cannot turn it back on.
 
-Plus: strip config carriers to a **fixpoint** rather than one pass, so removing
-one carrier can never promote the next into a position mermaid reads.
+Plus: strip config carriers over **repeated passes** rather than one, so
+removing one carrier can never promote the next into a position mermaid reads.
+The passes are bounded rather than run to a fixpoint — the fence body is
+attacker-controlled and each pass rescans all of it — and a source still
+changing after the last pass is refused instead of handed over half-stripped.
 
 ## Checklist
 
 - [x] `mermaid.initialize({ …, htmlLabels: false })` in `renderPass()`
-- [x] `stripConfigDirectives()` loops until the source stops changing
+- [x] `stripConfigDirectives()` loops a bounded number of passes, refusing a
+      source that is still changing after the last one
+- [x] `prepareFenceSource()` caps the body length, then strips, then refuses
+      the fetch constructs (`FETCH_TAG_RE`, `IMAGE_METADATA_RE`, CSS `url(`).
+      Strip-before-scan is load-bearing: a `%%{…}%%` wedged into a construct
+      hides it from a raw scan and the strip reassembles it for the engine
 - [x] Tests: `initialize` carries `htmlLabels: false`; a second front-matter
       block is stripped too; a directive followed by front matter strips both
 - [x] Module SECURITY note in `mermaid.ts` updated (the layout window is now

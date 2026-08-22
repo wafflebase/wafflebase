@@ -528,8 +528,11 @@ GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
   User-Agent and reading time — while `sanitizeSvg()`, running strictly
   downstream, still removed every `<img>` from what persisted. A request
   already sent is out of reach of `FORBID_TAGS`/`ALLOWED_URI_REGEXP`; the same
-  went for `onerror` on such an `<img>` and for a `background:url(…)` in a
-  label's inline `style`. With HTML labels off there is no label subtree to lay
+  went for a `background:url(…)` in a label's inline `style`. The exposure was
+  a fetch, not script execution — `securityLevel: 'strict'` had mermaid run
+  every label through its own DOMPurify pass first, which strips `on*`
+  handlers, so an `onerror` on that `<img>` never ran. With HTML labels off
+  there is no label subtree to lay
   out and the payload measures and renders as literal SVG text. The cost is
   HTML *styling* inside a label — no bold/italic or markdown formatting;
   `<br/>` still breaks the line, since mermaid splits SVG-text labels on it —

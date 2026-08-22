@@ -403,15 +403,18 @@ describe('NotePreview mermaid fences', () => {
     );
     expect(block?.textContent).toContain('<script>alert(1)</script>');
 
-    // The unparseable-diagram path keeps the same escaped source visible.
+    // The unparseable-diagram path keeps the same escaped source visible. The
+    // body has to be one `prepareFenceSource()` lets through, or the refusal
+    // short-circuits before the engine and this stops covering the error path.
     const failing = stubEngine(async () => {
       throw new Error('Parse error');
     });
     const preview2 = new NotePreview({ mermaidLoader: async () => failing });
-    preview2.render('```mermaid\n<script>alert(1)</script>\n```');
+    preview2.render('```mermaid\nflowchart LR\n  A["<b>alert(1)</b>"]\n```');
     await flush();
-    expect(preview2.el.querySelector('script')).toBeNull();
-    expect(preview2.el.textContent).toContain('<script>alert(1)</script>');
+    expect(failing.render).toHaveBeenCalled();
+    expect(preview2.el.querySelector('b')).toBeNull();
+    expect(preview2.el.textContent).toContain('<b>alert(1)</b>');
   });
 
   it('strips script and event handlers from the engine output', async () => {
@@ -789,6 +792,38 @@ describe('NotePreview mermaid fences', () => {
     expect(
       preview.el.querySelector('.note-mermaid-message')?.textContent,
     ).toContain('HTML that loads a URL is not allowed');
+  });
+
+  it('refuses a fetch construct a config directive splits in two', async () => {
+    // The refusals have to run on the STRIPPED text, not the raw source:
+    // `stripConfigDirectives()` joins the text around each carrier it removes,
+    // so a `%%{…}%%` wedged into the middle of a construct hides it from every
+    // check and the strip then reassembles it for the engine. Each of these
+    // matches nothing before the strip and is a live fetch after it.
+    for (const [body, message] of [
+      [
+        'flowchart LR\n  A@%%{x}%%{ img: "https://evil.example/b.png" }',
+        'image shapes are not allowed',
+      ],
+      [
+        'sequenceDiagram\n  A->>B: <im%%{x}%%g src="https://evil.example/b.png">',
+        'HTML that loads a URL is not allowed',
+      ],
+      [
+        'flowchart LR\n  A-->B\n  style A background:u%%{x}%%rl("https://evil.example/b.png")',
+        'CSS that loads a URL is not allowed',
+      ],
+    ]) {
+      const engine = stubEngine();
+      const preview = new NotePreview({ mermaidLoader: async () => engine });
+      preview.render('```mermaid\n' + body + '\n```');
+      await flush();
+
+      expect(engine.render).not.toHaveBeenCalled();
+      expect(
+        preview.el.querySelector('.note-mermaid-message')?.textContent,
+      ).toContain(message);
+    }
   });
 
   it('refuses a fence whose CSS loads an external URL', async () => {
