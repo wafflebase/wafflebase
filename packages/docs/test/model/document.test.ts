@@ -384,6 +384,48 @@ describe('Doc', () => {
     });
   });
 
+  // A block-type change is not the only way the layer under a run stops
+  // supplying the key its `false` was written against — redefining or
+  // resetting the named style does it without touching the run at all.
+  describe('dropStaleStyleOffAll', () => {
+    it('drops a style-off override a style redefinition stranded', () => {
+      const store = new MemDocStore();
+      store.setDocument({ blocks: [createEmptyBlock()] });
+      const doc = new Doc(store);
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      doc.setBlockType(blockId, 'heading', { headingLevel: 6 });
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
+        { italic: false },
+      );
+      // Heading 6 is italic, so the explicit `false` is still meaningful here.
+      expect(doc.document.blocks[0].inlines).toHaveLength(3);
+
+      store.updateStyleDefinition('heading-6', { inline: { italic: false }, block: {} });
+
+      expect(doc.dropStaleStyleOffAll()).toBe(true);
+      const inlines = doc.document.blocks[0].inlines;
+      expect(inlines).toHaveLength(1);
+      expect(inlines[0].text).toBe('abcdef');
+      expect('italic' in inlines[0].style).toBe(false);
+    });
+
+    it('leaves an override its style still supplies, and writes nothing', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.insertText({ blockId, offset: 0 }, 'abcdef');
+      doc.setBlockType(blockId, 'heading', { headingLevel: 6 });
+      doc.applyInlineStyle(
+        { anchor: { blockId, offset: 2 }, focus: { blockId, offset: 4 } },
+        { italic: false },
+      );
+
+      expect(doc.dropStaleStyleOffAll()).toBe(false);
+      expect(doc.document.blocks[0].inlines.find((i) => i.text === 'cd')?.style.italic).toBe(false);
+    });
+  });
+
   describe('setBlockType', () => {
     // The `italic: false` a Heading 6 run legitimately stores is a dead flag
     // the moment the block stops being a Heading 6 — the same #749 hazard,

@@ -1256,6 +1256,12 @@ export class TextEditor {
         this.saveSnapshot();
         this.deleteSelection();
         this.insertBlocks(data.blocks);
+        // The internal clipboard is the one paste payload that preserves an
+        // explicit `italic: false` (the HTML/markdown parsers only ever write
+        // `true`), so a run copied out of a Heading 6 can land in a block
+        // whose named style does not supply italic — a dead flag (#749). Same
+        // cleanup a block-type change runs; a no-op when nothing is stale.
+        this.doc.dropStaleStyleOffAll();
         this.selection.setRange(null);
         this.requestRender();
         return;

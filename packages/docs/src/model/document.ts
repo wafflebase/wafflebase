@@ -23,10 +23,10 @@ import {
   DEFAULT_HEADER_MARGIN_FROM_EDGE,
   getBlockText,
   getBlockTextLength,
-  inlineStylesEqual,
   generateBlockId,
   unlistedBlockType,
 } from './types.js';
+import { normalizeInlines } from '../store/block-helpers.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import { blockStyleId, resolveStyleInline } from './named-styles.js';
@@ -474,30 +474,97 @@ export class Doc {
   private dropStaleStyleOff(blockId: string): boolean {
     const block = this.findBlock(blockId);
     if (!block) return false;
-    const defaults = resolveStyleInline(blockStyleId(block), this._document.styles);
+    return this.writeStaleStyleOffEdits(this.collectStaleStyleOff([block]));
+  }
 
-    // Style-only writes never change the text, so block-level offsets
-    // collected up front stay valid across the whole loop.
-    const edits: Array<{ from: number; to: number; style: Partial<InlineStyle> }> = [];
-    let pos = 0;
-    for (const inline of block.inlines) {
-      const end = pos + inline.text.length;
-      let patch: Partial<InlineStyle> | undefined;
-      for (const key of BOOLEAN_INLINE_STYLE_KEYS) {
-        if (inline.style[key] !== false) continue;
-        if (defaults[key]) continue;
-        if (key === 'underline' && inline.style.href !== undefined) continue;
-        patch = patch ?? {};
-        patch[key] = undefined;
+  /**
+   * The same cleanup over every block in the document — body, header, footer
+   * and every (possibly nested) table cell.
+   *
+   * A block-type change is not the only way a run's named-style layer stops
+   * supplying the key it stored a `false` against: redefining, resetting, or
+   * wholesale-replacing the document's styles moves the layer *under* an
+   * untouched run. Every such entry point (`setDocStyles`,
+   * `updateStyleToMatch`, `resetNamedStyle`, `resetAllNamedStyles`) must call
+   * this, or the overrides `styleOffAsClear` deliberately keeps become exactly
+   * the dead flags issue #749 is about.
+   *
+   * All edits go out as one `applyStyles` batch, so a redefinition stays one
+   * undo unit however many runs it strands.
+   *
+   * Self-refreshing on both ends — it must decide from the *new* style table,
+   * and leaves the cached document current — so any caller can invoke it right
+   * after its own store write without bookkeeping.
+   */
+  dropStaleStyleOffAll(): boolean {
+    this.refresh();
+    const blocks: Block[] = [];
+    const collect = (list: Block[]): void => {
+      for (const block of list) {
+        blocks.push(block);
+        if (block.tableData) {
+          for (const row of block.tableData.rows) {
+            for (const cell of row.cells) collect(cell.blocks);
+          }
+        }
       }
-      if (patch && end > pos) edits.push({ from: pos, to: end, style: patch });
-      pos = end;
-    }
+    };
+    collect(this._document.blocks);
+    collect(this._document.header?.blocks ?? []);
+    collect(this._document.footer?.blocks ?? []);
+    if (!this.writeStaleStyleOffEdits(this.collectStaleStyleOff(blocks))) return false;
+    this.refresh();
+    return true;
+  }
 
-    for (const edit of edits) {
-      this.store.applyStyle(blockId, edit.from, edit.to, edit.style);
+  /**
+   * Per-run patches that drop a `false` no layer under the run supplies any
+   * more. Style-only writes never change the text, so the block-level offsets
+   * collected here stay valid for every edit in the batch.
+   */
+  private collectStaleStyleOff(
+    blocks: Block[],
+  ): Array<{ blockId: string; fromOffset: number; toOffset: number; style: Partial<InlineStyle> }> {
+    const edits: Array<{
+      blockId: string;
+      fromOffset: number;
+      toOffset: number;
+      style: Partial<InlineStyle>;
+    }> = [];
+    for (const block of blocks) {
+      const defaults = resolveStyleInline(blockStyleId(block), this._document.styles);
+      let pos = 0;
+      for (const inline of block.inlines) {
+        const end = pos + inline.text.length;
+        let patch: Partial<InlineStyle> | undefined;
+        for (const key of BOOLEAN_INLINE_STYLE_KEYS) {
+          if (inline.style[key] !== false) continue;
+          if (defaults[key]) continue;
+          if (key === 'underline' && inline.style.href !== undefined) continue;
+          patch = patch ?? {};
+          patch[key] = undefined;
+        }
+        if (patch && end > pos) {
+          edits.push({ blockId: block.id, fromOffset: pos, toOffset: end, style: patch });
+        }
+        pos = end;
+      }
     }
-    return edits.length > 0;
+    return edits;
+  }
+
+  /**
+   * Write the collected patches as a single undo unit. `applyStyles` rather
+   * than a loop of `applyStyle`: the store contract ties undo granularity to
+   * the write, so a loop would split one user action (a block-type change, a
+   * style redefinition) into one undo step per run it cleaned up.
+   */
+  private writeStaleStyleOffEdits(
+    edits: Array<{ blockId: string; fromOffset: number; toOffset: number; style: Partial<InlineStyle> }>,
+  ): boolean {
+    if (edits.length === 0) return false;
+    this.store.applyStyles(edits);
+    return true;
   }
 
   /**
@@ -887,9 +954,12 @@ export class Doc {
       }
     }
 
-    // Normalize inlines in each block of the merged cell
+    // Normalize inlines in each block of the merged cell. Shares the one
+    // merge rule in `normalizeInlines` — a second copy here drifted from it
+    // and re-merged structural inlines, concatenating two images from
+    // different cells into a single run that renders only one of them.
     for (const blk of topLeft.blocks) {
-      blk.inlines = this.normalizeInlinesArray(blk.inlines);
+      blk.inlines = normalizeInlines(blk.inlines);
     }
     topLeft.colSpan = colSpan;
     topLeft.rowSpan = rowSpan;
@@ -985,26 +1055,4 @@ export class Doc {
   }
 
   // --- Private helpers ---
-
-  /**
-   * Merge adjacent same-style inlines, remove empties (keep at least one).
-   */
-  private normalizeInlinesArray(inlines: Inline[]): Inline[] {
-    const merged: Inline[] = [];
-
-    for (const inline of inlines) {
-      if (inline.text.length === 0) continue;
-
-      const last = merged[merged.length - 1];
-      if (last && inlineStylesEqual(last.style, inline.style)) {
-        last.text += inline.text;
-      } else {
-        merged.push({ text: inline.text, style: { ...inline.style } });
-      }
-    }
-
-    return merged.length > 0
-      ? merged
-      : [{ text: '', style: inlines[0]?.style ?? {} }];
-  }
 }

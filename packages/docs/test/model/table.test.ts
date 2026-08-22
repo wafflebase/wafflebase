@@ -202,6 +202,29 @@ describe('Doc table operations', () => {
       expect(block.tableData!.rows[1].cells[1].colSpan).toBe(0);
     });
 
+    // The merge normalizer used to be a second copy of the inline-merge rule
+    // that lacked the structural-inline exception: two equal image runs
+    // compare equal, so they collapsed into one run whose text counted two
+    // characters but which renders a single picture.
+    it('keeps two identical images apart when normalizing a merged cell', () => {
+      const doc = Doc.create();
+      const tableId = doc.insertTable(0, 2, 2);
+      doc.setBlockParentMap(buildParentMap(doc, tableId));
+      const src = getCellBlock(doc, tableId, { rowIndex: 0, colIndex: 1 });
+      const image = { text: '￼', style: { image: { src: 'a.png', width: 10, height: 10 } } };
+      doc.insertImageInline(src.id, 0, image);
+      doc.insertImageInline(src.id, 1, image);
+
+      doc.mergeCells(tableId, { start: { rowIndex: 0, colIndex: 0 }, end: { rowIndex: 0, colIndex: 1 } });
+
+      const topLeft = doc.getBlock(tableId).tableData!.rows[0].cells[0];
+      const imageInlines = topLeft.blocks
+        .flatMap((b) => b.inlines)
+        .filter((i) => i.style.image);
+      expect(imageInlines).toHaveLength(2);
+      expect(imageInlines.every((i) => i.text === '￼')).toBe(true);
+    });
+
     it('absorbs an existing merged cell when the new range contains it', () => {
       const doc = Doc.create();
       const tableId = doc.insertTable(0, 4, 4);

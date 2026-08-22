@@ -334,13 +334,28 @@ There are exactly two such under-layers, and both are exceptions:
    beside a link is strictly better than an underline that cannot be
    turned off.
 
-Exception 1 is *conditional on the block type*, so it can go stale: the
-`italic: false` a Heading 6 run legitimately stores becomes a dead flag
-the moment the block turns into a paragraph. `Doc.setBlockType`
-therefore re-normalises the block it just retyped (`dropStaleStyleOff`),
-dropping any boolean `false` the block's new style no longer supplies.
-Exception 2 needs no such sweep — its under-layer is the run's own
-`href`, which a block-type change cannot remove.
+Exception 1 is *conditional on the named-style layer under the run*, so
+it can go stale three ways, and each one sweeps:
+
+- **The block's type changes** — the `italic: false` a Heading 6 run
+  legitimately stores is a dead flag the moment the block becomes a
+  paragraph. `Doc.setBlockType` re-normalises the block it just retyped
+  (`dropStaleStyleOff`).
+- **The style registry changes under an untouched run** — redefining,
+  resetting, or replacing the document's styles moves the layer without
+  the run being edited. Every such entry point (`setDocStyles`,
+  `updateStyleToMatch`, `resetNamedStyle`, `resetAllNamedStyles`) runs
+  `Doc.dropStaleStyleOffAll` over the whole document — body, header,
+  footer, and every nested table cell — via `afterNamedStyleChange`.
+- **A run is pasted into a differently-styled block** — the internal
+  clipboard is the only paste payload that preserves an explicit
+  `false` (the HTML and markdown parsers only ever write `true`), so
+  that branch sweeps too.
+
+Both sweeps write through `DocStore.applyStyles`, so a redefinition
+stays one undo unit however many runs it strands. Exception 2 needs no
+sweep — its under-layer is the run's own `href`, which none of the three
+can remove.
 
 A stored `false` is a dead flag. `inlineStylesEqual` compares strictly,
 so `false !== undefined` and `normalizeInlines` can never re-merge the
@@ -383,7 +398,9 @@ with it:
   equal. Structural inlines (images, page numbers) are now excluded
   from that merge, matching `isStructuralInline`'s contract: two
   *identical* images are still two images, and concatenating them
-  loses one.
+  loses one. `Doc.mergeCells` had its own copy of the merge rule; it
+  now calls `normalizeInlines`, so the table-merge path cannot drift
+  from the exception again.
 
 Out of scope: `false` flags already stored by older builds are left
 alone — they resolve identically and are cleared the next time the user
