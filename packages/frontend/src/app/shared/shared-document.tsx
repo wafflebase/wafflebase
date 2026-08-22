@@ -26,7 +26,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewAnalytics } from "@/hooks/use-view-analytics";
 import { DocsView, type EditorAPI } from "@/app/docs/docs-view";
 import { NotesView } from "@/app/notes/notes-view";
-import { readShowAuthors } from "@/app/notes/notes-settings";
 import {
   PdfCollabProvider,
   PdfHeaderActions,
@@ -322,7 +321,6 @@ function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
 
 function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
   const readOnly = resolved.role === "viewer";
-  const [showAuthors] = useState(readShowAuthors);
 
   useEffect(() => {
     document.title = resolved.title
@@ -345,17 +343,13 @@ function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
       </header>
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         {/*
-          This surface has no view menu, so the blame gutter follows whatever
-          the visitor last chose in a note they opened normally — the same
-          per-browser preference, read once at mount. Without it a share-link
-          reader could never see the gutter at all, though their own edits are
-          attributed into the note like everyone else's.
+          No `showAuthors`: this surface has no view menu, so `NotesView` falls
+          back to the visitor's own stored preference. Passing it from here
+          would mean importing `notes-settings` into this route too, which
+          makes Rollup hoist it — and the notes engine with it — into a shared
+          chunk well past the chunk-size gate.
         */}
-        <NotesView
-          readOnly={readOnly}
-          viewMode={readOnly ? "view" : "both"}
-          showAuthors={showAuthors}
-        />
+        <NotesView readOnly={readOnly} viewMode={readOnly ? "view" : "both"} />
       </div>
     </div>
   );
