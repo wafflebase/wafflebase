@@ -44,6 +44,7 @@ import {
   deckFontScale,
   deckSlideHeight,
   type Slide,
+  type SlidesDocument,
 } from '../../model/presentation';
 import type { SlidesStore } from '../../store/store';
 import type { Endpoint } from '../../model/connector';
@@ -718,6 +719,14 @@ class SlidesEditorImpl implements SlidesEditor {
   private keyRules!: KeyRule[];
   private currentId: string | undefined;
   /**
+   * Index `currentId` was last resolved at in the deck's `slides` array,
+   * refreshed on every `resolveCurrentSlide` hit. When the current slide
+   * disappears — undo of `Add slide`, a peer's delete — this is the only
+   * record of where it used to be, and `resolveCurrentSlide` lands the
+   * cursor just before it rather than leaving a dangling id.
+   */
+  private currentIndex = 0;
+  /**
    * True while canvas layout-editing mode is active (PR3 theme builder).
    * Gates text-edit entry; the swapped `LayoutEditStore` already no-ops
    * structural mutations, so this only covers the UX the proxy can't.
@@ -842,6 +851,19 @@ class SlidesEditorImpl implements SlidesEditor {
       }
     | null = null;
   private editingTextBox: SlidesTextBoxEditor | null = null;
+  /**
+   * Discards the active edit's pending store write.
+   *
+   * `enterEditMode` keeps its `cancelled` flag in a closure and `onCancel`
+   * is the only thing that sets it — but `detach()` flushes a final
+   * `onCommit` for a still-focused box, so tearing an edit down without
+   * going through Escape writes anyway. That write is not merely an
+   * unwanted value: `store.batch()` pushes an undo entry and clears the
+   * redo stack *before* it runs, so a "discard" would silently cost the
+   * user their redo. Exposing the setter is what lets
+   * `exitEditMode('cancel')` mean what it says.
+   */
+  private editingCancel: (() => void) | null = null;
   /**
    * Latest content height (logical px) reported by the active text-box
    * editor via onContentHeightChange. Null when not editing or when the
@@ -1057,9 +1079,7 @@ class SlidesEditorImpl implements SlidesEditor {
     if (this.disposed) return;
     const doc = this.options.store.read();
     const slideH = deckSlideHeight(doc.meta);
-    const slide = this.currentId
-      ? doc.slides.find((s) => s.id === this.currentId)
-      : undefined;
+    const slide = this.resolveCurrentSlide(doc);
     if (!slide) {
       this.paintOverlay([], {
         scale: this.scale(),
@@ -1417,8 +1437,7 @@ class SlidesEditorImpl implements SlidesEditor {
     // belong to that same SlidesDocument so a future colorResolver
     // can look up theme palettes via `getActiveTheme(doc)`.
     const doc = this.options.store.read();
-    const id = this.currentId;
-    const slide = id ? doc.slides.find((s) => s.id === id) : undefined;
+    const slide = this.resolveCurrentSlide(doc);
     if (!slide) {
       this.paintRuler();
       return;
@@ -1495,6 +1514,63 @@ class SlidesEditorImpl implements SlidesEditor {
     this.render();
     this.repaintOverlay();
     for (const cb of this.currentSlideListeners) cb();
+  }
+
+  /**
+   * Resolve `currentId` against `doc`, healing a dangling id.
+   *
+   * `Add slide` makes the new slide current, and undoing it restores the
+   * `slides` array without touching the editor's cursor — so `currentId`
+   * would keep naming a slide the deck no longer holds and nothing would
+   * paint (issue #883). A peer deleting the slide the local user is on
+   * leaves the same state. Both are removal paths with no local call
+   * site to fix up, so the cursor is revalidated here, at the one place
+   * the editor turns `currentId` into a slide: when the id is missing
+   * from a non-empty deck we move to the slide just before the vanished
+   * index, which for an undone insertion is the slide the user came from.
+   *
+   * Callers pass their own `store.read()` snapshot — resolving must not
+   * cost an extra read, in particular not on `render()`'s idle frames.
+   *
+   * Returns the slide to paint, or `undefined` for an empty deck (or an
+   * unset `currentId`, e.g. a store that had no slides at mount).
+   */
+  private resolveCurrentSlide(doc: SlidesDocument): Slide | undefined {
+    const id = this.currentId;
+    if (id === undefined) return undefined;
+    const idx = doc.slides.findIndex((s) => s.id === id);
+    if (idx !== -1) {
+      this.currentIndex = idx;
+      return doc.slides[idx];
+    }
+    // An empty deck gets the same teardown as any other heal. The store
+    // permits one — `removeSlides` is a bare filter, and only the thumbnail
+    // panel gates the last slide locally — so a peer can empty the deck
+    // while this client is mid-edit. Returning early would leave a live
+    // text-box editor and a crop session anchored to a slide that is gone.
+    const empty = doc.slides.length === 0;
+    const nextIdx = empty
+      ? -1
+      : Math.min(Math.max(this.currentIndex - 1, 0), doc.slides.length - 1);
+    const next = empty ? undefined : doc.slides[nextIdx];
+    // Move the cursor BEFORE tearing down the interaction state below:
+    // `exitEditMode` / `exitImageCrop` / `selection.clear()` all route
+    // back into `repaintOverlay()`, which resolves again — with the id
+    // already healed that nested resolve is a plain hit instead of a
+    // second heal.
+    this.currentId = next?.id;
+    this.currentIndex = empty ? 0 : nextIdx;
+    this.renderer.markDirty();
+    // Anything anchored to the removed slide has nowhere left to commit,
+    // so it is discarded rather than committed (the opposite of
+    // `setCurrentSlide`, which leaves a still-existing slide behind).
+    // `exitEditMode('cancel')` really discards: see `editingCancel`.
+    if (this.cropSession !== null) this.exitImageCrop(false);
+    if (this.editingElementId !== null) this.exitEditMode('cancel');
+    this.setCellSelection(null);
+    this.selection.clear();
+    for (const cb of this.currentSlideListeners) cb();
+    return next;
   }
 
   /**
@@ -4110,6 +4186,12 @@ class SlidesEditorImpl implements SlidesEditor {
       },
     });
     this.editingTextBox = tb;
+    // See the field's comment: `detach()` flushes a final commit for a
+    // focused box, so a teardown that is not an Escape needs a way to say
+    // "discard" first.
+    this.editingCancel = () => {
+      cancelled = true;
+    };
     this.activeTextEditor = tb;
     for (const cb of this.textEditingListeners) cb();
     // Repaint the slide canvas so the element being edited disappears
@@ -4278,6 +4360,10 @@ class SlidesEditorImpl implements SlidesEditor {
     // detach without committing. finishEditMode is idempotent in
     // either case.
     if (reason === 'cancel') {
+      // Before detaching, not after: `detach()` synchronously flushes
+      // `onCommit` for a still-focused box, and that write would push an
+      // undo entry and clear the redo stack on the way out.
+      this.editingCancel?.();
       this.finishEditMode();
     }
   }
@@ -4518,6 +4604,7 @@ class SlidesEditorImpl implements SlidesEditor {
   private finishEditMode(): void {
     const tb = this.editingTextBox;
     this.editingTextBox = null;
+    this.editingCancel = null;
     this.editingElementId = null;
     this.editingCellCoords = null;
     this.lastEditingContentHeight = null;

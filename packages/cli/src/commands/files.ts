@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import {
+  commandPath,
   output,
   outputError,
   parseOutputFormat,
@@ -42,12 +43,13 @@ export function registerFilesCommand(program: Command) {
             folder: local.folder,
             quiet: opts.quiet,
             dryRun: opts.dryRun,
+            command: commandPath(this),
           },
           getClient(opts),
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -66,12 +68,18 @@ export function registerFilesCommand(program: Command) {
           return;
         }
         const result = await runFilesDownload(
-          { docId, out, force: local.force, quiet: opts.quiet },
+          {
+            docId,
+            out,
+            force: local.force,
+            quiet: opts.quiet,
+            command: commandPath(this),
+          },
           getClient(opts),
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -98,7 +106,7 @@ export function registerFilesCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         let data = res.data as unknown;
         if (Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter((d) =>
@@ -107,7 +115,7 @@ export function registerFilesCommand(program: Command) {
         }
         output(data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -123,10 +131,10 @@ export function registerFilesCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -146,10 +154,10 @@ export function registerFilesCommand(program: Command) {
         // discard the response of a rename that already happened.
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -165,10 +173,10 @@ export function registerFilesCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

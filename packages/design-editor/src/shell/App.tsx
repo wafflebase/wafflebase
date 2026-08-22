@@ -638,6 +638,47 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   const plan = useMemo(() => saveDiff(history.baseline, history.state), [history.baseline, history.state]);
 
   /**
+   * PUBLISH THE STAGED PLAN TO THE FRAME, so a class edit is visible before it is written.
+   *
+   * The pipeline for this shipped at both ends and was never connected: `POST /plan` stores
+   * the intents and `plugin/scene-patch.ts` serves the frame's modules with them applied.
+   * Nothing called the route, so the frame kept painting the committed state and the whole
+   * point of staging — try it, then decide — did not hold for classes. Token edits were
+   * never affected: a CSS variable can be pushed into a frame from outside, and
+   * `wb:set-token-vars` does exactly that.
+   *
+   * `apply` items only. A `revert` is history having moved back PAST the last save, so disk
+   * carries something the present state does not; the frame renders the present, and
+   * sending the revert would ask it to paint the write rather than the intent.
+   *
+   * Sent on every staging change INCLUDING the empty one. An emptied plan is what makes
+   * undo visible — the route reloads the union of the old plan's files and the new one's,
+   * so the last edit dropping out is the case that reverts the frame. Skipping the empty
+   * send would leave the last patch on screen forever.
+   */
+  useEffect(() => {
+    if (!sceneId) return;
+    let live = true;
+    const intents = plan.filter((p) => p.mode === 'apply').map((p) => p.intent);
+    void bridge
+      .plan('after', intents)
+      .then((r) => {
+        // A refusal here is not fatal — the edit is still staged and Save still works —
+        // but it means what you are looking at is not what you staged, and silence about
+        // that is worse than the stale pixels.
+        if (live && r && 'ok' in r && !r.ok) {
+          notify('error', 'Preview not updated', r.error ?? 'The frame could not be updated.');
+        }
+      })
+      .catch(() => {
+        if (live) notify('error', 'Preview not updated', 'The bridge did not answer.');
+      });
+    return () => {
+      live = false;
+    };
+  }, [plan, sceneId, bridge, notify]);
+
+  /**
    * ⌘S opens the REVIEW, it does not write.
    *
    * 11b wrote the plan straight through because the modal was PR 12's; this is that PR. The

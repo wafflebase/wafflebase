@@ -1,14 +1,16 @@
 import { Command } from 'commander';
 import { createServer } from 'node:http';
-import { createInterface } from 'node:readline';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { createInterface } from 'node:readline';
 import {
   loadSession,
   saveSession,
   decodeJwtExpiry,
 } from '../config/session.js';
 import type { Session, WorkspaceInfo } from '../config/session.js';
-import { DEFAULT_SERVER } from '../config/config.js';
+import { DEFAULT_SERVER, getConfigPath } from '../config/config.js';
 import {
   EXIT_USER_ERROR,
   SystemError,
@@ -85,6 +87,88 @@ export function registerLoginCommand(program: Command): void {
         process.exit(exitCode);
       }
     });
+}
+
+/**
+ * Hand the authorization URL to the system browser, best effort.
+ *
+ * Nothing here is evidence a browser appeared. `open()` resolves as soon as
+ * the child process is *spawned*, so on a headless box `xdg-open` resolves
+ * and then exits non-zero a moment later. So the caller announces the URL
+ * regardless: treating "spawned" as "opened" is what left headless users
+ * staring at the callback timeout with no way to continue.
+ *
+ * Both failure shapes are absorbed here, and they are different ones:
+ *
+ * - **The spawn itself fails** (no opener binary). `child_process.spawn`
+ *   schedules that `error` on `process.nextTick`, so nothing a caller
+ *   attaches after `await` could catch it — but `open` attaches
+ *   `once('error', reject)` in the same synchronous turn as the spawn and
+ *   resolves only on `'spawn'`, so the failure arrives as a *rejection* and
+ *   the `try` is what handles it (open v11 `index.js`, the `subprocess`
+ *   block).
+ * - **The child fails after spawning.** `open` removes its own listener once
+ *   `'spawn'` fires, leaving an emitter with no `error` handler; an unhandled
+ *   `error` event takes the process down. That is what the listener below is
+ *   for.
+ *
+ * Exported for tests: the two absorbers are the whole point of the helper and
+ * nothing else observes them.
+ */
+export async function openBrowser(url: string): Promise<void> {
+  try {
+    const open = (await import('open')).default;
+    const child = await open(url);
+    child?.on?.('error', () => {});
+  } catch {
+    // No opener at all — the announced URL is the way through.
+  }
+}
+
+/**
+ * Tell the user where to continue, and return the file the URL was left in
+ * (if any) so the caller can delete it once the login settles.
+ *
+ * The URL carries both bindings of this login — the nonce and the PKCE
+ * challenge — so anyone who reads it can start their own login against the
+ * same pair and push the resulting code at this port. When stderr is a
+ * terminal, the only reader is the person logging in and printing is safe.
+ * When it is not — a pipe, a CI log, an agent harness transcript — printing
+ * parks a live login secret in a file somebody else can read, so the URL goes
+ * to an owner-only file and only its path is printed. That is the headless
+ * case, which is precisely where the browser cannot open.
+ */
+function announceLoginUrl(url: string): string | undefined {
+  if (process.stderr.isTTY) {
+    console.error(
+      'If no browser opened, visit this URL to continue — it carries ' +
+        'one-time login secrets, so do not share or paste it anywhere:',
+    );
+    console.error(url);
+    return undefined;
+  }
+
+  try {
+    const file = join(dirname(getConfigPath()), 'login-url.txt');
+    mkdirSync(dirname(file), { recursive: true });
+    // Remove first: `mode` applies only when the file is created, so an
+    // existing world-readable file would keep its permissions.
+    rmSync(file, { force: true });
+    writeFileSync(file, `${url}\n`, { mode: 0o600 });
+    console.error(
+      `If no browser opened, the login URL was written to ${file} ` +
+        '(readable only by you). It carries one-time login secrets: open it ' +
+        'yourself, do not share it, and it expires in 5 minutes.',
+    );
+    return file;
+  } catch {
+    console.error(
+      'Could not open a browser, and stderr is redirected, so the login URL ' +
+        '(which carries one-time login secrets) was not printed. Run ' +
+        '`wafflebase login` from a terminal, or use `--api-key`.',
+    );
+    return undefined;
+  }
 }
 
 interface LoginSession {
@@ -198,10 +282,7 @@ const defaultLoginDeps: LoginDeps = {
   saveSession,
   startCallbackServer,
   fetchLoginSession,
-  openBrowser: async (url) => {
-    const open = (await import('open')).default;
-    await open(url);
-  },
+  openBrowser,
 };
 
 export async function runLogin(
@@ -236,10 +317,10 @@ export async function runLogin(
       'Warning: --allow-unbound-callback accepts a callback that carries no state. Any local process that reaches the callback port can complete this login.',
     );
   }
-  const { port, waitForCallback, close } = await deps.startCallbackServer(
-    nonce,
-    { allowUnbound: options.allowUnboundCallback === true },
-  );
+  const { port, waitForCallback, close, armLaunch } =
+    await deps.startCallbackServer(nonce, {
+      allowUnbound: options.allowUnboundCallback === true,
+    });
 
   // 3. Build OAuth URL and open browser. The backend echoes `nonce`
   // back as the loopback callback's `state`, which is what lets the
@@ -250,30 +331,28 @@ export async function runLogin(
   // Only the hash goes out; the verifier stays in this process and is
   // sent once, in the exchange POST body.
   //
-  // The URL carries the nonce, so while this login is pending it is a
-  // credential: anyone who can both read it and reach this machine's
-  // callback port can complete the login as themselves and leave this
-  // CLI holding *their* session. It is printed anyway because it is the
-  // only fallback when the browser cannot be opened (`open()` resolves
-  // when the child process spawns, not when a browser appears, so the
-  // CLI cannot tell), and it is the listener's timeout that bounds the
-  // exposure. Say so rather than printing it silently.
+  // The URL carries the nonce *and* the challenge, so while this login is
+  // pending it is a credential: anyone who can both read it and reach this
+  // machine's callback port can complete the login as themselves and leave
+  // this CLI holding *their* session. It is therefore never handed to the
+  // browser directly — opening a URL spawns a child process with that URL
+  // in its argv, which any local user can read (`ps`,
+  // `/proc/<pid>/cmdline`) on exactly the shared host these bindings exist
+  // for. `armLaunch` parks it behind a single-use loopback redirect and the
+  // opener gets that instead.
   const { verifier, challenge } = createPkcePair();
   const oauthUrl = `${server}/auth/github?mode=cli&port=${port}&nonce=${encodeURIComponent(nonce)}&challenge=${encodeURIComponent(challenge)}`;
-  console.error(`Opening browser: ${oauthUrl}`);
-  console.error(
-    'If the browser does not open, visit the URL above. Do not share it while this login is pending — it carries the nonce binding the callback to this terminal.',
-  );
+  console.error('Opening browser for GitHub login...');
   // The server answers this URL with a confirmation page rather than
   // going straight to GitHub — a sign-in the user did not start must
   // not proceed on a bare navigation. Say so, or the wait looks stuck.
   console.error('Confirm the sign-in in the browser to continue.');
 
-  try {
-    await deps.openBrowser(oauthUrl);
-  } catch {
-    // Browser open failed — URL was already printed
-  }
+  await deps.openBrowser(armLaunch(oauthUrl));
+  // `open()` resolving is not evidence a browser appeared — it only means
+  // the child was spawned — so the URL is announced either way, through
+  // whichever channel is safe for the stderr it would land on.
+  const urlFile = announceLoginUrl(oauthUrl);
 
   // 4. Wait for callback
   let code: string;
@@ -281,6 +360,9 @@ export async function runLogin(
     code = await waitForCallback();
   } finally {
     close();
+    // The URL is spent either way: it is one login's secrets, not a
+    // bookmark. Leaving it on disk past the flow is a stale credential.
+    if (urlFile) rmSync(urlFile, { force: true });
   }
 
   // 5-7. Exchange the code for tokens, then read the user and workspaces.
@@ -375,14 +457,63 @@ export function nonceMatches(
   return timingSafeEqual(a, b);
 }
 
+/** Path prefix of the single-use redirect that starts the login. */
+const LAUNCH_PREFIX = '/launch/';
+
 /**
- * Default wait for the browser to come back. Three minutes, not thirty
- * seconds: the browser leg is now a confirmation page the user has to
- * click through plus, on a cold browser, a full GitHub sign-in. It stays
- * under the backend's five-minute OAuth state TTL, so the wait never
- * outlives the state it is waiting on.
+ * What a browser sees when the one-time launch link was already spent.
+ *
+ * It carries no login material — that is the whole point of spending the
+ * token — only the one thing the person can act on, so a lost race costs a
+ * re-run rather than a bare 404 and a five-minute wait.
  */
-const CALLBACK_TIMEOUT_MS = 180_000;
+const SPENT_LAUNCH_PAGE = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Wafflebase CLI</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; justify-content: center; align-items: center; min-height: 100vh;
+    margin: 0; background: #fafafa; color: #1a1a1a; }
+  .card { max-width: 30rem; text-align: center; padding: 2.5rem; background: #fff;
+    border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04); }
+  h2 { margin: 0 0 0.75rem; font-size: 1.25rem; }
+  p { margin: 0 0 1rem; color: #444; font-size: 0.95rem; line-height: 1.5; }
+  code { background: #f2f2f2; padding: 0.1rem 0.3rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h2>This sign-in link was already used</h2>
+    <p>The link that starts a command-line sign-in works exactly once, and
+    something opened it before this window did.</p>
+    <p>Return to your terminal, press <code>Ctrl-C</code>, and run
+    <code>wafflebase login</code> again.</p>
+  </div>
+</body>
+</html>`;
+
+/**
+ * How long the loopback listener waits for GitHub's redirect.
+ *
+ * This has to cover everything the person does in the browser, and that is no
+ * longer just GitHub's consent screen: the server now stops a CLI start on an
+ * interstitial that names the loopback port and waits for a deliberate click,
+ * precisely so a link nobody ran cannot walk someone through sign-in. Thirty
+ * seconds was already tight for GitHub alone — a password manager, a 2FA
+ * prompt, a tab switched away from — and with a human gate in front of it the
+ * CLI was giving up on logins the server still considered live. Five minutes
+ * is the server's own budget for one (`CLI_STATE_COOKIE_MAX_AGE_MS`, and the
+ * `CliAuthStore` state entry), so the two ends now expire together instead of
+ * by an order of magnitude apart; it is also what this command's own headless
+ * message has been telling people all along.
+ *
+ * Exported so a test can assert the two ends agree without waiting them out.
+ */
+export const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * Why a callback that reached the loopback server was not accepted.
@@ -500,7 +631,7 @@ export interface CallbackServerOptions {
  *
  * A refusal never settles the wait — the genuine redirect may still be
  * on its way — but it is recorded and surfaced, so a refused login is
- * diagnosable rather than a silent three-minute hang.
+ * diagnosable rather than a silent five-minute hang.
  *
  * Exported so the binding can be driven directly in tests: it is the
  * security core of the login flow, not an implementation detail of
@@ -513,10 +644,30 @@ export function startCallbackServer(
   port: number;
   waitForCallback: () => Promise<string>;
   close: () => void;
+  /**
+   * Park an authorization URL behind a single-use loopback redirect and
+   * return the URL to hand the browser.
+   *
+   * The authorization URL carries this login's nonce and PKCE challenge, so
+   * it must not appear in a child process's argv (see `openBrowser`'s call
+   * site). The token is 32 random bytes, so nothing else on the machine can
+   * guess the redirect; it is spent on first use, so a local reader who wins
+   * the race takes the URL away from the real browser rather than sharing it.
+   *
+   * A second visit to the spent link is answered with `410` and a page
+   * naming the remedy, not a bare `404`: the link is handed to an arbitrary
+   * system opener, so losing the race to a prefetch or a link scanner is not
+   * far-fetched, and the person left holding the response needs something to
+   * do other than wait out the five-minute timeout. It still never re-offers
+   * the authorization URL.
+   */
+  armLaunch: (authorizationUrl: string) => string;
 }> {
   const allowUnbound = options.allowUnbound === true;
   return new Promise((resolve, reject) => {
     let settled = false;
+    let launchToken: string | undefined;
+    let launchTarget: string | undefined;
     let lastRefusal: string | undefined;
     // Known once the listener is bound; the `Host` check below compares
     // against it, and a request cannot arrive before then.
@@ -548,6 +699,49 @@ export function startCallbackServer(
 
       const url = new URL(req.url ?? '/', `http://127.0.0.1`);
 
+      if (url.pathname.startsWith(LAUNCH_PREFIX)) {
+        const presented = url.pathname.slice(LAUNCH_PREFIX.length);
+        const isOurToken = !!launchToken && nonceMatches(launchToken, presented);
+
+        if (isOurToken && launchTarget) {
+          const target = launchTarget;
+          // Single use: a second visit gets nothing, so a local reader who
+          // lifted the loopback URL out of argv cannot also let the real
+          // browser through and stay unnoticed.
+          launchTarget = undefined;
+          res.writeHead(302, {
+            Location: target,
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer',
+          });
+          res.end();
+          return;
+        }
+
+        // Our token, already spent. Something dereferenced the one-time link
+        // before the browser reached it — a link scanner, a prefetch, an
+        // opener probe, a second window — and the person is now looking at
+        // this response with a login that cannot proceed. A bare 404 left
+        // them nothing to act on and a five-minute wait to sit through; say
+        // what happened and what to do instead. The authorization URL is
+        // deliberately *not* re-offered: handing it out on a second visit is
+        // exactly what single use exists to prevent.
+        if (isOurToken) {
+          res.writeHead(410, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store',
+            'Referrer-Policy': 'no-referrer',
+          });
+          res.end(SPENT_LAUNCH_PAGE);
+          return;
+        }
+
+        // Not our token at all: say nothing that confirms a login is running.
+        res.writeHead(404);
+        res.end('Not found');
+        return;
+      }
+
       if (url.pathname !== '/callback') {
         res.writeHead(404);
         res.end('Not found');
@@ -566,6 +760,13 @@ export function startCallbackServer(
         return;
       }
 
+      // Reject (rather than resolve on) a callback that does not carry this
+      // process's nonce: a code from any other flow is not ours to redeem.
+      // Never settle the promise here — a forged hit must not end the wait,
+      // so the real redirect can still arrive. `state` missing entirely and
+      // `state` wrong are different failures — the first is an out-of-date
+      // server, the second a callback that is not ours — so they are
+      // reported apart.
       const state = url.searchParams.get('state');
       if (state === null && allowUnbound) {
         // The one case the downgrade flag can wave through: a server
@@ -670,6 +871,11 @@ export function startCallbackServer(
           close: () => {
             clearTimeout(timeout);
             srv.close();
+          },
+          armLaunch: (authorizationUrl: string) => {
+            launchToken = randomBytes(32).toString('base64url');
+            launchTarget = authorizationUrl;
+            return `http://127.0.0.1:${addr.port}${LAUNCH_PREFIX}${launchToken}`;
           },
         });
       });

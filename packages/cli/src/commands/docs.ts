@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { extname } from 'node:path';
 import { getGlobalOpts, getClient, getConfig } from './root.js';
 import {
+  commandPath,
   InvalidFormatError,
   output,
   outputError,
@@ -89,7 +90,7 @@ export function registerDocsCommand(program: Command) {
         }
 
         const res = await getClient(opts).listDocuments();
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         let data = res.data as unknown;
         if (filterType && Array.isArray(data)) {
           data = (data as Array<{ type?: string }>).filter(
@@ -98,7 +99,7 @@ export function registerDocsCommand(program: Command) {
         }
         output(data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -117,10 +118,10 @@ export function registerDocsCommand(program: Command) {
           return;
         }
         const res = await getClient(opts).createDocument(title, type);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -136,10 +137,10 @@ export function registerDocsCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).getDocument(docId);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -157,10 +158,10 @@ export function registerDocsCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).updateDocument(docId, title);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -176,10 +177,10 @@ export function registerDocsCommand(program: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteDocument(docId);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -216,7 +217,7 @@ export function registerDocsCommand(program: Command) {
         // Surfaces a backend-shaped error (e.g., TYPE_MISMATCH) verbatim so
         // agents reading stderr can act on its `code`; anything else throws
         // and comes back out through `outputError`.
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
 
         runDocsContent({
           doc: res.data,
@@ -229,7 +230,7 @@ export function registerDocsCommand(program: Command) {
           quiet: opts.quiet,
         });
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -268,7 +269,7 @@ export function registerDocsCommand(program: Command) {
         }
 
         const res = await getClient(opts).getDocContent(docId);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         const fetchedDoc = res.data;
 
         // Image inlines reference URLs that PdfExporter and DocxExporter
@@ -328,7 +329,7 @@ export function registerDocsCommand(program: Command) {
 
         writeBinary(bytes, file, { force: local.force, quiet: opts.quiet });
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -366,12 +367,13 @@ export function registerDocsImportCommand(doc: Command) {
             yes: local.yes,
             quiet: opts.quiet,
             dryRun: opts.dryRun,
+            command: commandPath(this),
           },
           getClient(opts),
         );
         if (result.exitCode !== 0) process.exitCode = result.exitCode;
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

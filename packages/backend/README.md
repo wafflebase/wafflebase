@@ -22,6 +22,16 @@ FRONTEND_URL=http://localhost:5173
 DATABASE_URL=postgresql://wafflebase:wafflebase@localhost:5432/wafflebase
 JWT_SECRET=your_jwt_secret
 JWT_REFRESH_SECRET=your_refresh_secret   # Optional, defaults to JWT_SECRET
+OAUTH_STATE_SECRET=                      # Optional. Key the OAuth login
+                                        # bindings are signed with. Unset
+                                        # (default) it is HKDF-derived from
+                                        # JWT_SECRET, so nothing has to be
+                                        # configured; set it to an
+                                        # independent high-entropy value if
+                                        # you want the `state` published by
+                                        # the unauthenticated
+                                        # GET /auth/github to carry no
+                                        # relation to the session key at all.
 JWT_ACCESS_EXPIRES_IN=1h                # Optional
 JWT_REFRESH_EXPIRES_IN=7d               # Optional
 JWT_ACCESS_COOKIE_MAX_AGE_MS=3600000    # Optional
@@ -41,6 +51,23 @@ GITHUB_USER_EMAIL_URL=                   #   https://<host>/login/oauth/authoriz
                                         # otherwise fetches emails from
                                         # api.github.com and a GHE token fails
                                         # there with "Bad credentials".
+COOKIE_SECURE=                          # Optional. Whether session and login
+                                        # cookies carry `Secure` (and so the
+                                        # `__Host-` prefix). Unset — the normal
+                                        # case — derives it from
+                                        # GITHUB_CALLBACK_URL's scheme, since
+                                        # that is where GitHub redirects the
+                                        # login and so is this server's public
+                                        # scheme; with no callback URL set at
+                                        # all it falls back to
+                                        # NODE_ENV=production. Set it to `true`
+                                        # only when TLS terminates at an edge
+                                        # and the callback URL is `http://`
+                                        # anyway, which would otherwise
+                                        # downgrade the session cookie.
+                                        # `NODE_ENV=production` with a
+                                        # non-loopback `http://` callback URL
+                                        # logs a warning for that reason.
 PORT=3000
 LOG_LEVEL=info                          # Optional, Pino level
 BACKEND_TRUST_PROXY=0                   # Optional, set to 1 behind a proxy
@@ -99,6 +126,18 @@ WAFFLEBASE_STARROCKS_DSN=               # Optional, StarRocks DSN
                                         # analytics dashboard (returns
                                         # `enabled: false`).
 ```
+
+`GITHUB_CALLBACK_URL`'s scheme is read as the deployment's public scheme: it
+decides whether the login cookies are `Secure` (and so `__Host-`-prefixed), and
+with it whether `wafflebase login` is available at all. CLI sign-in answers
+`400 Command-line sign-in requires an https server` unless it can see that its
+consent cookie is trustworthy — an `https://` callback URL (or
+`COOKIE_SECURE=true`), or a loopback one. A plain-http non-loopback origin is
+refused because anything on such an origin can plant that cookie, and so is a
+deployment that configures **no** callback URL at all: GitHub falls back to the
+URL registered on the OAuth app, so the scheme is real but invisible here, and
+guessing "secure" would be guessing in the unsafe direction. Serve over https
+(or keep it on `localhost`) to use it.
 
 ### Lakehouse: DuckDB extensions are bundled into the image
 

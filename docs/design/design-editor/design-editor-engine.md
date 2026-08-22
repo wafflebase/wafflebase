@@ -553,42 +553,29 @@ token edit repainted the button preview and left every scene untouched.
 
 ### 3.9 `POST /__design-editor/api/plan` — the staged plan, as served bytes
 
-> **SHIPPED AS `POST /plan`, AND INCOMPLETE.** The route exists under the shorter name
-> and everything below about WHY it patches a module still describes it. Two pieces of
-> the sequence did not come across, and between them the preview never appears:
+> **SHIPPED AS `POST /plan`.** The route carries the shorter name; everything below
+> describes it, including the union rule, which `publishPlan` in `plugin/bridge.ts`
+> implements. `plugin/scene-patch.ts` is the other half, serving a `?wbFrame=` module
+> with the same `plans: Map<FrameSide, MutateRequest[]>` applied.
 >
-> 1. **Nothing calls it.** `bridge.plan(side, intents)` exists on the client and the
->    shell never invokes it, so a staged class edit is never published to the server.
-> 2. **It stages without invalidating.** The handler sets `plans` and returns; the
->    reload loop over the union of the old and new plan's files — the paragraph below
->    this one, the case it warns a naive implementation gets wrong — is absent, so the
->    frame keeps serving the module it already transformed.
->
-> **What that costs today.** Token edits preview live (`/preview-tokens` →
-> `wb:set-token-vars` pushes custom properties into the frame, which works because a CSS
-> variable can be overridden from outside). A class edit has no equivalent: it stages in
-> the shell and appears only once Approve writes it and Vite's HMR reloads. The
-> two-altitude history (edits vs writes) exists so you can try something before writing
-> it — for classes you can currently try it without seeing it.
->
-> The module-patching half IS shipped: `plugin/scene-patch.ts` takes the same
-> `plans: Map<FrameSide, MutateRequest[]>` and applies it when serving a `?wbFrame=`
-> module. Restoring the preview is wiring those two ends together, not rebuilding this.
+> For a period after extraction both ends existed and nothing connected them: the shell
+> never called the route, and the route staged without invalidating. A staged class edit
+> was therefore invisible until Approve wrote it, while token edits previewed live
+> (`/preview-tokens` → `wb:set-token-vars`, which works because a CSS variable can be
+> overridden from outside a frame). `verify:scenes` now covers both directions — the
+> class appearing on stage, and disappearing on undo — because only the second one fails
+> when the union is wrong.
 
 
-Body `{ side: "before" | "after", intents }` → `{ ok, side, count }`.
+Body `{ side: "before" | "after", intents }` → `{ ok, side, count, reloaded }`.
 **Writes nothing.**
 
-Stores the layout half of a plan for one frame side, so `scene-patch` serves that
-side's modules with the patch applied. Non-layout kinds are dropped server-side:
+Stores the layout half of a plan for one frame side and invalidates the modules that
+plan touches, so `scene-patch` re-serves them with the patch applied. Non-layout kinds are dropped server-side:
 token edits preview through §3.8 instead, and letting both paths claim the same
 module would have them fighting over it.
 
-> **The two paragraphs below describe the intended behaviour, not the shipped
-> handler.** It stores the plan and returns; it does not invalidate, and there is
-> no `reloaded` in its response — which is the second of the two gaps named above.
-> They are kept as the contract to restore, because the union rule is the part a
-> reimplementation gets wrong.
+
 
 **Why a patched MODULE and not an override channel.** A class override works for
 a component preview because the preview owns the render and passes a
@@ -1742,8 +1729,7 @@ covered here is whether the scene PAINTS; that list is in §9.
     scene-preview, `?wbFrame=after` serves `text-[21px]` while `?wbFrame=before`
     still serves `text-[19px]`. This is §7.8's premise reduced to an assertion.
 19. **An emptied plan un-patches the module** — the union-invalidation drop case
-    (§3.9), and the one a naive implementation gets wrong. *Cannot pass today:
-    the shipped handler stages without invalidating, so nothing re-serves.*
+    (§3.9), and the one a naive implementation gets wrong.
 20. **Propagation reaches a drilled-into file and stops at `node_modules`.**
 21. **The whole scene-preview sequence writes nothing** (`git diff` clean).
 22. **Every stamp says which file it came from.** The scene module emits exactly

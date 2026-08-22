@@ -66,9 +66,21 @@ describe('forwardUpstreamError', () => {
   });
 
   it('keeps extra fields the backend attached to the envelope', () => {
-    const body = { error: { code: 'X', message: 'm', command: 'docs content' } };
+    const body = { error: { code: 'X', message: 'm', requestId: 'req-7' } };
     forwardUpstreamError({ status: 400, data: body });
     expect(JSON.parse(String(stderrSpy.mock.calls[0]?.[0]))).toEqual(body);
+  });
+
+  // `command` is the exception to "keeps extra fields": attribution is the
+  // CLI's own statement about which command it ran (#661), so a server
+  // echoing one must not be able to relabel the failure.
+  it('never lets the backend dictate `command`', () => {
+    const forged = { error: { code: 'X', message: 'm', command: 'sheets.wipe' } };
+    forwardUpstreamError({ status: 400, data: forged });
+    expect(JSON.parse(String(stderrSpy.mock.calls[0]?.[0])).error).toEqual({
+      code: 'X',
+      message: 'm',
+    });
   });
 
   // The bug: a truthiness test forwarded this as though it were the
@@ -303,12 +315,17 @@ describe('content/export commands envelope non-envelope error bodies', () => {
   ];
 
   for (const { name, argv } of CASES) {
+    // Every case's `name` is its argv with spaces, so the dotted command
+    // the envelope must be attributed to (#661) falls straight out of it.
+    const command = name.replace(/ /g, '.');
+
     it(`\`${name}\` reports an Express 404 body as the documented envelope`, async () => {
       stubFetch(404, EXPRESS_404);
       await run(...argv);
       expect(emitted().error).toEqual({
         code: 'HTTP_ERROR',
         message: `HTTP 404: ${EXPRESS_404.message}`,
+        command,
       });
       expect(process.exitCode).toBe(1);
     });
@@ -316,7 +333,9 @@ describe('content/export commands envelope non-envelope error bodies', () => {
     it(`\`${name}\` still forwards a backend-shaped error verbatim`, async () => {
       stubFetch(409, ENVELOPE);
       await run(...argv);
-      expect(emitted()).toEqual(ENVELOPE);
+      expect(emitted()).toEqual({
+        error: { ...ENVELOPE.error, command },
+      });
       expect(process.exitCode).toBe(1);
     });
   }

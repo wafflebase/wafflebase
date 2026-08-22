@@ -1,3 +1,4 @@
+import type { Command } from 'commander';
 import { formatJson } from './json.js';
 import { formatTable } from './table.js';
 import { formatCsv } from './csv.js';
@@ -101,7 +102,48 @@ function errorCode(error: unknown): string {
 }
 
 /**
+ * Dotted name of a command, e.g. `docs.content` or `sheets.cells.get`.
+ *
+ * The chain stops below the root program (`wafflebase`), so the result is
+ * the same string the `schema` command indexes on. Aliases collapse for
+ * free: commander's `name()` returns the canonical name, so
+ * `wafflebase doc content` still reports `docs.content`.
+ */
+export function commandPath(cmd: Command): string {
+  const names: string[] = [];
+  for (let c: Command | null = cmd; c.parent; c = c.parent) {
+    names.unshift(c.name());
+  }
+  return names.join('.');
+}
+
+/**
+ * Render the error envelope as the single line that goes on stderr.
+ *
+ * Exported because `outputError` is not the only emitter: the import /
+ * upload / download orchestrators own their own IO seam and exit code, and
+ * `schema` reports an unknown command without throwing. They all have to
+ * produce the same one-line, `command`-attributed shape (docs/design/cli.md
+ * §9), so the shape is defined once here rather than hand-rolled per file.
+ */
+export function errorEnvelope(
+  code: string,
+  message: string,
+  command?: string,
+): string {
+  return JSON.stringify({
+    error: { code, message, ...(command ? { command } : {}) },
+  });
+}
+
+/**
  * Emit the error envelope on stderr and mark the process as failed.
+ *
+ * A single line, not pretty-printed JSON (docs/design/cli.md §9): one line
+ * per error is what lets a caller read stderr with a line-delimited parser
+ * and tell two errors apart. `command` carries the dotted command name so an
+ * agent driving several calls can attribute the failure; it is omitted rather
+ * than guessed when no command is known.
  *
  * Like `output`, this is not gated by `--quiet`: a non-zero exit with no
  * bytes on either stream tells the caller nothing about what failed or
@@ -113,11 +155,10 @@ function errorCode(error: unknown): string {
  * network/auth/server faults. Agents branch on `$?` without parsing this
  * body, which is the whole point of the contract.
  */
-export function outputError(error: unknown) {
+export function outputError(error: unknown, command?: Command) {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(
-    JSON.stringify({ error: { code: errorCode(error), message } }, null, 2),
-  );
+  const name = command ? commandPath(command) : '';
+  console.error(errorEnvelope(errorCode(error), message, name));
   process.exitCode = exitCodeFor(error);
 }
 
@@ -206,27 +247,41 @@ function upstreamDetail(body: unknown): string | null {
 
 /**
  * The envelope as it is safe to print: the upstream's own `code` and
- * `message`, both bounded, with its sibling fields (`command`, a request
- * id) kept only while the whole body stays small.
+ * `message`, both bounded, with its sibling fields (a request id) kept
+ * only while the whole body stays small.
  *
  * Forwarding is still verbatim in the sense that matters — the `code`
  * agents branch on is the upstream's — but the bytes it can put on stderr
  * are bounded, and an `error.message` holding an HTML page is dropped for
  * the same reason the non-envelope path drops one.
+ *
+ * `command` is the one field never forwarded: attribution is the CLI's
+ * statement about which command *it* ran (docs/design/cli.md §9), so the
+ * upstream's own is dropped and ours written last. A server must not be
+ * able to tell an agent that some other call failed.
  */
 function safeEnvelope(
   body: { error: { code: string; message?: unknown } },
   status: number,
+  command?: string,
 ): unknown {
   const code = body.error.code.slice(0, MAX_UPSTREAM_CODE);
   const error: Record<string, unknown> = { ...body.error, code };
   if ('message' in body.error) {
     error.message = clampUpstreamText(body.error.message) ?? `HTTP ${status}`;
   }
+  delete error.command;
+  if (command) error.command = command;
   const whole = { ...body, error };
   return JSON.stringify(whole).length <= MAX_UPSTREAM_BODY
     ? whole
-    : { error: { code, message: error.message ?? `HTTP ${status}` } };
+    : {
+        error: {
+          code,
+          message: error.message ?? `HTTP ${status}`,
+          ...(command ? { command } : {}),
+        },
+      };
 }
 
 /**
@@ -306,13 +361,28 @@ export class UpstreamHttpError extends Error {
  * own `message` text. Forwarding those verbatim produced valid JSON with
  * `error.code` and `error.message` both `undefined`, which gives a consumer
  * no signal that the shape is wrong.
+ *
+ * `command` is the acting `Command`, exactly as `outputError` takes it —
+ * the two are the same emitter seen from either side of a `throw`, so a
+ * forwarded envelope and a thrown one must carry the same attribution.
  */
-export function forwardUpstreamError(res: {
-  status: number;
-  data: unknown;
-}): void {
+export function forwardUpstreamError(
+  res: {
+    status: number;
+    data: unknown;
+  },
+  command?: Command,
+): void {
   if (isErrorEnvelope(res.data)) {
-    console.error(JSON.stringify(safeEnvelope(res.data, res.status), null, 2));
+    console.error(
+      JSON.stringify(
+        safeEnvelope(
+          res.data,
+          res.status,
+          command ? commandPath(command) : undefined,
+        ),
+      ),
+    );
     // The status still decides the exit class — a 401 `SESSION_EXPIRED`
     // body must not read as a user error just because it is JSON.
     process.exitCode = exitCodeForStatus(res.status);
@@ -333,21 +403,23 @@ export function forwardUpstreamError(res: {
  * skill files already promise (`packages/cli/skills/docs-import-docx.md`),
  * carrying the upstream's own message rather than a framework 404/500 body
  * whose `error.code` reads `undefined`.
+ *
+ * `command` is the already-resolved dotted name, not a `Command`: these
+ * orchestrators are deliberately free of commander so their tests can drive
+ * them directly, and their actions pass `commandPath(this)` in.
  */
-export function upstreamErrorJson(res: {
-  status: number;
-  data?: unknown;
-}): string {
+export function upstreamErrorJson(
+  res: {
+    status: number;
+    data?: unknown;
+  },
+  command?: string,
+): string {
   if (isErrorEnvelope(res.data))
-    return JSON.stringify(safeEnvelope(res.data, res.status), null, 2);
-  return JSON.stringify(
-    {
-      error: {
-        code: upstreamErrorCode(res.status),
-        message: upstreamMessage(res),
-      },
-    },
-    null,
-    2,
+    return JSON.stringify(safeEnvelope(res.data, res.status, command));
+  return errorEnvelope(
+    upstreamErrorCode(res.status),
+    upstreamMessage(res),
+    command,
   );
 }

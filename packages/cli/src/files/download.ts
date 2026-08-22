@@ -6,7 +6,7 @@ import {
 } from '../output/binary.js';
 import type { BinaryResponse } from '../client/http-client.js';
 import { EXIT_SYSTEM_ERROR, exitCodeForStatus } from '../errors.js';
-import { upstreamErrorJson } from '../output/formatter.js';
+import { errorEnvelope, upstreamErrorJson } from '../output/formatter.js';
 
 /**
  * Where the bytes go: the caller's path when given, otherwise the filename the
@@ -55,6 +55,12 @@ export interface RunFilesDownloadArgs {
   out?: string;
   force?: boolean;
   quiet?: boolean;
+  /**
+   * Dotted name of the command driving this run (`files.download`), stamped
+   * into the error envelope so an agent running several calls can tell which
+   * one failed. The action passes `commandPath(this)`.
+   */
+  command?: string;
 }
 
 export interface RunFilesDownloadResult {
@@ -67,11 +73,11 @@ export async function runFilesDownload(
   client: FilesDownloadClient,
   io: BinaryIO = defaultBinaryIO,
 ): Promise<RunFilesDownloadResult> {
-  const { docId, out, force = false, quiet = false } = args;
+  const { docId, out, force = false, quiet = false, command } = args;
 
   const res = await client.downloadFileDocument(docId);
   if (!res.ok) {
-    io.stderr(upstreamErrorJson(res));
+    io.stderr(upstreamErrorJson(res, command));
     return { exitCode: exitCodeForStatus(res.status) };
   }
   // A response that succeeded but carried no body is still a failure, but not
@@ -80,15 +86,10 @@ export async function runFilesDownload(
   // the opposite of what happened. Say what is actually wrong instead.
   if (!res.bytes) {
     io.stderr(
-      JSON.stringify(
-        {
-          error: {
-            code: 'HTTP_ERROR',
-            message: `HTTP ${res.status} carried no file content for document ${docId}`,
-          },
-        },
-        null,
-        2,
+      errorEnvelope(
+        'HTTP_ERROR',
+        `HTTP ${res.status} carried no file content for document ${docId}`,
+        command,
       ),
     );
     // The status decides the exit class: a 404 is the caller's doc id, a

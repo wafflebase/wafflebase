@@ -5,10 +5,13 @@ import { formatTable } from '../src/output/table.js';
 import { formatCsv } from '../src/output/csv.js';
 import { formatYaml } from '../src/output/yaml.js';
 import {
+  commandPath,
+  errorEnvelope,
   format,
   output,
   outputError,
   parseOutputFormat,
+  upstreamErrorJson,
   InvalidFormatError,
   type OutputFormat,
 } from '../src/output/formatter.js';
@@ -18,6 +21,7 @@ import { buildProgram, runCli } from '../src/cli.js';
 import { createProgram } from '../src/commands/root.js';
 import { registerDocsCommand } from '../src/commands/docs.js';
 import { registerSheetsCommand } from '../src/commands/sheets.js';
+import { registerSchemaCommand } from '../src/commands/schema.js';
 
 describe('formatJson', () => {
   it('pretty-prints JSON', () => {
@@ -250,10 +254,17 @@ describe('outputError', () => {
     process.exitCode = originalExitCode;
   });
 
-  function getEmittedBody(): { error: { code: string; message: string } } {
+  function getEmittedBody(): {
+    error: { code: string; message: string; command?: string };
+  } {
     expect(stderrSpy).toHaveBeenCalledOnce();
     const raw = String(stderrSpy.mock.calls[0]?.[0]);
-    return JSON.parse(raw) as { error: { code: string; message: string } };
+    // The documented envelope is one line on stderr, so a caller can read it
+    // with a line-delimited parser and tell two errors apart (#661).
+    expect(raw).not.toContain('\n');
+    return JSON.parse(raw) as {
+      error: { code: string; message: string; command?: string };
+    };
   }
 
   it('defaults to code:"ERROR" for plain Error instances', () => {
@@ -284,6 +295,38 @@ describe('outputError', () => {
     expect(process.exitCode).toBe(1);
   });
 
+  it('omits `command` when no command is known', () => {
+    outputError(new Error('boom'));
+    expect(getEmittedBody().error).not.toHaveProperty('command');
+  });
+
+  it('reports the dotted command name of a nested command', () => {
+    const program = createProgram();
+    const nested = program.command('sheets').command('cells').command('get');
+    outputError(new Error('boom'), nested);
+    expect(getEmittedBody().error.command).toBe('sheets.cells.get');
+  });
+
+  // Reaching the command *through* the alias is the point: commander hands
+  // the action the same `Command` object either way, so a test that calls
+  // `outputError` with the canonical object asserts nothing about aliases.
+  // This one parses `doc content` — the alias — and reads what the action
+  // actually emitted.
+  it('reports the canonical name when the command was reached by alias', async () => {
+    const program = createProgram();
+    program
+      .command('docs')
+      .alias('doc')
+      .command('content')
+      .action(function (this: Command) {
+        outputError(new Error('boom'), this);
+      });
+
+    await program.parseAsync(['node', 'wafflebase', 'doc', 'content']);
+
+    expect(getEmittedBody().error.command).toBe('docs.content');
+  });
+
   it('exits 2 for a system error', () => {
     outputError(new SystemError('NETWORK_ERROR', 'fetch failed'));
     const body = getEmittedBody();
@@ -301,6 +344,141 @@ describe('outputError', () => {
     outputError(httpError(404));
     expect(getEmittedBody().error.code).toBe('ERROR');
     expect(process.exitCode).toBe(1);
+  });
+});
+
+// #661: `outputError` is not the only emitter. The import / upload /
+// download orchestrators own their own IO seam and exit code, and `schema`
+// reports a miss without throwing — they all have to produce the same
+// one-line, attributed envelope, so they share these builders.
+describe('errorEnvelope', () => {
+  it('emits one line carrying the command', () => {
+    const line = errorEnvelope('CONFIRMATION_REQ', 'Pass --yes.', 'docs.import');
+    expect(line).not.toContain('\n');
+    expect(JSON.parse(line)).toEqual({
+      error: {
+        code: 'CONFIRMATION_REQ',
+        message: 'Pass --yes.',
+        command: 'docs.import',
+      },
+    });
+  });
+
+  it('omits `command` when the caller has none', () => {
+    expect(JSON.parse(errorEnvelope('ERROR', 'boom')).error).not.toHaveProperty(
+      'command',
+    );
+  });
+});
+
+// The orchestrators' shared emitter. It answers the same question
+// `forwardUpstreamError` does for the throwing commands, so the two must
+// agree line for line — attribution included.
+describe('upstreamErrorJson', () => {
+  it('keeps a backend `code` and extra context so agents can branch on it', () => {
+    const line = upstreamErrorJson(
+      {
+        status: 400,
+        data: {
+          error: { code: 'TYPE_MISMATCH', message: 'not a doc', type: 'sheet' },
+        },
+      },
+      'docs.content',
+    );
+    expect(line).not.toContain('\n');
+    expect(JSON.parse(line)).toEqual({
+      error: {
+        code: 'TYPE_MISMATCH',
+        message: 'not a doc',
+        type: 'sheet',
+        command: 'docs.content',
+      },
+    });
+  });
+
+  it('falls back to a status-derived code for a bodyless failure', () => {
+    expect(JSON.parse(upstreamErrorJson({ status: 500, data: null }))).toEqual({
+      error: { code: 'SERVER_ERROR', message: 'HTTP 500' },
+    });
+  });
+
+  // The backend has no global exception filter, so most failures arrive in
+  // Nest's default shape — the reason at the top level, `error` a bare
+  // reason phrase. These paths used to print the body verbatim, so dropping
+  // the top-level `message` would silently lose the server's text.
+  it("keeps the server's message from Nest's default error shape", () => {
+    expect(
+      JSON.parse(
+        upstreamErrorJson(
+          {
+            status: 404,
+            data: {
+              statusCode: 404,
+              message: 'Document not found',
+              error: 'Not Found',
+            },
+          },
+          'docs.content',
+        ),
+      ),
+    ).toEqual({
+      error: {
+        code: 'HTTP_ERROR',
+        message: 'HTTP 404: Document not found',
+        command: 'docs.content',
+      },
+    });
+  });
+
+  it('joins a validation `message` array instead of dropping it', () => {
+    expect(
+      JSON.parse(
+        upstreamErrorJson({
+          status: 400,
+          data: {
+            statusCode: 400,
+            message: ['title must be a string', 'title should not be empty'],
+            error: 'Bad Request',
+          },
+        }),
+      ).error.message,
+    ).toBe('HTTP 400: title must be a string; title should not be empty');
+  });
+
+  // A rejected credential reads the same here as it does from `httpError()`:
+  // the message an agent sees must not depend on which throw site reported it.
+  it('names an auth failure a 403 body left unexplained', () => {
+    expect(
+      JSON.parse(
+        upstreamErrorJson({ status: 403, data: { statusCode: 403 } }),
+      ).error,
+    ).toEqual({
+      code: 'AUTH_ERROR',
+      message: 'Authentication failed. Run `wafflebase login`.',
+    });
+  });
+
+  // Attribution is the CLI's own statement about which command it ran. A
+  // server that echoes a `command` must not be able to relabel the failure.
+  it('never lets the server dictate `command`', () => {
+    const forged = {
+      status: 400,
+      data: { error: { code: 'X', message: 'y', command: 'sheets.wipe' } },
+    };
+    expect(JSON.parse(upstreamErrorJson(forged, 'docs.content')).error.command).toBe(
+      'docs.content',
+    );
+    expect(JSON.parse(upstreamErrorJson(forged)).error).not.toHaveProperty(
+      'command',
+    );
+  });
+});
+
+describe('commandPath', () => {
+  it('excludes the root program', () => {
+    const program = createProgram();
+    expect(commandPath(program.command('status'))).toBe('status');
+    expect(commandPath(program)).toBe('');
   });
 });
 
@@ -432,11 +610,27 @@ describe('--quiet does not suppress the body or the error envelope', () => {
     await run('docs', 'get', 'doc-1', '--quiet');
     expect(stdoutSpy).not.toHaveBeenCalled();
     expect(stderrSpy).toHaveBeenCalledOnce();
-    const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
-      error: { code: string; message: string };
+    const raw = String(stderrSpy.mock.calls[0]?.[0]);
+    expect(raw).not.toContain('\n');
+    const body = JSON.parse(raw) as {
+      error: { code: string; message: string; command?: string };
     };
-    expect(body.error).toEqual({ code: 'SERVER_ERROR', message: 'HTTP 500' });
+    expect(body.error).toEqual({
+      code: 'SERVER_ERROR',
+      message: 'HTTP 500',
+      command: 'docs.get',
+    });
     expect(process.exitCode).toBe(2);
+  });
+
+  // #661: an agent driving several calls needs to know *which* one failed.
+  it('attributes the envelope to the command that emitted it', async () => {
+    stubFetch(500, null);
+    await run('sheets', 'cells', 'get', 'doc-1', 'A1');
+    const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
+      error: { command?: string };
+    };
+    expect(body.error.command).toBe('sheets.cells.get');
   });
 
   // `sheets cells batch` parses its input before it talks to the server; that
@@ -452,6 +646,95 @@ describe('--quiet does not suppress the body or the error envelope', () => {
       error: { code: string; message: string };
     };
     expect(body.error.code).toBe('ERROR');
+    expect(process.exitCode).toBe(1);
+  });
+});
+
+// End-to-end guards for the emitters that never reach `outputError`: the
+// backend-error passthrough (`docs content` on a non-doc) and `schema`'s
+// lookup miss. Both used to print pretty-printed, unattributed JSON, which
+// broke a line-delimited stderr reader (#661).
+describe('error envelopes emitted outside `outputError`', () => {
+  const ENV_KEYS = [
+    'WAFFLEBASE_CONFIG',
+    'WAFFLEBASE_API_KEY',
+    'WAFFLEBASE_SERVER',
+    'WAFFLEBASE_WORKSPACE',
+  ] as const;
+
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  let savedEnv: Record<string, string | undefined>;
+  const originalExitCode = process.exitCode;
+
+  beforeEach(() => {
+    savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+    process.env.WAFFLEBASE_CONFIG = '/nonexistent/wafflebase-test.yaml';
+    process.env.WAFFLEBASE_API_KEY = 'wfb_test';
+    process.env.WAFFLEBASE_SERVER = 'https://api.test';
+    process.env.WAFFLEBASE_WORKSPACE = 'ws-1';
+    stderrSpy = vi.spyOn(console, 'error').mockImplementation(() => {
+      /* swallow */
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => {
+      /* swallow */
+    });
+    process.exitCode = 0;
+  });
+
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    process.exitCode = originalExitCode;
+  });
+
+  function emitted(): { code: string; message: string; command?: string } {
+    expect(stderrSpy).toHaveBeenCalledOnce();
+    const raw = String(stderrSpy.mock.calls[0]?.[0]);
+    expect(raw).not.toContain('\n');
+    return (
+      JSON.parse(raw) as {
+        error: { code: string; message: string; command?: string };
+      }
+    ).error;
+  }
+
+  it('re-emits a backend-shaped error as one attributed line', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: { code: 'TYPE_MISMATCH', message: 'Not a doc document' },
+        }),
+      }),
+    );
+    const program = createProgram();
+    registerDocsCommand(program);
+    await program.parseAsync(['node', 'wafflebase', 'docs', 'content', 'd-1']);
+
+    expect(emitted()).toEqual({
+      code: 'TYPE_MISMATCH',
+      message: 'Not a doc document',
+      command: 'docs.content',
+    });
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('envelopes an unknown `schema` name', async () => {
+    const program = createProgram();
+    registerSchemaCommand(program);
+    await program.parseAsync(['node', 'wafflebase', 'schema', 'bogus.thing']);
+
+    expect(emitted()).toEqual({
+      code: 'NOT_FOUND',
+      message: 'Unknown command: bogus.thing',
+      command: 'schema',
+    });
     expect(process.exitCode).toBe(1);
   });
 });
@@ -506,9 +789,15 @@ describe('runCli entrypoint', () => {
 
     expect(stderrSpy).toHaveBeenCalledOnce();
     const body = JSON.parse(String(stderrSpy.mock.calls[0]?.[0])) as {
-      error: { code: string; message: string };
+      error: { code: string; message: string; command?: string };
     };
-    expect(body.error).toEqual({ code: 'LATE_FAILURE', message: 'kaboom' });
+    // The command name comes from the `preAction` hook: the root program
+    // alone cannot say which subcommand was running when the throw escaped.
+    expect(body.error).toEqual({
+      code: 'LATE_FAILURE',
+      message: 'kaboom',
+      command: 'boom',
+    });
     expect(process.exitCode).toBe(1);
   });
 

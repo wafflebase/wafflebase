@@ -44,10 +44,10 @@ export function registerCellsCommand(parent: Command) {
           : range
             ? await getClient(opts).getCell(docId, tab, range)
             : await getClient(opts).getCells(docId, tab);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -85,10 +85,10 @@ export function registerCellsCommand(parent: Command) {
           formula ? undefined : value,
           formula ? value : undefined,
         );
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -112,10 +112,10 @@ export function registerCellsCommand(parent: Command) {
       try {
         const fmt = parseOutputFormat(opts.format);
         const res = await getClient(opts).deleteCell(docId, tab, ref);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 
@@ -157,6 +157,7 @@ export function registerCellsCommand(parent: Command) {
               e instanceof Error ? e.message : String(e)
             }`,
           ),
+          this,
         );
         return;
       }
@@ -182,10 +183,10 @@ export function registerCellsCommand(parent: Command) {
           tab,
           cells as Record<string, { value?: string; formula?: string } | null>,
         );
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         output(res.data, fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

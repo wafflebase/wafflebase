@@ -66,7 +66,7 @@ export function registerSheetsExportCommand(parent: Command) {
         // Forwards a backend envelope verbatim rather than lifting its
         // `message` out and dropping the `code` — the code is the part an
         // agent branches on.
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
 
         const fmt = detectFormat(file, localOpts.fileFormat);
         // This writes the one CSV a user is most likely to open in a
@@ -92,7 +92,7 @@ export function registerSheetsExportCommand(parent: Command) {
           }
         }
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

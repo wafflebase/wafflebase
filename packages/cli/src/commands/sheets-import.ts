@@ -121,13 +121,13 @@ export function registerSheetsImportCommand(parent: Command) {
         }
 
         const res = await getClient(opts).batchCells(docId, localOpts.tab, cells);
-        if (!res.ok) return forwardUpstreamError(res);
+        if (!res.ok) return forwardUpstreamError(res, this);
         const result = typeof res.data === 'object' && res.data !== null
           ? { imported: cellCount, mode, ...res.data as Record<string, unknown> }
           : { imported: cellCount, mode };
         output(result, outFmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

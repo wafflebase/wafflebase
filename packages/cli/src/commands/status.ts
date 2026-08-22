@@ -66,7 +66,7 @@ export function registerStatusCommand(program: Command): void {
         // state?", so this stays exit 0 — agents branch on `loggedIn`.
         output(buildStatus(loadSession()), fmt);
       } catch (e) {
-        outputError(e);
+        outputError(e, this);
       }
     });
 }

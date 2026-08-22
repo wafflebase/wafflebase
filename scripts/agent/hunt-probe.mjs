@@ -91,8 +91,9 @@ export function renderReproSh(probes, { bin = "wafflebase", extra = [] } = {}) {
  * route that silently drops.
  *
  * The CLI turns this into its documented error envelope
- * (`{"error":{"code":"ERROR","message":"fetch failed"}}`), so a backend-free
- * charter still observes well-formed behaviour rather than a crash.
+ * (`{"error":{"code":"ERROR","message":"fetch failed","command":"docs.get"}}`),
+ * so a backend-free charter still observes well-formed behaviour rather than a
+ * crash.
  */
 export const NO_SERVER = "http://127.0.0.1:1";
 

@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { buildWorkspaceList, findWorkspace } from '../src/commands/ctx.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { Command } from 'commander';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { rmSync, writeFileSync } from 'node:fs';
+import {
+  buildWorkspaceList,
+  findWorkspace,
+  registerCtxCommand,
+} from '../src/commands/ctx.js';
 import { format } from '../src/output/formatter.js';
 import type { WorkspaceInfo } from '../src/config/session.js';
 
@@ -80,5 +88,94 @@ describe('findWorkspace', () => {
     ];
     const ws = findWorkspace(ambiguous, 'aabbccdd');
     expect(ws).toBeUndefined();
+  });
+});
+
+// `ctx switch` used to print prose here. It is on the session path an agent
+// walks before anything else, so its failures carry the same one-line,
+// `command`-attributed envelope as the data commands (docs/design/cli.md §9).
+describe('ctx switch failures', () => {
+  const sessionPath = join(tmpdir(), `wb-ctx-test-${process.pid}.json`);
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.WAFFLEBASE_SESSION;
+    process.exitCode = undefined;
+    rmSync(sessionPath, { force: true });
+  });
+
+  /**
+   * Run `ctx switch <query>` to completion, returning stderr.
+   *
+   * To *completion* — never through `process.exit()`. `process.exit` does
+   * not flush a stderr write that is still buffered, and stderr is
+   * buffered whenever it is a pipe rather than a TTY, which is how an
+   * agent runs this. A truncated envelope is worse than none, since it is
+   * what the agent then tries to `JSON.parse`. So the failure has to go
+   * out through `outputError`, which sets `process.exitCode` and lets the
+   * process end on its own once the line is written.
+   */
+  async function runSwitch(query: string): Promise<string[]> {
+    const errs: string[] = [];
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      errs.push(args.map(String).join(' '));
+    });
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('process.exit');
+    }) as never);
+
+    const program = new Command();
+    program.name('wafflebase').exitOverride();
+    registerCtxCommand(program);
+
+    await program.parseAsync(['ctx', 'switch', query], { from: 'user' });
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    return errs;
+  }
+
+  // Same code `ctx list` reports for the same condition — the matrix has
+  // no `UNAUTHORIZED` (docs/design/cli.md §10), and the code an agent
+  // branches on must not depend on which `ctx` subcommand it ran.
+  it('reports a missing session as a NOT_LOGGED_IN envelope', async () => {
+    process.env.WAFFLEBASE_SESSION = sessionPath;
+
+    const errs = await runSwitch('anything');
+
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).not.toContain('\n');
+    expect(JSON.parse(errs[0])).toEqual({
+      error: {
+        code: 'NOT_LOGGED_IN',
+        message: 'Not logged in. Run `wafflebase login`.',
+        command: 'ctx.switch',
+      },
+    });
+  });
+
+  it('reports an unknown workspace as a NOT_FOUND envelope', async () => {
+    process.env.WAFFLEBASE_SESSION = sessionPath;
+    writeFileSync(
+      sessionPath,
+      JSON.stringify({
+        server: 'http://localhost:3000',
+        user: { id: 1, username: 'bob', email: 'b@e.com', photo: null },
+        accessToken: 'at',
+        refreshToken: 'rt',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+        activeWorkspace: workspaces[0].id,
+        workspaces,
+      }),
+    );
+
+    const errs = await runSwitch('nope');
+
+    expect(JSON.parse(errs[0])).toEqual({
+      error: {
+        code: 'NOT_FOUND',
+        message: 'Workspace not found: nope',
+        command: 'ctx.switch',
+      },
+    });
   });
 });

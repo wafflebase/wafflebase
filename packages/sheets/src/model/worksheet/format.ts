@@ -1,4 +1,4 @@
-import { NumberFormat } from '../core/types';
+import { CellStyle, NumberFormat } from '../core/types';
 import { resolveCurrencyForLocale, resolveSystemLocale } from '../core/locale';
 
 export type FormatValueOptions = {
@@ -6,6 +6,37 @@ export type FormatValueOptions = {
   currency?: string;
 };
 
+/**
+ * `MAX_DECIMAL_PLACES` is the largest fraction-digit count `Intl.NumberFormat`
+ * accepts everywhere. Anything above it is a `RangeError`, so a `dp` that
+ * reaches formatting is clamped to it rather than thrown on.
+ */
+export const MAX_DECIMAL_PLACES = 20;
+
+/**
+ * `clampDecimals` maps an arbitrary stored `dp` onto a fraction-digit count
+ * `Intl` accepts. A `dp` can come from anywhere a style can — an imported
+ * `.xlsx`, a collaborator's document — so it is never trusted to be a small
+ * non-negative integer.
+ */
+export function clampDecimals(
+  dp: number | undefined,
+  fallback: number,
+): number {
+  if (dp === undefined || !Number.isFinite(dp)) {
+    return fallback;
+  }
+  return Math.min(Math.max(Math.trunc(dp), 0), MAX_DECIMAL_PLACES);
+}
+
+/**
+ * `safeFormat` renders a number without ever throwing. Every argument error
+ * `Intl` raises here — an unsupported locale, an out-of-range fraction-digit
+ * count, a currency code that is not well formed — would otherwise escape
+ * `formatValue` on a paint and take the whole grid down, and the offending
+ * value is stored in a shared document, so the failure would repeat on every
+ * render for everyone. Each fallback drops one more piece of the request.
+ */
 function safeFormat(
   value: number,
   locale: string,
@@ -14,7 +45,17 @@ function safeFormat(
   try {
     return value.toLocaleString(locale, options);
   } catch {
+    // Fall through: the locale may be the problem.
+  }
+  try {
     return value.toLocaleString('en-US', options);
+  } catch {
+    // Fall through: the options are the problem, not the locale.
+  }
+  try {
+    return value.toLocaleString('en-US');
+  } catch {
+    return String(value);
   }
 }
 
@@ -86,6 +127,71 @@ function safeFormatDate(value: string, _locale: string): string {
 }
 
 /**
+ * `decimalsInValue` returns how many decimal places a stored value string shows
+ * on its own: `2` for `12.34`, `0` for `12`, an empty cell, or text.
+ */
+export function decimalsInValue(value?: string): number {
+  if (!value) {
+    return 0;
+  }
+  const dotIndex = value.indexOf('.');
+  return dotIndex >= 0 ? value.length - dotIndex - 1 : 0;
+}
+
+/**
+ * `currencyDecimals` returns how many fraction digits a currency renders with
+ * when nothing overrides it. It is the currency's own convention, not a flat 2:
+ * `KRW` and `JPY` show none, `KWD` shows three. `formatValue` leaves the
+ * fraction-digit options off entirely for a `dp`-less currency precisely so
+ * `Intl` applies that convention, so anything reporting what such a cell shows
+ * has to ask `Intl` the same question.
+ */
+function currencyDecimals(locale: string, currency: string): number {
+  try {
+    const resolved = new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency,
+    }).resolvedOptions();
+    return resolved.maximumFractionDigits ?? 2;
+  } catch {
+    // A locale or currency `Intl` rejects renders through `safeFormat`'s
+    // fallbacks, which end at the plain-number default of 2.
+    return 2;
+  }
+}
+
+/**
+ * `renderedDecimals` returns how many decimal places a value actually shows
+ * once its effective style is applied — which is not the same as what the raw
+ * value holds. A cell storing `12` under `nf: 'number'` displays `12.00`, and a
+ * caller asking "does this still have a decimal to drop?" has to see those two
+ * digits.
+ *
+ * Formats that pass the value through untouched (`plain`, `date`, none) report
+ * the value's own precision. The numeric formats report their stored `dp`; with
+ * none stored, `number`/`percent` render 2 digits and a `currency` renders its
+ * own convention — which is what `formatValue` does for the same input.
+ */
+export function renderedDecimals(
+  value: string,
+  style: CellStyle | undefined,
+  options?: FormatValueOptions,
+): number {
+  const nf = style?.nf;
+  if (!nf || nf === 'plain' || nf === 'date') {
+    return decimalsInValue(value);
+  }
+  if (nf === 'currency' && style?.dp === undefined) {
+    const locale = options?.locale ?? resolveSystemLocale();
+    return currencyDecimals(
+      locale,
+      options?.currency ?? resolveCurrencyForLocale(locale),
+    );
+  }
+  return clampDecimals(style?.dp, 2);
+}
+
+/**
  * `formatValue` converts a raw value to a display string based on the number format.
  * Returns the original value for non-numeric inputs or 'plain'/undefined format.
  * @param dp decimal places override (undefined uses format default of 2)
@@ -104,7 +210,7 @@ export function formatValue(
     return value;
   }
 
-  const decimals = dp ?? 2;
+  const decimals = clampDecimals(dp, 2);
   const locale = options?.locale ?? resolveSystemLocale();
   const currency = options?.currency ?? resolveCurrencyForLocale(locale);
 

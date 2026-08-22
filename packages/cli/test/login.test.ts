@@ -12,6 +12,9 @@ import {
   startCallbackServer,
   type LoginDeps,
 } from '../src/commands/login.js';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Session } from '../src/config/session.js';
 import {
   EXIT_SYSTEM_ERROR,
@@ -461,6 +464,19 @@ describe('startCallbackServer', () => {
 });
 
 describe('runLogin', () => {
+  /** Stand-in for the loopback launch token `armLaunch` mints. */
+  const LAUNCH_TOKEN = 'launch-token';
+  /**
+   * `announceLoginUrl` writes the URL beside the config file when stderr
+   * is not a terminal, which it is not under vitest. Point the config at a
+   * scratch directory so the suite never touches the developer's own
+   * `~/.wafflebase`.
+   */
+  const configPath = join(
+    mkdtempSync(join(tmpdir(), 'wb-runlogin-')),
+    'config.yaml',
+  );
+
   /**
    * Drive the whole login flow with the browser, the callback listener,
    * the session file and the three HTTP calls stubbed at their real
@@ -469,12 +485,14 @@ describe('runLogin', () => {
    */
   async function login(options: Parameters<typeof runLogin>[0]): Promise<{
     oauthUrl: string;
+    browserUrl: string;
     listenerNonce: string;
     listenerOptions: { allowUnbound?: boolean } | undefined;
     exchangedVerifier: string;
     saved: Session | null;
   }> {
     let oauthUrl = '';
+    let browserUrl = '';
     let listenerNonce = '';
     let listenerOptions: { allowUnbound?: boolean } | undefined;
     let exchangedVerifier = '';
@@ -492,6 +510,15 @@ describe('runLogin', () => {
           port: 4321,
           waitForCallback: async () => 'code-1',
           close: () => {},
+          // The authorization URL is parked behind a loopback redirect
+          // rather than handed to the opener, so the secrets it carries
+          // never reach a child process's argv. Record what was parked
+          // (the assertions below are about that URL) and hand back the
+          // stand-in the browser actually receives.
+          armLaunch: (authorizationUrl) => {
+            oauthUrl = authorizationUrl;
+            return `http://127.0.0.1:4321/launch/${LAUNCH_TOKEN}`;
+          },
         };
       },
       fetchLoginSession: async (_server, _code, verifier) => {
@@ -499,21 +526,49 @@ describe('runLogin', () => {
         return { tokens: TOKENS, user: USER, workspaces: WORKSPACES };
       },
       openBrowser: async (url) => {
-        oauthUrl = url;
+        browserUrl = url;
       },
     };
 
     await runLogin(options, deps);
-    return { oauthUrl, listenerNonce, listenerOptions, exchangedVerifier, saved };
+    return {
+      oauthUrl,
+      browserUrl,
+      listenerNonce,
+      listenerOptions,
+      exchangedVerifier,
+      saved,
+    };
   }
 
+  let savedConfigEnv: string | undefined;
+
   beforeEach(() => {
+    savedConfigEnv = process.env.WAFFLEBASE_CONFIG;
+    process.env.WAFFLEBASE_CONFIG = configPath;
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   afterEach(() => {
+    if (savedConfigEnv === undefined) delete process.env.WAFFLEBASE_CONFIG;
+    else process.env.WAFFLEBASE_CONFIG = savedConfigEnv;
     vi.restoreAllMocks();
+  });
+
+  // Opening a URL spawns a child process with that URL in its argv, which
+  // any local user can read. The authorization URL carries both bindings
+  // this login rests on, so what the opener gets is the loopback stand-in.
+  it('hands the browser the launch URL, never the login secrets', async () => {
+    const { browserUrl, oauthUrl } = await login({
+      server: 'https://api.example/',
+    });
+
+    expect(browserUrl).toBe(`http://127.0.0.1:4321/launch/${LAUNCH_TOKEN}`);
+    expect(browserUrl).not.toContain('nonce=');
+    expect(browserUrl).not.toContain('challenge=');
+    // The parked URL is the real one — the indirection must not lose it.
+    expect(oauthUrl).toContain('nonce=');
   });
 
   it('sends the listener’s own nonce in the OAuth URL', async () => {

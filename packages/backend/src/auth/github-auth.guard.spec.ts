@@ -1,6 +1,9 @@
-import { CanActivate, ExecutionContext } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Logger } from '@nestjs/common';
 import {
+  cliLoginAvailable,
   GitHubAuthGuard,
+  insecureProductionOrigin,
+  loopbackCallback,
   parseCliChallenge,
   parseCliNonce,
   parseFetchSite,
@@ -65,12 +68,38 @@ describe('GitHubAuthGuard.canActivate', () => {
   ) as CanActivate;
   let superSpy: jest.SpyInstance;
 
+  // Every CLI branch below now runs through `cliLoginAvailable()`, which
+  // reads these. Pinning them keeps the suite from being decided by a
+  // developer's own `packages/backend/.env` (or by a case above leaking
+  // one), which would pass in CI and fail on their machine.
+  const originalEnv = {
+    NODE_ENV: process.env.NODE_ENV,
+    GITHUB_CALLBACK_URL: process.env.GITHUB_CALLBACK_URL,
+    COOKIE_SECURE: process.env.COOKIE_SECURE,
+  };
+
+  function restoreEnv() {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+
   beforeEach(() => {
     createState.mockClear();
+    // A CLI login is available only on an origin whose consent cookie can be
+    // trusted, so the cases below that expect one to start need an origin
+    // saying so. Loopback is that origin, and it is the one every developer
+    // actually runs the flow on.
+    process.env.GITHUB_CALLBACK_URL = 'http://localhost:3000/auth/github/callback';
+    delete process.env.COOKIE_SECURE;
     superSpy = jest.spyOn(passportProto, 'canActivate').mockReturnValue(true);
   });
 
-  afterEach(() => superSpy.mockRestore());
+  afterEach(() => {
+    superSpy.mockRestore();
+    restoreEnv();
+  });
 
   function activate(
     query: Record<string, unknown>,
@@ -277,6 +306,278 @@ describe('GitHubAuthGuard.canActivate', () => {
         ),
       ).toThrow(/Start the login from Wafflebase/);
     });
+  });
+
+  /**
+   * A CLI login's only defence against a page navigating a victim into it
+   * is the consent click, and that click is proven by a cookie. Where the
+   * cookie cannot be `Secure` (a cleartext non-loopback origin) anything on
+   * the path or on a sibling subdomain can plant it, so the login is refused
+   * rather than gated by a page that proves nothing.
+   *
+   * `COOKIE_SECURE` decides this now, in both directions — it is read ahead
+   * of the callback URL's scheme — so both of its answers are pinned here:
+   * without them, the gate could be wired to `NODE_ENV`, or to the callback
+   * URL alone, and every other test in the file would still pass.
+   */
+  describe('CLI login availability', () => {
+    it('refuses a CLI login on a plain-http non-loopback origin', () => {
+      process.env.GITHUB_CALLBACK_URL =
+        'http://wafflebase.example.com/auth/github/callback';
+
+      expect(() => activate({ mode: 'cli', port: '49152' })).toThrow(
+        /Command-line sign-in requires an https server/,
+      );
+      expect(createState).not.toHaveBeenCalled();
+    });
+
+    it('starts one on that origin when COOKIE_SECURE says it is https', () => {
+      process.env.GITHUB_CALLBACK_URL =
+        'http://wafflebase.internal:3000/auth/github/callback';
+      process.env.COOKIE_SECURE = 'true';
+
+      const { result } = activate({ mode: 'cli', port: '49152' });
+
+      expect(result).toBe(true);
+      expect(createState).toHaveBeenCalled();
+    });
+
+    /**
+     * The install that configures no callback URL at all is a *working*
+     * deployment — `github.strategy.ts` passes `callbackURL: undefined` and
+     * GitHub uses the URL registered on the OAuth app — so this process
+     * cannot see its scheme. Exempting it turned the gate off on exactly the
+     * cleartext origin it exists for, where the consent cookie is neither
+     * `Secure` nor `__Host-` and whoever plants it can compute the matching
+     * `?confirm=` from it.
+     */
+    it('refuses one when no callback URL says the origin is secure', () => {
+      delete process.env.GITHUB_CALLBACK_URL;
+
+      expect(() => activate({ mode: 'cli', port: '49152' })).toThrow(
+        /Command-line sign-in requires an https server/,
+      );
+      expect(createState).not.toHaveBeenCalled();
+    });
+
+    it('refuses one on an https origin when COOKIE_SECURE=false', () => {
+      process.env.GITHUB_CALLBACK_URL =
+        'https://wafflebase.example.com/auth/github/callback';
+      process.env.COOKIE_SECURE = 'false';
+
+      expect(() => activate({ mode: 'cli', port: '49152' })).toThrow(
+        /Command-line sign-in requires an https server/,
+      );
+    });
+
+    it('starts one against an https callback URL', () => {
+      process.env.GITHUB_CALLBACK_URL =
+        'https://wafflebase.example.com/auth/github/callback';
+
+      expect(activate({ mode: 'cli', port: '49152' }).result).toBe(true);
+      expect(createState).toHaveBeenCalled();
+    });
+
+    it.each([
+      'http://localhost:3000/auth/github/callback',
+      'http://127.0.0.1:3000/auth/github/callback',
+      'http://[::1]:3000/auth/github/callback',
+    ])('starts one against the loopback callback %s', (url) => {
+      // Loopback is a secure context in the browser, and it is how the
+      // whole flow is developed — refusing it would refuse `wafflebase
+      // login` on the only origin that exercises it end to end.
+      process.env.GITHUB_CALLBACK_URL = url;
+
+      expect(activate({ mode: 'cli', port: '49152' }).result).toBe(true);
+      expect(createState).toHaveBeenCalled();
+    });
+
+    /**
+     * The browser login has to survive the refusal: its state is a
+     * double-submit pair on the backend's own origin, and refusing it would
+     * leave a cleartext deployment with no way in at all.
+     */
+    it('still serves a browser login there', () => {
+      process.env.GITHUB_CALLBACK_URL =
+        'http://wafflebase.example.com/auth/github/callback';
+
+      const { req, result } = activate({}, {});
+
+      expect(result).toBe(true);
+      expect(req.__oauthState).toMatch(/^web\./);
+    });
+  });
+
+  /**
+   * The downgrade the docs promise a warning for: `NODE_ENV=production` with
+   * session cookies going out in the clear. It is logged at the first login,
+   * once per process.
+   */
+  describe('insecure production origin warning', () => {
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => warn.mockRestore());
+
+    it('warns once on a production non-loopback http origin', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.GITHUB_CALLBACK_URL =
+        'http://wafflebase.example.com/auth/github/callback';
+
+      const guard = new GitHubAuthGuard(store);
+      const context = {
+        switchToHttp: () => ({
+          getRequest: () => ({ query: {} }),
+          getResponse: () => ({ cookie: jest.fn() }),
+        }),
+      } as unknown as ExecutionContext;
+
+      guard.canActivate(context);
+      guard.canActivate(context);
+
+      const downgrades = warn.mock.calls.filter(([message]) =>
+        String(message).includes('without `Secure`'),
+      );
+      expect(downgrades).toHaveLength(1);
+    });
+
+    /**
+     * `COOKIE_SECURE=false` states the origin's scheme; it does not make
+     * cleartext session cookies in production any less of a finding, so it
+     * must not silence the warning.
+     */
+    it('warns even when COOKIE_SECURE=false said so explicitly', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.GITHUB_CALLBACK_URL =
+        'https://wafflebase.example.com/auth/github/callback';
+      process.env.COOKIE_SECURE = 'false';
+
+      activate({}, {});
+
+      expect(
+        warn.mock.calls.some(([message]) =>
+          String(message).includes('without `Secure`'),
+        ),
+      ).toBe(true);
+    });
+
+    it('stays quiet on an https origin and on loopback', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.GITHUB_CALLBACK_URL =
+        'https://wafflebase.example.com/auth/github/callback';
+      activate({}, {});
+
+      process.env.GITHUB_CALLBACK_URL =
+        'http://localhost:3000/auth/github/callback';
+      activate({}, {});
+
+      expect(
+        warn.mock.calls.some(([message]) =>
+          String(message).includes('without `Secure`'),
+        ),
+      ).toBe(false);
+    });
+  });
+});
+
+describe('cliLoginAvailable', () => {
+  const originalEnv = {
+    NODE_ENV: process.env.NODE_ENV,
+    GITHUB_CALLBACK_URL: process.env.GITHUB_CALLBACK_URL,
+    COOKIE_SECURE: process.env.COOKIE_SECURE,
+  };
+
+  beforeEach(() => {
+    delete process.env.GITHUB_CALLBACK_URL;
+    delete process.env.COOKIE_SECURE;
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  /**
+   * The gate needs positive evidence that the consent cookie can be
+   * *trusted*, not evidence that it cannot. An absent callback URL is not
+   * "no deployment" — passport passes `callbackURL: undefined` and GitHub
+   * uses the OAuth app's registered URL — so it is an origin whose scheme
+   * this process simply cannot see, and reading it as safe is what left the
+   * refusal bypassed on the cleartext deployment it was written for.
+   */
+  it('refuses when no callback URL is configured', () => {
+    process.env.NODE_ENV = 'development';
+
+    expect(cliLoginAvailable()).toBe(false);
+  });
+
+  /**
+   * ...with one exception that is not an exemption: `NODE_ENV=production`
+   * with no callback URL already makes every login cookie `Secure`
+   * (`useSecureCookies()`), so the consent cookie really is host-bound. If
+   * that origin turns out to be cleartext the browser drops the cookie and
+   * the gate fails closed, never open.
+   */
+  it('allows the production install whose cookies are already Secure', () => {
+    process.env.NODE_ENV = 'production';
+
+    expect(cliLoginAvailable()).toBe(true);
+  });
+
+  it('reads a malformed callback URL as no evidence of a secure origin', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.GITHUB_CALLBACK_URL = 'not a url';
+
+    expect(loopbackCallback()).toBe(false);
+    expect(cliLoginAvailable()).toBe(false);
+  });
+
+  it('treats a *.localhost callback as loopback', () => {
+    process.env.GITHUB_CALLBACK_URL = 'http://app.localhost:3000/callback';
+
+    expect(loopbackCallback()).toBe(true);
+    expect(cliLoginAvailable()).toBe(true);
+  });
+});
+
+describe('insecureProductionOrigin', () => {
+  const original = {
+    NODE_ENV: process.env.NODE_ENV,
+    GITHUB_CALLBACK_URL: process.env.GITHUB_CALLBACK_URL,
+    COOKIE_SECURE: process.env.COOKIE_SECURE,
+  };
+
+  beforeEach(() => {
+    delete process.env.GITHUB_CALLBACK_URL;
+    delete process.env.COOKIE_SECURE;
+  });
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it('is the production cleartext non-loopback shape only', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.GITHUB_CALLBACK_URL = 'http://example.com/auth/github/callback';
+    expect(insecureProductionOrigin()).toBe(true);
+
+    process.env.NODE_ENV = 'development';
+    expect(insecureProductionOrigin()).toBe(false);
+
+    process.env.NODE_ENV = 'production';
+    process.env.GITHUB_CALLBACK_URL = 'http://localhost:3000/callback';
+    expect(insecureProductionOrigin()).toBe(false);
+
+    process.env.GITHUB_CALLBACK_URL = 'https://example.com/callback';
+    expect(insecureProductionOrigin()).toBe(false);
   });
 });
 

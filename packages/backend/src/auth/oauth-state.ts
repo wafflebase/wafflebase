@@ -55,11 +55,56 @@ export function oauthStateCookieName(): string {
  *
  * Shared with `wafflebase_cli_confirm`, whose secret is proven the same
  * way — by possession of a cookie — and which is therefore open to the
- * same sibling-subdomain cookie tossing described above.
+ * same sibling-subdomain cookie tossing described above, and with the
+ * session and refresh cookies, which are open to it in the other
+ * direction (a *planted* session rather than a planted challenge).
  */
 export function hostPrefixedCookieName(base: string): string {
   return isSecureCookie() ? `__Host-${base}` : base;
 }
+
+/**
+ * The session and refresh cookies, named by the same rule.
+ *
+ * These are the cookies actually worth stealing — a session JWT and the
+ * refresh token that mints more of them — and until now they were the only
+ * login cookies carrying no prefix. `Secure` alone does not cover the write
+ * side: a foothold on any sibling subdomain (a stale preview host, a vendor
+ * subdomain, an https one of either) can set
+ * `wafflebase_session=<attacker's JWT>; Domain=<parent>`, which the browser
+ * then sends here alongside — or instead of — the host-only cookie, and the
+ * victim browses as the attacker (session fixation). `__Host-` is what
+ * forbids a `Domain` on that name, so the planted cookie cannot exist.
+ *
+ * Only the name this build would mint is read, exactly as for the state
+ * cookies: honouring an unprefixed leftover in production would re-admit the
+ * cookie tossing the prefix blocks. An existing session issued under the bare
+ * name therefore stops being recognised the first time a deployment turns
+ * `Secure` on, and the browser is sent through the login again;
+ * `clearAuthCookies` expires both shapes so nothing stale is left behind.
+ */
+const SESSION_COOKIE_BASE = 'wafflebase_session';
+const REFRESH_COOKIE_BASE = 'wafflebase_refresh';
+
+export function sessionCookieName(): string {
+  return hostPrefixedCookieName(SESSION_COOKIE_BASE);
+}
+
+export function refreshCookieName(): string {
+  return hostPrefixedCookieName(REFRESH_COOKIE_BASE);
+}
+
+/**
+ * The pre-prefix names, for expiry only.
+ *
+ * Logging out has to reach a cookie written before the prefix applied (or by
+ * a build that predates it), and a deletion carries no credential, so
+ * clearing both shapes is safe where *accepting* both would not be.
+ */
+export const UNPREFIXED_SESSION_COOKIE_NAMES: readonly string[] = [
+  SESSION_COOKIE_BASE,
+  REFRESH_COOKIE_BASE,
+];
 
 /**
  * Browser binding for the **CLI** OAuth login.
@@ -156,8 +201,54 @@ export function oauthStateCookieOptions(): CookieOptions {
   };
 }
 
+/**
+ * Whether login cookies are set `Secure` — and so may carry `__Host-`.
+ *
+ * `COOKIE_SECURE` decides when an operator sets it; otherwise the
+ * deployment's own `GITHUB_CALLBACK_URL` does. That URL is where GitHub
+ * redirects the login, so its scheme *is* this server's public scheme, and
+ * reading a configured value rather than the live request keeps the answer
+ * identical on the request that sets the cookie and the callback that reads
+ * it — which a per-request `req.secure` behind a proxy would not.
+ *
+ * `NODE_ENV === 'production'` is only the fallback for a deployment that
+ * configures no callback URL at all, and deliberately not an override.
+ * Checking it first got the rule wrong in *both* directions. It dropped the
+ * prefix — the only thing that stops a sibling subdomain from planting the
+ * browser's half of the double submit — on every https deployment that does
+ * not happen to set the variable. And, because the shipped image sets
+ * `NODE_ENV=production` while the self-hosting docs hand out an `http://`
+ * callback URL, it set `Secure`/`__Host-` cookies on a plain-http origin,
+ * where the browser discards them on arrival: not a hardened login but a
+ * dead one, since the callback never finds its state cookie.
+ *
+ * The residual risk is a stale `http://` callback URL on a TLS-terminating
+ * deployment, which downgrades the cookie. `COOKIE_SECURE=true` is how such
+ * a deployment says so.
+ */
 function isSecureCookie(): boolean {
+  const configured = (process.env.COOKIE_SECURE ?? '').trim().toLowerCase();
+  if (configured === 'true' || configured === '1') return true;
+  if (configured === 'false' || configured === '0') return false;
+
+  const callbackUrl = (process.env.GITHUB_CALLBACK_URL ?? '')
+    .trimStart()
+    .toLowerCase();
+  if (callbackUrl.startsWith('https://')) return true;
+  if (callbackUrl.startsWith('http://')) return false;
   return process.env.NODE_ENV === 'production';
+}
+
+/**
+ * The same decision, for the cookies outside this module.
+ *
+ * Exported so the session cookies and the CLI confirmation cookie cannot
+ * drift from the name the `__Host-` prefix is applied to: a cookie set
+ * without `Secure` under a `__Host-` name is rejected by the browser
+ * outright, so the two answers have to come from one place.
+ */
+export function useSecureCookies(): boolean {
+  return isSecureCookie();
 }
 
 /** Comparison that does not leak the answer through its timing. */

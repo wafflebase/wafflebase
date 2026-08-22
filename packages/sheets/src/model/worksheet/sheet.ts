@@ -59,7 +59,13 @@ import {
   isSpreadsheetHtml,
 } from './grids';
 import { DimensionIndex } from './dimensions';
-import { formatValue } from './format';
+import {
+  MAX_DECIMAL_PLACES,
+  clampDecimals,
+  decimalsInValue,
+  formatValue,
+  renderedDecimals,
+} from './format';
 import { cellFromInput } from './input';
 import {
   cloneConditionalFormatRule,
@@ -84,6 +90,7 @@ import {
   moveRangeStylePatches,
   normalizeRangeStylePatch,
   normalizeStylePatch,
+  omitStyleKeys,
   pruneShadowedRangeStylePatches,
   resolveRangeStyleAt,
   shiftRangeStylePatches,
@@ -118,12 +125,15 @@ import {
   rangeAnchorToRange,
 } from '../workbook/anchor-conversion';
 import {
+  containsRange,
   hasCellContent,
   isEmptyCell,
+  rangesIntersect,
   compactCell,
   tryMergeRangeStylePatches,
   sameRangeStylePatchList,
   pruneRedundantDefaultStyleKeys,
+  isDefaultStyleValue,
   toBorderPatchForPreset,
   type StyleSources,
 } from './style-mutation';
@@ -153,6 +163,39 @@ const DefaultResetStylePatch: Partial<CellStyle> = {
   va: 'top',
   nf: 'plain',
 };
+
+/**
+ * `withoutSetDefaults` drops the keys a caller only meant as a default for a
+ * layer that already sets them, so the layer keeps its own value instead of
+ * being overwritten by one that was never about it.
+ */
+function withoutSetDefaults(
+  style: Partial<CellStyle>,
+  layer: CellStyle | undefined,
+  defaultKeys?: Array<keyof CellStyle>,
+): Partial<CellStyle> {
+  if (!defaultKeys?.length || !layer) {
+    return style;
+  }
+
+  let next = style;
+  for (const key of defaultKeys) {
+    if (style[key] === undefined || layer[key] === undefined) {
+      continue;
+    }
+    // A layer holding the default is not a format worth defending — see
+    // `isDefaultStyleValue`. Keeping it would drop the patch's real value
+    // and leave the layer's `nf: 'plain'` in place.
+    if (isDefaultStyleValue(key, layer[key])) {
+      continue;
+    }
+    if (next === style) {
+      next = { ...style };
+    }
+    delete next[key];
+  }
+  return next;
+}
 
 /**
  * `Sheet` class represents a sheet with rows and columns.
@@ -3688,14 +3731,26 @@ export class Sheet {
    * `setRangeStyle` applies the given style to all cells in the current selection range.
    * For column/row/all selections, stores styles at the column/row/sheet level
    * instead of iterating every cell.
+   *
+   * `options.defaultKeys` names keys the caller means only as a default for the
+   * cells that have none: anything already rendering through its own value for
+   * such a key keeps it. Everything else in the patch still overrides, as always.
    */
-  async setRangeStyle(style: Partial<CellStyle>): Promise<void> {
+  async setRangeStyle(
+    style: Partial<CellStyle>,
+    options?: { defaultKeys?: Array<keyof CellStyle> },
+  ): Promise<void> {
+    const defaultKeys = options?.defaultKeys;
     this.store.beginBatch();
     try {
       if (this.selectionType === 'column') {
         const range = this.getRangeOrActiveCell();
         for (let c = range[0].c; c <= range[1].c; c++) {
-          const merged = this.mergeStylePatch(this.colStyles.get(c), style);
+          const colStyle = this.colStyles.get(c);
+          const merged = this.mergeStylePatch(
+            colStyle,
+            withoutSetDefaults(style, colStyle, defaultKeys),
+          );
           if (!merged) {
             continue;
           }
@@ -3708,7 +3763,11 @@ export class Sheet {
       if (this.selectionType === 'row') {
         const range = this.getRangeOrActiveCell();
         for (let r = range[0].r; r <= range[1].r; r++) {
-          const merged = this.mergeStylePatch(this.rowStyles.get(r), style);
+          const rowStyle = this.rowStyles.get(r);
+          const merged = this.mergeStylePatch(
+            rowStyle,
+            withoutSetDefaults(style, rowStyle, defaultKeys),
+          );
           if (!merged) {
             continue;
           }
@@ -3719,7 +3778,10 @@ export class Sheet {
       }
 
       if (this.selectionType === 'all') {
-        const merged = this.mergeStylePatch(this.sheetStyle, style);
+        const merged = this.mergeStylePatch(
+          this.sheetStyle,
+          withoutSetDefaults(style, this.sheetStyle, defaultKeys),
+        );
         if (!merged) {
           return;
         }
@@ -3734,12 +3796,69 @@ export class Sheet {
         ? this.ranges
         : [this.getRangeOrActiveCell()];
       for (const range of targets) {
+        // Read before the patch lands: it sits above the sheet/column/row
+        // layers, so a value inherited from one of them has to be pinned onto
+        // the cell to survive a key the caller only meant as a default.
+        const pinned = await this.collectStyleValuesToPin(
+          range,
+          style,
+          defaultKeys,
+        );
         await this.addRangeStylePatch(range, style);
         await this.applyStylePatchToExistingCells(range, style);
+        for (const [sref, keep] of pinned) {
+          await this.setStyle(parseRef(sref), keep);
+        }
       }
     } finally {
       this.store.endBatch();
     }
+  }
+
+  /**
+   * `collectStyleValuesToPin` records, for every populated cell in the range,
+   * the value it already renders each of `defaultKeys` through when that differs
+   * from what the patch carries. Written back after the patch lands, those
+   * values keep a cell's own format from being replaced by one the caller only
+   * meant as a default for the cells that have none.
+   */
+  private async collectStyleValuesToPin(
+    range: Range,
+    patch: Partial<CellStyle>,
+    defaultKeys?: Array<keyof CellStyle>,
+  ): Promise<Map<Sref, Partial<CellStyle>>> {
+    const pinned = new Map<Sref, Partial<CellStyle>>();
+    if (!defaultKeys?.length) {
+      return pinned;
+    }
+
+    const grid = await this.store.getGrid(range);
+    for (const [sref, cell] of grid) {
+      const ref = parseRef(sref);
+      const anchorSref = toSref(this.normalizeRefToAnchor(ref));
+      if (pinned.has(anchorSref)) {
+        continue;
+      }
+
+      const effective = this.resolveEffectiveStyle(ref.r, ref.c, cell.s);
+      const keep: Partial<CellStyle> = {};
+      for (const key of defaultKeys) {
+        const value = effective?.[key];
+        if (value === undefined || value === patch[key]) {
+          continue;
+        }
+        // Same rule as `withoutSetDefaults`: pinning the default back onto
+        // the cell would undo the patch that was just applied.
+        if (isDefaultStyleValue(key, value)) {
+          continue;
+        }
+        (keep as Record<string, unknown>)[key] = value;
+      }
+      if (Object.keys(keep).length > 0) {
+        pinned.set(anchorSref, keep);
+      }
+    }
+    return pinned;
   }
 
   /**
@@ -4201,11 +4320,12 @@ export class Sheet {
 
   /**
    * `getActiveDecimalPlaces` returns the current decimal places of the active cell.
-   * Returns 2 as default if no decimal places are set.
+   * Returns 2 as default if no decimal places are set, and never a count outside
+   * the range a cell can render at.
    */
   async getActiveDecimalPlaces(): Promise<number> {
     const style = await this.getStyle(this.activeCell);
-    return style?.dp ?? 2;
+    return clampDecimals(style?.dp, 2);
   }
 
   /**
@@ -4213,27 +4333,388 @@ export class Sheet {
    * of the active cell. When the cell has plain format and no explicit dp,
    * the decimal places are inferred from the stored value string so that
    * the first increase/decrease starts from the visible precision.
+   *
+   * `valueDp` is the precision the raw value already shows on its own, and
+   * `explicitDp` tells whether any style layer stores `dp`. Together they let a
+   * caller tell "no explicit dp" apart from "dp equal to the inferred one",
+   * which is what makes increase/decrease reversible.
+   *
+   * A stored `dp` is reported through `clampDecimals`, so the number a caller
+   * steps from is the one the cell actually renders at. An import or a peer can
+   * store `400` or `NaN`; stepping from the raw value would either waste every
+   * press walking back from 400 or produce a `NaN` target that wedges the
+   * buttons permanently.
    */
-  async getActiveDecimalState(): Promise<{ dp: number; nf?: NumberFormat }> {
+  async getActiveDecimalState(): Promise<{
+    dp: number;
+    nf?: NumberFormat;
+    valueDp: number;
+    explicitDp: boolean;
+  }> {
     const style = await this.getStyle(this.activeCell);
-    // If dp is explicitly set in the style, use it.
+    const cell = await this.store.get(
+      this.normalizeRefToAnchor(this.activeCell),
+    );
+    const valueDp = decimalsInValue(cell?.v);
+    const rendersRaw = !style?.nf || style.nf === 'plain';
+
+    // If dp is explicitly set in the style, use it — clamped to what the cell
+    // can actually render at, so a hostile or imported `dp` cannot leak into the
+    // arithmetic. Where the clamp has nothing to work with, the fallback is the
+    // decimal count the cell shows without a `dp`.
     if (style?.dp !== undefined) {
-      return { dp: style.dp, nf: style?.nf };
+      return {
+        dp: clampDecimals(style.dp, rendersRaw ? valueDp : 2),
+        nf: style?.nf,
+        valueDp,
+        explicitDp: true,
+      };
     }
     // For plain format (or no format), infer dp from the stored value.
-    if (!style?.nf || style.nf === 'plain') {
-      const cell = await this.store.get(
-        this.normalizeRefToAnchor(this.activeCell),
-      );
-      if (cell?.v) {
-        const dotIndex = cell.v.indexOf('.');
-        if (dotIndex >= 0) {
-          return { dp: cell.v.length - dotIndex - 1, nf: style?.nf };
+    if (rendersRaw) {
+      return { dp: valueDp, nf: style?.nf, valueDp, explicitDp: false };
+    }
+    return { dp: 2, nf: style?.nf, valueDp, explicitDp: false };
+  }
+
+  /**
+   * `changeDecimals` moves the decimal places of the current selection by one
+   * step. When the step lands back on the precision the value already shows on
+   * its own, inheritance is restored instead of storing an equivalent explicit
+   * style — so equal numbers of increases and decreases leave the selection
+   * exactly as they found it.
+   */
+  async changeDecimals(delta: number): Promise<void> {
+    const { dp, nf, valueDp, explicitDp } = await this.getActiveDecimalState();
+    const stepped = Math.min(dp + delta, MAX_DECIMAL_PLACES);
+    if (stepped < 0 && !explicitDp && (await this.selectionRendersAt(0))) {
+      // Nothing anywhere in the selection has a decimal left to drop, so it
+      // stays untouched rather than acquiring a zero-decimal format it never
+      // asked for. The check has to look past the active cell: a neighbour that
+      // still shows decimals has something to lose and takes the write below.
+      return;
+    }
+    // A step that ran into the floor reverses nothing — the active cell already
+    // sits at zero decimals. The rest of the selection still follows it there,
+    // but the stored format stays put instead of being unset along the way.
+    const clamped = stepped < 0;
+    const target = clamped ? 0 : stepped;
+
+    if (
+      explicitDp &&
+      !clamped &&
+      target === valueDp &&
+      (await this.unsetKeepsRendering(nf === 'number', target))
+    ) {
+      // `nf: 'number'` renders 2 decimals when no `dp` is stored, so the number
+      // format has to go with the `dp`. `unsetKeepsRendering` is what makes that
+      // safe: it only agrees when every cell reads exactly as the explicit step
+      // would have left it, so a grouped format the unset would flatten
+      // ('1,234.5' → '1234.5') — or a currency whose absent `dp` means the
+      // format's own default rather than the value's precision — refuses and
+      // takes the explicit write instead.
+      const values: Partial<CellStyle> =
+        nf === 'number' ? { dp, nf } : { dp };
+      if (await this.unsetRangeStyleValues(values)) {
+        return;
+      }
+    }
+
+    const patch: Partial<CellStyle> = { dp: target };
+    if (!nf || nf === 'plain') {
+      // The active cell renders its value raw, so it needs a number format for
+      // the stepped decimals to show at all. That format is a *default* for the
+      // cells that have none: a step is about digits, so a neighbour rendering
+      // through its own `percent`/`currency`/`date` format keeps it rather than
+      // being silently converted to `number` ('50.0%' → '0.5').
+      patch.nf = 'number';
+      await this.setRangeStyle(patch, { defaultKeys: ['nf'] });
+      return;
+    }
+    await this.setRangeStyle(patch);
+  }
+
+  /**
+   * `selectionRendersAt` reports whether every numeric value in the current
+   * selection already *shows* `decimals` digits — as rendered, not as stored.
+   *
+   * A Decrease that finds nothing to drop is only a no-op when the whole
+   * selection agrees; a neighbour still showing decimals has something to lose
+   * and has to take the write, whether those decimals come from the value
+   * itself or from the number format it renders through.
+   */
+  private async selectionRendersAt(decimals: number): Promise<boolean> {
+    for (const range of this.selectionTargets()) {
+      const grid = await this.store.getGrid(range);
+      for (const [sref, cell] of grid) {
+        const value = cell.v;
+        if (!value || isNaN(Number(value))) {
+          // Text and empty cells render no decimals to disagree about.
+          continue;
+        }
+        const ref = parseRef(sref);
+        const effective = this.resolveEffectiveStyle(ref.r, ref.c, cell.s);
+        if (
+          renderedDecimals(value, effective, { currency: effective?.cu }) !==
+          decimals
+        ) {
+          return false;
         }
       }
-      return { dp: 0, nf: style?.nf };
     }
-    return { dp: 2, nf: style?.nf };
+    return true;
+  }
+
+  /**
+   * `unsetKeepsRendering` reports whether restoring inheritance would leave the
+   * selection reading exactly as the explicit step would have written it.
+   *
+   * An absent `dp` does not mean "the value's own precision" — it means whatever
+   * the remaining format renders by default, and dropping `nf: 'number'` also
+   * drops its grouping separators. So the unset is only the reverse of a step
+   * when nothing on screen moves: `1234.5` under `{nf: 'number', dp: 1}` reads
+   * `1,234.5` and would flatten to `1234.5`, and a currency at `dp: 0` would
+   * jump to the format's two decimals. Both keep their format and take the
+   * explicit write instead.
+   *
+   * Every cell is judged through *its own* effective format, not the active
+   * cell's: a selection is not uniform, and a neighbour rendering through
+   * `percent` loses different digits from the plain cell the step was read from.
+   * `removeNf` says whether the request carries `nf: 'number'` away with the
+   * `dp`, which only ever applies to a cell whose own format is `'number'`.
+   */
+  private async unsetKeepsRendering(
+    removeNf: boolean,
+    target: number,
+  ): Promise<boolean> {
+    for (const range of this.selectionTargets()) {
+      const grid = await this.store.getGrid(range);
+      for (const [sref, cell] of grid) {
+        const value = cell.v;
+        if (!value) {
+          // Empty and style-only cells render nothing to disagree about.
+          continue;
+        }
+        const ref = parseRef(sref);
+        const effective = this.resolveEffectiveStyle(ref.r, ref.c, cell.s);
+        const options = { currency: effective?.cu };
+        const nf = effective?.nf;
+        // Only `nf: 'number'` travels with the `dp`; every other format stays
+        // and falls back to the decimals it renders on its own.
+        const nfAfter = removeNf && nf === 'number' ? undefined : nf;
+        if (
+          formatValue(value, nfAfter, undefined, options) !==
+          formatValue(value, nf, target, options)
+        ) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
+   * `selectionTargets` returns the ranges the current selection covers, falling
+   * back to the active cell when nothing is selected.
+   */
+  private selectionTargets(): Range[] {
+    return this.ranges.length > 0
+      ? this.ranges
+      : [this.getRangeOrActiveCell()];
+  }
+
+  /**
+   * `unsetRangeStyleValues` removes the given key/value pairs from the style
+   * layers the current selection owns, restoring inheritance for the selected
+   * cells. It is the reverse of `setRangeStyle`: where that writes an explicit
+   * value, this restores the absence of one.
+   *
+   * Values are part of the request, not decoration. A layer is only rewritten
+   * where it holds every requested key at the requested value, and anything else
+   * within the selection — a cell with its own currency format, a patch at a
+   * different `dp`, a cell carrying `nf` with no `dp` beside it — refuses the
+   * whole operation rather than being flattened into it.
+   *
+   * Returns false, having written nothing, when the selection does not own a
+   * layer that sets one of the keys, when a layer inside it disagrees about the
+   * value, or when nothing turned out to be removable. The stored model has no
+   * "explicitly none" token, so an inherited value cannot be masked and the
+   * caller has to write an explicit value.
+   */
+  async unsetRangeStyleValues(style: Partial<CellStyle>): Promise<boolean> {
+    const entries = (
+      Object.entries(style) as Array<
+        [keyof CellStyle, CellStyle[keyof CellStyle]]
+      >
+    ).filter(([, value]) => value !== undefined);
+    if (entries.length === 0) {
+      return false;
+    }
+    const keys = entries.map(([key]) => key);
+
+    const targets = this.selectionTargets();
+
+    const ownsSheet = this.selectionType === 'all';
+    const ownsCols = ownsSheet || this.selectionType === 'column';
+    const ownsRows = ownsSheet || this.selectionType === 'row';
+    const owned = (range: Range) =>
+      targets.some((target) => containsRange(target, range));
+
+    // A layer holds either all of the requested keys at the requested values or
+    // none of them. One that holds only some of them describes something else —
+    // a number format nobody paired with a `dp` — and stripping the rest of the
+    // request from it would flatten formatting this call does not own.
+    const verdictFor = (
+      layer: CellStyle | undefined,
+    ): 'absent' | 'match' | 'conflict' => {
+      if (!layer) {
+        return 'absent';
+      }
+      let held = 0;
+      for (const [key, value] of entries) {
+        const layerValue = layer[key];
+        if (layerValue === undefined) continue;
+        if (layerValue !== value) return 'conflict';
+        held++;
+      }
+      if (held === 0) return 'absent';
+      return held === entries.length ? 'match' : 'conflict';
+    };
+
+    /** A layer refuses when it disagrees, or agrees but is not ours to edit. */
+    const refuses = (layer: CellStyle | undefined, isOwned: boolean) => {
+      const verdict = verdictFor(layer);
+      return verdict === 'conflict' || (verdict === 'match' && !isOwned);
+    };
+
+    if (refuses(this.sheetStyle, ownsSheet)) {
+      return false;
+    }
+    for (const [col, colStyle] of this.colStyles) {
+      if (!targets.some((t) => col >= t[0].c && col <= t[1].c)) continue;
+      if (refuses(colStyle, ownsCols)) {
+        return false;
+      }
+    }
+    for (const [row, rowStyle] of this.rowStyles) {
+      if (!targets.some((t) => row >= t[0].r && row <= t[1].r)) continue;
+      if (refuses(rowStyle, ownsRows)) {
+        return false;
+      }
+    }
+    for (const patch of this.rangeStyles) {
+      if (!targets.some((t) => rangesIntersect(t, patch.range))) continue;
+      if (refuses(patch.style, owned(patch.range))) {
+        return false;
+      }
+    }
+
+    // Cells are scanned before anything is written, so a single disagreeing cell
+    // still leaves the whole selection untouched.
+    const cellEdits: Array<{ anchor: Ref; cell: Cell; style: CellStyle }> = [];
+    const visited = new Set<Sref>();
+    for (const range of targets) {
+      const grid = await this.store.getGrid(range);
+      for (const [sref] of grid) {
+        const anchor = this.normalizeRefToAnchor(parseRef(sref));
+        const anchorSref = toSref(anchor);
+        if (visited.has(anchorSref)) {
+          continue;
+        }
+        visited.add(anchorSref);
+
+        const existing = await this.store.get(anchor);
+        if (!existing?.s) {
+          continue;
+        }
+        const verdict = verdictFor(existing.s);
+        if (verdict === 'conflict') {
+          return false;
+        }
+        if (verdict === 'absent') {
+          continue;
+        }
+        const next = omitStyleKeys(existing.s, keys);
+        if (next) {
+          cellEdits.push({ anchor, cell: existing, style: next });
+        }
+      }
+    }
+
+    let changed = cellEdits.length > 0;
+    this.store.beginBatch();
+    try {
+      if (ownsSheet && this.sheetStyle) {
+        const next = omitStyleKeys(this.sheetStyle, keys);
+        if (next) {
+          changed = true;
+          this.sheetStyle = next;
+          await this.store.setSheetStyle(next);
+        }
+      }
+      if (ownsCols) {
+        for (const [col, colStyle] of this.colStyles) {
+          if (!targets.some((t) => col >= t[0].c && col <= t[1].c)) {
+            continue;
+          }
+          const next = omitStyleKeys(colStyle, keys);
+          if (next) {
+            changed = true;
+            this.colStyles.set(col, next);
+            await this.store.setColumnStyle(col, next);
+          }
+        }
+      }
+      if (ownsRows) {
+        for (const [row, rowStyle] of this.rowStyles) {
+          if (!targets.some((t) => row >= t[0].r && row <= t[1].r)) {
+            continue;
+          }
+          const next = omitStyleKeys(rowStyle, keys);
+          if (next) {
+            changed = true;
+            this.rowStyles.set(row, next);
+            await this.store.setRowStyle(row, next);
+          }
+        }
+      }
+
+      let patchesChanged = false;
+      const nextPatches: RangeStylePatch[] = [];
+      for (const patch of this.rangeStyles) {
+        const next = owned(patch.range)
+          ? omitStyleKeys(patch.style, keys)
+          : undefined;
+        if (!next) {
+          nextPatches.push(patch);
+          continue;
+        }
+        patchesChanged = true;
+        if (Object.keys(next).length > 0) {
+          nextPatches.push({ range: patch.range, style: next });
+        }
+      }
+      if (patchesChanged) {
+        changed = true;
+        this.rangeStyles = nextPatches;
+        await this.store.setRangeStyles(this.rangeStyles);
+      }
+
+      for (const { anchor, cell, style: nextStyle } of cellEdits) {
+        const nextCell = compactCell(cell, nextStyle);
+        if (isEmptyCell(nextCell)) {
+          await this.store.delete(anchor);
+        } else {
+          await this.store.set(anchor, nextCell);
+        }
+      }
+    } finally {
+      this.store.endBatch();
+    }
+
+    // Nothing removed is not success: the caller still has to write an explicit
+    // value for the step to be visible.
+    return changed;
   }
 
   /**
