@@ -337,16 +337,11 @@
 
 /*
  * Task items are clickable as a whole — the checkbox and the text beside it
- * both toggle it (see `NotePreview.onTaskClick`). A read-only preview passes
- * no toggle callback and its checkboxes render disabled, which is what the
- * `:not([disabled])` guard keys the pointer cursor off.
+ * both toggle it (see `NotePreview.onTaskClick`). `note-tasks-interactive` is
+ * on the preview root only when it was mounted with a toggle callback, so a
+ * read-only preview (disabled checkboxes) keeps the default cursor.
  */
-.note-preview li.task-list-item:has(
-    input.task-list-item-checkbox:not([disabled])
-  ) {
-  cursor: pointer;
-}
-
-.note-preview input.task-list-item-checkbox:not([disabled]) {
+.note-preview.note-tasks-interactive li.task-list-item,
+.note-preview.note-tasks-interactive input.task-list-item-checkbox {
   cursor: pointer;
 }

@@ -194,7 +194,12 @@ export class NotePreview {
 
     this.el = document.createElement('div');
     this.el.dataset.role = 'note-preview';
-    this.el.className = 'note-preview markdown-body';
+    // The interactive marker is what the stylesheet keys the task item's
+    // pointer cursor off — the class is on the root, so it says "this preview
+    // can be ticked" without a selector that has to inspect each checkbox.
+    this.el.className = `note-preview markdown-body${
+      this.onToggleTask ? ' note-tasks-interactive' : ''
+    }`;
 
     // One delegated listener survives `render()`'s innerHTML replacement, so
     // copy buttons work without per-render listener churn/leaks.

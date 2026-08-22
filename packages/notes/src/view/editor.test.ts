@@ -268,6 +268,38 @@ describe('initialize', () => {
     container.remove();
   });
 
+  it('ticks a task from the preview and leaves a read-only one alone', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const store = new MemNoteStore('# Todo\n\n- [ ] milk\n- [ ] bread');
+    const api = initialize(container, store, 'light');
+
+    // Click the text of the second task — the source line it maps to is the
+    // one the preview tagged, not the item's position among the checkboxes.
+    const items = container.querySelectorAll('li.task-list-item');
+    items[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(api.getText()).toBe('# Todo\n\n- [ ] milk\n- [x] bread');
+    // The preview re-rendered from the change, so the box now shows ticked.
+    expect(
+      container.querySelectorAll('input.task-list-item-checkbox')[1],
+    ).toHaveProperty('checked', true);
+
+    api.dispose();
+    container.remove();
+
+    const roContainer = document.createElement('div');
+    document.body.appendChild(roContainer);
+    const roStore = new MemNoteStore('- [ ] milk');
+    const roApi = initialize(roContainer, roStore, 'light', true);
+    roContainer
+      .querySelector('li.task-list-item')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(roApi.getText()).toBe('- [ ] milk');
+
+    roApi.dispose();
+    roContainer.remove();
+  });
+
   it('switches the keybinding mode (default <-> vim)', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
