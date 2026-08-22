@@ -87,6 +87,236 @@ describe('Sheet merge + structural edits', () => {
   });
 });
 
+describe('Sheet merge + copy-paste', () => {
+  it('should propagate a copied merged block to the paste destination', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    const { text } = await sheet.copy();
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(2);
+    expect(merges.get('A1')).toEqual({ rs: 1, cs: 2 });
+    expect(merges.get('A3')).toEqual({ rs: 1, cs: 2 });
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('10');
+  });
+
+  it('should persist the propagated merge to the store', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    const { text } = await sheet.copy();
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    const stored = await store.getMerges();
+    expect(stored.get('A3')).toEqual({ rs: 1, cs: 2 });
+  });
+
+  it('should move the merged block on a cut-paste', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    const { text } = await sheet.cut();
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('A3')).toEqual({ rs: 1, cs: 2 });
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+  });
+
+  it('should drop a merged block the paste fully covers', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 1, c: 2 }, '2');
+    await sheet.setData({ r: 1, c: 3 }, '3');
+    await sheet.setData({ r: 3, c: 2 }, '20');
+
+    sheet.selectStart({ r: 3, c: 2 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 3 });
+    const { text } = await sheet.copy();
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    expect(sheet.getMerges().size).toBe(0);
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('2');
+    expect(await sheet.toDisplayString({ r: 3, c: 3 })).toBe('3');
+  });
+
+  it('should refuse a paste that would split a merged block', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 1, c: 2 }, '2');
+    await sheet.setData({ r: 3, c: 2 }, '20');
+
+    sheet.selectStart({ r: 3, c: 2 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    const { text } = await sheet.copy();
+    // A3:B3 would overwrite only the anchor half of the B3:C3 block.
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    const merges = sheet.getMerges();
+    expect(merges.size).toBe(1);
+    expect(merges.get('B3')).toEqual({ rs: 1, cs: 2 });
+    expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('20');
+  });
+
+  it('should keep the cut buffer when the paste is refused', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 1, c: 2 }, '2');
+    await sheet.setData({ r: 3, c: 2 }, '20');
+
+    sheet.selectStart({ r: 3, c: 2 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    const { text } = await sheet.cut();
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    expect(sheet.isCutMode()).toBe(true);
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('1');
+  });
+
+  it('should clear destination cells the propagated merge hides', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 5, c: 4 }, 'ghost');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    const { text } = await sheet.copy();
+    sheet.selectStart({ r: 5, c: 3 });
+    await sheet.paste({ text });
+
+    sheet.selectStart({ r: 5, c: 3 });
+    await sheet.unmergeSelection();
+    expect(await sheet.toDisplayString({ r: 5, c: 4 })).toBe('');
+  });
+
+  it('should recalculate dependants of a merge the paste dropped', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 3, c: 2 }, '20');
+
+    sheet.selectStart({ r: 3, c: 2 });
+    sheet.selectEnd({ r: 3, c: 3 });
+    await sheet.mergeSelection();
+
+    await sheet.setData({ r: 1, c: 4 }, '=C3+1');
+    expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('21');
+
+    // A1:C1 holds a value in A1 only, so C3 is not written by the paste — it
+    // stops aliasing B3 purely because the block is dropped.
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 3 });
+    const { text } = await sheet.copy();
+    sheet.selectStart({ r: 3, c: 1 });
+    await sheet.paste({ text });
+
+    expect(sheet.getMerges().size).toBe(0);
+    expect(await sheet.toDisplayString({ r: 1, c: 4 })).toBe('1');
+  });
+
+  it('should write a single-cell paste through the merge anchor', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 1, c: 4 }, '99');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 4 });
+    const { text } = await sheet.copy();
+    sheet.selectStart({ r: 1, c: 2 });
+    await sheet.paste({ text });
+
+    expect(sheet.getMerges().get('A1')).toEqual({ rs: 1, cs: 2 });
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('99');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('99');
+  });
+
+  it('should drop a merged block a plain TSV paste fully covers', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.paste({ text: 'x\ty' });
+
+    expect(sheet.getMerges().size).toBe(0);
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('x');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('y');
+  });
+
+  it('should refuse a plain TSV paste that would split a merged block', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 2 }, '20');
+
+    sheet.selectStart({ r: 1, c: 2 });
+    sheet.selectEnd({ r: 1, c: 3 });
+    await sheet.mergeSelection();
+
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.paste({ text: 'x\ty' });
+
+    expect(sheet.getMerges().get('B1')).toEqual({ rs: 1, cs: 2 });
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('20');
+  });
+
+  it('should paste plain cells when no merge is involved', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '7');
+
+    const { text } = await sheet.copy();
+    sheet.selectStart({ r: 3, c: 2 });
+    await sheet.paste({ text });
+
+    expect(sheet.getMerges().size).toBe(0);
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('7');
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('7');
+  });
+});
+
 describe('Sheet merge + drag-move', () => {
   it('should propagate the merge to the destination', async () => {
     const sheet = new Sheet(new MemStore());

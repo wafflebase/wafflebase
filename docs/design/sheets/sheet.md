@@ -93,6 +93,17 @@ all cell, selection, and navigation operations.
   `paste` parses it back and recalculates dependants from all changed refs
   (including plain-value pastes). External pastes (TSV/HTML) run through the
   same conservative input inference as `setData` before persistence.
+  The paste target is normalized to its merge anchor, so pasting onto a merged
+  block writes the visible cell rather than a hidden covered one. Merged blocks
+  travel with an internal copy: `copy`/`cut` snapshot the blocks inside the
+  copied range and `paste` re-creates them at the destination (a cut also drops
+  them at the source), clearing the destination cells they newly hide. Blocks
+  the pasted area fully covers are dropped — the pasted content replaces them —
+  and a paste that would only partially overwrite one, splitting it, is rejected
+  as a no-op, the same propagate-or-reject rule cell drag-move follows. A
+  single-cell paste is exempt: it writes through the anchor, so the block keeps
+  its layout. External spreadsheet HTML `rowspan`/`colspan` is not imported as
+  merges.
 - **Autofill (fill handle)** — dragging the selection handle repeats the source
   pattern across the expanded range. The fill is constrained to a single axis
   (vertical or horizontal) based on whichever direction the drag extends
