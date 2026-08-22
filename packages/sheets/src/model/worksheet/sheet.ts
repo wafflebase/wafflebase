@@ -4078,7 +4078,7 @@ export class Sheet {
     try {
       for (const { anchor, range } of targets) {
         const patch = toBorderPatchForPreset(preset, selection, range);
-        await this.setStyle(anchor, patch);
+        await this.applyBorderPatch(anchor, range, patch);
       }
     } finally {
       this.store.endBatch();
@@ -4095,6 +4095,66 @@ export class Sheet {
     const effectiveStyle = await this.getStyle(this.activeCell);
     const newValue = !effectiveStyle?.[prop];
     await this.setRangeStyle({ [prop]: newValue });
+  }
+
+  /**
+   * `applyBorderPatch` merges a border preset patch into the cell at the given
+   * anchor and then drops the patched keys that sit at their default value.
+   *
+   * `setStyle` deliberately preserves an explicit `false` — it is the
+   * primitive that has to be able to store one — but a border preset uses
+   * `false` to mean "no border here", so going through it left `bt/bl/br/bb:
+   * false` residue on cells that carried no style before. Pruning here reuses
+   * the same defaults table and conflict check as the range-style path
+   * (`setRangeStyle` -> `addRangeStylePatch`), so a `false` that is needed to
+   * override a sheet/column/row/range-style layer is still written.
+   *
+   * The rewrite goes through `compactCell`, which carries the cell's spill
+   * fields over, so bordering a dynamic-array formula's anchor or ghost does
+   * not orphan its spill range.
+   */
+  private async applyBorderPatch(
+    anchor: Ref,
+    range: Range,
+    patch: Partial<CellStyle>,
+  ): Promise<void> {
+    const normalized = this.normalizeStylePatch(patch);
+    if (!normalized) {
+      return;
+    }
+
+    const kept = pruneRedundantDefaultStyleKeys(
+      range,
+      normalized,
+      this.getStyleSources(),
+    );
+
+    const cell = (await this.store.get(anchor)) || {};
+    const merged = this.mergeStylePatch(cell.s, normalized);
+    const next: CellStyle = merged ? { ...merged } : {};
+    for (const key of Object.keys(normalized) as Array<keyof CellStyle>) {
+      if (!kept || kept[key] === undefined) {
+        delete next[key];
+      }
+    }
+
+    // A preset whose keys all pruned away leaves the cell untouched instead of
+    // storing (or deleting) an identical payload.
+    const style = Object.keys(next).length > 0 ? next : undefined;
+    const prev = cell.s;
+    if (!prev && !style) {
+      return;
+    }
+    if (prev && style && stylesEqual(prev, style)) {
+      return;
+    }
+
+    const newCell = compactCell(cell, style);
+    if (isEmptyCell(newCell)) {
+      await this.store.delete(anchor);
+      return;
+    }
+    await this.store.set(anchor, newCell);
   }
 
   private collectBorderTargets(

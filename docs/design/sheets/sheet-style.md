@@ -105,6 +105,26 @@ deleting the entry — the `Store` interface has no delete for those layers — 
 `getStyle` can return `{}` where it used to return `undefined`. Every consumer
 reads keys off it optionally, so an empty style resolves exactly like no style.
 
+### `setRangeBorders(preset)`
+
+- Writes per-cell borders for the preset, cell by cell (cell selections only).
+- A preset uses `false` to mean "no border on this edge", so the border keys it
+  writes go through the same default-key pruning as `setRangeStyle`: a key at
+  its default is **removed** from the cell unless a sheet/column/row/range
+  style layer sets it to something else, in which case the explicit `false` is
+  kept to override that layer.
+- Consequence: `Clear borders` returns a cell to the exact style it had before
+  any border was applied — the same round trip `Bold` on/off gives — and a
+  preset whose keys all prune away leaves the cell (or the empty grid slot)
+  untouched.
+- This is why the preset path does not use `setStyle`, whose contract is to
+  preserve an explicit `false`.
+- The per-cell rewrite goes through `compactCell`, which now carries a cell's
+  spill fields (`spillRows`/`spillCols` on a dynamic-array anchor,
+  `spillAnchor`/`spillBlocked` on a ghost) over the write. Any style-only
+  rewrite — `setStyle`, clear-formatting, a border preset — would otherwise
+  orphan the spill range it touched.
+
 ### `toggleRangeStyle(prop)`
 
 - Computes from active cell effective style, then applies via `setRangeStyle`.

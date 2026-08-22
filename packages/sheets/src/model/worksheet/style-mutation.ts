@@ -54,9 +54,10 @@ export function isEmptyCell(cell: Cell): boolean {
 /**
  * `compactCell` removes undefined fields to keep persisted cell payload minimal.
  *
- * The spill fields travel with the base cell: a style-only rewrite must not
- * detach a dynamic-array anchor from its ghosts, which is what the calculator
- * reads them for.
+ * Only `undefined` is dropped: the spill fields of a dynamic-array formula
+ * (`spillRows`/`spillCols` on the anchor, `spillAnchor`/`spillBlocked` on a
+ * ghost) are carried over, so a style-only write — clear formatting, a border
+ * preset — cannot orphan a spill range by rewriting the cell without them.
  */
 export function compactCell(base: Cell, style?: CellStyle): Cell {
   const cell: Cell = {};
