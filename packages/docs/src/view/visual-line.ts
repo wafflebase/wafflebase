@@ -9,6 +9,23 @@ export interface VisualLineInfo {
 }
 
 /**
+ * Affinity for an offset produced by a pixel hit-test.
+ *
+ * A hit-test already knows *which* visual line was clicked, so an offset
+ * that lands exactly on that line's start boundary must read `'forward'` —
+ * the same offset also ends the line above, and `'backward'` would draw the
+ * caret up there instead of on the line the user clicked. The first visual
+ * line of a block has no preceding boundary, so it is always `'backward'`.
+ */
+export function hitTestLineAffinity(
+  offset: number,
+  lineStartOffset: number,
+  isFirstLineOfBlock: boolean,
+): 'forward' | 'backward' {
+  return !isFirstLineOfBlock && offset === lineStartOffset ? 'forward' : 'backward';
+}
+
+/**
  * Find which visual (wrapped) line a position falls on within a layout block.
  * Returns line index, total line count, and the character range of that line.
  *

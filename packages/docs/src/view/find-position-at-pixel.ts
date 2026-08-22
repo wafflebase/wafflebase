@@ -1,4 +1,5 @@
 import type { DocumentLayout } from './layout.js';
+import { hitTestLineAffinity } from './visual-line.js';
 
 /**
  * Hit-test result for `findPositionAtPixel`. Mirrors the triple
@@ -114,7 +115,7 @@ export function findPositionAtPixel(
   // keeps the cursor on the clicked (later) line. The first line in a
   // block has no prior boundary, so it's always 'backward' there.
   const affinityForOffset = (offset: number): 'forward' | 'backward' =>
-    targetLineIndex > 0 && offset === charsBeforeLine ? 'forward' : 'backward';
+    hitTestLineAffinity(offset, charsBeforeLine, targetLineIndex === 0);
 
   // Layout-local x is relative to the layout origin. Body blocks have
   // `lb.x === 0`, so subtracting `lb.x` here is a no-op today but keeps
