@@ -465,9 +465,9 @@ GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
   the engine alone: (1) `securityLevel: 'strict'` with `startOnLoad: false`
   sanitizes labels and ignores `click` directives, an extended `secure` key
   list pins the theming keys, and `htmlLabels: false` makes a node label SVG
-  text rather than an HTML subtree (issue #721, below); (2)
-  `stripConfigDirectives()` removes both config
-  carriers — `%%{...}%%` directives and leading front matter — from the fence
+  text rather than an HTML subtree (issue #721, below);
+  (2) `stripConfigDirectives()` removes both config carriers — `%%{...}%%`
+  directives and leading front matter — from the fence
   body, so a note cannot push `themeCSS`/`themeVariables` into the
   document-scoped `<style>` mermaid emits inside the SVG. It reuses mermaid's
   own `directiveRegex`/`frontMatterRegex` (the closing `}%%` is *optional* for
@@ -477,8 +477,8 @@ GitHub / Obsidian / Notion (and this repo's own design docs). The fence rule in
   block promotes the second into the leading position mermaid parses, and the
   engine extracts front matter *before* it removes directives, so a `---` block
   a directive precedes is one mermaid would never have read. Dropping front
-  matter unconditionally matters because `secure` pins
-  only top-level keys — a carrier the strip under-recognizes still delivers a
+  matter unconditionally matters because `secure` pins only top-level
+  keys — a carrier the strip under-recognizes still delivers a
   nested override — and the copies are version-pinned
   (`MERMAID_CARRIER_PATTERNS_VERSION`, asserted against the installed
   `mermaid` in `preview.test.ts`) so an upgrade under the caret range cannot

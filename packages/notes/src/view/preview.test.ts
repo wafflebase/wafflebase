@@ -628,6 +628,23 @@ describe('NotePreview mermaid fences', () => {
     );
   });
 
+  it('sets an htmlLabels key the real engine actually honors', async () => {
+    // The case above asserts what we ASK for; this asserts the engine keeps
+    // it. `htmlLabels` is the root-level key (the per-diagram
+    // `flowchart.htmlLabels` is deprecated upstream), and the whole fix rests
+    // on the engine resolving labels through it — a rename or a config
+    // sanitizer that dropped it would silently reopen the beacon while every
+    // stubbed-engine case above still passed. Real mermaid cannot RENDER under
+    // jsdom, but it can be configured and read back.
+    const mermaid = (await import('mermaid')).default;
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      htmlLabels: false,
+    });
+    expect(mermaid.mermaidAPI.getConfig().htmlLabels).toBe(false);
+  });
+
   it('strips a second front matter block the first strip would promote', async () => {
     // The front-matter pattern is ^-anchored, so a single pass removes block
     // one and PROMOTES block two into the leading position mermaid parses —
