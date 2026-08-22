@@ -85,6 +85,21 @@ side its range extends towards: `computeSelectionRects` defaults a range's
 start to `'forward'` and its end to `'backward'`, so a highlight covers the
 wrapped line its endpoints bracket rather than opening on a zero-width sliver
 of the line above. A standalone caret keeps the historical backward reading.
+
+The caret has exactly one home for its affinity: `Cursor.position`.
+`Cursor.lineAffinity` is an accessor pair over `position.lineAffinity`, so
+every existing read and write site keeps working while the value travels with
+the position into presence, undo history, selection endpoints and rendering.
+It used to live in a sibling field, which meant anything handed
+`cursor.position` — presence publish, `setCursorForHistory`, the peer caret —
+silently lost it, and only *mouse-derived* carets ever published one at all. A
+caret always materializes its reading (`'backward'` unless told otherwise);
+absent stays reserved for endpoints from other producers (search matches,
+comment markers), which keep the asymmetric default above. Symmetrically,
+`resolvePositionPixel` falls back to `position.lineAffinity` when the caller
+passes no affinity, so a call site that says nothing renders the position's
+own reading instead of a hardcoded one.
+
 Because `DocRange.anchor` / `.focus` are `DocPosition`s,
 selection endpoints carry it too: `selection.ts` passes the endpoint affinity
 into `findPageForPosition` (and `resolvePositionPixel` for cell-internal

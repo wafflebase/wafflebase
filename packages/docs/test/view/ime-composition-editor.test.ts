@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { initialize, type EditorAPI } from '../../src/view/editor.js';
 import { MemDocStore } from '../../src/store/memory.js';
 import { createEmptyBlock } from '../../src/model/types.js';
+import type { DocPosition } from '../../src/model/types.js';
 
 /**
  * Editor-level guard for the IME undo-history fix (issue #318).
@@ -189,7 +190,7 @@ describe('docs editor — IME composition keeps interim text out of the model', 
   });
 
   it('updateCompositionStartPosition moves the caret to the end of the composing text', () => {
-    let lastCursor: { blockId: string; offset: number } | null = null;
+    let lastCursor: DocPosition | null = null;
     editor.onCursorMove((pos) => {
       lastCursor = pos;
     });
@@ -200,7 +201,7 @@ describe('docs editor — IME composition keeps interim text out of the model', 
     // A remote change resolves the composition start to offset 0; the caret
     // must follow to 0 + length("한") = 1, not stay before the preview.
     editor.updateCompositionStartPosition({ blockId, offset: 0 });
-    expect(lastCursor).toEqual({ blockId, offset: 1 });
+    expect(lastCursor).toEqual({ blockId, offset: 1, lineAffinity: 'backward' });
   });
 
   it('blur aborting composition fires onCompositionEnd (clears collab anchor)', () => {

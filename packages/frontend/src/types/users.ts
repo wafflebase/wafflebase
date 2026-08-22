@@ -21,9 +21,11 @@ export type DocsPresence = {
   activeCursorPos?: {
     blockId: string;
     offset: number;
-    // Published by `updateCursorPos` when the caret carries one. Peer caret
-    // rendering still resolves `'backward'`; typing it keeps the wire shape
-    // honest rather than dropping a field the store already sends.
+    // The caret's own wrap-boundary reading, published by `updateCursorPos`
+    // and re-published by `recordHistoryPresence` on every edit. Peer caret
+    // rendering honours it, so a peer's caret sits on the same visual line
+    // as the end of their highlight. Optional: a mixed-version peer sends
+    // none, which reads as `'backward'`.
     lineAffinity?: 'forward' | 'backward';
   };
   activeSelection?: {

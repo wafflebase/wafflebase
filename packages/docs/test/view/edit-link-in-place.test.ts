@@ -205,7 +205,11 @@ describe('docs editor — edit link in place (#494)', () => {
     const blockId = makeLinkedExample(3);
     editor.insertLink('https://example.org');
 
-    expect(editor._getCursorForTest()).toEqual({ blockId, offset: 3 });
+    // The caret always states its wrap-boundary reading (#933), so the
+    // position carries an affinity even where it is the default.
+    expect(editor._getCursorForTest()).toEqual({
+      blockId, offset: 3, lineAffinity: 'backward',
+    });
   });
 
   it('at the boundary between two links, Apply edits the link the popover shows', () => {

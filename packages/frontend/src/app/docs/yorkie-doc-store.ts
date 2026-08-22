@@ -550,7 +550,7 @@ export class YorkieDocStore implements DocStore {
   private doc: YorkieDocument<YorkieDocsRoot>;
   private cachedDoc: Document | null = null;
   private dirty = true;
-  private pendingCursorPos: { blockId: string; offset: number } | null = null;
+  private pendingCursorPos: DocPosition | null = null;
   private localCursorAnchor: AnchoredDocPosition | null = null;
   private localSelectionAnchor: AnchoredDocRange | null = null;
   private compositionStartAnchor: AnchoredDocPosition | null = null;
@@ -2876,7 +2876,7 @@ export class YorkieDocStore implements DocStore {
    * immediately-type could record a stale/collapsed selection as the reverse.
    */
   setCursorForHistory(
-    pos: { blockId: string; offset: number },
+    pos: DocPosition,
     selection?: DocsSelection | null,
   ): void {
     this.pendingCursorPos = pos;
@@ -2890,10 +2890,15 @@ export class YorkieDocStore implements DocStore {
    * post-edit selection; it defaults to a concrete collapsed range at the
    * caret (never `undefined`) so `activeSelection` is always a tracked key
    * whose reverse is recorded, and a collapsed range reads as "no selection".
+   *
+   * `cursor` is a full {@link DocPosition}, affinity included: this write
+   * runs on every mutation, so narrowing it to `{blockId, offset}` erased
+   * the wrap-boundary reading from presence after each edit — and again
+   * from what undo/redo restores.
    */
   private recordHistoryPresence(
     p: { set(presence: Partial<DocsPresence>, option?: { addToHistory?: boolean }): void },
-    cursor: { blockId: string; offset: number },
+    cursor: DocPosition,
     selection?: DocsSelection | null,
   ): void {
     p.set(
@@ -2909,13 +2914,13 @@ export class YorkieDocStore implements DocStore {
    * Read the cursor position from Yorkie presence. After undo/redo,
    * this returns the restored cursor position.
    */
-  getPresenceCursorPos(): { blockId: string; offset: number } | undefined {
+  getPresenceCursorPos(): DocPosition | undefined {
     // In attached mode getMyPresence() works, but in offline/test mode
     // the public API returns {}. Fall back to getPresenceForTest() which
     // returns presence regardless of online status.
     const presence = this.doc.getMyPresence();
     const fromPublic = (presence as Record<string, unknown>)?.activeCursorPos as
-      | { blockId: string; offset: number }
+      | DocPosition
       | undefined;
     if (fromPublic) return fromPublic;
 
@@ -2923,7 +2928,7 @@ export class YorkieDocStore implements DocStore {
     if (actorId) {
       const testPresence = this.doc.getPresenceForTest(actorId);
       return (testPresence as Record<string, unknown>)?.activeCursorPos as
-        | { blockId: string; offset: number }
+        | DocPosition
         | undefined;
     }
     return undefined;
@@ -2959,7 +2964,7 @@ export class YorkieDocStore implements DocStore {
    * reverse, so undo restores the caret and selection that were active
    * before the edit.
    */
-  private consumePendingCursor(): { blockId: string; offset: number } | null {
+  private consumePendingCursor(): DocPosition | null {
     const cursor = this.pendingCursorPos;
     this.pendingCursorPos = null;
     return cursor;
@@ -2970,7 +2975,7 @@ export class YorkieDocStore implements DocStore {
    * Called from DocsView when the local cursor moves.
    */
   updateCursorPos(
-    pos: { blockId: string; offset: number; lineAffinity?: 'forward' | 'backward' } | null,
+    pos: DocPosition | null,
     selection?: DocsSelection | null,
   ): void {
     // Skip entirely while a composition is in progress. `pos` may be a
