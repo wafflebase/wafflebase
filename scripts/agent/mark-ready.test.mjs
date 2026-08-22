@@ -242,9 +242,14 @@ test("mark-ready uses no exit code outside {0,1,2,3}", () => {
 
 test("agent-review-panel.yml still branches on every mark-ready code", () => {
   const yml = readFileSync(PANEL_YML, "utf8");
-  const step = yml.slice(yml.indexOf("node ./scripts/agent/mark-ready.mjs"));
-  assert.ok(step.length > 0, "the promote job must still invoke mark-ready.mjs");
-  const window = step.slice(0, 1200);
+  // `-1` explicitly: `slice(-1)` is the LAST CHARACTER, not the empty string, so
+  // a length check would pass on a workflow that no longer calls mark-ready at
+  // all and the failure would surface as four confusing regex misses instead.
+  const at = yml.indexOf("node ./scripts/agent/mark-ready.mjs");
+  assert.notEqual(at, -1, "the promote job must still invoke mark-ready.mjs");
+  // The whole `if` chain sits immediately below the invocation; bounding the
+  // window keeps an unrelated `-eq 2` elsewhere in the file out of the match.
+  const window = yml.slice(at, at + 1200);
   assert.match(window, /code=\$\?/);
   assert.match(window, /"\$code" -eq 2 \]; then .*exit 2/, "2 → tooling error, fail the job");
   assert.match(window, /"\$code" -eq 3 \]; then .*exit 3/, "3 → promotion failed, page a human");
