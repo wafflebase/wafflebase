@@ -229,6 +229,56 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+describe('publishing the staged plan', () => {
+  /*
+   * The bug this pins: `POST /plan` and `scene-patch` both shipped, and the shell never
+   * called the route — so a staged CLASS edit was invisible until Approve wrote it, while
+   * token edits previewed live. Nothing failed, because nothing asked.
+   */
+  it('publishes on mount, so a frame with no plan is served unpatched', async () => {
+    const calls: Array<{ side: string; intents: unknown[] }> = [];
+    await mount(
+      stubBridge({
+        plan: (async (side: string, intents: unknown[]) => {
+          calls.push({ side, intents });
+          return { ok: true, side, count: intents.length, reloaded: [] };
+        }) as never,
+      }),
+    );
+    // The empty publish matters as much as a populated one: it is what clears a plan
+    // left over from a previous session's patched modules.
+    expect(calls).toEqual([{ side: 'after', intents: [] }]);
+  });
+
+  it('does not publish before a scene is chosen', async () => {
+    // With no scene there is no frame to patch, and `after` would name modules that
+    // were never loaded.
+    const calls: unknown[] = [];
+    await mount(
+      stubBridge({
+        metadata: async () => ({ ok: true, metadata: { scenes: [], files: [] } }) as never,
+        plan: (async (...a: unknown[]) => {
+          calls.push(a);
+          return { ok: true };
+        }) as never,
+      }),
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it('says so when the preview cannot be updated', async () => {
+    // A refused publish means the screen is not what you staged. Silence there is worse
+    // than the stale pixels, because the next thing you do is trust them.
+    const host = await mount(
+      stubBridge({
+        plan: (async () => ({ ok: false, error: 'module not in the graph' })) as never,
+      }),
+    );
+    await act(async () => {});
+    expect(host.textContent).toContain('Preview not updated');
+  });
+});
+
 describe('the two modes', () => {
   /*
    * The recipe specifies these as MODES with two tabs each; the shell had shipped one
