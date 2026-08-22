@@ -276,22 +276,19 @@ describe('Sheet.Formatting', () => {
 
     expect(await sheet.setRangeBorders('all')).toBe(true);
 
+    // Edges that carry no border are absent, not stored as `false`.
     expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
       bt: true,
       bl: true,
-      br: false,
-      bb: false,
     });
     expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({
       bt: true,
       bl: true,
       br: true,
-      bb: false,
     });
     expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({
       bt: true,
       bl: true,
-      br: false,
       bb: true,
     });
     expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({
@@ -310,27 +307,21 @@ describe('Sheet.Formatting', () => {
     await sheet.setRangeBorders('all');
     expect(await sheet.setRangeBorders('outer')).toBe(true);
 
+    // The interior edges the `all` preset had set are removed, not turned
+    // into `false`.
     expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
       bt: true,
       bl: true,
-      br: false,
-      bb: false,
     });
     expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({
       bt: true,
-      bl: false,
       br: true,
-      bb: false,
     });
     expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({
-      bt: false,
       bl: true,
-      br: false,
       bb: true,
     });
     expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({
-      bt: false,
-      bl: false,
       br: true,
       bb: true,
     });
@@ -344,30 +335,46 @@ describe('Sheet.Formatting', () => {
     await sheet.setRangeBorders('all');
     expect(await sheet.setRangeBorders('clear')).toBe(true);
 
-    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
-      bt: false,
-      bl: false,
-      br: false,
-      bb: false,
-    });
-    expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({
-      bt: false,
-      bl: false,
-      br: false,
-      bb: false,
-    });
-    expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({
-      bt: false,
-      bl: false,
-      br: false,
-      bb: false,
-    });
-    expect(await sheet.getStyle({ r: 2, c: 2 })).toEqual({
-      bt: false,
-      bl: false,
-      br: false,
-      bb: false,
-    });
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toBeUndefined();
+    expect(await sheet.getStyle({ r: 1, c: 2 })).toBeUndefined();
+    expect(await sheet.getStyle({ r: 2, c: 1 })).toBeUndefined();
+    expect(await sheet.getStyle({ r: 2, c: 2 })).toBeUndefined();
+  });
+
+  it('should return a cell to its pre-border state on a border round trip', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, 'Label');
+    sheet.selectStart({ r: 1, c: 1 });
+
+    expect((await sheet.fetchGrid([{ r: 1, c: 1 }, { r: 1, c: 1 }])).get('A1'))
+      .toEqual({ v: 'Label' });
+
+    await sheet.setRangeBorders('all');
+    await sheet.setRangeBorders('clear');
+
+    // No `s` residue: the same shape a Bold on/off round trip leaves.
+    expect((await sheet.fetchGrid([{ r: 1, c: 1 }, { r: 1, c: 1 }])).get('A1'))
+      .toEqual({ v: 'Label' });
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toBeUndefined();
+  });
+
+  it('should leave no cell behind when clearing borders on an empty cell', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectStart({ r: 1, c: 1 });
+
+    expect(await sheet.setRangeBorders('clear')).toBe(true);
+    expect((await sheet.fetchGrid([{ r: 1, c: 1 }, { r: 1, c: 1 }])).size).toBe(0);
+  });
+
+  it('should keep an explicit false when a column border needs overriding', async () => {
+    const sheet = new Sheet(new MemStore());
+    sheet.selectColumn(1);
+    await sheet.setRangeStyle({ bt: true });
+
+    sheet.selectStart({ r: 1, c: 1 });
+    expect(await sheet.setRangeBorders('clear')).toBe(true);
+
+    expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({ bt: false });
   });
 
   it('should reject border presets for non-cell selections', async () => {
@@ -393,14 +400,10 @@ describe('Sheet.Formatting', () => {
     expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
       bt: true,
       bl: true,
-      br: false,
-      bb: false,
     });
     expect(await sheet.getStyle({ r: 1, c: 2 })).toEqual({
       bt: true,
-      bl: false,
       br: true,
-      bb: false,
     });
 
     // New middle row inherits left edge in column 1 and right edge in column 2.
@@ -416,14 +419,10 @@ describe('Sheet.Formatting', () => {
 
     // Original bottom row shifts to row 3 with its borders intact.
     expect(await sheet.getStyle({ r: 3, c: 1 })).toEqual({
-      bt: false,
       bl: true,
-      br: false,
       bb: true,
     });
     expect(await sheet.getStyle({ r: 3, c: 2 })).toEqual({
-      bt: false,
-      bl: false,
       br: true,
       bb: true,
     });
@@ -442,13 +441,9 @@ describe('Sheet.Formatting', () => {
     expect(await sheet.getStyle({ r: 1, c: 1 })).toEqual({
       bt: true,
       bl: true,
-      br: false,
-      bb: false,
     });
     expect(await sheet.getStyle({ r: 2, c: 1 })).toEqual({
-      bt: false,
       bl: true,
-      br: false,
       bb: true,
     });
 
@@ -465,13 +460,9 @@ describe('Sheet.Formatting', () => {
     // Original right column shifts to column C with its borders intact.
     expect(await sheet.getStyle({ r: 1, c: 3 })).toEqual({
       bt: true,
-      bl: false,
       br: true,
-      bb: false,
     });
     expect(await sheet.getStyle({ r: 2, c: 3 })).toEqual({
-      bt: false,
-      bl: false,
       br: true,
       bb: true,
     });
@@ -493,12 +484,8 @@ describe('Sheet.Formatting', () => {
     expect(await sheet.getStyle({ r: 3, c: 2 })).toEqual({
       bt: true,
       bl: true,
-      br: false,
-      bb: false,
     });
     expect(await sheet.getStyle({ r: 4, c: 3 })).toEqual({
-      bt: false,
-      bl: false,
       br: true,
       bb: true,
     });
