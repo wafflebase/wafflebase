@@ -51,6 +51,30 @@ describe('findVisualLine', () => {
     expect(result).toEqual({ lineIndex: 1, totalLines: 3, lineStart: 10, lineEnd: 20 });
   });
 
+  it('resolves a wrap boundary to the next line with forward affinity', () => {
+    const result = findVisualLine(lb, { blockId: 'b1', offset: 10 }, 'forward');
+    expect(result).toEqual({ lineIndex: 1, totalLines: 3, lineStart: 10, lineEnd: 20 });
+  });
+
+  it('resolves a wrap boundary to the previous line with backward affinity', () => {
+    // offset 10 ends line 1 and starts line 2; 'backward' keeps it on
+    // line 1, where the caret is drawn.
+    const result = findVisualLine(lb, { blockId: 'b1', offset: 10 }, 'backward');
+    expect(result).toEqual({ lineIndex: 0, totalLines: 3, lineStart: 0, lineEnd: 10 });
+  });
+
+  it('backward affinity does not change a non-boundary offset', () => {
+    const result = findVisualLine(lb, { blockId: 'b1', offset: 15 }, 'backward');
+    expect(result).toEqual({ lineIndex: 1, totalLines: 3, lineStart: 10, lineEnd: 20 });
+  });
+
+  it('keeps the end of the last line on the last line under both affinities', () => {
+    for (const affinity of ['forward', 'backward'] as const) {
+      const result = findVisualLine(lb, { blockId: 'b1', offset: 25 }, affinity);
+      expect(result).toEqual({ lineIndex: 2, totalLines: 3, lineStart: 20, lineEnd: 25 });
+    }
+  });
+
   it('handles position at end of last line', () => {
     const result = findVisualLine(lb, { blockId: 'b1', offset: 25 });
     expect(result).toEqual({ lineIndex: 2, totalLines: 3, lineStart: 20, lineEnd: 25 });
