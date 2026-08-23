@@ -108,11 +108,16 @@ describe('caret lineAffinity reaches presence', () => {
 
   test('the caret position always states its reading', () => {
     const { editor, container } = setupEditor();
+    // The affinity has to be *on the position*, because that is the object
+    // presence, history and rendering are handed. A position with none reads
+    // as 'backward', so a caret that carried nothing was indistinguishable
+    // from one that had been read backwards on purpose.
     caretAt(editor, 5);
     expect(editor._getCursorForTest().lineAffinity).toBe('backward');
+    // Rightward motion always reads forward (it lands on the far side of the
+    // offset it crossed), which only matters when that offset is a wrap
+    // boundary — but the caret states it either way.
     press(container, 'ArrowRight');
-    // Moving right lands on the far side of the offset it crossed, which at
-    // a wrap boundary is the start of the next visual line.
     expect(editor._getCursorForTest().lineAffinity).toBe('forward');
     editor.dispose();
   });
