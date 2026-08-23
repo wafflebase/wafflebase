@@ -21,6 +21,31 @@ import type { PendingStyle } from './pending-style.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { dirtyBlockIdsForRange } from '../model/range-slices.js';
 import { caretInlineStyle, caretStyleDefaults } from '../model/caret-style.js';
+import { yieldToPaintedFrame } from '../export/yield.js';
+
+/**
+ * What a clipboard payload resolves to, decided before anything is written.
+ * `dropStaleStyleOff` marks the internal-clipboard plans, the only ones that
+ * can carry an explicit `italic: false` into a block whose named style does
+ * not supply italic (#749).
+ */
+type PastePlan =
+  | { kind: 'tableCells'; cells: TableCell[][]; dropStaleStyleOff?: boolean }
+  | { kind: 'blocks'; blocks: Block[]; dropStaleStyleOff?: boolean }
+  | { kind: 'text'; text: string };
+
+/**
+ * Clipboard payload characters above which the host's busy indicator is
+ * offered. Characters, not blocks: parsing is about half a large paste's cost
+ * and runs before any block count exists, so a block-count gate would leave
+ * the first half of the freeze unreported.
+ *
+ * Measured totals (parse + write, docs/tasks/…-docs-large-paste-perf-lessons.md):
+ * ~190 ms for a 1000-block paste, ~390 ms at 2000, ~1.5 s at 4000, ~3.8 s at
+ * 8000. Only the last two want an indicator, and 4000 blocks is at least
+ * ~400 K characters in any format. Below that a toast would only flicker.
+ */
+const LARGE_PASTE_WEIGHT_THRESHOLD = 400_000;
 
 /**
  * The `headingLevel` the destination block ends up with when a pasted block is
@@ -239,6 +264,42 @@ export class TextEditor {
    * normally.
    */
   imageFilePasteHandler: ((file: File, position: { blockId: string; offset: number }) => void) | null = null;
+
+  /**
+   * Optional busy-indicator hook for pastes big enough to block the tab for a
+   * perceptible time. Called before the payload is parsed or written; the host
+   * paints whatever it wants (a toast) and returns a dismiss function the
+   * editor calls when the paste is done.
+   *
+   * It takes no size argument on purpose — nothing countable in document terms
+   * exists this early, and parsing first to get one would put half the freeze
+   * ahead of the indicator. It is indeterminate because the work it covers is
+   * a handful of synchronous store writes with no interruption point, not
+   * because there is a single transaction underneath — reporting a fraction
+   * would mean splitting those writes into many, which is the cost this whole
+   * change removed.
+   *
+   * The editor waits for a painted frame after invoking this — a host that
+   * paints without one would show nothing, since what follows is synchronous.
+   *
+   * Left unset (slides text boxes, tests) the whole path stays synchronous.
+   */
+  largePasteHandler: (() => () => void) | null = null;
+
+  /**
+   * True only across the one macrotask a large paste yields so its busy
+   * indicator can paint. Input queued behind the paste would otherwise run
+   * against a caret the pending write is about to move, so the mutating
+   * handlers drop events while it is set.
+   */
+  private pasting = false;
+
+  /**
+   * Set by `dispose()`. Only read by the deferred paste job, which is the one
+   * piece of work that can outlive the editor: it is scheduled a frame ahead,
+   * and the host may unmount in between.
+   */
+  private disposed = false;
 
   /**
    * Optional hover pre-handler invoked inside `handleMouseMove` right
@@ -590,6 +651,13 @@ export class TextEditor {
     // View-only mode: never begin a composition so no IME text is committed
     // on compositionend (its `active` guard then makes the end a no-op).
     if (this.readOnly) return;
+    // A large paste is mid-yield; its write owns the caret. See `pasting`.
+    // The `handleKeyDown` guard does not cover this: an IME dispatches
+    // keydown with keyCode 229 and `preventDefault()` on it does not
+    // suppress the composition, so without this a CJK keystroke landing in
+    // the gap would `deleteSelection()` the range the paste is about to
+    // replace and then commit its character at a stale position.
+    if (this.pasting) return;
     // Cancel any pending post-compositionend ignore — a new composition is
     // starting (e.g. syllable boundary in Korean: compositionend → compositionstart).
     this.ignoreInputUntilNextTick = false;
@@ -659,6 +727,11 @@ export class TextEditor {
     // put in the hidden textarea (e.g. a stray keystroke while focused for
     // copy) so nothing is inserted.
     if (this.readOnly) {
+      this.textarea.value = '';
+      return;
+    }
+    // A large paste is mid-yield; its write owns the caret. See `pasting`.
+    if (this.pasting) {
       this.textarea.value = '';
       return;
     }
@@ -738,6 +811,12 @@ export class TextEditor {
     this.shiftHeld = e.shiftKey;
     // Don't intercept keys during IME composition
     if (this.composition.active || e.isComposing) return;
+
+    // A large paste is mid-yield; its write owns the caret. See `pasting`.
+    if (this.pasting) {
+      e.preventDefault();
+      return;
+    }
 
     // Image selection consumes certain keys (Delete / Backspace / Escape)
     // before the text-editor path sees them. For any other key, the
@@ -1131,6 +1210,136 @@ export class TextEditor {
   };
 
   /**
+   * Decide what a clipboard payload should become, without writing anything.
+   * Split from the write so `pasteFromParts` can size the job (and put a busy
+   * indicator on screen) before it blocks the tab — parsing is cheap relative
+   * to the write, and doing it first is what makes the size knowable.
+   */
+  private planPaste(opts: { html?: string; text?: string }): PastePlan | null {
+    // Try HTML paste (unless shift is held for plain-text paste)
+    if (!this.shiftHeld && opts.html) {
+      // Try HTML table first
+      const tableCells = parseHtmlTableToTableCells(opts.html);
+      if (tableCells) return { kind: 'tableCells', cells: tableCells };
+
+      const blocks = parseHtmlToBlocks(opts.html);
+      if (blocks.length > 0) return { kind: 'blocks', blocks };
+    }
+
+    // Fall through to plain text handling
+    const text = opts.text;
+    if (!text) return null;
+
+    // Try markdown table parsers (skip when shift is held — force plain-text)
+    if (!this.shiftHeld) {
+      // Try pure markdown table (enables cell-by-cell paste into existing tables)
+      const mdTableCells = parseMarkdownTableToTableCells(text);
+      if (mdTableCells) return { kind: 'tableCells', cells: mdTableCells };
+
+      // Try mixed markdown with tables (e.g. full document with tables)
+      const mdBlocks = parseMarkdownWithTables(text);
+      if (mdBlocks) return { kind: 'blocks', blocks: mdBlocks };
+    }
+
+    return { kind: 'text', text };
+  }
+
+  /**
+   * Write a planned paste. Fully synchronous, so nothing can interleave.
+   *
+   * Not one undo unit: `insertBlocks()` splits the destination, rewrites the
+   * head, inserts the batch, and rewrites the tail as separate store writes
+   * (measured at 4 for a multi-block paste, pinned by
+   * `tests/app/docs/editor-undo-selection.test.ts` in the frontend). What batching
+   * bought is that the count is now *constant* instead of one per pasted
+   * block. Collapsing it to one would need a transaction primitive on
+   * `DocStore`, which does not exist.
+   */
+  private applyPastePlan(plan: PastePlan): void {
+    this.saveSnapshot();
+    this.deleteSelection();
+    if (plan.kind === 'text') {
+      this.insertPlainText(plan.text);
+    } else {
+      if (plan.kind === 'tableCells') this.pasteTableCells(plan.cells);
+      else this.insertBlocks(plan.blocks);
+      // The internal clipboard is the one paste payload that preserves an
+      // explicit `italic: false` (the HTML/markdown parsers only ever write
+      // `true`), so a run copied out of a Heading 6 can land in a block whose
+      // named style does not supply italic — a dead flag (#749). Same cleanup
+      // a block-type change runs; a no-op when nothing is stale. Set only on
+      // the internal-clipboard plans, which are the ones that can carry it.
+      if (plan.dropStaleStyleOff) this.doc.dropStaleStyleOffAll();
+    }
+    this.selection.setRange(null);
+    this.requestRender();
+  }
+
+  /**
+   * Run `job` — the whole synchronous cost of a paste — behind a host busy
+   * indicator when `weight` says it will be felt.
+   *
+   * Both halves of a paste are blocking (parsing and the write are roughly
+   * even), so the indicator has to go up before *either*, which is why the
+   * caller passes an unparsed weight rather than a block count.
+   *
+   * The wait is `yieldToPaintedFrame`, not a bare macrotask: a single long
+   * block right after `yieldToPaint()` can swallow the frame entirely, and an
+   * indicator that never paints is the whole feature failing.
+   *
+   * `pasting` guards that gap: input events queued behind the paste (a keyup,
+   * an autorepeat) would otherwise run against a caret the paste is about to
+   * move.
+   */
+  private runPaste(weight: number, job: () => void): void {
+    const dismiss =
+      weight >= LARGE_PASTE_WEIGHT_THRESHOLD ? this.largePasteHandler?.() : undefined;
+    if (!dismiss) {
+      // Deliberately not `async`: this is the path every ordinary paste
+      // takes, and it must stay synchronous so a parser or store failure
+      // propagates out of the event handler to `window.onerror` rather than
+      // becoming a discarded rejection.
+      job();
+      return;
+    }
+    this.pasting = true;
+    void this.deferPaste(job, dismiss);
+  }
+
+  /** The deferred half of {@link runPaste}. Only reached above the threshold. */
+  private async deferPaste(job: () => void, dismiss: () => void): Promise<void> {
+    try {
+      await yieldToPaintedFrame();
+      // The host can unmount during the frame this waited for; writing
+      // through a disposed editor would mutate a document nothing renders.
+      if (!this.disposed) job();
+    } catch (err) {
+      // `void`-ing this call would bury a failure in an unhandled rejection,
+      // a channel most error reporting does not watch. Rethrow from a bare
+      // task so it surfaces as an uncaught error, the way the synchronous
+      // path's throw does.
+      setTimeout(() => {
+        throw err;
+      });
+    } finally {
+      this.pasting = false;
+      dismiss();
+    }
+  }
+
+  /**
+   * Weight of a raw clipboard payload — characters, the only size available
+   * before parsing. A proxy, and deliberately a loose one: characters per
+   * block swing widely by source (heavy Google Docs HTML runs several hundred
+   * per paragraph, plain text a few dozen), so the threshold is set high
+   * enough that a false positive costs a brief toast on a paste that turned
+   * out to be quick, never a missed indicator on one that was not.
+   */
+  private static payloadWeight(opts: { html?: string; text?: string }): number {
+    return Math.max(opts.html?.length ?? 0, opts.text?.length ?? 0);
+  }
+
+  /**
    * Shared HTML/text paste logic used by both the keyboard paste path
    * (`handlePaste`) and the programmatic paste API (`pasteContent`).
    * `html` and `text` are the respective clipboard payloads; both may be
@@ -1138,64 +1347,10 @@ export class TextEditor {
    * `shiftHeld` suppresses HTML/markdown processing (force plain-text paste).
    */
   private pasteFromParts(opts: { html?: string; text?: string }): void {
-    // Try HTML paste (unless shift is held for plain-text paste)
-    if (!this.shiftHeld && opts.html) {
-      // Try HTML table first
-      const tableCells = parseHtmlTableToTableCells(opts.html);
-      if (tableCells) {
-        this.saveSnapshot();
-        this.deleteSelection();
-        this.pasteTableCells(tableCells);
-        this.selection.setRange(null);
-        this.requestRender();
-        return;
-      }
-
-      const blocks = parseHtmlToBlocks(opts.html);
-      if (blocks.length > 0) {
-        this.saveSnapshot();
-        this.deleteSelection();
-        this.insertBlocks(blocks);
-        this.selection.setRange(null);
-        this.requestRender();
-        return;
-      }
-    }
-
-    // Fall through to plain text handling
-    const text = opts.text;
-    if (!text) return;
-
-    // Try markdown table parsers (skip when shift is held — force plain-text)
-    if (!this.shiftHeld) {
-      // Try pure markdown table (enables cell-by-cell paste into existing tables)
-      const mdTableCells = parseMarkdownTableToTableCells(text);
-      if (mdTableCells) {
-        this.saveSnapshot();
-        this.deleteSelection();
-        this.pasteTableCells(mdTableCells);
-        this.selection.setRange(null);
-        this.requestRender();
-        return;
-      }
-
-      // Try mixed markdown with tables (e.g. full document with tables)
-      const mdBlocks = parseMarkdownWithTables(text);
-      if (mdBlocks) {
-        this.saveSnapshot();
-        this.deleteSelection();
-        this.insertBlocks(mdBlocks);
-        this.selection.setRange(null);
-        this.requestRender();
-        return;
-      }
-    }
-
-    this.saveSnapshot();
-    this.deleteSelection();
-    this.insertPlainText(text);
-    this.selection.setRange(null);
-    this.requestRender();
+    this.runPaste(TextEditor.payloadWeight(opts), () => {
+      const plan = this.planPaste(opts);
+      if (plan) this.applyPastePlan(plan);
+    });
   }
 
   /**
@@ -1210,6 +1365,10 @@ export class TextEditor {
   pasteContent(opts: { html?: string; text?: string }): void {
     // View-only mode: block programmatic paste, mirroring handlePaste.
     if (this.readOnly) return;
+    // A large paste is already mid-yield; a second one would interleave,
+    // and its `finally` would clear `pasting` while the first is still
+    // pending. Mirrors handlePaste.
+    if (this.pasting) return;
     this.pending?.clear();
     this.pasteFromParts(opts);
   }
@@ -1217,6 +1376,11 @@ export class TextEditor {
   private handlePaste = (e: ClipboardEvent): void => {
     // View-only mode: pasting would insert content — block it.
     if (this.readOnly) {
+      e.preventDefault();
+      return;
+    }
+    // A large paste is already mid-yield; a second one would interleave.
+    if (this.pasting) {
       e.preventDefault();
       return;
     }
@@ -1241,44 +1405,51 @@ export class TextEditor {
 
     // Try rich internal paste first (editor-to-editor copy within the same
     // browser tab; not available from navigator.clipboard.read()).
-    const json = e.clipboardData?.getData(WAFFLEDOCS_MIME);
-    if (json) {
-      const data = deserializeClipboard(json);
-      if (data.tableCells && data.tableCells.length > 0) {
-        this.saveSnapshot();
-        this.deleteSelection();
-        this.pasteTableCells(data.tableCells);
-        // Same cleanup as the block branch below. `cloneTableCells` carries
-        // each block's `type`/`headingLevel`, so a same-document paste keeps
-        // its overrides live and this is a no-op — but a paste from a
-        // document whose Heading 6 is not italic strands the flag exactly as
-        // a block-type change would.
-        this.doc.dropStaleStyleOffAll();
-        this.selection.setRange(null);
-        this.requestRender();
-        return;
-      }
-      if (data.blocks.length > 0) {
-        this.saveSnapshot();
-        this.deleteSelection();
-        this.insertBlocks(data.blocks);
-        // The internal clipboard is the one paste payload that preserves an
-        // explicit `italic: false` (the HTML/markdown parsers only ever write
-        // `true`), so a run copied out of a Heading 6 can land in a block
-        // whose named style does not supply italic — a dead flag (#749). Same
-        // cleanup a block-type change runs; a no-op when nothing is stale.
-        this.doc.dropStaleStyleOffAll();
-        this.selection.setRange(null);
-        this.requestRender();
-        return;
-      }
-    }
+    // Read every format up front. `clipboardData` is only readable during the
+    // event's synchronous lifetime, and a large paste defers its work past
+    // that — so nothing below may reach back into the event.
+    const json = e.clipboardData?.getData(WAFFLEDOCS_MIME) || undefined;
+    const html = e.clipboardData?.getData('text/html') || undefined;
+    const text = e.clipboardData?.getData('text/plain') || undefined;
 
-    // Delegate HTML/text/markdown handling to the shared paste-from-parts path.
-    this.pasteFromParts({
-      html: e.clipboardData?.getData('text/html') || undefined,
-      text: e.clipboardData?.getData('text/plain') || undefined,
-    });
+    this.runPaste(
+      Math.max(json?.length ?? 0, TextEditor.payloadWeight({ html, text })),
+      () => {
+        // Rich internal paste first (editor-to-editor copy within the same
+        // browser tab; not available from navigator.clipboard.read()). Its
+        // `JSON.parse` runs here rather than before the indicator because on
+        // a large internal copy it is itself part of the freeze.
+        if (json) {
+          const data = deserializeClipboard(json);
+          // `dropStaleStyleOff` on both: `cloneTableCells` carries each
+          // block's `type`/`headingLevel`, so a same-document paste keeps its
+          // overrides live and the sweep is a no-op — but a paste from a
+          // document whose Heading 6 is not italic strands the flag exactly
+          // as a block-type change would.
+          if (data.tableCells && data.tableCells.length > 0) {
+            this.applyPastePlan({
+              kind: 'tableCells',
+              cells: data.tableCells,
+              dropStaleStyleOff: true,
+            });
+            return;
+          }
+          if (data.blocks.length > 0) {
+            this.applyPastePlan({
+              kind: 'blocks',
+              blocks: data.blocks,
+              dropStaleStyleOff: true,
+            });
+            return;
+          }
+          // An internal payload carrying nothing falls through to the
+          // HTML/text formats on the same clipboard rather than dropping the
+          // paste.
+        }
+        const plan = this.planPaste({ html, text });
+        if (plan) this.applyPastePlan(plan);
+      },
+    );
   };
 
   private resolveTableFromMouse(e: MouseEvent): {
@@ -1358,6 +1529,9 @@ export class TextEditor {
   }
 
   private handleMouseDown = (e: MouseEvent): void => {
+    // A large paste is mid-yield; moving the caret now would land the
+    // pending write wherever the user clicked. See `pasting`.
+    if (this.pasting) return;
     this.pending?.clear();
     if (e.target === this.textarea) return;
 
@@ -3717,19 +3891,25 @@ export class TextEditor {
       this.doc.updateBlockDirect(pos.blockId, headBlock);
 
       // Insert middle blocks (blocks[1..n-2]) after the head block, threaded
-      // before the split tail. `insertBlockAfter` is cell-aware (it resolves
+      // before the split tail. `insertBlocksAfter` is cell-aware (it resolves
       // the sibling's containing array via the store), so this works whether
       // the caret is in the body or inside a table cell — unlike the body-index
       // `insertBlockAt`, which returns -1 in a cell and dropped the blocks into
       // the document body (and then crashed on the stale tail lookup).
       // `cloneBlockWithFreshIds` regenerates every id, recursively for nested
       // tables, so the paste shares no ids with its source.
-      let prevBlockId = pos.blockId;
+      //
+      // Batched deliberately: the per-block loop this replaced re-read the
+      // whole document once per block, and on `YorkieDocStore` cost one CRDT
+      // change and one undo unit per block — a 1000-block paste froze the tab
+      // for ~3s and then needed 1000 Cmd+Z presses to undo. The surrounding
+      // split/head/tail writes are still their own units, so a paste costs a
+      // constant few rather than one.
+      const middleBlocks: Block[] = [];
       for (let i = 1; i < blocks.length - 1; i++) {
-        const newBlock = cloneBlockWithFreshIds(blocks[i]);
-        this.doc.insertBlockAfter(prevBlockId, newBlock);
-        prevBlockId = newBlock.id;
+        middleBlocks.push(cloneBlockWithFreshIds(blocks[i]));
       }
+      this.doc.insertBlocksAfter(pos.blockId, middleBlocks);
 
       // Prepend last pasted block's inlines to the tail block, preserving block metadata
       const tailBlock = this.doc.getBlock(tailBlockId);
@@ -5346,6 +5526,7 @@ export class TextEditor {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.textarea.removeEventListener('input', this.handleInput);
     this.textarea.removeEventListener('keydown', this.handleKeyDown);
     this.textarea.removeEventListener('compositionstart', this.handleCompositionStart);

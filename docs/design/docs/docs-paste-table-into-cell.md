@@ -108,11 +108,19 @@ are already cell-aware, so no cell-specific split machinery is needed.
 - Keep the existing split-at-caret + head/tail inline merge (those use the
   cell-aware `splitBlock` / `getBlock` / `updateBlockDirect`).
 - Replace the middle-block loop's `getBlockIndex(pos.blockId)` +
-  `insertBlockAt(idx++)` with **`insertBlockAfter` chaining**: start from
-  `pos.blockId` (the head) and, for each middle block, `insertBlockAfter(prevId,
-  newBlock)` then advance `prevId` to the inserted block. This threads the pasted
-  blocks in order between the head and the split tail, inside whatever array the
-  head lives in (cell or body).
+  `insertBlockAt(idx++)` with a single **`Doc.insertBlocksAfter(pos.blockId,
+  middleBlocks)`**, which threads the pasted blocks in order between the head
+  and the split tail, inside whatever array the head lives in (cell or body).
+
+  > Originally specified as `insertBlockAfter` *chaining* — one call per middle
+  > block, advancing `prevId` each time. That shipped, and then had to be
+  > replaced: each call re-read the whole document (`getDocument()` deep-clones
+  > it) and opened its own `doc.update()`, so a large paste was quadratic in
+  > document size and cost one undo unit and one CRDT change per block. The
+  > batched primitive is equivalent in placement and cell-awareness — it
+  > resolves the sibling path once and splices every node with a single Yorkie
+  > `editBulkByPath`. Measurements and the full story are in the archived
+  > `20260823-docs-large-paste-perf-*` task docs.
 
 ### Fresh IDs
 

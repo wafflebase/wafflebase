@@ -2041,6 +2041,50 @@ export class YorkieDocStore implements DocStore {
     this.dirty = false;
   }
 
+  /**
+   * Batched sibling insert — the multi-block paste path.
+   *
+   * Looping `insertBlockAfter()` was quadratic and coarse in three separate
+   * ways, all of which this collapses to one:
+   *
+   * - `getDocument()` clones the whole document (`JSON.parse(JSON.stringify)`)
+   *   on every call, so an N-block paste deep-copied the document N times.
+   *   Measured at ~63% of a large paste's cost.
+   * - Each `doc.update()` is one CRDT change on the wire, so a 1000-block
+   *   paste pushed 1000 changes to every peer.
+   * - Yorkie counts one `doc.update()` as one undo unit, so that same paste
+   *   took 1000 Cmd+Z presses to undo.
+   *
+   * `editBulkByPath` splices all N nodes in a single tree operation, so the
+   * whole batch is one change and one undo unit.
+   */
+  insertBlocksAfter(siblingBlockId: string, blocks: Block[]): void {
+    if (blocks.length === 0) return;
+    const currentDoc = this.getDocument();
+    const { path: siblingPath, region } = this.resolveBlockTreePath(siblingBlockId, currentDoc);
+
+    const insertPath = [...siblingPath];
+    insertPath[insertPath.length - 1] += 1;
+
+    const nodes = blocks.map((b) => buildBlockNode(b));
+    const cursorForHistory = this.consumePendingCursor();
+    this.doc.update((root, p) => {
+      if (cursorForHistory) {
+        this.recordHistoryPresence(p, cursorForHistory);
+      }
+      const tree = root.content;
+      if (!tree || typeof tree.getRootTreeNode !== 'function') return;
+      tree.editBulkByPath(insertPath, insertPath, nodes);
+    });
+
+    // Update cache in-place
+    const blocksArray = this.getBlocksArrayForPath(currentDoc, siblingPath, region);
+    const localIdx = this.localBlockIndex(currentDoc, siblingPath, region);
+    blocksArray.splice(localIdx + 1, 0, ...blocks);
+    this.cachedDoc = currentDoc;
+    this.dirty = false;
+  }
+
   deleteBlock(id: string): void {
     const currentDoc = this.getDocument();
     const { path: blockPath, region } = this.resolveBlockTreePath(id, currentDoc);

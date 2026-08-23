@@ -134,4 +134,14 @@ export interface DocStore {
   insertImageInline(blockId: string, offset: number, inline: Inline): void;
   /** Insert a block after the given sibling block (works for top-level and cell-internal blocks). */
   insertBlockAfter(siblingBlockId: string, block: Block): void;
+  /**
+   * Insert several blocks after the given sibling, in order, as a single
+   * write. Prefer this over looping `insertBlockAfter()` whenever one user
+   * action inserts more than one block (paste, import): on stores whose undo
+   * granularity is tied to the write itself (`YorkieDocStore`) the loop costs
+   * one undo unit and one CRDT change per block, and each call re-resolves
+   * the sibling's path against the whole document — quadratic in document
+   * size. Same reasoning as `applyStyles()` vs `applyStyle()`.
+   */
+  insertBlocksAfter(siblingBlockId: string, blocks: Block[]): void;
 }
