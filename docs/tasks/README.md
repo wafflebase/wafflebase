@@ -55,7 +55,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 530
+- Archived task count: 531
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: docs visual line affinity (2026-08-22)

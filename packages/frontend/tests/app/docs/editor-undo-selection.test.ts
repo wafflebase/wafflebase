@@ -11,11 +11,19 @@ import {
 } from '@wafflebase/docs';
 
 /**
- * Editor-level regression for issue #340 (toolbar/⌘B path). The store unit
- * tests cover the recording/restore contract when `setCursorForHistory` is
- * called with a selection; this test drives the *public editor API* end to
- * end to guard that `applyStyleImpl` actually records the caret + selection
- * before mutating — without it, undo restores nothing and this fails.
+ * Editor-level undo regressions driven through the *public editor API*
+ * against a real `YorkieDocStore`, where the store unit tests only cover the
+ * store contract:
+ *
+ * - issue #340 (toolbar/⌘B path): `applyStyleImpl` must record the caret +
+ *   selection before mutating, or undo restores nothing.
+ * - multi-block paste undo cost: it must stay constant in the size of the
+ *   paste.
+ *
+ * Both live in one file deliberately. Mounting the docs editor pulls in the
+ * whole `@wafflebase/docs` module graph, and a second frontend test file
+ * doing the same adds enough parallel transform load to time out an
+ * unrelated 5 s import smoke test elsewhere in the suite.
  *
  * jsdom has no real Canvas 2D context, so we shim `getContext` (mirrors the
  * docs-package editor tests). The undo/selection logic runs independent of
@@ -115,5 +123,96 @@ describe('editor undo restores the selection (issue #340, toolbar style path)', 
     // Without applyStyleImpl calling setCursorForHistory(pos, selection), the
     // style op records no reversible presence and this is null / collapsed.
     expect(editor.getActiveSelection()).toEqual(range);
+  });
+});
+
+/**
+ * How many undo units a multi-block paste costs, end to end.
+ *
+ * Yorkie counts one `doc.update()` as one undo unit, and the docs store has
+ * no transaction primitive (`DocStore.snapshot()` is a no-op there). Before
+ * `insertBlocksAfter`, `insertBlocks()` wrote one `doc.update()` **per
+ * pasted block**, so a 1000-block paste took 1000 Cmd+Z presses to undo.
+ *
+ * Batching the middle blocks collapses that to a constant, but *not* to one:
+ * `insertBlocks()` still splits the destination block, rewrites the head,
+ * inserts the batch, and rewrites the tail as separate store writes. This
+ * test pins that constant so the cost stays independent of paste size — the
+ * property that actually matters — and so nobody has to re-derive it from
+ * the "one undo unit" phrasing, which describes `insertBlocksAfter` alone
+ * and not the whole paste.
+ */
+function htmlWithParagraphs(n: number): string {
+  const parts: string[] = [];
+  for (let i = 0; i < n; i++) parts.push(`<p>Pasted ${i}</p>`);
+  return parts.join('');
+}
+
+describe('multi-block paste undo cost', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let doc: any;
+  let store: YorkieDocStore;
+  let editor: EditorAPI;
+  let container: HTMLDivElement;
+  let restoreCanvas: () => void;
+
+  beforeEach(() => {
+    restoreCanvas = installCanvasShim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc.update((root: any) => {
+      root.content = new yorkie.Tree({ type: 'doc', children: [] });
+    });
+    store = new YorkieDocStore(doc);
+    store.setDocument({ blocks: [makeBlock('seed')] });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    editor = initialize(container, store);
+  });
+
+  afterEach(() => {
+    container.remove();
+    restoreCanvas();
+  });
+
+  function pasteHtml(html: string): void {
+    const block = store.getDocument().blocks[0];
+    editor._setSelectionForTest({
+      anchor: { blockId: block.id, offset: 4 },
+      focus: { blockId: block.id, offset: 4 },
+    });
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    const event = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        types: ['text/html'],
+        getData: (t: string) => (t === 'text/html' ? html : ''),
+        items: [] as unknown[],
+      },
+    });
+    textarea.dispatchEvent(event);
+  }
+
+  it('costs the same number of undo units regardless of how many blocks are pasted', () => {
+    const depthAfter = (n: number): number => {
+      const before = doc.getUndoStackForTest().length;
+      pasteHtml(htmlWithParagraphs(n));
+      return doc.getUndoStackForTest().length - before;
+    };
+
+    const small = depthAfter(5);
+    const large = depthAfter(120);
+
+    // The property that matters: constant, not proportional to paste size.
+    // Before batching, `large` would have been ~120. Kept modest on purpose:
+    // this file mounts the whole docs editor, and the frontend suite runs
+    // files in parallel against a 5 s per-test budget elsewhere.
+    expect(large).toBe(small);
+    // Measured at 4 — split, head rewrite, batched insert, tail rewrite.
+    // Asserted as a ceiling rather than an equality so an unrelated store
+    // refactor that merges two of them does not fail this test, while a
+    // regression back to per-block writes still does.
+    expect(small).toBeLessThanOrEqual(6);
   });
 });

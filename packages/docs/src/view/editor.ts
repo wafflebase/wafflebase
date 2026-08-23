@@ -328,6 +328,16 @@ export interface EditorAPI {
    * active; calling this again replaces it.
    */
   onImageFileDrop(cb: ((file: File, position: { blockId: string; offset: number }) => void) | null): void;
+  /**
+   * Register a busy indicator for pastes large enough to block the tab for a
+   * perceptible time. Called before the payload is parsed or written; return
+   * a function that takes the indicator down. The editor waits for a painted
+   * frame in between so the indicator can actually appear — parsing and the
+   * write are both synchronous, and together they are the freeze. Indeterminate
+   * by design: the write is one atomic transaction, so there is no fraction to
+   * report. Unset (the default) leaves the paste path fully synchronous.
+   */
+  onLargePaste(cb: (() => () => void) | null): void;
   /** Insert a page number token at cursor in header/footer */
   insertPageNumber(): void;
   /** Get the current edit context */
@@ -1251,6 +1261,14 @@ export function initialize(
    */
   let imageFileDropCallback: ((file: File, position: { blockId: string; offset: number }) => void) | null = null;
 
+  /**
+   * Callback the host installs via `onLargePaste` to raise a busy indicator
+   * around a paste big enough to be felt. Held here as well as on the
+   * `TextEditor` so it survives a `TextEditor` re-creation, the same way
+   * `imageFileDropCallback` does.
+   */
+  let largePasteCallback: (() => () => void) | null = null;
+
   // Compute layout helper
   const recomputeLayout = () => {
     const pageSetup = resolvePageSetup(doc.document.pageSetup);
@@ -2168,6 +2186,8 @@ export function initialize(
     // on the same page (e.g., slides text-boxes) no longer collide.
     textEditor.setCursorTarget(canvas);
     textEditor.setPendingStyle(pending);
+    // Re-apply a host callback installed before this TextEditor existed.
+    textEditor.largePasteHandler = largePasteCallback;
 
     // Receive view-local IME composing text so recomputeLayout injects it
     // into the caret block's layout (never written to the model). The
@@ -3573,6 +3593,10 @@ export function initialize(
         textEditor.imageFilePasteHandler = cb;
       }
     },
+    onLargePaste: (cb: (() => () => void) | null) => {
+      largePasteCallback = cb;
+      if (textEditor) textEditor.largePasteHandler = cb;
+    },
     insertPageNumber: () => {
       if (!textEditor) return;
       const ctx = textEditor.getEditContext();
@@ -3642,6 +3666,7 @@ export function initialize(
       selectedImage = null;
       imageResizeDrag = null;
       imageFileDropCallback = null;
+      largePasteCallback = null;
       ruler.dispose();
       cursor.dispose();
       textEditor?.dispose();
