@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MemDocStore } from '../../src/store/memory.js';
 import { initialize, type EditorAPI } from '../../src/view/editor.js';
 import { normalizeBlockStyle } from '../../src/model/types.js';
@@ -111,6 +111,24 @@ function dispatchHtmlPaste(textarea: HTMLTextAreaElement, html: string): void {
 function flushPaintedFrame(): Promise<void> {
   return new Promise((resolve) => {
     requestAnimationFrame(() => setTimeout(() => setTimeout(resolve, 0), 0));
+  });
+}
+
+/**
+ * Drain one macrotask using the same primitive `yieldToPaint()` does.
+ *
+ * A `setTimeout(0)` drain would be the obvious choice, but it puts the
+ * assertion in a race with `yieldToPaintedFrame`'s real 100 ms fallback
+ * timer: on a loaded runner (CI under coverage) the event loop can stall
+ * past 100 ms between arming that timer and running the drain, the
+ * fallback wins, and the paste lands before the test looks. Draining the
+ * MessageChannel queue directly removes the wall clock from the test.
+ */
+function drainMacrotask(): Promise<void> {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => resolve();
+    channel.port2.postMessage(0);
   });
 }
 
@@ -226,6 +244,13 @@ describe('large paste busy indicator', () => {
       pending.push(cb);
       return pending.length;
     }) as typeof globalThis.requestAnimationFrame;
+    // Withhold the frame *and* the timeout fallback, so the only thing that
+    // can let this paste through is the rAF chain under test. The fallback
+    // is real behavior with its own test below ("hidden tab"); leaving it
+    // armed on the wall clock here just makes this a race the runner wins
+    // whenever it stalls past 100 ms. Faking `clearTimeout` too keeps
+    // `yieldToPaintedFrame`'s own cleanup talking to the same clock.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       const { editor, textarea, store } = setupEditor();
       editor.onLargePaste(() => () => {});
@@ -233,17 +258,18 @@ describe('large paste busy indicator', () => {
       dispatchHtmlPaste(textarea, htmlOfSize(THRESHOLD));
 
       // Drain every macrotask a MessageChannel-only wait would need.
-      await new Promise((r) => setTimeout(r, 0));
-      await new Promise((r) => setTimeout(r, 0));
+      await drainMacrotask();
+      await drainMacrotask();
 
       expect(pending.length).toBeGreaterThan(0);
       expect(store.getDocument().blocks.length).toBe(1);
 
       // Releasing the frame lets the paste through.
       for (const cb of pending.splice(0)) cb(0);
-      await new Promise((r) => setTimeout(r, 0));
+      await drainMacrotask();
       expect(store.getDocument().blocks.length).toBeGreaterThan(100);
     } finally {
+      vi.useRealTimers();
       globalThis.requestAnimationFrame = realRaf;
     }
   });
