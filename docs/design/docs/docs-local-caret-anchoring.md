@@ -108,6 +108,33 @@ user clicked instead of the previous line's end. Only the two real endpoints can
 be ambiguous; interior blocks of a multi-block selection run from offset `0` to
 their text length, so they keep the default.
 
+Affinity is *produced* in two places, both of which have already resolved a
+visual line and so know which one the user meant:
+
+- **Pixel hit-tests** derive it from the line they hit, through one shared
+  rule — `hitTestLineAffinity(offset, lineStartOffset, isFirstLineOfBlock)`
+  in `view/visual-line.ts`: an offset landing exactly on the start boundary
+  of a line that is not the block's first reads `'forward'`, everything else
+  `'backward'`. `find-position-at-pixel.ts` (body), the header/footer
+  resolvers (`getHFPositionFromMouse` / `resolveHFCellOffset`) and the table
+  cell resolvers (`resolveOffsetInCellAtXY` / `resolveOffsetInNestedTable`,
+  which return it on `CellHitTest` at any nesting depth) all call it. A
+  click, a shift+click and a same-cell drag therefore put the same affinity
+  on the caret *and* on the selection endpoint — which is what makes the
+  cell-internal branch of `selection.ts` above receive one at all.
+- **Typing**: `getWrapAffinity` asks `getVisualLineRange(pos, 'forward')`
+  and reports `'forward'` when the inserted text left the caret exactly on a
+  non-first line's start. That range comes from the *active* layout (body,
+  header or footer), and for a cell block from `resolveNestedTableLayout`,
+  so it resolves inside a table nested to any depth — an inner table is not
+  a member of `layout.blocks`. Every lookup on that path is optional
+  because `blockParentMap` can describe a shape the layout no longer has;
+  it degrades to the block-wide range rather than throwing on a keystroke.
+
+Before this, a caret inside a table cell or a header/footer could only ever
+report `'backward'`, so Home / End and the caret paint acted on the line
+*above* the one the caret was drawn on (#934).
+
 The Yorkie-backed frontend integration owns the anchored representation. The
 shipped types in `yorkie-doc-store.ts` also carry `blockId`, `offset`, and
 `regionTopIndex` — the last-known resolved position plus the anchor's top-level

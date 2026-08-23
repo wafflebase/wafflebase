@@ -14,9 +14,10 @@ import type { TextMeasurer } from './measurer.js';
 import { HangulAssembler, isJamo, type HangulResult } from './hangul.js';
 import { detectUrlBeforeCursor, isSafeUrl } from './url-detect.js';
 import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word-boundary.js';
-import { findVisualLine } from './visual-line.js';
+import { findVisualLine, hitTestLineAffinity } from './visual-line.js';
 import { detectTableBorder, createDragState, type BorderDragState } from './table-resize.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
+import { resolveNestedTableLayout } from './table-layout.js';
 import type { PendingStyle } from './pending-style.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { dirtyBlockIdsForRange } from '../model/range-slices.js';
@@ -106,6 +107,17 @@ interface CompositionState {
    * docs/design/docs/docs-ime-undo-history.md.
    */
   composingText: string;
+}
+
+/**
+ * A pixel hit-test resolved into a table cell: the cell's inner block, the
+ * character offset within it, and which visual line the click belongs to
+ * when the offset sits on a soft-wrap boundary.
+ */
+interface CellHitTest {
+  blockId: string;
+  offset: number;
+  lineAffinity: 'forward' | 'backward';
 }
 
 /**
@@ -1749,9 +1761,13 @@ export class TextEditor {
                 anchorCellInfo.rowIndex === cellAddr.rowIndex &&
                 anchorCellInfo.colIndex === cellAddr.colIndex) {
               const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
-              const focus: DocPosition = { blockId: resolved.blockId, offset: resolved.offset };
+              const focus: DocPosition = {
+                blockId: resolved.blockId,
+                offset: resolved.offset,
+                lineAffinity: resolved.lineAffinity,
+              };
               this.selection.setRange({ anchor, focus });
-              this.cursor.moveTo(focus);
+              this.cursor.moveTo(focus, resolved.lineAffinity);
             } else {
               const firstBlockId = cell.blocks[0].id;
               this.cursor.moveTo({ blockId: firstBlockId, offset: 0 });
@@ -1760,9 +1776,13 @@ export class TextEditor {
           } else {
             // Single click — resolve character offset from mouse position
             const resolved = this.resolveOffsetInCell(pos.blockId, cellAddr, e);
-            const cellPos: DocPosition = { blockId: resolved.blockId, offset: resolved.offset };
+            const cellPos: DocPosition = {
+              blockId: resolved.blockId,
+              offset: resolved.offset,
+              lineAffinity: resolved.lineAffinity,
+            };
 
-            this.cursor.moveTo(cellPos);
+            this.cursor.moveTo(cellPos, resolved.lineAffinity);
             // Set anchor for drag selection (same as non-cell single click)
             this.selection.setRange({ anchor: cellPos, focus: cellPos });
           }
@@ -2012,10 +2032,13 @@ export class TextEditor {
                   resolvedCellInfo.tableBlockId === anchorTableId &&
                   resolvedCellInfo.rowIndex === anchorCellInfo.rowIndex &&
                   resolvedCellInfo.colIndex === anchorCellInfo.colIndex) {
-                // Same cell — text selection mode
+                // Same cell — text selection mode. The affinity has to
+                // travel on the endpoint: `result` describes the table
+                // block, not the line inside the cell that was dragged to.
                 pos = {
                   blockId: resolved.blockId,
                   offset: resolved.offset,
+                  lineAffinity: resolved.lineAffinity,
                 };
               } else if (resolvedCellInfo &&
                   resolvedCellInfo.tableBlockId === anchorTableId) {
@@ -2074,7 +2097,7 @@ export class TextEditor {
         }
       }
 
-      this.cursor.moveTo(pos, result.lineAffinity);
+      this.cursor.moveTo(pos, pos.lineAffinity ?? result.lineAffinity);
       this.selection.setRange({ anchor, focus: pos, tableCellRange });
       this.requestRender();
     }
@@ -4210,39 +4233,48 @@ export class TextEditor {
   ): [number, number] {
     const layout = this.getActiveLayout();
 
-    // Cell block: find lines from the table layout
+    // Cell block: find lines from the table layout. `resolveNestedTableLayout`
+    // is what makes this work at any nesting depth — an inner table is not a
+    // member of `layout.blocks`, so looking `cellInfo.tableBlockId` up there
+    // directly (as this used to) missed every block inside a nested cell,
+    // leaving `getWrapAffinity` stuck on 'backward' there while the click
+    // path already answered 'forward'.
+    //
+    // Every lookup below is optional and the loop never calls
+    // `doc.getBlock`: `blockParentMap` can describe a shape the layout or
+    // the document no longer has (a remote edit removing rows, a layout
+    // computed before the local insertion being described), and
+    // `getWrapAffinity` runs on every keystroke — it must degrade to the
+    // block-wide range rather than throw.
     const cellInfo = this.getCellInfo(pos.blockId);
     if (cellInfo) {
-      const tableLb = layout.blocks.find((b) => b.block.id === cellInfo.tableBlockId);
-      if (tableLb?.layoutTable) {
-        const layoutCell = tableLb.layoutTable.cells[cellInfo.rowIndex]?.[cellInfo.colIndex];
-        if (layoutCell && !layoutCell.merged) {
-          const tableBlock = this.doc.getBlock(cellInfo.tableBlockId);
-          const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
-          const cbi = cell.blocks.findIndex(b => b.id === pos.blockId);
-          const startLine = layoutCell.blockBoundaries[cbi] ?? 0;
-          const endLine = layoutCell.blockBoundaries[cbi + 1] ?? layoutCell.lines.length;
+      const resolved = resolveNestedTableLayout(cellInfo.tableBlockId, layout);
+      const layoutCell = resolved?.layoutTable.cells[cellInfo.rowIndex]?.[cellInfo.colIndex];
+      const cell = resolved?.dataBlock.tableData
+        ?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+      const cbi = cell?.blocks.findIndex(b => b.id === pos.blockId) ?? -1;
+      if (layoutCell && !layoutCell.merged && cell && cbi >= 0) {
+        const startLine = layoutCell.blockBoundaries[cbi] ?? 0;
+        const endLine = layoutCell.blockBoundaries[cbi + 1] ?? layoutCell.lines.length;
 
-          let charsBefore = 0;
-          for (let li = startLine; li < endLine; li++) {
-            let lineChars = 0;
-            for (const run of layoutCell.lines[li].runs) {
-              lineChars += run.charEnd - run.charStart;
-            }
-            const lineStart = charsBefore;
-            const lineEnd = charsBefore + lineChars;
-            // Same boundary rule as findVisualLine: the cell's last line
-            // always keeps its end offset, earlier lines only under
-            // 'backward' affinity.
-            const ownsLineEnd = li === endLine - 1 || lineAffinity === 'backward';
-            if (pos.offset >= lineStart && (pos.offset < lineEnd || (ownsLineEnd && pos.offset <= lineEnd))) {
-              return [lineStart, lineEnd];
-            }
-            charsBefore = lineEnd;
+        let charsBefore = 0;
+        for (let li = startLine; li < endLine; li++) {
+          let lineChars = 0;
+          for (const run of layoutCell.lines[li]?.runs ?? []) {
+            lineChars += run.charEnd - run.charStart;
           }
-          const total = getBlockTextLength(this.doc.getBlock(pos.blockId));
-          return [0, total];
+          const lineStart = charsBefore;
+          const lineEnd = charsBefore + lineChars;
+          // Same boundary rule as findVisualLine: the cell's last line
+          // always keeps its end offset, earlier lines only under
+          // 'backward' affinity.
+          const ownsLineEnd = li === endLine - 1 || lineAffinity === 'backward';
+          if (pos.offset >= lineStart && (pos.offset < lineEnd || (ownsLineEnd && pos.offset <= lineEnd))) {
+            return [lineStart, lineEnd];
+          }
+          charsBefore = lineEnd;
         }
+        return [0, getBlockTextLength(cell.blocks[cbi])];
       }
     }
 
@@ -4287,22 +4319,17 @@ export class TextEditor {
    * Determine cursor affinity for a position after text insertion.
    * Returns 'forward' when the offset coincides with the start of a
    * non-first visual line (i.e., a line-wrap boundary).
+   *
+   * Resolved through `getVisualLineRange`, which reads the *active*
+   * layout and understands cell blocks at any nesting depth — walking
+   * `getLayout().blocks` directly (as this used to) never matched a block
+   * inside a table cell or a header/footer, so those regions could only
+   * ever answer 'backward'. Asking for the 'forward' reading is what makes
+   * the boundary resolve to the line that *starts* there.
    */
   private getWrapAffinity(pos: DocPosition): 'forward' | 'backward' {
-    const layout = this.getLayout();
-    const lb = layout.blocks.find((b) => b.block.id === pos.blockId);
-    if (!lb || lb.lines.length <= 1) return 'backward';
-
-    let charsBefore = 0;
-    for (let i = 0; i < lb.lines.length; i++) {
-      if (i > 0 && charsBefore === pos.offset) return 'forward';
-      let lineChars = 0;
-      for (const run of lb.lines[i].runs) {
-        lineChars += run.charEnd - run.charStart;
-      }
-      charsBefore += lineChars;
-    }
-    return 'backward';
+    const [start] = this.getVisualLineRange(pos, 'forward');
+    return start === pos.offset && start > 0 ? 'forward' : 'backward';
   }
 
   private moveVertical(pos: DocPosition, direction: -1 | 1): DocPosition {
@@ -4594,6 +4621,11 @@ export class TextEditor {
           for (let k = 0; k < li; k++) {
             for (const r of lb.lines[k].runs) charsBefore += r.text.length;
           }
+          // The clicked line's start offset: an offset landing on it reads
+          // 'forward' so the caret stays on the line that was clicked.
+          const lineStartOffset = charsBefore;
+          const affinityForOffset = (o: number): 'forward' | 'backward' =>
+            hitTestLineAffinity(o, lineStartOffset, li === 0);
           for (const run of line.runs) {
             const runEnd = run.x + run.width;
             if (localX <= runEnd) {
@@ -4605,12 +4637,13 @@ export class TextEditor {
                 if (run.x + w > localX) break;
                 bestOffset = c;
               }
-              return { blockId: lb.block.id, offset: charsBefore + bestOffset, lineAffinity: 'backward' as const };
+              const offset = charsBefore + bestOffset;
+              return { blockId: lb.block.id, offset, lineAffinity: affinityForOffset(offset) };
             }
             charsBefore += run.text.length;
           }
           // Past end of line
-          return { blockId: lb.block.id, offset: charsBefore, lineAffinity: 'backward' as const };
+          return { blockId: lb.block.id, offset: charsBefore, lineAffinity: affinityForOffset(charsBefore) };
         }
       }
     }
@@ -4703,6 +4736,9 @@ export class TextEditor {
     for (let li = blockStartLine; li < targetLineIdx; li++) {
       for (const run of cell.lines[li].runs) offset += run.text.length;
     }
+    const lineStartOffset = offset;
+    const affinityForOffset = (o: number): 'forward' | 'backward' =>
+      hitTestLineAffinity(o, lineStartOffset, targetLineIdx === blockStartLine);
 
     // Resolve X within the target line. `run.x` is relative to the cell's
     // content origin (column left + padding).
@@ -4714,13 +4750,13 @@ export class TextEditor {
         const font = resolveInlineFont(run.inline.style);
         for (let i = 0; i <= run.text.length; i++) {
           if (measurer.measureWidth(run.text.slice(0, i), font) + run.x >= cellLocalX) {
-            return { blockId: targetBlock.id, offset: offset + i, lineAffinity: 'backward' as const };
+            return { blockId: targetBlock.id, offset: offset + i, lineAffinity: affinityForOffset(offset + i) };
           }
         }
         offset += run.text.length;
       }
     }
-    return { blockId: targetBlock.id, offset, lineAffinity: 'backward' as const };
+    return { blockId: targetBlock.id, offset, lineAffinity: affinityForOffset(offset) };
   }
 
   /**
@@ -4824,7 +4860,7 @@ export class TextEditor {
   /**
    * Resolve a mouse event to a cell block ID and character offset within a table cell.
    */
-  private resolveOffsetInCell(blockId: string, cellAddr: CellAddress, e: MouseEvent): { blockId: string; offset: number } {
+  private resolveOffsetInCell(blockId: string, cellAddr: CellAddress, e: MouseEvent): CellHitTest {
     const rect = this.container.getBoundingClientRect();
     const s = this.getScaleFactor();
     const logicalX = (e.clientX - rect.left + this.container.scrollLeft) / s;
@@ -4840,16 +4876,16 @@ export class TextEditor {
     cellAddr: CellAddress,
     logicalX: number,
     logicalY: number | undefined,
-  ): { blockId: string; offset: number } {
+  ): CellHitTest {
     const layout = this.getLayout();
     const lb = layout.blocks.find((b) => b.block.id === blockId);
     const dataBlock = this.doc.getBlock(blockId);
     const defaultBlockId = dataBlock.tableData?.rows[cellAddr.rowIndex]?.cells[cellAddr.colIndex]?.blocks[0]?.id ?? blockId;
-    if (!lb?.layoutTable) return { blockId: defaultBlockId, offset: 0 };
+    if (!lb?.layoutTable) return { blockId: defaultBlockId, offset: 0, lineAffinity: 'backward' };
 
     const tl = lb.layoutTable;
     const cell = tl.cells[cellAddr.rowIndex]?.[cellAddr.colIndex];
-    if (!cell || cell.merged) return { blockId: defaultBlockId, offset: 0 };
+    if (!cell || cell.merged) return { blockId: defaultBlockId, offset: 0, lineAffinity: 'backward' };
 
     const paginatedLayout = this.getPaginatedLayout();
     const { margins } = paginatedLayout.pageSetup;
@@ -4958,6 +4994,13 @@ export class TextEditor {
       }
     }
 
+    // The offset the target line starts at, used to decide affinity: a
+    // click that lands on it belongs to the clicked line, not to the one
+    // that ends there.
+    const lineStartOffset = offset;
+    const affinityForOffset = (o: number): 'forward' | 'backward' =>
+      hitTestLineAffinity(o, lineStartOffset, targetLineIdx === blockStartLine);
+
     // Resolve X within the target line
     const measurer = this.getMeasurer();
     const targetLine = cell.lines[targetLineIdx];
@@ -5013,14 +5056,14 @@ export class TextEditor {
           const w = measurer.measureWidth(run.text.slice(0, i), font) + run.x;
           if (w >= localX) {
             const cellBlockId = dataBlock.tableData!.rows[cellAddr.rowIndex].cells[cellAddr.colIndex].blocks[currentBlockIndex].id;
-            return { blockId: cellBlockId, offset: offset + i };
+            return { blockId: cellBlockId, offset: offset + i, lineAffinity: affinityForOffset(offset + i) };
           }
         }
         offset += run.text.length;
       }
     }
     const cellBlockId = dataBlock.tableData!.rows[cellAddr.rowIndex].cells[cellAddr.colIndex].blocks[currentBlockIndex].id;
-    return { blockId: cellBlockId, offset };
+    return { blockId: cellBlockId, offset, lineAffinity: affinityForOffset(offset) };
   }
 
   /**
@@ -5051,7 +5094,7 @@ export class TextEditor {
     tableAbsY: number,
     localX: number,
     logicalY: number | undefined,
-  ): { blockId: string; offset: number } {
+  ): CellHitTest {
     const fallbackBlockId = tableBlock.tableData?.rows[0]?.cells[0]?.blocks[0]?.id ?? tableBlock.id;
 
     // Resolve row from Y, column from X.
@@ -5095,7 +5138,7 @@ export class TextEditor {
     const cellLayout = layoutTable.cells[row]?.[col];
     const cellData = tableBlock.tableData!.rows[row]?.cells[col];
     if (!cellLayout || !cellData || cellLayout.merged) {
-      return { blockId: fallbackBlockId, offset: 0 };
+      return { blockId: fallbackBlockId, offset: 0, lineAffinity: 'backward' };
     }
 
     const cellPadding = cellData.style.padding ?? 4;
@@ -5139,7 +5182,7 @@ export class TextEditor {
           logicalY,
         );
       }
-      return { blockId: cellBlockId, offset: 0 };
+      return { blockId: cellBlockId, offset: 0, lineAffinity: 'backward' };
     }
 
     // Character offset within the target line's runs.
@@ -5150,6 +5193,9 @@ export class TextEditor {
         offset += run.text.length;
       }
     }
+    const lineStartOffset = offset;
+    const affinityForOffset = (o: number): 'forward' | 'backward' =>
+      hitTestLineAffinity(o, lineStartOffset, lineIdx === blockStartLine);
     if (targetLine) {
       const measurer = this.getMeasurer();
       for (const run of targetLine.runs) {
@@ -5157,13 +5203,13 @@ export class TextEditor {
         for (let i = 0; i <= run.text.length; i++) {
           const w = measurer.measureWidth(run.text.slice(0, i), font) + run.x;
           if (w >= cellLocalX) {
-            return { blockId: cellBlockId, offset: offset + i };
+            return { blockId: cellBlockId, offset: offset + i, lineAffinity: affinityForOffset(offset + i) };
           }
         }
         offset += run.text.length;
       }
     }
-    return { blockId: cellBlockId, offset };
+    return { blockId: cellBlockId, offset, lineAffinity: affinityForOffset(offset) };
   }
 
   /**
