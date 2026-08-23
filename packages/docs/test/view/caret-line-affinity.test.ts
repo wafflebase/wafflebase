@@ -19,8 +19,9 @@ const EMPTY_BLOCK_STYLE = normalizeBlockStyle({});
  * republished `{blockId, offset}`.
  *
  * These tests assert what leaves the editor — the position handed to
- * `onCursorMove` (which is what presence publishes) and the peer caret pixels
- * from `getPeerCursorPixels()` — rather than any internal field.
+ * `onCursorMove` (which is what presence publishes), the caret rebuilt by the
+ * undo/redo presence restore, and the peer caret pixels from
+ * `getPeerCursorPixels()` — rather than any internal field.
  */
 
 function installCanvasShim(): void {
@@ -68,18 +69,57 @@ function installCanvasShim(): void {
 /** A paragraph long enough to wrap onto several visual lines. */
 const WRAPPED_TEXT = ('lorem ipsum dolor sit amet '.repeat(12)).trim();
 
-function setupEditor(): { editor: EditorAPI; container: HTMLElement } {
+/**
+ * A `MemDocStore` that also answers the two optional presence hooks the
+ * editor's undo/redo caret restore reads. That restore is gated on
+ * `'getPresenceCursorPos' in docStore`, and only `YorkieDocStore`
+ * implements it in production — so without a store that has it, the branch
+ * is unreachable from a docs-package test and the affinity it carries is
+ * unasserted.
+ */
+class PresenceMemDocStore extends MemDocStore {
+  presenceCursorPos: DocPosition | undefined;
+  presenceSelection: DocRange | undefined;
+
+  getPresenceCursorPos(): DocPosition | undefined {
+    return this.presenceCursorPos;
+  }
+
+  getPresenceSelection(): DocRange | undefined {
+    return this.presenceSelection;
+  }
+}
+
+function setupEditor(): {
+  editor: EditorAPI;
+  container: HTMLElement;
+  store: PresenceMemDocStore;
+} {
   const block: Block = {
     id: 'b1',
     type: 'paragraph',
     inlines: [{ text: WRAPPED_TEXT, style: { fontFamily: 'Arial', fontSize: 12 } }],
     style: EMPTY_BLOCK_STYLE,
   };
-  const store = new MemDocStore();
+  const store = new PresenceMemDocStore();
   store.setDocument({ blocks: [block] });
   const container = document.createElement('div');
   document.body.appendChild(container);
-  return { editor: initialize(container, store), container };
+  return { editor: initialize(container, store), container, store };
+}
+
+/**
+ * Drive the caret to the start of a continuation visual line — a real wrap
+ * boundary, the only kind of offset where the reading decides which of two
+ * visual lines the caret is drawn on.
+ */
+function wrapBoundary(editor: EditorAPI, container: HTMLElement): number {
+  caretAt(editor, 0);
+  press(container, 'ArrowDown');
+  press(container, 'Home');
+  const offset = editor._getCursorForTest().offset;
+  expect(offset).toBeGreaterThan(0);
+  return offset;
 }
 
 /** Send a key through the real `TextEditor` keydown handler. */
@@ -167,6 +207,90 @@ describe('caret lineAffinity reaches presence', () => {
     expect(sel).toBeDefined();
     expect(sel!.focus.offset).toBe(lineStart);
     expect(sel!.focus.lineAffinity).toBe('forward');
+
+    editor.dispose();
+  });
+});
+
+describe('undo/redo restores the caret reading from presence', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  test('undo rebuilds the caret with the restored affinity', () => {
+    const { editor, container, store } = setupEditor();
+    const boundary = wrapBoundary(editor, container);
+
+    // Park the caret away from the boundary with the opposite reading, so a
+    // restore that dropped the affinity would be visible as 'backward'
+    // rather than hidden behind whatever the caret already had.
+    caretAt(editor, 0);
+    expect(editor._getCursorForTest().lineAffinity).toBe('backward');
+
+    // What Yorkie hands back after undo: the caret the mutation recorded,
+    // reading included.
+    store.presenceCursorPos = {
+      blockId: 'b1',
+      offset: boundary,
+      lineAffinity: 'forward',
+    };
+    store.snapshot();
+    editor.undo();
+
+    const caret = editor._getCursorForTest();
+    expect(caret.offset).toBe(boundary);
+    // Before #933 the restore rebuilt `{blockId, offset}` from scratch, so
+    // every undo re-collapsed a wrap-boundary caret onto the previous
+    // visual line even though presence had stored the forward reading.
+    expect(caret.lineAffinity).toBe('forward');
+
+    editor.dispose();
+  });
+
+  test('redo rebuilds the caret with the restored affinity', () => {
+    const { editor, container, store } = setupEditor();
+    const boundary = wrapBoundary(editor, container);
+    caretAt(editor, 0);
+
+    store.snapshot();
+    editor.undo();
+    store.presenceCursorPos = {
+      blockId: 'b1',
+      offset: boundary,
+      lineAffinity: 'forward',
+    };
+    editor.redo();
+
+    const caret = editor._getCursorForTest();
+    expect(caret.offset).toBe(boundary);
+    expect(caret.lineAffinity).toBe('forward');
+
+    editor.dispose();
+  });
+
+  test('a restored caret past the end of its block is still clamped', () => {
+    const { editor, store } = setupEditor();
+    caretAt(editor, 0);
+
+    // The restore spreads the whole restored position and then overrides
+    // `offset` with the clamped one; pin that order, because spreading last
+    // would silently reinstate the out-of-range offset.
+    store.presenceCursorPos = {
+      blockId: 'b1',
+      offset: WRAPPED_TEXT.length + 50,
+      lineAffinity: 'forward',
+    };
+    store.snapshot();
+    editor.undo();
+
+    const caret = editor._getCursorForTest();
+    expect(caret.offset).toBe(WRAPPED_TEXT.length);
+    expect(caret.lineAffinity).toBe('forward');
 
     editor.dispose();
   });
