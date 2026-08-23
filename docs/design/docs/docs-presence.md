@@ -186,15 +186,21 @@ helper (`packages/docs/src/view/peer-cursor.ts`), which converts any
 - Skip rendering if the resulting position is outside the current
   viewport.
 
-Selection endpoints now publish `lineAffinity` (it rides along on the
-`DocPosition`s in `activeSelection`), so a peer's highlight brackets the
-same wrapped line the author sees. The peer *caret* still resolves
-`'backward'`: the field rides along on `activeCursorPos`, but peer caret
-rendering hard-codes the backward reading (`editor.ts:1563`), so a wrap
-boundary places the caret at the end of the previous visual line — a minor
-visual offset that is acceptable for peer display, and the one place where
-a peer's caret and their highlight can sit a visual line apart. Honouring
-it there is a follow-up, not part of this change.
+Both the caret and the selection endpoints publish `lineAffinity` (it rides
+along on the `DocPosition`s in `activeCursorPos` / `activeSelection`), and
+peer rendering reads it off the position at both sites, so a peer's caret and
+the end of their own highlight land on the same visual line. Peer caret
+rendering used to hard-code `'backward'` while the highlight honoured the
+endpoints' affinity, which is exactly how the two came to sit a line apart;
+`resolvePositionPixel` now falls back to `position.lineAffinity` when a caller
+passes no affinity, so a call site that says nothing gets the position's own
+reading rather than a hardcoded one. A mixed-version peer that publishes no
+affinity still reads as `'backward'`.
+
+`activeCursorPos` keeps its affinity across edits too: `recordHistoryPresence`
+republishes the caret on every mutation, so it takes a full `DocPosition` —
+narrowing it to `{blockId, offset}` erased the field after each edit and again
+from what undo/redo restored.
 
 **Caret style:**
 
@@ -370,7 +376,7 @@ export interface EditorAPI {
 ```ts
 scrollToPosition: (pos: DocPosition) => {
   const pixel = resolvePositionPixel(
-    pos, 'backward', paginatedLayout, layout, measurer, logicalCanvasWidth,
+    pos, pos.lineAffinity, paginatedLayout, layout, measurer, logicalCanvasWidth,
   );
   if (!pixel) return;
 
@@ -384,9 +390,9 @@ scrollToPosition: (pos: DocPosition) => {
 
 - Reuses `resolvePositionPixel`, already exercised by peer cursor
   rendering and Cmd+F result jumps. No new coordinate math.
-- `lineAffinity` defaults to `'backward'` here, matching peer *caret*
-  rendering at line-wrap boundaries. Peer selection endpoints carry their
-  own affinity instead (see above).
+- `lineAffinity` is read off the position being jumped to, so the scroll
+  lands on the same visual line the peer's caret is drawn on (it defaults to
+  `'backward'` for a peer that publishes none).
 - `* scaleFactor` converts the logical Y returned by
   `resolvePositionPixel` to scaled (mobile zoom-to-fit) coordinates,
   the same way the find-bar jump does.

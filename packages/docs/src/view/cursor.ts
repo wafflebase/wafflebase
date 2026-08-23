@@ -9,25 +9,51 @@ import { resolvePositionPixel } from './peer-cursor.js';
  * Cursor state and blink animation.
  */
 export class Cursor {
+  /**
+   * The caret, affinity included. This is the single home for caret
+   * affinity: `position.lineAffinity` is what {@link lineAffinity} reads
+   * and writes, so the affinity travels with the position into presence,
+   * undo history, selection endpoints and rendering rather than living in
+   * a sibling field that every consumer taking a `DocPosition` drops.
+   * A caret always states its reading (see {@link moveTo}).
+   */
   position: DocPosition;
-  lineAffinity: 'forward' | 'backward' = 'backward';
   private visible = true;
   private blinkTimer: ReturnType<typeof setInterval> | null = null;
   private onBlink: (() => void) | null = null;
 
   constructor(blockId: string, offset: number = 0) {
-    this.position = { blockId, offset };
+    this.position = { blockId, offset, lineAffinity: 'backward' };
+  }
+
+  /**
+   * The visual line the caret is drawn on when its offset sits exactly on a
+   * wrap boundary. Backed by `position.lineAffinity`, so assigning it moves
+   * the caret's reading and the position's in one step.
+   */
+  get lineAffinity(): 'forward' | 'backward' {
+    return this.position.lineAffinity ?? 'backward';
+  }
+
+  set lineAffinity(affinity: 'forward' | 'backward') {
+    this.position = { ...this.position, lineAffinity: affinity };
   }
 
   /**
    * Move cursor to a new position and reset blink.
    * @param affinity — 'forward' renders at the start of the next visual line
-   *   at a wrap boundary; 'backward' (default) renders at the end of the
-   *   current visual line.
+   *   at a wrap boundary; 'backward' renders at the end of the current
+   *   visual line. Defaults to the affinity `pos` already carries (a
+   *   mouse hit, a resolved anchor, a restored presence position), and to
+   *   'backward' when it carries none. Always materialized on
+   *   {@link position}, so whatever publishes the caret publishes its
+   *   reading too.
    */
-  moveTo(pos: DocPosition, affinity: 'forward' | 'backward' = 'backward'): void {
-    this.position = pos;
-    this.lineAffinity = affinity;
+  moveTo(pos: DocPosition, affinity?: 'forward' | 'backward'): void {
+    this.position = {
+      ...pos,
+      lineAffinity: affinity ?? pos.lineAffinity ?? 'backward',
+    };
     this.resetBlink();
   }
 

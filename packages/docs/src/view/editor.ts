@@ -125,7 +125,7 @@ export interface EditorAPI {
    * pickers can refresh their selection-derived summaries even though
    * the cursor itself has not moved.
    */
-  onCursorMove(cb: (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void): () => void;
+  onCursorMove(cb: (pos: DocPosition, selection?: DocRange | null) => void): () => void;
   /** Restore local cursor and selection after collaborative anchor resolution. */
   restoreLocalCursor(cursorPos: DocPosition | null, range?: DocRange | null): void;
   /** Register a callback fired when an IME composition session starts. */
@@ -1022,7 +1022,7 @@ export function initialize(
     if ('setCursorForHistory' in docStore) {
       (docStore as {
         setCursorForHistory(
-          pos: { blockId: string; offset: number },
+          pos: DocPosition,
           selection?: DocRange | null,
         ): void;
       }).setCursorForHistory(cursor.position, selection.range ?? null);
@@ -1125,7 +1125,7 @@ export function initialize(
     if ('setCursorForHistory' in docStore) {
       (docStore as {
         setCursorForHistory(
-          pos: { blockId: string; offset: number },
+          pos: DocPosition,
           selection?: DocRange | null,
         ): void;
       }).setCursorForHistory(cursor.position, range ?? null);
@@ -1186,14 +1186,17 @@ export function initialize(
 
   let dragGuideline: { x?: number; y?: number } | null = null;
   let peerCursors: PeerCursor[] = [];
-  type CursorMoveCallback = (pos: { blockId: string; offset: number }, selection?: { anchor: { blockId: string; offset: number }; focus: { blockId: string; offset: number }; tableCellRange?: { blockId: string; start: { rowIndex: number; colIndex: number }; end: { rowIndex: number; colIndex: number } } } | null) => void;
+  // `pos` is the caret including its `lineAffinity`, and the endpoints keep
+  // theirs: presence publishes what this hands out, so a narrower parameter
+  // type here is what let the affinity fall off the wire unnoticed.
+  type CursorMoveCallback = (pos: DocPosition, selection?: DocRange | null) => void;
   // Multi-listener fan-out. Previously a single slot, which silently
   // overwrote earlier subscribers (e.g. the toolbar refresh effect
   // stomping on the presence broadcaster from docs-view.tsx). The Set
   // preserves insertion order so callbacks fire in registration order.
   const cursorMoveCallbacks = new Set<CursorMoveCallback>();
   function fireCursorMoveCallbacks(
-    pos: { blockId: string; offset: number },
+    pos: DocPosition,
     selection?: Parameters<CursorMoveCallback>[1],
   ): void {
     for (const cb of cursorMoveCallbacks) cb(pos, selection);
@@ -1576,9 +1579,13 @@ export function initialize(
       clientKey: string;
     }> = [];
     for (const peer of peerCursors) {
+      // Read the peer's own affinity, not a hardcoded 'backward': their
+      // highlight endpoints honour theirs, so hardcoding here drew a peer
+      // whose caret sits on a wrap boundary with forward affinity one
+      // visual line above the end of their own highlight.
       const pixel = resolvePositionPixel(
         peer.position,
-        'backward',
+        peer.position.lineAffinity,
         paginatedLayout,
         layout,
         measurer,
@@ -1963,7 +1970,7 @@ export function initialize(
     if ('setCursorForHistory' in docStore) {
       (docStore as {
         setCursorForHistory(
-          pos: { blockId: string; offset: number },
+          pos: DocPosition,
           selection?: DocRange | null,
         ): void;
       }).setCursorForHistory(
@@ -2034,13 +2041,19 @@ export function initialize(
 
       // Restore cursor from Yorkie presence (automatically restored by undo)
       const restoredPos = 'getPresenceCursorPos' in docStore
-        ? (docStore as { getPresenceCursorPos(): { blockId: string; offset: number } | undefined })
+        ? (docStore as { getPresenceCursorPos(): DocPosition | undefined })
             .getPresenceCursorPos()
         : undefined;
       if (restoredPos && doc.findBlock(restoredPos.blockId)) {
         const block = doc.getBlock(restoredPos.blockId);
         const maxOffset = block.inlines.reduce((sum, i) => sum + i.text.length, 0);
-        cursor.moveTo({ blockId: restoredPos.blockId, offset: Math.min(restoredPos.offset, maxOffset) });
+        // Carry the affinity presence restored: the mutation recorded the
+        // caret's reading, so rebuilding the position without it would
+        // re-collapse a wrap-boundary caret onto the previous visual line.
+        cursor.moveTo({
+          ...restoredPos,
+          offset: Math.min(restoredPos.offset, maxOffset),
+        });
       } else if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
@@ -2060,13 +2073,19 @@ export function initialize(
 
       // Restore cursor from Yorkie presence (automatically restored by redo)
       const restoredPos = 'getPresenceCursorPos' in docStore
-        ? (docStore as { getPresenceCursorPos(): { blockId: string; offset: number } | undefined })
+        ? (docStore as { getPresenceCursorPos(): DocPosition | undefined })
             .getPresenceCursorPos()
         : undefined;
       if (restoredPos && doc.findBlock(restoredPos.blockId)) {
         const block = doc.getBlock(restoredPos.blockId);
         const maxOffset = block.inlines.reduce((sum, i) => sum + i.text.length, 0);
-        cursor.moveTo({ blockId: restoredPos.blockId, offset: Math.min(restoredPos.offset, maxOffset) });
+        // Carry the affinity presence restored: the mutation recorded the
+        // caret's reading, so rebuilding the position without it would
+        // re-collapse a wrap-boundary caret onto the previous visual line.
+        cursor.moveTo({
+          ...restoredPos,
+          offset: Math.min(restoredPos.offset, maxOffset),
+        });
       } else if (doc.document.blocks.length > 0) {
         cursor.moveTo({ blockId: doc.document.blocks[0].id, offset: 0 });
       }
@@ -2160,7 +2179,7 @@ export function initialize(
       if ('setCursorForHistory' in docStore) {
         (docStore as {
           setCursorForHistory(
-            pos: { blockId: string; offset: number },
+            pos: DocPosition,
             selection?: DocRange | null,
           ): void;
         }).setCursorForHistory(
@@ -2817,9 +2836,11 @@ export function initialize(
     },
     scrollToPosition: (pos: DocPosition) => {
       if (lastLogicalCanvasWidth === 0 || lastCanvasHeight === 0) return;
+      // Same reading the caret is drawn with: a peer jumped to from the
+      // avatar list should land on the line their caret is on.
       const pixel = resolvePositionPixel(
         pos,
-        'backward',
+        pos.lineAffinity,
         paginatedLayout,
         layout,
         measurer,
@@ -2989,7 +3010,7 @@ export function initialize(
         if ('setCursorForHistory' in docStore) {
           (docStore as {
             setCursorForHistory(
-              pos: { blockId: string; offset: number },
+              pos: DocPosition,
               selection?: DocRange | null,
             ): void;
           }).setCursorForHistory(cursor.position, selection.range ?? null);
@@ -3626,17 +3647,12 @@ export function initialize(
         // Carry the affinity: this runs on every remote change with a
         // freshly resolved position, so dropping it here would undo the
         // anchor round-trip and re-collapse the caret onto the previous
-        // visual line at a wrap boundary. `moveTo` defaults it when absent.
-        cursor.moveTo(
-          {
-            blockId: cursorPos.blockId,
-            offset: Math.min(cursorPos.offset, getBlockTextLength(block)),
-            ...(cursorPos.lineAffinity
-              ? { lineAffinity: cursorPos.lineAffinity }
-              : {}),
-          },
-          cursorPos.lineAffinity,
-        );
+        // visual line at a wrap boundary. `moveTo` reads it off the
+        // position and defaults it when absent.
+        cursor.moveTo({
+          ...cursorPos,
+          offset: Math.min(cursorPos.offset, getBlockTextLength(block)),
+        });
       }
       selection.setRange(range ?? null);
     },
@@ -3693,12 +3709,10 @@ export function initialize(
     },
     _setSelectionForTest: (range) => {
       selection.setRange(range);
-      if (range) {
-        cursor.moveTo({
-          blockId: range.focus.blockId,
-          offset: range.focus.offset,
-        });
-      }
+      // Keep the focus's own affinity — the caret and the selection focus
+      // are the same point, so a test that sets a wrap-boundary focus gets
+      // a caret that reads it the same way production would.
+      if (range) cursor.moveTo(range.focus);
     },
     _setEditContextForTest: (ctx) => {
       textEditor?.setEditContext(ctx);

@@ -403,6 +403,51 @@ describe('YorkieDocStore', () => {
       expect(restored).toEqual({ blockId: block.id, offset: 5 });
     });
 
+    // --- caret lineAffinity survives the edit (issue #933) ---
+
+    it('an edit does not erase the caret lineAffinity from presence', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      const pos = { blockId: block.id, offset: 5, lineAffinity: 'forward' as const };
+      store.updateCursorPos(pos);
+      store.setCursorForHistory(pos);
+      // `recordHistoryPresence` republishes the caret inside every mutation.
+      // It was typed `{blockId, offset}`, which is how the wrap-boundary
+      // reading was documented as "erased after each edit" — pin the runtime
+      // contract so narrowing it again (or rebuilding the position field by
+      // field) fails here. Text ops that move the caret pass a freshly built
+      // post-edit position instead: a different offset, so the pre-edit
+      // reading genuinely does not apply.
+      store.applyStyle(block.id, 0, 5, { bold: true });
+      expect(store.getPresenceCursorPos()?.lineAffinity).toBe('forward');
+    });
+
+    it('undo restores the caret lineAffinity that was recorded', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      const pos = { blockId: block.id, offset: 5, lineAffinity: 'forward' as const };
+      store.updateCursorPos(pos);
+      store.setCursorForHistory(pos);
+      store.insertText(block.id, 5, ' World');
+      store.undo();
+      expect(store.getPresenceCursorPos()).toEqual(pos);
+    });
+
+    it('leaves a position with no affinity exactly as it was', () => {
+      const block = makeBlock('Hello');
+      store.setDocument({ blocks: [block] });
+      const pos = { blockId: block.id, offset: 5 };
+      store.updateCursorPos(pos);
+      store.setCursorForHistory(pos);
+      store.insertText(block.id, 5, ' World');
+      store.undo();
+      // No materialized `lineAffinity: undefined` key: the resolve paths
+      // spread it, and `deepStrictEqual` in the integration suites reads an
+      // own undefined property as different from an absent one.
+      expect(Object.keys(store.getPresenceCursorPos() ?? {}).sort())
+        .toEqual(['blockId', 'offset']);
+    });
+
     // --- selection-range restore (issue #340) ---
 
     it('undo should restore the active selection range via presence', () => {

@@ -92,16 +92,23 @@ export interface PositionPixel {
  * Shared coordinate calculation extracted from Cursor.getPixelPosition().
  * Resolves a document position to canvas pixel coordinates.
  *
+ * @param lineAffinity — which visual line to read the position on when its
+ *   offset sits exactly on a wrap boundary. Omit it to use the affinity the
+ *   position itself carries (`'backward'` when it carries none): a caller
+ *   with nothing better to say gets the position's own reading instead of a
+ *   hardcoded one, which is how peer carets came to disagree with peer
+ *   highlights. Pass it only to override the position.
  * @returns PositionPixel if the position can be resolved, undefined otherwise.
  */
 export function resolvePositionPixel(
   position: DocPosition,
-  lineAffinity: 'forward' | 'backward',
+  lineAffinity: 'forward' | 'backward' | undefined,
   paginatedLayout: PaginatedLayout,
   layout: DocumentLayout,
   measurer: TextMeasurer,
   canvasWidth: number,
 ): PositionPixel | undefined {
+  const affinity = lineAffinity ?? position.lineAffinity ?? 'backward';
   // --- Table cell cursor ---
   const cellInfo = layout.blockParentMap.get(position.blockId);
   if (cellInfo) {
@@ -196,7 +203,7 @@ export function resolvePositionPixel(
           if (offsetRemaining <= lineChars) {
             // At a wrap boundary, forward affinity belongs to the next line
             if (
-              lineAffinity === 'forward' &&
+              affinity === 'forward' &&
               offsetRemaining === lineChars &&
               li < endLine - 1
             ) {
@@ -334,7 +341,7 @@ export function resolvePositionPixel(
   // --- Regular (non-table) cursor ---
   const lb = layout.blocks.find((b) => b.block.id === position.blockId);
   const found = findPageForPosition(
-    paginatedLayout, position.blockId, position.offset, layout, lineAffinity,
+    paginatedLayout, position.blockId, position.offset, layout, affinity,
   );
   if (!found) return undefined;
 
