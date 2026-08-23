@@ -17,6 +17,7 @@ import { findNextWordBoundary, findPrevWordBoundary, getWordRange } from './word
 import { findVisualLine, hitTestLineAffinity } from './visual-line.js';
 import { detectTableBorder, createDragState, type BorderDragState } from './table-resize.js';
 import { computeMergedCellLineLayouts } from './table-renderer.js';
+import { resolveNestedTableLayout } from './table-layout.js';
 import type { PendingStyle } from './pending-style.js';
 import { visitStyledRunsInRange } from '../model/range-runs.js';
 import { dirtyBlockIdsForRange } from '../model/range-slices.js';
@@ -4052,39 +4053,48 @@ export class TextEditor {
   ): [number, number] {
     const layout = this.getActiveLayout();
 
-    // Cell block: find lines from the table layout
+    // Cell block: find lines from the table layout. `resolveNestedTableLayout`
+    // is what makes this work at any nesting depth — an inner table is not a
+    // member of `layout.blocks`, so looking `cellInfo.tableBlockId` up there
+    // directly (as this used to) missed every block inside a nested cell,
+    // leaving `getWrapAffinity` stuck on 'backward' there while the click
+    // path already answered 'forward'.
+    //
+    // Every lookup below is optional and the loop never calls
+    // `doc.getBlock`: `blockParentMap` can describe a shape the layout or
+    // the document no longer has (a remote edit removing rows, a layout
+    // computed before the local insertion being described), and
+    // `getWrapAffinity` runs on every keystroke — it must degrade to the
+    // block-wide range rather than throw.
     const cellInfo = this.getCellInfo(pos.blockId);
     if (cellInfo) {
-      const tableLb = layout.blocks.find((b) => b.block.id === cellInfo.tableBlockId);
-      if (tableLb?.layoutTable) {
-        const layoutCell = tableLb.layoutTable.cells[cellInfo.rowIndex]?.[cellInfo.colIndex];
-        if (layoutCell && !layoutCell.merged) {
-          const tableBlock = this.doc.getBlock(cellInfo.tableBlockId);
-          const cell = tableBlock.tableData!.rows[cellInfo.rowIndex].cells[cellInfo.colIndex];
-          const cbi = cell.blocks.findIndex(b => b.id === pos.blockId);
-          const startLine = layoutCell.blockBoundaries[cbi] ?? 0;
-          const endLine = layoutCell.blockBoundaries[cbi + 1] ?? layoutCell.lines.length;
+      const resolved = resolveNestedTableLayout(cellInfo.tableBlockId, layout);
+      const layoutCell = resolved?.layoutTable.cells[cellInfo.rowIndex]?.[cellInfo.colIndex];
+      const cell = resolved?.dataBlock.tableData
+        ?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+      const cbi = cell?.blocks.findIndex(b => b.id === pos.blockId) ?? -1;
+      if (layoutCell && !layoutCell.merged && cell && cbi >= 0) {
+        const startLine = layoutCell.blockBoundaries[cbi] ?? 0;
+        const endLine = layoutCell.blockBoundaries[cbi + 1] ?? layoutCell.lines.length;
 
-          let charsBefore = 0;
-          for (let li = startLine; li < endLine; li++) {
-            let lineChars = 0;
-            for (const run of layoutCell.lines[li].runs) {
-              lineChars += run.charEnd - run.charStart;
-            }
-            const lineStart = charsBefore;
-            const lineEnd = charsBefore + lineChars;
-            // Same boundary rule as findVisualLine: the cell's last line
-            // always keeps its end offset, earlier lines only under
-            // 'backward' affinity.
-            const ownsLineEnd = li === endLine - 1 || lineAffinity === 'backward';
-            if (pos.offset >= lineStart && (pos.offset < lineEnd || (ownsLineEnd && pos.offset <= lineEnd))) {
-              return [lineStart, lineEnd];
-            }
-            charsBefore = lineEnd;
+        let charsBefore = 0;
+        for (let li = startLine; li < endLine; li++) {
+          let lineChars = 0;
+          for (const run of layoutCell.lines[li]?.runs ?? []) {
+            lineChars += run.charEnd - run.charStart;
           }
-          const total = getBlockTextLength(this.doc.getBlock(pos.blockId));
-          return [0, total];
+          const lineStart = charsBefore;
+          const lineEnd = charsBefore + lineChars;
+          // Same boundary rule as findVisualLine: the cell's last line
+          // always keeps its end offset, earlier lines only under
+          // 'backward' affinity.
+          const ownsLineEnd = li === endLine - 1 || lineAffinity === 'backward';
+          if (pos.offset >= lineStart && (pos.offset < lineEnd || (ownsLineEnd && pos.offset <= lineEnd))) {
+            return [lineStart, lineEnd];
+          }
+          charsBefore = lineEnd;
         }
+        return [0, getBlockTextLength(cell.blocks[cbi])];
       }
     }
 
@@ -4131,11 +4141,11 @@ export class TextEditor {
    * non-first visual line (i.e., a line-wrap boundary).
    *
    * Resolved through `getVisualLineRange`, which reads the *active*
-   * layout and understands cell blocks — walking `getLayout().blocks`
-   * directly (as this used to) never matched a block inside a table cell
-   * or a header/footer, so those regions could only ever answer
-   * 'backward'. Asking for the 'forward' reading is what makes the
-   * boundary resolve to the line that *starts* there.
+   * layout and understands cell blocks at any nesting depth — walking
+   * `getLayout().blocks` directly (as this used to) never matched a block
+   * inside a table cell or a header/footer, so those regions could only
+   * ever answer 'backward'. Asking for the 'forward' reading is what makes
+   * the boundary resolve to the line that *starts* there.
    */
   private getWrapAffinity(pos: DocPosition): 'forward' | 'backward' {
     const [start] = this.getVisualLineRange(pos, 'forward');

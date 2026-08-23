@@ -60,6 +60,17 @@ return start === pos.offset && start > 0 ? 'forward' : 'backward';
 - [x] `view/text-editor.ts`: `getWrapAffinity` via `getVisualLineRange`.
 - [x] Unit tests for `hitTestLineAffinity` and for the header/footer +
       cell hit-test affinity through the exported layout helpers.
+- [x] `getVisualLineRange`'s cell branch resolves the table through
+      `resolveNestedTableLayout` (nested cells could only answer 'backward',
+      and End did not move there at all) and reads every lookup optionally,
+      so the per-keystroke `getWrapAffinity` cannot throw on a stale
+      `blockParentMap`.
+- [x] Click-path tests: mousedown at the start of a wrapped line in a body
+      cell, a nested cell and the header asserts `'forward'` on the caret
+      (plus a control click one glyph in asserting `'backward'`), and a
+      footer typing test.
+- [x] Record where affinity is *produced* in
+      `docs/design/docs/docs-local-caret-anchoring.md`.
 
 ## Non-goals
 

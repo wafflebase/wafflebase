@@ -22,3 +22,22 @@
   cursor: the in-cell drag path rebuilds `pos` from the resolver's plain
   `{blockId, offset}`, so an affinity set on `cursor.moveTo` alone would
   be dropped by the next mouse-move.
+- `getVisualLineRange`'s cell branch resolved the table through
+  `layout.blocks`, which holds **top-level** blocks only — so it silently
+  missed every block inside a *nested* table (End did not move at all
+  there, and `getWrapAffinity` could only answer 'backward'). The existing
+  `resolveNestedTableLayout` is the depth-agnostic lookup; four other call
+  sites already used it.
+- Making a per-keystroke helper (`getWrapAffinity`) delegate to a
+  `doc.getBlock`-calling resolver hands it that resolver's *throwing*
+  behavior. `blockParentMap` is only rebuilt on layout, so its indices can
+  describe a shape the document no longer has; the cell branch now reads
+  everything optionally off `resolveNestedTableLayout`'s own data block.
+- Pixel hit-tests **are** testable in jsdom, contrary to the note in
+  `text-box-editor.test.ts`: stub `Element.prototype.getBoundingClientRect`
+  with a real width (zeros drive `computeScaleFactor` to `Number.EPSILON`
+  and every click lands past the end of the document) and leave top/left at
+  0 so `clientX/clientY` are canvas coordinates. Keep successive clicks
+  more than `DOUBLE_CLICK_DIST` (5px) apart, park the caret on a sentinel
+  first so an ignored click is visible, and re-assert the header edit
+  context after any click that may land on the body.
