@@ -30,6 +30,8 @@ export type HotkeyAction =
   | 'pick'
   /** Drag out a rectangle. */
   | 'region'
+  /** Open the preview panel over what has been collected. */
+  | 'review'
   /** Abandon the thing in hand — never the mode. */
   | 'cancel';
 
@@ -57,6 +59,13 @@ export const DEFAULT_BINDINGS: Readonly<Record<HotkeyAction, Chord>> = {
   capture: { key: 'c' },
   pick: { key: 'p' },
   region: { key: 'r' },
+  // NOT `Enter`, which was the first choice and was wrong: a recognised binding
+  // is intercepted at capture phase, so binding Enter took it from the entire app
+  // while debug mode was live — the review panel's own buttons stopped being
+  // keyboard-activatable, and Enter-to-commit in the sheet grid went dead. Enter
+  // is load-bearing across menus, dialogs and the grid in a way `c`/`p`/`r` are
+  // not, and a reporting tool may not break the app it is used to report on.
+  review: { key: 'v' },
   cancel: { key: 'Escape' },
 };
 
@@ -92,10 +101,26 @@ export function actionFor(
 ): HotkeyAction | undefined {
   if (matchChord(event, bindings.toggle)) return 'toggle';
   if (!live) return undefined;
-  for (const action of ['capture', 'pick', 'region', 'cancel'] as const) {
+  for (const action of ['capture', 'pick', 'region', 'review', 'cancel'] as const) {
     if (matchChord(event, bindings[action])) return action;
   }
   return undefined;
+}
+
+/**
+ * The actions available while the review panel is open.
+ *
+ * Aiming is not one of them: the reporter is reading a list, and the panel is
+ * full of buttons whose own keyboard activation must keep working. Only leaving
+ * the panel — and the global toggle — are recognised, so every other key reaches
+ * the panel untouched.
+ */
+export function actionWhileReviewing(
+  event: KeyLike,
+  bindings: Readonly<Record<HotkeyAction, Chord>> = DEFAULT_BINDINGS,
+): HotkeyAction | undefined {
+  const action = actionFor(event, true, bindings);
+  return action === 'toggle' || action === 'cancel' ? action : undefined;
 }
 
 /**

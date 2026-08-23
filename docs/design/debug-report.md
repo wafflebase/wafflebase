@@ -79,22 +79,46 @@ credentials this feature needs.
 ### Package boundary
 
 ```text
-@wafflebase/debug-report        framework-agnostic core: types, session, store,
-                               HostAdapter interface, capture + locator logic
-packages/frontend/src/debug/   React glue: mount, overlay, preview panel,
-                               engine locators, the dev/prod host adapters
-scripts/agent/report-*.mjs     intake, verification, PR assembly, results round-trip
-packages/backend/src/debug-report/   SP2 only: mailbox + re-hosted draft endpoint
+@wafflebase/debug-report            core: types, session, store, HostAdapter,
+                                   capture geometry, promotion rules
+@wafflebase/debug-report/react      overlay, preview panel, capture assembly,
+                                   point→target resolution, dev host adapter
+@wafflebase/debug-report/plugin     the two dev-server endpoints, as a Vite plugin
+@wafflebase/debug-report/testing    helpers for a host testing its own wiring
+packages/frontend/src/debug/        wafflebase only: sheet + doc locators, the
+                                   surface registry, route rules, the mount
+scripts/agent/report-*.mjs          intake, verification, PR assembly, round-trip
+packages/backend/src/debug-report/  SP2 only: mailbox + re-hosted draft endpoint
 ```
 
-The core package holds nothing React and nothing wafflebase-specific beyond the
-shape of an item, so the design editor — and any other host — can supply its own
-`HostAdapter` without pulling in the app. It exports `./src/index.ts` directly
-and has no `dist`, the same arrangement `@wafflebase/design-editor` uses; it
-reaches production the way `sheets`/`docs`/`slides` do, through the frontend's
-source alias. It is therefore **not** registered in
-`scripts/verify-dts-entries.mjs`, which checks the declaration graph of the
-packages that publish a `dist`.
+**Everything a host must supply is an argument, not an import.** There are two:
+the route it reports, and `locateOnCanvas` — point to semantic address, which
+only the mounted engine can answer. `locate.ts` used to import the sheet and doc
+locators directly, and that single line was what tied the overlay to this
+repository. A host that omits the locator gets a region for every canvas point,
+which is the correct answer for a surface nothing outside it can interrogate.
+
+React is a peer dependency of `/react` alone. A host with its own UI, or none,
+implements `HostAdapter` against the core and loads none of it. `/plugin` is
+separate for a different reason: it runs in Node, reads a model credential and
+writes to disk, none of which belongs in a module the browser can reach.
+
+Nothing in the package names an application — not the core, and not the UI. A
+second host installs `/react`, supplies a route and a canvas locator, and has the
+whole loop; it does not reimplement the overlay.
+
+That is a correction to an earlier version of this design, which put the overlay
+and the panel in `packages/frontend` and claimed reusability on the strength of
+the core alone. `HostAdapter` makes the TRANSPORT replaceable; it does nothing
+about the UI, so the reusable thing was a model and a seam while the part a
+person actually touches was welded to this repository. The move was made before
+that shipped rather than after, since the PRs above it build on these paths.
+
+The package exports source and has no `dist`, the same arrangement
+`@wafflebase/design-editor` uses; it reaches production the way
+`sheets`/`docs`/`slides` do, through the frontend's source alias. It is therefore
+**not** registered in `scripts/verify-dts-entries.mjs`, which checks the
+declaration graph of the packages that publish a `dist`.
 
 ### Data model
 
@@ -387,6 +411,15 @@ which is what makes it acceptable. In development the Vite plugin reads the
 developer's key **in the dev-server process only** — it never reaches the
 browser, per the rule already stated in
 [design-editor-local-plugin.md](design-editor/design-editor-local-plugin.md).
+
+It is a plain Messages API request from that process, NOT a call through
+`scripts/agent/ask.mjs`. That wrapper requires a grant of at least one built-in
+read tool — "an agent that can act but not read cannot cite evidence" — which is
+right for the verifier and explorer sessions it exists for and wrong for a call
+whose entire security argument is that it holds no tools; its package is also a
+separate npm install outside this workspace. Widening a shared security module to
+fit an output-only call would have been the more expensive mistake.
+
 Without a key the panel shows the original sentences, drafting and grouping are
 skipped, and the pipeline still runs — one item per PR.
 
@@ -443,12 +476,50 @@ lens.
 | SP0 | Throwaway spike — does reporting feel natural in the hand | 0 (done) |
 | SP1 | 1: core package + capture + locators · 2: preview + drafting + grouping · 3: intake → verify → PR | 3 |
 | SP1.5 | Auto-detection (console errors, failed fetches, key warnings) | 1 |
-| SP2 | Deployed environment — mailbox, re-hosted drafting, pull workflow | 1 |
 | Optional | Design-editor host adapter | 1 |
 
 The prototype exists at the end of PR 2: the half a person touches works end to
 end and **nothing is filed**, which is exactly the safe state to evaluate from.
-PR 3 closes the loop.
+PR 3 closes the loop, and **SP1 is the whole feature**: report, draft, confirm,
+intake, PR.
+
+### Staying dev-only, and what a deployed version would cost
+
+Running this against the deployed app was scoped as SP2 (a backend mailbox, a
+re-hosted drafting endpoint, a pull workflow, and switching the `HostAdapter`
+over). It is **deliberately not scheduled** — a possible extension rather than a
+planned stage.
+
+The reason is the risk profile, not the effort. Dev-only, a screenshot is of the
+reporter's own machine and the drafting credential is on their own dev server.
+Deployed, the same two facts become: a capture can contain **another person's
+document**, and a tool-free but real model credential sits behind an
+internet-reachable endpoint. The mitigations exist — the panel's consent gate,
+member gating, a token ceiling, a rate limit — but they are the whole defence,
+and none of them is needed while the overlay only ever runs on `localhost`.
+
+**If SP2 is ever built, the overlay should mount behind an explicit opt-in** —
+`?debugMode=on` or equivalent — rather than being live on every page. Nobody
+wants a reporting overlay listening on a document they are simply reading, and an
+opt-in keeps the cost of the feature proportional to its use: no listener, no
+capture budget, no session in storage until someone asks for one.
+
+Two things that switch is *not*, both worth stating so the work is not
+under-estimated:
+
+- **Not a substitute for the mailbox.** A flag anyone can append still needs
+  somewhere to send to; without the backend half, Hand over answers 404.
+- **Not free at the bundle level.** `import.meta.env.DEV` is statically replaced,
+  so today the overlay is *absent* from the production build rather than merely
+  inactive. A runtime flag means shipping the code, which the frontend chunk gate
+  will notice — so the mount gate and the chunk budget have to be designed
+  together.
+
+Nor does the flag decide *who* may report: that stays workspace membership, since
+a query parameter is not an authorisation.
+
+The `HostAdapter` seam is what keeps all of this cheap to reconsider: the
+frontend side of SP2 is one adapter, not a rewrite.
 
 ### Risks and Mitigation
 

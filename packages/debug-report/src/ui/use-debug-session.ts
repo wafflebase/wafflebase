@@ -15,7 +15,8 @@ import {
   type CaptureStore,
   type DebugItem,
   type DebugSession,
-} from "@wafflebase/debug-report";
+} from "../index";
+import { DEBUG_SESSION_ID } from "./session-id";
 
 export type SessionView = {
   session: DebugSession;
@@ -45,9 +46,6 @@ function sharedStore(): { store: CaptureStore; persistent: boolean } {
   if (!shared) shared = createBrowserStore();
   return shared;
 }
-
-/** The id this session persists under. Stable for the life of the page. */
-const sessionId = `wb-${Date.now().toString(36)}`;
 
 /**
  * Whether this page has already read what was persisted.
@@ -126,7 +124,7 @@ export function useDebugSession(session: DebugSession = debugSession): SessionVi
     // restored. Checked at call time rather than held in state so the rehydrate
     // never has to trigger a render of its own.
     if (rehydrated) {
-      setMetaPersists(store.save(sessionId, items).persisted);
+      setMetaPersists(store.save(DEBUG_SESSION_ID, items).persisted);
       return;
     }
     // A change that beats the read — a report collected within milliseconds of
@@ -137,7 +135,7 @@ export function useDebugSession(session: DebugSession = debugSession): SessionVi
     // outside any React commit, and it corrects itself on the next change.
     let live = true;
     void rehydrating?.then(() => {
-      if (live) store.save(sessionId, items);
+      if (live) store.save(DEBUG_SESSION_ID, items);
     });
     return () => {
       live = false;

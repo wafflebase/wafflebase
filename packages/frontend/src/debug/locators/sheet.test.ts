@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { locateSheetPoint } from './sheet';
 import type { SheetSurface } from '../surface-registry';
-import { hostWithCanvas, withBox } from '../test-box';
+import { hostWithCanvas, withBox } from '@wafflebase/debug-report/testing';
 
 const GRID = { x: 0, y: 100, w: 800, h: 500 };
 

@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { createSession, type DebugItem } from "@wafflebase/debug-report";
+import { createSession, type DebugItem } from "../index";
 import { __resetRehydrateForTests, useDebugSession } from "./use-debug-session";
 
 /**

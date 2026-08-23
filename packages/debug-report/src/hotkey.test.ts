@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   actionFor,
+  actionWhileReviewing,
   DEFAULT_BINDINGS,
   isTypingTarget,
   matchChord,
@@ -53,7 +54,15 @@ describe('actionFor', () => {
     expect(actionFor(press('c'), true)).toBe('capture');
     expect(actionFor(press('p'), true)).toBe('pick');
     expect(actionFor(press('r'), true)).toBe('region');
+    expect(actionFor(press('v'), true)).toBe('review');
     expect(actionFor(press('Escape'), true)).toBe('cancel');
+  });
+
+  it('never claims Enter, which the app needs everywhere', () => {
+    // A recognised binding is intercepted at capture phase, so binding Enter
+    // took it from the panel's own buttons and from Enter-to-commit in the grid.
+    expect(actionFor(press('Enter'), true)).toBeUndefined();
+    expect(actionFor(press('Enter'), false)).toBeUndefined();
   });
 
   it('answers undefined for anything unbound', () => {
@@ -81,5 +90,18 @@ describe('isTypingTarget', () => {
     expect(isTypingTarget(document.querySelector('#b'))).toBe(false);
     expect(isTypingTarget(null)).toBe(false);
     expect(isTypingTarget(window)).toBe(false);
+  });
+});
+
+describe('actionWhileReviewing', () => {
+  it('recognises only leaving the panel and the global toggle', () => {
+    expect(actionWhileReviewing(press('Escape'))).toBe('cancel');
+    expect(actionWhileReviewing(press('y', { ctrlKey: true, shiftKey: true }))).toBe('toggle');
+  });
+
+  it('leaves aiming keys to the panel, whose buttons need the keyboard', () => {
+    for (const key of ['c', 'p', 'r', 'v', 'Enter', ' ']) {
+      expect(actionWhileReviewing(press(key))).toBeUndefined();
+    }
   });
 });

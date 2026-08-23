@@ -129,6 +129,43 @@ findings 5-7. The first is a requirement the plan did not have.
       refuses persistent storage says so. Measured violations they exist for:
       the `window.prompt` the spike started with broke all three at once.
 
+## Tasks (PR 2) — preview, drafting, dev transport
+
+- [x] `src/bundle.ts` — assemble what crosses the boundary; discarded items and
+      the groups naming them are filtered out together, so an approved shape can
+      never name something that is not being sent.
+- [x] `src/draft.ts` — `DRAFT_SCHEMA`, fail-closed `parseDraftResult` (a bad
+      SHAPE is rejected whole; one hallucinated item id is dropped and
+      reported), the grouping rules, the reporter's three operations, and the
+      per-session PR cap.
+- [x] `packages/frontend/vite/debug-report.ts` — `POST /__wb_debug_report`
+      writing `.wb-reports/<session>/`, with a capture id that is not a plain
+      filename REFUSED rather than sanitised.
+- [x] `packages/frontend/vite/debug-draft.ts` — the drafting call. No `tools`
+      parameter at all.
+- [x] `src/debug/handover.ts` — request drafts, degrade when there is no
+      credential, send with the captures read back out of the store.
+- [x] `src/debug/panel.tsx` — the preview panel: editable sentences and drafts,
+      thumbnails (the consent gate), disposition, `agent:candidate`, the three
+      PR operations, the handover report.
+- [x] `src/debug/host.ts` — the dev `HostAdapter`.
+- [x] `Enter` opens the panel; Escape peels one layer at a time.
+
+### Deliberate deviation from the plan (PR 2)
+
+The plan routed drafting through `scripts/agent/ask.mjs`. It cannot go there:
+`buildSessionOptions` REQUIRES at least one built-in read tool ("an agent that
+can act but not read cannot cite evidence"), which is correct for the verifier
+sessions that wrapper exists for and wrong for a call whose security argument is
+that it holds none. That package is also a separate npm install outside this
+workspace. The call is therefore a plain Messages API request from the dev-server
+process — which is what the design doc already describes the dev host doing —
+rather than a widened grant on a shared security module.
+
+`vite/**/*.test.ts` was added to the frontend's vitest `include`: the plugin is
+Node-side code that must not be bundled into the app, so it cannot live under
+`src/`, and its tests belong next to it rather than in `tests/`.
+
 ## Verification checklist
 
 - [ ] The eight surfaces that open without a login. Swept 2026-08-23 against
