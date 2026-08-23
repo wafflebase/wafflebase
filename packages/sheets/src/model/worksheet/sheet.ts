@@ -1000,7 +1000,9 @@ export class Sheet {
    * `setOnRefusal` registers a callback fired when a range gesture is refused
    * (used to surface a message instead of a silent no-op).
    */
-  setOnRefusal(callback: (refusal: RangeOpRefusal) => void): void {
+  setOnRefusal(
+    callback: ((refusal: RangeOpRefusal) => void) | undefined,
+  ): void {
     this.onRefusal = callback;
   }
 

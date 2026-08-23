@@ -104,7 +104,7 @@ function refusalMessage(refusal: RangeOpRefusal): string {
         "Can't drop onto part of a merged cell. " +
         'Unmerge the destination first.'
       );
-    default:
+    case 'merge-autofill':
       return "Can't autofill across merged cells. Unmerge them first.";
   }
 }
@@ -585,6 +585,9 @@ export class Worksheet {
     this.datePopover.remove();
     this.validationTooltip.remove();
 
+    // The model outlives this view (a Sheet is reused across mounts), so a
+    // refusal fired after teardown would toast through a dead host.
+    this.sheet?.setOnRefusal(undefined);
     this.sheet = undefined;
     this.container.innerHTML = '';
   }
