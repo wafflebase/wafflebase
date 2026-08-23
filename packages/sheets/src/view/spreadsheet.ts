@@ -712,8 +712,11 @@ export class Spreadsheet {
         text = await navigator.clipboard.readText();
       }
 
-      await this.sheet.paste({ text, html });
-      this.sheet.clearCopyBuffer();
+      // A merged block can refuse the paste; keep the buffer so the marching
+      // ants stay up and the user can retry elsewhere.
+      if (await this.sheet.paste({ text, html })) {
+        this.sheet.clearCopyBuffer();
+      }
       this.worksheet.render();
       this.notifySelectionChange();
     } catch (err) {

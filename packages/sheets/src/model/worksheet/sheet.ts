@@ -6,6 +6,7 @@ import {
   isIntersectRanges,
   isRangeInRange,
   isSameRef,
+  rangeOf,
   toRange,
   toSref,
   toSrefs,
@@ -336,16 +337,6 @@ export class Sheet {
     rangeStyles: RangeStylePatch[];
     text: string;
     isCut: boolean;
-    /**
-     * Merged blocks intersecting `sourceRange`, so paste can reproduce the
-     * copied layout at the destination.
-     */
-    merges: Array<{
-      anchorSref: Sref;
-      anchor: Ref;
-      span: MergeSpan;
-      range: Range;
-    }>;
   };
 
   /**
@@ -2144,14 +2135,7 @@ export class Sheet {
     const grid = await this.fetchGrid(range);
     const rangeStyles = clipRangeStylePatches(this.rangeStyles, range);
     const text = grid2string(grid);
-    this.copyBuffer = {
-      sourceRange: range,
-      grid,
-      rangeStyles,
-      text,
-      isCut: false,
-      merges: this.getMergesIntersecting(range),
-    };
+    this.copyBuffer = { sourceRange: range, grid, rangeStyles, text, isCut: false };
     return { text };
   }
 
@@ -2164,14 +2148,7 @@ export class Sheet {
     const grid = await this.fetchGrid(range);
     const rangeStyles = clipRangeStylePatches(this.rangeStyles, range);
     const text = grid2string(grid);
-    this.copyBuffer = {
-      sourceRange: range,
-      grid,
-      rangeStyles,
-      text,
-      isCut: true,
-      merges: this.getMergesIntersecting(range),
-    };
+    this.copyBuffer = { sourceRange: range, grid, rangeStyles, text, isCut: true };
     return { text };
   }
 
@@ -2184,9 +2161,16 @@ export class Sheet {
    * Merged blocks travel with an internal copy: a block inside the copied range
    * is re-created at the destination, and a block the paste would only
    * partially overwrite refuses the whole paste, as `moveRangeTo` does.
+   *
+   * Returns whether the paste was applied. `false` means nothing was written —
+   * either there was nothing to paste, or a merged block refused it — so the
+   * caller can leave the copy buffer intact and retry.
    */
-  public async paste(options: { text?: string; html?: string }): Promise<void> {
-    if (this.pivotDefinition) return;
+  public async paste(options: {
+    text?: string;
+    html?: string;
+  }): Promise<boolean> {
+    if (this.pivotDefinition) return false;
     this.invalidateCrossSheetCache();
     const { text, html } = options;
     // A merged block is written through its anchor — the rule `setData` follows
@@ -2214,7 +2198,10 @@ export class Sheet {
         target,
       );
       const sourceRange = this.copyBuffer.sourceRange;
-      const copiedMerges = this.copyBuffer.merges;
+      // Read the source layout live rather than snapshotting it at copy time:
+      // a snapshot survives `shiftCells`, `moveRows`/`moveColumns` and
+      // `unmergeSelection`, and would re-create a block that no longer exists.
+      const copiedMerges = this.getMergesIntersecting(sourceRange);
       const deltaRow = target.r - sourceRange[0].r;
       const deltaCol = target.c - sourceRange[0].c;
       rangeStylePatches = translateRangeStylePatches(
@@ -2227,11 +2214,13 @@ export class Sheet {
       // the destination, so the paste is refused instead of creating a block
       // wider than the content that was copied.
       if (copiedMerges.some((m) => !isRangeInRange(m.range, sourceRange))) {
-        return;
+        return false;
       }
+      // The span is copied, not aliased: source and destination blocks are
+      // independent from here on.
       pastedMerges = copiedMerges.map((m) => ({
         anchor: { r: m.anchor.r + deltaRow, c: m.anchor.c + deltaCol },
-        span: m.span,
+        span: { ...m.span },
       }));
       pasteRange = [
         target,
@@ -2255,15 +2244,15 @@ export class Sheet {
       grid = string2grid(target, text);
       shouldInferPastedInput = true;
     } else {
-      return;
+      return false;
     }
 
     if (shouldInferPastedInput) {
       grid = this.applyInputInferenceToGrid(grid);
     }
 
-    pasteRange = pasteRange ?? this.gridRange(grid);
-    if (!pasteRange) return;
+    if (!pasteRange && grid.size === 0) return false;
+    pasteRange = pasteRange ?? rangeOf(grid);
 
     // The cut cells travel, so blocks inside the cut source are dropped there.
     // They are exempt from the destination check below as well: an overlapping
@@ -2279,16 +2268,23 @@ export class Sheet {
 
     // Merged blocks the paste fully covers are dropped — the pasted content
     // replaces them. One the paste would only partially overwrite would be
-    // split, so the whole paste is refused. A single-cell paste is exempt: it
-    // writes through the anchor above, so the block keeps its layout.
+    // split, so the whole paste is refused. A paste of a single cell *at the
+    // target* is exempt: `target` is normalized to the anchor above, so the
+    // write lands in the visible cell and the block keeps its layout. The
+    // exemption is anchored on `target` rather than on the range being 1x1,
+    // because `html2grid` drops empty cells and so can produce a single-cell
+    // grid offset from the target — one that would otherwise write into a
+    // covered cell of a block this check just preserved.
     const destRange = pasteRange;
-    const overwrittenMerges = isSameRef(destRange[0], destRange[1])
+    const writesThroughAnchor =
+      isSameRef(destRange[0], destRange[1]) && isSameRef(destRange[0], target);
+    const overwrittenMerges = writesThroughAnchor
       ? []
       : this.getMergesIntersecting(destRange).filter(
           (m) => !cutAnchors.has(m.anchorSref),
         );
     if (overwrittenMerges.some((m) => !isRangeInRange(m.range, destRange))) {
-      return;
+      return false;
     }
     // Cut pastes only once. Cleared here rather than in the branch above, so a
     // refused paste leaves the buffer intact.
@@ -2382,40 +2378,15 @@ export class Sheet {
 
     // Select the pasted range
     this.selectPastedRange(grid);
-  }
-
-  /**
-   * `gridRange` returns the bounding box of the given grid, or undefined when
-   * the grid is empty.
-   */
-  private gridRange(grid: Grid): Range | undefined {
-    if (grid.size === 0) return undefined;
-
-    let minR = Infinity,
-      maxR = -Infinity;
-    let minC = Infinity,
-      maxC = -Infinity;
-    for (const sref of grid.keys()) {
-      const ref = parseRef(sref);
-      if (ref.r < minR) minR = ref.r;
-      if (ref.r > maxR) maxR = ref.r;
-      if (ref.c < minC) minC = ref.c;
-      if (ref.c > maxC) maxC = ref.c;
-    }
-    return [
-      { r: minR, c: minC },
-      { r: maxR, c: maxC },
-    ];
+    return true;
   }
 
   /**
    * `selectPastedRange` computes the bounding box of a pasted grid and selects it.
    */
   private selectPastedRange(grid: Grid): void {
-    const bounds = this.gridRange(grid);
-    if (!bounds) return;
-    const { r: minR, c: minC } = bounds[0];
-    const { r: maxR, c: maxC } = bounds[1];
+    if (grid.size === 0) return;
+    const [{ r: minR, c: minC }, { r: maxR, c: maxC }] = rangeOf(grid);
 
     if (minR === maxR && minC === maxC) {
       // Single cell pasted — just move active cell there

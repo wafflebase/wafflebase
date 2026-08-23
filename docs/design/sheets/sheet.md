@@ -95,15 +95,19 @@ all cell, selection, and navigation operations.
   same conservative input inference as `setData` before persistence.
   The paste target is normalized to its merge anchor, so pasting onto a merged
   block writes the visible cell rather than a hidden covered one. Merged blocks
-  travel with an internal copy: `copy`/`cut` snapshot the blocks inside the
-  copied range and `paste` re-creates them at the destination (a cut also drops
-  them at the source), clearing the destination cells they newly hide. Blocks
-  the pasted area fully covers are dropped — the pasted content replaces them —
-  and a paste that would only partially overwrite one, splitting it, is rejected
-  as a no-op, the same propagate-or-reject rule cell drag-move follows. A
-  single-cell paste is exempt: it writes through the anchor, so the block keeps
-  its layout. External spreadsheet HTML `rowspan`/`colspan` is not imported as
-  merges.
+  travel with an internal copy: `paste` reads the blocks inside the copied range
+  from the live sheet (never a copy-time snapshot, which row/column shifts and
+  `unmergeSelection` would invalidate) and re-creates them at the destination (a
+  cut also drops them at the source), clearing the destination cells they newly
+  hide. Blocks the pasted area fully covers are dropped — the pasted content
+  replaces them — and a paste that would only partially overwrite one, splitting
+  it, is rejected as a no-op, the same propagate-or-reject rule cell drag-move
+  follows. A paste of a single cell *at the target* is exempt: it writes through
+  the anchor, so the block keeps its layout; a one-cell HTML grid offset from
+  the target (empty leading cells are dropped by the parser) is not, since it
+  would land on a covered cell. `paste` returns whether it applied, so a
+  rejection leaves the copy buffer — and the cut's marching ants — intact.
+  External spreadsheet HTML `rowspan`/`colspan` is not imported as merges.
 - **Autofill (fill handle)** — dragging the selection handle repeats the source
   pattern across the expanded range. The fill is constrained to a single axis
   (vertical or horizontal) based on whichever direction the drag extends

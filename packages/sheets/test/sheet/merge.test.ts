@@ -1,3 +1,6 @@
+/**
+ * @vitest-environment jsdom
+ */
 import { describe, it, expect } from 'vitest';
 import { MemStore } from '../../src/store/memory';
 import { Sheet } from '../../src/model/worksheet/sheet';
@@ -204,10 +207,59 @@ describe('Sheet merge + copy-paste', () => {
     sheet.selectEnd({ r: 1, c: 2 });
     const { text } = await sheet.cut();
     sheet.selectStart({ r: 3, c: 1 });
-    await sheet.paste({ text });
+    // The refusal is reported, so the view can keep the buffer too.
+    expect(await sheet.paste({ text })).toBe(false);
 
     expect(sheet.isCutMode()).toBe(true);
     expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('1');
+  });
+
+  it('should not re-create a merge unmerged after the copy', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    await sheet.setData({ r: 5, c: 2 }, 'keep');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    const { text } = await sheet.copy();
+
+    // The copied layout is read at paste time, not snapshotted at copy time,
+    // so a block removed in between is not resurrected at the destination.
+    sheet.selectStart({ r: 1, c: 1 });
+    await sheet.unmergeSelection();
+
+    sheet.selectStart({ r: 5, c: 1 });
+    await sheet.paste({ text });
+
+    expect(sheet.getMerges().size).toBe(0);
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('10');
+    expect(await sheet.toDisplayString({ r: 5, c: 2 })).toBe('keep');
+  });
+
+  it('should refuse an HTML paste offset onto a covered cell', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 2 }, '20');
+
+    sheet.selectStart({ r: 1, c: 2 });
+    sheet.selectEnd({ r: 1, c: 3 });
+    await sheet.mergeSelection();
+
+    // `html2grid` drops the empty leading cells, so the one-cell grid lands on
+    // C1 — a covered cell of the B1:C1 block — rather than on the A1 target.
+    sheet.selectStart({ r: 1, c: 1 });
+    const html =
+      '<table data-sheets-value="1"><tr><td></td><td></td><td>x</td></tr></table>';
+    expect(await sheet.paste({ html })).toBe(false);
+
+    expect(sheet.getMerges().get('B1')).toEqual({ rs: 1, cs: 2 });
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('20');
+
+    // Nothing was hidden under the block either.
+    sheet.selectStart({ r: 1, c: 2 });
+    await sheet.unmergeSelection();
+    expect(await sheet.toDisplayString({ r: 1, c: 3 })).toBe('');
   });
 
   it('should clear destination cells the propagated merge hides', async () => {

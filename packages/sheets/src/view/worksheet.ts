@@ -4896,8 +4896,11 @@ export class Worksheet {
         text = await navigator.clipboard.readText();
       }
 
-      await this.sheet!.paste({ text, html });
-      this.sheet!.clearCopyBuffer();
+      // A merged block can refuse the paste; keep the buffer so the marching
+      // ants stay up and the user can retry elsewhere.
+      if (await this.sheet!.paste({ text, html })) {
+        this.sheet!.clearCopyBuffer();
+      }
       this.render();
     } catch (err) {
       console.error('Failed to paste cell content: ', err);
