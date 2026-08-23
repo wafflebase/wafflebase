@@ -340,11 +340,12 @@ const LANES = [
     needs: ["core:build"],
   },
   {
-    // No `needs`: this package has no build and depends on no other package —
-    // it is a framework-agnostic core (docs/design/debug-report.md).
     name: "debug-report:check",
     cmd: "pnpm --filter @wafflebase/debug-report typecheck && pnpm --filter @wafflebase/debug-report test",
     pkgs: ["debug-report"],
+    // Geometry comes from `@wafflebase/core/geometry`, whose exports map points
+    // at `dist` — so the declarations have to exist before this typechecks.
+    needs: ["core:build"],
   },
   {
     name: "board:check",

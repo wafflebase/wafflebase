@@ -80,32 +80,32 @@ Requirements 1-3 below came out of driving the SP0 spike by hand on 2026-08-23,
 after 1a landed; they are recorded in `docs/design/debug-report.md` as measured
 findings 5-7. The first is a requirement the plan did not have.
 
-- [ ] **State-preserving capture.** The trigger is a key (`c`), not a click, and
+- [x] **State-preserving capture.** The trigger is a key (`c`), not a click, and
       the overlay observes the pointer PASSIVELY while idle — no
       `preventDefault`, no `stopPropagation` — so the app underneath keeps
       tracking hover and keeps a held drag. The key is intercepted at capture
       phase so nothing underneath sees it. Capture completes before the note
       field opens. Click-to-pick stays as a convenience path.
-- [ ] **`region.ts` selects canvases that INTERSECT the rect**, not those
+- [x] **`region.ts` selects canvases that INTERSECT the rect**, not those
       containing its centre. Regression test uses the vertical-stack layout
       (`/harness/docs`, 12 canvases): a region crossing the seam must composite
       both pairs. Measured failure today: bottom third of the image black.
-- [ ] **A DOM region records the DOM under it** — the meaningful elements
+- [x] **A DOM region records the DOM under it** — the meaningful elements
       intersecting the rect as a bounded list of selector + text excerpt.
       Measured failure today: `/login` yields an item with no capture, no
       selector, no text.
-- [ ] `pick.ts` — promotion rule (SP0 finding 3), and NO container fallback on a
+- [x] `pick.ts` — promotion rule (SP0 finding 3), and NO container fallback on a
       canvas surface (SP0 finding 4): route to the engine locator, or degrade to
       a small automatic region around the cursor.
-- [ ] `region.ts` — drag rectangle, canvas composite (SP0 finding 2), JPEG at
+- [x] `region.ts` — drag rectangle, canvas composite (SP0 finding 2), JPEG at
       1280 px max side. DOM is described, never photographed.
-- [ ] `packages/frontend/src/debug/locators/{sheet,doc}.ts` — point → semantic
+- [x] `packages/frontend/src/debug/locators/{sheet,doc}.ts` — point → semantic
       address, reusing `parseRef` / `toSref` / `formatValue`; reader names mirror
       `app/harness/hunt/bridge.ts`.
-- [ ] `hotkey.ts` — `Mod+Shift+Y`, avoiding the engine catalogs and the
+- [x] `hotkey.ts` — `Mod+Shift+Y`, avoiding the engine catalogs and the
       browser's reserved combos; one catalog line so the binding is a one-line
       change.
-- [ ] Frontend alias for `@wafflebase/debug-report` (first importer appears
+- [x] Frontend alias for `@wafflebase/debug-report` (first importer appears
       here) + the DEV-gated mount.
 
 ### Deferred out of 1b, deliberately
@@ -118,15 +118,22 @@ findings 5-7. The first is a requirement the plan did not have.
 
 ## Carried into PR 2
 
-- [ ] **Nothing is dropped in silence** (design doc section of the same name),
-      unit-tested: cancelling drops the item and never the mode, an empty note
-      is refused visibly, every capture eviction is named in the panel. Measured
-      violations: the `window.prompt` the spike started with broke all three.
+- [x] **Nothing is dropped in silence** — landed with the note field in 1b
+      rather than waiting for the panel, because a captured target cannot be
+      stored without a sentence and the rules govern whichever surface takes
+      it. PR 2's panel inherits them; what it adds is eviction reporting for
+      items already collected.
+      The rules (design doc section of the same name) are unit-tested in
+      `packages/frontend/src/debug/overlay.test.tsx`: cancelling drops the item
+      and never the mode, an empty note is refused visibly, and a browser that
+      refuses persistent storage says so. Measured violations they exist for:
+      the `window.prompt` the spike started with broke all three at once.
 
 ## Verification checklist
 
-- [ ] The eight surfaces that open without a login, all confirmed to mount the
-      overlay and take a capture (swept 2026-08-23):
+- [ ] The eight surfaces that open without a login. Swept 2026-08-23 against
+      the SPIKE, which proves the surfaces and the capture geometry but not the
+      shipped overlay — re-run against it before the PR merges:
       `/harness/hunt?surface={sheet,doc,slides,board}`, `/harness/docs`,
       `/harness/interaction`, `/harness/visual`, `/login`. Canvas counts differ
       (2 / 3 / 1 / 1 / 12 / 4 / 0 / 0), which is what makes the set worth

@@ -55,6 +55,7 @@
     "@tanstack/react-table": "^8.21.2",
     "@wafflebase/board": "workspace:*",
     "@wafflebase/core": "workspace:*",
+    "@wafflebase/debug-report": "workspace:*",
     "@wafflebase/docs": "workspace:*",
     "@wafflebase/notes": "workspace:*",
     "@wafflebase/sheets": "workspace:*",

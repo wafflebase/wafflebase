@@ -221,6 +221,77 @@ describe('store', () => {
     expect(meta.read()).not.toBeNull();
   });
 
+  it('refuses to overwrite another tab\'s reports', () => {
+    // ONE FIXED KEY, so two tabs share it, and `save` replaces the whole
+    // payload — the second writer silently destroyed the first tab's reports.
+    const blobs = memoryBlobs();
+    let stored: string | null = null;
+    const meta = {
+      read: () => stored,
+      write: (v: string) => {
+        stored = v;
+      },
+      clear: () => {
+        stored = null;
+      },
+    };
+    // Tab A saves.
+    createStore({ blobs, meta }).save('tab-a', [item('a')]);
+    // Tab B is a different store instance that never loaded this payload.
+    const b = createStore({ blobs, meta });
+    const result = b.save('tab-b', [item('b')]);
+    expect(result.persisted).toBe(false);
+    expect(result.foreign).toEqual({ sessionId: 'tab-a', items: 1 });
+    // A's reports are still there.
+    expect(JSON.parse(stored!).sessionId).toBe('tab-a');
+  });
+
+  it('may replace a payload it restored across a reload', async () => {
+    // The refusal must not break the reload case: a new page has a new session
+    // id, and the payload it just restored is its own to replace.
+    const blobs = memoryBlobs();
+    let stored: string | null = null;
+    const meta = {
+      read: () => stored,
+      write: (v: string) => {
+        stored = v;
+      },
+      clear: () => {
+        stored = null;
+      },
+    };
+    createStore({ blobs, meta }).save('before-reload', [item('a')]);
+    const after = createStore({ blobs, meta });
+    await after.load();
+    expect(after.save('after-reload', [item('a'), item('b')]).persisted).toBe(true);
+  });
+
+  it('refuses a payload whose items are not items', async () => {
+    // `items: [null]` passed the array check and then threw on `item.capture`
+    // inside `load()`. That rejected the promise the rehydrate hook awaits, and
+    // a rejected rehydrate wedged every later save.
+    const blobs = memoryBlobs();
+    let stored: string | null = JSON.stringify({
+      schema: 1,
+      sessionId: 's',
+      savedAt: 1,
+      items: [null],
+    });
+    const meta = {
+      read: () => stored,
+      write: (v: string) => {
+        stored = v;
+      },
+      clear: () => {
+        stored = null;
+      },
+    };
+    const s = createStore({ blobs, meta });
+    await expect(s.load()).resolves.toBeUndefined();
+    // Refused AND cleared, so it is not re-read and re-refused on every load.
+    expect(stored).toBeNull();
+  });
+
   it('sweeps blobs no persisted item references', async () => {
     const { store: s } = store();
     const kept = await s.putCapture({ dataUrl: jpeg(100), w: 1, h: 1, layers: 1 });

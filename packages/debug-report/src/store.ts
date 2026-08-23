@@ -264,7 +264,15 @@ type Persisted = {
   items: DebugItem[];
 };
 
-export type SaveResult = { persisted: boolean };
+export type SaveResult = {
+  persisted: boolean;
+  /**
+   * Set when the write was REFUSED because the key holds a payload this store
+   * never adopted — another tab's reports. Carries that tab's item count so the
+   * reporter can be told what would have been destroyed.
+   */
+  foreign?: { sessionId: string; items: number };
+};
 
 export type PutCaptureInput = {
   dataUrl: string;
@@ -354,7 +362,15 @@ export function createStore(options: StoreOptions): CaptureStore {
         typeof parsed !== 'object' ||
         parsed === null ||
         (parsed as Persisted).schema !== STORE_SCHEMA ||
-        !Array.isArray((parsed as Persisted).items)
+        !Array.isArray((parsed as Persisted).items) ||
+        // EVERY ENTRY, not just the array. `items: [null]` passed the array
+        // check and then threw on `item.capture` inside `load()`, which rejected
+        // the promise the rehydrate hook awaits — and a rejected rehydrate
+        // wedged every later save. Fail closed at the read boundary, the same
+        // rule `parseBundle` follows.
+        (parsed as Persisted).items.some(
+          (item) => typeof item !== 'object' || item === null || typeof item.id !== 'string',
+        )
       ) {
         // A schema we do not recognise is not repaired and not kept: it would
         // otherwise sit there being re-read and re-rejected on every load.
@@ -368,8 +384,29 @@ export function createStore(options: StoreOptions): CaptureStore {
     }
   };
 
+  /**
+   * The session whose payload this store may replace: its own last write, or
+   * what `load()` restored. Anything else in the key belongs to another tab.
+   */
+  let adopted: string | undefined;
+
   return {
     save(sessionId, items) {
+      // ONE FIXED KEY, SO TWO TABS SHARE IT. `save` replaces the whole payload,
+      // so without this the second tab to write silently destroyed the first
+      // tab's reports — the exact silent loss this feature exists to refuse.
+      //
+      // Refusing is not the same as keying by session: the id changes on reload,
+      // so a per-session key would make a reload find nothing. Instead the store
+      // tracks which payload it ADOPTED (its own last write, or what `load()`
+      // restored) and refuses to overwrite anything else. The caller reports it.
+      const held = readPersisted();
+      if (held && held.sessionId !== sessionId && held.sessionId !== adopted) {
+        return {
+          persisted: false,
+          foreign: { sessionId: held.sessionId, items: held.items.length },
+        };
+      }
       const payload: Persisted = {
         schema: STORE_SCHEMA,
         sessionId,
@@ -387,12 +424,17 @@ export function createStore(options: StoreOptions): CaptureStore {
       // earlier save had succeeded — and quota is reached exactly as the item
       // list grows, which makes the stale case the common one. The reporter was
       // told the session survives a reload and got the older list back.
-      return { persisted: meta.read() === serialized };
+      if (meta.read() !== serialized) return { persisted: false };
+      adopted = sessionId;
+      return { persisted: true };
     },
 
     async load() {
       const persisted = readPersisted();
       if (!persisted) return undefined;
+      // Adopting it is what makes the next `save` allowed to replace it: these
+      // are now this page's reports, restored across a reload.
+      adopted = persisted.sessionId;
 
       let present: Set<string>;
       try {

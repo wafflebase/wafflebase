@@ -318,3 +318,66 @@ describe('parseBundle', () => {
   });
 
 });
+
+describe('parseBundle · a region’s element inventory', () => {
+  const element = {
+    selector: 'div > button',
+    tag: 'button',
+    text: 'Sign in',
+    rect: { x: 10, y: 20, w: 80, h: 30 },
+  };
+  const withElements = (elements: unknown) =>
+    parse(
+      validBundle({
+        items: [
+          {
+            ...validItem(),
+            target: { kind: 'viewport', rect: { x: 0, y: 0, w: 200, h: 100 }, elements } as never,
+          },
+        ],
+      }),
+    );
+
+  it('accepts a region with no elements at all', () => {
+    const result = parse(
+      validBundle({
+        items: [{ ...validItem(), target: { kind: 'viewport', rect: { x: 0, y: 0, w: 1, h: 1 } } }],
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) expect('elements' in result.bundle.items[0].target).toBe(false);
+  });
+
+  it('round-trips an inventory, keeping the optional text', () => {
+    const result = withElements([element, { ...element, text: undefined }]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const target = result.bundle.items[0].target;
+    expect(target.kind === 'viewport' && target.elements).toEqual([
+      element,
+      { selector: element.selector, tag: element.tag, rect: element.rect },
+    ]);
+  });
+
+  it('rejects an inventory that is not an array', () => {
+    expect(withElements('button').ok).toBe(false);
+  });
+
+  it('rejects an entry that is not an object', () => {
+    expect(withElements(['button']).ok).toBe(false);
+  });
+
+  it('rejects an entry with no selector, no tag, or a bad rect', () => {
+    expect(withElements([{ ...element, selector: '' }]).ok).toBe(false);
+    expect(withElements([{ ...element, tag: '   ' }]).ok).toBe(false);
+    expect(withElements([{ ...element, rect: { x: 0, y: 0, w: 'wide', h: 1 } }]).ok).toBe(false);
+    const { rect: _gone, ...noRect } = element;
+    expect(withElements([noRect]).ok).toBe(false);
+  });
+
+  it('names the offending entry so a version skew is debuggable', () => {
+    const result = withElements([element, { ...element, tag: '' }]);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.join()).toMatch(/elements\[1\]\.tag/);
+  });
+});
