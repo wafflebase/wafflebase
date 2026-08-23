@@ -18,7 +18,7 @@ context that produced them is gone.
 Debug Report hands that translation to an agent. **A person supplies coordinates
 and curation; the agent supplies translation, verification and assembly.** A
 hotkey opens a debug mode over the running app; the reporter points at what is
-wrong (`pick`) or drags a box around it (`region`), types one sentence, and
+wrong (`capture`) or drags a box around it (`region`), types one sentence, and
 repeats. Handing the batch over once opens a preview holding **issue text the
 agent wrote** and **a proposal for how the batch splits into PRs**. The person
 edits, confirms, and from there the pipeline verifies each item and lands it as
@@ -173,7 +173,7 @@ is not there.
 
 The session is a singleton with no React state — the pattern is
 `packages/frontend/src/app/slides/zoom-controller.ts`. It holds the mode
-(`off` / `idle` / `pick` / `region`), the items, and a subscription list. The
+(`off` / `idle` / `region`), the items, and a subscription list. The
 overlay and the panel both subscribe imperatively, so neither depends on the
 other's render cycle, and a re-render never drops a collected item.
 
@@ -290,6 +290,56 @@ held back by the per-session PR cap is shown as queued. Silence is the one
 failure mode this feature cannot afford, because its entire premise is that
 reporting is cheap enough to do again.
 
+### `pick` was a mode that did nothing (finding 11)
+
+`p` entered a `pick` mode whose entire implementation was
+`session.setMode("pick")`, and the only behaviour that mode had was painting the
+hover outline. It could never produce an item: `capture` reads the cursor
+directly and works in every mode. So the badge listed `c capture · p pick ·
+r region` as three parallel actions while one of them did nothing a reporter
+could observe — reported from the running app as "pick mode doesn't work",
+which was exactly right.
+
+Underneath it was the worse half: because the outline was gated behind that
+mode, pressing `c` in any other mode fired **blind** — what it would record was
+invisible until after the keystroke. Aiming at transient state is the whole
+point of the feature, and you cannot aim at what you cannot see.
+
+The mode is gone, as a binding and as a `Mode` value (where it was
+indistinguishable from `idle`), and the outline is unconditional while debug mode
+is live, coalesced to one `locatePoint` per animation frame — being mode-gated had
+been doing that throttling by accident. Two actions remain, `capture` and
+`region`, and `p` reaches the app like any unbound letter. Removing the binding
+made `region` a mode with no exit, so Escape now peels `region` → `idle` before
+`idle` → `off`, which is the invariant it already documented.
+
+### Duplicates are measured twice, by two different measures
+
+`report-intake.mjs` checks a report against two sources: the `--prior` ledger
+this pipeline writes, and (with `--issues`) the repository's **open issues**,
+read through `report-prior.mjs`.
+
+They cannot share one comparison. `tokenOverlap` is containment
+(`shared / min(|a|, |b|)`) and its own docblock warns it is *blind to the longer
+operand*. A debug report is one sentence; an issue body is paragraphs. Under
+containment, an issue whose body merely contains a short sentence's words scores
+1.0 — so a real report is routed to `duplicate`, commented onto an unrelated
+issue, and **never filed**. Losing a report behind a wrong match is the one
+outcome this pipeline exists to prevent, so report-vs-issue uses
+`crossArmTokenOverlap` (Dice), where a long body pulls the score down rather than
+up. Ledger entries keep containment, where one sentence restating another at
+length really is evidence.
+
+Issue text is untrusted — anyone who can open an issue writes it. It is read as
+data: control characters collapse to spaces, zero-width and bidi characters are
+removed outright (removed, not replaced, so nobody can forge a word boundary and
+change how the text tokenises), the body is truncated before scoring and then
+dropped, and only a number, a URL and a truncated title ever reach the plan.
+
+`gh` being absent, offline or unauthorised carries **no** prior rather than
+failing the run: the cost of getting this wrong is one duplicate comment, and the
+cost of refusing to run is a report nobody sees.
+
 ### Engine locators
 
 A point becomes a semantic address (`Sheet1!C7`, a docs paragraph offset) through
@@ -311,14 +361,38 @@ interface HostAdapter {
   /** Everything else about the observation environment. */
   environment(): Environment;
   locate(point: Point): Promise<Target | undefined>;
-  draft(items: readonly DebugItem[]): Promise<DraftResult>;
-  send(bundle: Bundle): Promise<SendResult>;
+  /**
+   * The RAW answer, deliberately untyped: it comes from a model, and
+   * `parseDraftResult` is the only thing allowed to interpret it. Declaring the
+   * validated shape here would be a lie every implementation told — the wire
+   * form is flat, `DraftResult` is not.
+   */
+  draft(items: readonly DebugItem[]): Promise<unknown>;
+  /**
+   * The captures travel BESIDE the bundle, not inside it: the bundle is
+   * metadata that has to stay small enough for `localStorage`, and the images
+   * are megabytes.
+   */
+  send(bundle: Bundle, captures: readonly CapturePayload[]): Promise<SendResult>;
 }
 ```
 
 In development the Vite plugin implements `draft` and `send`
 (`POST /__wb_debug_draft`, `POST /__wb_debug_report` writing into
 `.wb-reports/<session>/`), following `packages/design-editor/src/plugin/bridge.ts`.
+
+**One session hands over more than once.** `sessionId` is a per-page-load
+singleton, so the write is bundle.json, then bundle-2.json, and so on — created
+exclusively, never truncating. Intake takes the newest. Overwriting
+would have destroyed the earlier batch after the reporter was told it was sent,
+which is the same class of failure as writing an unvalidated bundle: a report
+lost behind a success message.
+
+**Both endpoints validate before acting**, and for drafting that is a cost
+argument, not only a correctness one: the endpoint listens on a port every page
+the developer visits can reach and answering it spends tokens, so
+`parseDraftRequest` caps the item count (`MAX_DRAFT_ITEMS`, refused rather than
+truncated) before the credential is touched.
 In SP2 the backend re-hosts the same two calls. Because both sit behind this
 interface, SP1 → SP2 is a substitution rather than a rewrite, and the design
 editor can host the loop by implementing it too.
@@ -382,8 +456,20 @@ same reason.
 is too tight" has neither — so appearance reports skip `hunt-ui`. **They do not
 skip review.** For an appearance report the reporter's sentence *is* the ground
 truth, which is a different thing from `hunt-ui`'s prediction, so it gets its own
-lens: `visual-intent` (one row in `scripts/agent/lenses/lenses.json` plus one
-`.md` prompt — pure data). Its inputs are the original sentence, the baseline
+lens: `visual-intent`.
+
+**It lives in its own lens directory, not the panel's shared manifest.**
+`scripts/agent/report-lenses/` holds the rubric and a one-row `lenses.json`, and
+the report pipeline passes it to `review-panel.mjs --lenses-dir` — a seam that
+already existed. It is a SIBLING of `lenses/` rather than a subdirectory: nested,
+it made `readdirSync` over the panel's lens directory return a directory, and
+`eval/run.test.mjs` — which copies that directory file by file — died on EISDIR. Registered in the shared manifest with an `appliesWhen` of
+`packages/frontend/**` it fired, blocking, on every PR touching the frontend or
+any engine's view layer, judging them against a reporter's sentence and a
+baseline/actual/diff set that only a report has. The rubric still carries the
+panel's injection-framing and coverage-first clauses, enforced by
+`report-lens.test.mjs`, because a lens reading an untrusted working tree needs
+them wherever it is registered. Its inputs are the original sentence, the baseline
 PNG, `*.actual.png` and `*.diff.png`, all three of which
 `packages/frontend/scripts/verify-visual-browser.mjs` already produces. It judges
 two things: whether the after state satisfies the sentence, and whether the diff
@@ -395,6 +481,42 @@ where a reader's scope is wider than the action is real. So failure *lowers the
 destination* instead of discarding: the expectation and the failed replay are
 filed together, leaving the discrepancy visible to a person rather than resolved
 by a machine.
+
+### The intake scripts
+
+Five modules in `scripts/agent/`, each doing one step, and none of them filing
+anything by itself:
+
+| script | does | notably does NOT |
+| --- | --- | --- |
+| `report-bundle.mjs` | reads and validates a bundle off disk | repair anything |
+| `report-prior.mjs` | reads the repo's open issues as prior reports | judge, or write anything |
+| `report-intake.mjs` | redacts, dedupes, routes each item, emits a plan | run or file |
+| `report-verify.mjs` | works out what verifying each item means | run the lanes |
+| `report-to-pr.mjs` | assembles the PRs and records the delta | open a PR |
+| `report-back.mjs` | writes the outcome next to the bundle | interpret it |
+
+**A plan is data.** Keeping the decision separate from the action is what makes
+`--dry-run` the same code path as a real run rather than a second one that can
+drift, and it is why `report-to-pr.mjs` spawns no process at all — opening a PR
+is `spec-to-pr.mjs handoff`, an explicit step taken after a person has read the
+assembly.
+
+`report-bundle.mjs` deliberately does NOT share code with the package's
+`parseBundle`: `scripts/agent/` is a separate npm install outside the pnpm
+workspace, the same constraint that makes the UI hunter's runner a subprocess. It
+validates exactly what the pipeline reads, and the two are kept in step by
+**shared fixtures** under `scripts/agent/fixtures/debug-report/` that both test
+suites load — a rule that changes on one side and not the other turns a suite red
+rather than silently accepting a bundle the other half refuses.
+
+The forced merge is **transitive**: if A and B share one file and B and C share
+another, all three become one PR, because any split among them conflicts
+somewhere. A merge the files forced across kinds is labelled `mixed` rather than
+claiming to be one kind — a wrong label is what a downstream router would act on.
+With no file map supplied, the unknown is reported as unknown: a guessed overlap
+produces conflicting PRs, while an honest "not checked" costs nothing.
+
 
 ### Credentials
 
@@ -452,7 +574,7 @@ without weakening the gate.
 | --- | --- |
 | Canvas point → semantic address | `packages/frontend/src/app/harness/hunt/bridge.ts` (closed reader registry) |
 | before/after images + pixel diff | `packages/frontend/scripts/verify-visual-browser.mjs` |
-| Adding a review lens | `scripts/agent/lenses/` — one `.md` + one `lenses.json` row |
+| Adding a review lens | `scripts/agent/lenses/` — one `.md` + one `lenses.json` row. A lens that needs a report's own inputs goes in its own directory instead, passed as `--lenses-dir` |
 | Publication boundary (credential / PII redaction) | `scripts/agent/redact.mjs` |
 | "Is this the same defect?" | `scripts/agent/finding-match.mjs`, `finding-key`, `novelty` |
 | Severity → blocking rules | `scripts/agent/severity.mjs` |
@@ -530,9 +652,19 @@ frontend side of SP2 is one adapter, not a rewrite.
   what the person approved, with no stated reason, breaks trust before it breaks
   anything else. Delta reporting is therefore a required verification item, not
   a feature.
+- **The three adjustments are ordered, and the order is load-bearing.** Forced
+  split (a `logic`/`layout` item leaves its group), then forced merge by file
+  overlap, then the item cap. Each earlier rule outranks the later one where they
+  disagree: file overlap never merges a solo kind into a shared PR (it reports
+  the conflict and says to land one first), and the cap never splits a
+  force-merged group (it goes over the cap and says why, because two conflicting
+  PRs are worse than one large one). Run in any other order, each adjustment
+  quietly undoes the previous one. There is **no line cap** — nothing in this
+  path can measure a change before it is written.
 - **`visual-intent` judges a subjective claim** ("does this satisfy the
   reporter's expectation?"). The first response to misjudgement is to drop it
-  from blocking to advisory — one field in `lenses.json`.
+  from blocking to advisory — one field in `scripts/agent/report-lenses/lenses.json`, and it
+  affects no PR outside this pipeline.
 - **The drafting credential lives with the app.** Tool-free, so no privileged
   action; the token-amplification surface is real, and the ceiling, member gating
   and rate limit are the whole defence.

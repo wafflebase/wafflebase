@@ -179,6 +179,16 @@ export function DebugPanel({
         void store.sweep();
         setGroups(result.queued);
       }
+    } catch (err) {
+      // `handOver` reports a REFUSED send in `result.sent`, but it can still
+      // throw: reading a capture out of IndexedDB, or the host adapter itself.
+      // Without this the rejection was unhandled, the button re-enabled through
+      // `finally`, and the reporter saw a click that did nothing — the one
+      // outcome a consent gate may not produce. THE SESSION IS UNTOUCHED, so the
+      // batch is still theirs to retry.
+      setReport(
+        `Nothing was sent — ${err instanceof Error ? err.message : String(err)}. Your reports are still here.`,
+      );
     } finally {
       setSending(false);
     }

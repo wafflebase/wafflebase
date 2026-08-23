@@ -73,11 +73,21 @@ function renderPanel(options: {
 describe('DebugPanel', () => {
   it('shows every collected sentence, editable', async () => {
     const { session } = renderPanel();
+    expect(screen.getAllByLabelText('What is wrong?').map((el) => (el as HTMLTextAreaElement).value))
+      .toEqual(['toolbar is cramped', 'undo goes one short']);
+
+    // TYPED SHORT, AND WITH NO KEYSTROKE DELAY, because this test was 25% away
+    // from failing. Every character re-renders the panel and re-runs the
+    // drafting effect: the original 29-character sentence measured 3.7s on an
+    // idle machine against vitest's 5s default, and timed out under load. Short
+    // it measures ~1.1s. What the test has to prove is that a keystroke reaches
+    // the session, and three characters prove that exactly as well as
+    // twenty-nine.
+    const typist = userEvent.setup({ delay: null });
     const first = screen.getAllByLabelText('What is wrong?')[0];
-    expect(first).toHaveProperty('value', 'toolbar is cramped');
-    await userEvent.clear(first);
-    await userEvent.type(first, 'the toolbar icons are cramped');
-    expect(session.items()[0].note).toBe('the toolbar icons are cramped');
+    await typist.clear(first);
+    await typist.type(first, 'gap');
+    expect(session.items()[0].note).toBe('gap');
   });
 
   it('renders the agent’s issue text next to the reporter’s sentence, and lets them edit it', async () => {
@@ -218,6 +228,31 @@ describe('DebugPanel', () => {
         expect(screen.getByTestId('debug-panel-report').textContent).toMatch(/^Nothing was sent/),
       );
       expect(session.count()).toBe(2);
+    });
+
+    it('KEEPS the batch when the send THROWS, and says so', async () => {
+      // `handOver` reports a refused send in its result, but it can still throw
+      // — reading a capture out of IndexedDB, or the adapter itself. Without a
+      // catch the rejection was unhandled, the button re-enabled, and the click
+      // did nothing visible: the one outcome a consent gate may not produce.
+      const { session } = renderPanel({
+        host: host({
+          send: async () => {
+            throw new Error('IndexedDB is closing');
+          },
+        }),
+      });
+      await userEvent.click(screen.getByRole('button', { name: /hand over/i }));
+      await waitFor(() =>
+        expect(screen.getByTestId('debug-panel-report').textContent).toMatch(
+          /Nothing was sent.*IndexedDB is closing/,
+        ),
+      );
+      expect(session.count()).toBe(2);
+      // Re-enabled, so the reporter can retry rather than reload.
+      expect(
+        (screen.getByRole('button', { name: /hand over/i }) as HTMLButtonElement).disabled,
+      ).toBe(false);
     });
 
     it('says the shape is not a promise about the PR count', async () => {

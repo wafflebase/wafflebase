@@ -21,7 +21,11 @@ const draft = (itemId: string, kind = 'spacing', title = `fix ${itemId}`) => ({
   labels: ['ui'],
 });
 
-const ids = ['i1', 'i2', 'i3'];
+const ids = [
+  { id: 'i1', note: 'the toolbar is cramped' },
+  { id: 'i2', note: 'the label wraps' },
+  { id: 'i3', note: 'the icon is off-centre' },
+];
 
 const titleOf = (itemId: string) => `title for ${itemId}`;
 
@@ -116,7 +120,12 @@ describe('parseDraftResult', () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.result.proposedGroups.map((g) => g.itemIds)).toEqual([['i1'], ['i2']]);
+    // `i3` is in `ids` and undrafted, so the coverage rule gives it its own PR.
+    expect(result.result.proposedGroups.map((g) => g.itemIds)).toEqual([
+      ['i1'],
+      ['i2'],
+      ['i3'],
+    ]);
     expect(result.dropped.join()).toMatch(/claimed by two groups/);
   });
 
@@ -134,25 +143,58 @@ describe('parseDraftResult', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const byItems = result.result.proposedGroups.map((g) => g.itemIds);
-    expect(byItems).toEqual([['i1'], ['i2']]);
+    expect(byItems).toEqual([['i1'], ['i2'], ['i3']]);
   });
 
   it('gives every ungrouped item its own PR', () => {
     const result = parseDraftResult({ drafts: [draft('i1'), draft('i2')], proposedGroups: [] }, ids);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.result.proposedGroups).toHaveLength(2);
+    expect(result.result.proposedGroups).toHaveLength(3);
     expect(result.result.proposedGroups[0].prTitle).toBe('fix i1');
+  });
+
+  it('gives an item the model never mentioned its own PR, titled from the note', () => {
+    // WITHHELD BEFORE THIS: `handOver` sends only items that appear in a group,
+    // so an undrafted item travelled nowhere while still counting toward the
+    // "N reports" the panel showed — reported as neither sent nor queued.
+    const result = parseDraftResult(
+      { drafts: [draft('i1')], proposedGroups: [] },
+      ids,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const solo = result.result.proposedGroups.find((g) => g.itemIds[0] === 'i2');
+    expect(solo).toMatchObject({ kind: 'logic', prTitle: 'the label wraps' });
+    expect(result.dropped.join()).toMatch(/i2 \(not drafted\)/);
+  });
+
+  it('covers every item exactly once, drafted or not', () => {
+    const result = parseDraftResult(
+      {
+        drafts: [draft('i1'), draft('i2')],
+        proposedGroups: [
+          { id: 'g1', kind: 'spacing', itemIds: ['i1', 'i2'], prTitle: 'Both' },
+        ],
+      },
+      ids,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const covered = result.result.proposedGroups.flatMap((g) => g.itemIds);
+    expect(covered.slice().sort()).toEqual(['i1', 'i2', 'i3']);
+    expect(new Set(covered).size).toBe(covered.length);
   });
 
   it('caps a group at the item limit', () => {
     const many = Array.from({ length: 12 }, (_, i) => `m${i}`);
+    const manyItems = many.map((id) => ({ id, note: `note ${id}` }));
     const result = parseDraftResult(
       {
         drafts: many.map((id) => draft(id)),
         proposedGroups: [{ id: 'g1', kind: 'spacing', itemIds: many, prTitle: 'All' }],
       },
-      many,
+      manyItems,
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -302,7 +344,7 @@ describe('parseDraftResult · homogeneity', () => {
           { id: 'g1', kind: 'spacing', itemIds: ['i1', 'i2', 'i3'], prTitle: 'Mixed' },
         ],
       },
-      ['i1', 'i2', 'i3'],
+      ['i1', 'i2', 'i3'].map((id) => ({ id, note: `note ${id}` })),
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -324,7 +366,7 @@ describe('parseDraftResult · homogeneity', () => {
           { id: 'g1', kind: 'logic', itemIds: ['i1', 'i2'], prTitle: 'Mislabelled' },
         ],
       },
-      ['i1', 'i2'],
+      ['i1', 'i2'].map((id) => ({ id, note: `note ${id}` })),
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -340,7 +382,7 @@ describe('parseDraftResult · homogeneity', () => {
           { id: 'g1', kind: 'layout', itemIds: ['i1', 'i2'], prTitle: 'Structural' },
         ],
       },
-      ['i1', 'i2'],
+      ['i1', 'i2'].map((id) => ({ id, note: `note ${id}` })),
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;

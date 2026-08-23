@@ -63,8 +63,8 @@ describe('session', () => {
     const s = session();
     const seen = vi.fn();
     s.subscribe(seen);
-    s.setMode('pick');
-    s.setMode('pick');
+    s.setMode('idle');
+    s.setMode('idle');
     expect(seen).toHaveBeenCalledTimes(1);
   });
 
@@ -77,10 +77,10 @@ describe('session', () => {
     expect(seen).not.toHaveBeenCalled();
   });
 
-  it('toggles into pick from off and back to off from any live mode', () => {
+  it('toggles into idle from off and back to off from any live mode', () => {
     const s = session();
     s.toggle();
-    expect(s.mode()).toBe('pick');
+    expect(s.mode()).toBe('idle');
     s.setMode('region');
     s.toggle();
     expect(s.mode()).toBe('off');

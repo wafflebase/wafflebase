@@ -52,7 +52,12 @@ describe('actionFor', () => {
 
   it('answers every action while debug mode is live', () => {
     expect(actionFor(press('c'), true)).toBe('capture');
-    expect(actionFor(press('p'), true)).toBe('pick');
+    // `p` is deliberately NOT bound: it used to enter a mode whose whole effect
+    // was the hover outline the overlay now paints unconditionally, so it looked
+    // like a third action beside `c` and `r` while never producing an item.
+    // Unbound means it reaches the app, which is the correct answer for a letter
+    // this tool has no use for.
+    expect(actionFor(press('p'), true)).toBeUndefined();
     expect(actionFor(press('r'), true)).toBe('region');
     expect(actionFor(press('v'), true)).toBe('review');
     expect(actionFor(press('Escape'), true)).toBe('cancel');

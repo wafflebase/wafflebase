@@ -1,14 +1,24 @@
+import { strict as assert } from 'node:assert';
 import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { draftBundle, renderItem, renderPrompt, __testables } from './draft-endpoint';
+import type { DraftRequest } from '../types';
 
 /** The real schema, imported the way a test may (vitest resolves the alias). */
 const schema = { type: 'object' } as Record<string, unknown>;
 
-const bundle = {
+/**
+ * The REAL model, not a loose mirror of it.
+ *
+ * `report-endpoint.ts` runs `parseDraftRequest` before anything reaches this
+ * module, so a fixture that omits `createdAt` or `agentCandidate` is a shape the
+ * endpoint could never hand over.
+ */
+const bundle: DraftRequest = {
   items: [
     {
       id: 'i1',
+      createdAt: 1_700_000_000_000,
       note: 'the toolbar icons are cramped',
       target: {
         kind: 'dom',
@@ -18,18 +28,31 @@ const bundle = {
         text: 'Bold',
         rect: { x: 0, y: 0, w: 32, h: 32 },
       },
-      capture: undefined,
       disposition: 'verify',
+      agentCandidate: false,
     },
     {
       id: 'i2',
+      createdAt: 1_700_000_001_000,
       note: 'the merged border looks broken',
-      target: { kind: 'canvas', surface: 'sheet', address: 'Sheet1!C7', rect: { x: 0, y: 0, w: 80, h: 21 } },
-      capture: { id: 'c1' },
+      target: {
+        kind: 'canvas',
+        surface: 'sheet',
+        address: 'Sheet1!C7',
+        rect: { x: 0, y: 0, w: 80, h: 21 },
+      },
+      capture: { id: 'c1', w: 80, h: 21, bytes: 900, layers: 1, mime: 'image/png' },
       disposition: 'verify',
+      agentCandidate: false,
     },
   ],
-  env: { route: '/s/:id', viewport: { w: 1280, h: 800 }, dpr: 2, theme: 'light' },
+  env: {
+    route: '/s/:id',
+    viewport: { w: 1280, h: 800 },
+    dpr: 2,
+    theme: 'light',
+    userAgent: 'vitest',
+  },
 };
 
 const message = (text: string): Anthropic.Message =>
@@ -99,7 +122,7 @@ describe('draftBundle', () => {
 
   it('reports an empty bundle without calling the model', async () => {
     const c = client(async () => message('{}'));
-    const outcome = await draftBundle({ items: [] }, { client: c, schema });
+    const outcome = await draftBundle({ ...bundle, items: [] }, { client: c, schema });
     expect(outcome).toMatchObject({ ok: false, reason: 'empty' });
     expect(c.messages.create).not.toHaveBeenCalled();
   });
@@ -140,5 +163,45 @@ describe('draftBundle', () => {
       reason: 'failed',
       detail: 'socket hang up',
     });
+  });
+});
+
+describe('the SDK is not loaded until a draft is actually asked for', () => {
+  it('is imported lazily, because vite.config reaches this module', async () => {
+    // A CONSUMER's `vite.config.ts` mounts this plugin, and every vitest worker
+    // in that consumer loads the config — so a static
+    // `import Anthropic from "@anthropic-ai/sdk"` costs ~500 ms per worker for a
+    // dependency only a drafting request needs. Measured in this repository
+    // before the move, where it pushed a 5-second boundary test over; now that
+    // the plugin ships in a package the cost lands on every consumer instead,
+    // which makes the guard matter more rather than less.
+    //
+    // Read by path rather than by `import.meta.url`: under vitest the module id
+    // is not a `file:` URL.
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const source = readFileSync(
+      join(process.cwd(), 'src', 'plugin', 'draft-endpoint.ts'),
+      'utf8',
+    );
+    assert(!/^import Anthropic from/m.test(source), 'the SDK must not load at module scope');
+    assert(/^import type Anthropic from/m.test(source), 'types are erased, so they are free');
+    assert(/await import\("@anthropic-ai\/sdk"\)/.test(source), 'loaded where it is used');
+  });
+
+  it('recognises a missing credential without the SDK loaded', async () => {
+    // An injected client never loads the SDK, so `instanceof` cannot be the only
+    // test — a 401 means the same thing either way.
+    const outcome = await draftBundle(bundle, {
+      schema,
+      client: {
+        messages: {
+          create: async () => {
+            throw Object.assign(new Error('missing key'), { status: 401 });
+          },
+        },
+      } as never,
+    });
+    expect(outcome).toMatchObject({ ok: false, reason: 'not-configured' });
   });
 });

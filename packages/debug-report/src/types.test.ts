@@ -1,3 +1,8 @@
+/// <reference types="vite/client" />
+// For `import.meta.glob` below. `vite` is already a devDependency here
+// (vitest runs on it), so this costs no new dependency — unlike
+// `@types/node`, which reading the fixtures with `node:fs` would have
+// required in a package that must never need Node.
 import { describe, expect, it } from 'vitest';
 import {
   BUNDLE_SCHEMA,
@@ -379,5 +384,51 @@ describe('parseBundle · a region’s element inventory', () => {
     const result = withElements([element, { ...element, tag: '' }]);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.join()).toMatch(/elements\[1\]\.tag/);
+  });
+});
+
+describe('parseBundle · the shared fixtures', () => {
+  /**
+   * The browser's half of a two-sided contract.
+   *
+   * `scripts/agent/report-bundle.mjs` validates the same format and cannot share
+   * code with this file — that directory is a separate npm install outside the
+   * pnpm workspace. These fixtures are what keeps the two from drifting: a rule
+   * that changes here and not there would otherwise silently accept a bundle the
+   * pipeline refuses, or refuse one it accepts.
+   */
+  // READ WITH `import.meta.glob`, NOT `node:fs`. This package is
+  // framework-agnostic and BROWSER-ONLY — nothing in it may need Node, and a
+  // test importing `node:fs` makes the package's own `typecheck` depend on
+  // `@types/node`, which no engine package here declares and which is not
+  // resolvable from this workspace. Vite reads these eagerly at transform time,
+  // so the files still come off disk and a fixture that stops existing is still
+  // a failure.
+  const valid = import.meta.glob<{ default: unknown }>(
+    '../../../scripts/agent/fixtures/debug-report/bundle-valid.json',
+    { eager: true },
+  );
+  const invalid = import.meta.glob<{ default: unknown }>(
+    '../../../scripts/agent/fixtures/debug-report/invalid/*.json',
+    { eager: true },
+  );
+
+  it('accepts the shared valid fixture', () => {
+    const entries = Object.values(valid);
+    expect(entries).toHaveLength(1);
+    const result = parseBundle(entries[0].default);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.bundle.items).toHaveLength(3);
+  });
+
+  it('refuses every shared invalid fixture, for a stated reason', () => {
+    const names = Object.keys(invalid);
+    // Without this the sweep could pass while asserting nothing.
+    expect(names.length).toBeGreaterThanOrEqual(6);
+    for (const name of names) {
+      const result = parseBundle(invalid[name].default);
+      expect(result.ok, `${name} should have been refused`).toBe(false);
+      if (!result.ok) expect(result.errors.length).toBeGreaterThan(0);
+    }
   });
 });

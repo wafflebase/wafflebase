@@ -39,8 +39,14 @@ type BundleParse =
   | { ok: true; bundle: { sessionId: string } & Record<string, unknown> }
   | { ok: false; errors: string[] };
 
+/** What `parseDraftRequest` answers. Narrowed to what this file reads. */
+type DraftRequestParse =
+  | { ok: true; request: { items: unknown[]; env: Record<string, unknown> } }
+  | { ok: false; errors: string[] };
+
 type CoreModule = {
   parseBundle: (input: unknown) => BundleParse;
+  parseDraftRequest: (input: unknown) => DraftRequestParse;
   DRAFT_SCHEMA: Record<string, unknown>;
 };
 
@@ -204,6 +210,31 @@ export function prepareCaptures(captures: unknown): {
   return { prepared, refused };
 }
 
+/**
+ * Write one handover's bundle without overwriting an earlier one.
+ *
+ * ONE SESSION CAN HAND OVER MORE THAN ONCE. `sessionId` is a per-page-load
+ * singleton, so collecting three reports, sending them, then collecting three
+ * more and sending those wrote `bundle.json` twice into the same directory — the
+ * first batch destroyed, silently, after the reporter had been told it was sent.
+ *
+ * `wx` is the load-bearing flag: it fails rather than truncating, so two
+ * handovers that race pick different names instead of one clobbering the other.
+ * The captures need no such care — a capture id is unique within a session.
+ */
+export function writeBundle(dir: string, bundle: unknown): string {
+  const body = `${JSON.stringify(bundle, null, 2)}\n`;
+  for (let n = 1; ; n += 1) {
+    const name = n === 1 ? "bundle.json" : `bundle-${n}.json`;
+    try {
+      writeFileSync(path.join(dir, name), body, { flag: "wx" });
+      return name;
+    } catch (err) {
+      if ((err as { code?: string }).code !== "EEXIST") throw err;
+    }
+  }
+}
+
 export type DebugReportPluginOptions = {
   /** Repository root. Bundles are written under `<root>/.wb-reports/`. */
   repoRoot: string;
@@ -259,15 +290,12 @@ export function debugReportPlugin(options: DebugReportPluginOptions): Plugin {
             for (const capture of prepared) {
               writeFileSync(path.join(dir, capture.name), capture.bytes);
             }
-            writeFileSync(
-              path.join(dir, "bundle.json"),
-              `${JSON.stringify(bundle, null, 2)}\n`,
-            );
-            const ref = path.join(REPORT_DIR, bundle.sessionId);
+            const name = writeBundle(dir, bundle);
+            const ref = path.join(REPORT_DIR, bundle.sessionId, name);
             server.config.logger.info(
-              `[debug-report] wrote ${ref}/bundle.json (${prepared.length} capture(s))`,
+              `[debug-report] wrote ${ref} (${prepared.length} capture(s))`,
             );
-            send(res, 200, { ref, captures: prepared.map((c) => c.name) });
+            send(res, 200, { ref, bundle: name, captures: prepared.map((c) => c.name) });
           } catch (err) {
             send(res, 400, { error: err instanceof Error ? err.message : String(err) });
           }
@@ -282,12 +310,20 @@ export function debugReportPlugin(options: DebugReportPluginOptions): Plugin {
             if (!trusted.ok) return send(res, 403, { error: trusted.error });
 
             const body = await readJsonBody(req);
-            const bundle = body.bundle;
-            if (typeof bundle !== "object" || bundle === null) {
-              return send(res, 400, { error: "expected { bundle }" });
+            const { DRAFT_SCHEMA, parseDraftRequest } = await loadCore(server);
+            // VALIDATED BEFORE THE CREDENTIAL IS SPENT. This endpoint listens on
+            // a port every page the developer visits can reach and answering it
+            // costs tokens, so an unvalidated body is an unbounded bill payable
+            // by anything that can issue a same-origin POST. The parser also
+            // caps the item count, which nothing else in the path does.
+            const parsed = parseDraftRequest(body.bundle);
+            if (!parsed.ok) {
+              return send(res, 400, {
+                error: "the drafting request is not valid",
+                detail: parsed.errors.slice(0, 5).join("; "),
+              });
             }
-            const { DRAFT_SCHEMA } = await loadCore(server);
-            const answer = await draft(bundle as Parameters<typeof draftBundle>[0], {
+            const answer = await draft(parsed.request as Parameters<typeof draftBundle>[0], {
               schema: DRAFT_SCHEMA,
             });
             if (!answer.ok) {

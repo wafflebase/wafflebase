@@ -86,7 +86,7 @@ findings 5-7. The first is a requirement the plan did not have.
       tracking hover and keeps a held drag. The key is intercepted at capture
       phase so nothing underneath sees it. Capture completes before the note
       field opens. Click-to-pick stays as a convenience path.
-- [x] **`region.ts` selects canvases that INTERSECT the rect**, not those
+- [x] **`capture.ts` selects canvases that INTERSECT the rect**, not those
       containing its centre. Regression test uses the vertical-stack layout
       (`/harness/docs`, 12 canvases): a region crossing the seam must composite
       both pairs. Measured failure today: bottom third of the image black.
@@ -97,7 +97,7 @@ findings 5-7. The first is a requirement the plan did not have.
 - [x] `pick.ts` — promotion rule (SP0 finding 3), and NO container fallback on a
       canvas surface (SP0 finding 4): route to the engine locator, or degrade to
       a small automatic region around the cursor.
-- [x] `region.ts` — drag rectangle, canvas composite (SP0 finding 2), JPEG at
+- [x] `capture.ts` — drag rectangle, canvas composite (SP0 finding 2), JPEG at
       1280 px max side. DOM is described, never photographed.
 - [x] `packages/frontend/src/debug/locators/{sheet,doc}.ts` — point → semantic
       address, reusing `parseRef` / `toSref` / `formatValue`; reader names mirror
@@ -124,7 +124,7 @@ findings 5-7. The first is a requirement the plan did not have.
       it. PR 2's panel inherits them; what it adds is eviction reporting for
       items already collected.
       The rules (design doc section of the same name) are unit-tested in
-      `packages/frontend/src/debug/overlay.test.tsx`: cancelling drops the item
+      `packages/debug-report/src/ui/overlay.test.tsx`: cancelling drops the item
       and never the mode, an empty note is refused visibly, and a browser that
       refuses persistent storage says so. Measured violations they exist for:
       the `window.prompt` the spike started with broke all three at once.
@@ -138,18 +138,28 @@ findings 5-7. The first is a requirement the plan did not have.
       SHAPE is rejected whole; one hallucinated item id is dropped and
       reported), the grouping rules, the reporter's three operations, and the
       per-session PR cap.
-- [x] `packages/frontend/vite/debug-report.ts` — `POST /__wb_debug_report`
-      writing `.wb-reports/<session>/`, with a capture id that is not a plain
-      filename REFUSED rather than sanitised.
-- [x] `packages/frontend/vite/debug-draft.ts` — the drafting call. No `tools`
-      parameter at all.
-- [x] `src/debug/handover.ts` — request drafts, degrade when there is no
-      credential, send with the captures read back out of the store.
-- [x] `src/debug/panel.tsx` — the preview panel: editable sentences and drafts,
-      thumbnails (the consent gate), disposition, `agent:candidate`, the three
-      PR operations, the handover report.
-- [x] `src/debug/host.ts` — the dev `HostAdapter`.
+- [x] `packages/debug-report/src/plugin/report-endpoint.ts` —
+      `POST /__wb_debug_report` writing `.wb-reports/<session>/`, with a capture
+      id that is not a plain filename REFUSED rather than sanitised.
+- [x] `packages/debug-report/src/plugin/draft-endpoint.ts` — the drafting call.
+      No `tools` parameter at all.
+- [x] `packages/debug-report/src/ui/handover.ts` — request drafts, degrade when
+      there is no credential, send with the captures read back out of the store.
+- [x] `packages/debug-report/src/ui/panel.tsx` — the preview panel: editable
+      sentences and drafts, thumbnails (the consent gate), disposition,
+      `agent:candidate`, the three PR operations, the handover report.
+- [x] `packages/debug-report/src/ui/host.ts` — the dev `HostAdapter`
+      implementation (`createDevHost`); the interface is
+      `packages/debug-report/src/host.ts`.
 - [x] `Enter` opens the panel; Escape peels one layer at a time.
+
+**These paths are PR 3's, not PR 2's.** PR 2 built all six inside
+`packages/frontend` (`src/debug/`, `vite/`); PR 3 moved them into the package so
+any web project can install the reporter, and left `packages/frontend/src/debug/`
+holding only what is wafflebase-specific — the route rules, the sheet and doc
+locators, the surface registry, and the mount. The list above names where the
+code is now, because a task file nobody can follow to the file is a task file
+that has stopped being a record.
 
 ### Deliberate deviation from the plan (PR 2)
 
@@ -165,6 +175,41 @@ rather than a widened grant on a shared security module.
 `vite/**/*.test.ts` was added to the frontend's vitest `include`: the plugin is
 Node-side code that must not be bundled into the app, so it cannot live under
 `src/`, and its tests belong next to it rather than in `tests/`.
+
+## Tasks (PR 3) — intake, verification, PR assembly
+
+- [x] `scripts/agent/report-bundle.mjs` — fail-closed read of a bundle off disk,
+      plus `captureFiles` / `missingCaptures` read from the DIRECTORY rather than
+      trusted from the bundle.
+- [x] Shared fixtures (`scripts/agent/fixtures/debug-report/`) loaded by both
+      validators, so the pipeline's narrower checker cannot drift from
+      `parseBundle`.
+- [x] `report-intake.mjs` — `redactSecrets` over the prose, dedupe via
+      `findingKey` + `tokenOverlap`, destination routing (verify / appearance /
+      duplicate / thin), plan emit. A destination is never a deletion.
+- [x] `report-verify.mjs` — two-way delegation; conservative plan synthesis (no
+      invented actions); a failed replay lowers the destination and files both
+      the expectation and the failed replay.
+- [x] `report-to-pr.mjs` — forced split (`logic`/`layout`, caps), forced merge by
+      file overlap (transitive), one item = one commit with the reporter's
+      sentence as the *why*, disclosure trailer, size disclosure, session cap,
+      and the delta record. Spawns nothing.
+- [x] `report-back.mjs` — the outcome written next to the bundle, with every
+      adjustment's reason.
+- [x] `scripts/agent/lenses/visual-intent.md` + one `lenses.json` row.
+- [x] `.claude/commands/report-intake.md`.
+
+### Deliberately not done in PR 3
+
+- **Running the lanes.** `report-verify.mjs` prints the `hunt-ui replay` and
+  visual-lane commands rather than executing them: replay needs a browser and the
+  visual lane needs Docker, and both belong to whoever schedules the run. That
+  also keeps one code path for dry and real runs.
+- **Locating the code.** The file map that decides forced merges is an input
+  (`--touches`). Guessing it would produce conflicting PRs; an unchecked overlap
+  reported as unchecked costs nothing.
+- **Opening anything.** No script here creates a branch, a commit, an issue or a
+  PR. `spec-to-pr.mjs handoff` does that, after a person reads the assembly.
 
 ## Verification checklist
 

@@ -77,7 +77,10 @@ export async function requestDrafts(
     });
   }
 
-  const parsed = parseDraftResult(raw, items.map((item) => item.id));
+  const parsed = parseDraftResult(
+    raw,
+    items.map((item) => ({ id: item.id, note: item.note })),
+  );
   if (!parsed.ok) {
     // A malformed draft is refused rather than half-rendered: the panel would
     // otherwise show some issue text as if it were the whole answer.
@@ -172,24 +175,22 @@ export async function handOver(options: {
     ? kept.filter((item) => !sending.has(item.id))
     : [];
 
-  const items = kept
+  const drafted = kept
     .filter((item) => !grouped || sending.has(item.id))
     .map((item) => {
       const draft = options.drafts.get(item.id);
       return draft ? { ...item, draft } : item;
     });
 
-  const bundle = buildBundle({
-    sessionId: options.sessionId,
-    items,
-    env: options.host.environment(),
-    groups: send,
-    ...(options.now ? { now: options.now } : {}),
-  });
-
+  // READ BEFORE THE BUNDLE IS BUILT, and that ordering is the fix: a capture
+  // whose bytes are gone must not be REFERENCED by the bundle that lands on
+  // disk. It used to be — the reporter was told the image was missing while
+  // intake got a bundle naming a file nobody had written, so both sides were
+  // told a different true thing and neither could act on it.
+  //
   // Read in parallel: N captures were N sequential IndexedDB round-trips.
   const reads = await Promise.all(
-    bundle.items.map(async (item) =>
+    drafted.map(async (item) =>
       item.capture
         ? {
             note: item.note,
@@ -201,11 +202,32 @@ export async function handOver(options: {
   );
   const captures: Array<{ id: string; dataUrl: string }> = [];
   const missingCaptures: string[] = [];
+  const lost = new Set<string>();
   for (const read of reads) {
     if (!read) continue;
-    if (read.dataUrl) captures.push({ id: read.id, dataUrl: read.dataUrl });
-    else missingCaptures.push(read.note);
+    if (read.dataUrl) {
+      captures.push({ id: read.id, dataUrl: read.dataUrl });
+    } else {
+      // Reported to the reporter — they approved a bundle including that image,
+      // so its absence is something they are owed — and dropped from the bundle,
+      // which may only claim what travels with it.
+      missingCaptures.push(read.note);
+      lost.add(read.id);
+    }
   }
+  const items = drafted.map((item) => {
+    if (!item.capture || !lost.has(item.capture.id)) return item;
+    const { capture: _lost, ...rest } = item;
+    return rest;
+  });
+
+  const bundle = buildBundle({
+    sessionId: options.sessionId,
+    items,
+    env: options.host.environment(),
+    groups: send,
+    ...(options.now ? { now: options.now } : {}),
+  });
 
   const sent = await options.host.send(bundle, captures);
   return { sent, bundle, queued, queuedItems, missingCaptures };

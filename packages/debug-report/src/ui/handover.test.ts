@@ -130,6 +130,32 @@ describe('handOver', () => {
     expect(result.missingCaptures).toEqual(['note a']);
   });
 
+  it('does not let the bundle claim a capture that is not travelling', async () => {
+    // BOTH SIDES WERE TOLD A DIFFERENT TRUE THING. The reporter got
+    // `missingCaptures`; intake got a bundle naming an image nobody had written,
+    // and reported it as evidence gone missing. The bundle may only claim what
+    // is beside it.
+    const send = vi.fn(async () => ({ ok: true as const, ref: '.wb-reports/s1' }));
+    const result = await handOver({
+      host: host(send),
+      store: store({ 'cap-here': 'data:image/jpeg;base64,AAAA' }),
+      sessionId: 's1',
+      items: [
+        item('a', { capture: capture('gone') }),
+        item('b', { capture: capture('cap-here') }),
+      ],
+      groups: [],
+      drafts: new Map(),
+    });
+    const [bundle, captures] = send.mock.calls[0] as unknown as [Bundle, Array<{ id: string }>];
+    expect(bundle.items.map((i) => i.capture?.id)).toEqual([undefined, 'cap-here']);
+    expect(captures.map((c) => c.id)).toEqual(['cap-here']);
+    // The ITEM still travels — only its image reference is gone. A report whose
+    // screenshot was evicted is still a report.
+    expect(bundle.items.map((i) => i.id)).toEqual(['a', 'b']);
+    expect(result.missingCaptures).toEqual(['note a']);
+  });
+
   it('holds PRs past the session cap back instead of dropping them', async () => {
     const groups: ProposedGroup[] = Array.from({ length: 7 }, (_, i) => ({
       id: `g${i}`,

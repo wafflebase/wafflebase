@@ -192,3 +192,8 @@ packages/documentation/.vitepress/cache
 .pnpm-store/
 .ooxml-preset-ref.xml
 .hunt/
+
+# Debug-report bundles. The dev-server endpoint writes a directory per session
+# here — screenshots included — so this is runtime output, not source. A report
+# that is worth keeping becomes an issue or a PR, not a commit.
+.wb-reports/
