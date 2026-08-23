@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { parseRef, parseRange, toSrefs, toBorderRanges } from '../../src/model/core/coordinates';
-import { Range } from '../../src/model/core/types';
+import {
+  parseRef,
+  parseRange,
+  rangeOf,
+  toColumnLabel,
+  toSrefs,
+  toBorderRanges,
+} from '../../src/model/core/coordinates';
+import { Grid, Range } from '../../src/model/core/types';
 
 describe('parseRef', () => {
   it('should parse the Sref and return the Ref', () => {
@@ -46,6 +53,43 @@ describe('toSrefs', () => {
     expect(srefs.next().value).toEqual('B1');
     expect(srefs.next().value).toEqual('A2');
     expect(srefs.next().value).toEqual('B2');
+  });
+});
+
+describe('rangeOf', () => {
+  it('should return the bounding range of the grid', () => {
+    const grid: Grid = new Map([
+      ['B3', { v: '1' }],
+      ['D2', { v: '2' }],
+      ['C7', { v: '3' }],
+    ]);
+
+    expect(rangeOf(grid)).toEqual([
+      { r: 2, c: 2 },
+      { r: 7, c: 4 },
+    ]);
+  });
+
+  it('should handle a grid larger than the argument-spread limit', () => {
+    // A 300x400 paste is 120k cells — past the point where
+    // `Math.min(...rows)` throws `RangeError: Maximum call stack size
+    // exceeded`, so the bounds have to be accumulated in a loop.
+    const grid: Grid = new Map();
+    for (let r = 1; r <= 300; r++) {
+      for (let c = 1; c <= 400; c++) {
+        grid.set(`${toColumnLabel(c)}${r}`, { v: '1' });
+      }
+    }
+
+    expect(grid.size).toBeGreaterThan(100_000);
+    expect(rangeOf(grid)).toEqual([
+      { r: 1, c: 1 },
+      { r: 300, c: 400 },
+    ]);
+  });
+
+  it('should throw on an empty grid', () => {
+    expect(() => rangeOf(new Map())).toThrowError();
   });
 });
 

@@ -13,16 +13,35 @@ export function isIntersect(range1: Range, range2: Range): boolean {
 }
 
 /**
- * `rangeOf` returns the range of the given grid.
+ * `rangeOf` returns the bounding range of the given grid.
+ *
+ * The bounds are accumulated in a loop rather than with `Math.min(...rows)`:
+ * a grid holds one key per cell, and spreading a large paste's worth of them
+ * as arguments overflows the call stack (`RangeError` past ~100k cells).
+ *
+ * An empty grid has no bounds; callers guard on `grid.size` before calling.
  */
 export function rangeOf(grid: Grid): Range {
-  const refs = Array.from(grid.keys()).map(parseRef);
-  const rows = refs.map((ref) => ref.r);
-  const cols = refs.map((ref) => ref.c);
+  if (grid.size === 0) {
+    throw new Error('Cannot take the range of an empty grid');
+  }
+
+  let minR = Infinity;
+  let maxR = -Infinity;
+  let minC = Infinity;
+  let maxC = -Infinity;
+
+  for (const sref of grid.keys()) {
+    const ref = parseRef(sref);
+    if (ref.r < minR) minR = ref.r;
+    if (ref.r > maxR) maxR = ref.r;
+    if (ref.c < minC) minC = ref.c;
+    if (ref.c > maxC) maxC = ref.c;
+  }
 
   return [
-    { r: Math.min(...rows), c: Math.min(...cols) },
-    { r: Math.max(...rows), c: Math.max(...cols) },
+    { r: minR, c: minC },
+    { r: maxR, c: maxC },
   ];
 }
 
