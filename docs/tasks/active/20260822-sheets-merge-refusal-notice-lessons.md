@@ -17,7 +17,24 @@
   `removeData` both call it when they clear a cell; `moveRangeTo` did not, and
   the divergence was invisible until someone traced a `#REF!` that refused to
   recover. Worth grepping every clearing path when a model-wide contract like
-  this is introduced.
+  this is introduced — review found the same omission in cut-`paste`,
+  `mergeSelection`, and `autofill`, i.e. every sibling gesture that erases a
+  cell. Fixing one call site of a contract and not the rest just relocates the
+  bug; the durable answer was one `recalculateWithUnblocked` helper the five
+  paths share, so the next clearing path has something to call.
+
+- **Re-queuing the anchor is not enough — its readers matter too.** The first
+  cut added the unblocked anchor to the dependants map *after*
+  `buildDependantsMap` had run, with an empty dependants set, so the anchor
+  re-evaluated but the formulas reading it kept the stale `#REF!`. The anchor
+  has to join the changed set before the map is built.
+
+- **Spill ghosts are derived, so they must not travel.** `moveRangeTo` copied
+  whatever `fetchGrid` returned, ghosts included, which planted cells naming an
+  anchor sref that no longer spilled there and left the originals behind at the
+  source (the clear loop skips anything with a `spillAnchor`). Derived cells
+  belong to their anchor's lifecycle: drop them and let the anchor re-create
+  them where it lands.
 
 - **The pre-commit hook runs the whole `verify:fast` lane.** In a fresh
   checkout without built workspace dependencies, packages like

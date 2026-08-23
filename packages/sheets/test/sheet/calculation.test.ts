@@ -224,6 +224,100 @@ describe('Sheet.Calcuation', () => {
     expect(await sheet.toDisplayString({ r: 5, c: 2 })).toBe('1');
   });
 
+  /**
+   * Sets up a 2x2 MINVERSE at A4 that BLOCKER at A5 keeps from spilling, and
+   * returns the sheet. Every clearing gesture below has to re-queue the anchor
+   * the same way `removeData` does.
+   */
+  async function blockedSpillSheet(): Promise<Sheet> {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 1, c: 2 }, '0');
+    await sheet.setData({ r: 2, c: 1 }, '0');
+    await sheet.setData({ r: 2, c: 2 }, '1');
+    await sheet.setData({ r: 5, c: 1 }, 'BLOCKER');
+    await sheet.setData({ r: 4, c: 1 }, '=MINVERSE(A1:B2)');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('#REF!');
+    return sheet;
+  }
+
+  async function expectSpillRecovered(sheet: Sheet): Promise<void> {
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 4, c: 2 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 5, c: 2 })).toBe('1');
+  }
+
+  it('spill recovers when a cut-paste carries the blocking cell away', async () => {
+    const sheet = await blockedSpillSheet();
+
+    sheet.selectStart({ r: 5, c: 1 });
+    const { text } = await sheet.cut();
+    sheet.selectStart({ r: 8, c: 4 });
+    await sheet.paste({ text });
+
+    expect(await sheet.toDisplayString({ r: 8, c: 4 })).toBe('BLOCKER');
+    await expectSpillRecovered(sheet);
+  });
+
+  it('spill re-attempts when merging erases the blocking cell', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 1, c: 2 }, '0');
+    await sheet.setData({ r: 2, c: 1 }, '0');
+    await sheet.setData({ r: 2, c: 2 }, '1');
+    // Block the 2x2 spill at A4:B5 from B4, so a merge anchored outside the
+    // spill zone (B3) can cover — and erase — the blocker.
+    await sheet.setData({ r: 4, c: 2 }, 'BLOCKER');
+    await sheet.setData({ r: 4, c: 1 }, '=MINVERSE(A1:B2)');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('#REF!');
+
+    sheet.selectStart({ r: 3, c: 2 });
+    sheet.selectEnd({ r: 4, c: 2 });
+    expect(await sheet.mergeSelection()).toBe(true);
+
+    // Merging over the blocker erased it, so the anchor gets its spill back
+    // instead of keeping the #REF! the blocker caused.
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('1');
+  });
+
+  it('drag-moving a spill leaves no ghosts behind at the source', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '=MUNIT(2)');
+    expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('1');
+
+    // Ghosts are derived from the anchor, so the move must not carry them:
+    // they go at the source and are re-created where the anchor lands.
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 2, c: 2 },
+      ],
+      { r: 5, c: 4 },
+    );
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('');
+
+    expect(await sheet.toDisplayString({ r: 5, c: 4 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 5, c: 5 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 6, c: 4 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 6, c: 5 })).toBe('1');
+  });
+
+  it('spill recovers when autofill clears the blocking cell', async () => {
+    const sheet = await blockedSpillSheet();
+
+    // Filling upward from the empty A7 clears A5, the same way deleting it
+    // would — the anchor has to be re-queued for its spill.
+    sheet.selectStart({ r: 7, c: 1 });
+    expect(await sheet.autofill({ r: 5, c: 1 })).toBe(true);
+
+    await expectSpillRecovered(sheet);
+  });
+
   it('MUNIT spills identity matrix into adjacent cells', async () => {
     const sheet = new Sheet(new MemStore());
     // =MUNIT(3) at A1 should spill a 3×3 identity matrix

@@ -414,9 +414,7 @@ export class Worksheet {
 
   public async initialize(sheet: Sheet) {
     this.sheet = sheet;
-    this.sheet.setOnRefusal((refusal) => {
-      this.onNoticeCallback?.(refusalMessage(refusal));
-    });
+    this.bindRefusalNotices(sheet);
     this.sheet.setDimensions(this.rowDim, this.colDim);
     await this.sheet.loadDimensions();
     await this.sheet.loadStyles();
@@ -854,6 +852,17 @@ export class Worksheet {
    */
   public setOnNotice(callback: (message: string) => void): void {
     this.onNoticeCallback = callback;
+  }
+
+  /**
+   * `bindRefusalNotices` routes the model's refusals to the host as text. Kept
+   * out of `initialize` so the refusal-to-message path can be exercised
+   * without booting a whole grid.
+   */
+  private bindRefusalNotices(sheet: Sheet): void {
+    sheet.setOnRefusal((refusal) => {
+      this.onNoticeCallback?.(refusalMessage(refusal));
+    });
   }
 
   /**

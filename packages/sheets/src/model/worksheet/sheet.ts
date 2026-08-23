@@ -997,6 +997,29 @@ export class Sheet {
   }
 
   /**
+   * `recalculateWithUnblocked` recalculates `changedSrefs` together with the
+   * spill anchors whose blocker a gesture just cleared. The anchors join the
+   * set *before* the dependants map is built, so formulas reading the spill are
+   * re-evaluated too instead of keeping the `#REF!` the block produced.
+   */
+  private async recalculateWithUnblocked(
+    changedSrefs: Iterable<Sref>,
+    unblockedAnchors: Set<Sref>,
+  ): Promise<void> {
+    const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
+    for (const anchor of unblockedAnchors) {
+      expanded.add(anchor);
+    }
+    if (expanded.size === 0) return;
+
+    const dependantsMap = await this.store.buildDependantsMap(expanded);
+    for (const anchor of unblockedAnchors) {
+      if (!dependantsMap.has(anchor)) dependantsMap.set(anchor, new Set());
+    }
+    await calculate(this, dependantsMap, expanded);
+  }
+
+  /**
    * `setOnRefusal` registers a callback fired when a range gesture is refused
    * (used to surface a message instead of a silent no-op).
    */
@@ -2224,6 +2247,10 @@ export class Sheet {
       // Only delete source cells that don't overlap with the pasted destination
       // to avoid erasing values that were just written by setGrid above.
       if (isCut && cutSourceRange && cutRefMap) {
+        // Anchors whose blocker the cut carried away — they get another
+        // attempt at spilling, the same contract `removeData` follows.
+        const unblockedAnchors = new Set<Sref>();
+
         for (let r = cutSourceRange[0].r; r <= cutSourceRange[1].r; r++) {
           for (let c = cutSourceRange[0].c; c <= cutSourceRange[1].c; c++) {
             const sref = toSref({ r, c });
@@ -2231,11 +2258,17 @@ export class Sheet {
               const sourceCell = await this.store.get({ r, c });
               if (sourceCell?.spillAnchor) continue;
               await this.store.delete({ r, c });
+              const blockedAnchor = this.consumeSpillBlocker(sref);
+              if (blockedAnchor) unblockedAnchors.add(blockedAnchor);
             }
           }
         }
         await this.store.setRangeStyles(this.rangeStyles);
         await this.redirectFormulasForCut(cutRefMap);
+
+        // The clearing happens after the paste recalculation above, so the
+        // unblocked anchors need a pass of their own.
+        await this.recalculateWithUnblocked([], unblockedAnchors);
       }
 
       if (this.filterRange) {
@@ -2340,8 +2373,26 @@ export class Sheet {
 
     // Build destination grid preserving formula text as-is (no relocation).
     // Only cell positions change; formula references within the cell stay intact.
+    //
+    // Spill ghosts are derived from their anchor and never travel: a copied
+    // ghost would name an anchor sref that no longer spills there, and the
+    // copy then reads as user data blocking the anchor's re-spill at the
+    // destination. Ghosts whose anchor moves with them are dropped at the
+    // source and re-created when the anchor re-evaluates; a ghost owned by an
+    // anchor outside the range stays read-only where it is.
     const movedGrid: Grid = new Map();
+    const staleGhosts = new Set<Sref>();
+    const movedSpillAnchors = new Set<Sref>();
     for (const [sref, cell] of grid) {
+      if (cell.spillAnchor) {
+        if (grid.has(cell.spillAnchor)) staleGhosts.add(sref);
+        continue;
+      }
+      // A moving anchor's blocker registrations name its old sref, so they
+      // would re-queue a position the formula has left.
+      if (cell.spillRows || cell.spillCols || cell.spillBlocked) {
+        movedSpillAnchors.add(sref);
+      }
       const ref = parseRef(sref);
       const newRef = { r: ref.r + deltaRow, c: ref.c + deltaCol };
       const newSref = toSref(newRef);
@@ -2355,6 +2406,10 @@ export class Sheet {
     try {
       // Write moved cells to destination
       await this.setGrid(movedGrid);
+
+      for (const sref of movedSpillAnchors) {
+        this.clearSpillBlockers(sref);
+      }
 
       // Remove source range styles before adding destination styles
       this.subtractRangeFromStyles(normalizedSource);
@@ -2386,7 +2441,9 @@ export class Sheet {
           const sref = toSref({ r, c });
           if (!movedGrid.has(sref)) {
             const sourceCell = await this.store.get({ r, c });
-            if (sourceCell?.spillAnchor) continue;
+            // A ghost whose anchor left is stale and goes; every other ghost
+            // is read-only and its anchor still owns this position.
+            if (sourceCell?.spillAnchor && !staleGhosts.has(sref)) continue;
             await this.store.delete({ r, c });
             changedSrefs.add(sref);
             const blockedAnchor = this.consumeSpillBlocker(sref);
@@ -2468,19 +2525,8 @@ export class Sheet {
       // Redirect formula references that pointed to moved cells
       await this.redirectFormulasForCut(cutRefMap);
 
-      // Recalculate dependants
-      if (changedSrefs.size > 0 || unblockedAnchors.size > 0) {
-        const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
-        const dependantsMap = await this.store.buildDependantsMap(expanded);
-
-        // Include previously-blocked anchors so they can re-attempt the spill.
-        for (const anchor of unblockedAnchors) {
-          expanded.add(anchor);
-          if (!dependantsMap.has(anchor)) dependantsMap.set(anchor, new Set());
-        }
-
-        await calculate(this, dependantsMap, expanded);
-      }
+      // Recalculate dependants, including anchors this move unblocked.
+      await this.recalculateWithUnblocked(changedSrefs, unblockedAnchors);
 
       if (this.filterRange) {
         await this.recomputeFilterHiddenRows();
@@ -2625,6 +2671,10 @@ export class Sheet {
       }
     }
 
+    // Anchors whose blocker the fill overwrote — they get another attempt at
+    // spilling, the same contract `removeData` follows.
+    const unblockedAnchors = new Set<Sref>();
+
     this.store.beginBatch();
     try {
       for (let r = fillRange[0].r; r <= fillRange[1].r; r++) {
@@ -2640,6 +2690,11 @@ export class Sheet {
           // Ghost cells are read-only — skip autofill into spill positions.
           const existingDest = await this.store.get(normalizedDest);
           if (existingDest?.spillAnchor) continue;
+
+          // Every remaining branch below writes or clears this cell, so a
+          // registration it held stops being true here.
+          const blockedAnchor = this.consumeSpillBlocker(normalizedDestSref);
+          if (blockedAnchor) unblockedAnchors.add(blockedAnchor);
 
           // Check if this line uses OLS trend
           const lineKey = isVertical ? c : r;
@@ -2711,11 +2766,9 @@ export class Sheet {
         }
       }
 
-      if (changedSrefs.size > 0) {
+      if (changedSrefs.size > 0 || unblockedAnchors.size > 0) {
         this.invalidateCrossSheetCache();
-        const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
-        const dependantsMap = await this.store.buildDependantsMap(expanded);
-        await calculate(this, dependantsMap, expanded);
+        await this.recalculateWithUnblocked(changedSrefs, unblockedAnchors);
       }
 
       if (this.filterRange) {
@@ -4381,6 +4434,10 @@ export class Sheet {
 
     this.store.beginBatch();
     try {
+      // Anchors whose blocker merging over it erased — they get another
+      // attempt at spilling, the same contract `removeData` follows.
+      const unblockedAnchors = new Set<Sref>();
+
       for (let r = range[0].r; r <= range[1].r; r++) {
         for (let c = range[0].c; c <= range[1].c; c++) {
           if (r === anchor.r && c === anchor.c) continue;
@@ -4392,6 +4449,8 @@ export class Sheet {
           } else {
             await this.store.delete(ref);
           }
+          const blockedAnchor = this.consumeSpillBlocker(toSref(ref));
+          if (blockedAnchor) unblockedAnchors.add(blockedAnchor);
         }
       }
 
@@ -4399,9 +4458,7 @@ export class Sheet {
       this.merges.set(toSref(anchor), span);
       this.rebuildMergeCoverMap();
 
-      const expanded = this.expandChangedSrefsWithMergeAliases(changedSrefs);
-      const dependantsMap = await this.store.buildDependantsMap(expanded);
-      await calculate(this, dependantsMap, expanded);
+      await this.recalculateWithUnblocked(changedSrefs, unblockedAnchors);
     } finally {
       this.store.endBatch();
     }

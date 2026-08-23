@@ -67,6 +67,18 @@ the anchor shows `#REF!` with `spillBlocked: true`, no ghosts are written, and
 the blocker is recorded via `sheet.registerSpillBlocker`; a subsequent
 unblocked evaluation clears it via `sheet.clearSpillBlockers`.
 
+**The unblocking contract** — nothing re-evaluates an anchor on its own, so
+every gesture that erases or overwrites a cell owes the blocked anchor a fresh
+attempt: it consumes the registration (`consumeSpillBlocker`) and hands the
+anchor to `recalculateWithUnblocked`, which folds the anchor into the changed
+set *before* the dependants map is built so formulas reading the spill are
+re-evaluated too. `setData`, `removeData`, `moveRangeTo`, cut-`paste`,
+`mergeSelection`, and `autofill` all follow it; a clearing path that skips it
+leaves the anchor stuck on a `#REF!` no longer true. Spill ghosts are derived
+cells, so `moveRangeTo` never carries one to the destination — a ghost whose
+anchor moves too is dropped at the source and re-created where the anchor
+lands.
+
 ```text
 setData(ref, value)
   │
