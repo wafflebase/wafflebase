@@ -260,7 +260,7 @@ describe('Sheet.Calcuation', () => {
     await expectSpillRecovered(sheet);
   });
 
-  it('spill re-attempts when merging erases the blocking cell', async () => {
+  it('a merge over the spill zone keeps the anchor blocked, unmerging frees it', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '1');
     await sheet.setData({ r: 1, c: 2 }, '0');
@@ -276,9 +276,39 @@ describe('Sheet.Calcuation', () => {
     sheet.selectEnd({ r: 4, c: 2 });
     expect(await sheet.mergeSelection()).toBe(true);
 
-    // Merging over the blocker erased it, so the anchor gets its spill back
-    // instead of keeping the #REF! the blocker caused.
+    // Merging erased the blocker but covered B4 with the block, and a covered
+    // ref resolves onto the merge anchor: a ghost written there would
+    // overwrite B3 instead of filling B4. So the block itself blocks, and B3
+    // keeps its own (empty) content.
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('#REF!');
+    expect(await sheet.toDisplayString({ r: 3, c: 2 })).toBe('');
+
+    // Removing the block releases the anchor, the same way clearing a data
+    // blocker does.
+    sheet.selectStart({ r: 3, c: 2 });
+    expect(await sheet.unmergeSelection()).toBe(true);
     expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 4, c: 2 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 5, c: 1 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 5, c: 2 })).toBe('1');
+  });
+
+  it('merging over a live spill removes the covered ghosts', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '=MUNIT(2)');
+    expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('1');
+
+    // A2:B2 covers two of the anchor's ghosts. The block cannot hold them —
+    // its cells resolve onto its own anchor — so they go and A1 re-evaluates
+    // into a spill error instead of leaving half a spill under the merge.
+    sheet.selectStart({ r: 2, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+    expect(await sheet.mergeSelection()).toBe(true);
+
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('#REF!');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('');
   });
 
   it('drag-moving a spill leaves no ghosts behind at the source', async () => {
@@ -305,6 +335,97 @@ describe('Sheet.Calcuation', () => {
     expect(await sheet.toDisplayString({ r: 5, c: 5 })).toBe('0');
     expect(await sheet.toDisplayString({ r: 6, c: 4 })).toBe('0');
     expect(await sheet.toDisplayString({ r: 6, c: 5 })).toBe('1');
+  });
+
+  it('a drag-move clears destination data at its ghost offsets', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '=MUNIT(2)');
+    // E6 is a ghost offset of the D5:E6 destination.
+    await sheet.setData({ r: 6, c: 5 }, 'OLD');
+
+    // The ghosts do not travel, but their destination offsets still belong to
+    // the moved block: data left there would survive inside the "moved"
+    // rectangle and block the anchor's re-spill.
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 2, c: 2 },
+      ],
+      { r: 5, c: 4 },
+    );
+
+    expect(await sheet.toDisplayString({ r: 5, c: 4 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 5, c: 5 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 6, c: 4 })).toBe('0');
+    expect(await sheet.toDisplayString({ r: 6, c: 5 })).toBe('1');
+  });
+
+  it('drag-moving only the anchor leaves no orphan ghosts behind', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '=MUNIT(2)');
+    expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('1');
+
+    // Only A1 travels. Its ghosts name an anchor sref that no longer holds a
+    // formula, so nothing could ever clean them up — they go with it.
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 1 },
+      ],
+      { r: 5, c: 4 },
+    );
+
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 5, c: 4 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 6, c: 5 })).toBe('1');
+  });
+
+  it('cut-pasting a spill re-creates its ghosts instead of copying them', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '=MUNIT(2)');
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 2, c: 2 });
+    const { text } = await sheet.cut();
+    sheet.selectStart({ r: 5, c: 4 });
+    await sheet.paste({ text });
+
+    // The source is empty and every destination ghost belongs to the anchor
+    // that landed there, not to an anchor sref that no longer spills.
+    expect(await sheet.toDisplayString({ r: 1, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 1, c: 2 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 1 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 2, c: 2 })).toBe('');
+    expect(await sheet.toDisplayString({ r: 5, c: 4 })).toBe('1');
+    expect(await sheet.toDisplayString({ r: 6, c: 5 })).toBe('1');
+    expect((await sheet.getCell({ r: 6, c: 5 }))?.spillAnchor).toBe('D5');
+  });
+
+  it('a reload derives the blocker map so a cleared blocker still frees the anchor', async () => {
+    const store = new MemStore();
+    const sheet = new Sheet(store);
+    await sheet.setData({ r: 1, c: 1 }, '1');
+    await sheet.setData({ r: 1, c: 2 }, '0');
+    await sheet.setData({ r: 2, c: 1 }, '0');
+    await sheet.setData({ r: 2, c: 2 }, '1');
+    await sheet.setData({ r: 5, c: 1 }, 'BLOCKER');
+    await sheet.setData({ r: 4, c: 1 }, '=MINVERSE(A1:B2)');
+    expect(await sheet.toDisplayString({ r: 4, c: 1 })).toBe('#REF!');
+
+    // A second `Sheet` over the same store stands in for undo/redo and for
+    // opening the document: the registration is a side effect of calculation,
+    // so without deriving it again the `#REF!` would be permanent.
+    const reloaded = new Sheet(store);
+    await reloaded.loadSpillBlockers();
+    reloaded.selectStart({ r: 5, c: 1 });
+    expect(await reloaded.removeData()).toBe(true);
+
+    expect(await reloaded.toDisplayString({ r: 4, c: 1 })).toBe('1');
+    expect(await reloaded.toDisplayString({ r: 4, c: 2 })).toBe('0');
+    expect(await reloaded.toDisplayString({ r: 5, c: 1 })).toBe('0');
+    expect(await reloaded.toDisplayString({ r: 5, c: 2 })).toBe('1');
   });
 
   it('spill recovers when autofill clears the blocking cell', async () => {

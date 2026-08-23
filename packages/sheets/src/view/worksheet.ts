@@ -419,6 +419,9 @@ export class Worksheet {
     await this.sheet.loadDimensions();
     await this.sheet.loadStyles();
     await this.sheet.loadMerges();
+    // After the merges: a merged block blocks a spill, and an already-blocked
+    // anchor in the opened document has no registration until it is derived.
+    await this.sheet.loadSpillBlockers();
     await this.sheet.loadFreezePane();
     await this.sheet.loadFilterState();
     await this.sheet.loadHiddenState();

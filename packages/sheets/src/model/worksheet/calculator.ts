@@ -5,7 +5,7 @@ import {
   expandUnboundedRanges,
   extractReferences,
 } from '../../formula/formula';
-import { parseRef, toSref } from '../core/coordinates';
+import { parseRef } from '../core/coordinates';
 import { inferInput, applyInferredFormat } from './input';
 import { Sheet } from './sheet';
 import { CellStyle, Sref } from '../core/types';
@@ -98,21 +98,13 @@ export async function calculate(
     if (typeof result !== 'string') {
       const { values, rows, cols } = result as SpillResult;
 
-      // Check for spill conflicts: only user-entered data (no spillAnchor) blocks the spill.
-      // Ghost cells from any anchor are overwritten — they're virtual, not user data.
-      let blocker: Sref | null = null;
-      for (let dr = 0; dr < rows && !blocker; dr++) {
-        for (let dc = 0; dc < cols && !blocker; dc++) {
-          if (dr === 0 && dc === 0) continue;
-          const ghostSref = toSref({ r: ref.r + dr, c: ref.c + dc });
-          const existing = await sheet.getCell(parseRef(ghostSref));
-          if (existing && (existing.v || existing.f) && !existing.spillAnchor) {
-            blocker = ghostSref;
-          }
-        }
-      }
+      // Check for spill conflicts. The sheet owns the rule — only user-entered
+      // data and merged blocks block, ghost cells from any anchor are virtual
+      // and get overwritten — so the same scan serves the map rebuild after an
+      // undo, which has no calculation to observe.
+      const blocker = await sheet.findSpillBlocker(ref, rows, cols);
 
-      if (blocker !== null) {
+      if (blocker !== undefined) {
         // Record blocked state — ghost cells are NOT written; anchor shows #REF!
         sheet.registerSpillBlocker(blocker, sref);
         await sheet.setCell(ref, {

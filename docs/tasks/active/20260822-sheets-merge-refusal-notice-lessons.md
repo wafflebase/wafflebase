@@ -36,6 +36,30 @@
   belong to their anchor's lifecycle: drop them and let the anchor re-create
   them where it lands.
 
+- **"Never travel" has a destination half.** Skipping ghosts in the moved grid
+  fixed the phantom copies, but `setGrid` only writes the keys it is given —
+  so the destination offsets those ghosts used to overwrite silently kept
+  whatever sat there, inside the rectangle the user just "moved". Removing a
+  write is also removing a clear; the same held for cut-`paste`, which the
+  first pass fixed only for `moveRangeTo`.
+
+- **Unblocking a spill into a merge is worse than leaving it blocked.**
+  `mergeSelection` erasing a blocker looked like every other clearing path,
+  but `setCell` resolves a covered ref onto the merge anchor, so the freed
+  anchor's ghosts would have overwritten the merge anchor one after another —
+  and its own cleanup, reading through the same resolution, could never undo
+  it. The fix belongs in the blocking rule (`findSpillBlocker` treats a merged
+  block as a blocker), not in the gesture: then merging *re-blocks* in the
+  erased data's place and `unmergeSelection` releases it.
+
+- **A map that is a side effect of calculation needs a derivation.**
+  `spillBlockers` only ever existed because the calculator wrote it, so
+  `undo`/`redo` — which replace cell data and recalculate nothing — and simply
+  opening a document both started with it empty while `spillBlocked` anchors
+  sat in the store. `loadSpillBlockers` re-derives it from those anchors, which
+  is only possible because the footprint (`spillRows`/`spillCols`) is
+  persisted. Any in-memory index that no load path rebuilds is a latent bug.
+
 - **The pre-commit hook runs the whole `verify:fast` lane.** In a fresh
   checkout without built workspace dependencies, packages like
   `@wafflebase/slides` fail `typecheck` on missing `@wafflebase/docs` types,

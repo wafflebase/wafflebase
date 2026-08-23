@@ -61,11 +61,16 @@ of `values` with `rows`/`cols`) instead of a scalar. When it does, the
 calculator writes the top-left result to the anchor cell (tagged with
 `spillRows`/`spillCols`) and fills the rest of the block with ghost cells
 carrying a `spillAnchor` back-reference. Before re-evaluating, an anchor's
-prior ghosts are cleared. If the target block collides with real user data
-(a cell that has a value/formula but no `spillAnchor`), the spill is blocked:
-the anchor shows `#REF!` with `spillBlocked: true`, no ghosts are written, and
-the blocker is recorded via `sheet.registerSpillBlocker`; a subsequent
-unblocked evaluation clears it via `sheet.clearSpillBlockers`.
+prior ghosts are cleared. The footprint is screened by
+`sheet.findSpillBlocker`, which owns the rule: real user data (a cell with a
+value/formula and no `spillAnchor`) blocks, and so does any cell belonging to a
+**merged block** — a covered ref resolves onto the merge anchor, so a ghost
+written there would overwrite the anchor instead of filling the block, and the
+anchor's own cleanup (reading through the same resolution) could never remove
+it again. When something blocks, the anchor shows `#REF!` with
+`spillBlocked: true`, no ghosts are written, and the blocker is recorded via
+`sheet.registerSpillBlocker`; a subsequent unblocked evaluation clears it via
+`sheet.clearSpillBlockers`.
 
 **The unblocking contract** — nothing re-evaluates an anchor on its own, so
 every gesture that erases or overwrites a cell owes the blocked anchor a fresh
@@ -73,11 +78,26 @@ attempt: it consumes the registration (`consumeSpillBlocker`) and hands the
 anchor to `recalculateWithUnblocked`, which folds the anchor into the changed
 set *before* the dependants map is built so formulas reading the spill are
 re-evaluated too. `setData`, `removeData`, `moveRangeTo`, cut-`paste`,
-`mergeSelection`, and `autofill` all follow it; a clearing path that skips it
-leaves the anchor stuck on a `#REF!` no longer true. Spill ghosts are derived
-cells, so `moveRangeTo` never carries one to the destination — a ghost whose
-anchor moves too is dropped at the source and re-created where the anchor
-lands.
+`mergeSelection`, `unmergeSelection`, and `autofill` all follow it; a clearing
+path that skips it leaves the anchor stuck on a `#REF!` no longer true. Two
+consequences of the map being a *side effect of calculation*: a path that
+replaces cell data without calculating (`undo`/`redo`, opening a document) has
+to derive it again with `sheet.loadSpillBlockers`, and a merge that erases a
+blocker does not resurrect the spill — the block it just created blocks in the
+erased data's place, until `unmergeSelection` releases it.
+
+**Ghosts never travel** — a ghost is derived from its anchor, so a copy of one
+names an anchor that does not spill there and then reads as user data blocking
+that anchor's own re-spill. `moveRangeTo` and cut-`paste` therefore drop a
+ghost whose anchor travels with it (the anchor re-creates it on landing) and
+delete a ghost the anchor leaves behind, clear the destination offsets the
+ghosts would have covered — the offsets belong to the moved block, so data left
+there would survive inside it — and materialize a copy-pasted ghost into the
+static value an external paste would have produced. `clearCellForOverwrite` is
+the single clearing primitive behind the merge and move paths: it drops an
+anchor's ghosts before clearing it, removes a ghost whose position is being
+taken and re-queues its anchor, keeps styles, and consumes the position's
+blocker registration.
 
 ```text
 setData(ref, value)
