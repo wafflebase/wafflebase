@@ -259,6 +259,70 @@ describe('Sheet merge + drag-move', () => {
     expect(await sheet.toDisplayString({ r: 3, c: 1 })).toBe('20');
   });
 
+  it('should report why a range that splits a merged block is refused', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 1 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    expect(refusals).toEqual(['merge-source-split']);
+  });
+
+  it('should report why a partially covered destination is refused', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '5');
+    await sheet.setData({ r: 3, c: 1 }, '20');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 3, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 1 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    expect(refusals).toEqual(['merge-dest-partial']);
+  });
+
+  it('should report nothing when the move goes through', async () => {
+    const sheet = new Sheet(new MemStore());
+    await sheet.setData({ r: 1, c: 1 }, '10');
+    const refusals: Array<string> = [];
+    sheet.setOnRefusal((refusal) => refusals.push(refusal));
+
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 1, c: 2 });
+    await sheet.mergeSelection();
+
+    await sheet.moveRangeTo(
+      [
+        { r: 1, c: 1 },
+        { r: 1, c: 2 },
+      ],
+      { r: 3, c: 1 },
+    );
+
+    expect(refusals).toEqual([]);
+  });
+
   it('should move plain cells when no merge is involved', async () => {
     const sheet = new Sheet(new MemStore());
     await sheet.setData({ r: 1, c: 1 }, '7');

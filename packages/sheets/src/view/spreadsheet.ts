@@ -407,6 +407,15 @@ export class Spreadsheet {
   }
 
   /**
+   * `onNotice` registers a callback fired when a gesture could not be carried
+   * out (e.g. a drag-move the merge layout refuses). Hosts use it to surface a
+   * toast, so the gesture explains itself instead of appearing to do nothing.
+   */
+  public onNotice(callback: (message: string) => void): void {
+    this.worksheet.setOnNotice(callback);
+  }
+
+  /**
    * `onSelectionChange` registers a callback that fires when the selection changes.
    * Returns an unsubscribe function.
    */
