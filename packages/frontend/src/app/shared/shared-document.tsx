@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, DocumentProvider, useDocument } from "@yorkie-js/react";
@@ -39,6 +39,8 @@ import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import type { SlidesEditor, Theme } from "@wafflebase/slides";
+import { setImageUrlResolver as setSlidesImageUrlResolver } from "@wafflebase/slides";
+import { appendShareTokenToImageUrl } from "@/api/share-image-url";
 import type { YorkieSlidesStore } from "@/app/slides/yorkie-slides-store";
 import {
   createZoomController,
@@ -792,6 +794,38 @@ export function sharedBlobKind(type: string): "pdf" | "blob" | "crdt" {
   return "crdt";
 }
 
+/**
+ * Install the share-token image-URL resolver on the slides engine (which
+ * renders both `slides` and `board`) for the lifetime of the shared mount.
+ * Other types render no slides-engine workspace image, so the hook no-ops:
+ * `doc` uploads to the unauthenticated legacy `/images/:id` route (nothing to
+ * token), and pdf/image/file/note don't paint through this engine.
+ *
+ * Installed in a commit-phase `useLayoutEffect`, not during render: a
+ * render-phase mutation of the module-level singleton could be clobbered by an
+ * abandoned/concurrent render. A layout effect still runs before the slides
+ * canvas's first draw — the canvas paints from a passive `useEffect` /
+ * `requestAnimationFrame` (see slides-view), and all layout effects run before
+ * any passive effect — so the token is in place before the first image load
+ * and no un-tokened 403 is fired. Cleanup clears the singleton on unmount and
+ * pairs correctly with StrictMode's dev mount→cleanup→remount.
+ */
+function useSharedImageTokenResolver(type: string, token?: string): void {
+  const isSlidesEngine = type === "slides" || type === "board";
+  const resolver = useMemo(
+    () =>
+      isSlidesEngine && token
+        ? (src: string) => appendShareTokenToImageUrl(src, token)
+        : null,
+    [isSlidesEngine, token],
+  );
+  useLayoutEffect(() => {
+    if (!resolver) return;
+    setSlidesImageUrlResolver(resolver);
+    return () => setSlidesImageUrlResolver(null);
+  }, [resolver]);
+}
+
 function SharedDocumentInner({
   resolved,
   token,
@@ -816,6 +850,14 @@ function SharedDocumentInner({
   // once per SharedDocumentInner render (all document types, including the
   // early `pdf` return below), so exactly one session is recorded per visit.
   useViewAnalytics({ shareToken: token ?? "", enabled: Boolean(token) });
+
+  // Images embedded in a slides / board document are fetched over a plain
+  // image request that carries no share credential, so an anonymous viewer
+  // would otherwise get 403s and an "Image unavailable" placeholder. Install
+  // a resolver that appends this viewer's `?token=` to workspace image URLs
+  // at render time. Called unconditionally (before the pdf/blob early returns
+  // below) to keep hook order stable; it no-ops for types with no such image.
+  useSharedImageTokenResolver(resolved.type, token);
 
   // SharedPdfLayout mounts its own YorkieProvider/DocumentProvider, and
   // SharedBlobLayout mounts no Yorkie document at all, so both must render

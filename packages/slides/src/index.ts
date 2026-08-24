@@ -185,7 +185,10 @@ export { drawShape } from './view/canvas/shape-renderer';
 export { drawText } from './view/canvas/text-renderer';
 export { drawImage } from './view/canvas/image-renderer';
 export { renderThumbnail, ThumbnailScheduler } from './view/canvas/thumbnail';
-export { getOrLoadImage } from './view/canvas/image-cache';
+export {
+  getOrLoadImage,
+  setImageUrlResolver,
+} from './view/canvas/image-cache';
 export { renderShapeIcon } from './view/canvas/shape-icon';
 export { PATH_BUILDERS, ADJUSTMENT_SPECS } from './view/canvas/shapes';
 export type { PathBuilder, AdjustmentSpec, FrameSize } from './view/canvas/shapes/builder';

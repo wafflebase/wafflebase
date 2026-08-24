@@ -1,16 +1,13 @@
 import {
   Controller,
   Post,
-  Get,
   Delete,
   Param,
   Req,
-  Res,
   UseGuards,
   UseInterceptors,
   UploadedFile,
   BadRequestException,
-  NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
@@ -19,7 +16,7 @@ import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { ImageService } from '../../image/image.service';
 import { VALID_IMAGE_ID_PATTERN } from '../../image/image.constants';
-import type { Response, Request } from 'express';
+import type { Request } from 'express';
 
 @Controller('api/v1/workspaces/:workspaceId/images')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
@@ -71,30 +68,11 @@ export class ApiV1ImagesController {
       file.originalname,
       workspaceId,
     );
-    // Return workspace-scoped URL so retrieval goes through this controller.
+    // Return workspace-scoped URL. Retrieval (GET) is served by
+    // ApiV1ImageReadController, which additionally accepts an anonymous
+    // share-link `?token=` so images embedded in a shared document load.
     const url = `/api/v1/workspaces/${workspaceId}/images/${result.id}`;
     return { id: result.id, url };
-  }
-
-  @Get(':imageId')
-  async get(
-    @Param('imageId') imageId: string,
-    @Req() req: Request,
-    @Res() res: Response,
-  ): Promise<void> {
-    if (!VALID_IMAGE_ID_PATTERN.test(imageId)) {
-      throw new BadRequestException('Invalid image id');
-    }
-    try {
-      const { body, contentType } = await this.imageService.getObject(
-        this.scopedKey(req, imageId),
-      );
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      res.end(Buffer.from(body));
-    } catch {
-      throw new NotFoundException('Image not found');
-    }
   }
 
   @Delete(':imageId')
