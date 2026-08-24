@@ -241,7 +241,10 @@ describe('the panel', () => {
   });
 
   it('keeps the full utility name reachable, since the label drops the stem', () => {
-    render(<FloatingClassEditor {...props()} />);
+    // The node must OWN the property for its group to open — the panel no longer shows
+    // every group on every node. The assertion is unchanged; only the fixture is, from
+    // a node that never had a `justify-` to one that does.
+    render(<FloatingClassEditor {...props({ classes: ['flex', 'justify-start'] })} />);
     const b = [...document.querySelectorAll('button')].find((x) => x.title === 'justify-between')!;
     expect(b.textContent).toBe('between');
   });

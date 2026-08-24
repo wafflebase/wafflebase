@@ -1,7 +1,6 @@
 {
   "name": "@wafflebase/design-editor",
   "version": "0.6.5",
-  "private": true,
   "type": "module",
   "description": "Dev-only Vite plugin that renders a project's real routes and writes edits back into its JSX and token source.",
   "exports": {
@@ -16,7 +15,8 @@
     "test": "vitest --run",
     "build": "vite build --config ./vite.shell.config.ts",
     "verify:consumer": "node ./scripts/verify-consumer.mjs",
-    "verify:frame": "node ./scripts/verify-frame.mjs"
+    "verify:frame": "node ./scripts/verify-frame.mjs",
+    "prepack": "pnpm run build"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",
@@ -44,11 +44,29 @@
   "peerDependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "vite": "^6.0.0 || ^7.0.0"
+    "vite": "^6.0.0 || ^7.0.0",
+    "typescript": ">=5.0.0"
   },
   "peerDependenciesMeta": {
     "vite": {
       "optional": false
+    },
+    "typescript": {
+      "optional": false
     }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wafflebase/wafflebase.git",
+    "directory": "packages/design-editor"
   }
 }

@@ -34,17 +34,13 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { createPortal } from 'react-dom';
 import { Plus, X } from 'lucide-react';
 import { cn } from '../lib/cn.ts';
+import { CLASS_GROUPS, groupsFor } from '../../client/class-groups.ts';
 
-const FLEX_DIRECTION = ['flex-row', 'flex-col'] as const;
-const ALIGN_ITEMS = ['items-start', 'items-center', 'items-end', 'items-stretch'] as const;
-const JUSTIFY = [
-  'justify-start',
-  'justify-center',
-  'justify-between',
-  'justify-around',
-  'justify-evenly',
-] as const;
-const GAP = ['gap-0', 'gap-1', 'gap-2', 'gap-3', 'gap-4', 'gap-6', 'gap-8'] as const;
+/*
+ * The option lists moved to `client/class-groups.ts`, which owns both the options and
+ * the rule for when a group is relevant. Keeping a second copy here would let the two
+ * drift: a group could offer `gap-12` while detection matched only up to `gap-8`.
+ */
 const SIZE_SCALE = [
   'auto',
   'full',
@@ -115,6 +111,19 @@ export function FloatingClassEditor({
   onClose,
 }: FloatingClassEditorProps) {
   const [draft, setDraft] = useState('');
+  /**
+   * Groups opened by hand for a property the node does not carry yet.
+   *
+   * Detection can only ever report what IS there, so on its own it makes a node with
+   * no `bg-` permanently unable to gain one. This is the other half: what the node
+   * uses opens itself, and everything else stays one click away.
+   *
+   * Keyed by group, not remembered across selections — the next node is a different
+   * question, and carrying the answer over would reintroduce exactly the always-on
+   * panel this replaces.
+   */
+  const [opened, setOpened] = useState<string[]>([]);
+  useEffect(() => setOpened([]), [title]);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   /**
    * Detaches an in-flight drag. Held in a ref so unmounting mid-drag can run it:
@@ -153,6 +162,14 @@ export function FloatingClassEditor({
 
   const removeChip = (cls: string) => onChange(classes.filter((c) => c !== cls));
 
+  const { relevant, rest: unused } = groupsFor(classes);
+  // A group opened by hand joins the shown set in CLASS_GROUPS order, so adding one
+  // does not park it at the bottom away from the property it sits next to.
+  const shown = CLASS_GROUPS.filter(
+    (g) => relevant.includes(g) || opened.includes(g.key),
+  );
+  const rest = unused.filter((g) => !opened.includes(g.key));
+
   const addChip = () => {
     const next = draft.trim();
     if (next && !classes.includes(next)) onChange([...classes, next]);
@@ -187,7 +204,7 @@ export function FloatingClassEditor({
   return createPortal(
     <div
       data-wb-class-editor
-      className="fixed z-50 flex max-h-[70vh] flex-col gap-2 overflow-y-auto rounded-md border border-wb-border bg-wb-panel p-2.5 text-wb-fg shadow-lg"
+      className="fixed z-50 flex max-h-[70vh] flex-col rounded-md border border-wb-border bg-wb-panel p-2.5 text-wb-fg shadow-lg"
       style={{ top, left, width: PANEL_WIDTH }}
       // The gutter's deselect handler in `SceneHost` sees a bubbling `mousedown` from
       // anywhere in the host page — including this panel, which is not inside the
@@ -198,7 +215,7 @@ export function FloatingClassEditor({
       {/* Drag handle. `select-none` stops a fast drag from highlighting the title. */}
       <div
         onPointerDown={beginDrag}
-        className="flex cursor-grab items-center justify-between select-none active:cursor-grabbing"
+        className="flex shrink-0 cursor-grab items-center justify-between pb-2 select-none active:cursor-grabbing"
       >
         <p className="font-mono text-[11px] font-medium text-wb-fg">{title}</p>
         <button
@@ -207,36 +224,60 @@ export function FloatingClassEditor({
           onClick={onClose}
           // Otherwise closing it starts a drag first.
           onPointerDown={(e) => e.stopPropagation()}
-          className="rounded-sm p-0.5 text-wb-muted transition-colors hover:bg-wb-accent hover:text-wb-accent-fg"
+          className="rounded-sm p-0.5 text-wb-muted transition-colors hover:bg-wb-subtle hover:text-wb-fg"
         >
           <X className="size-3.5" />
         </button>
       </div>
 
-      <ToggleGroup
-        label="Direction"
-        options={FLEX_DIRECTION}
-        active={activeOf(classes, FLEX_DIRECTION)}
-        onPick={(v) => toggle(FLEX_DIRECTION, v)}
-      />
-      <ToggleGroup
-        label="Align"
-        options={ALIGN_ITEMS}
-        active={activeOf(classes, ALIGN_ITEMS)}
-        onPick={(v) => toggle(ALIGN_ITEMS, v)}
-      />
-      <ToggleGroup
-        label="Justify"
-        options={JUSTIFY}
-        active={activeOf(classes, JUSTIFY)}
-        onPick={(v) => toggle(JUSTIFY, v)}
-      />
-      <ToggleGroup
-        label="Gap"
-        options={GAP}
-        active={activeOf(classes, GAP)}
-        onPick={(v) => toggle(GAP, v)}
-      />
+      {/*
+        THE BODY IS THE SCROLLER, not the panel.
+        
+        A node with many classes made the panel taller than `70vh` and the title and
+        close button scrolled out of it — so dismissing the editor meant scrolling back
+        up to find its X, and the handle you drag it by went with them.
+      */}
+      <div className="-mr-1 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+
+      {/*
+        THE CONTROLS THIS NODE ACTUALLY NEEDS. Groups it already uses are open; the
+        rest are behind the picker below, so a property the node has never carried is
+        still reachable. See `client/class-groups.ts` for why detection alone is not
+        enough.
+      */}
+      {shown.map((g) => (
+        <ToggleGroup
+          key={g.key}
+          label={g.label}
+          options={g.options}
+          active={activeOf(classes, g.options)}
+          onPick={(v) => toggle(g.options, v)}
+        />
+      ))}
+      {shown.length === 0 && (
+        <p className="text-[10px] leading-relaxed text-wb-muted">
+          No layout or spacing classes on this node yet — add a control below, or type a
+          class directly.
+        </p>
+      )}
+      {rest.length > 0 && (
+        <label className="flex items-center gap-1 text-[10px] text-wb-muted">
+          <span className="shrink-0">Add a control</span>
+          <select
+            value=""
+            aria-label="Add a control for a property this node does not use yet"
+            onChange={(e) => e.target.value && setOpened((p) => [...p, e.target.value])}
+            className="min-w-0 flex-1 rounded-sm border border-wb-border bg-wb-bg px-1 py-0.5 text-[10px] text-wb-fg outline-none focus:border-wb-accent"
+          >
+            <option value="">choose…</option>
+            {rest.map((g) => (
+              <option key={g.key} value={g.key}>
+                {g.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <div className="grid grid-cols-2 gap-2">
         <SizeSelect
@@ -287,11 +328,12 @@ export function FloatingClassEditor({
             type="button"
             aria-label="Add the class"
             onClick={addChip}
-            className="shrink-0 rounded-sm border border-wb-border p-0.5 text-wb-muted transition-colors hover:bg-wb-accent hover:text-wb-accent-fg"
+            className="shrink-0 rounded-sm border border-wb-border p-0.5 text-wb-muted transition-colors hover:bg-wb-subtle hover:text-wb-fg"
           >
             <Plus className="size-3" />
           </button>
         </div>
+      </div>
       </div>
     </div>,
     document.body,
@@ -325,8 +367,8 @@ function ToggleGroup({
             className={cn(
               'rounded-sm border px-1.5 py-0.5 font-mono text-[10px] transition-colors',
               active === o
-                ? 'border-wb-accent bg-wb-accent text-wb-accent-fg'
-                : 'border-wb-border text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg',
+                ? 'border-wb-accent/40 bg-wb-accent/12 text-wb-accent'
+                : 'border-wb-border text-wb-muted hover:bg-wb-subtle hover:text-wb-fg',
             )}
           >
             {/* Drop the shared stem (`flex-`, `items-`, `justify-`, `gap-`) so the row
