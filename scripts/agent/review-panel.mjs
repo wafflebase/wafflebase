@@ -44,7 +44,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { classify, renderSummaryMd, BLOCKING, normalizeSeverity, KNOWN } from "./severity.mjs";
-import { askStructured, withRetry, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, assertEffort } from "./ask.mjs";
+import { askStructured, withRetry, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, assertEffort, sessionNeverRan } from "./ask.mjs";
 import { tokenPool } from "./ask.mjs";
 import { MAX_SLOTS } from "./token-pool.mjs";
 import { publicInfraReason, redactSecrets } from "./redact.mjs";
@@ -1706,9 +1706,79 @@ export function lensFailureSummary(err = {}) {
   // that staying true. It also cannot recover the request id, which the entropy
   // rule has already masked by this point. Falling back keeps errors thrown by
   // code that never went through `classifyResult` working.
+  //
+  // `err.kind` is passed rather than assumed: `classifyInfraError` keys its own
+  // branches off it, and hard-coding `"api-error"` here would re-derive a drained
+  // pool as NO_RESPONSE (it has no status and no detail to read). An error that
+  // never went through `classifyResult` carries no `kind`, and `undefined` still
+  // selects that function's `"api-error"` default — so this path is unchanged for
+  // everything that reached it before.
   return infraSummary({
-    reason: err.reason || publicInfraReason({ kind: "api-error", status: err.status, detail: err.detail }),
+    reason: err.reason || publicInfraReason({ kind: err.kind, status: err.status, detail: err.detail }),
   });
+}
+
+/**
+ * The `infraError` string for a failed lens, or `null` when the model actually ran.
+ *
+ * The SECOND renderer of the same failure, and the one whose output is the panel's
+ * machine-readable infra signal: it becomes `panelEntry.infraError`, which is what
+ * makes the workflow persist an empty carry-forward, what `eval/run.mjs` reads to
+ * mark an item unusable, and what `PANEL_INFRA_ERROR` pages on. `lensFailureSummary`
+ * renders the same failure for humans. Extracted for the same reason that one was —
+ * inline, its `kind` could only be exercised by a live outage.
+ *
+ * Returning `null` rather than a string for a genuine no-verdict is load-bearing:
+ * every consumer treats this field as a boolean "was this infrastructure", so a
+ * non-null value here is what suppresses carry-forward.
+ */
+export function lensInfraReason(err = {}) {
+  if (!err.infra) return null;
+  // `err.kind` is passed, not assumed. This is the same argument `lensFailureSummary`
+  // makes above: hard-coding `"api-error"` re-derived a drained pool from a status
+  // and a detail it does not have, and published NO_RESPONSE — "no response from the
+  // API" — for an outage where no request was ever sent.
+  return publicInfraReason({ kind: err.kind, status: err.status, detail: err.detail });
+}
+
+/**
+ * The error a lens throws when EVERY sample failed — and, in `infra`, the panel's
+ * one decision about whether the reviewer ever ran.
+ *
+ * EXTRACTED FROM `runLens`'s caller for the same reason `lensFailureSummary` above
+ * was: while these lines were inline, the only way to exercise them was a live
+ * panel round against a real API, so the branch that decides whether a failure is
+ * infrastructure — the branch this whole record's propagation hangs on — was the
+ * one branch with no test. It classified a drained credential pool as a code
+ * finding for exactly that long.
+ *
+ * `sessionNeverRan`, NOT `kind === "api-error"`. A drained pool is the same outage
+ * as an API error and must be tagged the same way; it arrives as `pool-exhausted`
+ * only because failover ran out of slots first. Keying on `api-error` alone meant
+ * one quota failure was classified two different ways depending on how many
+ * credentials the run happened to have — infrastructure with one, a blocking code
+ * finding with several. `limit` and `no-output` are deliberately NOT infra: the
+ * model ran in both, so they stay ordinary fail-closed blockers.
+ *
+ * The FIRST such sample wins, not the first sample overall: with N samples a
+ * transient outage can hit only some of them, and one confirmed never-ran sample
+ * is enough to say the lens has no verdict for infrastructure reasons.
+ */
+export function allSamplesFailedError(results) {
+  const list = Array.isArray(results) ? results : [];
+  const err = new Error((list[0] && list[0].__error) || "all lens samples failed");
+  const infraSample = list.find((r) => sessionNeverRan(r));
+  if (infraSample) {
+    err.infra = true;
+    // `kind` is carried too, so the renderers classify from the real kind rather
+    // than assuming every infrastructure failure was an API error.
+    err.kind = infraSample.kind;
+    err.detail = infraSample.detail;
+    err.status = infraSample.status;
+    err.code = infraSample.code;
+    err.reason = infraSample.reason;
+  }
+  return err;
 }
 export { withRetry };
 
@@ -2731,15 +2801,7 @@ async function main() {
       ok = results.filter((r) => r && !r.__error);
       // `noNewHunks` ran zero samples ON PURPOSE, so zero successes is the
       // expected outcome there, not the all-samples-failed disaster below.
-      if (!noNewHunks && ok.length === 0) {
-        // All samples failed. If ANY failed on an API/quota error, this is an
-        // INFRASTRUCTURE failure (the reviewer never ran), NOT a review finding —
-        // tag it so the panel pages honestly instead of inventing "changes requested".
-        const apiErr = results.find((r) => r && r.kind === "api-error");
-        const err = new Error((results[0] && results[0].__error) || "all lens samples failed");
-        if (apiErr) { err.infra = true; err.detail = apiErr.detail; err.status = apiErr.status; err.code = apiErr.code; err.reason = apiErr.reason; }
-        throw err;
-      }
+      if (!noNewHunks && ok.length === 0) throw allSamplesFailedError(results);
       // unionSamples coerces (never drops) + dedupes (collapses identical
       // file+summary, keeps highest severity, never merges distinct bugs).
       findings = noNewHunks ? [] : unionSamples(ok);
@@ -2754,9 +2816,7 @@ async function main() {
       // Both strings come from `lensFailureSummary`, which is where the "what may
       // be published" rule lives and where it is tested. `infra` stays a truthy
       // marker for the branches below (it tags the record and skips the fixer).
-      const infra = err.infra
-        ? publicInfraReason({ kind: "api-error", status: err.status, detail: err.detail })
-        : null;
+      const infra = lensInfraReason(err);
       const summaryText = lensFailureSummary(err);
       // Carries NO `confidence`, on purpose. FINDING's `required` constrains the
       // MODEL's output; this record is synthesised by the script because the lens
@@ -2767,7 +2827,8 @@ async function main() {
       // which is literally accurate and keeps the raised/confidence rows
       // reconciling.
       // `infra: true` marks this as a synthesised INFRASTRUCTURE record (an
-      // API/quota outage, e.g. a 429 session limit), not a code finding. It is
+      // API/quota outage, e.g. a 429 session limit, or a credential pool with no
+      // live slot left to fail over to), not a code finding. It is
       // written so the lens fails closed, but it must never be carried into the
       // next round as a "finding" to re-check — the reviewer never ran, so there
       // is nothing to re-verify, and the verifier (biased to keep) cannot refute

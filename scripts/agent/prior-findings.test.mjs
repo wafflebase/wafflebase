@@ -2,6 +2,31 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tagPriorFindings, lensCheckNames, collectPrior } from "./prior-findings.mjs";
 import { parseArgs, commitCheckRuns, prCommitsWithCheckRuns } from "./gh-checks.mjs";
+import { allSamplesFailedError, lensFailureSummary } from "./review-panel.mjs";
+import { poolExhaustedError } from "./ask.mjs";
+
+/**
+ * The record `review-panel.mjs` synthesises for a lens with no usable verdict,
+ * built from the two functions the panel itself composes.
+ *
+ * The round trip is the point: these tests assert PROPAGATION, and a fixture
+ * hand-written to look like the producer's output would keep passing after the
+ * producer stopped emitting it. That is exactly how the pool-exhaustion leak
+ * survived — both sides were tested, in isolation, against each other's assumed
+ * shape. The literal `severity`/`summary`/`infra` spread mirrors the panel's
+ * `failFindings`; the classification it depends on is imported, not restated.
+ */
+const synthesisedRecord = (results) => {
+  const err = allSamplesFailedError(results);
+  return { severity: "major", summary: lensFailureSummary(err), ...(err.infra ? { infra: true } : {}) };
+};
+
+// One drained-pool sample, exactly as `runSample`'s catch projects the thrown
+// error onto the results array.
+const drainedPoolSample = () => {
+  const e = poolExhaustedError({ label: "review", pool: { size: 2 } });
+  return { __error: e.message, kind: e.kind, status: e.status, detail: e.detail, code: e.code, reason: e.reason };
+};
 
 const NAMES = ["agent-review-correctness", "agent-review-security"];
 
@@ -297,4 +322,84 @@ test("permissionResolver: the login is URL-encoded into the path", async () => {
   permissionResolver({ api: (a) => { seen = a[1]; return {}; } })("odd name/../x");
   assert.equal(seen.includes("/../"), false, "a login must not escape the path");
   assert.match(seen, /collaborators\/odd%20name%2F\.\.%2Fx\/permission$/);
+});
+
+// --- the drained-pool leak, producer to consumer ----------------------------
+// Measured on 16 agent PRs: 23 of 536 gate-channel findings were a drained
+// credential pool wearing the shape of a blocking code finding. The chain has
+// three links and the tests below pin all three, because breaking any one of
+// them puts the record back in front of the fix agent.
+
+test("a drained credential pool is INFRASTRUCTURE, and never reaches the next round", () => {
+  const record = synthesisedRecord([drainedPoolSample()]);
+  // Link 1: the producer classifies it. `infra: true` is the authoritative,
+  // unforgeable signal — the consumer's other branch is a legacy prefix match on
+  // model-controlled text, and must not be the thing that saves us here.
+  assert.equal(record.infra, true);
+  // Link 2: it is published under the wire-format prefix both parsers recognise,
+  // carrying the closed-vocabulary code rather than "did not produce a verdict".
+  assert.match(record.summary, /^Review could not run — Claude API\/quota error: \[POOL_EXHAUSTED\]/);
+  // Link 3: the consumer drops it. This is the whole point — carrying it forward
+  // hands the fix agent "the review could not run" as a work item and sends it to
+  // a verifier that cannot refute it on grounded evidence.
+  const runs = new Map([
+    ["agent-review-blast-radius", { output: { text: JSON.stringify([record]) } }],
+    // A real finding from another lens in the same round still survives.
+    ["agent-review-correctness", { output: { text: JSON.stringify([{ severity: "major", file: "src/a.ts", summary: "real blocker" }]) } }],
+  ]);
+  assert.deepEqual(tagPriorFindings(runs), [
+    { severity: "major", file: "src/a.ts", summary: "real blocker", lens: "correctness" },
+  ]);
+});
+
+test("a genuine no-verdict is NOT infrastructure, and IS carried forward", () => {
+  // THE safety property, and the reason this fix is narrow rather than a widened
+  // summary match. The model ran here: it spent 26 turns and failed to produce
+  // valid structured output. There IS a review to re-attempt, so the record stays
+  // an ordinary fail-closed blocker. Two of the 25 measured records are this, and
+  // they are supposed to survive. Marking them infra would be the #521 false
+  // negative — a round that found nothing usable silently ceasing to block.
+  const ranButProducedNothing = {
+    __error: "review query hit a run limit: [RUN_LIMIT_OUTPUT_RETRIES] structured-output retry ceiling reached (26 turns)",
+    kind: "limit", status: null, code: "RUN_LIMIT_OUTPUT_RETRIES",
+  };
+  const record = synthesisedRecord([ranButProducedNothing]);
+  assert.equal(record.infra, undefined, "a model that ran must not be tagged infrastructure");
+  assert.match(record.summary, /^Reviewer did not produce a valid verdict:/);
+  const runs = new Map([["agent-review-security", { output: { text: JSON.stringify([record]) } }]]);
+  assert.deepEqual(tagPriorFindings(runs), [{ ...record, lens: "security" }]);
+  // Same for a session that returned nothing at all.
+  const noOutput = synthesisedRecord([{ __error: "review query: structured output not produced", kind: "no-output" }]);
+  assert.equal(noOutput.infra, undefined);
+  assert.deepEqual(tagPriorFindings(new Map([["agent-review-security", { output: { text: JSON.stringify([noOutput]) } }]])),
+    [{ ...noOutput, lens: "security" }]);
+});
+
+test("the legacy summary-prefix branch is unchanged by the fix", () => {
+  // Widening `isInfraRecord` to also match "Reviewer did not produce a valid
+  // verdict" would have fixed the leak too, and it was the wrong fix: `summary` is
+  // MODEL output, so it would hand a model a way to write a summary that gets its
+  // own finding silently dropped. These pin that the fallback still matches only
+  // the one legacy sentinel, and still requires the synthetic no-file shape.
+  const runs = new Map([
+    // Still dropped: legacy sentinel + no file, no flag (records predating it).
+    ["agent-review-correctness", { output: { text: JSON.stringify([
+      { severity: "major", summary: "Review could not run — Claude API/quota error (429): session limit" },
+    ]) } }],
+    // Still NOT dropped: the other synthetic prefix without the flag. A record
+    // that reaches here unflagged is a genuine no-verdict, and prose alone must
+    // never be enough to drop it.
+    ["agent-review-security", { output: { text: JSON.stringify([
+      { severity: "major", summary: "Reviewer did not produce a valid verdict: something went wrong" },
+    ]) } }],
+    // Still NOT dropped: a real finding quoting the sentinel. It cites a file,
+    // which the script-authored record never does.
+    ["agent-review-design-fit", { output: { text: JSON.stringify([
+      { severity: "critical", file: "src/log.ts", summary: "Review could not run — Claude API/quota error is logged verbatim with the token" },
+    ]) } }],
+  ]);
+  assert.deepEqual(tagPriorFindings(runs), [
+    { severity: "major", summary: "Reviewer did not produce a valid verdict: something went wrong", lens: "security" },
+    { severity: "critical", file: "src/log.ts", summary: "Review could not run — Claude API/quota error is logged verbatim with the token", lens: "design-fit" },
+  ]);
 });
