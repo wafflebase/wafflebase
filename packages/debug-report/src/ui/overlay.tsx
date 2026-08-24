@@ -24,10 +24,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeRect } from "@wafflebase/core/geometry";
 import {
   actionFor,
+  actionWhileReviewing,
   isTypingTarget,
   type DebugItem,
+  type HostAdapter,
+  type Point,
   type Rect,
-} from "@wafflebase/debug-report";
+  type Target,
+} from "../index";
 import {
   captureAtPoint,
   captureProblemMessage,
@@ -35,23 +39,10 @@ import {
   forgetEvictedCaptures,
   type PendingReport,
 } from "./capture-item";
-import { locatePoint } from "./locate";
+import { locatePoint, type LocateOptions } from "./locate";
+import { ACCENT, describeItem, FORM_MAX_H, OVERLAY_Z, PANEL_Z } from "./appearance";
+import { DebugPanel } from "./panel";
 import { useDebugSession } from "./use-debug-session";
-
-/** Above every app layer, below nothing. */
-const OVERLAY_Z = 2147483646;
-const PANEL_Z = 2147483647;
-
-/**
- * Height the note form is kept inside.
- *
- * A reserve, not a measurement: the form grows with a capture-problem message
- * or an eviction notice, and reserving too little is what let it run off the
- * bottom edge with its buttons unreachable.
- */
-const FORM_MAX_H = 220;
-
-const ACCENT = "#ff3b6b";
 
 /** A drag shorter than this is a mis-click, not a region. */
 const MIN_REGION = 4;
@@ -71,23 +62,27 @@ function outlineStyle(rect: Rect): React.CSSProperties {
   };
 }
 
-function describeTarget(pending: PendingReport): string {
-  const { target, capture } = pending;
-  const what =
-    target.kind === "dom"
-      ? `${target.tag}${target.testId ? ` · ${target.testId}` : ""}`
-      : target.kind === "canvas"
-        ? `${target.surface}${target.address ? ` · ${target.address}` : ""}`
-        : `region${target.elements ? ` · ${target.elements.length} element(s)` : ""}`;
-  const pixels = capture
-    ? `${capture.w}×${capture.h} · ${Math.max(1, Math.round(capture.bytes / 1024))} KB · ${capture.layers} layer(s)`
-    : "no image";
-  return `${what} · ${pixels}`;
-}
-
-export function DebugOverlay({ route }: { route: string }) {
+export function DebugOverlay({
+  route,
+  host,
+  sessionId,
+  locateOnCanvas,
+}: {
+  route: string;
+  host: HostAdapter;
+  sessionId: string;
+  /**
+   * Point → semantic address for a Canvas surface, supplied by the host.
+   *
+   * Omitted, every canvas point becomes a region — the right answer for a
+   * surface nothing can interrogate, and the reason this package needs no
+   * knowledge of which engines a consumer mounts.
+   */
+  locateOnCanvas?: (point: Point) => Target | undefined;
+}) {
   const { session, store, items, mode, persistent, droppedCaptures } =
     useDebugSession();
+  const [reviewing, setReviewing] = useState(false);
 
   const [hover, setHover] = useState<Rect | null>(null);
   const [band, setBand] = useState<Rect | null>(null);
@@ -101,6 +96,10 @@ export function DebugOverlay({ route }: { route: string }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const live = mode !== "off";
+  const locateOptions = useMemo<LocateOptions>(
+    () => (locateOnCanvas ? { locateOnCanvas } : {}),
+    [locateOnCanvas],
+  );
   const deps = useMemo(() => ({ store }), [store]);
 
   const announce = useCallback(
@@ -154,8 +153,8 @@ export function DebugOverlay({ route }: { route: string }) {
 
   /** Capture what is under the cursor, without touching the pointer. */
   const capture = useCallback(
-    () => run(captureAtPoint({ ...cursor.current }, deps)),
-    [deps, run],
+    () => run(captureAtPoint({ ...cursor.current }, deps, locateOptions)),
+    [deps, locateOptions, run],
   );
 
   const commit = useCallback(() => {
@@ -201,7 +200,9 @@ export function DebugOverlay({ route }: { route: string }) {
         isTypingTarget(e.target);
       if (inField) return;
 
-      const action = actionFor(e, live);
+      // While the panel is open only leaving it is recognised, so its buttons
+      // keep their own keyboard activation and nothing underneath is aimed at.
+      const action = reviewing ? actionWhileReviewing(e) : actionFor(e, live);
       if (!action) return;
       // A recognised binding belongs to the overlay, including the global
       // toggle: letting it through as well would mean one keystroke both
@@ -212,7 +213,14 @@ export function DebugOverlay({ route }: { route: string }) {
 
       switch (action) {
         case "toggle":
-          if (live) discard();
+          // `reviewing` is view-local, so turning debug mode OFF while the panel
+          // was open left it set — and turning it back on reopened the panel
+          // without the reporter asking for it. The mode is the outer state; the
+          // panel cannot outlive it.
+          if (live) {
+            setReviewing(false);
+            discard();
+          }
           session.toggle();
           return;
         case "capture":
@@ -224,16 +232,22 @@ export function DebugOverlay({ route }: { route: string }) {
         case "region":
           session.setMode("region");
           return;
+        case "review":
+          setReviewing(true);
+          return;
         case "cancel":
-          // Escape with something in hand drops THAT, and only that.
-          if (pending) discard();
+          // Escape peels ONE layer: the panel, then the pending item, then debug
+          // mode. Collapsing those would mean one keystroke throwing away work
+          // the reporter could not see they were about to lose.
+          if (reviewing) setReviewing(false);
+          else if (pending) discard();
           else session.setMode("off");
           return;
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [capture, discard, live, pending, session]);
+  }, [capture, discard, live, pending, reviewing, session]);
 
   // ── Where the cursor is, tracked ALWAYS ─────────────────────────────────
   //
@@ -262,7 +276,7 @@ export function DebugOverlay({ route }: { route: string }) {
       return;
     }
     const onMove = (e: MouseEvent) => {
-      if (pending) return;
+      if (pending || reviewing) return;
       const from = dragFrom.current;
       if (from) {
         setBand(normalizeRect(from.x, from.y, e.clientX, e.clientY));
@@ -275,18 +289,18 @@ export function DebugOverlay({ route }: { route: string }) {
         // `div` covering the entire grid — the "photograph of everything" visual
         // this design rejects — while `c` recorded one cell. Routing the hover
         // through the same resolver the capture uses makes the reticle honest.
-        setHover(locatePoint({ x: e.clientX, y: e.clientY }).rect);
+        setHover(locatePoint({ x: e.clientX, y: e.clientY }, locateOptions).rect);
       }
     };
     // `passive` is the point: this listener must never call `preventDefault`,
     // because the app underneath needs the same events to keep its hover state.
     document.addEventListener("mousemove", onMove, { passive: true });
     return () => document.removeEventListener("mousemove", onMove);
-  }, [live, mode, pending]);
+  }, [live, locateOptions, mode, pending, reviewing]);
 
   // ── Region drag, the one place the pointer is taken ─────────────────────
   useEffect(() => {
-    if (!live || mode !== "region" || pending) {
+    if (!live || mode !== "region" || pending || reviewing) {
       // A drag origin that outlives its mode freezes a rubber band onto the
       // cursor: `onMove` keeps taking the `if (from)` branch, the band wins over
       // the hover outline, and pick mode shows a box anchored to a point the
@@ -333,7 +347,7 @@ export function DebugOverlay({ route }: { route: string }) {
       window.removeEventListener("blur", onLeave);
       dragFrom.current = null;
     };
-  }, [deps, live, mode, pending, run]);
+  }, [deps, live, locateOptions, mode, pending, reviewing, run]);
 
   if (!live) return null;
 
@@ -357,14 +371,25 @@ export function DebugOverlay({ route }: { route: string }) {
       </div>
 
       <DebugBadge
-        mode={pending ? "describing" : mode}
+        mode={reviewing ? "reviewing" : pending ? "describing" : mode}
         count={items.length}
         persistent={persistent}
         droppedCaptures={droppedCaptures.length}
         route={route}
+        onReview={items.length > 0 ? () => setReviewing(true) : undefined}
       />
 
-      {pending && (
+      {reviewing && (
+        <DebugPanel
+          session={session}
+          store={store}
+          host={host}
+          sessionId={sessionId}
+          onClose={() => setReviewing(false)}
+        />
+      )}
+
+      {pending && !reviewing && (
         <div
           ref={formRef}
           data-testid="debug-note-form"
@@ -401,7 +426,7 @@ export function DebugOverlay({ route }: { route: string }) {
           }}
         >
           <div style={{ marginBottom: 6, opacity: 0.7, fontSize: 11 }}>
-            {describeTarget(pending)}
+            {describeItem(pending)}
           </div>
           <input
             ref={inputRef}
@@ -508,12 +533,14 @@ function DebugBadge({
   persistent,
   droppedCaptures,
   route,
+  onReview,
 }: {
   mode: string;
   count: number;
   persistent: boolean;
   droppedCaptures: number;
   route: string;
+  onReview?: (() => void) | undefined;
 }) {
   return (
     <div
@@ -536,9 +563,34 @@ function DebugBadge({
       }}
     >
       debug-report · <b>{mode}</b> · {count} item{count === 1 ? "" : "s"}
+      {onReview && (
+        <>
+          {" "}
+          <button
+            type="button"
+            data-testid="debug-review-button"
+            onClick={onReview}
+            style={{
+              // The badge itself is `pointer-events: none` so it never blocks
+              // the app; this one control opts back in.
+              pointerEvents: "auto",
+              padding: "1px 6px",
+              borderRadius: 4,
+              border: `1px solid ${ACCENT}`,
+              background: "transparent",
+              color: "#fff",
+              font: "inherit",
+              cursor: "pointer",
+            }}
+          >
+            review →
+          </button>
+        </>
+      )}
       <br />
       <span style={{ opacity: 0.7 }}>
-        c capture · p pick · r region · Esc {mode === "describing" ? "discard" : "off"}
+        c capture · p pick · r region · v review · Esc{" "}
+        {mode === "reviewing" ? "close" : mode === "describing" ? "discard" : "off"}
       </span>
       {!persistent && (
         <>

@@ -7,6 +7,7 @@ import {
 } from "fs";
 import { createRequire } from "module";
 import path from "path";
+import { debugReportPlugin } from "@wafflebase/debug-report/plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { loadEnv, type Plugin, type Connect } from "vite";
@@ -193,6 +194,10 @@ function manualChunks(id: string): string | undefined {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    // Dev-only: writes confirmed reports into `.wb-reports/` and hosts the
+    // drafting call, so the model credential stays in this process and never
+    // reaches the browser (`docs/design/debug-report.md`).
+    debugReportPlugin({ repoRoot: path.resolve(__dirname, "../..") }),
     gaSnippet(),
     antlr4tsAssertShim(),
     pdfjsAssets(),
@@ -229,6 +234,16 @@ export default defineConfig({
       "@wafflebase/notes": path.resolve(__dirname, "../notes/src/index.ts"),
       "@wafflebase/slides": path.resolve(__dirname, "../slides/src/index.ts"),
       "@wafflebase/board": path.resolve(__dirname, "../board/src/index.ts"),
+      // The `/react` alias comes FIRST: Vite matches these in order, so the
+      // bare-name entry would otherwise swallow the subpath.
+      "@wafflebase/debug-report/testing": path.resolve(
+        __dirname,
+        "../debug-report/src/testing/index.ts",
+      ),
+      "@wafflebase/debug-report/react": path.resolve(
+        __dirname,
+        "../debug-report/src/ui/index.ts",
+      ),
       "@wafflebase/debug-report": path.resolve(
         __dirname,
         "../debug-report/src/index.ts",
@@ -269,7 +284,12 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "src/**/*.test.ts", "src/**/*.test.tsx"],
+    include: [
+      "tests/**/*.test.ts",
+      "tests/**/*.test.tsx",
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+    ],
     setupFiles: ["tests/setup.ts"],
     globals: false,
   },

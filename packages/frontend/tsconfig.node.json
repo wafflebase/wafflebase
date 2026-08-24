@@ -20,5 +20,8 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
+  // Just the config. The dev-server plugins it mounts moved to
+  // `@wafflebase/debug-report/plugin`, which typechecks them in its own package —
+  // a glob for a directory that no longer exists would silently cover nothing.
   "include": ["vite.config.ts"]
 }

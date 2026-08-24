@@ -16,7 +16,7 @@ import {
   type Point,
   type Rect,
   type Target,
-} from "@wafflebase/debug-report";
+} from "../index";
 import { locatePoint, type LocateOptions } from "./locate";
 
 /** A target with its evidence, ready for a sentence. */

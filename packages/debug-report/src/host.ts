@@ -23,35 +23,26 @@
  * Design: `docs/design/debug-report.md`.
  */
 
-import type {
-  Bundle,
-  DebugItem,
-  Draft,
-  Environment,
-  Point,
-  ProposedGroup,
-  Target,
-} from './types';
+import type { Bundle, DebugItem, Environment, Point, Target } from './types';
 
-/** One drafted item, paired with the item it belongs to. */
-export type ItemDraft = { itemId: string; draft: Draft };
-
-/**
- * The draft call's output.
- *
- * `proposedGroups` covers ELECTIVE coupling only (same kind, same risk class),
- * because that is all the items themselves can support. The panel renders it as
- * PR cards the reporter can detach from, split and merge — never as file paths,
- * which the browser has no way to know.
- */
-export type DraftResult = {
-  drafts: ItemDraft[];
-  proposedGroups: ProposedGroup[];
-};
+// `DraftResult` and `ItemDraft` live in `draft.ts`, with the schema the call is
+// held to and the operations the reporter performs on the result. Re-exported
+// here so a host implementer needs one import for the whole seam — note that
+// `draft()` below returns the RAW answer, not this validated shape.
+export type { DraftResult, ItemDraft } from './draft';
 
 export type SendResult =
   | { ok: true; ref: string }
   | { ok: false; error: string };
+
+/**
+ * One capture, as it travels.
+ *
+ * Read back out of the store at handover time rather than held in the bundle:
+ * the bundle is metadata that has to stay small enough for `localStorage`, and
+ * the images are megabytes.
+ */
+export type CapturePayload = { id: string; dataUrl: string };
 
 /**
  * Everything the core needs from its environment.
@@ -78,6 +69,16 @@ export interface HostAdapter {
   /** Everything else about the observation environment. */
   environment(): Environment;
   locate(point: Point): Promise<Target | undefined>;
-  draft(items: readonly DebugItem[]): Promise<DraftResult>;
-  send(bundle: Bundle): Promise<SendResult>;
+  /**
+   * Ask for issue text and a proposed grouping.
+   *
+   * Returns the RAW answer, deliberately untyped: it comes from a model, and the
+   * only thing that may interpret it is `parseDraftResult`, at the boundary.
+   * Declaring the validated shape here would have been a lie every
+   * implementation told — the wire form is flat, `DraftResult` is not — and a
+   * second host honouring the declaration would produce a payload the parser
+   * silently drops every draft from.
+   */
+  draft(items: readonly DebugItem[]): Promise<unknown>;
+  send(bundle: Bundle, captures: readonly CapturePayload[]): Promise<SendResult>;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createSession, createStore, memoryBlobs, memoryMeta } from '@wafflebase/debug-report';
-import type { Capture, Target } from '@wafflebase/debug-report';
+import { createSession, createStore, memoryBlobs, memoryMeta } from '../index';
+import type { Capture, Target } from '../index';
 import { captureAtPoint, captureRegion, forgetEvictedCaptures } from './capture-item';
 
 const store = () => createStore({ blobs: memoryBlobs(), meta: memoryMeta() });

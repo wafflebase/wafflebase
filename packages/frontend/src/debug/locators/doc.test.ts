@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DOC_CAPTURE_BAND, locateDocPoint } from './doc';
 import type { DocSurface } from '../surface-registry';
-import { withBox } from '../test-box';
+import { withBox } from '@wafflebase/debug-report/testing';
 
 const PAGE = { x: 100, y: 50, w: 700, h: 900 };
 

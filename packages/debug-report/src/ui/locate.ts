@@ -25,24 +25,17 @@ import {
   regionAround,
   type Point,
   type Target,
-} from "@wafflebase/debug-report";
-import { currentDebugSurface, type DebugSurface } from "./surface-registry";
-import { locateSheetPoint } from "./locators/sheet";
-import { locateDocPoint } from "./locators/doc";
-
-/** Ask the engine that is mounted, if any, for a semantic address. */
-export function locateOnSurface(
-  point: Point,
-  surface: DebugSurface | undefined,
-): Target | undefined {
-  if (!surface) return undefined;
-  return surface.kind === "sheet"
-    ? locateSheetPoint(point, surface)
-    : locateDocPoint(point, surface);
-}
-
+} from "../index";
 export type LocateOptions = {
-  surface?: DebugSurface | undefined;
+  /**
+   * Point → semantic address, for a Canvas surface.
+   *
+   * INJECTED, because only the mounted engine can answer "which cell" and this
+   * package must not know which engines exist. A host that has none omits it and
+   * every canvas point falls back to a region, which is the correct answer for a
+   * surface nothing can interrogate.
+   */
+  locateOnCanvas?: (point: Point) => Target | undefined;
   /** Injected in tests, where jsdom has neither canvases nor layout. */
   elementAt?: (x: number, y: number) => Element | null;
   layers?: ReadonlyArray<{ box: { x: number; y: number; w: number; h: number } }>;
@@ -111,10 +104,7 @@ export function locatePoint(point: Point, options: LocateOptions = {}): Target {
   }
 
   if (onCanvas(point, layers)) {
-    const located = locateOnSurface(
-      point,
-      options.surface ?? currentDebugSurface(),
-    );
+    const located = options.locateOnCanvas?.(point);
     if (located) return located;
   }
 

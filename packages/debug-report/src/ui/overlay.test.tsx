@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { debugSession } from '@wafflebase/debug-report';
+import { debugSession, type HostAdapter } from '../index';
 import { DebugOverlay } from './overlay';
 
 /**
@@ -63,7 +63,29 @@ const moveMouse = (x: number, y: number) =>
     );
   });
 
-const renderOverlay = () => render(<DebugOverlay route="/s/:id" />);
+/**
+ * A host that answers, so the review path is exercised rather than crashing into
+ * a swallowed TypeError. `draft` returns nothing useful on purpose: these tests
+ * are about the overlay, and the panel's own suite covers drafting.
+ */
+const testHost = (): HostAdapter => ({
+  route: () => '/s/:id',
+  buildSha: () => undefined,
+  theme: () => 'light',
+  environment: () => ({
+    route: '/s/:id',
+    viewport: { w: 1280, h: 800 },
+    dpr: 1,
+    theme: 'light',
+    userAgent: 'test',
+  }),
+  locate: async () => undefined,
+  draft: async () => ({ drafts: [], proposedGroups: [] }),
+  send: async () => ({ ok: true, ref: '.wb-reports/test' }),
+});
+
+const renderOverlay = () =>
+  render(<DebugOverlay route="/s/:id" host={testHost()} sessionId="test" />);
 
 describe('DebugOverlay', () => {
   it('renders nothing until the hotkey is pressed', async () => {
@@ -205,7 +227,7 @@ describe('DebugOverlay', () => {
   });
 
   it('shows the anonymised route it was told, not a document id', () => {
-    render(<DebugOverlay route="/s/:id" />);
+    render(<DebugOverlay route="/s/:id" host={testHost()} sessionId="test" />);
     act(() => {
       debugSession.setMode('pick');
     });
@@ -285,8 +307,8 @@ describe('DebugOverlay · a failed capture says so', () => {
 
   it('reports a rejection instead of doing nothing', async () => {
     captureFailure.message = 'site data is blocked';
-    render(<DebugOverlay route="/t" />);
-    await press({ key: 'Y', ctrlKey: true, shiftKey: true });
+    renderOverlay();
+    await press(toggle);
     await press({ key: 'c' });
 
     await waitFor(() => {
@@ -294,5 +316,70 @@ describe('DebugOverlay · a failed capture says so', () => {
     });
     expect(screen.queryByTestId('debug-note-form')).toBeNull();
     expect(debugSession.count()).toBe(0);
+  });
+});
+
+describe('DebugOverlay · the review panel', () => {
+  it('opens on `v` and closes on Escape, keeping debug mode', async () => {
+    renderOverlay();
+    await press(toggle);
+    moveMouse(10, 10);
+    await press({ key: 'c' });
+    await waitFor(() => expect(screen.getByTestId('debug-note-form')).toBeTruthy());
+    await userEvent.type(screen.getByLabelText('What is wrong?'), 'something{Enter}');
+    await waitFor(() => expect(debugSession.count()).toBe(1));
+
+    await press({ key: 'v' });
+    await waitFor(() => expect(screen.getByTestId('debug-panel')).toBeTruthy());
+    await press({ key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('debug-panel')).toBeNull());
+    // Still in debug mode: Escape peeled one layer, not three.
+    expect(screen.getByTestId('debug-badge')).toBeTruthy();
+    expect(debugSession.count()).toBe(1);
+  });
+
+  it('leaves the panel’s keys alone — no aiming while reviewing', async () => {
+    renderOverlay();
+    await press(toggle);
+    moveMouse(10, 10);
+    await press({ key: 'c' });
+    await waitFor(() => expect(screen.getByTestId('debug-note-form')).toBeTruthy());
+    await userEvent.type(screen.getByLabelText('What is wrong?'), 'something{Enter}');
+    await press({ key: 'v' });
+    await waitFor(() => expect(screen.getByTestId('debug-panel')).toBeTruthy());
+
+    const appSaw: string[] = [];
+    const listener = (e: Event) => appSaw.push((e as KeyboardEvent).key);
+    document.addEventListener('keydown', listener);
+    await press({ key: 'Enter' });
+    await press({ key: 'c' });
+    document.removeEventListener('keydown', listener);
+
+    // Both reach the page: the panel's buttons need Enter, and `c` must not
+    // start a capture behind a panel the reporter is reading.
+    expect(appSaw).toEqual(['Enter', 'c']);
+    expect(screen.queryByTestId('debug-note-form')).toBeNull();
+    expect(screen.getByTestId('debug-panel')).toBeTruthy();
+  });
+});
+
+describe('DebugOverlay · the panel cannot outlive debug mode', () => {
+  it('does not reopen the panel on the next toggle', async () => {
+    // `reviewing` is view-local, so turning the mode off with the panel open
+    // left it set and turning it back on reopened the panel unasked.
+    renderOverlay();
+    await press(toggle);
+    debugSession.add({
+      note: 'something',
+      target: { kind: 'viewport', rect: { x: 0, y: 0, w: 10, h: 10 } },
+    });
+    await press({ key: 'v' });
+    expect(screen.getByTestId('debug-panel')).toBeTruthy();
+
+    await press(toggle);
+    expect(screen.queryByTestId('debug-badge')).toBeNull();
+    await press(toggle);
+    expect(screen.getByTestId('debug-badge')).toBeTruthy();
+    expect(screen.queryByTestId('debug-panel')).toBeNull();
   });
 });
