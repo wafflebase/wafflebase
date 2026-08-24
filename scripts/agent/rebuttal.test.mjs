@@ -259,6 +259,21 @@ test("matchRebuttal: a better-scoring later rebuttal supersedes a weaker one", (
   assert.equal(matchRebuttal(FINDING, [weak, sharp]), sharp);
 });
 
+test("a rebuttal written with the CHECK-RUN name joins the bare-lens finding", () => {
+  // Same defect as the fix report's, on the other author channel: the fixer sees
+  // a check run called `agent-review-correctness` and writes that as the lens,
+  // while `stampLens` gives findings the bare id. findingSimilarity's lens gate
+  // scores 0 outright, so the dispute was never adjudicated — and this parser
+  // already checks lens PRESENCE for exactly that reason, never its vocabulary.
+  const parsed = parseRebuttalComment(serializeRebuttal(rebuttalFor({ lens: `agent-review-${FINDING.lens}` })));
+  assert.equal(parsed.lens, "correctness");
+  assert.equal(matchRebuttal(FINDING, [parsed]).claim, rebuttalFor().claim);
+  // ANCHORED, so a real lens id is never corrupted — none of the six live ids
+  // begins with `agent-review-`.
+  const odd = parseRebuttalComment(serializeRebuttal(rebuttalFor({ lens: "x-agent-review-correctness" })));
+  assert.equal(odd.lens, "x-agent-review-correctness");
+});
+
 test("matchRebuttal: nothing above threshold, and junk, both yield null", () => {
   assert.equal(matchRebuttal(FINDING, [rebuttalFor({ summary: "totally unrelated wording about css colors" })]), null);
   for (const bad of [null, undefined, "x", 7, []]) assert.equal(matchRebuttal(FINDING, bad), null);

@@ -183,7 +183,24 @@ export function parseRebuttalComment(body) {
   // lens+file are what `findingSimilarity` gates on. Without both, a rebuttal
   // can never match anything, so accepting it would only add a row that looks
   // like it was considered.
-  const lens = str(d.lens).trim();
+  //
+  // AND IN THE VOCABULARY THAT GATE USES, which this checked the PRESENCE of and
+  // never the spelling. The author writes the lens from what it can see on the PR
+  // — a check run named `agent-review-correctness` — while findings carry the bare
+  // `correctness`, and three separate places compare the two for equality:
+  // `findingSimilarity`'s lens gate, `matchRebuttal` through it, and
+  // `adjudicateRebuttals`'s own `r.lens === lensId` partition. A prefixed rebuttal
+  // therefore reached no adjudicator at all, and since `adjudication.upheld` is
+  // what `upheldTwice` reads, the standstill page this module is built around
+  // could not fire. Measured 2026-08-24: of the 9 rebuttals on the 16
+  // agent-authored PRs, 8 carried the prefix.
+  //
+  // Anchored, and normalized at the boundary rather than in the matcher, exactly
+  // as in fix-report.mjs's `lensId` — see that comment for why not
+  // `findingSimilarity`. Both author channels must be normalized or neither:
+  // `authorClaims` compares a report against a rebuttal, so one side left in the
+  // other's vocabulary stops a rebuttal from covering its own claim.
+  const lens = str(d.lens).trim().replace(/^agent-review-/, "");
   const file = str(d.file).trim();
   if (lens === "" || file === "") return null;
   return {

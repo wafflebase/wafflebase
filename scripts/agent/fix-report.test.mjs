@@ -19,7 +19,13 @@ import {
   parseItemString,
   readFixReports,
 } from "./fix-report.mjs";
-import { matchRebuttal, OVERTURN_GROUNDS, buildAdjudicatorPrompt } from "./rebuttal.mjs";
+import {
+  matchRebuttal,
+  OVERTURN_GROUNDS,
+  buildAdjudicatorPrompt,
+  serializeRebuttal,
+  parseRebuttalComment,
+} from "./rebuttal.mjs";
 
 /** The fix agent's identity, as the REST comments endpoint reports it. */
 const AGENT = { login: "yorkie-agent[bot]", type: "Bot" };
@@ -318,6 +324,54 @@ test("adjudicator sessions are CAPPED, and the overflow fails safe", () => {
 test("authorClaims: no reports is inert", () => {
   assert.deepEqual(authorClaims([], []), { adjudicate: [], skipped: [], deferred: [] });
   assert.deepEqual(authorClaims(undefined, undefined), { adjudicate: [], skipped: [], deferred: [] });
+});
+
+// --- the lens VOCABULARY, which is the other way the join silently died ------
+
+test("a claim written with the CHECK-RUN name joins the finding it names", () => {
+  // The fixer fills `lens` in from what it can see on the PR, and what it can see
+  // is a check run called `agent-review-security`; findings carry the bare id.
+  // findingSimilarity's lens gate returns 0 OUTRIGHT, not a low score, so such a
+  // claim matched nothing — and nothing rejected it or logged it as unmatched.
+  const finding = { lens: "security", file: "a.ts", summary: WORDING };
+  const body = serializeFixReport({
+    head: "abc1234",
+    skipped: [{ lens: "agent-review-security", file: "a.ts", summary: WORDING, note: "not changed" }],
+  });
+  const claims = flattenClaims(collectFixReports([agentComment(body)]));
+  assert.equal(claims[0].lens, "security");
+  assert.ok(claimFor(finding, claims), "the claim must reach the finding it names");
+  // The CLI's own `lens::file::summary` strings enter through the same normalizer,
+  // so the fix covers a report written today and one already posted.
+  assert.equal(parseItemString(`agent-review-docs${ITEM_SEP}a.md${ITEM_SEP}${WORDING}`).lens, "docs");
+  // ANCHORED: an id that merely contains the prefix is left alone. None of the six
+  // live lens ids begins with it, so a real id can never be corrupted.
+  assert.equal(parseItemString(`x-agent-review-docs${ITEM_SEP}a.md${ITEM_SEP}x`).lens, "x-agent-review-docs");
+});
+
+test("one disagreement counts ONCE, whichever vocabulary the author wrote", () => {
+  // BOTH boundaries or neither. `authorClaims`'s precedence rule compares two
+  // AUTHOR-WRITTEN records against each other, so normalizing one side alone
+  // leaves them in different vocabularies: the rebuttal stops covering its own
+  // claim, and the finding is then upheld through the session-free claim path
+  // while the argued rebuttal — the record carrying enumerated grounds — is
+  // still never adjudicated. This test is red in all three wrong states.
+  const finding = { lens: "security", file: "a.ts", summary: WORDING };
+  const named = { lens: "agent-review-security", file: "a.ts", summary: WORDING };
+  const reb = parseRebuttalComment(
+    serializeRebuttal({ ...named, claim: "already guarded at a.ts:3", evidence: ["a.ts:3"] }),
+  );
+  const reports = collectFixReports([
+    agentComment(serializeFixReport({ head: "abc1234", skipped: [{ ...named, note: "not changed" }] })),
+  ]);
+  const split = authorClaims(reports, [reb]);
+  // The rebuttal speaks for this finding, so there is no session-free uphold on
+  // top of it.
+  assert.deepEqual(split.skipped, []);
+  assert.deepEqual(split.adjudicate, []);
+  // And the rebuttal itself still reaches the adjudicator: the disagreement is
+  // counted exactly once, through the channel that has to ground itself.
+  assert.equal(matchRebuttal(finding, [reb]), reb);
 });
 
 // --- serialization hazards from verbatim finding text -----------------------

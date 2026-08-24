@@ -3675,6 +3675,42 @@ test("applySkipClaims: an unmatched finding is returned untouched, and no claims
   assert.deepEqual(applySkipClaims(undefined, other), []);
 });
 
+test("author records in the CHECK-RUN vocabulary produce ONE uphold, not two", async () => {
+  // End to end over the round loop's real wiring, because the two author channels
+  // pass through each other: `authorClaims` decides whether the report is
+  // suppressed by the rebuttal, and only then does `adjudicateRebuttals` partition
+  // by lens and match. All three of those gate on the lens id, so a report and a
+  // rebuttal written with the CHECK-RUN name reached none of them, and the
+  // standstill page they feed could never fire. Normalizing only one boundary
+  // splits the two vocabularies apart and upholds through the wrong channel.
+  const { applySkipClaims, adjudicateRebuttals } = await import("./review-panel.mjs");
+  const { authorClaims, serializeFixReport, collectFixReports } = await import("./fix-report.mjs");
+  const { serializeRebuttal, parseRebuttalComment, upheldCount } = await import("./rebuttal.mjs");
+  const W = "unvalidated user input reaches the fetch call";
+  const named = { lens: "agent-review-security", file: "a.ts", summary: W };
+  const finding = { lens: "security", file: "a.ts", summary: W, severity: "critical" };
+
+  const reb = parseRebuttalComment(
+    serializeRebuttal({ ...named, claim: "already guarded at a.ts:3", evidence: ["a.ts:3"] }),
+  );
+  const reports = collectFixReports([{
+    id: 1,
+    user: { login: "yorkie-agent[bot]", type: "Bot" },
+    body: serializeFixReport({ head: "abc1234", skipped: [{ ...named, note: "not changed" }] }),
+  }]);
+  const split = authorClaims(reports, [reb]);
+  const afterSkips = applySkipClaims([finding], [...split.skipped, ...split.deferred]);
+  assert.equal(afterSkips[0].adjudication, undefined, "the rebuttal covers the claim — no session-free uphold too");
+
+  const adjudged = await adjudicateRebuttals(afterSkips, {
+    rebuttals: [reb, ...split.adjudicate],
+    lensId: "security",
+    adjudicate: async () => ({ verdict: "upheld", confidence: "high", reason: "r", overturnGround: "none", groundedIn: [] }),
+  });
+  assert.equal(adjudged.tally.matched, 1, "the dispute reaches the adjudicator");
+  assert.equal(upheldCount(adjudged.findings[0]), 1, "one disagreement, one count toward the human page");
+});
+
 // --- substituteAdjudicated: the count must survive into verdict.json ---------
 
 // An upheld finding is RE-CREATED with its `adjudication`, and the copy used to
