@@ -730,6 +730,56 @@ export function bridge(deps: BridgeDeps): Plugin {
             return json(res, 200, { ok: true, ...r, total: deps.safelist.size() });
           }
 
+          // --- POST /analyse — analyse ONE file, on demand ---------------------
+          /*
+           * WHY THIS EXISTS. The outline offers a drill-in only for a file the analyser
+           * has read, and the analyser read exactly what `scenes.config.json` listed
+           * under `components` — seven hand-written paths. So drilling into `LoginForm`
+           * was refused although its import resolves perfectly: the path was known and
+           * the file simply had never been looked at.
+           *
+           * Analysing on demand deletes that list as a maintenance burden. It also
+           * removes the reason the gate existed: the old worry was that drilling into an
+           * unanalysed file shows an empty tree, which reads as "component with no
+           * nodes" rather than "component nobody declared". Analysing at the moment of
+           * the drill means there is no such state — either a tree comes back, or a
+           * reason does.
+           *
+           * The path comes from the client, so it goes through the guard like any other:
+           * `resolveSafe` refuses anything outside the root. `node_modules` is refused
+           * separately — `resolveImport` cannot produce such a path today (a bare
+           * specifier with no alias returns null), but an alias aimed into a package
+           * could, and analysing a dependency is never what a drill-in means.
+           */
+          if (url === '/analyse' && method === 'POST') {
+            const payload = await body<{ file?: string }>();
+            const rel = payload?.file;
+            if (typeof rel !== 'string' || !rel.trim()) {
+              return json(res, 400, { ok: false, error: '`file` is required' });
+            }
+            if (rel.split('/').includes('node_modules')) {
+              return json(res, 400, {
+                ok: false,
+                error: 'refusing to analyse a dependency — drill-in is for your own source',
+              });
+            }
+            const r = deps.guard.resolveSafe(rel);
+            if ('error' in r) return json(res, 400, { ok: false, error: r.error });
+            try {
+              const extractor = await deps.loadExtractor();
+              const meta = extractor.analyzeFile(r.abs) as Record<string, unknown>;
+              const nodes = extractor.analyzeNodes(r.abs) as Record<string, unknown>;
+              return json(res, 200, {
+                ok: true,
+                file: { ...meta, ...nodes, file: deps.guard.relOf(r.abs) },
+              });
+            } catch (err) {
+              // The reason, not a bare failure: "no such file" and "this file does not
+              // parse" send the reader to completely different places.
+              return json(res, 200, { ok: false, error: String(err) });
+            }
+          }
+
           // --- POST /plan — stage the intents a frame side renders ------------
           if (url === '/plan' && method === 'POST') {
             const payload = await body<{ side?: FrameSide; intents?: MutateRequest[] }>();

@@ -36,6 +36,26 @@ interface PopoverCtx {
 
 const Ctx = createContext<PopoverCtx | null>(null);
 
+/**
+ * Every mounted popover, so the shell can shut them all at once.
+ *
+ * A popover survives anything that is not a click outside it or an Escape — including
+ * the subject underneath it changing. Switch component while a token picker is open and
+ * the picker stays, now describing a component that is no longer on screen; it looks
+ * like a stuck editor, which is the same failure the outside-pointerdown rule exists to
+ * prevent. The shell calls `closeAllPopovers()` on any move.
+ *
+ * A module-level set rather than a context: the callers are the header, the bindings
+ * panel and the token editor, which share no ancestor below the app root, and a
+ * provider around everything would be ceremony for a one-line broadcast.
+ */
+const openers = new Set<() => void>();
+
+/** Close every popover in the shell. Idempotent, and safe with none open. */
+export function closeAllPopovers(): void {
+  for (const close of [...openers]) close();
+}
+
 function usePopover(part: string): PopoverCtx {
   const ctx = useContext(Ctx);
   if (!ctx) throw new Error(`[design-editor] <${part}> must be inside <Popover>`);
@@ -58,6 +78,19 @@ export function Popover({
 }) {
   const [own, setOwn] = useState(false);
   const open = openProp ?? own;
+
+  // Registered unconditionally, controlled or not: `Combobox` is the controlled case and
+  // is exactly the one that must close.
+  useEffect(() => {
+    const close = () => {
+      setOwn(false);
+      onOpenChange?.(false);
+    };
+    openers.add(close);
+    return () => {
+      openers.delete(close);
+    };
+  }, [onOpenChange]);
   const setOpen = useCallback(
     (v: boolean) => {
       if (openProp === undefined) setOwn(v);

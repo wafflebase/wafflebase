@@ -27,7 +27,7 @@ import { API_BASE } from '../base.ts';
 import type { FrameSide, MutateRequest, MutateResult, Transaction } from '../plugin/protocol.ts';
 import type { TransactionSummary } from '../plugin/transactions.ts';
 import type { ExternalChange } from '../plugin/tracked.ts';
-import type { DesignMetadata } from '../types.ts';
+import type { DesignMetadata, FileMeta } from '../types.ts';
 import type { AliasEntry } from '../plugin/aliases.ts';
 import type { TokenFamilyMeta, TokenBindings, TokenVars } from '../tokens/adapter.ts';
 
@@ -213,6 +213,11 @@ export interface CandidatesResult extends BridgeResult {
   total?: number;
 }
 
+/** One file, analysed on demand. `file` carries the same shape `/metadata` returns. */
+export interface AnalyseResult extends BridgeResult {
+  file?: FileMeta;
+}
+
 export interface PlanResult extends BridgeResult {
   side?: FrameSide;
   count?: number;
@@ -242,6 +247,14 @@ export interface BridgeClient {
   candidates(classes: string[]): Promise<CandidatesResult>;
   /** Stage the intents a frame side renders. */
   plan(side: FrameSide, intents: MutateRequest[]): Promise<PlanResult>;
+  /**
+   * Analyse one file that the manifest never declared, so a drill-in can open it.
+   *
+   * The outline resolves a tag to a path from the scene's own imports; this is what
+   * turns that path into a tree. Root-relative, refused for anything outside the
+   * project or inside `node_modules`.
+   */
+  analyse(file: string): Promise<AnalyseResult>;
 }
 
 /** `Transaction` is re-exported so callers typing a history view need one import. */
@@ -311,5 +324,6 @@ export function createBridgeClient(options: BridgeClientOptions = {}): BridgeCli
       // editor calls this on every render.
       classes.length ? post<CandidatesResult>('/candidates', { classes }) : Promise.resolve({ ok: true, added: [] }),
     plan: (side, intents) => post<PlanResult>('/plan', { side, intents }),
+    analyse: (file) => post<AnalyseResult>('/analyse', { file }),
   };
 }

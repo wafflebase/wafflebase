@@ -279,6 +279,81 @@ describe('publishing the staged plan', () => {
   });
 });
 
+describe('drilling into a component the manifest never declared', () => {
+  /*
+   * The outline offered a drill-in only for files listed under `components` in
+   * `scenes.config.json` — seven of them — so every other component resolved perfectly
+   * and was refused anyway. These pin the replacement: resolution is the gate, and the
+   * tree is fetched at the moment of the drill.
+   */
+  const sceneWithImport = {
+    ...scene,
+    imports: [{ module: '@/components/login-form', named: ['LoginForm'] }],
+    // The outline needs a row whose TAG is the imported name — that is what
+    // `fileOfTag` looks up.
+    roots: {
+      Page: node({
+        tag: '#returns',
+        path: [],
+        children: [node({ tag: 'LoginForm', path: [0], fp: 'fp-lf', fpx: 'fp-lfx' })],
+      }),
+    },
+  };
+  const analysedFile = {
+    file: 'app/components/login-form.tsx',
+    module: '@/components/login-form',
+    components: [],
+    orphanCva: [],
+    roots: { LoginForm: node({ tag: '#returns', path: [], children: [node()] }) },
+  };
+  const withImports = (over = {}) =>
+    stubBridge({
+      health: async () => ({
+        ok: true,
+        root: '/p',
+        scenes: 's.json',
+        session: 's',
+        tokens: null,
+        aliases: [{ find: '@', replacement: 'app' }],
+      }),
+      metadata: async () =>
+        ({ ok: true, metadata: { scenes: [sceneWithImport], files: [] } }) as never,
+      ...over,
+    });
+
+  it('fetches the tree, rather than refusing because nobody declared the file', async () => {
+    const asked: string[] = [];
+    const host = await mount(
+      withImports({
+        analyse: (async (f: string) => {
+          asked.push(f);
+          return { ok: true, file: analysedFile };
+        }) as never,
+      }),
+    );
+    const drill = [...host.querySelectorAll('button')].find((b) =>
+      /^Open /.test(b.getAttribute('title') ?? ''),
+    );
+    if (!drill) {
+      throw new Error('no drill button rendered');
+    }
+    await act(async () => drill!.click());
+    expect(asked).toEqual(['app/components/login-form.tsx']);
+  });
+
+  it('says why when the file cannot be analysed, instead of doing nothing', async () => {
+    // A drill-in that silently no-ops reads as a broken outline.
+    const host = await mount(
+      withImports({ analyse: (async () => ({ ok: false, error: 'does not parse' })) as never }),
+    );
+    const drill = [...host.querySelectorAll('button')].find((b) =>
+      /^Open /.test(b.getAttribute('title') ?? ''),
+    );
+    await act(async () => drill!.click());
+    expect(host.textContent).toContain('Could not open that component');
+  });
+});
+
 describe('the two modes', () => {
   /*
    * The recipe specifies these as MODES with two tabs each; the shell had shipped one
@@ -319,10 +394,15 @@ describe('the two modes', () => {
     expect(tabs(host)).toEqual(['Layout', 'Tokens']);
   });
 
-  it('switches to components: Bindings replaces Layout', async () => {
+  it('switches to components: Bindings JOINS Layout', async () => {
+    /*
+     * Layout is in both modes now. It was scenes-only while the component pane was
+     * picked in, and picking there fought the canvas gestures for the same drag — the
+     * outline does the same job and can show what it selected.
+     */
     const host = await mount(withComponent());
     await act(async () => modeButton(host, 'components')!.click());
-    expect(tabs(host)).toEqual(['Bindings', 'Tokens']);
+    expect(tabs(host)).toEqual(['Layout', 'Bindings', 'Tokens']);
   });
 
   it('KEEPS the scene mounted in components mode — the centre is the real page', async () => {

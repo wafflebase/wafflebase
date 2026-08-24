@@ -54,6 +54,24 @@ export interface DesignEditorOptions {
   /** Providers module wrapping every mounted scene. Resolved against `root`. */
   providers?: string;
   /**
+   * A module default-exporting `Record<componentName, PreviewRecipe>` — how to mount
+   * ONE component so it is worth looking at.
+   *
+   * The generic answer is `<Component {...generatedProps}>{name}</Component>`, and for a
+   * styled primitive it is the right one. For everything else it is not, and measurably:
+   * of the 25 `components/ui/*` modules wafflebase declares, most export PARTS of a
+   * composite — `DropdownMenuItem` outside a menu throws, `SelectValue` outside a select
+   * throws, a `Slider` with no width is a 0px line — so the pane filled up with cells
+   * reading "needs app context this preview does not mount". That is accurate and
+   * useless: the fix is a menu with three dummy items, not a better error.
+   *
+   * The knowledge is the CONSUMER's, which is why this is an option and not a table in
+   * the plugin: "a Slider wants 260px" and "our menus carry an icon and a shortcut" are
+   * facts about their design system. Absent, every component falls back to the generic
+   * mount, so the option is additive.
+   */
+  previews?: string;
+  /**
    * A module default-exporting `(sceneConfig) => FixtureTable` — the URL-keyed responses
    * the frame answers `fetch` with.
    *
@@ -89,6 +107,7 @@ export interface ResolvedOptions {
   root: string;
   scenes: string | null;
   providers: string | null;
+  previews: string | null;
   fixtures: string | null;
   opaqueRoots: string[];
   tokens: TokenAdapter | null;
@@ -131,6 +150,7 @@ export function resolveOptions(
     root,
     scenes: absolutise(root, options?.scenes),
     providers: absolutise(root, options?.providers),
+    previews: absolutise(root, options?.previews),
     fixtures: absolutise(root, options?.fixtures),
     // Normalised and absolute so `isOpaque` can compare prefixes without
     // re-resolving per module id — this is consulted on every module load.

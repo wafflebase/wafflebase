@@ -431,6 +431,44 @@ async function main() {
             /packages\/frontend\/src\//.test(panel) && /fp \w+/.test(panel),
             (panel.match(/packages\/frontend\/src\/\S+/) ?? ['(none)'])[0],
           );
+
+          /*
+           * DRILL INTO A FILE THE MANIFEST NEVER DECLARED.
+           *
+           * The outline used to offer a drill-in only for the seven paths listed under
+           * `components` in `scenes.config.json`, so every other component resolved and
+           * was refused anyway — the button simply did not render. This asserts the
+           * replacement end to end: the button exists, and clicking it fetches a tree
+           * for a file nobody declared.
+           *
+           * Deliberately checks a file that is NOT in that list, so passing cannot be
+           * explained by the old behaviour.
+           */
+          const drill = page.locator('button[title^="Open "]').first();
+          if (check('the outline offers a drill-in', (await drill.count()) > 0)) {
+            const target = (await drill.getAttribute('title'))?.replace(/^Open /, '') ?? '';
+            const declared = JSON.parse(
+              fsSync.readFileSync(path.join(HERE, 'scenes.config.json'), 'utf8'),
+            ).components ?? [];
+            check(
+              'and it names a file the manifest never declared',
+              !declared.includes(target),
+              target,
+            );
+            await drill.click();
+            const opened = await page
+              .waitForFunction(
+                (f) =>
+                  [...document.querySelectorAll('[data-row-id]')].some((r) =>
+                    (r.getAttribute('data-row-id') ?? '').startsWith(`${f}#`),
+                  ),
+                target,
+                { timeout: PREVIEW_TIMEOUT_MS },
+              )
+              .then(() => true)
+              .catch(() => false);
+            check('and the drilled-into file gets a tree', opened, target);
+          }
         }
 
         // DISPATCHED, not driven. The picker's overlay makes Playwright's actionability

@@ -30,6 +30,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -49,6 +50,7 @@ import {
   VIEWPORT_WIDTH,
   isFrameMessage,
   sceneFrameUrl,
+  componentFrameUrl,
   type FrameMessage,
   type FrameRect,
   type FrameSide,
@@ -124,6 +126,33 @@ export interface SceneHostProps {
    */
   mockDataEmpty?: boolean;
   onMockDataEmptyChange?: (empty: boolean) => void;
+  /**
+   * Show ONE COMPONENT across its variants instead of the scene.
+   *
+   * Absent means the scene; present replaces what the frame mounts and nothing else —
+   * the picker, the guard and the token channel are the same either way.
+   */
+  preview?: {
+    file: string;
+    component: string;
+    axes: Record<string, string[]>;
+    /** Classes that force an interaction state, already stripped of their modifier. */
+    forced?: string;
+    /** The interaction states this component authors — the only ones worth offering. */
+    states: string[];
+    forcedState: string | null;
+    /** Children for the preview. Empty falls back to the component's own name. */
+    label?: string;
+    /** Every value of every axis — the chooser, where `axes` is the choice. */
+    allAxes?: Record<string, string[]>;
+    mockProps?: Record<string, unknown>;
+    noopProps?: string[];
+    /** Where a stand-in glyph sits inside the component, and which one. */
+    iconSlot?: string;
+    icon?: string;
+  };
+  onVariantChange?: (axis: string, value: string) => void;
+  onForcedStateChange?: (state: string | null) => void;
 }
 
 interface FrameError {
@@ -140,6 +169,9 @@ const VIEWPORTS: { key: ViewportKey; icon: typeof Monitor; label: string }[] = [
 ];
 
 const ZOOMS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+
+/** Positive modulo — `-3 % 16` is `-3` in JS, and a grid offset must not go backwards. */
+const mod = (a: number, n: number) => (n > 0 ? ((a % n) + n) % n : 0);
 const MIN_SIZE = 240;
 
 export function SceneHost({
@@ -160,6 +192,9 @@ export function SceneHost({
   tokenVars,
   mockDataEmpty = false,
   onMockDataEmptyChange,
+  preview,
+  onForcedStateChange,
+  onVariantChange,
 }: SceneHostProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -179,6 +214,54 @@ export function SceneHost({
    */
   const [stage, setStage] = useState({ width: 0, height: 0 });
   const [ready, setReady] = useState(false);
+  /**
+   * Pan offset for the component preview, in unscaled pixels.
+   *
+   * Scenes do not pan: a page is anchored to its viewport and dragging it away from the
+   * top-left loses the thing being judged. A component is one object on a ground, and
+   * moving it is how you look at it against different parts of that ground.
+   */
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+
+  /** Live zoom for the message handler, which is registered once and must not close over it. */
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+
+  /**
+   * The content point a zoom must leave where it was, and where that was on screen.
+   * Consumed by the layout effect below, which is the whole of the cursor-anchoring.
+   */
+  const zoomAnchor = useRef<{ fx: number; fy: number; hx: number; hy: number } | null>(null);
+
+  /**
+   * ONE PAN COMMIT PER FRAME.
+   *
+   * `pointermove` fires faster than the compositor draws, and each message was its own
+   * `setPan` — so a drag queued several full re-renders of this pane per frame and the
+   * canvas stuttered under the cursor. Accumulating the deltas and flushing once per
+   * animation frame drops that to one, and loses nothing: the intermediate positions
+   * were never painted anyway.
+   */
+  const panQueue = useRef({ dx: 0, dy: 0, raf: 0 });
+  const queuePan = useCallback((dx: number, dy: number) => {
+    const q = panQueue.current;
+    q.dx += dx;
+    q.dy += dy;
+    if (q.raf) return;
+    q.raf = requestAnimationFrame(() => {
+      q.raf = 0;
+      const { dx: ax, dy: ay } = q;
+      q.dx = 0;
+      q.dy = 0;
+      setPan((prev) => ({ x: prev.x + ax, y: prev.y + ay }));
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      if (panQueue.current.raf) cancelAnimationFrame(panQueue.current.raf);
+    },
+    [],
+  );
   const [error, setError] = useState<FrameError | null>(null);
   /** Refused EventSources, by URL. Expected behaviour, reported rather than raised. */
   const [streams, setStreams] = useState<string[]>([]);
@@ -335,6 +418,39 @@ export function SceneHost({
         case 'wb:deselect':
           onDeselect?.();
           break;
+        case 'wb:view': {
+          if (msg.kind === 'pan') {
+            queuePan(msg.dx, msg.dy);
+            break;
+          }
+          /*
+           * ZOOM ABOUT THE CURSOR — MEASURED, not derived.
+           *
+           * Solving for the pan algebraically needs a model of where the frame sits, and
+           * the model was wrong twice over: `msg.x` is a FRAME-LOCAL coordinate, so it
+           * had to be scaled by the current zoom before it could be added to a rendered
+           * offset, and the footprint is `mx-auto`, so its left edge moves with the zoom
+           * while its top does not. The result was a cursor that held in one axis and
+           * drifted in the other — a point tracing an arc where it should have sat still.
+           *
+           * Recording where the anchor IS and putting it back after the scale needs no
+           * model at all, and cannot drift when the layout around it changes. The
+           * correction runs in a layout effect, before paint, so nothing is seen moving.
+           */
+          const box = frameRef.current?.getBoundingClientRect();
+          if (box) {
+            zoomAnchor.current = {
+              fx: msg.x,
+              fy: msg.y,
+              hx: box.left + zoomRef.current * msg.x,
+              hy: box.top + zoomRef.current * msg.y,
+            };
+          }
+          setZoom((z) =>
+            Math.min(4, Math.max(0.25, +(z * (msg.dy < 0 ? 1.1 : 1 / 1.1)).toFixed(3))),
+          );
+          break;
+        }
         case 'wb:measured':
           if (msg.nonce === measureNonceRef.current) {
             onMeasured?.(msg.rect);
@@ -356,6 +472,7 @@ export function SceneHost({
     onDeselect,
     onMeasured,
     recomputeHostRect,
+    queuePan,
   ]);
 
   /**
@@ -399,21 +516,86 @@ export function SceneHost({
   }, [ready, hoverId, post]);
 
   useEffect(() => {
-    if (ready) post({ type: 'wb:set-picking', enabled: picking });
-  }, [ready, picking, post]);
+    /*
+     * NEVER IN A COMPONENT PREVIEW, whatever the toggle last said.
+     *
+     * Hiding the button was not enough: `picking` is state, it stays true from the last
+     * scene, and the frame goes on suppressing pointer events for it — so the preview
+     * still selected on click and swallowed the drag that pans. The control is gone from
+     * that mode, so the behaviour has to be too.
+     */
+    if (ready) post({ type: 'wb:set-picking', enabled: preview ? false : picking });
+  }, [ready, picking, preview, post]);
+
+  /*
+   * A NEW SUBJECT STARTS CENTRED. Panning is per-component; carrying an offset into the
+   * next one opens it somewhere off the pane with nothing to say why.
+   */
+  useEffect(() => {
+    setPan({ x: 0, y: 0 });
+  }, [preview?.component, preview?.file]);
 
   useEffect(() => {
     if (ready) post({ type: 'wb:set-token-vars', vars: tokenVars ?? {} });
   }, [ready, tokenVars, post]);
 
-  const width = VIEWPORT_WIDTH[viewport];
-  const src = sceneFrameUrl({
-    scene: sceneId,
-    side,
-    theme: dark ? 'dark' : 'light',
-    mockDataEmpty,
-  });
+  /**
+   * Put the zoom anchor back where it was, now that the new scale has laid out.
+   *
+   * `useLayoutEffect`, not `useEffect`: this runs between the DOM update and the paint,
+   * so the frame is never drawn at the uncorrected position and there is nothing to see
+   * flicker. Reading the rect here is also the point — it is the measurement the old
+   * algebra was trying and failing to predict.
+   */
+  useLayoutEffect(() => {
+    const a = zoomAnchor.current;
+    if (!a) return;
+    zoomAnchor.current = null;
+    const box = frameRef.current?.getBoundingClientRect();
+    if (!box) return;
+    const dx = a.hx - (box.left + zoom * a.fx);
+    const dy = a.hy - (box.top + zoom * a.fy);
+    if (dx || dy) setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+  }, [zoom]);
 
+  const width = VIEWPORT_WIDTH[viewport];
+  /*
+   * Same frame, two subjects. `preview` set means the host wants one component across
+   * its variants instead of a route — see `componentFrameUrl` for why that reuses the
+   * scene document rather than adding a second one.
+   */
+  const src = preview
+    ? componentFrameUrl({
+        file: preview.file,
+        component: preview.component,
+        axes: preview.axes,
+        forced: preview.forced,
+        label: preview.label,
+        mockProps: preview.mockProps,
+        noopProps: preview.noopProps,
+        iconSlot: preview.iconSlot,
+        icon: preview.icon,
+        side,
+        theme: dark ? 'dark' : 'light',
+      })
+    : sceneFrameUrl({
+        scene: sceneId,
+        side,
+        theme: dark ? 'dark' : 'light',
+        mockDataEmpty,
+      });
+
+  /*
+   * ONE SIZING RULE FOR BOTH SUBJECTS.
+   *
+   * A preview used to be pinned to `stage.width` on the reasoning that a component has
+   * no breakpoints of its own. Half true: a PRIMITIVE has none, but an app component is
+   * a slab of layout — `DocumentList` has `sm:` rules on its filter row, `SiteHeader`
+   * collapses — and those are exactly what you open the mode to look at. So the same
+   * viewport control drives both, and `desktop` (fill) stays the default, which is the
+   * behaviour this replaced: the grid still reaches the pane's edges until you ask for
+   * a narrower frame.
+   */
   const renderWidth = customSize?.width ?? width ?? stage.width;
   const renderHeight = customSize?.height ?? stage.height;
 
@@ -471,25 +653,87 @@ export function SceneHost({
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex shrink-0 items-center gap-2">
-        <div className="flex items-center rounded-md border border-wb-border">
-          {VIEWPORTS.map(({ key, icon: Icon, label }) => (
-            <button
-              key={key}
-              onClick={() => {
-                setViewport(key);
-                setCustomSize(null);
-              }}
-              title={`Viewport: ${label} — a real width, so breakpoints resolve truthfully`}
-              className={cn(
-                'p-1.5 text-wb-muted transition-colors first:rounded-l-md last:rounded-r-md hover:text-wb-fg',
-                viewport === key && !customSize && 'bg-wb-accent text-wb-accent-fg',
-              )}
-            >
-              <Icon className="size-3.5" />
-            </button>
-          ))}
-        </div>
+        {/*
+          THE SCENE'S CONTROLS, and only the scene's — minus the viewport, which is now
+          shared and sits below.
+          
+          Zoom, picking and mock data all describe a PAGE. A component preview has
+          nothing to pick inside (the whole frame is the one component) and no fixtures,
+          so offering them made the mode look like a scene that had lost its content.
+          What this row shows instead is the scope: which variant, in which interaction
+          state.
+        */}
+        {preview ? (
+          <div className="flex items-center gap-1.5">
+            {/*
+              THE AXES THEMSELVES, not a readout of them.
+              
+              They lived in the bindings inspector, one panel away from the thing they
+              change, so choosing a variant meant looking right to pick and centre to
+              see. Both are STATE — which variant, which interaction state — and state
+              belongs on the bar above what it describes. The inspector keeps the
+              bindings, which is what it is for.
+            */}
+            {Object.entries(preview.allAxes ?? {}).map(([axis, values]) => (
+              <div key={axis} className="flex items-center gap-1">
+                <span className="font-mono text-[10px] text-wb-muted">{axis}</span>
+                <div className="flex items-center gap-0.5 rounded-md bg-wb-subtle p-0.5">
+                  {values.map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => onVariantChange?.(axis, v)}
+                      className={cn(
+                        'rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors',
+                        preview.axes[axis]?.[0] === v
+                          ? 'bg-wb-bg text-wb-fg shadow-sm'
+                          : 'text-wb-muted hover:text-wb-fg',
+                      )}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {!Object.keys(preview.allAxes ?? {}).length && (
+              <span className="font-mono text-[10px] text-wb-muted">no variants</span>
+            )}
 
+            {/*
+              STATE, beside the variant it applies to.
+              
+              Only the states the component actually authors are offered — a `disabled:`
+              chip on a component with no disabled styling would toggle nothing and read
+              as the control being broken. `Default` is always there, because leaving a
+              forced state has to be as easy as entering one.
+            */}
+            {/*
+              The children input moved into the Preview data panel, beside the component's
+              other required values. Text and a `Document[]` are the same question, and
+              answering one on the toolbar and the other in a panel made them look like
+              different features.
+            */}
+            {onForcedStateChange && preview.states.length > 0 && (
+              <div className="ml-1 flex items-center gap-0.5 rounded-md bg-wb-subtle p-0.5">
+                {[null, ...preview.states].map((st) => (
+                  <button
+                    key={st ?? 'default'}
+                    onClick={() => onForcedStateChange(st)}
+                    className={cn(
+                      'rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors',
+                      (preview.forcedState ?? null) === st
+                        ? 'bg-wb-bg text-wb-fg shadow-sm'
+                        : 'text-wb-muted hover:text-wb-fg',
+                    )}
+                  >
+                    {st ?? 'default'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+        <>
         <Select value={String(zoom)} onValueChange={(v) => setZoom(Number(v))}>
           <SelectTrigger
             size="sm"
@@ -506,6 +750,83 @@ export function SceneHost({
             ))}
           </SelectContent>
         </Select>
+
+        {/*
+          PICKING IS A SCENE CONTROL, and the component pane reaches the same thing a
+          better way.
+          
+          Selecting a node inside a component IS what restyles one that has no variants —
+          that part was right. But a click-to-pick and a drag-to-pan are the same gesture
+          on the same surface, so enabling one always cost the other, and a pick had no
+          way to show what it had caught. The Layout tab lists the component's own tree,
+          highlights the selected row, and drives the same class editor. Selection you
+          can see, and the canvas keeps its gestures.
+        */}
+        {!preview && (
+          <button
+            onClick={() => setPicking((p) => !p)}
+            title={
+              picking
+                ? 'Picking ON — a click selects a node. Turn it off to use the scene.'
+                : 'Picking OFF — clicks reach the scene. Turn it on to select nodes.'
+            }
+            className={cn(
+              'ml-2 inline-flex items-center gap-1 rounded-md border border-wb-border px-1.5 py-1 text-[10px] transition-colors',
+              picking ? 'bg-wb-accent/12 text-wb-accent' : 'text-wb-muted hover:text-wb-fg',
+            )}
+          >
+            <MousePointerSquareDashed className="size-3.5" />
+            {picking ? 'Pick' : 'Use'}
+          </button>
+        )}
+
+        {onMockDataEmptyChange && (
+          <button
+            onClick={() => onMockDataEmptyChange(!mockDataEmpty)}
+            title={
+              mockDataEmpty
+                ? 'Mock data OFF — every list fixture is emptied to []. Click to restore it.'
+                : 'Mock data ON — the scene renders its normal fixture rows.'
+            }
+            className={cn(
+              'inline-flex items-center gap-1 rounded-md border border-wb-border px-1.5 py-1 text-[10px] transition-colors',
+              mockDataEmpty ? 'bg-wb-danger/15 text-wb-danger' : 'text-wb-muted hover:text-wb-fg',
+            )}
+          >
+            <Database className="size-3.5" />
+            {mockDataEmpty ? 'Empty' : 'Mock data'}
+          </button>
+        )}
+
+        </>
+        )}
+
+        {/*
+          THE VIEWPORT GROUP IS SHARED, and it is the one scene control that is.
+          
+          Zoom, picking and mock data describe a page. A WIDTH does not: it decides which
+          `sm:` / `md:` rules resolve, and an app component carries those too. Keeping it
+          in the scenes-only branch meant the mode could show `DocumentList` but never at
+          390px, which is where its filter row actually breaks.
+        */}
+        <div className="flex items-center rounded-md border border-wb-border">
+          {VIEWPORTS.map(({ key, icon: Icon, label }) => (
+            <button
+              key={key}
+              onClick={() => {
+                setViewport(key);
+                setCustomSize(null);
+              }}
+              title={`Viewport: ${label} — a real width, so breakpoints resolve truthfully`}
+              className={cn(
+                'p-1.5 text-wb-muted transition-colors first:rounded-l-md last:rounded-r-md hover:text-wb-fg',
+                viewport === key && !customSize && 'bg-wb-accent/12 text-wb-accent',
+              )}
+            >
+              <Icon className="size-3.5" />
+            </button>
+          ))}
+        </div>
 
         <span className="font-mono text-[10px] text-wb-muted">
           {customSize
@@ -526,42 +847,15 @@ export function SceneHost({
         )}
 
         <button
-          onClick={() => setPicking((p) => !p)}
-          title={
-            picking
-              ? 'Picking ON — a click selects a node. Turn it off to use the scene.'
-              : 'Picking OFF — clicks reach the scene. Turn it on to select nodes.'
-          }
-          className={cn(
-            'ml-2 inline-flex items-center gap-1 rounded-md border border-wb-border px-1.5 py-1 text-[10px] transition-colors',
-            picking ? 'bg-wb-accent text-wb-accent-fg' : 'text-wb-muted hover:text-wb-fg',
-          )}
-        >
-          <MousePointerSquareDashed className="size-3.5" />
-          {picking ? 'Pick' : 'Use'}
-        </button>
-
-        {onMockDataEmptyChange && (
-          <button
-            onClick={() => onMockDataEmptyChange(!mockDataEmpty)}
-            title={
-              mockDataEmpty
-                ? 'Mock data OFF — every list fixture is emptied to []. Click to restore it.'
-                : 'Mock data ON — the scene renders its normal fixture rows.'
-            }
-            className={cn(
-              'inline-flex items-center gap-1 rounded-md border border-wb-border px-1.5 py-1 text-[10px] transition-colors',
-              mockDataEmpty ? 'bg-wb-danger/15 text-wb-danger' : 'text-wb-muted hover:text-wb-fg',
-            )}
-          >
-            <Database className="size-3.5" />
-            {mockDataEmpty ? 'Empty' : 'Mock data'}
-          </button>
-        )}
-
-        <button
-          onClick={reload}
-          title="Reload the frame"
+          onClick={() => {
+            // Also restores zoom and pan. Double-click on the canvas does it too, but
+            // that is something you have to already know; this is the button people
+            // reach for when the view looks wrong, which is exactly when it should.
+            setPan({ x: 0, y: 0 });
+            setZoom(1);
+            reload();
+          }}
+          title={preview ? 'Reset the view and reload the frame' : 'Reload the frame'}
           className="ml-auto rounded-md border border-wb-border p-1.5 text-wb-muted transition-colors hover:text-wb-fg"
         >
           <RotateCw className="size-3.5" />
@@ -579,8 +873,67 @@ export function SceneHost({
       <div
         ref={stageRef}
         onClick={() => onDeselect?.()}
-        className="relative min-h-0 flex-1 overflow-auto rounded-md border border-wb-border bg-wb-panel"
+        /*
+         * THE GRID LIVES HERE, and so does the clipping.
+         *
+         * It was inside the frame, which is why it stopped at the frame's edges and why
+         * dragging produced scrollbars: the iframe is a fixed box, so moving it pushed
+         * content past this container and `overflow-auto` did what it is for.
+         *
+         * On the container it covers the whole pane, and offsetting `backgroundPosition`
+         * by the pan makes it travel with the content — which is what reads as an
+         * infinite canvas rather than a picture of one. `overflow-hidden` in preview
+         * mode because panning is the scroll here; a scrollbar would be a second,
+         * disagreeing one.
+         */
+        className={cn(
+          'relative min-h-0 flex-1 rounded-md border border-wb-border',
+          preview ? 'overflow-hidden' : 'overflow-auto bg-wb-panel',
+        )}
+        style={
+          preview
+            ? {
+                // The ground follows the THEME BEING PREVIEWED, not the chrome. A dark
+                // component on a bright grid is unreadable, and the grid is there to be
+                // the surface the component sits on — it has to belong to the same world.
+                backgroundColor: dark ? '#1a1a1a' : '#fbfbfa',
+              }
+            : undefined
+        }
       >
+        {/*
+          THE GRID IS ITS OWN LAYER, MOVED BY `transform`.
+          
+          It was `backgroundPosition` on this container, which is not a composited
+          property: every pan frame repainted the whole pane, and the drag stuttered
+          under the cursor. A transform on a separate layer is handed to the compositor
+          instead, so panning costs no repaint at all.
+          
+          It only ever travels ONE CELL. The pattern repeats, so `pan % cell` is visually
+          identical to the full offset and keeps the layer's own box still — and the
+          `-cell` inset on every side is what hides the seam the wrap would otherwise
+          show at the edges.
+        */}
+        {preview && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute"
+            style={{
+              left: -16 * zoom,
+              top: -16 * zoom,
+              right: -16 * zoom,
+              bottom: -16 * zoom,
+              backgroundImage: dark
+                ? 'linear-gradient(rgba(255,255,255,.07) 1px, transparent 1px),' +
+                  'linear-gradient(90deg, rgba(255,255,255,.07) 1px, transparent 1px)'
+                : 'linear-gradient(rgba(0,0,0,.055) 1px, transparent 1px),' +
+                  'linear-gradient(90deg, rgba(0,0,0,.055) 1px, transparent 1px)',
+              backgroundSize: `${16 * zoom}px ${16 * zoom}px`,
+              transform: `translate3d(${mod(pan.x, 16 * zoom)}px, ${mod(pan.y, 16 * zoom)}px, 0)`,
+              willChange: 'transform',
+            }}
+          />
+        )}
         {/*
           FOOTPRINT wrapper, sized to the scaled box's actual on-screen dimensions, so
           the resize handles — its direct children, siblings of the scaled div rather
@@ -603,16 +956,31 @@ export function SceneHost({
             style={{
               width: renderWidth || undefined,
               height: renderHeight || undefined,
-              transform: zoom !== 1 ? `scale(${zoom})` : undefined,
+              transform:
+                zoom !== 1 || pan.x || pan.y
+                  ? `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`
+                  : undefined,
               transformOrigin: 'top left',
             }}
           >
             <iframe
-              key={`${sceneId}|${side}|${nonce}|${dark ? 'dark' : 'light'}|${mockDataEmpty ? 'empty' : 'full'}`}
+              // `src` is in the key because the frame reads its whole configuration from
+              // the URL once, at load. Changing the previewed component changes only the
+              // query string, and React would reuse the element and keep the old mount.
+              key={`${src}|${nonce}`}
               ref={frameRef}
               src={src}
-              title={`Scene: ${sceneId}`}
-              className="block h-full w-full border-0 bg-white"
+              title={preview ? `Component: ${preview.component}` : `Scene: ${sceneId}`}
+              /*
+               * A SCENE gets white: a page renders against its own background and a
+               * transparent frame would show the panel through the gaps. A COMPONENT
+               * preview is an object on the host's grid, so the frame must not paint
+               * over it — the grid is the ground and this is what lets it show.
+               */
+              className={cn(
+                'block h-full w-full border-0',
+                preview ? 'bg-transparent' : 'bg-white',
+              )}
             />
           </div>
 
@@ -647,7 +1015,14 @@ export function SceneHost({
 
         {!ready && !error && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-wb-bg/60">
-            <span className="font-mono text-[11px] text-wb-muted">mounting {sceneId}…</span>
+            {/*
+              Names WHAT is mounting. In component mode the frame prints its own
+              "loading <Component>…" while this said "mounting login…", so the pane
+              showed two different things loading and neither was the scene.
+            */}
+            <span className="font-mono text-[11px] text-wb-muted">
+              mounting {preview ? preview.component : sceneId}…
+            </span>
           </div>
         )}
 

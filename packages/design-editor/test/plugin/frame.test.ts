@@ -7,7 +7,7 @@ import {
   stripFrameQuery,
   withFrameQuery,
 } from '../../src/plugin/frame.ts';
-import { layoutFileOf, planFiles } from '../../src/plugin/protocol.ts';
+import { layoutFileOf, planFileOf, planFiles } from '../../src/plugin/protocol.ts';
 
 /**
  * The frame query is how one dev server holds two versions of one module. These
@@ -173,6 +173,21 @@ describe('layoutFileOf / planFiles', () => {
   it('is null for a non-layout kind, even when an anchor is present', () => {
     expect(layoutFileOf({ kind: 'token-value', anchor: anchor('a.tsx') })).toBeNull();
     expect(layoutFileOf({ anchor: anchor('a.tsx') })).toBeNull();
+  });
+
+  it('reports a class-rewrite`s own `file`, so a class edit previews at all', () => {
+    /*
+     * `planFiles` was `layoutFileOf` alone, so a `class-rewrite` contributed NOTHING: the
+     * frame served the component unpatched and the publish reloaded no module. Rebinding
+     * a variant's background staged the edit, moved the Save badge, and changed nothing
+     * on screen — the whole point of staging, silently absent for one intent kind.
+     */
+    expect(planFileOf({ kind: 'class-rewrite', file: 'button.tsx' })).toBe('button.tsx');
+    expect(planFiles([{ kind: 'class-rewrite', file: 'button.tsx' }])).toEqual(
+      new Set(['button.tsx']),
+    );
+    // A token value reaches the frame as a CSS variable, not as a patched module.
+    expect(planFileOf({ kind: 'token-value', file: 'semantic.ts' })).toBeNull();
   });
 
   it('de-duplicates the file set a plan touches', () => {

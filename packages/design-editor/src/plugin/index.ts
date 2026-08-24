@@ -13,7 +13,9 @@
  * them would silently change how the consumer's own app builds.
  */
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin, ViteDevServer } from 'vite';
@@ -160,8 +162,67 @@ export function designEditor(options?: DesignEditorOptions): Plugin[] {
     tokens: need().tokens,
   });
 
-  /** The host stylesheet ids the safelist directive was appended to. */
+  /**
+   * THE SAFELIST IS A REAL FILE ON DISK, and it took three wrong answers to get here.
+   *
+   * The editor composes class names at runtime, so Tailwind has never seen them and
+   * emits no rule; `@source inline(...)` is how you tell it about one. The question is
+   * only how to get that directive into the consumer's stylesheet, and the obvious
+   * answers all fail for the same measured reason:
+   *
+   *   1. Appending it in `transform` — `@tailwindcss/vite` registers every one of its
+   *      plugins `enforce: 'pre'`, so a consumer writing `tailwindcss()` above
+   *      `designEditor()` (the natural order) had the stylesheet compiled first. The
+   *      directive landed in generated CSS, where it means nothing.
+   *   2. Appending it in `load` — wins that race, and still does nothing after the first
+   *      request. Tailwind builds its compiler from the entry ONCE per dev server and
+   *      thereafter only re-SCANS source files for candidates; a changed CSS input is
+   *      noticed through the watcher, not through the transform. Measured: `load` ran
+   *      with the directive appended and the served bytes did not move.
+   *   3. Invalidating the module by hand — same outcome, for the same reason, whether by
+   *      `reloadModule`, `invalidateModule`, or a synthetic `watcher.emit('change')`.
+   *      What Tailwind reacts to is a file whose mtime changed.
+   *
+   * So the directive lives in a file the plugin OWNS and rewrites, and the consumer's
+   * entry gets one injected `@import` of it — present at the first compile, so Tailwind
+   * registers it as a dependency and watches it. Writing it then produces exactly the
+   * event the pipeline already handles correctly: measured, a real edit to the entry
+   * reaches the frame in under three seconds.
+   *
+   * OUTSIDE THE CONSUMER'S TREE, in the OS temp directory. Vite's default watcher
+   * ignores `**\/node_modules/**` and the cache dir, which rules out the tidy-looking
+   * places; a dot-file in the project root would work and would put a generated artifact
+   * in someone else's repository. The path is derived from the root, so two projects
+   * served at once do not share one.
+   */
+  const safelistFile = path.join(
+    os.tmpdir(),
+    // Keyed off the write boundary the consumer configured, which is the one identity
+    // available before `configResolved` — two projects served at once must not share it.
+    `wb-design-editor-${createHash('sha256')
+      .update(String(options?.root ?? process.cwd()))
+      .digest('hex')
+      .slice(0, 12)}`,
+    'safelist.css',
+  );
+
+  /** The Tailwind entry files the `@import` was injected into. */
   const safelistHosts = new Set<string>();
+
+  /** Write the directive out. Returns false when the bytes are already right. */
+  const writeSafelist = (): boolean => {
+    const body = safelist.directive();
+    try {
+      if (fs.existsSync(safelistFile) && fs.readFileSync(safelistFile, 'utf8') === body) return false;
+      fs.mkdirSync(path.dirname(safelistFile), { recursive: true });
+      fs.writeFileSync(safelistFile, body, 'utf8');
+      return true;
+    } catch {
+      // A safelist that cannot be written costs runtime-composed classes their rules; it
+      // must not cost the consumer their dev server.
+      return false;
+    }
+  };
 
   const core: Plugin = {
     name: 'wafflebase-design-editor',
@@ -189,40 +250,82 @@ export function designEditor(options?: DesignEditorOptions): Plugin[] {
       // Read on every load rather than cached, so editing the manifest and
       // refreshing is enough — the manifest is the consumer's authoring surface and
       // a restart-to-see-it loop is what makes §5's cliff worse.
-      return renderScenesModule(o.root, readManifest(o.scenes), o.providers, o.fixtures);
+      return renderScenesModule(o.root, readManifest(o.scenes), o.providers, o.fixtures, o.previews);
     },
 
-    /**
-     * Append the safelist directive to the host's Tailwind v4 entry stylesheet.
-     *
-     * Detection is by content (`@import "tailwindcss"`), so a v3 or plain-CSS
-     * project never receives a v4 directive its pipeline cannot parse — the no-op
-     * §6 requires, reached automatically rather than by a config flag.
-     */
-    transform(code, id) {
-      if (!id.split('?')[0].endsWith('.css')) return null;
+  };
+
+  /**
+   * Append the safelist directive to the consumer's Tailwind v4 entry stylesheet.
+   *
+   * A SEPARATE PLUGIN, AND A `load` HOOK RATHER THAN A `transform`. Both are the same
+   * finding: `@tailwindcss/vite` registers all three of its plugins `enforce: "pre"`,
+   * so within the pre group the order is the consumer's plugin array — and a consumer
+   * who writes `tailwindcss()` above `designEditor()` (the natural order, and ours) had
+   * Tailwind compile the stylesheet BEFORE this ran. The directive was then appended to
+   * generated CSS, where it means nothing, and the entry check no longer matched either,
+   * because the `@import "tailwindcss"` it looks for had already been consumed.
+   *
+   * `load` has no such race. Every `load` hook runs before every `transform` hook for a
+   * module, and Tailwind's plugins define no `load`, so this cannot be pre-empted by
+   * plugin order at all. The cost is reading the file ourselves, which is what Vite's
+   * own fallback loader would have done a moment later.
+   *
+   * Detection is still by CONTENT, so a v3 or plain-CSS project never receives a v4
+   * directive its pipeline cannot parse — the no-op §6 requires, reached automatically
+   * rather than by a config flag.
+   */
+  const safelistCss: Plugin = {
+    name: 'wafflebase-design-editor:safelist-css',
+    enforce: 'pre',
+    load(id) {
+      const [file, query = ''] = id.split('?');
+      if (!file.endsWith('.css')) return null;
+      // `?raw` / `?url` / `?inline` ask for the file as DATA. Claiming those would hand
+      // back a doctored string as the consumer's own asset.
+      if (/(^|&)(raw|url|inline)(&|=|$)/.test(query)) return null;
+      let code: string;
+      try {
+        code = fs.readFileSync(file, 'utf8');
+      } catch {
+        return null;
+      }
       if (!isTailwindV4Entry(code)) return null;
-      safelistHosts.add(id);
-      const directive = safelist.directive();
-      return directive ? `${code}\n${directive}` : null;
+      safelistHosts.add(file);
+      writeSafelist();
+      /*
+       * PREPENDED, and RELATIVE to the importing file.
+       *
+       * Prepended because CSS requires every `@import` to precede other rules, and this
+       * file's own first line is one. Relative because Tailwind resolves an `@import`
+       * against the importer, and an absolute path would be read as project-relative by
+       * some resolvers — the specifier has to be unambiguous from where it is written.
+       */
+      const rel = path.relative(path.dirname(file), safelistFile).split(path.sep).join('/');
+      return `@import ${JSON.stringify(rel.startsWith('.') ? rel : `./${rel}`)};\n${code}`;
     },
   };
 
   /**
-   * Invalidate the host stylesheet so Tailwind re-reads the directive.
+   * Rewrite the safelist file so Tailwind rebuilds and the frame repaints.
    *
-   * Without this the candidate registers and nothing recompiles, so the preview
-   * still shows the class applied and nothing changing — the exact symptom the
-   * safelist exists to fix.
+   * The write is the whole mechanism — see `safelistFile` for the three things that
+   * looked like they should work instead. `watcher.add` is idempotent and needed because
+   * the file is outside the project, so nothing was watching it; the explicit `change`
+   * is a belt-and-braces for platforms where a fresh `add` misses its own first write
+   * (WSL2 over drvfs, measured, does).
    */
   const onSafelistChange = (server: ViteDevServer) => {
-    for (const id of safelistHosts) {
-      const mod = server.moduleGraph.getModuleById(id);
-      if (mod) server.reloadModule(mod).catch(() => {});
-    }
+    if (!writeSafelist()) return;
+    server.watcher.add(safelistFile);
+    server.watcher.emit('change', safelistFile);
   };
 
   return [
+    // FIRST, so its `load` claims a Tailwind entry before `scene-patch` — which loads
+    // every frame-qualified first-party module — reads the same file without the
+    // directive.
+    safelistCss,
     core,
     scenePatch({
       guard: () => guard,

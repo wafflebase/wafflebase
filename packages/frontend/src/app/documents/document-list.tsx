@@ -151,6 +151,23 @@ type ListRow =
   | { kind: "folder"; item: Folder }
   | { kind: "doc"; item: Document };
 
+/**
+ * The `folders` default, hoisted so its IDENTITY is stable across renders.
+ *
+ * Written inline as `folders = []` it was a fresh array on every render, and the
+ * whole row model hangs off it: `childFolders` memoises on `folders`, `rows`
+ * memoises on `childFolders`, and `rows` is the table's `data`. A new `data`
+ * array re-runs the core row model, whose `onChange` queues `resetPageIndex()`
+ * on a microtask, which sets table state, which renders again — a microtask
+ * loop that never yields, so the tab stops responding rather than merely
+ * re-rendering too often.
+ *
+ * `/documents` (the no-workspace list) omits the prop, so it was one state
+ * change away from that. Found by mounting this component in the design editor
+ * with only `data` supplied.
+ */
+const NO_FOLDERS: Folder[] = [];
+
 /** Selection key for a row — kind-prefixed so folder and doc ids never clash. */
 const rowKey = (row: ListRow) => `${row.kind}:${row.item.id}`;
 
@@ -364,7 +381,7 @@ function ImportMenuItems({
 export function DocumentList({
   data,
   workspaceId,
-  folders = [],
+  folders = NO_FOLDERS,
   folderId = null,
   onNavigateFolder,
 }: {

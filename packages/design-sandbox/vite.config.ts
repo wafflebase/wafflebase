@@ -315,6 +315,16 @@ export default defineConfig({
       root: REPO_ROOT,
       scenes: path.join(HERE, 'scenes.config.json'),
       providers: path.join(HERE, 'src/scenes/providers.tsx'),
+      /**
+       * How OUR primitives want to be mounted one at a time.
+       *
+       * The manifest now declares every `components/ui/*` file, and most of them export
+       * PARTS of a composite: a menu item outside its menu throws, a slider with no
+       * width cannot slide. The editor's generic mount cannot know either — those are
+       * facts about this design system — so the recipes live here, beside the providers
+       * that answer the same kind of question for a whole scene.
+       */
+      previews: path.join(HERE, 'src/scenes/previews.tsx'),
       fixtures: path.join(HERE, 'src/scenes/fixtures/index.ts'),
       /**
        * Trees that are resolved and served but never re-queried per frame side.

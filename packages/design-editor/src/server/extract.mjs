@@ -268,6 +268,54 @@ export function mergeAnalyses(list) {
 }
 
 /**
+ * Does this name belong to a COMPONENT rather than to a hook or a helper?
+ *
+ * The analyser records every exported function declaration, which is right for a file
+ * holding one component and wrong for a barrel like `sidebar.tsx`: `useSidebar` came
+ * back beside `SidebarMenuButton` and the catalogue offered to preview a hook. React's
+ * own convention settles it — JSX resolves a lowercase tag to a DOM element, so a
+ * component that is not capitalised cannot be used as one.
+ *
+ * @param {string} name
+ */
+function isComponentName(name) {
+  return /^[A-Z]/.test(name);
+}
+
+/**
+ * Is this declaration exported?
+ *
+ * The catalogue offers a component to the preview, which imports it BY NAME from the
+ * file. A component the file keeps to itself cannot be imported, so offering it
+ * produces `exports no \`SortableHeader\`` at the moment someone clicks it — a real
+ * component, correctly analysed, that simply is not reachable from outside.
+ *
+ * Covers both spellings: the `export` modifier on the declaration, and a later
+ * `export { X }` statement, which is how several of these files re-export.
+ *
+ * @param {ts.Node} node
+ * @param {ts.SourceFile} sf
+ */
+function isExported(node, sf) {
+  // `getModifiers` is the supported reader; `.modifiers` is not on the base `Node`
+  // type, and reaching for it is what an older TypeScript needed.
+  const mods = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+  if (mods?.some((/** @type {ts.Modifier} */ m) => m.kind === ts.SyntaxKind.ExportKeyword)) return true;
+  const name =
+    ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node) ? node.name?.getText() : null;
+  if (!name) return false;
+  let found = false;
+  sf.forEachChild((n) => {
+    if (found || !ts.isExportDeclaration(n) || !n.exportClause) return;
+    if (!ts.isNamedExports(n.exportClause)) return;
+    if (n.exportClause.elements.some((/** @type {ts.ExportSpecifier} */ e) => (e.propertyName ?? e.name).getText() === name)) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+/**
  * Parse a `cva(base, { variants, defaultVariants })` call into a per-value
  * breakdown. Reading each value's initializer directly (instead of scraping
  * every string literal in the call) keeps `defaultVariants` values like
@@ -383,9 +431,11 @@ export function analyzeFile(filePath) {
       components.push({
         name: node.name.getText(),
         kind: 'function',
+        exported: isExported(node, sf) && isComponentName(node.name.getText()),
         props,
         propOrigins: notes,
         _bodyAnalysis: bodyAnalysis,
+        _bodyText: node.getText(),
       });
     }
 
@@ -398,9 +448,56 @@ export function analyzeFile(filePath) {
           components.push({
             name: decl.name.getText(),
             kind: 'forwardRef',
+            exported:
+              (isExported(node, sf) || isExported(decl, sf)) && isComponentName(decl.name.getText()),
             props: [],
             propOrigins: init.typeArguments ? init.typeArguments.map((t) => 'generic:' + t.getText()) : [],
             _bodyAnalysis: bodyAnalysis,
+            _bodyText: decl.getText(),
+          });
+          continue;
+        }
+
+        /*
+         * THE TWO OTHER WAYS A COMPONENT IS DECLARED, both of which shadcn's current
+         * output uses and neither of which was recorded.
+         *
+         *   const ChartStyle = ({ id }) => …            an arrow-function component
+         *   const ContextMenu = ContextMenuPrimitive.Root   a re-export alias
+         *
+         * The alias is what made `context-menu.tsx` list three peers with no root: its
+         * `ContextMenu` is one line of aliasing, so the catalogue could not fold the
+         * parts behind it. An alias carries no classes of its own — it IS another
+         * component — so it is recorded as selectable and nothing more.
+         *
+         * PascalCase and exported, the same gate the other branches use. That is what
+         * keeps `const rowKey = …` and `const TYPE_META = { … }` out: the first is
+         * lowercase, and the second is an object literal, which neither shape matches.
+         */
+        const exported =
+          (isExported(node, sf) || isExported(decl, sf)) && isComponentName(decl.name.getText());
+        if (!init || !exported) continue;
+
+        if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
+          const { props, notes } = parsePropsType(init.parameters[0]?.type);
+          components.push({
+            name: decl.name.getText(),
+            kind: 'function',
+            exported: true,
+            props,
+            propOrigins: notes,
+            _bodyAnalysis: analyzeClasses(collectStringLiterals(init)),
+            _bodyText: decl.getText(),
+          });
+        } else if (ts.isPropertyAccessExpression(init) || ts.isIdentifier(init)) {
+          components.push({
+            name: decl.name.getText(),
+            kind: 'function',
+            exported: true,
+            props: [],
+            propOrigins: ['alias:' + init.getText()],
+            _bodyAnalysis: analyzeClasses([]),
+            _bodyText: decl.getText(),
           });
         }
       }
@@ -413,12 +510,24 @@ export function analyzeFile(filePath) {
   /** @type {Set<string>} */
   const attached = new Set();
   for (const comp of components) {
-    // Attachment is a TEXT heuristic (`buttonVariants({`) rather than a
-    // resolved reference, so a component that never calls its cva but sits in
-    // a file with one still claims it. Faithful to the shipped output shape;
-    // the cost is a wrong `cva` attribution in the panel, never a wrong write.
-    const refd = Object.keys(cvaDefs).find((name) =>
-      (comp.propOrigins || []).some((/** @type {string} */ o) => o.includes(name)) || src.includes(`${name}({`),
+    /*
+     * Attachment is a TEXT heuristic (`buttonVariants({`) rather than a resolved
+     * reference — but the text searched is the COMPONENT'S OWN BODY, not the file.
+     *
+     * Searching the whole file made every export of a multi-export module claim the
+     * module's one variant table: `sidebar.tsx` declares `sidebarMenuButtonVariants`
+     * for `SidebarMenuButton` alone, and all 24 of its exports came back carrying it —
+     * the `useSidebar` HOOK included. That is why the manifest could only list
+     * single-component files, and why adding `dropdown-menu.tsx` or `input.tsx` was
+     * held back.
+     *
+     * A component that calls its cva mentions it in its body, which is the only place
+     * a call can be, so nothing that legitimately matched before stops matching.
+     */
+    const refd = Object.keys(cvaDefs).find(
+      (name) =>
+        (comp.propOrigins || []).some((/** @type {string} */ o) => o.includes(name)) ||
+        (comp._bodyText || '').includes(`${name}(`),
     );
     const def = refd ? cvaDefs[refd] : null;
     if (refd) attached.add(refd);
@@ -430,6 +539,7 @@ export function analyzeFile(filePath) {
     comp.scaleBindings = overall.scaleBindings;
     comp.antiPatterns = overall.antiPatterns;
     delete comp._bodyAnalysis;
+    delete comp._bodyText;
   }
 
   return {

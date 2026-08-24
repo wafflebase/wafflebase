@@ -68,7 +68,9 @@
       "@yorkie-js/react": ["../frontend/node_modules/@yorkie-js/react"],
       "@yorkie-js/react/__wb-real": ["../frontend/node_modules/@yorkie-js/react"],
       "@tanstack/react-query": ["../frontend/node_modules/@tanstack/react-query"],
-
+      // `previews.tsx` draws the dummy content its recipes need. A package mapping, not
+      // a source one — the `@/*` trap in `frontend-modules.d.ts` does not apply.
+      "lucide-react": ["../frontend/node_modules/lucide-react"]
     }
   },
   /*

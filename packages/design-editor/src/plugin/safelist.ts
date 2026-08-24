@@ -78,14 +78,25 @@ export function createSafelist(): Safelist {
 }
 
 /**
- * Is this stylesheet a Tailwind v4 entry?
+ * Is this stylesheet compiled by Tailwind v4?
  *
- * The v4 marker is `@import "tailwindcss"`, which replaced v3's
- * `@tailwind base/components/utilities`. Testing for it is what makes the no-op
- * automatic: a v3 project, a CSS-modules project, or a plain stylesheet simply
- * never matches, so the plugin never writes a directive their pipeline cannot
- * parse. A v3 project therefore loses runtime-composed classes and keeps a working
- * build, which is the right way round.
+ * The obvious marker is `@import "tailwindcss"`, and testing ONLY for it is what made
+ * the safelist a no-op on the one stylesheet that matters. The frame's entry is the
+ * consumer's `scene.css`, which reaches Tailwind through `@import '@/index.css'` — the
+ * import Tailwind resolves for itself — and declares its content roots with `@source`.
+ * It never spells `tailwindcss`, so it never matched, so no runtime-composed class ever
+ * got a rule: a forced `hover:` state applied `bg-primary/90` and the button went
+ * transparent, because tailwind-merge dropped `bg-primary` for a class with no rule.
+ *
+ * So the test is "does this file use v4-only syntax": the import, or any of the at-rules
+ * that exist only in a v4 entry. `@apply` is deliberately NOT among them — it appears in
+ * component stylesheets that are not entries.
+ *
+ * Still a real test, and that is what keeps the no-op automatic: a v3 project, a
+ * CSS-modules project or a plain stylesheet matches none of these, so the plugin never
+ * writes a directive their pipeline cannot parse. A v3 project loses runtime-composed
+ * classes and keeps a working build, which is the right way round.
  */
 export const isTailwindV4Entry = (css: string): boolean =>
-  /@import\s+["']tailwindcss["']/.test(css);
+  /@import\s+["']tailwindcss["']/.test(css) ||
+  /@(source|theme|plugin|custom-variant|utility|variant)\b/.test(css);
