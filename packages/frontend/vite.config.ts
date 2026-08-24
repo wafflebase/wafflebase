@@ -7,7 +7,15 @@ import {
 } from "fs";
 import { createRequire } from "module";
 import path from "path";
-import { debugReportPlugin } from "@wafflebase/debug-report/plugin";
+// Imported by relative path, not as `@wafflebase/debug-report/plugin`, and
+// that is load-bearing. Vite's config bundler externalizes every bare
+// specifier — it resolves the id to an absolute path and marks it external —
+// so a bare import here would hand `src/plugin/index.ts` to Node itself.
+// Node can only load TypeScript from 22.18, where type stripping became the
+// default, which silently made 22.14-22.17 unable to run `pnpm dev`,
+// `frontend:test` or `frontend:build` at all. A relative specifier is bundled
+// by esbuild instead, so any Node 22 works.
+import { debugReportPlugin } from "../debug-report/src/plugin/index.ts";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { loadEnv, type Plugin, type Connect } from "vite";
