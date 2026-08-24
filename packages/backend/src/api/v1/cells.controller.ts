@@ -23,6 +23,7 @@ import {
   updateWorksheetCell,
   writeWorksheetCell,
 } from '@wafflebase/sheets';
+import { parseCellStyle } from '../../yorkie/cell-style';
 
 @Controller(
   'api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId/cells',
@@ -63,7 +64,11 @@ export class ApiV1CellsController {
           ref,
           value: cell?.v ?? null,
           formula: cell?.f ?? null,
-          style: cell?.s ?? null,
+          // Spread to a plain object: a Yorkie CRDT object serializes via
+          // toJSON() to a JSON *string*, so returning `cell.s` directly would
+          // double-encode the style. `CellStyle` is flat, so a shallow copy is
+          // enough.
+          style: cell?.s ? { ...cell.s } : null,
         }));
 
         if (!range) return cells;
@@ -97,7 +102,9 @@ export class ApiV1CellsController {
           ref: sref,
           value: cell?.v ?? null,
           formula: cell?.f ?? null,
-          style: cell?.s ?? null,
+          // See the note in getCells: spread the Yorkie object to a plain
+          // object so the style is not double-encoded as a JSON string.
+          style: cell?.s ? { ...cell.s } : null,
         };
       },
       { syncMode: 'readonly' },
@@ -110,9 +117,12 @@ export class ApiV1CellsController {
     @Param('documentId') documentId: string,
     @Param('tabId') tabId: string,
     @Param('sref') sref: string,
-    @Body() body: { value?: string; formula?: string },
+    @Body() body: { value?: string; formula?: string; style?: unknown },
   ) {
     await this.assertDocumentInWorkspace(documentId, workspaceId);
+    // Validate the style before attaching so a bad payload 400s cheaply.
+    const style =
+      body.style === undefined ? undefined : parseCellStyle(body.style);
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
@@ -125,10 +135,16 @@ export class ApiV1CellsController {
             ...(existing ?? {}),
             v: body.value ?? existing?.v ?? '',
             f: body.formula ?? existing?.f,
+            ...(style ? { s: { ...(existing?.s ?? {}), ...style } } : {}),
           }));
         });
 
-        return { ref: sref, value: body.value, formula: body.formula };
+        return {
+          ref: sref,
+          value: body.value,
+          formula: body.formula,
+          ...(style ? { style } : {}),
+        };
       },
       { initialRoot: initialSpreadsheetDocument() },
     );
@@ -162,9 +178,23 @@ export class ApiV1CellsController {
     @Param('workspaceId') workspaceId: string,
     @Param('documentId') documentId: string,
     @Param('tabId') tabId: string,
-    @Body() body: { cells: Record<string, { value?: string; formula?: string } | null> },
+    @Body()
+    body: {
+      cells: Record<
+        string,
+        { value?: string; formula?: string; style?: unknown } | null
+      >;
+    },
   ) {
     await this.assertDocumentInWorkspace(documentId, workspaceId);
+    // Validate every provided style up front so one bad style 400s before any
+    // write, rather than aborting a partially-applied doc.update.
+    const styles: Record<string, ReturnType<typeof parseCellStyle>> = {};
+    for (const [ref, cellData] of Object.entries(body.cells)) {
+      if (cellData && cellData.style !== undefined) {
+        styles[ref] = parseCellStyle(cellData.style);
+      }
+    }
     return this.yorkieService.withDocument(
       documentId,
       (doc) => {
@@ -177,10 +207,12 @@ export class ApiV1CellsController {
             if (cellData === null) {
               writeWorksheetCell(worksheet, parsedRef, undefined);
             } else {
+              const style = styles[ref];
               updateWorksheetCell(worksheet, parsedRef, (existing) => ({
                 ...(existing ?? {}),
                 v: cellData.value ?? existing?.v ?? '',
                 f: cellData.formula ?? existing?.f,
+                ...(style ? { s: { ...(existing?.s ?? {}), ...style } } : {}),
               }));
             }
           }
