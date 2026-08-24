@@ -93,6 +93,27 @@ const platformCommand = (command: string): string =>
  */
 const DETACH = process.platform !== 'win32';
 
+/**
+ * Signal the child's whole process GROUP, falling back to the direct signal.
+ *
+ * `pid` is undefined when the spawn itself failed, and a group that has already exited
+ * throws ESRCH; both fall back to the direct signal, which is the whole of it in those
+ * cases. Shared by `dispose()` and the stdin-loss path: each has to reach past the
+ * `pnpm exec tsx` wrappers rather than only the pid `spawn` returned — see `DETACH`.
+ */
+function killTree(child: ChildProcessWithoutNullStreams): void {
+  try {
+    if (DETACH && child.pid != null) process.kill(-child.pid, 'SIGTERM');
+    else child.kill();
+  } catch {
+    try {
+      child.kill();
+    } catch {
+      /* nothing left to kill */
+    }
+  }
+}
+
 export function createPreviewWorker(options: PreviewWorkerOptions): PreviewWorker {
   const timeoutMs = options.timeoutMs ?? 15_000;
 
@@ -207,15 +228,20 @@ export function createPreviewWorker(options: PreviewWorkerOptions): PreviewWorke
      * sit for their full 15 s — and `live` must be dropped, or `ensure()`'s liveness check
      * hands out this same child forever and every later render writes into the dead pipe.
      *
-     * This is the one `die()` path that lets go of a child that is still RUNNING, so the
-     * wrapper is left to exit on its own and `dispose()` can no longer reach it. Stated
-     * rather than fixed: the reason its stdin closed is that the process it was wrapping
-     * is already gone, so it is on its way out. A wrapper that lingers anyway leaks until
-     * the dev server stops, which would need a signal here rather than just a drop.
+     * This is the one `die()` path that lets go of a child that is still RUNNING, so it
+     * is signalled before being dropped. Once `live` is cleared nothing can reach this
+     * child again — `dispose()` would only ever stop its replacement — and it is already
+     * unusable, being a pipe nobody reads, so leaving it alive leaks one detached process
+     * tree per respawn.
+     *
+     * The late `'exit'` that the signal provokes is harmless: `die()` is bound to one
+     * `Live`, so it settles that child's already-empty `pending` and leaves `live` alone
+     * unless it still points at the same state.
      */
-    child.stdin.on('error', (err: NodeJS.ErrnoException) =>
-      die(`lost stdin: ${err.code ?? err.message}`),
-    );
+    child.stdin.on('error', (err: NodeJS.ErrnoException) => {
+      killTree(state.child);
+      die(`lost stdin: ${err.code ?? err.message}`);
+    });
 
     live = state;
     return state;
@@ -291,19 +317,8 @@ export function createPreviewWorker(options: PreviewWorkerOptions): PreviewWorke
         /* already closed, or the spawn never produced a pipe */
       }
 
-      // Then the wrappers, as a group — see `DETACH`. `pid` is undefined when the
-      // spawn itself failed, and a group that has already exited throws ESRCH; both
-      // fall back to the direct signal, which is the whole of it in those cases.
-      try {
-        if (DETACH && w.child.pid != null) process.kill(-w.child.pid, 'SIGTERM');
-        else w.child.kill();
-      } catch {
-        try {
-          w.child.kill();
-        } catch {
-          /* nothing left to kill */
-        }
-      }
+      // Then the wrappers, as a group.
+      killTree(w.child);
     },
   };
 }

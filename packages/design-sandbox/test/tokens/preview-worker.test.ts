@@ -16,10 +16,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createPreviewWorker, type PreviewSources } from '../../src/tokens/preview-worker';
+import {
+  createPreviewWorker,
+  type PreviewSources,
+  type PreviewWorker,
+} from '../../src/tokens/preview-worker';
 
 /** A worker built from an inline node script, so each test owns its behaviour. */
-const fake = (script: string, timeoutMs = 5_000) =>
+const fake = (script: string, timeoutMs = 5_000): PreviewWorker =>
   createPreviewWorker({
     cwd: process.cwd(),
     command: process.execPath,
@@ -62,7 +66,7 @@ const SOURCES: PreviewSources = {
  * POSIX only, like the process-group `dispose()` and `DETACH` this suite already
  * leans on; nothing in this package runs on Windows.
  */
-const wrapperFake = (timeoutMs: number) =>
+const wrapperFake = (timeoutMs: number): PreviewWorker =>
   createPreviewWorker({
     cwd: process.cwd(),
     command: '/bin/sh',
@@ -71,7 +75,10 @@ const wrapperFake = (timeoutMs: number) =>
       [
         'read -r req',
         'exec 0<&-',
-        `'${process.execPath}' -e 'const m=JSON.parse(process.argv[1]); process.stdout.write(JSON.stringify({id:m.id,ok:true,light:{"--n":String(m.id)}})+"\\n")' "$req"`,
+        // `$$` is the shell's own pid — the process `spawn` returned, and the group
+        // leader. Reporting it in the answer is what lets a test assert the dropped
+        // child was actually killed, with no `ps` scraping and no pid guessing.
+        `'${process.execPath}' -e 'const m=JSON.parse(process.argv[1]); process.stdout.write(JSON.stringify({id:m.id,ok:true,light:{"--n":String(m.id),"--pid":process.argv[2]}})+"\\n")' "$req" "$$"`,
         // Bounded, because staying alive is the whole point: `dispose()` reaches the
         // LIVE child only, and the respawn test leaves a predecessor behind by design.
         'sleep 5',
@@ -211,7 +218,7 @@ describe('createPreviewWorker', () => {
   it('respawns after the child loses its stdin', async () => {
     const w = wrapperFake(600_000);
     try {
-      expect((await w.render(SOURCES)).light).toEqual({ '--n': '1' });
+      expect((await w.render(SOURCES)).light?.['--n']).toBe('1');
       expect((await w.render(SOURCES)).error).toContain('lost stdin');
 
       // `--n: 1` from a fresh child whose predecessor never exited. `ensure()` keys its
@@ -220,10 +227,46 @@ describe('createPreviewWorker', () => {
       // worker writes into the same dead pipe forever and a broken emitter never recovers
       // without a dev-server restart. No polling needed: the `'error'` event is what
       // settles the second render, and `die()` clears `live` before it resolves.
-      expect((await w.render(SOURCES)).light).toEqual({ '--n': '1' });
+      expect((await w.render(SOURCES)).light?.['--n']).toBe('1');
     } finally {
       w.dispose();
     }
+  });
+
+  it('kills the child it drops on stdin loss', async () => {
+    // `die()` clears `live`, and nothing can reach that child afterwards — `dispose()`
+    // only ever stops its replacement. So the signal has to happen here or the process
+    // tree leaks, once per respawn. Measured before this test existed: two wrappers
+    // survived a run of this file, and every assertion still passed, which is exactly
+    // the kind of silent regression this suite is supposed to catch.
+    const w = wrapperFake(600_000);
+    let pid: number;
+    try {
+      const first = await w.render(SOURCES);
+      pid = Number(first.light?.['--pid']);
+      expect(Number.isInteger(pid)).toBe(true);
+      // Alive right now, so the assertion below is about the kill and not about a pid
+      // that was never running.
+      expect(() => process.kill(pid, 0)).not.toThrow();
+
+      expect((await w.render(SOURCES)).error).toContain('lost stdin');
+    } finally {
+      w.dispose();
+    }
+
+    // Polled: SIGTERM delivery and reaping are asynchronous. `process.kill(pid, 0)`
+    // throws ESRCH once the pid is gone — it is our own child, so Node reaps it.
+    let gone = false;
+    for (let i = 0; i < 60 && !gone; i++) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        gone = true;
+        break;
+      }
+      await new Promise((res) => setTimeout(res, 50));
+    }
+    expect(gone, `wrapper ${pid} survived being dropped`).toBe(true);
   });
 
   it('times out a worker that never answers', async () => {
