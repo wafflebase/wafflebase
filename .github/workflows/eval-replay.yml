@@ -224,7 +224,9 @@ jobs:
       # run id SKIPS it forever. So quota contention does not merely waste a leg, it
       # poisons item slots under run ids that cannot be re-used. Raise this once a
       # real dispatch has measured the headroom.
-      max-parallel: 1
+      # ⟳ 2026-08-25: this is that dispatch — raised to 3 on harness/lens-variant-sonnet, whose
+      # two-arm model comparison is exactly the run that measures the headroom asked for above.
+      max-parallel: 3
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       # `fetch-depth: 0` for the review BASES — every one of them is an ancestor of
