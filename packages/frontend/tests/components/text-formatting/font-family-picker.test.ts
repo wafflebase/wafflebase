@@ -5,7 +5,9 @@
  * Asserts:
  *   - the trigger label shows the resolved value,
  *   - undefined (mixed-selection) renders the em-dash placeholder,
- *   - clicking a menu item fires `onChange` with the catalog family.
+ *   - clicking a menu item fires `onChange` with the catalog family,
+ *   - opening the menu observes the rows but loads no font,
+ *   - a row scrolling into view loads exactly that family (issue #727).
  *
  * Radix portals the dropdown content into `document.body`, so menu items
  * are queried there (not inside the test host).
@@ -38,6 +40,57 @@ if (typeof globalThis.ResizeObserver === "undefined") {
     };
 }
 
+// jsdom ships no IntersectionObserver either, and the picker's preview
+// loader is built on one. This stub records the callback and the
+// observed rows instead of firing, so a test can drive an intersection
+// explicitly — jsdom never lays anything out, so a real observer would
+// have nothing to report. `more-fonts-dialog.test.ts` documents the same
+// gap and simply lets its observer no-op.
+interface StubObserver {
+  callback: (entries: Array<{ target: Element; isIntersecting: boolean }>) => void;
+  observed: Element[];
+}
+const observers: StubObserver[] = [];
+
+(globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver =
+  class {
+    private readonly rec: StubObserver;
+    constructor(callback: StubObserver["callback"]) {
+      this.rec = { callback, observed: [] };
+      observers.push(this.rec);
+    }
+    observe(el: Element): void {
+      this.rec.observed.push(el);
+    }
+    unobserve(el: Element): void {
+      const i = this.rec.observed.indexOf(el);
+      if (i >= 0) this.rec.observed.splice(i, 1);
+    }
+    disconnect(): void {
+      this.rec.observed.length = 0;
+    }
+  };
+
+function fontLinks(): HTMLLinkElement[] {
+  return Array.from(
+    document.head.querySelectorAll<HTMLLinkElement>("link[data-wafflebase-font]"),
+  );
+}
+
+/** Radix DropdownMenu opens on pointer events, not a synthetic .click(). */
+function openMenu(trigger: HTMLElement): void {
+  act(() => {
+    for (const type of ["pointerdown", "pointerup"] as const) {
+      trigger.dispatchEvent(
+        new PointerEvent(type, { bubbles: true, cancelable: true, button: 0 }),
+      );
+    }
+    trigger.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+  });
+}
+
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
@@ -56,6 +109,10 @@ afterEach(() => {
   root = null;
   host?.remove();
   host = null;
+  // Every test here opens the menu, which arms the preview loader, so
+  // the injected <link> elements have to be cleared between them.
+  for (const link of fontLinks()) link.remove();
+  observers.length = 0;
 });
 
 describe("FontFamilyPicker", () => {
@@ -252,5 +309,44 @@ describe("FontFamilyPicker", () => {
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(onChange).toHaveBeenCalledWith("Georgia");
+  });
+
+  // Previews load per visible row, never as a batch on open. The whole
+  // catalog is ~1.1 MB of CSS, most of it the Korean families that sort
+  // first, so "just eager-load everything" is the regression this pins.
+  test("opening the menu observes rows without loading any font", () => {
+    const el = render(
+      h(FontFamilyPicker, { value: "Arial", onChange: () => {} }),
+    );
+    openMenu(el.querySelector('[aria-label="Font"]') as HTMLElement);
+
+    // Without this the assertion below would pass vacuously if the
+    // observer were never wired up at all.
+    expect(observers.at(-1)!.observed.length).toBeGreaterThan(0);
+    expect(fontLinks()).toHaveLength(0);
+  });
+
+  // The fix for #727: a row becoming visible is what loads its face, so
+  // scrolling and keyboard navigation paint real previews instead of
+  // leaving everything but the 8 eager families in a fallback.
+  test("a row scrolling into view loads exactly that family", () => {
+    const el = render(
+      h(FontFamilyPicker, { value: "Arial", onChange: () => {} }),
+    );
+    openMenu(el.querySelector('[aria-label="Font"]') as HTMLElement);
+
+    // A web font that is NOT in the eager bootstrap set — the eager
+    // eight and the system faces are deliberate no-ops.
+    const observer = observers.at(-1)!;
+    const row = observer.observed.find(
+      (node) => (node as HTMLElement).dataset.fontRow === "Open Sans",
+    );
+    expect(row).toBeTruthy();
+
+    act(() => observer.callback([{ target: row!, isIntersecting: true }]));
+
+    const links = fontLinks();
+    expect(links).toHaveLength(1);
+    expect(links[0].dataset.wafflebaseFont).toBe("Open Sans");
   });
 });
