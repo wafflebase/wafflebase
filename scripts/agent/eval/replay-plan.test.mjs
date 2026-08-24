@@ -1,20 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  DEFAULT_LENSES_DIR,
   DRY_RUN_PANEL_SHA,
   DRY_RUN_PREFIX,
   LEG_SUFFIX,
   PANEL_MODES,
   isStoreSegment,
   legRunId,
+  planLensConfig,
   planReplay,
   planSummary,
 } from "./replay-plan.mjs";
 import { EvalStore } from "./store.mjs";
+import { buildConfig } from "./config-build.mjs";
+import { resolveRunOptions } from "./run.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WORKFLOW = path.join(HERE, "..", "..", "..", ".github", "workflows", "eval-replay.yml");
@@ -645,4 +649,230 @@ test("a failing or capped leg still banks its data, and only a real run pushes i
   assert.match(yaml, /if:\s*\$\{\{\s*!cancelled\(\)\s*&&\s*needs\.replay\.result\s*!=\s*'skipped'\s*\}\}/);
   // A leg failing must not cancel its paid siblings.
   assert.match(yaml, /fail-fast:\s*false/);
+});
+
+// --- the lens configuration ---------------------------------------------------
+
+const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
+/** The committed lens config, which the tests below copy rather than imitate. */
+const REAL_LENSES = path.join(HERE, "..", "lenses");
+
+/**
+ * A throwaway checkout root, so a containment test has a tree to be inside or
+ * outside of. `realpathSync` because macOS puts `mkdtemp` behind `/var → /private/var`
+ * and a containment check that compared one resolved path against one unresolved one
+ * would refuse every temp dir for the wrong reason.
+ */
+function fakeCheckout() {
+  return realpathSync(mkdtempSync(path.join(tmpdir(), "replay-plan-lenses-")));
+}
+
+/** A copy of the REAL lens config at `dest`, optionally with its manifest rewritten. */
+function copyLenses(dest, rewrite = null) {
+  cpSync(REAL_LENSES, dest, { recursive: true });
+  if (rewrite) {
+    const manifestPath = path.join(dest, "lenses.json");
+    writeFileSync(manifestPath, JSON.stringify(rewrite(JSON.parse(readFileSync(manifestPath, "utf8"))), null, 2));
+  }
+  return dest;
+}
+
+test("planLensConfig: the default is run.mjs's OWN default, not a second opinion about it", () => {
+  // The one duplicated constant in this module, and the reason `SEGMENT` above is
+  // duplicated too: run.mjs does not export it. So it is pinned against the runner's
+  // ACTUAL resolution rather than against a re-typed path, which would agree with
+  // itself forever. If run.mjs moves its lenses dir, this fails here — free — instead
+  // of in a preflight that prints a hash for a directory the replay will not read.
+  assert.equal(DEFAULT_LENSES_DIR, resolveRunOptions(["node", "run.mjs"]).lensesDir);
+
+  const lens = planLensConfig({});
+  assert.deepEqual(lens.errors, []);
+  assert.equal(lens.isDefault, true);
+  assert.equal(lens.dir, realpathSync(DEFAULT_LENSES_DIR));
+  assert.match(lens.configHash, /^sha256:[0-9a-f]{64}$/);
+  assert.ok(lens.lenses.length > 0, "the committed config must declare lenses");
+});
+
+test("planLensConfig: a relative path INSIDE the checkout is accepted, an escaping one is refused", () => {
+  // Both directions, because a containment check that refuses everything is as broken
+  // as one that refuses nothing — and only one of those two failures is loud.
+  const ok = planLensConfig({ value: "scripts/agent/lenses", cwd: REPO_ROOT });
+  assert.deepEqual(ok.errors, [], "the committed lenses dir, named relatively, must be usable");
+  assert.equal(ok.configHash, planLensConfig({}).configHash, "the same directory by two names is the same reviewer");
+
+  // NORMALISED INTO OBEDIENCE is the failure being guarded against: `path.resolve`
+  // will happily flatten any of these into a real location on the runner, and a
+  // dispatch that can name one can point the panel at anything on the box.
+  for (const escape of ["..", "../", "../../../etc", "scripts/../../..", "scripts/agent/lenses/../../../.."]) {
+    const bad = planLensConfig({ value: escape, cwd: REPO_ROOT });
+    assert.equal(bad.errors.length, 1, `lenses_dir ${JSON.stringify(escape)} was accepted`);
+    assert.match(bad.errors[0], /OUTSIDE the checked-out tree/);
+  }
+});
+
+test("planLensConfig: an ABSOLUTE path is refused by name, even one that lands inside the tree", () => {
+  // Refused as a kind of value, not merely because of where it points. An absolute
+  // path in a dispatch form describes the runner's layout rather than the branch's
+  // contents, and the containment check cannot catch the one that happens to be
+  // inside — which is exactly the one that would teach an operator the habit.
+  const inside = planLensConfig({ value: REAL_LENSES });
+  assert.equal(inside.errors.length, 1, "an absolute path inside the tree was accepted");
+  assert.match(inside.errors[0], /ABSOLUTE path/);
+  assert.match(planLensConfig({ value: "/etc" }).errors[0], /ABSOLUTE path/);
+});
+
+test("planLensConfig: a symlink out of the tree is refused, which no lexical check can see", () => {
+  // `git` stores symlinks, so `scripts/agent/lenses-x -> /somewhere` is a thing a
+  // branch can carry. The path is lexically innocent and the target is not.
+  const root = fakeCheckout();
+  const outside = fakeCheckout();
+  try {
+    // A REAL lens config at the far end, so that removing the realpath check makes
+    // this dispatch succeed rather than fail for some other reason.
+    copyLenses(path.join(outside, "lenses"));
+    symlinkSync(path.join(outside, "lenses"), path.join(root, "lenses-link"), "dir");
+    const lens = planLensConfig({ value: "lenses-link", repoRoot: root, cwd: root });
+    assert.equal(lens.errors.length, 1, "a symlink out of the checkout was followed");
+    assert.match(lens.errors[0], /outside the checked-out tree/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("planLensConfig: a directory that is not in the checkout is refused, not defaulted away", () => {
+  const missing = planLensConfig({ value: "scripts/agent/lenses-sonnet", cwd: REPO_ROOT });
+  assert.equal(missing.errors.length, 1);
+  assert.match(missing.errors[0], /not a directory in this checkout/);
+  // And it is NOT quietly the default: a variant that was never committed must fail
+  // the dispatch, not run the control arm under the variant's name.
+  assert.equal(missing.configHash, null);
+});
+
+test("planLensConfig: a directory with no lenses.json is not a lens configuration", () => {
+  const root = fakeCheckout();
+  try {
+    mkdirSync(path.join(root, "empty-dir"));
+    const lens = planLensConfig({ value: "empty-dir", repoRoot: root, cwd: root });
+    assert.equal(lens.errors.length, 1);
+    assert.match(lens.errors[0], /holds no lenses\.json/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("planLensConfig: a manifest declaring ZERO lenses is refused — buildConfig would take it", () => {
+  const root = fakeCheckout();
+  try {
+    const dir = path.join(root, "no-lenses");
+    mkdirSync(dir);
+    writeFileSync(path.join(dir, "lenses.json"), "[]\n");
+
+    // The reason this guard is not redundant, asserted rather than claimed: the
+    // builder maps an empty array to an empty array and hands back a perfectly valid
+    // configuration. A replay under it would review nothing, find nothing, and report
+    // a complete run — the one failure that produces confident numbers from nothing.
+    const built = buildConfig(dir, { configId: "baseline" });
+    assert.equal(built.snapshot.lenses.length, 0, "buildConfig is expected to ACCEPT an empty manifest");
+
+    const lens = planLensConfig({ value: "no-lenses", repoRoot: root, cwd: root });
+    assert.equal(lens.errors.length, 1);
+    assert.match(lens.errors[0], /declares no lenses/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("planLensConfig: buildConfig's own refusals arrive HERE, one runner-minute instead of a paid leg", () => {
+  const root = fakeCheckout();
+  try {
+    // A rubric the manifest names and the directory does not have. The runner would
+    // hit this after checkout, npm ci, and a pull-ref fetch, on the way to spending.
+    const missingRubric = copyLenses(path.join(root, "lenses-no-rubric"));
+    rmSync(path.join(missingRubric, `${JSON.parse(readFileSync(path.join(missingRubric, "lenses.json"), "utf8"))[0].id}.md`));
+    const a = planLensConfig({ value: "lenses-no-rubric", repoRoot: root, cwd: root });
+    assert.equal(a.errors.length, 1, "a variant missing a rubric was accepted");
+    assert.match(a.errors[0], /does not build/);
+
+    // And the cost dial specifically: `assertEffort` exists because an unrecognised
+    // effort is dropped silently and the session runs at the SDK default.
+    copyLenses(path.join(root, "lenses-bad-effort"), (m) => m.map((l, i) => (i === 0 ? { ...l, effort: "very-high" } : l)));
+    const b = planLensConfig({ value: "lenses-bad-effort", repoRoot: root, cwd: root });
+    assert.equal(b.errors.length, 1, "a variant with an invalid effort was accepted");
+    assert.match(b.errors[0], /does not build/);
+    assert.match(b.errors[0], /effort/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("planLensConfig: a model swap MOVES config_hash, which is what makes the arms separable", () => {
+  // The property the whole input rests on, taken from the store's key rather than
+  // asserted about it: `model` is in HASHED_LENS_FIELDS, so a variant is a different
+  // reviewer by construction and needs nothing new to keep its results apart.
+  const root = fakeCheckout();
+  try {
+    copyLenses(path.join(root, "lenses-sonnet"), (m) => m.map((l) => ({ ...l, model: "claude-sonnet-5" })));
+    copyLenses(path.join(root, "lenses"));
+    const variant = planLensConfig({ value: "lenses-sonnet", repoRoot: root, cwd: root });
+    const baseline = planLensConfig({ value: "lenses", repoRoot: root, cwd: root });
+    assert.deepEqual(variant.errors, []);
+    assert.deepEqual(baseline.errors, []);
+    assert.notEqual(variant.configHash, baseline.configHash, "a model swap must not pool with the config it was swapped from");
+    assert.ok(variant.lenses.every((l) => l.model === "claude-sonnet-5"));
+    assert.equal(variant.isDefault, false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("planSummary: says WHICH reviewer is about to be bought, with the whole hash", () => {
+  // The operator's last free look at the thing they are paying for. Abbreviated it
+  // would be unusable for the only purpose it has, which is being compared against
+  // the other arm's.
+  const control = planSummary(plan({ panel: "real" }), planLensConfig({})).join("\n");
+  assert.match(control, /lens config\s*:.*the committed default/);
+  assert.match(control, new RegExp(`config_hash\\s*:\\s*${planLensConfig({}).configHash}`));
+
+  const root = fakeCheckout();
+  try {
+    copyLenses(path.join(root, "lenses-sonnet"), (m) => m.map((l) => ({ ...l, model: "claude-sonnet-5" })));
+    const lens = planLensConfig({ value: "lenses-sonnet", repoRoot: root, cwd: root });
+    const variant = planSummary(plan({ panel: "real" }), lens).join("\n");
+    assert.match(variant, /lens config\s*:\s*VARIANT/);
+    assert.match(variant, /claude-sonnet-5/);
+    // The one thing an operator must not miss: a variant is not comparable with a run
+    // from another week, because the panel moved in between.
+    assert.match(variant, /control arm dispatched today/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  // And a plan with no lens result — the shape every existing caller passes — is
+  // unchanged rather than carrying an empty heading.
+  assert.equal(/lens config/.test(planSummary(plan({ panel: "real" })).join("\n")), false);
+});
+
+test("a lens variant reaches run.mjs only when one was ASKED for", () => {
+  // `--lenses-dir ""` is not the same as omitting the flag: run.mjs takes its default
+  // with `??`, which an empty string satisfies, and `path.resolve("")` is the working
+  // directory. Passing it unconditionally would point a paid replay at the workspace
+  // root. So the flag is conditional in the ARGS array, exactly as ITEMS is.
+  const yaml = yamlOnly();
+  assert.match(yaml, /^ {6}lenses_dir:$/m, "the dispatch must declare the input");
+  const replay = stepBody("Replay");
+  assert.match(replay, /LENSES_DIR: \$\{\{ inputs\.lenses_dir \}\}/, "the replay step must read the input into the environment");
+  const guarded = /if \[ -n "\$LENSES_DIR" \]; then\s*\n\s*ARGS\+=\(--lenses-dir "\$LENSES_DIR"\)\s*\n\s*fi/;
+  assert.match(replay, guarded, "the lenses dir must be added only when non-empty");
+  // It is NOT in the unconditional part of the array, where an empty value would
+  // reach the runner.
+  const argsBlock = replay.slice(replay.indexOf("ARGS=("), replay.indexOf("if [ -n"));
+  assert.equal(/--lenses-dir/.test(argsBlock), false, "the lenses dir must not be an unconditional argument");
+
+  // The preflight, by contrast, takes it ALWAYS — empty included — because an empty
+  // value there is a fact it must report on: it is the control arm, and its
+  // config_hash is printed too.
+  for (const step of ["Preflight the dispatch", "Resolve which pull refs this corpus needs"]) {
+    assert.match(stepBody(step), /--lenses-dir "\$LENSES_DIR"/, `${step} must preflight the lens config`);
+  }
 });
