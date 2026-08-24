@@ -18,6 +18,9 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| frontend vite config node floor (2026-08-25) | [20260825-frontend-vite-config-node-floor-todo.md](./active/20260825-frontend-vite-config-node-floor-todo.md) | - |
+| release v0.6.6 (2026-08-24) | [20260824-release-v0.6.6-todo.md](./active/20260824-release-v0.6.6-todo.md) | [20260824-release-v0.6.6-lessons.md](./active/20260824-release-v0.6.6-lessons.md) |
+| shared image access (2026-08-24) | [20260824-shared-image-access-todo.md](./active/20260824-shared-image-access-todo.md) | - |
 | debug report (2026-08-21) | [20260821-debug-report-todo.md](./active/20260821-debug-report-todo.md) | - |
 | docs inline style off clears key (2026-08-19) | [20260819-docs-inline-style-off-clears-key-todo.md](./active/20260819-docs-inline-style-off-clears-key-todo.md) | [20260819-docs-inline-style-off-clears-key-lessons.md](./active/20260819-docs-inline-style-off-clears-key-lessons.md) |
 | font list preview (2026-08-19) | [20260819-font-list-preview-todo.md](./active/20260819-font-list-preview-todo.md) | - |
@@ -42,4 +45,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 553
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: debug report (2026-08-21)
+Latest active task: frontend vite config node floor (2026-08-25)
