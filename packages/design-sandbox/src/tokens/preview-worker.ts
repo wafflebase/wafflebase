@@ -186,6 +186,37 @@ export function createPreviewWorker(options: PreviewWorkerOptions): PreviewWorke
     child.on('exit', (code) => die(`exited (code ${code})`));
     child.on('error', (err) => die(`failed to start: ${err.message}`));
 
+    /**
+     * The child can outlive its own stdin, and then a write fails with `EPIPE`.
+     *
+     * `pnpm exec tsx` is a wrapper chain (see `DETACH`), so the process `spawn` returned
+     * is not the one reading stdin. When the emitter two levels down dies — a broken
+     * `packages/core`, a type error in the patched sources, which is exactly what a live
+     * preview feeds it — the read end of the pipe closes while the outer wrapper is still
+     * alive. Measured on that shape: `exitCode` stays null and `killed` stays false, so
+     * `child.on('exit')` never fires and `die()` never runs; the write reports `EPIPE`
+     * ASYNCHRONOUSLY, as an `'error'` event on this stream.
+     *
+     * Unhandled, that event is an uncaught exception — the dev server or the test worker
+     * goes down, taking unrelated work with it, which is what made this flaky rather than
+     * merely broken. A write callback does NOT prevent it: measured, the callback receives
+     * `EPIPE` and the stream emits `'error'` anyway.
+     *
+     * Routed through `die()` because both of its halves are needed here. The pending
+     * requests must be settled — `child.on('exit')` will not do it, so they would otherwise
+     * sit for their full 15 s — and `live` must be dropped, or `ensure()`'s liveness check
+     * hands out this same child forever and every later render writes into the dead pipe.
+     *
+     * This is the one `die()` path that lets go of a child that is still RUNNING, so the
+     * wrapper is left to exit on its own and `dispose()` can no longer reach it. Stated
+     * rather than fixed: the reason its stdin closed is that the process it was wrapping
+     * is already gone, so it is on its way out. A wrapper that lingers anyway leaks until
+     * the dev server stops, which would need a signal here rather than just a drop.
+     */
+    child.stdin.on('error', (err: NodeJS.ErrnoException) =>
+      die(`lost stdin: ${err.code ?? err.message}`),
+    );
+
     live = state;
     return state;
   }
@@ -212,22 +243,28 @@ export function createPreviewWorker(options: PreviewWorkerOptions): PreviewWorke
         try {
           w.child.stdin.write(`${JSON.stringify({ id, files })}\n`);
         } catch (err) {
-          // A DEAD CHILD DOES NOT REACH HERE, and the comment that said it did was
-          // wrong. Measured against a child that exits before the write, at several
-          // timings: `write()` never throws, and no `'error'` event is emitted even
-          // with a listener attached — the failure surfaces only through the write
-          // callback, as `ERR_STREAM_DESTROYED`, which this call does not pass. So
-          // this catch is unreachable for the case it was written for.
+          // NO STREAM FAILURE REACHES HERE — they are all asynchronous. An earlier
+          // version of this comment measured one case, a child that exits before the
+          // write, and generalised from it: `write()` never throws, no `'error'` event
+          // fires, and the failure surfaces only through the write callback as
+          // `ERR_STREAM_DESTROYED`, which this call does not pass. That much still
+          // holds, and `child.on('exit')` settles those requests through `die()`.
           //
-          // Nothing is broken by that, which is why it is a comment fix rather than a
-          // code one: `die()` already settles every pending request from
-          // `child.on('exit')`, milliseconds later, so the 15-second stall the old
-          // comment worried about is prevented — just somewhere else. Adding a write
-          // callback here would duplicate `die()`.
+          // The generalisation is what was wrong. It concluded that a callback "would
+          // duplicate `die()`", which read as "nothing more is needed" and hid the
+          // NEIGHBOURING case, where the child outlives its stdin: there `die()` never
+          // runs, the failure is `EPIPE`, and it arrives as an `'error'` event that took
+          // the whole process down when nothing listened. See the `child.stdin` handler
+          // in `ensure()` for the measurement and the fix. The lesson is that a stream
+          // is not one failure mode: which one you get depends on whether the stream has
+          // been destroyed yet, and a measurement of one says nothing about the other.
           //
-          // Kept because `write()` CAN throw for reasons unrelated to the child dying
-          // (a `null` stdin if the stdio shape ever changes, a write after `end()`),
-          // and settling beats an unhandled rejection out of a `.then` nobody owns.
+          // This catch is kept for a SYNCHRONOUS throw only, which means a shape change
+          // rather than a stream failure — a `null` stdin if the stdio ever stops being
+          // `'pipe'`. Even a write after `end()` is async (measured: the callback and an
+          // `'error'` event get `ERR_STREAM_WRITE_AFTER_END`; nothing throws), so the
+          // earlier comment was wrong about that one too. Settling still beats an
+          // unhandled rejection out of a `.then` nobody owns.
           clearTimeout(timer);
           w.pending.delete(id);
           resolve({ ok: false, error: `preview worker write failed: ${String(err)}` });
