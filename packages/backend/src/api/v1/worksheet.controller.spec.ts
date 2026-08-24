@@ -49,9 +49,19 @@ describe('ApiV1WorksheetController', () => {
   });
 
   it('setHidden writes hidden rows/columns', async () => {
-    await controller.setHidden(WS, DOC, 'tab-1', { rows: [1, 3], columns: [0] });
+    await controller.setHidden(WS, DOC, 'tab-1', { rows: [1, 3], columns: [1] });
     expect(ws().hiddenRows).toEqual([1, 3]);
-    expect(ws().hiddenColumns).toEqual([0]);
+    expect(ws().hiddenColumns).toEqual([1]);
+  });
+
+  // Indices are 1-based, like the A1 refs the rest of the v1 API speaks.
+  // `Sheet.loadHiddenState` keeps only `>= 1`, so a 0 that reached the CRDT
+  // would be dropped on load and make every index look off by one.
+  it('setHidden rejects a 0 index instead of writing one the engine drops', async () => {
+    await expect(
+      controller.setHidden(WS, DOC, 'tab-1', { rows: [], columns: [0] }),
+    ).rejects.toThrow();
+    expect(ws().hiddenColumns).toBeUndefined();
   });
 
   it('setMerges writes the merges map', async () => {
