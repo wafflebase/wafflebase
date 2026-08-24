@@ -249,7 +249,8 @@ with no trace; answering it empty dropped the item with no trace; and closing it
 with Escape sent the Escape on to the page, which turned debug mode off — so a
 reporter who cancelled once found the whole overlay gone and no reason given.
 
-Three rules follow, and each is unit-tested rather than asserted:
+Three rules follow. The first two are requirements on the overlay and are tested
+with it; eviction reporting is the core's and is tested here:
 
 - **Cancelling drops the item, never the mode.** Abandoning one target returns
   to aiming, not to a dismissed overlay.

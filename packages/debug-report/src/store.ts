@@ -314,11 +314,18 @@ export type StoreOptions = {
 
 let captureCounter = 0;
 
+/**
+ * Per-load, for the same reason as `session.ts`'s: without it a reload reissued
+ * `cap-1` and `blobs.put` OVERWROTE the blob a restored item still pointed at,
+ * so a report ended up carrying someone else's screenshot.
+ */
+const LOAD_STAMP = Date.now().toString(36);
+
 function defaultCaptureId(): string {
   const c: Crypto | undefined = globalThis.crypto;
   if (c && typeof c.randomUUID === 'function') return `cap-${c.randomUUID()}`;
   captureCounter += 1;
-  return `cap-${captureCounter}`;
+  return `cap-${LOAD_STAMP}-${captureCounter}`;
 }
 
 /** Bytes a data URL costs once stored — its payload, not its display size. */

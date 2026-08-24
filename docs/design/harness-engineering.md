@@ -3266,9 +3266,14 @@ person's job, not the pipeline's.
 together; a padding fix and a formula-engine bug do not. Items touching one file are
 forced into one PR (separate PRs would conflict), items of one `kind` and risk class are
 electively grouped, and `logic` items are never grouped. The pipeline may SPLIT a
-proposed group and may never MERGE across kinds — splitting is always safe. Caps: 8
-items / 300 lines per group, 5 PRs per session, with overflow queued and visible rather
-than dropped.
+proposed group and may never MERGE across kinds — splitting is always safe.
+
+**Isolation outranks same-file merging**, which matters because the two rules
+genuinely conflict: two `logic` items in one file satisfy both. Independent review of a
+behaviour change is the stronger guarantee, so they stay separate and the file overlap
+is REPORTED as a conflict — land one, rebase the other — rather than silently merged
+into a PR the isolation rule forbids. Caps: 8 items per group, 5 PRs per session, with
+overflow queued and visible rather than dropped.
 
 **The grouping proposal is made without repository access, so the delta must be
 reported.** Elective coupling needs only the items; forced coupling needs a checkout. A

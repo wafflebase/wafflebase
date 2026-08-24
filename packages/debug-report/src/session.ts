@@ -68,13 +68,25 @@ export type SessionOptions = {
 
 let fallbackCounter = 0;
 
+/**
+ * Distinguishes one page load from the next, for the fallback path only.
+ *
+ * `crypto.randomUUID` exists only in a SECURE CONTEXT, so a dev server reached
+ * over a LAN IP — how anyone tests on a phone — falls back to the counter. The
+ * counter restarts at 1 on every load while `load()` restores items minted by
+ * the previous one, so the next `add()` reissued an id that already existed:
+ * a duplicate `parseBundle` refuses, which makes the whole batch unsendable.
+ *
+ * A timestamp rather than `Math.random()`: it stays reproducible in a log, and
+ * two page loads cannot share a millisecond.
+ */
+const LOAD_STAMP = Date.now().toString(36);
+
 function defaultNewId(): string {
   const c: Crypto | undefined = globalThis.crypto;
   if (c && typeof c.randomUUID === 'function') return c.randomUUID();
-  // No `Math.random()`: an id only has to be unique within one session, and a
-  // counter is both sufficient and reproducible in a log.
   fallbackCounter += 1;
-  return `item-${fallbackCounter}`;
+  return `item-${LOAD_STAMP}-${fallbackCounter}`;
 }
 
 export function createSession(options: SessionOptions = {}): DebugSession {

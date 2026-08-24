@@ -181,4 +181,30 @@ describe('session', () => {
     expect(() => s.setMode('idle')).toThrow();
   });
 
+  it('a fallback id does not collide with one restored from an earlier load', () => {
+    // `crypto.randomUUID` exists only in a secure context, so a dev server on a
+    // LAN IP takes the counter path. The counter restarts at 1 while `load()`
+    // restores ids from the previous load, so `add()` reissued an existing id —
+    // a duplicate `parseBundle` refuses, making the batch unsendable.
+    const restored = [
+      {
+        id: 'item-1',
+        createdAt: 1,
+        note: 'from the previous load',
+        target: { kind: 'viewport' as const, rect: { x: 0, y: 0, w: 10, h: 10 } },
+        disposition: 'verify' as const,
+        agentCandidate: false,
+      },
+    ];
+    const s = createSession();
+    s.replaceAll(restored);
+    const id = s.add({
+      note: 'new one',
+      target: { kind: 'viewport', rect: { x: 0, y: 0, w: 10, h: 10 } },
+    });
+    expect(s.items().map((i) => i.id)).toContain('item-1');
+    expect(id).not.toBe('item-1');
+    expect(new Set(s.items().map((i) => i.id)).size).toBe(s.items().length);
+  });
+
 });
