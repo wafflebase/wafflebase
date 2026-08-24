@@ -3228,6 +3228,73 @@ is filed automatically; the output is a local report, and the CLI hunter's filin
 (20 accepted at >=90%) restarts for this surface because it generates candidates by a
 different mechanism.
 
+### Phase 32: Human-Reported Defects (Debug Report)
+
+Phases 26 and 31 built hunters that generate their own candidates. This phase adds the
+channel they cannot cover: **the defect a person noticed**. Full design in
+[debug-report.md](debug-report.md); what belongs to the harness is below.
+
+**The reporter is not asked to translate.** Phase 24's intake expects a brief with
+reproduction steps and a location; producing one costs more than noticing the defect did,
+which is why most noticed defects are never filed. Here the reporter supplies a point on
+the screen and one sentence, and an agent produces the issue text — drafted at PREVIEW
+time, so what the person confirms is the text that will be filed. The three additions to
+`scripts/agent/` are an intake step (redact → dedupe → route), a verification step
+(two-way delegation) and a PR-assembly step (grouping, one item per commit, size
+disclosure); they arrive with the pipeline itself, later in the rollout.
+
+**Nothing is filed without confirmation, and `hunt-ui` still files nothing.** The
+`report-*` scripts act only on items a person confirmed in the panel; the hunters'
+autonomous findings do not enter this path. That keeps the rule
+[hunter-usage.md](hunter-usage.md) states — no filing stage on the hunters — intact
+while giving confirmed human reports a filing route.
+
+**Verification splits by what the report can support, and failure lowers the
+destination rather than discarding the report.** A report with reproduction steps
+becomes a synthesised plan for `hunt-ui.mjs replay`; an appearance report has neither
+prediction nor plan, so it skips replay and is gated by a new `visual-intent` lens
+instead — one `lenses.json` row plus one prompt, whose inputs are the reporter's
+sentence and the baseline / actual / diff PNGs `verify-visual-browser.mjs` already emits.
+It judges whether the after state satisfies the sentence AND whether the diff exceeded
+the report's scope; the second fires more often. When replay says "not reproduced" the
+report is filed as an issue carrying BOTH the expectation and the failed replay — the
+documented failure mode where a reader's scope is wider than the action means a failed
+replay is not proof the observation was wrong, and resolving that discrepancy is a
+person's job, not the pipeline's.
+
+**Grouping is governed by homogeneity, not count.** Two padding fixes pass or fail
+together; a padding fix and a formula-engine bug do not. Items touching one file are
+forced into one PR (separate PRs would conflict), items of one `kind` and risk class are
+electively grouped, and `logic` items are never grouped. The pipeline may SPLIT a
+proposed group and may never MERGE across kinds — splitting is always safe. Caps: 8
+items / 300 lines per group, 5 PRs per session, with overflow queued and visible rather
+than dropped.
+
+**The grouping proposal is made without repository access, so the delta must be
+reported.** Elective coupling needs only the items; forced coupling needs a checkout. A
+PR shaped differently from what the person approved, with no stated reason, breaks trust
+before it breaks anything else — so the results round-trip records
+`proposed 2 PRs → actual 3 (reason)`, and a silent adjustment is a defect in this phase,
+not an implementation detail.
+
+**Credentials split by blast radius, not by convenience.** Drafting is tool-free and
+output-only, so its key can live with the app (worst case: wasted tokens and a rejected
+draft — no privileged action for an injection to reach). Verification, code location and
+PR authorship need a checkout and the `verify:*` lanes, so that credential stays with the
+repository and the repository PULLS reports with a read-only `ApiKey`. The app never
+pushes; a compromised app cannot create a commit.
+
+**`agent:candidate` cannot be granted by this path, and is not.** The gate requires the
+label AND a non-Bot author, so an Actions-opened issue does not open it even when
+labelled. The checkbox records intent: a local run applies the label, Actions mode
+renders a checklist in the issue body. Intent conveyed, gate unweakened.
+
+Status: SP0 spike run 2026-08-21 (throwaway; four findings recorded in
+[debug-report.md](debug-report.md), three of which changed the capture design). PR 1a —
+core package, item/bundle model, session, capture store, `HostAdapter` — is the first
+landed increment; capture + locators, preview + drafting, and the `scripts/agent/` intake
+lane follow.
+
 ## Harness Policy
 
 Harness policy is managed in `harness.config.json`:

@@ -340,6 +340,13 @@ const LANES = [
     needs: ["core:build"],
   },
   {
+    // No `needs`: this package has no build and depends on no other package —
+    // it is a framework-agnostic core (docs/design/debug-report.md).
+    name: "debug-report:check",
+    cmd: "pnpm --filter @wafflebase/debug-report typecheck && pnpm --filter @wafflebase/debug-report test",
+    pkgs: ["debug-report"],
+  },
+  {
     name: "board:check",
     cmd: "pnpm --filter @wafflebase/board typecheck && pnpm --filter @wafflebase/board test",
     pkgs: ["board"],
