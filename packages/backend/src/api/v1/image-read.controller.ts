@@ -104,7 +104,10 @@ export class ApiV1ImageReadController {
           Number(user.id),
         );
         return;
-      } catch {
+      } catch (err) {
+        // Only the expected "not a member" case falls through to the share
+        // token — a DB/infra failure must surface as itself, not a 403.
+        if (!(err instanceof ForbiddenException)) throw err;
         // A logged-in non-member may still hold a share token — fall through.
       }
     }

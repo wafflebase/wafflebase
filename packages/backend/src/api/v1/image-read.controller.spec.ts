@@ -30,7 +30,7 @@ function makeController(overrides: {
     }),
   };
   const workspaceService = overrides.workspaceService ?? {
-    resolveId: jest.fn(async (id: string) => id),
+    resolveId: jest.fn((id: string) => Promise.resolve(id)),
     assertMember: jest.fn().mockResolvedValue({}),
   };
   const shareLinkService = overrides.shareLinkService ?? {
@@ -48,7 +48,13 @@ describe('ApiV1ImageReadController.get', () => {
     const getObject = jest.fn();
     const ctrl = makeController({ imageService: { getObject } });
     await expect(
-      ctrl.get('w1', 'not-a-valid-id', undefined, {} as never, makeRes() as never),
+      ctrl.get(
+        'w1',
+        'not-a-valid-id',
+        undefined,
+        {} as never,
+        makeRes() as never,
+      ),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(getObject).not.toHaveBeenCalled();
   });
@@ -61,13 +67,19 @@ describe('ApiV1ImageReadController.get', () => {
     });
     const ctrl = makeController({
       workspaceService: {
-        resolveId: jest.fn(async (id: string) => id),
+        resolveId: jest.fn((id: string) => Promise.resolve(id)),
         assertMember,
       },
       imageService: { getObject },
     });
     const res = makeRes();
-    await ctrl.get('w1', VALID_ID, undefined, { user: { id: '7' } } as never, res as never);
+    await ctrl.get(
+      'w1',
+      VALID_ID,
+      undefined,
+      { user: { id: '7' } } as never,
+      res as never,
+    );
     expect(assertMember).toHaveBeenCalledWith('w1', 7);
     expect(getObject).toHaveBeenCalledWith(`w1/${VALID_ID}`);
     expect(res.headers['Content-Type']).toBe('image/png');
@@ -86,28 +98,45 @@ describe('ApiV1ImageReadController.get', () => {
     });
     const ctrl = makeController({
       shareLinkService: { findByToken },
-      workspaceService: { resolveId: jest.fn(async (id: string) => id) },
+      workspaceService: {
+        resolveId: jest.fn((id: string) => Promise.resolve(id)),
+      },
       imageService: { getObject },
     });
     const res = makeRes();
-    await ctrl.get('w1', VALID_ID, 'tok', { user: undefined } as never, res as never);
+    await ctrl.get(
+      'w1',
+      VALID_ID,
+      'tok',
+      { user: undefined } as never,
+      res as never,
+    );
     expect(findByToken).toHaveBeenCalledWith('tok');
     expect(getObject).toHaveBeenCalledWith(`w1/${VALID_ID}`);
     expect(res.end).toHaveBeenCalled();
   });
 
   it('forbids an anonymous viewer whose token belongs to another workspace', async () => {
-    const findByToken = jest
-      .fn()
-      .mockResolvedValue({ documentId: 'd1', document: { workspaceId: 'OTHER' } });
+    const findByToken = jest.fn().mockResolvedValue({
+      documentId: 'd1',
+      document: { workspaceId: 'OTHER' },
+    });
     const getObject = jest.fn();
     const ctrl = makeController({
       shareLinkService: { findByToken },
-      workspaceService: { resolveId: jest.fn(async (id: string) => id) },
+      workspaceService: {
+        resolveId: jest.fn((id: string) => Promise.resolve(id)),
+      },
       imageService: { getObject },
     });
     await expect(
-      ctrl.get('w1', VALID_ID, 'tok', { user: undefined } as never, makeRes() as never),
+      ctrl.get(
+        'w1',
+        VALID_ID,
+        'tok',
+        { user: undefined } as never,
+        makeRes() as never,
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(getObject).not.toHaveBeenCalled();
   });
@@ -115,11 +144,19 @@ describe('ApiV1ImageReadController.get', () => {
   it('forbids an anonymous viewer with no token', async () => {
     const getObject = jest.fn();
     const ctrl = makeController({
-      workspaceService: { resolveId: jest.fn(async (id: string) => id) },
+      workspaceService: {
+        resolveId: jest.fn((id: string) => Promise.resolve(id)),
+      },
       imageService: { getObject },
     });
     await expect(
-      ctrl.get('w1', VALID_ID, undefined, { user: undefined } as never, makeRes() as never),
+      ctrl.get(
+        'w1',
+        VALID_ID,
+        undefined,
+        { user: undefined } as never,
+        makeRes() as never,
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(getObject).not.toHaveBeenCalled();
   });
@@ -130,7 +167,9 @@ describe('ApiV1ImageReadController.get', () => {
       contentType: 'image/webp',
     });
     const ctrl = makeController({
-      workspaceService: { resolveId: jest.fn(async (id: string) => id) },
+      workspaceService: {
+        resolveId: jest.fn((id: string) => Promise.resolve(id)),
+      },
       imageService: { getObject },
     });
     const res = makeRes();
@@ -148,7 +187,9 @@ describe('ApiV1ImageReadController.get', () => {
   it('forbids an API key scoped to a different workspace', async () => {
     const getObject = jest.fn();
     const ctrl = makeController({
-      workspaceService: { resolveId: jest.fn(async (id: string) => id) },
+      workspaceService: {
+        resolveId: jest.fn((id: string) => Promise.resolve(id)),
+      },
       imageService: { getObject },
     });
     await expect(
@@ -176,14 +217,20 @@ describe('ApiV1ImageReadController.get', () => {
     });
     const ctrl = makeController({
       workspaceService: {
-        resolveId: jest.fn(async (id: string) => id),
+        resolveId: jest.fn((id: string) => Promise.resolve(id)),
         assertMember,
       },
       shareLinkService: { findByToken },
       imageService: { getObject },
     });
     const res = makeRes();
-    await ctrl.get('w1', VALID_ID, 'tok', { user: { id: '7' } } as never, res as never);
+    await ctrl.get(
+      'w1',
+      VALID_ID,
+      'tok',
+      { user: { id: '7' } } as never,
+      res as never,
+    );
     expect(assertMember).toHaveBeenCalled();
     expect(findByToken).toHaveBeenCalledWith('tok');
     expect(res.end).toHaveBeenCalled();
@@ -193,13 +240,46 @@ describe('ApiV1ImageReadController.get', () => {
     const getObject = jest.fn().mockRejectedValue(new Error('no such key'));
     const ctrl = makeController({
       workspaceService: {
-        resolveId: jest.fn(async (id: string) => id),
+        resolveId: jest.fn((id: string) => Promise.resolve(id)),
         assertMember: jest.fn().mockResolvedValue({}),
       },
       imageService: { getObject },
     });
     await expect(
-      ctrl.get('w1', VALID_ID, undefined, { user: { id: '7' } } as never, makeRes() as never),
+      ctrl.get(
+        'w1',
+        VALID_ID,
+        undefined,
+        { user: { id: '7' } } as never,
+        makeRes() as never,
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('propagates an operational assertMember failure instead of masking it as 403', async () => {
+    const dbError = new Error('database unavailable');
+    const assertMember = jest.fn().mockRejectedValue(dbError);
+    const findByToken = jest.fn();
+    const getObject = jest.fn();
+    const ctrl = makeController({
+      workspaceService: {
+        resolveId: jest.fn((id: string) => Promise.resolve(id)),
+        assertMember,
+      },
+      shareLinkService: { findByToken },
+      imageService: { getObject },
+    });
+    await expect(
+      ctrl.get(
+        'w1',
+        VALID_ID,
+        'tok',
+        { user: { id: '7' } } as never,
+        makeRes() as never,
+      ),
+    ).rejects.toBe(dbError);
+    // A DB failure must not silently fall through to the share-token path.
+    expect(findByToken).not.toHaveBeenCalled();
+    expect(getObject).not.toHaveBeenCalled();
   });
 });

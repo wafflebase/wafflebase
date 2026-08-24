@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { appendShareTokenToImageUrl } from "./share-image-url";
 
 const TOKEN = "share-tok-123";
+const BACKEND = "https://api.wafflebase.io";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("appendShareTokenToImageUrl", () => {
   it("appends the token to a root-relative workspace image URL", () => {
@@ -13,15 +18,28 @@ describe("appendShareTokenToImageUrl", () => {
     ).toBe("/api/v1/workspaces/w1/images/abc.png?token=share-tok-123");
   });
 
-  it("appends the token to an absolute workspace image URL", () => {
+  it("appends the token to an absolute URL on the configured backend origin", () => {
+    vi.stubEnv("VITE_BACKEND_API_URL", BACKEND);
     expect(
       appendShareTokenToImageUrl(
-        "https://api.wafflebase.io/api/v1/workspaces/w1/images/abc.png",
+        `${BACKEND}/api/v1/workspaces/w1/images/abc.png`,
         TOKEN,
       ),
-    ).toBe(
-      "https://api.wafflebase.io/api/v1/workspaces/w1/images/abc.png?token=share-tok-123",
-    );
+    ).toBe(`${BACKEND}/api/v1/workspaces/w1/images/abc.png?token=share-tok-123`);
+  });
+
+  it("does NOT append the token to a foreign origin that embeds the workspace path", () => {
+    // Security: `data.src` comes from the CRDT; a malicious collaborator could
+    // point it at an attacker host to exfiltrate the viewer's share token.
+    vi.stubEnv("VITE_BACKEND_API_URL", BACKEND);
+    const evil = "https://attacker.example/api/v1/workspaces/w1/images/abc.png";
+    expect(appendShareTokenToImageUrl(evil, TOKEN)).toBe(evil);
+  });
+
+  it("does NOT append the token to any absolute URL when no backend origin is configured", () => {
+    vi.stubEnv("VITE_BACKEND_API_URL", "");
+    const abs = "https://api.wafflebase.io/api/v1/workspaces/w1/images/abc.png";
+    expect(appendShareTokenToImageUrl(abs, TOKEN)).toBe(abs);
   });
 
   it("uses & when the URL already has a query string", () => {

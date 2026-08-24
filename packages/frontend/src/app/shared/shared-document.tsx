@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { YorkieProvider, DocumentProvider, useDocument } from "@yorkie-js/react";
@@ -801,12 +801,14 @@ export function sharedBlobKind(type: string): "pdf" | "blob" | "crdt" {
  * `doc` uploads to the unauthenticated legacy `/images/:id` route (nothing to
  * token), and pdf/image/file/note don't paint through this engine.
  *
- * The resolver is set synchronously during render, NOT in an effect: the
- * slides canvas (a child) draws before this parent's effects run, so an
- * effect-based install would let the canvas fire one un-tokened request per
- * image — each a guaranteed 403 — before the token was in place. The unmount
- * cleanup is essential: the resolver is a module-level singleton, so a later
- * in-session mount (SPA navigation) would otherwise keep a stale token.
+ * Installed in a commit-phase `useLayoutEffect`, not during render: a
+ * render-phase mutation of the module-level singleton could be clobbered by an
+ * abandoned/concurrent render. A layout effect still runs before the slides
+ * canvas's first draw — the canvas paints from a passive `useEffect` /
+ * `requestAnimationFrame` (see slides-view), and all layout effects run before
+ * any passive effect — so the token is in place before the first image load
+ * and no un-tokened 403 is fired. Cleanup clears the singleton on unmount and
+ * pairs correctly with StrictMode's dev mount→cleanup→remount.
  */
 function useSharedImageTokenResolver(type: string, token?: string): void {
   const isSlidesEngine = type === "slides" || type === "board";
@@ -817,14 +819,7 @@ function useSharedImageTokenResolver(type: string, token?: string): void {
         : null,
     [isSlidesEngine, token],
   );
-  // Install synchronously during render so the resolver is in place before the
-  // slides canvas child's first paint (an effect runs after paint).
-  if (resolver) setSlidesImageUrlResolver(resolver);
-  // Re-assert in the effect and clear on unmount: the render-time set alone
-  // would be left cleared after React StrictMode's dev mount→cleanup→remount
-  // churn (only render sets, but the simulated-unmount cleanup clears), and the
-  // singleton must be released when the shared mount goes away.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!resolver) return;
     setSlidesImageUrlResolver(resolver);
     return () => setSlidesImageUrlResolver(null);

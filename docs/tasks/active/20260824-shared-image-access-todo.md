@@ -2,15 +2,21 @@
 
 ## Problem
 
-Images embedded in slides / board / docs are served from the
-workspace-scoped, auth-gated endpoint `GET /api/v1/workspaces/:wid/images/:id`
+Images embedded in **slides / board** are served from the workspace-scoped,
+auth-gated endpoint `GET /api/v1/workspaces/:wid/images/:id`
 (`CombinedAuthGuard` + `WorkspaceScopeGuard`). An anonymous share-link viewer
 (incognito, `/shared/:token`) has no JWT session and no workspace membership,
-so every image request 401/403s. The slides/board/docs canvas renderer then
+so every image request 401/403s. The slides/board canvas renderer then
 paints the "Image unavailable" placeholder (`isImageFailed(src)` →
 `drawImageFailurePlaceholder`). Text and other CRDT data still show because
 they flow through Yorkie with the share token; only image *bytes* go over a
 separate HTTP request that carries no share credential.
+
+(**docs is NOT affected** — docs images upload to the *unauthenticated* legacy
+`/images/<id>` route, so anonymous viewers already read them. See the Scope
+correction section below. `sheets` floating images and `notes` share the
+workspace-scoped route and hit the same bug, but through different render
+surfaces — deferred follow-up.)
 
 Precedent: blob file serving already solved this — `document-file.controller.ts`
 uses `OptionalJwtAuthGuard` + a manual `assertCanRead` that accepts a JWT
@@ -18,20 +24,21 @@ workspace member OR a valid `?token=` share link. We mirror that for images.
 
 ## Design (approved, bounded)
 
-### Backend (one change fixes slides + docs + board authorization)
-- [ ] Split the image **read** route out of the JWT-gated `ApiV1ImagesController`
-      into a dual-path controller (mirror `DocumentFileController`):
-      `OptionalJwtAuthGuard` + manual authorize.
+### Backend (one change fixes slides + board authorization; also covers sheets/notes)
+- [x] Split the image **read** route out of the JWT-gated `ApiV1ImagesController`
+      into a dual-path controller (`ApiV1ImageReadController`) behind a new
+      `OptionalCombinedAuthGuard` + manual `assertCanRead`.
   - JWT workspace member → allow (preserve existing behavior)
+  - workspace-scoped API key → allow
   - else `?token=` → `shareLinkService.findByToken(token)`; allow iff
     `link.document.workspaceId === resolved :wid`
-  - preserve API-key GET (workspace-scoped key) if any consumer relies on it
-  - else 403
-- [ ] Keep upload (POST) + delete on the existing guarded controller.
-- [ ] Register the new controller in the module.
-- [ ] Backend tests (mirror `document-file.controller.spec`): anon+valid token
-      pass / anon+no token 403 / token for another workspace 403 / JWT member
-      pass / bad image id 400.
+  - else 403 (operational assertMember failures are re-thrown, not masked)
+- [x] Keep upload (POST) + delete on the existing guarded controller.
+- [x] Register the new controller in the module.
+- [x] Backend tests: anon+valid token pass / anon+no token 403 / token for
+      another workspace 403 / JWT member pass / API-key pass + mismatch 403 /
+      member→non-member falls through to token / operational error propagates /
+      bad image id 400 / 404 on missing object.
 
 ### Frontend (append share token at render time in shared mounts)
 - [x] `packages/slides/src/view/canvas/image-cache.ts`: module-level

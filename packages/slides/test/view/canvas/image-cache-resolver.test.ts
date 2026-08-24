@@ -4,6 +4,7 @@ import {
   getOrLoadImage,
   isImageFailed,
   setImageUrlResolver,
+  evictImageSrcs,
   clearImageCacheForTests,
 } from '../../../src/view/canvas/image-cache';
 
@@ -70,5 +71,17 @@ describe('setImageUrlResolver', () => {
     setImageUrlResolver(null);
     getOrLoadImage(LOGICAL, () => undefined);
     expect(created[0].src).not.toContain('token=');
+  });
+
+  it('evictImageSrcs evicts by the resolved key (non-identity resolver)', () => {
+    setImageUrlResolver((s) => `${s}?token=T`);
+    // First load caches under the resolved key and returns null (loading).
+    expect(getOrLoadImage(LOGICAL, () => undefined)).toBeNull();
+    expect(created).toHaveLength(1);
+    // Evicting by the LOGICAL src must drop the resolved-key entry, so the
+    // next load constructs a fresh Image rather than hitting a stale cache.
+    evictImageSrcs([LOGICAL]);
+    getOrLoadImage(LOGICAL, () => undefined);
+    expect(created).toHaveLength(2);
   });
 });

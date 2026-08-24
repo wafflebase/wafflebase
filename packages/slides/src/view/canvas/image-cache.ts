@@ -105,7 +105,10 @@ export function isImageFailed(src: string): boolean {
  * evicts an image the editor is still rendering.
  */
 export function evictImageSrcs(srcs: readonly string[]): void {
-  for (const src of srcs) {
+  for (const logicalSrc of srcs) {
+    // Entries are keyed by the RESOLVED url (see getOrLoadImage), so evict by
+    // the same key or a non-identity resolver would leak the cached bitmap.
+    const src = urlResolver(logicalSrc);
     imageCache.delete(src);
     pendingCallbacks.delete(src);
     failedImages.delete(src);
