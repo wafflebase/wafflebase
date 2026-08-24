@@ -22,7 +22,7 @@ import {
   readRebuttals,
 } from "./rebuttal.mjs";
 import { adjudicateRebuttals } from "./review-panel.mjs";
-import { PAGED_LATCH, isPagedLatchComment } from "./rounds.mjs";
+import { PAGED_LATCH, isPagedLatchComment, findingSimilarity } from "./rounds.mjs";
 import { CI_PAGED_LATCH } from "./loop-status.mjs";
 
 const FINDING = {
@@ -237,12 +237,42 @@ test("matchRebuttal: a different lens or file never matches", () => {
 });
 
 test("matchRebuttal: AMBIGUITY IS REFUSED — a tie clears nothing", () => {
-  // Two DIFFERENT rebuttals scoring identically means the author wrote text that
-  // fits more than one finding equally well. The safe reading is that it names
-  // none of them; the dangerous one is letting a single argument clear several.
-  const a = rebuttalFor({ claim: "argument A" });
-  const b = rebuttalFor({ claim: "argument B" });
+  // Two rebuttals naming DIFFERENT findings and scoring identically means the
+  // author wrote text that fits more than one thing equally well. The safe reading
+  // is that it names none of them; the dangerous one is letting a single argument
+  // clear several.
+  //
+  // The two summaries below each share 5 of their 7 tokens with FINDING, so both
+  // score exactly 5/7 — a real tie between two different targets, which is the
+  // case this refusal is for. (It used to be provoked by two rebuttals with the
+  // SAME summary and different claim text, which is a second round of one
+  // argument, not an ambiguity — see the test below.)
+  const a = rebuttalFor({ summary: "handler returns nothing from the undo store on keystroke replay" });
+  const b = rebuttalFor({ summary: "swallowing the mod shortcut sets unconditionally true on redo" });
+  assert.notEqual(a.summary, b.summary);
+  assert.equal(
+    findingSimilarity(FINDING, { lens: a.lens, file: a.file, summary: a.summary }),
+    findingSimilarity(FINDING, { lens: b.lens, file: b.file, summary: b.summary }),
+    "the fixture must actually tie, or this asserts nothing",
+  );
   assert.equal(matchRebuttal(FINDING, [a, b]), null);
+});
+
+test("matchRebuttal: the SAME finding disputed in two rounds is one argument, refined", () => {
+  // `findingSimilarity` scores on the summary after gating lens+file, so a second
+  // round's rebuttal of the same finding scores IDENTICALLY to the first — same
+  // summary, refined claim. Comparing the claim text too read that as ambiguity
+  // and discarded both, so a finding could never be disputed twice and upheld
+  // twice, and the standstill page `MAX_REBUTTAL_ROUNDS` guards could not fire
+  // through this path. Measured over every rebuttal ever filed: 3 of the 5
+  // disputed findings were discarded exactly here.
+  const round1 = rebuttalFor({ claim: "The redo path is the unconditional one." });
+  const round2 = rebuttalFor({ claim: "Narrower: open v11 attaches its own listener synchronously, so only the redo path is bare." });
+  assert.equal(matchRebuttal(FINDING, [round1, round2]), round2, "the later, refined argument wins");
+  // Order is by comment order, and the LAST one above threshold wins — so a third
+  // round supersedes the second in turn.
+  const round3 = rebuttalFor({ claim: "Narrower still." });
+  assert.equal(matchRebuttal(FINDING, [round1, round2, round3]), round3);
 });
 
 test("matchRebuttal: the SAME rebuttal posted twice is one claim, not a tie", () => {
@@ -497,15 +527,39 @@ test("adjudicateRebuttals: the count ACCUMULATES, so round two reaches the cap",
 test("adjudicateRebuttals: an AMBIGUOUS match adjudicates nothing", async () => {
   // The tie must be refused before a session opens — otherwise the cost of an
   // ambiguous rebuttal is a session per finding it half-matches.
+  //
+  // Two DIFFERENT summaries tying, which is what ambiguity now means: each shares
+  // 5 of its 7 tokens with the finding, so both score 5/7. Two rebuttals with the
+  // same summary and different claims used to provoke this, and no longer does —
+  // that is one argument refined across rounds, and `matchRebuttal` takes the
+  // later one.
   let opened = 0;
   const r = await adjudicateRebuttals(gatingOf(), {
-    rebuttals: [rebuttalFor({ claim: "A" }), rebuttalFor({ claim: "B" })],
+    rebuttals: [
+      rebuttalFor({ summary: "handler returns nothing from the undo store on keystroke replay", claim: "A" }),
+      rebuttalFor({ summary: "swallowing the mod shortcut sets unconditionally true on redo", claim: "B" }),
+    ],
     lensId: "correctness",
     adjudicate: async () => { opened++; return OVERTURN_OK; },
   });
   assert.equal(opened, 0);
   assert.equal(r.tally.matched, 0);
   assert.equal(r.findings.length, 1);
+});
+
+test("adjudicateRebuttals: a second round's refined rebuttal buys ONE session", async () => {
+  // The other side of the same rule, at the orchestrator: the tie fix must not
+  // turn one refined argument into two sessions, and the session it does buy must
+  // be handed the LATER claim — the argument the author actually stands behind.
+  let seen = [];
+  const r = await adjudicateRebuttals(gatingOf(), {
+    rebuttals: [rebuttalFor({ claim: "round 1" }), rebuttalFor({ claim: "round 2, narrower" })],
+    lensId: "correctness",
+    adjudicate: async (_f, reb) => { seen.push(reb.claim); return null; }, // null → upheld
+  });
+  assert.deepEqual(seen, ["round 2, narrower"]);
+  assert.equal(r.tally.matched, 1);
+  assert.equal(r.findings[0].adjudication.upheld, 1);
 });
 
 // --- the carry-forward path (where the bound actually travels) ---------------
