@@ -40,7 +40,7 @@
 // The two halves fail differently and are worth keeping apart — a missing base is
 // #716's `base-unresolved`, a missing head is `no-repo-context`.
 
-import { writeFileSync, mkdirSync, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EvalStore } from "./store.mjs";
@@ -213,7 +213,20 @@ function insideTree(root, dir) {
  * panel at anything on the runner. So containment is ASSERTED and never arranged: a
  * string that escapes is refused by name rather than normalised into obedience, and
  * the check is made again after `realpath`, because a committed symlink is a
- * lexically innocent path that lands outside the tree.
+ * lexically innocent path that lands outside the tree. Then the DIRECTORY'S CONTENTS
+ * are checked as well, which containment on the directory does not cover — see the
+ * symlink scan below, and the reason it is the sharpest edge here.
+ *
+ * WHAT CONTAINMENT DOES NOT PROVE, said out loud rather than left to be discovered.
+ * It answers "is this path in the workspace", and that is not the same question as
+ * "did this repository commit it". The job puts two other things inside the
+ * workspace: `.eval-store/`, a clone of a DIFFERENT repository, and — in the replay
+ * job — `node_modules/` from `npm ci`. Neither is reachable as a lens configuration
+ * today, because neither holds a `lenses.json` and that is checked below, so this is
+ * a gap in what the check MEANS rather than a way through it. Closing it properly
+ * would mean asking git whether the directory is tracked, which is a subprocess and a
+ * git dependency this preflight has never needed; if a lens config ever appears
+ * inside either of those trees, that is the change to make.
  *
  * AND THEN `buildConfig` IS ACTUALLY RUN. It is free, deterministic, and it is the
  * same call the runner makes, so a variant with a mistyped `effort` or a missing
@@ -246,7 +259,7 @@ export function planLensConfig({ value = "", repoRoot = REPO_ROOT, cwd = process
   if (!insideTree(repoRoot, dir)) {
     return fail(
       `lenses_dir ${JSON.stringify(asked)} resolves to ${dir}, which is OUTSIDE the checked-out tree (${repoRoot}). ` +
-        "A lens configuration is read and handed to a model; it has to be something this repository committed.",
+        "A lens configuration is read file by file and handed to a model, so it has to come from the tree being dispatched.",
     );
   }
   if (!existsSync(dir) || !statSync(dir).isDirectory()) {
@@ -261,6 +274,30 @@ export function planLensConfig({ value = "", repoRoot = REPO_ROOT, cwd = process
   const real = realpathSync(dir);
   if (!insideTree(realpathSync(repoRoot), real)) {
     return fail(`lenses_dir ${JSON.stringify(asked)} is a link to ${real}, which is outside the checked-out tree (${repoRoot}).`);
+  }
+
+  // AND THE CONTENTS, which containment on the directory does not cover at all.
+  // Resolving the directory says nothing about the files in it, and every one of
+  // them is opened: `lenses.json` is parsed and each `<id>.md` becomes a lens's
+  // rubric — which is fed to a model AND inlined into `config.snapshot.json` as
+  // `rubric_text`, a file the collect job pushes to a PUBLIC repository. So a single
+  // committed `correctness.md -> /somewhere/on/the/runner` turns a dispatch into a
+  // read of that file into a model prompt and into permanent public history, with
+  // the directory-level check above passing cleanly. Measured before this guard
+  // existed: the pointed-at bytes arrived verbatim in `snapshot.lenses[0].rubric_text`.
+  //
+  // EVERY ENTRY, not only the ones the manifest names, and one level is the whole
+  // surface: `assertSafeLensId` refuses an id containing `/`, `\`, `.` or `..`, so
+  // every file `buildConfig` opens is a direct child of this directory. A lens
+  // configuration has no use for a symlink, so the rule is "none", which is a rule
+  // that cannot be satisfied by pointing somewhere that happens to be inside.
+  for (const entry of readdirSync(real, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) {
+      return fail(
+        `lenses_dir ${JSON.stringify(asked)} contains a symlink, ${entry.name}. A lens configuration is read file by file into a model ` +
+          "prompt and inlined into the run's public config snapshot, so its files have to be the branch's own bytes. Commit a regular file.",
+      );
+    }
   }
 
   const manifestPath = path.join(real, "lenses.json");

@@ -740,6 +740,55 @@ test("planLensConfig: a symlink out of the tree is refused, which no lexical che
   }
 });
 
+test("planLensConfig: a symlinked RUBRIC is refused too — containment on the directory misses it", () => {
+  // Resolving the directory says nothing about the files in it, and every one of them
+  // is opened. A rubric's bytes are fed to a model AND inlined into
+  // `config.snapshot.json` as `rubric_text`, which the collect job pushes to a PUBLIC
+  // repository — so this is the sharpest edge the whole input has, and the
+  // directory-level realpath check above passes straight over it.
+  const root = fakeCheckout();
+  const outside = fakeCheckout();
+  try {
+    writeFileSync(path.join(outside, "loot.txt"), "SUPER SECRET RUNNER BYTES\n");
+    const dir = copyLenses(path.join(root, "lenses-leak"));
+    const firstId = JSON.parse(readFileSync(path.join(dir, "lenses.json"), "utf8"))[0].id;
+    rmSync(path.join(dir, `${firstId}.md`));
+    symlinkSync(path.join(outside, "loot.txt"), path.join(dir, `${firstId}.md`));
+
+    // What it would do without the guard, asserted rather than described: the pointed-at
+    // bytes arrive verbatim in the snapshot that gets published.
+    const leaked = buildConfig(dir, { configId: "baseline" });
+    assert.equal(leaked.snapshot.lenses[0].rubric_text, "SUPER SECRET RUNNER BYTES\n", "buildConfig reads straight through a symlinked rubric");
+
+    const lens = planLensConfig({ value: "lenses-leak", repoRoot: root, cwd: root });
+    assert.equal(lens.errors.length, 1, "a symlinked rubric was accepted");
+    assert.match(lens.errors[0], /contains a symlink/);
+    assert.match(lens.errors[0], new RegExp(`${firstId}\\.md`), "the refusal must name the entry");
+
+    // The manifest itself is the other file buildConfig opens, and it is covered by
+    // the same scan rather than by a second rule.
+    const dir2 = copyLenses(path.join(root, "lenses-leak-manifest"));
+    writeFileSync(path.join(outside, "manifest.json"), readFileSync(path.join(dir2, "lenses.json"), "utf8"));
+    rmSync(path.join(dir2, "lenses.json"));
+    symlinkSync(path.join(outside, "manifest.json"), path.join(dir2, "lenses.json"));
+    assert.match(planLensConfig({ value: "lenses-leak-manifest", repoRoot: root, cwd: root }).errors[0], /contains a symlink/);
+
+    // A symlink whose target is INSIDE the tree is refused as well. The rule is "no
+    // symlinks", not "no escaping symlinks", because a rubric that is secretly some
+    // other committed file is still not the rubric the config_hash claims.
+    const dir3 = copyLenses(path.join(root, "lenses-inward"));
+    rmSync(path.join(dir3, `${firstId}.md`));
+    symlinkSync(path.join(root, "lenses-leak", "lenses.json"), path.join(dir3, `${firstId}.md`));
+    assert.match(planLensConfig({ value: "lenses-inward", repoRoot: root, cwd: root }).errors[0], /contains a symlink/);
+
+    // And the committed configuration, which has none, still passes.
+    assert.deepEqual(planLensConfig({}).errors, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test("planLensConfig: a directory that is not in the checkout is refused, not defaulted away", () => {
   const missing = planLensConfig({ value: "scripts/agent/lenses-sonnet", cwd: REPO_ROOT });
   assert.equal(missing.errors.length, 1);
