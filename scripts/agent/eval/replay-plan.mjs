@@ -5,10 +5,11 @@
 // repository that spends money, and nobody is watching a terminal while it does.
 // Every question this module answers — is the cap a number, does the corpus version
 // exist, does every item name a pull request whose commits can be fetched, does the
-// worst case fit inside the job's own ceiling — is answerable from committed files
-// in a couple of seconds. Answering them in a preflight job means a mistyped
-// dispatch costs one runner-minute; answering them by observing the replay fail
-// means it costs whatever was spent before the failure.
+// worst case fit inside the job's own ceiling, does the lens configuration it names
+// exist inside this checkout and build — is answerable from committed files in a
+// couple of seconds. Answering them in a preflight job means a mistyped dispatch
+// costs one runner-minute; answering them by observing the replay fail means it
+// costs whatever was spent before the failure.
 //
 // It is also the only place that can see the whole dispatch. The runner bounds ONE
 // run: `--max-cost-usd` is per `--run-id`, and a K-replicate dispatch is K run ids,
@@ -39,11 +40,21 @@
 // The two halves fail differently and are worth keeping apart — a missing base is
 // #716's `base-unresolved`, a missing head is `no-repo-context`.
 
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { EvalStore } from "./store.mjs";
+import { buildConfig } from "./config-build.mjs";
 import { parseArgs } from "../gh-checks.mjs";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The checked-out tree, derived from this module's own location the way
+ * `config-build.mjs` derives it — `scripts/agent/eval/` is three levels down. It is
+ * the boundary `lenses_dir` is required to stay inside.
+ */
+const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
 
 /**
  * How a leg's run id is built from the stem a human typed.
@@ -148,6 +159,185 @@ export function isStoreSegment(value) {
 export function legRunId({ runIdStem, k, panel }) {
   const prefix = panel === "real" ? "" : DRY_RUN_PREFIX;
   return `${prefix}${runIdStem}${LEG_SUFFIX}${k}`;
+}
+
+// --- which reviewer, and is it a real one ------------------------------------
+
+/**
+ * `run.mjs`'s own default lenses directory, duplicated here and PINNED BY A TEST —
+ * the same trade `SEGMENT` above makes, and for the same reason: the value is not
+ * exported, and a preflight that cannot name the default cannot print the CONTROL
+ * arm's `config_hash`, which is the number a two-arm comparison is read against.
+ *
+ * `replay-plan.test.mjs` holds this against what `resolveRunOptions` actually
+ * resolves with no flag, rather than against a re-typed path, so the copy cannot
+ * drift in silence. The fail direction is safe: a stale copy makes the preflight
+ * print a hash for a directory the replay would not use, and the test goes red
+ * before any dispatch can.
+ */
+export const DEFAULT_LENSES_DIR = path.resolve(HERE, "..", "lenses");
+
+/**
+ * `config_id` the preflight builds under. It matches what the replay records
+ * (`run.mjs` defaults to `"baseline"` and this lane passes no `--config-id`), and it
+ * is COSMETIC in any case — `COSMETIC_CONFIG_FIELDS` excludes it, because "renaming
+ * a config does not make it a different reviewer" — so the hash printed here does
+ * not depend on getting it right.
+ */
+const PREFLIGHT_CONFIG_ID = "baseline";
+
+/** Is `dir` the tree at `root`, or somewhere inside it? */
+function insideTree(root, dir) {
+  const rel = path.relative(root, dir);
+  // `rel.startsWith("..")` is the tempting version and it is wrong: it also rejects
+  // a legitimate child whose name happens to begin with two dots (`lenses/..old`).
+  // The SEPARATOR is what marks a climb, so that is what is matched.
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+}
+
+/**
+ * Which reviewer this dispatch is about to buy, resolved from `lenses_dir` and
+ * PROVED before anything spends.
+ *
+ * WHY A DIRECTORY AND NOT A MODEL NAME. `model` is already inside the config
+ * identity — `HASHED_LENS_FIELDS` carries it — so a lens variant lands under its own
+ * `config_hash` by construction, while `panel_digest` (ten `.mjs` modules, none of
+ * them a lens file) stays put. The store's key was built for exactly that
+ * discrimination, so nothing downstream has to learn anything. A `model` string
+ * would instead need a new flag on the runner and would mutate a committed config in
+ * memory; a DIRECTORY needs no runner change at all, and it makes the variant a
+ * reviewable artefact in git rather than a value typed into a form.
+ *
+ * THE PATH IS THE DANGEROUS PART. Whatever this names is read file by file and fed
+ * to a model. An absolute path, or a `../` climb, would let one dispatch point the
+ * panel at anything on the runner. So containment is ASSERTED and never arranged: a
+ * string that escapes is refused by name rather than normalised into obedience, and
+ * the check is made again after `realpath`, because a committed symlink is a
+ * lexically innocent path that lands outside the tree. Then the DIRECTORY'S CONTENTS
+ * are checked as well, which containment on the directory does not cover — see the
+ * symlink scan below, and the reason it is the sharpest edge here.
+ *
+ * WHAT CONTAINMENT DOES NOT PROVE, said out loud rather than left to be discovered.
+ * It answers "is this path in the workspace", and that is not the same question as
+ * "did this repository commit it". The job puts two other things inside the
+ * workspace: `.eval-store/`, a clone of a DIFFERENT repository, and — in the replay
+ * job — `node_modules/` from `npm ci`. Neither is reachable as a lens configuration
+ * today, because neither holds a `lenses.json` and that is checked below, so this is
+ * a gap in what the check MEANS rather than a way through it. Closing it properly
+ * would mean asking git whether the directory is tracked, which is a subprocess and a
+ * git dependency this preflight has never needed; if a lens config ever appears
+ * inside either of those trees, that is the change to make.
+ *
+ * AND THEN `buildConfig` IS ACTUALLY RUN. It is free, deterministic, and it is the
+ * same call the runner makes, so a variant with a mistyped `effort` or a missing
+ * rubric costs one runner-minute here instead of being discovered by a paid leg. The
+ * `config_hash` it returns is printed, because "which reviewer am I buying" is the
+ * one question the dispatch form cannot answer and this is the last free place to
+ * ask it.
+ *
+ * ONE ERROR AT A TIME, which is not a departure from this module's accumulate rule:
+ * the steps below are stages of resolving ONE value and each depends on the one
+ * before it. `main` concatenates whatever comes back with `planReplay`'s list, so a
+ * dispatch with a bad cap AND a bad lenses dir still names both.
+ */
+export function planLensConfig({ value = "", repoRoot = REPO_ROOT, cwd = process.cwd() } = {}) {
+  const asked = typeof value === "string" ? value.trim() : "";
+  const isDefault = asked === "";
+  const fail = (message) => ({ errors: [message], dir: null, isDefault, configHash: null, lenses: [] });
+
+  if (!isDefault && path.isAbsolute(asked)) {
+    return fail(
+      `lenses_dir ${JSON.stringify(asked)} is an ABSOLUTE path. It names a location on the runner rather than a directory in this ` +
+        "checkout, and the whole point of committing a variant is that a reviewer can read it. Give a path relative to the repository root.",
+    );
+  }
+  // Resolved exactly as `run.mjs` resolves it — `path.resolve` against the process's
+  // own directory — so the path proved here is the path the replay will open. Both
+  // jobs in this lane run at the workspace root, and the containment check below is
+  // what catches it if one ever does not.
+  const dir = isDefault ? DEFAULT_LENSES_DIR : path.resolve(cwd, asked);
+  if (!insideTree(repoRoot, dir)) {
+    return fail(
+      `lenses_dir ${JSON.stringify(asked)} resolves to ${dir}, which is OUTSIDE the checked-out tree (${repoRoot}). ` +
+        "A lens configuration is read file by file and handed to a model, so it has to come from the tree being dispatched.",
+    );
+  }
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+    return fail(
+      `lenses_dir ${JSON.stringify(asked)} resolves to ${dir}, which is not a directory in this checkout. ` +
+        "Commit the variant to the branch being dispatched, or check the spelling.",
+    );
+  }
+  // Again, after the links are followed. `git` stores symlinks, so
+  // `scripts/agent/lenses-x -> /etc` is a thing a branch can carry, and it passes
+  // every lexical test above.
+  const real = realpathSync(dir);
+  if (!insideTree(realpathSync(repoRoot), real)) {
+    return fail(`lenses_dir ${JSON.stringify(asked)} is a link to ${real}, which is outside the checked-out tree (${repoRoot}).`);
+  }
+
+  // AND THE CONTENTS, which containment on the directory does not cover at all.
+  // Resolving the directory says nothing about the files in it, and every one of
+  // them is opened: `lenses.json` is parsed and each `<id>.md` becomes a lens's
+  // rubric — which is fed to a model AND inlined into `config.snapshot.json` as
+  // `rubric_text`, a file the collect job pushes to a PUBLIC repository. So a single
+  // committed `correctness.md -> /somewhere/on/the/runner` turns a dispatch into a
+  // read of that file into a model prompt and into permanent public history, with
+  // the directory-level check above passing cleanly. Measured before this guard
+  // existed: the pointed-at bytes arrived verbatim in `snapshot.lenses[0].rubric_text`.
+  //
+  // EVERY ENTRY, not only the ones the manifest names, and one level is the whole
+  // surface: `assertSafeLensId` refuses an id containing `/`, `\`, `.` or `..`, so
+  // every file `buildConfig` opens is a direct child of this directory. A lens
+  // configuration has no use for a symlink, so the rule is "none", which is a rule
+  // that cannot be satisfied by pointing somewhere that happens to be inside.
+  for (const entry of readdirSync(real, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) {
+      return fail(
+        `lenses_dir ${JSON.stringify(asked)} contains a symlink, ${entry.name}. A lens configuration is read file by file into a model ` +
+          "prompt and inlined into the run's public config snapshot, so its files have to be the branch's own bytes. Commit a regular file.",
+      );
+    }
+  }
+
+  const manifestPath = path.join(real, "lenses.json");
+  if (!existsSync(manifestPath)) {
+    return fail(
+      `lenses_dir ${JSON.stringify(asked)} holds no lenses.json, so it is not a lens configuration — one is that manifest plus an ` +
+        "<id>.md rubric per lens it declares.",
+    );
+  }
+  let declared;
+  try {
+    declared = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (e) {
+    return fail(`${manifestPath} is not readable JSON: ${e.message}`);
+  }
+  // ZERO LENSES IS THE ONE `buildConfig` WOULD ACCEPT. An empty array maps to an
+  // empty array, the hash computes, and the replay buys a panel that reviews
+  // nothing, finds nothing, and reports a complete run — a result indistinguishable
+  // from a reviewer that had nothing to say. Refused here because nothing downstream
+  // will refuse it.
+  if (!Array.isArray(declared) || declared.length === 0) {
+    return fail(
+      `${manifestPath} declares no lenses. A panel with an empty manifest reviews nothing and still reports a complete run, ` +
+        "which is the one outcome that looks like a measurement and is not.",
+    );
+  }
+
+  let built;
+  try {
+    built = buildConfig(real, { configId: PREFLIGHT_CONFIG_ID });
+  } catch (e) {
+    return fail(`the lens configuration at ${path.relative(repoRoot, real) || real} does not build: ${e.message}`);
+  }
+  return {
+    errors: [],
+    dir: real,
+    isDefault,
+    configHash: built.config_hash,
+    lenses: built.snapshot.lenses.map((l) => ({ id: l.id, model: l.model })),
+  };
 }
 
 /**
@@ -333,8 +523,13 @@ export function planReplay({
  * Separate from `planReplay` so the numbers can be asserted without matching prose,
  * and so the banner is a value rather than a pile of `console.log`s: the dry-run
  * banner in particular is a thing a test should be able to look at directly.
+ *
+ * `lens` is `planLensConfig`'s result and is optional only because `planReplay` is
+ * pure and this is not — the lens lines need a filesystem. When it is present the
+ * banner names the reviewer and its `config_hash`, which is the identity every
+ * comparison across two dispatches is made on.
  */
-export function planSummary(plan) {
+export function planSummary(plan, lens = null) {
   const lines = [];
   const dry = plan.panel !== "real";
   lines.push(
@@ -349,6 +544,21 @@ export function planSummary(plan) {
   // question to ask of a replay that refused everything.
   lines.push(`  source repo  : ${plan.sourceRepo ?? "(none)"} — refs fetched from ${plan.sourceRepoUrl ?? "(none)"}`);
   lines.push(`  pull refs    : ${plan.prs.join(", ") || "none"}`);
+  if (lens && lens.configHash) {
+    const where = path.relative(REPO_ROOT, lens.dir) || lens.dir;
+    lines.push(
+      `  lens config  : ${lens.isDefault ? `${where} (the committed default)` : `VARIANT ${where}`} — ` +
+        lens.lenses.map((l) => `${l.id}=${l.model}`).join(" "),
+    );
+    // The full hash, never an abbreviation. It exists to be compared against another
+    // dispatch's, and a truncated identity is one somebody eventually eyeballs.
+    lines.push(
+      `  config_hash  : ${lens.configHash}` +
+        (lens.isDefault
+          ? " — a result pools only with other runs under this same hash"
+          : " — NOT the committed default's. A comparison needs the control arm dispatched today as well, under the same panel."),
+    );
+  }
   if (dry) {
     lines.push(`  spend        : $0.00 — the cap is still enforced, against the stub's canned cost, so the guard is exercised`);
     lines.push(`  panel_sha    : ${DRY_RUN_PANEL_SHA} (synthetic, source "flag")`);
@@ -369,7 +579,10 @@ const USAGE = `Preflight one eval-replay dispatch: validate it, and emit the pla
   node scripts/agent/eval/replay-plan.mjs --root <eval-repo> --corpus-version <v> \\
        --run-id <id> --replicates <k> --max-cost-usd <n> --panel stub|real \\
        --panel-timeout <s> --job-timeout <min> --overhead <min> [--items a,b] \\
-       [--emit-dir <dir>] [--github-output <file>]
+       [--lenses-dir <dir>] [--emit-dir <dir>] [--github-output <file>]
+
+--lenses-dir is empty or absent for the committed panel config, or a path INSIDE
+this checkout naming a variant. Either way the resulting config_hash is printed.
 
 Costs nothing and calls no model. Exit 2 if the dispatch would not run correctly.`;
 
@@ -413,13 +626,19 @@ export function main(argv, { env = process.env, write = writeFileSync, log = con
     overheadMin: args.overhead,
   });
 
-  if (plan.errors.length) {
+  // The reviewer, resolved and built. Kept out of `planReplay` because that function
+  // is pure and this touches the disk — and concatenated with its errors rather than
+  // reported after them, so one re-dispatch fixes everything that is wrong.
+  const lens = planLensConfig({ value: args["lenses-dir"] ?? "" });
+
+  const errors = [...plan.errors, ...lens.errors];
+  if (errors.length) {
     error("replay-plan: this dispatch will not run:");
-    for (const e of plan.errors) error(`  - ${e}`);
+    for (const e of errors) error(`  - ${e}`);
     return 2;
   }
 
-  for (const line of planSummary(plan)) log(line);
+  for (const line of planSummary(plan, lens)) log(line);
 
   const emitDir = args["emit-dir"];
   if (emitDir) {

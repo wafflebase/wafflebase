@@ -18,6 +18,17 @@
 # and the run records which panel commit and which lens configuration produced it, so
 # a number can be re-derived by someone who was not there.
 #
+# A DISPATCH CAN REPLAY A LENS VARIANT, and the mechanism is entirely the store's
+# existing key. `lenses_dir` names a directory committed to the branch being
+# dispatched; `model`, `effort` and the rubric bytes are all inside `config_hash`, so
+# a variant's runs land under an identity of their own, while `panel_digest` — which
+# hashes panel modules and no lens file — does not move. What that buys is a
+# comparison; what it does NOT buy is a comparison against an OLD run, because the
+# panel moves on its own schedule and a variant replayed today against a control
+# replayed weeks ago confounds the two. Both arms, same day, or the number means
+# nothing. The preflight prints each arm's `config_hash` so the two can be told apart
+# afterwards.
+#
 # WHERE THE OUTPUT GOES. Into `dlgpdmsly2/wafflebase-agent-eval`, the same store the
 # capture collector writes to, through the same kind of scoped token — and NOT into
 # this repository. Git history is permanent; a replay envelope committed here could
@@ -95,6 +106,14 @@ on:
         description: "Optional comma-separated item subset, e.g. pr-524. Empty replays the whole corpus. A typo is refused, not skipped."
         required: false
         default: ""
+      # NO DEFAULT NAMING A PATH, deliberately. `run.mjs` already owns the default
+      # lenses directory; repeating it here would give the same constant two homes
+      # and the two would drift. Empty means "pass no flag", so the runner's own
+      # default applies and this input cannot be the thing that changed it.
+      lenses_dir:
+        description: "Optional path INSIDE this checkout to an alternative lens configuration, e.g. scripts/agent/lenses-sonnet. Empty uses the committed panel config. A variant is a DIFFERENT REVIEWER — it lands under its own config_hash and pools with nothing else — so a comparison needs BOTH arms dispatched on the same day, against the same panel commit. The preflight prints the config_hash before anything is spent."
+        required: false
+        default: ""
 
 # READ ONLY, exactly as the collector is. The write capability is a secret aimed at a
 # different repository, not a permission held here. No `contents: write`, no
@@ -148,8 +167,12 @@ jobs:
         with:
           node-version: 22.x
 
-      # No `npm ci`. The preflight reads JSON and does arithmetic; it imports only
-      # `node:` builtins and two sibling modules.
+      # Still no `npm ci`. The preflight reads JSON, does arithmetic, and builds the
+      # lens config — and that last one pulls in `config-build.mjs` and, through it,
+      # most of the agent's module graph. None of it needs an install: every import
+      # on that path is a sibling `.mjs`, and the SDK is loaded lazily by `ask.mjs`
+      # at call time rather than at import time. `eval/config-build.test.mjs` runs in
+      # the same no-install lane and would fail here first if that stopped being true.
       - name: Preflight the dispatch
         id: plan
         env:
@@ -159,6 +182,7 @@ jobs:
           PANEL: ${{ inputs.panel }}
           REPLICATES: ${{ inputs.replicates }}
           ITEMS: ${{ inputs.items }}
+          LENSES_DIR: ${{ inputs.lenses_dir }}
         run: |
           set -euo pipefail
           node scripts/agent/eval/replay-plan.mjs \
@@ -169,6 +193,7 @@ jobs:
             --max-cost-usd "$MAX_COST_USD" \
             --panel "$PANEL" \
             --items "$ITEMS" \
+            --lenses-dir "$LENSES_DIR" \
             --panel-timeout "$PANEL_TIMEOUT_S" \
             --job-timeout "$JOB_TIMEOUT_MIN" \
             --overhead "$JOB_OVERHEAD_MIN"
@@ -241,6 +266,7 @@ jobs:
           PANEL: ${{ inputs.panel }}
           REPLICATES: ${{ inputs.replicates }}
           ITEMS: ${{ inputs.items }}
+          LENSES_DIR: ${{ inputs.lenses_dir }}
         run: |
           set -euo pipefail
           node scripts/agent/eval/replay-plan.mjs \
@@ -251,6 +277,7 @@ jobs:
             --max-cost-usd "$MAX_COST_USD" \
             --panel "$PANEL" \
             --items "$ITEMS" \
+            --lenses-dir "$LENSES_DIR" \
             --panel-timeout "$PANEL_TIMEOUT_S" \
             --job-timeout "$JOB_TIMEOUT_MIN" \
             --overhead "$JOB_OVERHEAD_MIN" \
@@ -369,6 +396,7 @@ jobs:
           MAX_COST_USD: ${{ inputs.max_cost_usd }}
           PANEL: ${{ inputs.panel }}
           ITEMS: ${{ inputs.items }}
+          LENSES_DIR: ${{ inputs.lenses_dir }}
           LEG_RUN_ID: ${{ matrix.runId }}
         run: |
           set -euo pipefail
@@ -382,6 +410,15 @@ jobs:
           )
           if [ -n "$ITEMS" ]; then
             ARGS+=(--items "$ITEMS")
+          fi
+          # ADDED ONLY WHEN ASKED FOR, so an empty input leaves the runner's own
+          # default in charge. `--lenses-dir ""` would NOT do that: run.mjs takes its
+          # default with `??`, which an empty string satisfies, and `path.resolve("")`
+          # is the process's working directory — so passing the flag unconditionally
+          # would silently point the panel at the workspace root and fail looking for
+          # a lenses.json that was never there. Same shape as ITEMS above.
+          if [ -n "$LENSES_DIR" ]; then
+            ARGS+=(--lenses-dir "$LENSES_DIR")
           fi
           if [ "$PANEL" != "real" ]; then
             echo "eval-replay: DRY RUN — stub panel, no model calls, nothing will be pushed."
