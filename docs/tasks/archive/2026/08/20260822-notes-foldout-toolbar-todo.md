@@ -9,13 +9,13 @@ callout.
 
 ## Acceptance criteria (from the issue)
 
-- [ ] Toolbar gains **Foldout**, **Code**, **Quote** buttons.
-- [ ] Foldout inserts the `<details>` / `<summary>` skeleton at the cursor,
+- [x] Toolbar gains **Foldout**, **Code**, **Quote** buttons.
+- [x] Foldout inserts the `<details>` / `<summary>` skeleton at the cursor,
       caret between `<summary>` and `</summary>`. Not a toggle (foldouts nest).
-- [ ] `.note-details` loses its background colour and borders.
-- [ ] Foldout reads as standard text — only the disclosure arrow next to the
+- [x] `.note-details` loses its background colour and borders.
+- [x] Foldout reads as standard text — only the disclosure arrow next to the
       summary; margins/padding match normal text.
-- [ ] Content inside `<details>` is rendered indented, showing it is a child
+- [x] Content inside `<details>` is rendered indented, showing it is a child
       of the foldout.
 
 ## Plan

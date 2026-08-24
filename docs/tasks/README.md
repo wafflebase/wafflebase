@@ -18,19 +18,12 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| panel pool exhaustion infra (2026-08-24) | [20260824-panel-pool-exhaustion-infra-todo.md](./active/20260824-panel-pool-exhaustion-infra-todo.md) | - |
-| image viewer back button (2026-08-22) | [20260822-image-viewer-back-button-todo.md](./active/20260822-image-viewer-back-button-todo.md) | [20260822-image-viewer-back-button-lessons.md](./active/20260822-image-viewer-back-button-lessons.md) |
-| notes foldout toolbar (2026-08-22) | [20260822-notes-foldout-toolbar-todo.md](./active/20260822-notes-foldout-toolbar-todo.md) | [20260822-notes-foldout-toolbar-lessons.md](./active/20260822-notes-foldout-toolbar-lessons.md) |
-| notes list controls (2026-08-22) | [20260822-notes-list-controls-todo.md](./active/20260822-notes-list-controls-todo.md) | [20260822-notes-list-controls-lessons.md](./active/20260822-notes-list-controls-lessons.md) |
-| sheet move merge propagation (2026-08-22) | [20260822-sheet-move-merge-propagation-todo.md](./active/20260822-sheet-move-merge-propagation-todo.md) | [20260822-sheet-move-merge-propagation-lessons.md](./active/20260822-sheet-move-merge-propagation-lessons.md) |
 | debug report (2026-08-21) | [20260821-debug-report-todo.md](./active/20260821-debug-report-todo.md) | - |
-| pr786 conflict resolution (2026-08-20) | [20260820-pr786-conflict-resolution-todo.md](./active/20260820-pr786-conflict-resolution-todo.md) | - |
 | docs inline style off clears key (2026-08-19) | [20260819-docs-inline-style-off-clears-key-todo.md](./active/20260819-docs-inline-style-off-clears-key-todo.md) | [20260819-docs-inline-style-off-clears-key-lessons.md](./active/20260819-docs-inline-style-off-clears-key-lessons.md) |
 | font list preview (2026-08-19) | [20260819-font-list-preview-todo.md](./active/20260819-font-list-preview-todo.md) | - |
 | claude token pool (2026-08-14) | [20260814-claude-token-pool-todo.md](./active/20260814-claude-token-pool-todo.md) | - |
 | path aware ci (2026-08-12) | [20260812-path-aware-ci-todo.md](./active/20260812-path-aware-ci-todo.md) | - |
 | cli upstream error envelope (2026-08-11) | [20260811-cli-upstream-error-envelope-todo.md](./active/20260811-cli-upstream-error-envelope-todo.md) | [20260811-cli-upstream-error-envelope-lessons.md](./active/20260811-cli-upstream-error-envelope-lessons.md) |
-| docs sync (2026-08-01) | [20260801-docs-sync-todo.md](./active/20260801-docs-sync-todo.md) | - |
 | autonomous issue hunting (2026-07-29) | [20260729-autonomous-issue-hunting-todo.md](./active/20260729-autonomous-issue-hunting-todo.md) | [20260729-autonomous-issue-hunting-lessons.md](./active/20260729-autonomous-issue-hunting-lessons.md) |
 | design editor layout sandbox (2026-07-29) | [20260729-design-editor-layout-sandbox-todo.md](./active/20260729-design-editor-layout-sandbox-todo.md) | [20260729-design-editor-layout-sandbox-lessons.md](./active/20260729-design-editor-layout-sandbox-lessons.md) |
 | shared core extraction (2026-07-14) | [20260714-shared-core-extraction-todo.md](./active/20260714-shared-core-extraction-todo.md) | [20260714-shared-core-extraction-lessons.md](./active/20260714-shared-core-extraction-lessons.md) |
@@ -46,7 +39,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 546
+- Archived task count: 553
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: panel pool exhaustion infra (2026-08-24)
+Latest active task: debug report (2026-08-21)

@@ -51,7 +51,7 @@ Then inside the existing batch, after the cells and range styles are written:
       - move onto a merged destination unmerges the destination
       - move that would split a merged block is a no-op
 - [x] Update the "Cell drag-move" bullet in `docs/design/sheets/sheet.md`
-- [ ] PR + CI
+- [x] PR + CI
 
 ## Non-goals
 
