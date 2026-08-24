@@ -14,6 +14,27 @@ const pendingCallbacks = new Map<string, Set<() => void>>();
 const failedImages = new Set<string>();
 
 /**
+ * Maps a CRDT-stored `src` to the URL actually fetched. Identity by default;
+ * a shared-link mount installs a resolver that appends its `?token=` to
+ * workspace image URLs so anonymous viewers can load them (the stored `src`
+ * is shared across all viewers and cannot itself carry a per-viewer token).
+ * Applied wherever a `src` becomes a cache key so `getOrLoadImage` and
+ * `isImageFailed` agree on the key.
+ */
+let urlResolver: (src: string) => string = (s) => s;
+
+/**
+ * Install (or clear, with `null`) the src → fetch-URL resolver. The resolver
+ * must be idempotent and leave non-workspace URLs (data:, blob:, external)
+ * untouched. Set on a shared-link mount, cleared on unmount.
+ */
+export function setImageUrlResolver(
+  resolver: ((src: string) => string) | null,
+): void {
+  urlResolver = resolver ?? ((s) => s);
+}
+
+/**
  * Return a loaded `HTMLImageElement` for `src`, or `null` if it is
  * still loading OR has failed. Use `isImageFailed(src)` to distinguish
  * the two null cases. On first encounter, kicks off an async load and
@@ -21,9 +42,10 @@ const failedImages = new Set<string>();
  * failed image still triggers a re-render that paints the placeholder.
  */
 export function getOrLoadImage(
-  src: string,
+  logicalSrc: string,
   onLoad: () => void,
 ): HTMLImageElement | null {
+  const src = urlResolver(logicalSrc);
   const cached = imageCache.get(src);
   if (cached) {
     if (cached.complete && cached.naturalWidth > 0) return cached;
@@ -71,7 +93,7 @@ export function getOrLoadImage(
  * placeholder.
  */
 export function isImageFailed(src: string): boolean {
-  return failedImages.has(src);
+  return failedImages.has(urlResolver(src));
 }
 
 /**
@@ -95,4 +117,5 @@ export function clearImageCacheForTests(): void {
   imageCache.clear();
   pendingCallbacks.clear();
   failedImages.clear();
+  urlResolver = (s) => s;
 }
