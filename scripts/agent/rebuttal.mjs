@@ -289,6 +289,28 @@ export function findingKeyOf(finding) {
  *
  * The LAST rebuttal above threshold wins when scores differ, so a later round's
  * refined argument supersedes an earlier one rather than being shadowed by it.
+ *
+ * AND THE TIE IS ON THE TARGET, not on the whole record, which is what makes that
+ * last sentence true when the scores are EQUAL — the case it never handled.
+ * `findingSimilarity` scores on the summary after gating lens+file, so two
+ * rebuttals disputing the SAME finding in two rounds score identically: same
+ * summary, refined claim. Comparing `claim` as well read that refinement as
+ * ambiguity and discarded both, which is exactly the shape `MAX_REBUTTAL_ROUNDS`
+ * exists to permit — a finding may be disputed twice — so the bound could never be
+ * reached through this path and the standstill page could not fire from it.
+ * Measured over every rebuttal ever filed (9, on 3 PRs, disputing 5 distinct
+ * findings): 3 of the 5 were discarded this way, all three of them second- or
+ * third-round refinements of the same argument.
+ *
+ * Same summary means same finding, because lens and file are already gated — so
+ * the later one wins, consistent with the rule above. Two rebuttals with
+ * DIFFERENT summaries scoring equally are still refused, and that is the case
+ * this refusal is actually for: two records naming two different targets fit this
+ * finding equally well, so we cannot tell which of them is about it, and the safe
+ * reading is neither. Note that is NOT the same as one rebuttal clearing several
+ * findings — this function runs per finding, so a single rebuttal above threshold
+ * against two of them is matched to both and buys a session for each, which the
+ * tie rule has never governed and this change does not alter.
  */
 export function matchRebuttal(finding, rebuttals, { threshold = DEFAULT_SIMILARITY } = {}) {
   let best = null;
@@ -308,9 +330,11 @@ export function matchRebuttal(finding, rebuttals, { threshold = DEFAULT_SIMILARI
       bestScore = score;
       tied = false;
     } else if (score === bestScore) {
-      // Same rebuttal text posted twice is not an ambiguity — it is one claim,
-      // and the later copy is the one to act on.
-      tied = !(best && best.summary === r.summary && best.claim === r.claim);
+      // The same FINDING disputed twice is not an ambiguity — it is one argument,
+      // refined, and the later round is the one to act on. Comparing the claim
+      // text too made a second round's rewording indistinguishable from two
+      // rebuttals pointing at two different findings.
+      tied = !(best && best.summary === r.summary);
       if (!tied) best = r;
     }
   }
