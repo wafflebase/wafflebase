@@ -54,11 +54,36 @@ const trim = (s, n) => (str(s).length > n ? str(s).slice(0, n) : str(s));
 // fence, so this is hardening rather than a bypass; a forgeable fence is no fence.
 const defence = (s) => str(s).replace(/<\/?fix-report>/gi, "[fence]");
 
+// The lens id, in the ONE vocabulary the panel matches on.
+//
+// The fixer fills `lens` in from what it can see on the PR, and what it can see is
+// a check run called `agent-review-correctness`; `stampLens` gives findings the
+// bare `correctness`. `findingSimilarity` gates on lens equality and returns 0
+// OUTRIGHT — not a low score — so a prefixed claim matched nothing, silently:
+// `claimFor` returned null, `applySkipClaims` passed the finding through
+// untouched, and the fixer's stated reason was not even recorded as unmatched.
+// Measured 2026-08-24 over the 16 agent-authored PRs: 296 of 348 claims (85%)
+// carried the prefix, and every one of those 16 PRs has at least one.
+//
+// Normalized HERE, at the author boundary, and not in `findingSimilarity`: that
+// function has ~30 call sites including round-to-round clustering, and changing
+// what it considers equal would move every number computed from it for the sake of
+// one field written in the wrong vocabulary. Same reasoning as the length caps
+// above — the untrusted writer's text is regularised on the way in.
+//
+// ANCHORED, so a real id can never be corrupted: none of the six lens ids in
+// lenses/lenses.json begins with `agent-review-`. Four other modules already do
+// exactly this to the same check-run names (fix-brief.mjs, loop-status.mjs,
+// prior-findings.mjs, rounds.mjs), and `agreedReviewedSha` in review-state.mjs
+// accepts both spellings for the same reason — this is the same convention, at the
+// boundary that had been left out of it.
+const lensId = (s) => str(s).trim().replace(/^agent-review-/, "");
+
 /** One reported item, length-capped. */
 function normalizeItem(raw) {
   const i = raw && typeof raw === "object" ? raw : {};
   return {
-    lens: trim(str(i.lens).trim(), 60),
+    lens: trim(lensId(i.lens), 60),
     file: trim(str(i.file).trim(), 300),
     summary: trim(i.summary, 2000),
     note: trim(i.note, 2000),
@@ -158,9 +183,11 @@ export function flattenClaims(reports) {
       for (const i of Array.isArray(r?.[status]) ? r[status] : []) {
         // lens+file are what `findingSimilarity` gates on. Without both, a claim
         // can never match anything, so keeping it would only add a row that looks
-        // like it was considered.
-        if (str(i?.lens).trim() === "" || str(i?.file).trim() === "") continue;
-        out.push({ ...normalizeItem(i), status, head: str(r.head), createdAt: str(r.createdAt) });
+        // like it was considered. Tested on the NORMALIZED item, because a lens of
+        // exactly `agent-review-` reduces to empty and is just as unmatchable.
+        const item = normalizeItem(i);
+        if (item.lens === "" || item.file === "") continue;
+        out.push({ ...item, status, head: str(r.head), createdAt: str(r.createdAt) });
       }
     }
   }
