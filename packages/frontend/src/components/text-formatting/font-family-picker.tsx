@@ -24,7 +24,12 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { IconChevronDown } from "@tabler/icons-react";
-import { FONT_CATALOG, type FontEntry, type FontGroup } from "./font-catalog";
+import {
+  FONT_CATALOG,
+  ensureFontLink,
+  type FontEntry,
+  type FontGroup,
+} from "./font-catalog";
 import { MoreFontsDialog } from "./more-fonts-dialog";
 import { getRecentFonts, addRecentFont } from "./font-recents";
 import { loadFullFontCatalog } from "./font-catalog-full-loader";
@@ -94,6 +99,37 @@ export function FontFamilyPicker({
     };
   }, [moreOpen, fullCatalog]);
 
+  // Radix remounts the portalled content on every open, so the scroll
+  // container has to reach the effect below through a callback ref into
+  // state — a `useRef` would never re-run it.
+  const [listEl, setListEl] = useState<HTMLElement | null>(null);
+
+  // Load each row's face the first time it scrolls into view, so scroll and
+  // keyboard navigation paint real previews instead of leaving everything
+  // but the 8 `eager` families in a fallback (#727). Mirrors the observer
+  // `MoreFontsDialog` runs over its own list. `recents` is a dep because
+  // `onOpenChange` sets it, rendering the list a second time.
+  useEffect(() => {
+    if (!listEl || typeof IntersectionObserver === "undefined") return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const family = (entry.target as HTMLElement).dataset.fontRow;
+          if (family) ensureFontLink(family);
+          obs.unobserve(entry.target);
+        }
+      },
+      // A few rows of lead; outrunning it only shows the `display=swap`
+      // fallback until the face arrives.
+      { root: listEl, rootMargin: "120px" },
+    );
+    listEl
+      .querySelectorAll<HTMLElement>("[data-font-row]")
+      .forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+  }, [listEl, recents]);
+
   // Stash the picked family in a ref and replay it from `onCloseAutoFocus`
   // rather than firing `onChange` directly from the item's onClick. The
   // caller's onChange typically ends with `editor.focus()` to restore the
@@ -142,6 +178,7 @@ export function FontFamilyPicker({
           <TooltipContent>Font</TooltipContent>
         </Tooltip>
         <DropdownMenuContent
+          ref={setListEl}
           className="max-h-[320px] w-[220px] overflow-y-auto"
           data-text-edit-keepalive
           onCloseAutoFocus={(e) => {
@@ -172,6 +209,7 @@ export function FontFamilyPicker({
                 return (
                   <DropdownMenuCheckboxItem
                     key={`recent:${family}`}
+                    data-font-row={family}
                     checked={family === value}
                     onPointerEnter={() => {
                       if (entry?.webFont ?? true) onPrefetch?.(family);
@@ -200,6 +238,7 @@ export function FontFamilyPicker({
                 {entries.map((entry) => (
                   <DropdownMenuCheckboxItem
                     key={entry.family}
+                    data-font-row={entry.family}
                     checked={entry.family === value}
                     onPointerEnter={() => {
                       if (entry.webFont) onPrefetch?.(entry.family);
