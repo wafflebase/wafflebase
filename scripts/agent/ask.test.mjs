@@ -18,6 +18,7 @@ import {
   isCredentialRejected,
   nextCredential,
   poolExhaustedError,
+  sessionNeverRan,
   failoverStep,
   __setTokenPool,
   credentialEnv,
@@ -758,4 +759,42 @@ test("isAccountLimit: prefers the code, falls back to prose for pre-vocabulary c
   // Bare `{ kind, detail }` — several call sites and every stored record predating
   // the vocabulary look like this.
   assert.ok(isAccountLimit({ kind: "api-error", detail: "You've hit your usage limit" }));
+});
+
+test("sessionNeverRan: the kinds where no reviewer ever opened", () => {
+  // The two failures that mean no session ran. `pool-exhausted` is the same
+  // outage as `api-error` — a closed window or a refused credential — and reaches
+  // the panel under a different `kind` only because failover ran out of slots.
+  assert.ok(sessionNeverRan({ kind: "api-error" }));
+  assert.ok(sessionNeverRan(poolExhaustedError({ label: "review", pool: { size: 2 } })));
+});
+
+test("sessionNeverRan: a model that RAN is never infrastructure", () => {
+  // The safety property. A run ceiling and an empty verdict both mean the model
+  // ran, spent turns and returned nothing usable — there IS a review to re-attempt
+  // and a verifier can reason about it, so both stay ordinary fail-closed
+  // blockers. Widening this predicate to either of them would silently drop real
+  // no-verdict rounds out of the carry-forward, which is the #521 false negative.
+  assert.equal(sessionNeverRan({ kind: "limit" }), false);
+  assert.equal(sessionNeverRan({ kind: "no-output" }), false);
+  // Total on junk: an unrecognised or absent kind is not a licence to drop.
+  assert.equal(sessionNeverRan({ kind: "unknown" }), false);
+  assert.equal(sessionNeverRan({}), false);
+  assert.equal(sessionNeverRan(null), false);
+  assert.equal(sessionNeverRan(undefined), false);
+});
+
+test("poolExhaustedError: carries the same publishable vocabulary as every other failure", () => {
+  const err = poolExhaustedError({ label: "review", pool: { size: 3 } });
+  assert.equal(err.kind, "pool-exhausted");
+  assert.equal(err.retryable, false);
+  // Without a `code`/`reason` this was the one failure reaching a renderer with
+  // nothing to publish, so the renderer re-derived one from `detail` — which for a
+  // drained pool is empty, and came out as "no response from the API".
+  assert.equal(err.code, "POOL_EXHAUSTED");
+  assert.match(err.reason, /^\[POOL_EXHAUSTED\]/);
+  // Empty BY CONSTRUCTION, not merely redacted: nothing upstream is quoted here.
+  assert.equal(err.detail, "");
+  // The operator-facing message is unchanged.
+  assert.match(err.message, /^review: every credential in the pool \(3\) was retired/);
 });
