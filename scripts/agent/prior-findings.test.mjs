@@ -375,6 +375,31 @@ test("a genuine no-verdict is NOT infrastructure, and IS carried forward", () =>
     [{ ...noOutput, lens: "security" }]);
 });
 
+test("a MIXED round — one sample never ran, one ran and produced nothing — is infrastructure", () => {
+  // ANY never-ran sample decides, not every one, and the quantifier is deliberate.
+  // Samples fan out concurrently (`sampleWithWarmup`), so a sibling lens can drain
+  // the pool while this lens's other sample is still burning turns; the mix is
+  // reachable, in either order.
+  //
+  // Requiring EVERY sample to have never run would put this round back on the leak
+  // path: no `infra` flag, so a content-free "major" record — no `file`, no
+  // evidence, nothing to fix — is carried to the fix agent and to a verifier that
+  // cannot refute it, which is the defect this whole change removes. Tagging it
+  // infrastructure costs far less: the round still fails (`conclusion: "failure"`
+  // and `valid: false` are set on BOTH branches, so blocking is not affected by
+  // this flag at all) and the lens simply runs again next round.
+  const pool = drainedPoolSample();
+  const limit = { __error: "review query hit a run limit: [RUN_LIMIT_TURNS] turn ceiling reached (26 turns)", kind: "limit", status: null, code: "RUN_LIMIT_TURNS" };
+  // Order-independent: `results[0]` supplies the message, but the flag comes from
+  // the first never-ran sample wherever it sits.
+  for (const [label, results] of [["never-ran first", [pool, limit]], ["never-ran second", [limit, pool]]]) {
+    const record = synthesisedRecord(results);
+    assert.equal(record.infra, true, `${label}: a drained pool must still be infrastructure`);
+    assert.match(record.summary, /^Review could not run — Claude API\/quota error: \[POOL_EXHAUSTED\]/, label);
+    assert.deepEqual(tagPriorFindings(new Map([["agent-review-security", { output: { text: JSON.stringify([record]) } }]])), [], label);
+  }
+});
+
 test("the legacy summary-prefix branch is unchanged by the fix", () => {
   // Widening `isInfraRecord` to also match "Reviewer did not produce a valid
   // verdict" would have fixed the leak too, and it was the wrong fix: `summary` is
