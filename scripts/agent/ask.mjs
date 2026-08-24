@@ -633,7 +633,43 @@ export function poolExhaustedError({ label, pool }) {
   );
   err.kind = "pool-exhausted";
   err.retryable = false;
+  // The same three publishable fields every `classifyResult` failure carries. This
+  // error is built here rather than there, so without this it was the ONE failure
+  // reaching a renderer with no `code` and no `reason` — and a renderer with no
+  // `reason` falls back to re-deriving one from `detail`, which for a drained pool
+  // is empty. `detail` is empty by construction and not merely redacted: nothing
+  // upstream is quoted here, only a slot count this repo produced itself.
+  Object.assign(err, safeFailure({ kind: "pool-exhausted", status: null, detail: "" }));
   return err;
+}
+
+/**
+ * Did this failure mean the session NEVER RAN, as opposed to running and producing
+ * nothing usable?
+ *
+ * The distinction decides whether a failure is INFRASTRUCTURE, and it is not the
+ * same question as "did something go wrong". A run ceiling (`limit`) and an empty
+ * verdict (`no-output`) both mean the model ran, spent turns and returned something
+ * unusable — those stay ordinary fail-closed blockers, because there is a review to
+ * re-attempt and a verifier can reason about it. `api-error` and `pool-exhausted`
+ * mean no reviewer ever opened, so there is nothing to re-check and nothing a
+ * verifier could refute.
+ *
+ * `pool-exhausted` belongs here and its absence was a real defect. It is the SAME
+ * underlying failure as an `api-error` — a closed usage window or a refused
+ * credential — wearing a different `kind` only because a pool was configured and
+ * failover ran out of slots. Keying infrastructure on `api-error` alone therefore
+ * classified one outage two different ways depending on how many credentials the
+ * run happened to have, and the multi-credential answer was the wrong one: the
+ * synthesised record lost its `infra` flag and was carried into the next round as a
+ * blocking code finding.
+ *
+ * Exported so the panel and its tests agree on one predicate rather than each
+ * spelling out a list of kinds that has already grown once.
+ */
+export function sessionNeverRan(err) {
+  const kind = err && typeof err.kind === "string" ? err.kind : "";
+  return kind === "api-error" || kind === "pool-exhausted";
 }
 
 /**

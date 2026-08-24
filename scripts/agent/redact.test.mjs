@@ -12,7 +12,7 @@ import {
 } from "./redact.mjs";
 import { MAX_SLOTS } from "./token-pool.mjs";
 import { classifyResult } from "./ask.mjs";
-import { infraSummary, lensFailureSummary } from "./review-panel.mjs";
+import { infraSummary, lensFailureSummary, lensInfraReason } from "./review-panel.mjs";
 import { renderGuardSummary, guardVerdictLine } from "./guard-verdict.mjs";
 import { renderSessionSummary } from "./session-job-summary.mjs";
 import { renderFixEffort } from "./metrics.mjs";
@@ -339,4 +339,35 @@ test("the panel publishes the request id, which it could not re-derive itself", 
   const err = Object.assign(new Error("all lens samples failed"),
     { infra: true, status: c.status, detail: c.detail, code: c.code, reason: c.reason });
   assert.ok(lensFailureSummary(err).includes(id), "the request id was lost on the way to the PR");
+});
+
+test("both renderers classify a drained pool from its kind, not from an assumed one", () => {
+  // A record persisted before `poolExhaustedError` carried the vocabulary — or any
+  // caller that builds a bare `{ infra, kind }` — reaches these two renderers with
+  // no `reason` to prefer, so each has to re-derive one. Hard-coding `"api-error"`
+  // there sent a drained pool down the status branches, and with no status and no
+  // detail to read it came out as NO_RESPONSE: "no response from the API", for an
+  // outage in which no request was ever sent.
+  const bare = Object.assign(new Error("review: every credential in the pool (2) was retired"), {
+    infra: true, kind: "pool-exhausted",
+  });
+  assert.equal(lensInfraReason(bare), "[POOL_EXHAUSTED] every credential in the pool was retired");
+  assert.equal(lensFailureSummary(bare), infraSummary({ reason: "[POOL_EXHAUSTED] every credential in the pool was retired" }));
+  // The operator's own message, which is the one that names the slot count, stays
+  // in the log; only the vocabulary is published.
+  assert.ok(!lensFailureSummary(bare).includes("(2)"));
+});
+
+test("lensInfraReason: null for a model that ran, whatever else the error carries", () => {
+  // The field is read as a boolean by every consumer — the workflow persists an
+  // empty carry-forward on it, eval/run.mjs voids the item, PANEL_INFRA_ERROR pages
+  // on it — so a non-null value for a genuine no-verdict would stop that round
+  // gating the merge. `infra` is the only thing that may decide this.
+  assert.equal(lensInfraReason(Object.assign(new Error("x"), { kind: "limit", code: "RUN_LIMIT_TURNS" })), null);
+  assert.equal(lensInfraReason(Object.assign(new Error("x"), { kind: "no-output" })), null);
+  assert.equal(lensInfraReason(new Error("all lens samples failed")), null);
+  assert.equal(lensInfraReason({}), null);
+  assert.equal(lensInfraReason(), null);
+  // And non-null the moment the producer says the session never opened.
+  assert.equal(lensInfraReason({ infra: true, kind: "api-error", status: 429 }), "[RATE_LIMITED] rate limited (HTTP 429)");
 });
