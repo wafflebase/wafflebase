@@ -364,6 +364,24 @@ describe('installPicker', () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
+  it('prevents a POINTER activation too, which is how Radix menus open', () => {
+    /*
+     * `DropdownMenuTrigger` acts on `onPointerDown`, so a list covering only
+     * `mousedown`/`mouseup` let a dropdown open its menu instead of selecting the
+     * trigger — picking looked broken on exactly the controls someone most wants to
+     * restyle, and the workaround was to leave the mode, open the menu, and come back.
+     */
+    picker();
+    const el = stamped('button', 'app/a.tsx', 'Page', [0], 'fp-a');
+    const onPointerDown = vi.fn();
+    el.addEventListener('pointerdown', onPointerDown);
+    document.body.append(el);
+    const ev = new window.Event('pointerdown', { bubbles: true, cancelable: true });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(onPointerDown).not.toHaveBeenCalled();
+  });
+
   it('ignores a message from another origin', () => {
     // The frame renders real product code and shares a window with whatever the host
     // page runs; selection and writes must not be drivable from outside.

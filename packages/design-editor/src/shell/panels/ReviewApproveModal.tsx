@@ -413,8 +413,17 @@ export function ReviewApproveModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn('max-w-2xl', dark && 'dark')}>
-        <DialogHeader>
+      {/*
+        THE TITLE AND THE CLOSE BUTTON DO NOT SCROLL.
+        
+        A staged plan can be long — one diff card per file, each with a `<pre>` — and the
+        dialog grew with it: the header scrolled off the top and the close control went
+        with it, so the only way out of a tall review was Escape. A column with a bounded
+        height, a fixed header and one scrolling body is the shape every review dialog
+        has for that reason.
+      */}
+      <DialogContent className={cn('flex max-h-[85vh] max-w-2xl flex-col gap-0', dark && 'dark')}>
+        <DialogHeader className="shrink-0 pb-3">
           <DialogTitle className="flex items-center gap-2">
             <ShieldCheck className="size-4 text-primary" /> Review &amp; Approve
           </DialogTitle>
@@ -425,6 +434,7 @@ export function ReviewApproveModal({
           </DialogDescription>
         </DialogHeader>
 
+        <div className="-mr-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
         {/* Reverts have no "after" preview — they restore a prior value, so they
             are listed explicitly rather than hidden among the diffs. */}
         {reverts.length > 0 && (
@@ -634,7 +644,9 @@ export function ReviewApproveModal({
           </div>
         )}
 
-        <DialogFooter>
+        </div>
+
+        <DialogFooter className="shrink-0 pt-3">
           <button
             onClick={() => onOpenChange(false)}
             className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"

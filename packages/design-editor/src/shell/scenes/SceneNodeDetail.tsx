@@ -144,7 +144,7 @@ export function SceneNodeDetail({
                 <button
                   type="button"
                   onClick={() => onPickCandidate?.(p)}
-                  className="w-full rounded-sm border border-wb-border px-1.5 py-1 text-left font-mono text-[10px] text-wb-muted transition-colors hover:bg-wb-accent hover:text-wb-accent-fg"
+                  className="w-full rounded-sm border border-wb-border px-1.5 py-1 text-left font-mono text-[10px] text-wb-muted transition-colors hover:bg-wb-subtle hover:text-wb-fg"
                 >
                   path {p.join('.')}
                 </button>

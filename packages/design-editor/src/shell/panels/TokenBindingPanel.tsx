@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { CSSProperties } from 'react';
-import { TriangleAlert, Layers, RotateCcw, Plus, Sparkle, MousePointer2 } from 'lucide-react';
+import { TriangleAlert, RotateCcw, Plus, Sparkle, MousePointer2 } from 'lucide-react';
 import { cn } from '../lib/cn.ts';
 import type { ColorBinding, ComponentMeta, CvaValue, ScaleBinding } from '../../types.ts';
 import type { TokenFamilyMeta } from '../../tokens/adapter.ts';
@@ -43,7 +43,8 @@ const COLOR_UTILITIES = ['bg', 'text', 'border', 'ring', 'outline', 'fill', 'str
 interface TokenBindingPanelProps {
   component: ComponentMeta;
   variantState: VariantState;
-  onVariantChange: (axis: string, value: string) => void;
+  /** The interaction state the preview is forced into, or null for resting. */
+  forcedState?: string | null;
   /** Family metadata from `GET /tokens` — needed to stage a promoted state token. */
   families: TokenFamilyMeta[];
   vocabulary: string[];
@@ -77,7 +78,7 @@ const scaleOptions = (category: string): string[] =>
 function Swatch({ role }: { role: string }) {
   return (
     <span
-      className="size-4 shrink-0 rounded-sm border border-border"
+      className="size-4 shrink-0 rounded-sm border border-wb-border"
       style={{ backgroundColor: `var(--${role})` }}
       aria-hidden
     />
@@ -354,7 +355,7 @@ function toScope(id: string, value: string, label: string, v: CvaValue, axis?: s
 export function TokenBindingPanel({
   component,
   variantState,
-  onVariantChange,
+  forcedState,
   families,
   vocabulary,
   extraRoles,
@@ -412,7 +413,16 @@ export function TokenBindingPanel({
    * returns to what the source actually says.
    */
   const renderStates = (scope: Scope) => {
-    const slots = stateSlots(scope.classes, allRoles, COLOR_UTILITIES);
+    /*
+     * FILTERED TO THE STATE ON SCREEN.
+     *
+     * The toolbar picks a state and the preview renders it; this list went on showing
+     * every state's rows, so the panel described four things while the centre showed
+     * one. With no state chosen it shows them all, which is the resting case — you are
+     * reading the component rather than working on one of its states.
+     */
+    const all = stateSlots(scope.classes, allRoles, COLOR_UTILITIES);
+    const slots = forcedState ? all.filter((sl) => sl.state === forcedState) : all;
     if (!slots.length) return null;
 
     return (
@@ -427,12 +437,29 @@ export function TokenBindingPanel({
         )}
         <div className="flex flex-col gap-2">
           {slots.map((slot) => {
-            const key = `${component.name}|${scope.id}|st|${slot.state}|${slot.utility}`;
+            /*
+             * `slot.id`, NOT `state|utility` — and this was two bugs in one key.
+             *
+             * A scope's classes can carry the same state and utility in more than one
+             * CONTEXT: Button declares `focus-visible:border-ring` and
+             * `aria-invalid:border-destructive`, so `stateSlots` returns a slot per
+             * context and the old key collided across them. React saw duplicate keys and
+             * stopped reconciling the list properly — forcing a state filtered 14 rows
+             * down to 3 and left 9 of the old ones in the DOM, so the panel looked like
+             * the filter did not work. The staged edits collided too: one context's edit
+             * overwrote the other's, silently.
+             *
+             * `slot.id` is `context|state|utility` with an empty context dropped, so the
+             * base context's key is byte-identical to what it was — nothing staged under
+             * the old scheme changes meaning.
+             */
+            const key = `${component.name}|${scope.id}|st|${slot.id}`;
             const staged = classEdits[key];
             const base = {
               key,
               componentName: component.name,
-              file: '', // filled by SandboxLayout (knows the file)
+              // Stamped by the caller, which knows which component is selected.
+              file: '',
               cvaName: cva.name,
               axis: scope.axis,
               value: scope.value,
@@ -599,7 +626,8 @@ export function TokenBindingPanel({
                   onClassEdit(key, {
                     key,
                     componentName: component.name,
-                    file: '', // filled by SandboxLayout (knows the file)
+                    // Stamped by the caller, which knows which component is selected.
+                    file: '',
                     cvaName: cva.name,
                     axis: scope.axis,
                     value: scope.value,
@@ -660,43 +688,35 @@ export function TokenBindingPanel({
   };
 
   return (
-    <div className="flex h-full flex-col">
-      {/* --- #1 Variant axis chips --- */}
-      <div className="mb-3">
-        <p className="mb-1.5 flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          <Layers className="size-3" /> Variants
-        </p>
-        <div className="flex flex-col gap-2">
-          {Object.entries(cva.axes).map(([axis, values]) => (
-            <div key={axis} className="flex items-start gap-2">
-              <span className="mt-1 w-12 shrink-0 font-code text-[11px] text-muted-foreground">{axis}</span>
-              <div className="flex flex-wrap gap-1">
-                {Object.keys(values).map((value) => {
-                  const active = variantState[axis] === value;
-                  return (
-                    <button
-                      key={value}
-                      onClick={() => onVariantChange(axis, value)}
-                      className={cn(
-                        'rounded-md border px-2 py-1 text-xs transition-colors',
-                        active
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-background text-muted-foreground hover:bg-muted',
-                      )}
-                    >
-                      {value}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+    /*
+     * `tokenStyle` on the ROOT, not only on the portaled menus.
+     *
+     * Every `Swatch` paints with `var(--<role>)`, and those custom properties belong to
+     * the PROJECT's stylesheet, which the shell does not load. Applying them only to the
+     * dropdowns meant a colour resolved while a menu was open and the chip beside the
+     * control — the one you look at to know what is bound — stayed empty. Setting them
+     * here also makes a staged edit repaint the chip, because the staged value is
+     * layered over the base in the same map.
+     */
+    /*
+     * NO SCROLLER OF ITS OWN, and no `h-full`.
+     *
+     * The tab that mounts this already scrolls, so a second `overflow-y-auto` here gave
+     * the right pane two nested scrollbars side by side — and `h-full` inside a scrolling
+     * parent is what forced the inner one to appear at all. One scroller per pane: the
+     * outer one, which is also the one that can carry the Preview data section above.
+     */
+    <div className="flex flex-col" style={tokenStyle}>
+      {/*
+        THE VARIANT CHIPS MOVED TO THE TOOLBAR, above the thing they change.
 
-      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-        {scopes.map(renderScope)}
-      </div>
+        They are state — which variant is on screen — and this panel describes the
+        bindings that variant resolves to. Keeping both put one control two panels
+        away from its own effect: you chose on the right and the result appeared in
+        the centre.
+      */}
+
+      <div className="pr-1">{scopes.map(renderScope)}</div>
     </div>
   );
 }

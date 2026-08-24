@@ -13,7 +13,7 @@
 
 import type { Plugin } from 'vite';
 import type { MutateRequest, FrameSide } from './protocol.ts';
-import { planFiles } from './protocol.ts';
+import { planFileOf, planFiles } from './protocol.ts';
 import { fileOf, frameOf, stripFrameQuery, withFrameQuery, type ModuleClassifier } from './frame.ts';
 import type { PathGuard } from './paths.ts';
 import type { IntentContext } from './intents.ts';
@@ -84,7 +84,10 @@ export function scenePatch(deps: ScenePatchDeps): Plugin {
         const ctx = await deps.intentContext();
         const cache = new Map<string, string>([[abs, text]]);
         for (const intent of plan) {
-          const target = (intent.anchor ?? intent.parent)?.file;
+          // The SAME resolver `planFiles` used to decide this file needs patching. Two
+          // readings of "which file does this intent target" is how a class edit got
+          // into the set and then found no intent to apply.
+          const target = planFileOf(intent);
           if (target !== rel) continue;
           // A failed locate is NOT fatal here: this is a preview, and refusing to
           // serve the module would blank the frame instead of showing the node the

@@ -164,6 +164,55 @@ describe('analyzeFile', () => {
     expect(btn.cva.defaults).toEqual({ size: 'sm' });
   });
 
+  it('attributes a cva to the component that calls it, not to every export beside it', () => {
+    /*
+     * The attachment heuristic used to search the WHOLE FILE for `name(`, so a barrel
+     * module handed its one variant table to all of its exports: `sidebar.tsx` gave
+     * `sidebarMenuButtonVariants` to 24 of them. That is what kept the manifest to
+     * single-component files — a catalogue claiming `SidebarProvider` has a `variant`
+     * axis is worse than one that omits it.
+     */
+    const f = fixture(`
+      const menuVariants = cva("bg-sidebar", { variants: { size: { sm: "p-2" } } });
+      export function Provider(props: { children?: any }) { return <div/>; }
+      export function MenuButton(props: { size?: string }) {
+        return <button className={menuVariants({ size: props.size })}/>;
+      }`);
+    const { components } = analyzeFile(f);
+    expect(components.find((c) => c.name === 'MenuButton').cva.name).toBe('menuVariants');
+    expect(components.find((c) => c.name === 'Provider').cva).toBeNull();
+  });
+
+  it('records an arrow-function component and a re-export alias', () => {
+    /*
+     * Both are shadcn's current output and neither was recorded. The alias is the one
+     * that showed: `context-menu.tsx` declares its root as `const ContextMenu =
+     * ContextMenuPrimitive.Root`, so the catalogue saw three parts with nothing to fold
+     * them behind.
+     */
+    const f = fixture(`
+      const Panel = ({ id }: { id: string }) => <div className="bg-card"/>;
+      const Menu = MenuPrimitive.Root;
+      const rowKey = (r: any) => r.id;
+      const META = { a: 1 };
+      export { Panel, Menu, rowKey, META };`);
+    const { components } = analyzeFile(f);
+    expect(components.filter((c) => c.exported).map((c) => c.name)).toEqual(['Panel', 'Menu']);
+    expect(components.find((c) => c.name === 'Panel').tokensUsed).toEqual(['card']);
+    // An alias IS another component; it carries no classes of its own.
+    expect(components.find((c) => c.name === 'Menu').propOrigins).toEqual(['alias:MenuPrimitive.Root']);
+  });
+
+  it('does not record a lowercase export as a component', () => {
+    // JSX resolves a lowercase tag to a DOM element, so `useSidebar` cannot be one —
+    // and the catalogue was offering to preview it.
+    const f = fixture(`
+      export function useSidebar() { return null; }
+      export function Sidebar() { return <div/>; }`);
+    const named = analyzeFile(f).components.filter((c) => c.exported).map((c) => c.name);
+    expect(named).toEqual(['Sidebar']);
+  });
+
   it('keeps defaultVariants values out of the class analysis', () => {
     // `defaultVariants: { size: "sm" }` is a variant KEY, not a class blob.
     // Scraping every literal in the call would enter "sm" as a class.
@@ -205,22 +254,26 @@ describe('analyzeFile', () => {
     expect(analyzeFile(f).orphanCva).toEqual(['strayVariants']);
   });
 
-  it('over-attaches a cva to a component that never calls it', () => {
-    // Pins a KNOWN limitation, not a fix. Attachment is a file-wide text search
-    // (`src.includes("v({")`) rather than a resolved reference, so any component
-    // in a file containing one call claims the cva — here `Other` renders a
-    // plain <div> and still reports `v`, inheriting its tokens.
-    //
-    // The cost is a wrong attribution in the panel, never a wrong write: no
-    // mutation path resolves its target through this field. Recorded so the
-    // behaviour is a decision rather than a surprise.
+  it('leaves a component that never calls the cva unattached', () => {
+    /*
+     * This pinned the OPPOSITE for a while, as a known limitation: attachment was a
+     * FILE-wide text search, so any component sharing a file with one `cva()` claimed
+     * it, tokens and all. Harmless where a file held one component and wrong everywhere
+     * else — `sidebar.tsx` handed its table to 24 exports, `useSidebar` included, which
+     * is why the manifest could only ever list single-component files.
+     *
+     * The search is over the component's OWN BODY now. A call can only be in the body
+     * of whatever makes it, so nothing that legitimately matched before stops matching.
+     */
     const f = fixture(`
       const v = cva("bg-primary", {});
       export function Uses() { return <button className={v({})}/>; }
       export function Other() { return <div/>; }`);
     const { components, orphanCva } = analyzeFile(f);
-    expect(components.find((c) => c.name === 'Other').cva.name).toBe('v');
-    expect(components.find((c) => c.name === 'Other').tokensUsed).toEqual(['primary']);
+    expect(components.find((c) => c.name === 'Uses').cva.name).toBe('v');
+    expect(components.find((c) => c.name === 'Other').cva).toBeNull();
+    expect(components.find((c) => c.name === 'Other').tokensUsed).toEqual([]);
+    // Still attached to something, so it is not an orphan.
     expect(orphanCva).toEqual([]);
   });
 

@@ -134,6 +134,7 @@ export type FrameMessage =
   | { type: 'wb:select'; node: StampRef; rect: FrameRect; altKey: boolean }
   | { type: 'wb:hover'; node: StampRef | null; rect: FrameRect | null }
   | { type: 'wb:measured'; nonce: number; rect: FrameRect | null }
+  | ViewGesture
   /**
    * Four distinguishable failures, because the recovery differs:
    *   `mount`   — a missing mock or fixture. An EDITOR problem; the scene never
@@ -231,6 +232,18 @@ const FRAME_SHAPES: Record<string, (d: Rec) => boolean> = {
   'wb:classes': (d) => isStrArray(d.classes),
   'wb:route-change': (d) => isStr(d.path),
   'wb:deselect': () => true,
+  /*
+   * MISSING HERE IS WHY PAN AND ZOOM DID NOTHING.
+   *
+   * `ViewGesture` was added to the `FrameMessage` union and to the host's switch, and
+   * the frame posted it — but `shapedLike` refuses any type this table does not own, so
+   * every gesture was dropped at the door. Nothing logged it: an unrecognised message
+   * is exactly how a foreign `postMessage` is meant to be treated, so the silence was
+   * the guard working. The type-level union is not the runtime contract, and this table
+   * is; a new frame message has to be added in both places.
+   */
+  'wb:view': (d) =>
+    (d.kind === 'pan' || d.kind === 'zoom') && isNum(d.dx) && isNum(d.dy) && isNum(d.x) && isNum(d.y),
 };
 
 /** `hasOwnProperty`, so a payload typed `"constructor"` cannot borrow a prototype member. */
@@ -310,4 +323,102 @@ export function sceneFrameUrl(args: {
   const p = new URLSearchParams({ scene: args.scene, frame: args.side, theme: args.theme });
   if (args.mockDataEmpty) p.set('empty', '1');
   return `${BASE}/scene?${p.toString()}`;
+}
+
+/**
+ * The same frame, showing ONE COMPONENT across its variants instead of a route.
+ *
+ * Reuses `/scene` rather than adding a second document: the frame's whole apparatus —
+ * the fetch guard, the picker, the providers, the theme pre-paint — applies unchanged,
+ * and only what gets mounted differs. A second HTML entry would have had to keep all of
+ * that in step.
+ *
+ * The axes travel ON THE QUERY STRING, encoded `name:a,b|name:c,d`. The frame cannot
+ * read them any other way: `/api/metadata` is a bridge call, and the frame's fetch guard
+ * exists precisely to stop it making calls. They are short — two axes of six values is
+ * well under any URL limit — and passing them explicitly keeps the frame a pure function
+ * of its URL, which is what makes reloading it a reliable reset.
+ */
+export function componentFrameUrl(args: {
+  file: string;
+  component: string;
+  side: FrameSide;
+  theme: 'light' | 'dark';
+  axes?: Record<string, string[]>;
+  /** Extra classes to apply, used to force an interaction state. */
+  forced?: string;
+  /** Children for the preview — the words inside the button, not the source. */
+  label?: string;
+  /** JSON stand-ins for the component's required props. */
+  mockProps?: Record<string, unknown>;
+  /** Required props that are callbacks; the frame supplies no-ops by name. */
+  noopProps?: string[];
+  /**
+   * Where a stand-in glyph sits inside the component, and which one.
+   *
+   * A separate field from `label` rather than markup inside it: children have to cross a
+   * query string, and a string is the only thing that can. The frame turns the pair back
+   * into an `<svg>` — see `preview-icons.tsx` for why it draws its own.
+   */
+  iconSlot?: string;
+  icon?: string;
+}): string {
+  const p = new URLSearchParams({
+    file: args.file,
+    component: args.component,
+    frame: args.side,
+    theme: args.theme,
+  });
+  const axes = Object.entries(args.axes ?? {});
+  if (axes.length) p.set('axes', axes.map(([k, v]) => `${k}:${v.join(',')}`).join('|'));
+  if (args.forced) p.set('forced', args.forced);
+  if (args.label) p.set('label', args.label);
+  // JSON on the query string. Bounded by what a component declares — a handful of keys
+  // — and keeping the frame a pure function of its URL is what makes a reload a reset.
+  if (args.mockProps && Object.keys(args.mockProps).length) {
+    p.set('props', JSON.stringify(args.mockProps));
+  }
+  if (args.noopProps?.length) p.set('noops', args.noopProps.join(','));
+  // `none` is the default and says nothing, so it stays off the URL — keeping the query
+  // string a description of what was CHOSEN keeps a shared link short and readable.
+  if (args.iconSlot && args.iconSlot !== 'none') {
+    p.set('iconSlot', args.iconSlot);
+    if (args.icon) p.set('icon', args.icon);
+  }
+  return `${BASE}/scene?${p.toString()}`;
+}
+
+/**
+ * A view gesture the FRAME observed and the host must act on.
+ *
+ * The host cannot see these itself: an iframe consumes the wheel and the pointer, so a
+ * drag started over the component never surfaces in the host document. The first attempt
+ * put a transparent layer on top to catch them, which worked and cost the thing the
+ * preview is for — you could no longer hover the button or click it. Forwarding keeps
+ * the component interactive and still lets the canvas pan and zoom.
+ *
+ * Coordinates are relative to the FRAME's viewport; the host adds the frame's offset to
+ * zoom about the cursor rather than the corner.
+ */
+export interface ViewGesture {
+  type: 'wb:view';
+  kind: 'pan' | 'zoom';
+  /** `pan`: movement in CSS px. `zoom`: wheel delta, negative meaning in. */
+  dx: number;
+  dy: number;
+  x: number;
+  y: number;
+}
+
+/** Inverse of `componentFrameUrl`'s `axes` encoding. */
+export function parseAxes(raw: string | null): Record<string, string[]> {
+  if (!raw) return {};
+  const out: Record<string, string[]> = {};
+  for (const part of raw.split('|')) {
+    const at = part.indexOf(':');
+    if (at <= 0) continue;
+    const values = part.slice(at + 1).split(',').filter(Boolean);
+    if (values.length) out[part.slice(0, at)] = values;
+  }
+  return out;
 }

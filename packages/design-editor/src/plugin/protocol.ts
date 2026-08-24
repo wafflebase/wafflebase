@@ -143,6 +143,26 @@ export function layoutFileOf(intent: MutateRequest): string | null {
   return (intent.anchor ?? intent.parent)?.file ?? null;
 }
 
+/**
+ * The root-relative file a PATCHABLE intent targets, whatever kind it is.
+ *
+ * `planFiles` used to be `layoutFileOf` alone, and the consequence was that a class edit
+ * never previewed AT ALL: the set came back empty for it, so `scene-patch` served the
+ * component unpatched and `publishPlan` reloaded nothing. Rebinding a variant's
+ * background staged an edit, incremented the Save badge, and changed nothing on screen —
+ * which reads as the editor being broken rather than as one intent kind being missing
+ * from one set.
+ *
+ * TOKEN KINDS STAY OUT, and that is not an oversight. A token value reaches the frame as
+ * a CSS custom property over `wb:set-token-vars`, which needs no module patch and works
+ * in a scene the token source never reaches. Patching their source files here would be a
+ * second, redundant path to the same pixels.
+ */
+export function planFileOf(intent: MutateRequest): string | null {
+  if (LAYOUT_KINDS.has(intent.kind ?? '')) return (intent.anchor ?? intent.parent)?.file ?? null;
+  return intent.kind === 'class-rewrite' ? (intent.file ?? null) : null;
+}
+
 /** Every file a staged plan touches — the set a frame must serve patched. */
 export const planFiles = (intents: MutateRequest[]): Set<string> =>
-  new Set(intents.map(layoutFileOf).filter((f): f is string => !!f));
+  new Set(intents.map(planFileOf).filter((f): f is string => !!f));

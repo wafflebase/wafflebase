@@ -56,6 +56,12 @@ export interface SceneOutlineProps {
   onTrailTo: (index: number) => void;
   /** tag → root-relative file, for the rows that can be drilled into. */
   fileOfTag: (tag: string) => string | null;
+  /**
+   * Rename a root for display — used in components mode to drop the composite's own
+   * prefix, so `Card`'s parts read `Header` / `Title` rather than `CardHeader` /
+   * `CardTitle` under a heading that already says `Card`.
+   */
+  labelOf?: (rootName: string) => string;
 }
 
 /** `#returns` is synthetic — a container for a root's returned JSX, not an element. */
@@ -71,6 +77,7 @@ export function SceneOutline({
   onDrillIn,
   onTrailTo,
   fileOfTag,
+  labelOf,
 }: SceneOutlineProps) {
   const active = trail[trail.length - 1];
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -159,6 +166,36 @@ export function SceneOutline({
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {rootNames.map((rootName) => {
           const root = active.roots[rootName];
+          /*
+           * A ROOT THAT IS ONE ELEMENT CARRIES ITS OWN NAME, with no heading above it.
+           *
+           * `CardHeader` returns a single `div`, so the tree was a heading reading
+           * `CardHeader()` and exactly one row reading `div` — two lines to say one
+           * thing, times seven for a composite's parts. The row takes the component's
+           * name instead; there is nothing else in that root it could be confused with.
+           */
+          const only = soleElement(root);
+          if (only) {
+            return (
+              <Rows
+                key={rootName}
+                node={only}
+                depth={0}
+                label={labelOf?.(rootName) ?? rootName}
+                file={active.file}
+                rootName={rootName}
+                collapsed={collapsed}
+                onToggle={toggle}
+                selectable={selectable}
+                selectedId={selectedId}
+                hoverId={hoverId}
+                onSelect={onSelect}
+                onHover={onHover}
+                onDrillIn={onDrillIn}
+                fileOfTag={fileOfTag}
+              />
+            );
+          }
           return (
             <div key={rootName} className="mb-2">
               {/*
@@ -168,7 +205,7 @@ export function SceneOutline({
                 work there.
               */}
               <p className="sticky top-0 z-10 mb-0.5 bg-wb-panel px-1 py-0.5 font-mono text-[10px] font-medium text-wb-muted">
-                {rootName}
+                {labelOf?.(rootName) ?? rootName}
                 {rootNames.length > 1 && <span className="ml-1 opacity-60">()</span>}
               </p>
               <Rows
@@ -194,9 +231,22 @@ export function SceneOutline({
   );
 }
 
+/**
+ * The one real element a root renders, or `null` when it renders more than one.
+ *
+ * The synthetic wrapper has no row of its own, so "one element" means: strip it, and
+ * exactly one child is left with no children of its own.
+ */
+function soleElement(root: SceneNodeMeta): SceneNodeMeta | null {
+  const top = isSynthetic(root) ? root.children : [root];
+  return top.length === 1 && top[0].children.length === 0 ? top[0] : null;
+}
+
 interface RowsProps {
   node: SceneNodeMeta;
   depth: number;
+  /** Shown instead of the tag — used when a row stands in for its whole root. */
+  label?: string;
   file: string;
   rootName: string;
   collapsed: Set<string>;
@@ -219,7 +269,7 @@ function Rows(props: RowsProps) {
     return (
       <>
         {node.children.map((c) => (
-          <Rows key={c.path.join('.')} {...props} node={c} depth={depth} />
+          <Rows key={c.path.join('.')} {...props} label={undefined} node={c} depth={depth} />
         ))}
       </>
     );
@@ -241,6 +291,17 @@ function Rows(props: RowsProps) {
         data-row-id={id}
         onMouseEnter={() => props.onHover(id)}
         onMouseLeave={() => props.onHover(null)}
+        /*
+         * DOUBLE-CLICK DRILLS IN, single click still selects — the Figma convention,
+         * and the reason is that a component row answers two different questions.
+         * "Restyle this instance where it sits" is a selection; "go edit what it is
+         * made of" is a navigation. Collapsing them onto one click would make one of
+         * the two unreachable.
+         *
+         * The `↳` button stays: it is the discoverable form, and a double-click is
+         * something you only try once you suspect it works.
+         */
+        onDoubleClick={drillTo ? () => props.onDrillIn(drillTo) : undefined}
         // `hovered` is driven by shared state rather than the `:hover` pseudo-class, so
         // pointing at a node IN THE FRAME lights this row too. A CSS-only hover could
         // never do that — the pointer is in another document.
@@ -266,7 +327,12 @@ function Rows(props: RowsProps) {
           onClick={() => props.onSelect(selected ? null : id)}
           className="flex min-w-0 flex-1 items-center gap-1 py-0.5 text-left"
         >
-          <span className={cn('truncate font-mono', selected && 'font-medium')}>{node.tag}</span>
+          <span className={cn('truncate font-mono', selected && 'font-medium')}>
+            {props.label ?? node.tag}
+          </span>
+          {props.label && (
+            <span className="shrink-0 font-mono text-[9px] opacity-50">{node.tag}</span>
+          )}
           {/* `repeated` is the blast radius: ONE source node, N painted rows. */}
           {node.repeated && (
             <span

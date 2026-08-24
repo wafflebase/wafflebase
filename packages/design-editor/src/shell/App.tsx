@@ -47,6 +47,11 @@ import {
   camelToKebab,
   createBridgeClient,
   defaultVariantState,
+  forcedStateClasses,
+  mockPropsFor,
+  noopPropsFor,
+  STATES,
+  type StateKey,
   layoutEditKey,
   type BridgeClient,
   saveDiff,
@@ -68,6 +73,7 @@ import { SceneNodeDetail, type SceneSelection } from './scenes/SceneNodeDetail.t
 import { FloatingClassEditor } from './scenes/FloatingClassEditor.tsx';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs.tsx';
 import { ComponentList } from './panels/ComponentList.tsx';
+import { PreviewDataPanel } from './panels/PreviewDataPanel.tsx';
 import { ReviewApproveModal } from './panels/ReviewApproveModal.tsx';
 import { TokenBindingPanel } from './panels/TokenBindingPanel.tsx';
 import { TokenEditorPanel } from './panels/TokenEditorPanel.tsx';
@@ -75,6 +81,8 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.tsx';
 import { sceneNodeAt, type FileMeta, type SceneMeta } from '../types.ts';
 import { stampId, type FrameRect, type StampRef } from '../scenes/frame-protocol.ts';
 import { resolveImport } from '../scenes/import-paths.ts';
+import { closeAllPopovers } from './ui/popover.tsx';
+import type { IconSlot } from '../scenes/preview-icons.tsx';
 
 const defaultBridge = createBridgeClient();
 
@@ -87,6 +95,9 @@ const defaultBridge = createBridgeClient();
  */
 const SEMANTIC_VOCABULARY = (tokens: TokensResult | null): string[] =>
   Object.keys(tokens?.bindings?.themed.light ?? {}).map(camelToKebab).sort();
+
+/** A `FileMeta` as the outline's `RootsHolder`, or null when it has no tree. */
+const toHolder = (f: FileMeta | null): RootsHolder | null => (f?.roots ? { roots: f.roots } : null);
 
 /** View state worth surviving a reload, but NOT part of the undo history. */
 const VIEW_KEY = 'design-editor:view:v1';
@@ -254,6 +265,38 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
    */
   const [componentName, setComponentName] = useState<string | null>(null);
   const [variantState, setVariantState] = useState<VariantState>({});
+  /**
+   * Which interaction state the component preview is forced into.
+   *
+   * `null` is the resting component. A state renders it with that state's classes
+   * applied unconditionally — `forcedStateClasses` strips the `hover:` modifier so the
+   * rule applies without a pointer, which is the only way to LOOK at a hover style.
+   * The bindings panel already lists every state's rows; this is the other half, which
+   * is seeing what those rows describe.
+   */
+  const [forcedState, setForcedState] = useState<StateKey | null>(null);
+  /** Preview-only children for the component pane. Never written to source. */
+  /** Widths of the two side panes, in px. The centre is whatever is left. */
+  const [paneWidth, setPaneWidth] = useState({ left: 220, right: 340 });
+
+  const [previewLabel, setPreviewLabel] = useState('');
+  /**
+   * The stand-in glyph the preview renders inside the component, and where.
+   *
+   * View state, not an edit: it changes what the pane SHOWS, never the source. Kept
+   * beside `previewLabel` because both answer the same question — what the component's
+   * children are — and the panel presents them as one control.
+   */
+  const [iconSlot, setIconSlot] = useState<IconSlot>('none');
+  const [icon, setIcon] = useState('plus');
+  /**
+   * Stand-in values for the selected component's required props, as edited.
+   *
+   * Seeded from the declared types and then owned by the user — `null` means "not yet
+   * touched for this component", which is how the seed knows to run again after a
+   * selection change without discarding an edit mid-session.
+   */
+  const [mockProps, setMockProps] = useState<Record<string, unknown> | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
 
   const onHistoryReset = useCallback(
@@ -288,6 +331,9 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   const refreshMetadata = useCallback(async () => {
     const d = await bridge.metadata();
     setMeta(d);
+    // A write renumbers siblings, so a tree fetched before it is stale in exactly the
+    // way `/metadata`'s own never-cache rule describes.
+    setAnalysed({});
     if (!d.ok || !d.metadata) return;
     const scenes = d.metadata.scenes ?? [];
     const holders: Record<string, RootsHolder> = {};
@@ -370,7 +416,21 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
    * states, and stops the question being re-litigated from the shape of the expression.
    */
   const scenes: SceneMeta[] = useMemo(() => meta?.metadata?.scenes ?? [], [meta]);
-  const files: FileMeta[] = useMemo(() => meta?.metadata?.files ?? [], [meta]);
+  /**
+   * Files analysed ON DEMAND, keyed by root-relative path.
+   *
+   * `/metadata` returns exactly what the manifest declared. A drill-in can name a file
+   * the manifest never listed — that is the point of it — so its tree arrives here and
+   * overlays the declared set. Cleared when metadata is re-read, because a write can
+   * renumber nodes and a tree fetched before it is stale in exactly the way the
+   * `/metadata` comment describes.
+   */
+  const [analysed, setAnalysed] = useState<Record<string, FileMeta>>({});
+  const files: FileMeta[] = useMemo(() => {
+    const declared = meta?.metadata?.files ?? [];
+    const names = new Set(declared.map((f) => f.file));
+    return [...declared, ...Object.values(analysed).filter((f) => !names.has(f.file))];
+  }, [meta, analysed]);
   /**
    * The manifest decides the default, and it has to be re-decided when the manifest
    * arrives: the persisted id may name a scene this project no longer has, and the
@@ -402,11 +462,121 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
    * endpoint; there is no snapshot to seed from any more, so an empty list before the first
    * response is simply "not loaded yet" rather than "this project has no components".
    */
+  /**
+   * The component CATALOGUE — the project's declared components, not everything the
+   * outline has happened to open.
+   *
+   * Read off `meta` rather than the merged `files`, which also carries whatever
+   * drilling in analysed on demand. Through that list the catalogue grew every time
+   * someone drilled, filling `components` mode with primitives nobody chose to list and
+   * mostly reporting "no CVA variants" — the panel that mode exists to drive has
+   * nothing to say about a component without them.
+   *
+   * So the two sets are deliberately different: `files` is "what has a tree", and this
+   * is "what the project offers as a component".
+   */
   const allComponents = useMemo(
-    () => files.flatMap((f) => f.components ?? []),
-    [files],
+    () =>
+      (meta?.metadata?.files ?? [])
+        /*
+         * THE MODULE TRAVELS WITH THE COMPONENT.
+         *
+         * `ComponentMeta` does not carry its file — the file owns the components — and
+         * the catalogue flattened that away, so the pane could only ever be one long
+         * alphabetical column. At 8 declared files that was fine; at 25 it is 123
+         * entries, most of them parts of one composite (`dropdown-menu` alone has 15),
+         * and the shape of the list stopped telling you anything. Keeping `module` here
+         * is what lets the list group by it — and it retires the lookup `componentFile`
+         * used to do by searching every file for a matching name.
+         */
+        .flatMap((f) =>
+          (f.components ?? []).map((c) => ({ ...c, module: f.module, file: f.file })),
+        )
+        /*
+         * EXPORTED ONLY. The catalogue's entries are things you can select and preview,
+         * and the preview imports by name — a file-local component answered
+         * `exports no \`SortableHeader\`` the moment it was clicked. `document-list.tsx`
+         * alone contributed four of them.
+         *
+         * `!== false` rather than `=== true`: metadata analysed before the extractor
+         * reported this carries no flag, and hiding everything would be worse than
+         * showing a component that might not open.
+         */
+        .filter((c) => c.exported !== false),
+    [meta],
   );
-  const component = allComponents.find((c) => c.name === componentName) ?? allComponents[0];
+  /*
+   * The default selection prefers a component with a VARIANT TABLE.
+   *
+   * `allComponents[0]` is manifest order, which is now alphabetical over 25 files — so
+   * the editor opened on `Avatar` and the Bindings tab greeted every new session with
+   * "has no CVA variants". The first component that has one is what this mode is for.
+   */
+  const component =
+    allComponents.find((c) => c.name === componentName) ??
+    allComponents.find((c) => !!c.cva) ??
+    allComponents[0];
+  /** Which file the selected component came from — carried on the entry since 12d. */
+  const componentFile = component?.file ?? null;
+
+  /**
+   * The selected component's PARTS — the other exports of its module.
+   *
+   * Same rule the catalogue folds by: the shortest export whose name prefixes every
+   * other one in the module is the root, and the rest are its anatomy. Computed here
+   * because the Layout tab is where they belong — see the tab body. Empty for anything
+   * that is not a composite root.
+   */
+  /**
+   * The composite root the selected component is a PART of, or null when it is not one.
+   *
+   * Clicking a part's chip swaps the preview to that part — and a part has no parts of
+   * its own, so the chips vanished with it and there was no way back. This is the way
+   * back, and it is the same relationship read from the other end.
+   */
+  const componentRoot = useMemo(() => {
+    if (!component) return null;
+    const siblings = allComponents.filter((c) => c.module === component.module);
+    if (siblings.length < 2) return null;
+    const shortest = siblings.reduce((a, b) => (b.name.length < a.name.length ? b : a));
+    if (shortest.name === component.name) return null;
+    return siblings.every((c) => c.name.startsWith(shortest.name)) ? shortest : null;
+  }, [allComponents, component]);
+
+  const componentParts = useMemo(() => {
+    if (!component) return [];
+    const siblings = allComponents.filter((c) => c.module === component.module);
+    if (siblings.length < 2) return [];
+    const shortest = siblings.reduce((a, b) => (b.name.length < a.name.length ? b : a));
+    if (shortest.name !== component.name) return [];
+    return siblings.every((c) => c.name.startsWith(shortest.name))
+      ? siblings.filter((c) => c !== shortest)
+      : [];
+  }, [allComponents, component]);
+
+  /*
+   * CHANGING THE SUBJECT SHUTS EVERY FLOATING EDITOR.
+   *
+   * Two of them, and they get stuck for different reasons.
+   *
+   * A POPOVER (a token picker, a variant combobox) closes on an outside pointerdown and
+   * on Escape, and nothing was telling it the subject had changed — so an open menu went
+   * on offering roles for a component that had left the screen.
+   *
+   * `FloatingClassEditor` is the one you actually see, and it is not a popover at all: a
+   * `fixed` panel rendered whenever `selection` is set. The frame is recreated on every
+   * switch and the new one reports no selection, but the OLD selection stayed in this
+   * state — so the panel hung over the new subject, editing a node from the previous
+   * one. Clearing the selection is what closes it, and it has to be cleared anyway:
+   * every anchor in it belongs to a frame that no longer exists.
+   */
+  useEffect(() => {
+    closeAllPopovers();
+    setSelection(null);
+    setSelectionRect(undefined);
+    setSelectionHostRect(null);
+    setClassEditorClosed(false);
+  }, [mode, component?.name, sceneId]);
   /*
    * A PERSISTED MODE THE PROJECT CANNOT OFFER. Same shape as the scene id that vanishes
    * above: the view survives a reload, the project it describes may not. Restored as-is,
@@ -427,6 +597,43 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
     setVariantState(defaultVariantState(next));
   };
 
+  /*
+   * SEED THE AXES FOR WHATEVER IS SELECTED, not only for a component someone clicked.
+   *
+   * `component` falls back to the first in the catalogue, so on load there is a
+   * selection with no variant state behind it — the badges showed nothing chosen while
+   * the panel and the preview both spoke about the defaults. Three views of one thing
+   * disagreeing is worse than any of them being wrong.
+   */
+  useEffect(() => {
+    // Re-seeded per component, beside the variant axes and for the same reason: the
+    // previous component's values describe a different set of props.
+    setMockProps(component ? mockPropsFor(component.props ?? []) : null);
+  }, [component]);
+
+  useEffect(() => {
+    if (component) setVariantState(defaultVariantState(component));
+    // The state belongs to the component you were looking at. Carrying `hover` into the
+    // next one shows it forced into a state nobody chose, and the toolbar agrees with
+    // the previous component rather than this one.
+    setForcedState(null);
+    // The trail belongs to the component you were in. Keeping it leaves the outline
+    // showing a file the new component never composes.
+    setDrillTrail([]);
+  }, [component]);
+
+  /*
+   * A NEW SCENE STARTS AT ITS OWN FILE.
+   *
+   * `drillTrail` survived a scene change, so switching from Login — drilled into
+   * `login-form.tsx` — to Documents left the outline showing the login form beside the
+   * documents page. The breadcrumb said one thing, the frame another, and the file the
+   * detail panel anchored to belonged to neither.
+   */
+  useEffect(() => {
+    setDrillTrail([]);
+  }, [sceneId]);
+
   /** Root-relative file → its own node tree, for every file the analyser read. */
   const holderOf = useCallback(
     (file: string): RootsHolder | null => {
@@ -439,6 +646,40 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
 
   /** `[0]` is always the scene's own file; drilling in pushes, a breadcrumb click pops. */
   const trail: OutlineFile[] = useMemo(() => {
+    /*
+     * IN COMPONENTS MODE THE TRAIL IS THE COMPONENT'S OWN FILE.
+     *
+     * A scene's trail starts at its route and grows as you drill. A component has no
+     * route — the subject IS the file — so the outline roots there and drilling still
+     * works from it, which is how you reach a primitive the component composes.
+     */
+    if (mode === 'components') {
+      const h = componentFile ? holderOf(componentFile) : null;
+      /*
+       * THE SELECTED COMPONENT'S ROOT — PLUS ITS PARTS, when it has any.
+       *
+       * A file holds several components, and passing all of its roots listed every one:
+       * 150 rows for `document-list.tsx`, describing five components nobody selected.
+       * So the outline shows the subject's tree.
+       *
+       * For a COMPOSITE the subject's own tree is one element — `Card` returns a `div`
+       * and its header, body and footer are sibling exports — so the parts belong in it
+       * too. They are what `Card` is made of, and a tree of it that stops at the `div`
+       * is a tree of nothing. The chips above jump to a part's own preview; these rows
+       * select a node INSIDE one, which is what restyles it.
+       */
+      const wanted = component ? [component.name, ...componentParts.map((c) => c.name)] : [];
+      const own =
+        h && wanted.some((n) => h.roots[n])
+          ? Object.fromEntries(wanted.filter((n) => h.roots[n]).map((n) => [n, h.roots[n]]))
+          : (h?.roots ?? {});
+      const out: OutlineFile[] = h && componentFile ? [{ file: componentFile, roots: own }] : [];
+      for (const f of drillTrail) {
+        const d = holderOf(f);
+        if (d) out.push({ file: f, roots: d.roots });
+      }
+      return out;
+    }
     const out: OutlineFile[] = [];
     if (activeScene) out.push({ file: activeScene.file, roots: activeScene.roots });
     for (const f of drillTrail) {
@@ -446,7 +687,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
       if (h) out.push({ file: f, roots: h.roots });
     }
     return out;
-  }, [activeScene, drillTrail, holderOf]);
+  }, [mode, componentFile, component, componentParts, activeScene, drillTrail, holderOf]);
 
   /**
    * tag → the file that tag's component lives in, through the scene's own import list
@@ -455,16 +696,85 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
    */
   const fileOfTag = useCallback(
     (tag: string): string | null => {
-      if (!activeScene) return null;
-      const imported = activeScene.imports?.find((i) => i.default === tag || i.named?.includes(tag));
+      /*
+       * RESOLVED AGAINST THE FILE ON SCREEN, not always the scene's.
+       *
+       * This read `activeScene.imports` unconditionally. In components mode there is no
+       * scene relationship at all — the outline is showing `document-list.tsx`, and its
+       * `Table`, `TableRow`, `DropdownMenuItem` were looked up in the LOGIN page's import
+       * list, found nothing, and offered no drill-in. Drilling out of a component was
+       * simply unreachable.
+       *
+       * The current file is the last entry of the trail: the scene, or whatever has been
+       * drilled into since, or the component's own file.
+       */
+      const here = trail[trail.length - 1]?.file ?? activeScene?.file;
+      if (!here) return null;
+      const imports =
+        here === activeScene?.file
+          ? activeScene.imports
+          : files.find((f) => f.file === here)?.imports;
+      const imported = imports?.find((i) => i.default === tag || i.named?.includes(tag));
       if (!imported) return null;
-      const resolved = resolveImport(activeScene.file, imported.module, health?.aliases ?? []);
-      // Only offer a drill-in for a file the analyser actually read: otherwise the
-      // breadcrumb pushes a file whose tree is empty, which reads as a component with
-      // no nodes rather than as one nobody declared.
-      return resolved && files.some((f) => f.file === resolved) ? resolved : null;
+      /*
+       * RESOLUTION IS THE GATE, not prior analysis.
+       *
+       * This used to also require `files.some(f => f.file === resolved)`, so a drill-in
+       * was offered only for the handful of paths `scenes.config.json` listed under
+       * `components` — seven of them. Every other component resolved perfectly and was
+       * refused anyway, which is why drilling into `LoginForm` did nothing.
+       *
+       * The old reason was that an unanalysed file shows an empty tree, reading as a
+       * component with no nodes. `onDrillIn` analyses at the moment of the drill, so
+       * that state no longer exists: a tree comes back, or a reason does.
+       *
+       * A tag with no matching import is still not drillable, and `resolveImport`
+       * returns null for a bare specifier with no alias — so `Link` from
+       * `react-router-dom` stays closed without a special case.
+       */
+      return resolveImport(here, imported.module, health?.aliases ?? []);
     },
-    [activeScene, files, health],
+    [activeScene, trail, files, health],
+  );
+
+  /**
+   * Open a file the outline resolved, analysing it first if nobody has.
+   *
+   * The trail can only show a file `holderOf` can find a tree for, so the fetch has to
+   * land BEFORE the push — pushing first would show a breadcrumb over an empty outline
+   * for as long as the round trip takes, which is the exact appearance the old
+   * declared-files gate existed to avoid.
+   */
+  /**
+   * The file's tree, analysing it if nobody has — the shared step behind both ways in.
+   *
+   * Returns the meta rather than relying on the state it also writes: `setAnalysed` is
+   * asynchronous, so a caller that needs the tree in the same turn (a frame click, which
+   * must resolve an anchor immediately) cannot read it back out of `files` yet.
+   */
+  const ensureAnalysed = useCallback(
+    async (file: string): Promise<FileMeta | null> => {
+      const already = files.find((f) => f.file === file);
+      if (already) return already;
+      const r = await bridge.analyse(file).catch(() => null);
+      if (!r?.ok || !r.file) {
+        // Named, not silent. "does not parse" and "no such file" send you to different
+        // places, and a drill-in that quietly does nothing reads as a broken outline.
+        notify('error', 'Could not open that component', r?.error ?? `${file} could not be analysed.`);
+        return null;
+      }
+      const meta = r.file as FileMeta;
+      setAnalysed((prev) => ({ ...prev, [file]: meta }));
+      return meta;
+    },
+    [bridge, files, notify],
+  );
+
+  const drillInto = useCallback(
+    async (file: string) => {
+      if (await ensureAnalysed(file)) syncTrailToRef.current(file);
+    },
+    [ensureAnalysed],
   );
 
   /** Show a drilled-into file, and keep the outline pointing at wherever a click landed. */
@@ -478,6 +788,14 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
     },
     [activeScene],
   );
+  /*
+   * `drillInto` is declared above `syncTrailTo` because the outline reads it first, and
+   * a ref is what lets it call forward without either becoming a dependency of the
+   * other — a direct reference would be a use-before-declaration, and reordering them
+   * would put the fetch below the thing that consumes it.
+   */
+  const syncTrailToRef = useRef(syncTrailTo);
+  syncTrailToRef.current = syncTrailTo;
 
   // A stale rect from the PREVIOUS selection must not briefly read as this one's
   // visibility while the new measure round trip is in flight. A freshly picked node
@@ -496,16 +814,20 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
    * server does and refuses on ambiguity.
    */
   const resolveStamp = useCallback(
-    (stamp: StampRef) => {
-      const holder = holderOf(stamp.file);
+    async (stamp: StampRef) => {
+      /*
+       * A CLICK IN THE FRAME GOES STRAIGHT IN.
+       *
+       * A click lands wherever the app painted — the shell's sidebar and header render
+       * into the same frame as the scene, and so does every component the scene
+       * composes. This used to refuse anything the manifest had not declared and told
+       * the reader to go declare it, which is advice that stopped being true when
+       * `/analyse` landed: the file can simply be read now.
+       */
+      const holder = holderOf(stamp.file) ?? toHolder(await ensureAnalysed(stamp.file));
       if (!holder) {
-        // A click can land in a file no scene declares — an app shell paints its
-        // layout and sidebar into the same frame. Report which file, because "click
-        // did nothing" is the unhelpful version of this.
-        setSelection({
-          stamp,
-          reason: `${stamp.file} was not analysed, so this click has no source anchor. Declare it as a component in the scene manifest.`,
-        });
+        // `ensureAnalysed` has already said why. This is the anchor's half of it.
+        setSelection({ stamp, reason: `${stamp.file} could not be analysed, so this click has no source anchor.` });
         return;
       }
       // Drill the OUTLINE to match wherever the click resolved, so the tree beside the
@@ -519,7 +841,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
       });
       setSelection({ stamp, ...res });
     },
-    [holderOf, syncTrailTo],
+    [holderOf, ensureAnalysed, syncTrailTo],
   );
 
   /**
@@ -636,6 +958,89 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   // Writing.
   // ---------------------------------------------------------------------------
   const plan = useMemo(() => saveDiff(history.baseline, history.state), [history.baseline, history.state]);
+
+  /**
+   * The staged token values, as CSS custom properties.
+   *
+   * Computed once and used TWICE: the binding panel paints its swatches with them, and
+   * the frame is sent them over `wb:set-token-vars`. Only the first half was wired —
+   * `SceneHost` has taken a `tokenVars` prop since the frame protocol landed and `App`
+   * never passed one, so editing a token repainted the swatch beside the control and
+   * left the actual page alone. Same shape of gap as the mock/empty toggle: an optional
+   * prop nobody supplied, so nothing failed to compile and no test noticed.
+   */
+  const tokenVars = useMemo(
+    () =>
+      tokenPreviewStyle({
+        theme: dark ? 'dark' : 'light',
+        literalEdits: Object.values(history.state.tokenEdits),
+        rebinds: Object.values(history.state.rebinds),
+        paletteEdits: Object.values(history.state.paletteEdits),
+        bindings: tokens?.bindings?.themed[dark ? 'dark' : 'light'],
+      }) as Record<string, string>,
+    [dark, history.state.tokenEdits, history.state.rebinds, history.state.paletteEdits, tokens],
+  );
+
+  /**
+   * What a SWATCH paints with: the project's resolved token values, plus staged edits.
+   *
+   * Distinct from `tokenVars`, and the split matters. The frame gets staged values ONLY
+   * — it already has the real stylesheet, and pinning the base values into it would
+   * freeze whatever `tokens.css` said at load and defeat its own HMR. The shell has no
+   * such stylesheet, so a swatch reading `var(--primary)` resolved to nothing and every
+   * colour chip rendered empty.
+   *
+   * COLOURS ONLY. The same map carries `--font-sans`, `--radius` and friends, and
+   * applying those to a shell element would restyle the editor with the project's
+   * typography — which is the scene's job, not the chrome's.
+   */
+  const swatchVars = useMemo(() => {
+    const isColour = (v: string) => /^(#|rgb|hsl|oklch|oklab|color\()/i.test(v.trim());
+    const base = (tokens?.vars?.[dark ? 'dark' : 'light'] ?? {}) as Record<string, string>;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(base)) if (typeof v === 'string' && isColour(v)) out[k] = v;
+    return { ...out, ...tokenVars };
+  }, [tokens, dark, tokenVars]);
+
+  /**
+   * The classes that make the selected component look like it is in `forcedState`.
+   *
+   * Read off the resolved CVA string for the chosen combination, with the `hover:` /
+   * `active:` modifier stripped — see `forcedStateClasses`. Hoisted out of the JSX
+   * because the safelist effect below needs the same value.
+   */
+  const previewForced = useMemo(() => {
+    if (!forcedState || !component?.cva) return undefined;
+    const resolved = [
+      component.cva.base.classes,
+      ...Object.entries(component.cva.axes).map(
+        ([axis, values]) =>
+          values[variantState[axis] ?? component.cva?.defaults[axis] ?? Object.keys(values)[0]]
+            ?.classes ?? '',
+      ),
+    ].join(' ');
+    return forcedStateClasses(resolved, forcedState).join(' ') || undefined;
+  }, [component, forcedState, variantState]);
+
+  /*
+   * REGISTER THE FORCED-STATE CLASSES AS TAILWIND CANDIDATES.
+   *
+   * `forcedStateClasses` turns `hover:bg-primary/90` into `bg-primary/90` so it applies
+   * with no pointer. That class exists in NO source file — the only spelling anyone
+   * wrote is the `hover:` one — so Tailwind never emitted a rule for it and the forced
+   * state changed the class attribute while changing nothing on screen.
+   *
+   * The safelist endpoint exists for exactly this: classes the editor composes at
+   * runtime. Same mechanism the class editor already uses for a colour it builds from a
+   * role and an opacity.
+   */
+  useEffect(() => {
+    const forced = previewForced;
+    if (!forced) return;
+    void bridge.candidates(forced.split(/\s+/).filter(Boolean)).catch(() => {
+      /* a safelist miss shows as an unstyled state, not as a broken editor */
+    });
+  }, [bridge, previewForced]);
 
   /**
    * PUBLISH THE STAGED PLAN TO THE FRAME, so a class edit is visible before it is written.
@@ -848,7 +1253,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                       );
                       setStaleKeys({});
                     }}
-                    className="mt-2 w-full rounded-sm border border-wb-border px-2 py-1 text-[10px] text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg"
+                    className="mt-2 w-full rounded-sm border border-wb-border px-2 py-1 text-[10px] text-wb-muted hover:bg-wb-subtle hover:text-wb-fg"
                   >
                     Discard them
                   </button>
@@ -870,7 +1275,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 <button
                   type="button"
                   title="What the plugin found in this project"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-wb-border px-2.5 py-1 text-xs text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-wb-border px-2.5 py-1 text-xs text-wb-muted hover:bg-wb-subtle hover:text-wb-fg"
                 >
                   <Info className="size-3.5" />
                 </button>
@@ -910,7 +1315,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                   type="button"
                   title="Writes on disk, newest first"
                   aria-label={`Write log (${writeDepth} on disk)`}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-wb-border px-2.5 py-1 text-xs text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-wb-border px-2.5 py-1 text-xs text-wb-muted hover:bg-wb-subtle hover:text-wb-fg"
                 >
                   <ScrollText className="size-3.5" />
                   {writeDepth}
@@ -934,7 +1339,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                     type="button"
                     onClick={() => stepWrite('revert')}
                     disabled={busy || writeDepth === 0}
-                    className="flex-1 rounded-sm border border-wb-border px-2 py-1 text-[10px] text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg disabled:pointer-events-none disabled:opacity-50"
+                    className="flex-1 rounded-sm border border-wb-border px-2 py-1 text-[10px] text-wb-muted hover:bg-wb-subtle hover:text-wb-fg disabled:pointer-events-none disabled:opacity-50"
                   >
                     Revert last
                   </button>
@@ -942,7 +1347,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                     type="button"
                     onClick={() => stepWrite('reapply')}
                     disabled={busy || reapplyDepth === 0}
-                    className="flex-1 rounded-sm border border-wb-border px-2 py-1 text-[10px] text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg disabled:pointer-events-none disabled:opacity-50"
+                    className="flex-1 rounded-sm border border-wb-border px-2 py-1 text-[10px] text-wb-muted hover:bg-wb-subtle hover:text-wb-fg disabled:pointer-events-none disabled:opacity-50"
                   >
                     Re-apply
                   </button>
@@ -970,9 +1375,16 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
             >
               <HardDriveDownload className="size-3.5" />
               Save to Code
-              {plan.length > 0 && (
-                <span className="rounded-full bg-wb-bg/20 px-1.5 text-[10px]">{plan.length}</span>
-              )}
+              {/*
+                ALWAYS RENDERED, AT A FIXED WIDTH. Hiding it at zero and letting it grow
+                past nine made the button change size twice — so every control to its
+                left slid sideways on the first staged edit and again on the tenth. A
+                toolbar that moves while you use it is harder to hit than one that shows
+                a zero. `tabular-nums` keeps 11 the same width as 88.
+              */}
+              <span className="min-w-[1.25rem] rounded-full bg-wb-bg/20 px-1.5 text-center text-[10px] tabular-nums">
+                {plan.length > 99 ? '99+' : plan.length}
+              </span>
             </button>
           </div>
         </header>
@@ -991,7 +1403,20 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
           </div>
         )}
 
-        <div className="grid min-h-0 flex-1 grid-cols-[220px_1fr_340px] gap-3 p-3">
+        {/*
+          THE SIDE PANES ARE DRAGGABLE, and the centre takes what is left.
+          
+          Fixed at 220 / 340 the panes were a compromise nobody chose: the catalogue is a
+          column of module names that wants to be narrow, the bindings panel is rows of
+          label + control + swatch that wants to be wide, and which one you need depends
+          on what you are doing rather than on the app. Only the two side columns are
+          stateful — the centre is `1fr`, so the preview keeps every pixel the panes give
+          back, which is the direction that matters.
+        */}
+        <div
+          className="grid min-h-0 flex-1 gap-1 p-3"
+          style={{ gridTemplateColumns: `${paneWidth.left}px 6px 1fr 6px ${paneWidth.right}px` }}
+        >
           <aside className="flex min-h-0 flex-col gap-2 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-3">
             {/*
               THE MODE SWITCH. Which subject the editor is addressing — see `mode`.
@@ -999,7 +1424,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
               the component worth seeing, not a reason to hide it from its own list.
             */}
             <div className="flex shrink-0 gap-1 rounded-md bg-wb-bg p-0.5">
-              {(['scenes', 'components'] as const).map((m) => (
+              {(['components', 'scenes'] as const).map((m) => (
                 <button
                   key={m}
                   type="button"
@@ -1013,7 +1438,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                   className={cn(
                     'flex-1 rounded px-2 py-1 font-mono text-[10px] uppercase tracking-wide transition-colors',
                     m === mode
-                      ? 'bg-wb-accent text-wb-accent-fg'
+                      ? 'bg-wb-accent/12 text-wb-accent'
                       : 'text-wb-muted enabled:hover:text-wb-fg disabled:opacity-40',
                   )}
                 >
@@ -1056,7 +1481,7 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                             ? 'cursor-not-allowed text-wb-muted opacity-45'
                             : s.id === sceneId
                               ? 'bg-wb-accent/15 text-wb-accent'
-                              : 'text-wb-muted hover:bg-wb-accent hover:text-wb-accent-fg',
+                              : 'text-wb-muted hover:bg-wb-subtle hover:text-wb-fg',
                         )}
                       >
                         <span className="flex items-center gap-1.5">
@@ -1100,6 +1525,8 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
             </div>
           </aside>
 
+          <PaneHandle side="left" onDrag={setPaneWidth} />
+
           <main className="min-h-0 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-3">
             {sceneId ? (
               <SceneHost
@@ -1114,6 +1541,94 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 onClasses={registerCandidates}
                 onMeasured={setSelectionRect}
                 onSelectionHostRect={setSelectionHostRect}
+                tokenVars={tokenVars}
+                /*
+                 * In `components` mode the centre shows the selected component across
+                 * its variants. The recipe specified this and the extraction dropped it
+                 * for a registry that was never needed: of the components the analyser
+                 * reads, the ones with a variant table are exactly the ones that need no
+                 * props, so the real component can simply be rendered.
+                 *
+                 * `componentFile` is required — a component with no file to import from
+                 * cannot be previewed, and falling back to the scene silently would make
+                 * the mode look like it did nothing.
+                 */
+                preview={
+                  mode === 'components' && component && componentFile
+                    ? {
+                        file: componentFile,
+                        component: component.name,
+                        /*
+                         * THE SELECTED COMBINATION, not the whole matrix.
+                         *
+                         * The variant badges above are a STATE control — they say which
+                         * Button the bindings below describe. Rendering all 24 at once
+                         * made the centre disagree with them: the panel spoke about
+                         * `variant=default size=sm` while the pane showed every variant
+                         * with equal weight, and picking a badge changed nothing you
+                         * could see.
+                         *
+                         * Falls back to the component's OWN defaults rather than to the
+                         * full matrix. `variantState` is seeded on click, so before the
+                         * first click it is empty — and showing 24 cells until you touch
+                         * something, then one afterwards, would read as the pane breaking
+                         * rather than as it following you.
+                         */
+                        /*
+                         * The classes that make the component LOOK like it is in the
+                         * chosen state. `forcedStateClasses` reads them off the resolved
+                         * CVA string for this combination and drops the `hover:` /
+                         * `active:` modifier, so they apply with no pointer and no press
+                         * — the only way to sit and look at a hover style.
+                         */
+                        forced: previewForced,
+                        /*
+                         * Only the states the component AUTHORS. Read off the resolved
+                         * class string: `STATES` is the vocabulary, and a state with no
+                         * `hover:`/`disabled:` rule in this component has nothing to show.
+                         */
+                        states: STATES.map((st) => st.key).filter((st) =>
+                          forcedStateClasses(
+                            [
+                              component.cva?.base.classes ?? '',
+                              ...Object.values(component.cva?.axes ?? {}).flatMap((vals) =>
+                                Object.values(vals).map((v) => v.classes),
+                              ),
+                            ].join(' '),
+                            st,
+                          ).length > 0,
+                        ),
+                        forcedState,
+                        label: previewLabel || undefined,
+                        mockProps: mockProps ?? undefined,
+                        noopProps: noopPropsFor(component.props ?? []),
+                        iconSlot,
+                        icon,
+                        // The chooser: every value of every axis. `axes` above is the
+                        // single choice the frame renders.
+                        allAxes: Object.fromEntries(
+                          Object.entries(component.cva?.axes ?? {}).map(([axis, values]) => [
+                            axis,
+                            Object.keys(values),
+                          ]),
+                        ),
+                        axes: Object.fromEntries(
+                          Object.entries(component.cva?.axes ?? {}).map(([axis, values]) => [
+                            axis,
+                            [
+                              variantState[axis] ??
+                                component.cva?.defaults[axis] ??
+                                Object.keys(values)[0],
+                            ],
+                          ]),
+                        ),
+                      }
+                    : undefined
+                }
+                onForcedStateChange={(st) => setForcedState(st as StateKey | null)}
+                onVariantChange={(axis, value) =>
+                  setVariantState((prev) => ({ ...prev, [axis]: value }))
+                }
                 mockDataEmpty={mockDataEmpty}
                 onMockDataEmptyChange={setMockDataEmpty}
               />
@@ -1174,6 +1689,8 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
             notify={notify}
           />
 
+          <PaneHandle side="right" onDrag={setPaneWidth} />
+
           <aside className="min-h-0 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-3">
             {/*
               TWO TABS PER MODE, not three in one group.
@@ -1192,34 +1709,89 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
             */}
             <Tabs
               key={mode}
-              defaultValue={mode === 'scenes' ? 'layout' : 'bindings'}
+              defaultValue="layout"
               className="flex h-full flex-col gap-3"
             >
               <TabsList className="w-full">
-                {mode === 'scenes' ? (
-                  <TabsTrigger
-                    value="layout"
-                    className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
-                  >
-                    Layout
-                  </TabsTrigger>
-                ) : (
+                {/*
+                  LAYOUT IS IN BOTH MODES NOW.
+                  
+                  Picking inside the component pane and panning it are the same gesture —
+                  a drag — so one always cost the other, and picking also had no way to
+                  show WHAT it had selected. The outline answers both: it lists the
+                  component's own tree, the selected row is visibly selected, and it
+                  drives the same class editor a scene click does. That is how a
+                  component with no variants gets restyled.
+                */}
+                <TabsTrigger
+                  value="layout"
+                  className="flex-1 data-[state=active]:bg-wb-accent/12 data-[state=active]:text-wb-accent"
+                >
+                  Layout
+                </TabsTrigger>
+                {mode === 'components' && (
                   <TabsTrigger
                     value="bindings"
-                    className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
+                    className="flex-1 data-[state=active]:bg-wb-accent/12 data-[state=active]:text-wb-accent"
                   >
                     Bindings
                   </TabsTrigger>
                 )}
                 <TabsTrigger
                   value="tokens"
-                  className="flex-1 data-[state=active]:bg-wb-accent data-[state=active]:text-wb-accent-fg"
+                  className="flex-1 data-[state=active]:bg-wb-accent/12 data-[state=active]:text-wb-accent"
                 >
                   Tokens
                 </TabsTrigger>
               </TabsList>
 
               <TabsContent value="layout" className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+                {/*
+                  A COMPOSITE'S PARTS ARE ITS LAYOUT, and this is where you look for it.
+                  
+                  The outline below lists the JSX a component RETURNS, which for a
+                  composite root is almost nothing: `Card` renders one `div`, and its
+                  header, body and footer are sibling exports rather than children. So
+                  the tab showed `card.tsx / Card / div` and stopped — a structure panel
+                  reporting that the thing has no structure.
+                  
+                  They used to fold out of the left list, which put the anatomy in the
+                  catalogue and left this tab empty. One click still switches the preview
+                  to a part; it just lives beside the tree it belongs to.
+                */}
+                {componentRoot && (
+                  <button
+                    type="button"
+                    onClick={() => selectComponent(componentRoot.name)}
+                    title={`Back to ${componentRoot.name}`}
+                    className="flex shrink-0 items-center gap-1 rounded-sm px-1 py-1 text-left font-mono text-[10px] uppercase tracking-wide text-wb-muted transition-colors hover:text-wb-fg"
+                  >
+                    <ChevronLeft className="size-3 shrink-0" />
+                    part of {componentRoot.name}
+                  </button>
+                )}
+                {componentParts.length > 0 && (
+                  <div className="shrink-0 border-b border-wb-border pb-2">
+                    <p className="mb-1 px-1 font-mono text-[10px] uppercase tracking-wide text-wb-muted">
+                      {component?.name} is assembled from
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {componentParts.map((c) => (
+                        <button
+                          key={c.name}
+                          type="button"
+                          onClick={() => selectComponent(c.name)}
+                          title={`Preview ${c.name} on its own`}
+                          className="rounded-md bg-wb-subtle px-1.5 py-0.5 font-mono text-[10px] text-wb-muted transition-colors hover:bg-wb-accent/12 hover:text-wb-accent"
+                        >
+                          {c.name.startsWith(component?.name ?? '')
+                            ? c.name.slice((component?.name ?? '').length)
+                            : c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="min-h-0 flex-1 overflow-hidden">
                   <SceneOutline
                     trail={trail}
@@ -1228,9 +1800,20 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                     hoverId={hoverId}
                     onSelect={selectFromOutline}
                     onHover={setHoverId}
-                    onDrillIn={syncTrailTo}
+                    onDrillIn={(f) => void drillInto(f)}
                     onTrailTo={(i) => setDrillTrail((prev) => prev.slice(0, i))}
                     fileOfTag={fileOfTag}
+                    /*
+                     * The composite's own prefix is dropped, so its parts read `Header`
+                     * and `Title` under a pane that already says `Card`. Only in
+                     * components mode: in a scene the root names are the file's
+                     * components and there is no prefix to be redundant with.
+                     */
+                    labelOf={
+                      mode === 'components' && componentParts.length > 0 && component
+                        ? (n) => (n === component.name ? n : n.replace(component.name, '') || n)
+                        : undefined
+                    }
                   />
                 </div>
                 <div className="max-h-[45%] shrink-0 overflow-y-auto border-t border-wb-border pt-2">
@@ -1245,14 +1828,33 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                 </div>
               </TabsContent>
 
-              <TabsContent value="bindings" className="min-h-0 flex-1 overflow-hidden">
+              <TabsContent value="bindings" className="min-h-0 flex-1 overflow-y-auto">
+                {/*
+                  PREVIEW DATA SITS ABOVE THE BINDINGS.
+                  
+                  For a component with no CVA this tab said "no variant-scoped bindings"
+                  and stopped, which is most components — and those are exactly the ones
+                  that need data before they render at all. Same tab, because both answer
+                  "how is this component configured".
+                */}
+                {component && (
+                  <PreviewDataPanel
+                    component={component}
+                    label={previewLabel}
+                    onLabelChange={setPreviewLabel}
+                    values={mockProps ?? {}}
+                    onChange={setMockProps}
+                    iconSlot={iconSlot}
+                    onIconSlotChange={setIconSlot}
+                    icon={icon}
+                    onIconChange={setIcon}
+                  />
+                )}
                 {component ? (
                   <TokenBindingPanel
                     component={component}
                     variantState={variantState}
-                    onVariantChange={(axis, value) =>
-                      setVariantState((prev) => ({ ...prev, [axis]: value }))
-                    }
+                    forcedState={forcedState}
                     families={tokens?.families ?? []}
                     vocabulary={vocabulary}
                     /*
@@ -1263,18 +1865,30 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                      */
                     extraRoles={[]}
                     classEdits={history.state.classEdits}
-                    onClassEdit={(key, edit) => setIn('classEdits', key, edit, `class|${key}`)}
+                    /*
+                     * THE FILE IS STAMPED IN HERE, and nowhere else was doing it.
+                     *
+                     * `TokenBindingPanel` builds every class edit with `file: ''` and a
+                     * comment saying the layout fills it in — a component from the
+                     * recipe that this shell never grew. So `toClassIntent` shipped an
+                     * empty path: `scene-patch` matched no file and the preview never
+                     * repainted, which read as "changing a binding does nothing", and a
+                     * Save would have had nothing to locate either. The panel edits the
+                     * SELECTED component, so its file is the answer.
+                     */
+                    onClassEdit={(key, edit) =>
+                      setIn(
+                        'classEdits',
+                        key,
+                        edit && componentFile ? { ...edit, file: componentFile } : edit,
+                        `class|${key}`,
+                      )
+                    }
                     onTokenAdd={(key, add) => setIn('tokenAdds', key, add)}
                     tokenAdds={history.state.tokenAdds}
                     existingRoles={existingRoles}
                     dark={dark}
-                    tokenStyle={tokenPreviewStyle({
-                      theme: dark ? 'dark' : 'light',
-                      literalEdits: Object.values(history.state.tokenEdits),
-                      rebinds: Object.values(history.state.rebinds),
-                      paletteEdits: Object.values(history.state.paletteEdits),
-                      bindings: tokens?.bindings?.themed[dark ? 'dark' : 'light'],
-                    })}
+                    tokenStyle={swatchVars}
                   />
                 ) : (
                   <p className="px-1 text-[11px] leading-relaxed text-wb-muted">
@@ -1306,6 +1920,59 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   );
 }
 
+/**
+ * A drag handle between two panes.
+ *
+ * `pointer` events with capture, not `mousemove` on `window`: the pointer leaves this
+ * 6px strip on the first frame of any real drag, and a mouse-based version dropped the
+ * gesture the moment it crossed onto the iframe — which is most of the screen. Capture
+ * keeps the events coming to the element that started it.
+ *
+ * The bounds are the panes' own minimums, not the window's: below ~160px the catalogue's
+ * module rows truncate to nothing, and above ~560px the centre stops being the subject.
+ */
+function PaneHandle({
+  side,
+  onDrag,
+}: {
+  side: 'left' | 'right';
+  onDrag: (next: (prev: { left: number; right: number }) => { left: number; right: number }) => void;
+}) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      title="Drag to resize"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        const el = e.currentTarget;
+        el.setPointerCapture(e.pointerId);
+        const startX = e.clientX;
+        let start = 0;
+        onDrag((prev) => {
+          start = side === 'left' ? prev.left : prev.right;
+          return prev;
+        });
+        const move = (ev: PointerEvent) => {
+          // The right pane grows as the pointer moves LEFT, so its delta is inverted.
+          const delta = side === 'left' ? ev.clientX - startX : startX - ev.clientX;
+          const next = Math.max(160, Math.min(560, start + delta));
+          onDrag((prev) => ({ ...prev, [side]: next }));
+        };
+        const up = () => {
+          el.removeEventListener('pointermove', move);
+          el.removeEventListener('pointerup', up);
+        };
+        el.addEventListener('pointermove', move);
+        el.addEventListener('pointerup', up);
+      }}
+      className="group flex cursor-col-resize items-center justify-center"
+    >
+      <div className="h-10 w-0.5 rounded-full bg-wb-border transition-colors group-hover:bg-wb-accent" />
+    </div>
+  );
+}
+
 function HeaderButton({
   onClick,
   disabled,
@@ -1326,7 +1993,7 @@ function HeaderButton({
       disabled={disabled}
       title={title}
       aria-label={label}
-      className="inline-flex items-center gap-1.5 rounded-md border border-wb-border px-2.5 py-1 text-xs text-wb-muted transition-colors hover:bg-wb-accent hover:text-wb-accent-fg disabled:pointer-events-none disabled:opacity-50"
+      className="inline-flex items-center gap-1.5 rounded-md border border-wb-border px-2.5 py-1 text-xs text-wb-muted transition-colors hover:bg-wb-subtle hover:text-wb-fg disabled:pointer-events-none disabled:opacity-50"
     >
       {icon}
       {label}

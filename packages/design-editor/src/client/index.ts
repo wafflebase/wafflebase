@@ -43,6 +43,7 @@ export {
   stateSlots,
 } from './states.ts';
 export type { ColorClass, StateKey, StateSlot } from './states.ts';
+export { mockPropsFor, noopPropsFor, mockValueFor } from './mock-props.ts';
 
 export { joinPropertyLabels, propertyLabel, scaleLabel } from './property-labels.ts';
 

@@ -34,14 +34,69 @@
 @source './';
 
 @theme {
-  --color-wb-bg: oklch(0.99 0 0);
-  --color-wb-panel: oklch(0.97 0.002 250);
-  --color-wb-border: oklch(0.9 0.004 250);
-  --color-wb-fg: oklch(0.25 0.01 250);
-  --color-wb-muted: oklch(0.55 0.01 250);
-  --color-wb-accent: oklch(0.62 0.17 255);
-  --color-wb-accent-fg: oklch(0.99 0 0);
-  --color-wb-danger: oklch(0.58 0.19 25);
+  /*
+   * WAFFLEBASE'S PALETTE, ON WHITE.
+   *
+   * Two earlier attempts bracket this one. The wafflebase paper ground (`#FFFDF7`) put
+   * a warm cast behind every scene, which is the one thing chrome must not do — a cool
+   * palette looks wrong against it and the designer cannot tell whose fault that is.
+   * Neutral grey fixed that and went too far the other way: with a near-black accent
+   * the whole editor read as heavy.
+   *
+   * So: white ground, wafflebase syrup for accent, and the warm rule colour softened
+   * almost to grey. The identity is in the accent, where it costs nothing, rather than
+   * in the background, where it costs the scene.
+   */
+  --color-wb-bg: #ffffff;
+  /*
+   * A HAIR OFF WHITE, so a panel still has an edge without one being drawn. Both pure
+   * white left the borders doing all the separating, and those are exactly what read as
+   * hard boxes.
+   */
+  --color-wb-panel: #fcfaf7;
+  --color-wb-border: #ece7de;
+  --color-wb-fg: #2a1e12;
+  --color-wb-muted: #857a6c;
+  --color-wb-accent: #b8651a;
+  --color-wb-accent-fg: #fffaf0;
+  /* A fill faint enough to read as "this row is under the pointer" and nothing more. */
+  --color-wb-subtle: #f3efe9;
+  --color-wb-danger: oklch(0.577 0.245 27.325);
+
+  /*
+   * SHADCN NAMES, MAPPED ONTO THE SHELL'S OWN SCALE.
+   *
+   * The panels were written in the prototype, against the CONSUMER's shadcn theme, and
+   * they still say `border-border` and `text-muted-foreground` — 250-odd times. The
+   * shell defines no such colours, so Tailwind generated none of those classes and every
+   * one fell back: `border-border` became a border with no colour, which paints
+   * `currentColor`, which is why the editor was ringed in black boxes.
+   *
+   * Defining the names is the small fix; rewriting 250 class names is the large one, and
+   * it would also have to be repeated for every panel ported later. These are ALIASES —
+   * the shell has one palette and these are the other vocabulary for it.
+   *
+   * They do not reach the scene. The frame is a separate document with the consumer's
+   * own stylesheet, where these names mean the project's tokens.
+   */
+  --color-background: var(--color-wb-bg);
+  --color-foreground: var(--color-wb-fg);
+  --color-card: var(--color-wb-panel);
+  --color-border: var(--color-wb-border);
+  --color-input: var(--color-wb-border);
+  --color-ring: var(--color-wb-accent);
+  /*
+   * `muted` is a FILL, so it maps to the subtle tint rather than to the page. Pointed at
+   * the background it was the same colour as what sits behind it, and every
+   * `hover:bg-muted` in the shell did nothing at all.
+   */
+  --color-muted: var(--color-wb-subtle);
+  --color-muted-foreground: var(--color-wb-muted);
+  --color-primary: var(--color-wb-accent);
+  --color-primary-foreground: var(--color-wb-accent-fg);
+  --color-accent: var(--color-wb-accent);
+  --color-accent-foreground: var(--color-wb-accent-fg);
+  --color-destructive: var(--color-wb-danger);
 
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
@@ -51,25 +106,38 @@
 }
 
 /*
- * The shell follows the DEVELOPER's OS preference, not the theme being edited.
- * Those are different things: previewing a dark theme must not flip the chrome, or
- * the two are no longer distinguishable on screen.
+ * PINNED LIGHT, on purpose and provisionally.
  *
- * `:root`, NOT a nested `@theme`. Tailwind v4 hoists a nested `@theme` to the top level, so
- * the dark values overwrote the light ones instead of overriding them under the media query:
- * every `--color-wb-*` was emitted once, with its dark value, and the shell rendered dark
- * whatever the OS said. Overriding the emitted custom properties is what actually scopes them.
+ * The shell used to follow the DEVELOPER's OS preference, which is a different thing
+ * from the theme being edited — previewing a dark theme must not flip the chrome, or
+ * the two stop being distinguishable on screen. That reasoning still holds; what it
+ * produced in practice was an editor that rendered dark for anyone whose OS is dark,
+ * beside a light scene, which read as the editor being broken rather than as a
+ * deliberate contrast.
+ *
+ * So the chrome is one fixed appearance for now. Restoring the OS-following behaviour
+ * is re-adding a `@media (prefers-color-scheme: dark)` block that overrides these
+ * eight properties on `:root` — and it has to be `:root`, not a nested `@theme`:
+ * Tailwind v4 hoists a nested `@theme` to the top level, so the dark values overwrote
+ * the light ones instead of overriding them under the query, and the shell rendered
+ * dark whatever the OS said.
  */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-wb-bg: oklch(0.19 0.005 250);
-    --color-wb-panel: oklch(0.23 0.006 250);
-    --color-wb-border: oklch(0.31 0.008 250);
-    --color-wb-fg: oklch(0.94 0.003 250);
-    --color-wb-muted: oklch(0.66 0.01 250);
-    --color-wb-accent: oklch(0.68 0.16 255);
-    --color-wb-accent-fg: oklch(0.17 0.01 250);
-    --color-wb-danger: oklch(0.66 0.18 25);
+
+/*
+ * EVERY SCROLL CONTAINER RESERVES ITS GUTTER.
+ *
+ * The panes fill and empty as you select things — an outline grows, a bindings list
+ * shrinks — and each time the scrollbar appeared or vanished the content beside it
+ * jumped by its width. With three such panes on screen the whole editor shivered while
+ * being used, which is worse than the space the gutter costs.
+ *
+ * Written against the utility classes rather than a wrapper element, so a pane added
+ * later gets it by using `overflow-y-auto` like the others.
+ */
+@layer utilities {
+  .overflow-y-auto,
+  .overflow-auto {
+    scrollbar-gutter: stable;
   }
 }
 

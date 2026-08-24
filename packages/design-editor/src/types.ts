@@ -66,6 +66,14 @@ export interface PropMeta {
 export interface ComponentMeta extends Analysis {
   name: string;
   kind: 'function' | 'forwardRef';
+  /**
+   * Reachable from outside the file.
+   *
+   * A component the file keeps to itself is still analysed — it has classes and a
+   * place in the tree — but it cannot be imported, so the preview cannot mount it.
+   * Optional because a manifest analysed before this existed reports nothing.
+   */
+  exported?: boolean;
   props: PropMeta[];
   propOrigins: string[];
   cva: CvaMeta | null;

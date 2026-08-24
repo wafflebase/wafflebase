@@ -329,16 +329,33 @@ function paint() {
   if (!started) return;
   const o = ensureOverlay();
 
-  // Picking OFF means the frame is being USED, not inspected. Keeping the box up
-  // is wrong twice over: it sits on top of a control you are about to click, and
-  // it reads as an active state the app did not set. The selection itself is
-  // kept — the inspector still describes the node — only the drawing stops.
+  /*
+   * Picking OFF means the frame is being USED, not inspected — in a SCENE. Keeping the
+   * box up there is wrong twice over: it sits on top of a control you are about to
+   * click, and it reads as an active state the app did not set.
+   *
+   * A COMPONENT PREVIEW HAS NO "USED". Picking is off there permanently, because a
+   * click-to-pick and a drag-to-pan are the same gesture and the outline does the
+   * selecting instead — so this branch silently made every outline selection invisible.
+   * Selecting a row and seeing nothing change is the same as not selecting.
+   *
+   * So the SELECTION still draws, and only the pointer-driven parts stop: hover follows
+   * a pointer that is now panning, and the sibling boxes belong to a click cycle that
+   * cannot happen.
+   */
+  const previewing = new URLSearchParams(location.search).has('component');
   if (!picking) {
-    place(o.selection, null);
     place(o.hover, null);
     o.siblings.forEach((b) => place(b, null));
     o.label.style.display = 'none';
-    observeSubjects([]);
+    if (!previewing) {
+      place(o.selection, null);
+      observeSubjects([]);
+      return;
+    }
+    const only = selectedId ? elementsFor(selectedId) : [];
+    place(o.selection, only[0] ? rectOf(only[0]) : null);
+    observeSubjects(only.slice(0, 1));
     return;
   }
 
@@ -473,10 +490,19 @@ export function installPicker({ send }: PickerOptions): void {
     { capture: true, signal },
   );
 
-  // Suppress the OTHER activation paths a capture click listener does not cover.
-  // `mousedown` starts drags and opens Radix menus on press; a keyboard Enter on
-  // a focused link activates it without a click at all.
-  for (const type of ['mousedown', 'mouseup', 'dblclick'] as const) {
+  /*
+   * Suppress the OTHER activation paths a capture click listener does not cover.
+   *
+   * `mousedown` starts drags; a keyboard Enter on a focused link activates it without
+   * a click at all.
+   *
+   * `pointerdown` IS THE ONE THIS LIST WAS MISSING. Radix opens on pointer events, not
+   * mouse ones — `DropdownMenuTrigger` acts on `onPointerDown` — so in picking mode a
+   * dropdown opened its menu instead of selecting the trigger. The mode looked broken
+   * precisely on the controls someone most wants to restyle, and the workaround was to
+   * leave picking, open the menu, and come back.
+   */
+  for (const type of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'dblclick'] as const) {
     window.addEventListener(
       type,
       (e) => {

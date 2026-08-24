@@ -48,12 +48,21 @@
  * arrives on the same graph the components do.
  */
 import './scene.css';
-import { useEffect, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { ThemeProvider } from '@/components/theme-provider';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import Layout from '@/app/Layout';
+import { SidebarProvider } from '@/components/ui/sidebar';
+/*
+ * LAZY, because most mounts do not use it.
+ *
+ * `Layout` reaches the sidebar, the header and — transitively — the editor engines, and
+ * a static import pays for that graph on EVERY mount: a scene with `shell: none`, and a
+ * component preview showing one Button. Only `shell: 'app'` renders it, so only that
+ * case should wait for it.
+ */
+const Layout = lazy(() => import('@/app/Layout'));
 import { scenes as SCENE_CONFIGS } from 'virtual:wb-scenes';
 
 /**
@@ -180,7 +189,7 @@ export function SceneProviders({ mocks, route, routePattern, shell, theme, child
       shell === 'app' ? (
         <MemoryRouter initialEntries={[path]}>
           <Routes>
-            <Route element={<Layout />}>
+            <Route element={<Suspense fallback={null}><Layout /></Suspense>}>
               <Route path={pattern} element={tree} />
               {/* Anywhere else the shell's own nav can lead — see
                   `RouteEscapeNotifier`. More specific routes above always win,
@@ -202,6 +211,18 @@ export function SceneProviders({ mocks, route, routePattern, shell, theme, child
           </Routes>
         </MemoryRouter>
       );
+  }
+  if (has('sidebar')) {
+    /*
+     * FOR A COMPONENT PREVIEW, not for a scene.
+     *
+     * A scene with `shell: 'app'` gets `SidebarProvider` from the real `Layout`. A
+     * component preview mounts one component alone, so `AppSidebar` and `NavUser` —
+     * which call `useSidebar()` — threw the moment they were selected. They are not
+     * broken; they are components that live inside an app, and this is the app context
+     * they need, supplied by the CONSUMER because only the consumer knows it exists.
+     */
+    tree = <SidebarProvider>{tree}</SidebarProvider>;
   }
   if (has('query')) {
     tree = <QueryClientProvider client={queryClient}>{tree}</QueryClientProvider>;

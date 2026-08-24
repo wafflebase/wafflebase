@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   isFrameMessage,
@@ -193,9 +194,46 @@ describe('message guards', () => {
       { type: 'wb:classes', classes: [] },
       { type: 'wb:route-change', path: '/x' },
       { type: 'wb:deselect' },
+      /*
+       * PAN AND ZOOM. Absent from the runtime table, `wb:view` was rejected at the door
+       * and every gesture the frame forwarded was silently dropped — the canvas simply
+       * did not move. It typechecked throughout: `ViewGesture` is in the `FrameMessage`
+       * union, and the union is not the guard.
+       */
+      { type: 'wb:view', kind: 'pan', dx: 4, dy: -2, x: 100, y: 50 },
+      { type: 'wb:view', kind: 'zoom', dx: 0, dy: -120, x: 10, y: 10 },
     ]) {
       expect(isFrameMessage(ok), JSON.stringify(ok)).toBe(true);
     }
+  });
+
+  it('holds a runtime validator for every FrameMessage the frame can send', () => {
+    /*
+     * The generic form of the `wb:view` bug: a variant added to the type union and to
+     * the host's switch, and never to `FRAME_SHAPES`. Nothing failed — an unknown type
+     * is dropped, which is exactly how a foreign `postMessage` should be treated, so
+     * the guard doing its job is indistinguishable from the feature not working.
+     *
+     * Read off the SOURCE rather than a hand-kept list, so a new variant has to be
+     * registered or this fails.
+     */
+    const src = readFileSync(new URL('../../src/scenes/frame-protocol.ts', import.meta.url), 'utf8');
+    // Comments stripped: the prose between the union and the guards names host messages
+    // too, and a doc comment is not a declaration.
+    const between = (from: string, to: string) =>
+      src.slice(src.indexOf(from), src.indexOf(to)).replace(/\/\*[\s\S]*?\*\//g, '');
+    // `ViewGesture` declares its own `type:` field rather than inlining it in the union,
+    // so the search runs to the end of the file and picks it up too.
+    const declared = new Set(
+      [...between('export type FrameMessage', 'const HOST_SHAPES').matchAll(/type:\s*'(wb:[\w-]+)'/g)]
+        .concat([...src.matchAll(/interface ViewGesture[\s\S]*?type:\s*'(wb:[\w-]+)'/g)])
+        .map((m) => m[1]),
+    );
+    const registered = new Set(
+      [...between('const FRAME_SHAPES', 'const shapedLike').matchAll(/'(wb:[\w-]+)':/g)].map((m) => m[1]),
+    );
+    expect(declared.size).toBeGreaterThan(5);
+    expect([...declared].filter((t) => !registered.has(t))).toEqual([]);
   });
 
   it('does not read a variant off Object.prototype', () => {
