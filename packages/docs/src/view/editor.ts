@@ -234,6 +234,15 @@ export interface EditorAPI {
    */
   setSpellCheckEnabled(enabled: boolean): void;
   /**
+   * The block and offset under a client point, or `undefined` off the text.
+   *
+   * Read-only: it names a position without moving the caret.
+   */
+  positionAtClientPoint(
+    clientX: number,
+    clientY: number,
+  ): { blockId: string; offset: number } | undefined;
+  /**
    * Return the spell error under viewport coordinates (clientX, clientY),
    * or undefined when there is no misspelling at that point or no active
    * spell session.
@@ -2706,6 +2715,29 @@ export function initialize(
     if (!readOnly) textEditor.focus();
   }
 
+
+  /**
+   * The point → position computation both public readers share.
+   *
+   * `strict` is the difference between NAMING a point and placing a caret at
+   * it. Naming must refuse a point that is not on text — a report resolved from
+   * a margin to the nearest paragraph claims text nobody pointed at. Caret
+   * placement must not refuse, because a click past the end of a line still has
+   * to go somewhere.
+   */
+  const positionAt = (
+    clientX: number,
+    clientY: number,
+    strict: boolean,
+  ): { blockId: string; offset: number } | undefined => {
+    if (!layout) return undefined;
+    const { x: docX, y: docY } = clientToDocCoords(clientX, clientY);
+    const canvasWidth = canvas.getBoundingClientRect().width / scaleFactor;
+    const hit = paginatedPixelToPosition(paginatedLayout, layout, docX, docY, canvasWidth, {
+      strict,
+    });
+    return hit ? { blockId: hit.blockId, offset: hit.offset } : undefined;
+  };
   const api: EditorAPI = {
     render,
     getDoc: () => doc,
@@ -3219,11 +3251,17 @@ export function initialize(
         renderPaintOnly();
       }
     },
+    positionAtClientPoint: (
+      clientX: number,
+      clientY: number,
+    ): { blockId: string; offset: number } | undefined => positionAt(clientX, clientY, true),
     getSpellErrorAt: (clientX: number, clientY: number): SpellError | undefined => {
-      if (!spellSession || !layout) return undefined;
-      const { x: docX, y: docY } = clientToDocCoords(clientX, clientY);
-      const canvasWidth = canvas.getBoundingClientRect().width / scaleFactor;
-      const hit = paginatedPixelToPosition(paginatedLayout, layout, docX, docY, canvasWidth);
+      if (!spellSession) return undefined;
+      // CARET semantics here, deliberately not the strict naming ones: a
+      // right-click a pixel off a word must still find that word's error, and
+      // the strict test would refuse it. `positionAtClientPoint` is the naming
+      // API and refuses; this one asks the same question the click handlers do.
+      const hit = positionAt(clientX, clientY, false);
       if (!hit) return undefined;
       return spellSession.errorAt(hit.blockId, hit.offset);
     },

@@ -38,6 +38,10 @@ import { uploadImageFile } from "./image-upload";
 import { YorkieStore } from "./yorkie-store";
 import { needsRecalc } from "./remote-change-utils";
 import { UserPresence } from "@/types/users";
+import {
+  registerDebugSurface,
+  sheetSurface,
+} from "@/debug/surface-registry";
 import { useMobileSheetGestures } from "@/hooks/use-mobile-sheet-gestures";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileEditPanel } from "@/components/mobile-edit-panel";
@@ -149,6 +153,15 @@ export function SheetView({
 }) {
   const { resolvedTheme: theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
+  /**
+   * The active tab's name, for the DEV-only debug-report surface.
+   *
+   * Held in a ref rather than read from `root` inside the mount effect: that
+   * effect initialises the whole engine, and taking a dependency on the tab
+   * name would tear the sheet down and rebuild it every time someone renames a
+   * tab.
+   */
+  const debugTabNameRef = useRef<string | undefined>(undefined);
   const [didMount, setDidMount] = useState(false);
   const [sheetRenderVersion, setSheetRenderVersion] = useState(0);
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
@@ -223,6 +236,7 @@ export function SheetView({
 
   const [pivotEditorOpen, setPivotEditorOpen] = useState(false);
   const root = doc?.getRoot();
+  debugTabNameRef.current = root?.tabs?.[tabId]?.name;
   const hasCharts = !!root && Object.keys(root.sheets[tabId]?.charts || {}).length > 0;
   const hasImages = !!root && Object.keys(root.sheets[tabId]?.images || {}).length > 0;
   const selectedChart =
@@ -984,6 +998,7 @@ export function SheetView({
     let sheet: Awaited<ReturnType<typeof initialize>> | undefined;
     const unsubs: Array<() => void> = [];
     let cancelled = false;
+    let unregisterDebugSurface: (() => void) | undefined;
     let recalcInFlight = false;
     let recalcPending = false;
     let selectionFrame: number | null = null;
@@ -1008,6 +1023,16 @@ export function SheetView({
       sheet = s;
       sheetRef.current = s;
       setSheetRenderVersion((v) => v + 1);
+
+      // DEV only: let the debug-report overlay turn a point on the grid into
+      // `Sheet1!C7`. Nothing outside the engine can answer that — the canvases
+      // are `pointer-events: none`, so even hit-testing does not find them.
+      // See `docs/design/debug-report.md`.
+      if (import.meta.env.DEV && container) {
+        unregisterDebugSurface = registerDebugSurface(
+          sheetSurface(s, container, () => debugTabNameRef.current),
+        );
+      }
 
       // Surface data-validation rejections (e.g. a value that isn't in a
       // reject-mode dropdown list) as a toast.
@@ -1288,6 +1313,8 @@ export function SheetView({
 
     return () => {
       cancelled = true;
+      unregisterDebugSurface?.();
+      unregisterDebugSurface = undefined;
       if (sheet) {
         sheet.cleanup();
       }

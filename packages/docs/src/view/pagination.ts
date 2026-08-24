@@ -464,6 +464,21 @@ export function paginatedPixelToPosition(
   px: number,
   py: number,
   canvasWidth: number,
+  /**
+   * `strict` refuses a point that is not ON text, instead of returning the
+   * nearest position.
+   *
+   * The default is the CARET behaviour and must stay: clicking past the end of
+   * a line, or in the margin below the last one, has to place a caret
+   * somewhere, and the two "nearest so far" fallbacks below are what does that.
+   *
+   * A caller that NAMES the point needs the opposite. A defect report resolved
+   * from page whitespace to the nearest paragraph says "this paragraph" about
+   * text the reporter never pointed at — the same failure the DOM path's
+   * viewport-fraction guard and the canvas path's no-container-fallback rule
+   * already refuse.
+   */
+  options: { strict?: boolean } = {},
 ): { blockId: string; offset: number; lineAffinity: 'forward' | 'backward' } | undefined {
   if (paginatedLayout.pages.length === 0) return undefined;
 
@@ -473,14 +488,18 @@ export function paginatedPixelToPosition(
 
   // Find which page was clicked
   let targetPage = paginatedLayout.pages[0];
+  let onPage = false;
   for (const page of paginatedLayout.pages) {
     const pageTop = getPageYOffset(paginatedLayout, page.pageIndex);
     if (py >= pageTop && py < pageTop + pageHeight) {
       targetPage = page;
+      onPage = true;
       break;
     }
     if (py >= pageTop) targetPage = page;
   }
+  // The gap BETWEEN pages is not on any page.
+  if (options.strict && !onPage) return undefined;
 
   if (targetPage.lines.length === 0) {
     if (layout.blocks.length === 0) return undefined;
@@ -495,15 +514,23 @@ export function paginatedPixelToPosition(
   // For split table rows, use rowSplitHeight so a tiny first-fragment
   // doesn't claim the space that belongs to the next line below it.
   let targetPL = targetPage.lines[0];
+  let onLine = false;
   for (const pl of targetPage.lines) {
     const visibleHeight = pl.rowSplitHeight ?? pl.line.height;
     if (localY >= pl.y && localY < pl.y + visibleHeight) {
       targetPL = pl;
+      onLine = true;
       break;
     }
     if (localY >= pl.y) {
       targetPL = pl;
     }
+  }
+  if (options.strict) {
+    // Past the last line, above the first, or beyond the line's own width —
+    // margins and the space after a short line are not text.
+    if (!onLine) return undefined;
+    if (localX < 0 || localX > targetPL.line.width) return undefined;
   }
 
   // Translate page-local pointer into layout-local coords inside the

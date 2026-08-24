@@ -42,6 +42,14 @@ const DocsHarnessPage = lazy(() => import("@/app/harness/docs/page"));
 const HuntHarnessPage = import.meta.env.DEV
   ? lazy(() => import("@/app/harness/hunt/page"))
   : null;
+/**
+ * The debug-report overlay. DEV-gated for the same chunk-graph reason as above,
+ * and because the deployed transport does not exist yet (SP2 in
+ * `docs/design/debug-report.md`).
+ */
+const DebugReportMount = import.meta.env.DEV
+  ? lazy(() => import("./debug/mount"))
+  : null;
 const DocsDetail = lazy(() => import("@/app/docs/docs-detail"));
 const SlidesDetail = lazy(() => import("@/app/slides/slides-detail"));
 const FileDetail = lazy(() => import("@/app/files/file-detail"));
@@ -75,6 +83,9 @@ function App() {
         <QueryClientProvider client={queryClient}>
           <Router basename={import.meta.env.VITE_FRONTEND_BASENAME}>
             <AnalyticsTracker />
+            <Suspense fallback={null}>
+              {DebugReportMount && <DebugReportMount />}
+            </Suspense>
             <Suspense fallback={<Loader />}>
               <Routes>
                 <Route element={<PublicRoute />}>

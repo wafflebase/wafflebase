@@ -14,10 +14,14 @@
 /** Bundle schema version. Bump when a field changes meaning, not when one is added. */
 export const BUNDLE_SCHEMA = 1;
 
-export type Point = { x: number; y: number };
-
-/** Client coordinates, CSS pixels, rounded. */
-export type Rect = { x: number; y: number; w: number; h: number };
+// Geometry comes from `@wafflebase/core/geometry`, which is where the repository
+// keeps `Point`/`Rect` and the predicates over them (`rectsIntersect`,
+// `normalizeRect`). Re-exported rather than imported-and-forgotten so a consumer
+// of this package needs one import, and defined nowhere here so there is no
+// second definition to drift — that subpath exists because five copies of these
+// aliases had already accumulated inside `slides` alone.
+export type { Point, Rect } from '@wafflebase/core/geometry';
+import type { Rect } from '@wafflebase/core/geometry';
 
 /**
  * What the reporter pointed at.
@@ -53,10 +57,33 @@ export type Target =
       address?: string;
     }
   | {
-      /** A region with no canvas and no meaningful node under it. */
+      /**
+       * A region rather than a single node.
+       *
+       * Where a canvas backs it the pixels are the description; where the DOM
+       * does, `elements` is — and it must be filled in. Measured on `/login`
+       * and `/harness/visual` (zero canvases), a region produced an item with
+       * no capture, no selector and no text: coordinates and nothing else,
+       * which no agent can act on (`docs/design/debug-report.md`, finding 7).
+       */
       kind: 'viewport';
       rect: Rect;
+      elements?: DomElementRef[];
     };
+
+/**
+ * One DOM element, as a report can name it.
+ *
+ * The text excerpt is the load-bearing field: it is the agent's only grep key
+ * into the source, because a selector built from utility classes is a hint and
+ * not an identity.
+ */
+export type DomElementRef = {
+  selector: string;
+  tag: string;
+  text?: string;
+  rect: Rect;
+};
 
 /**
  * Capture METADATA. The bytes live in the store under `id` — a bundle carries
@@ -273,8 +300,38 @@ function parseTarget(v: unknown, path: string, e: Errors): Target | undefined {
         ...(address.value === undefined ? {} : { address: address.value }),
       };
     }
-    case 'viewport':
-      return { kind: 'viewport', rect };
+    case 'viewport': {
+      if (v.elements === undefined) return { kind: 'viewport', rect };
+      if (!Array.isArray(v.elements)) {
+        e.bad(`${path}.elements`, 'expected an array');
+        return undefined;
+      }
+      const elements: DomElementRef[] = [];
+      for (const [i, raw] of v.elements.entries()) {
+        const at = `${path}.elements[${i}]`;
+        if (!isRecord(raw)) {
+          e.bad(at, 'expected an object');
+          return undefined;
+        }
+        const elementRect = parseRect(raw.rect, `${at}.rect`, e);
+        if (!elementRect) return undefined;
+        if (!isNonEmptyString(raw.selector)) {
+          e.bad(`${at}.selector`, 'expected a non-empty string');
+          return undefined;
+        }
+        if (!isNonEmptyString(raw.tag)) {
+          e.bad(`${at}.tag`, 'expected a non-empty string');
+          return undefined;
+        }
+        elements.push({
+          selector: raw.selector,
+          tag: raw.tag,
+          ...(isNonEmptyString(raw.text) ? { text: raw.text } : {}),
+          rect: elementRect,
+        });
+      }
+      return { kind: 'viewport', rect, elements };
+    }
     default:
       e.bad(`${path}.kind`, `unknown target kind ${JSON.stringify(v.kind)}`);
       return undefined;

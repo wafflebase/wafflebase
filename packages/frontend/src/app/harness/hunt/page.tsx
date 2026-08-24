@@ -44,6 +44,10 @@ import {
 // worst shape of regression to debug. Both forms below keep them byte-identical.
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
+import {
+  registerDebugSurface,
+  sheetSurface,
+} from "@/debug/surface-registry";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import { FormattingToolbar } from "@/components/formatting-toolbar";
 
@@ -431,6 +435,7 @@ export default function HuntHarnessPage() {
 
     let disposed = false;
     let spreadsheet: Spreadsheet | undefined;
+    let unregisterDebugSurface: (() => void) | undefined;
     let docEditor: EditorAPI | undefined;
     let slidesEditor: SlidesEditor | undefined;
     let boardEditor: SlidesEditor | undefined;
@@ -470,6 +475,8 @@ export default function HuntHarnessPage() {
 
     const disposeMounted = () => {
       uninstallFault?.();
+      unregisterDebugSurface?.();
+      unregisterDebugSurface = undefined;
       docEditor?.dispose();
       docEditor = undefined;
       spreadsheet?.cleanup();
@@ -498,6 +505,12 @@ export default function HuntHarnessPage() {
           docEditor = initializeDocs(container, store, "light", /* readOnly */ false);
           if (disposed) return disposeMounted();
           controller.setDoc({ editor: docEditor, host: container });
+          unregisterDebugSurface = registerDebugSurface({
+            kind: "doc",
+            positionAtClientPoint: (x, y) =>
+              docEditor?.positionAtClientPoint(x, y),
+            host: container,
+          });
           setEditor(docEditor);
         } else if (surface === "board") {
           const S: SlidesModule = await import("@wafflebase/slides");
@@ -691,6 +704,21 @@ export default function HuntHarnessPage() {
           if (disposed) return disposeMounted();
           await spreadsheet.focusCell({ r: 1, c: 1 });
           controller.setSheet({ spreadsheet, store, host: container });
+          // Re-checked after the await above: a cleanup that lands mid-await
+          // runs `disposeMounted()` while `unregisterDebugSurface` is still
+          // undefined, so registering afterwards would overwrite the LIVE
+          // mount's surface with a detached one and never unregister it. The
+          // registry's identity check cannot help — the stale registration is
+          // the later one. StrictMode's mount/unmount/remount is the normal dev
+          // path, so this is the common case, not an edge.
+          if (disposed) return disposeMounted();
+          // The debug-report overlay's locator needs an engine to ask. Both are
+          // DEV-only instruments, and registering here is what lets a point on
+          // a canvas resolve to `Sheet1!C7` without a login or a backend —
+          // otherwise the locator is only reachable on a real document.
+          unregisterDebugSurface = registerDebugSurface(
+            sheetSurface(spreadsheet, container, () => "Sheet1"),
+          );
           setSheet(spreadsheet);
         }
         if (disposed) return disposeMounted();

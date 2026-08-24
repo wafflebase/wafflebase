@@ -225,6 +225,50 @@ describe('paginatedPixelToPosition', () => {
     expect(result).toBeDefined();
     expect(result!.blockId).toBe('b1');
   });
+
+  // `strict` is for a caller that NAMES the point rather than placing a caret.
+  // The two fallbacks above — nearest page, nearest line — are correct for a
+  // caret and wrong for a name: a report resolved from a margin to the nearest
+  // paragraph claims text nobody pointed at.
+  describe('strict', () => {
+    const setup = () => {
+      const block = mockBlock('b1', [mockLine(24)]);
+      const layout: DocumentLayout = {
+        blocks: [block],
+        totalHeight: 24,
+        blockParentMap: new Map(),
+      };
+      return { layout, paginated: paginateLayout(layout, DEFAULT_PAGE_SETUP) };
+    };
+
+    it('still answers for a point on the text', () => {
+      const { layout, paginated } = setup();
+      const hit = paginatedPixelToPosition(paginated, layout, 100, 150, 816, { strict: true });
+      expect(hit?.blockId).toBe('b1');
+    });
+
+    it('refuses the gap between pages', () => {
+      const { layout, paginated } = setup();
+      expect(
+        paginatedPixelToPosition(paginated, layout, 400, 10, 816, { strict: true }),
+      ).toBeUndefined();
+    });
+
+    it('refuses the margin below the last line', () => {
+      const { layout, paginated } = setup();
+      // Well past the single 24px line, still inside page 1.
+      expect(
+        paginatedPixelToPosition(paginated, layout, 100, 600, 816, { strict: true }),
+      ).toBeUndefined();
+    });
+
+    it('refuses a point beyond the line width', () => {
+      const { layout, paginated } = setup();
+      expect(
+        paginatedPixelToPosition(paginated, layout, 100_000, 150, 816, { strict: true }),
+      ).toBeUndefined();
+    });
+  });
 });
 
 function mockPageBreakBlock(id: string): LayoutBlock {

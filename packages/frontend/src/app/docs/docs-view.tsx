@@ -8,6 +8,7 @@ import { getPeerCursorColor } from "@wafflebase/sheets";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useDocument, Tree } from "@yorkie-js/react";
 import { useQuery } from "@tanstack/react-query";
+import { registerDebugSurface } from "@/debug/surface-registry";
 import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import type { YorkieDocsRoot } from "@/types/docs-document";
@@ -325,6 +326,17 @@ export function DocsView({
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
     const editor: EditorAPI = initialize(container, store, theme, readOnly);
     editorRef.current = editor;
+
+    // DEV only: the debug-report overlay asks this for the block and offset
+    // under a point, so a report can say which paragraph rather than which
+    // pixels. See `docs/design/debug-report.md`.
+    const unregisterDebugSurface = import.meta.env.DEV
+      ? registerDebugSurface({
+          kind: "doc",
+          positionAtClientPoint: (x, y) => editor.positionAtClientPoint(x, y),
+          host: container,
+        })
+      : undefined;
     setMountedEditor(editor);
     onEditorReady?.(editor);
 
@@ -506,6 +518,7 @@ export function DocsView({
       container.removeEventListener("mouseleave", handleMouseLeave);
       unsubPresence();
       editor.dispose();
+      unregisterDebugSurface?.();
       editorRef.current = null;
       setMountedEditor(null);
       storeRef.current = null;
