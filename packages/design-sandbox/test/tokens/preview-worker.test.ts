@@ -1,11 +1,12 @@
 /**
  * The preview worker's protocol and — mostly — its failure paths.
  *
- * WHY FAKE CHILDREN RATHER THAN THE REAL EMITTER. Every test here spawns `node -e` with a
- * few lines emulating one behaviour: a banner on stdout, a malformed line, an immediate
- * exit, silence. The real `preview-tokens.mts` does none of those on demand, and the
- * behaviours that matter are exactly the ones it cannot be asked to perform. The real
- * worker is covered in `core-adapter.test.ts`, through `emit()`, where it belongs.
+ * WHY FAKE CHILDREN RATHER THAN THE REAL EMITTER. Each test here spawns a child emulating
+ * one behaviour — a banner on stdout, a malformed line, an immediate exit, silence, a
+ * wrapper that outlives the pipe it was reading. The real `preview-tokens.mts` does none
+ * of those on demand, and the behaviours that matter are exactly the ones it cannot be
+ * asked to perform. The real worker is covered in `core-adapter.test.ts`, through
+ * `emit()`, where it belongs.
  *
  * The failure paths are the point. A worker that dies leaves requests in flight, and the
  * prototype's version answered them only when their individual 15-second timers expired —
@@ -15,10 +16,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createPreviewWorker, type PreviewSources } from '../../src/tokens/preview-worker';
+import {
+  createPreviewWorker,
+  type PreviewSources,
+  type PreviewWorker,
+} from '../../src/tokens/preview-worker';
 
 /** A worker built from an inline node script, so each test owns its behaviour. */
-const fake = (script: string, timeoutMs = 5_000) =>
+const fake = (script: string, timeoutMs = 5_000): PreviewWorker =>
   createPreviewWorker({
     cwd: process.cwd(),
     command: process.execPath,
@@ -35,6 +40,52 @@ const SOURCES: PreviewSources = {
   radius: 'RADIUS',
   typography: 'TYPOGRAPHY',
 };
+
+/**
+ * A worker whose child is a WRAPPER, holding a pipe the child itself stops reading.
+ *
+ * The process `spawn` returns is a shell, and the thing that reads stdin is a
+ * short-lived node it runs — the `pnpm exec tsx` chain's shape, where the emitter
+ * reading the pipe sits two levels below the process the worker holds. When that
+ * emitter dies and the wrapper does not, the pipe's read end is gone while
+ * `exitCode` and `killed` are both still clear, and a write fails with `EPIPE`
+ * rather than `ERR_STREAM_DESTROYED`.
+ *
+ * Ordered so nothing races: the shell consumes the request, closes the read end
+ * with `exec 0<&-`, and answers only AFTER that. The answer that releases the first
+ * `render()` is therefore emitted into an already-broken pipe, so the second write
+ * cannot arrive early. Measured 25/25.
+ *
+ * `fs.closeSync(0)` in a plain node child was tried first and REJECTED as flaky —
+ * 1/20 standalone, and it failed 3 of 15 vitest runs. Closing the fd does not
+ * reliably close the pipe: libuv still holds it registered for reading, so the
+ * parent's write lands in the buffer and SUCCEEDS, and the request then hangs until
+ * the child exits. A shell keeps no such bookkeeping, which is why the close here is
+ * a plain redirection.
+ *
+ * POSIX only, like the process-group `dispose()` and `DETACH` this suite already
+ * leans on; nothing in this package runs on Windows.
+ */
+const wrapperFake = (timeoutMs: number): PreviewWorker =>
+  createPreviewWorker({
+    cwd: process.cwd(),
+    command: '/bin/sh',
+    args: [
+      '-c',
+      [
+        'read -r req',
+        'exec 0<&-',
+        // `$$` is the shell's own pid — the process `spawn` returned, and the group
+        // leader. Reporting it in the answer is what lets a test assert the dropped
+        // child was actually killed, with no `ps` scraping and no pid guessing.
+        `'${process.execPath}' -e 'const m=JSON.parse(process.argv[1]); process.stdout.write(JSON.stringify({id:m.id,ok:true,light:{"--n":String(m.id),"--pid":process.argv[2]}})+"\\n")' "$req" "$$"`,
+        // Bounded, because staying alive is the whole point: `dispose()` reaches the
+        // LIVE child only, and the respawn test leaves a predecessor behind by design.
+        'sleep 5',
+      ].join('\n'),
+    ],
+    timeoutMs,
+  });
 
 describe('createPreviewWorker', () => {
   it('renders a response and correlates it by id', async () => {
@@ -139,6 +190,83 @@ describe('createPreviewWorker', () => {
     } finally {
       w.dispose();
     }
+  });
+
+  it('settles in-flight requests when the child outlives its stdin', async () => {
+    // The failure the case above cannot reach, and the one that used to take the whole
+    // process down: an unhandled `'error'` event on a stream is an uncaught exception. With
+    // the fix reverted, vitest reports it as an unhandled error charged to whichever file
+    // was running — which is how a bug in this worker surfaced as failures somewhere else.
+    //
+    // 600 s deliberately. This child never exits, so `child.on('exit')` cannot settle the
+    // request; a regression fails by hanging rather than by assertion.
+    const w = wrapperFake(600_000);
+    try {
+      expect((await w.render(SOURCES)).ok).toBe(true);
+      const r = await w.render(SOURCES);
+      expect(r.ok).toBe(false);
+      // `EPIPE`, and explicitly NOT the exit path. Same write into the same dead pipe as
+      // the test above, different error, because the discriminator is whether the stream
+      // has been destroyed — and it has not, the child is still running.
+      expect(r.error).toContain('lost stdin: EPIPE');
+      expect(r.error).not.toContain('exited');
+    } finally {
+      w.dispose();
+    }
+  });
+
+  it('respawns after the child loses its stdin', async () => {
+    const w = wrapperFake(600_000);
+    try {
+      expect((await w.render(SOURCES)).light?.['--n']).toBe('1');
+      expect((await w.render(SOURCES)).error).toContain('lost stdin');
+
+      // `--n: 1` from a fresh child whose predecessor never exited. `ensure()` keys its
+      // liveness check on `exitCode` and `killed`, both still clear on the old child, so
+      // this passes only because the stdin failure dropped `live` too. Without that the
+      // worker writes into the same dead pipe forever and a broken emitter never recovers
+      // without a dev-server restart. No polling needed: the `'error'` event is what
+      // settles the second render, and `die()` clears `live` before it resolves.
+      expect((await w.render(SOURCES)).light?.['--n']).toBe('1');
+    } finally {
+      w.dispose();
+    }
+  });
+
+  it('kills the child it drops on stdin loss', async () => {
+    // `die()` clears `live`, and nothing can reach that child afterwards — `dispose()`
+    // only ever stops its replacement. So the signal has to happen here or the process
+    // tree leaks, once per respawn. Measured before this test existed: two wrappers
+    // survived a run of this file, and every assertion still passed, which is exactly
+    // the kind of silent regression this suite is supposed to catch.
+    const w = wrapperFake(600_000);
+    let pid: number;
+    try {
+      const first = await w.render(SOURCES);
+      pid = Number(first.light?.['--pid']);
+      expect(Number.isInteger(pid)).toBe(true);
+      // Alive right now, so the assertion below is about the kill and not about a pid
+      // that was never running.
+      expect(() => process.kill(pid, 0)).not.toThrow();
+
+      expect((await w.render(SOURCES)).error).toContain('lost stdin');
+    } finally {
+      w.dispose();
+    }
+
+    // Polled: SIGTERM delivery and reaping are asynchronous. `process.kill(pid, 0)`
+    // throws ESRCH once the pid is gone — it is our own child, so Node reaps it.
+    let gone = false;
+    for (let i = 0; i < 60 && !gone; i++) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        gone = true;
+        break;
+      }
+      await new Promise((res) => setTimeout(res, 50));
+    }
+    expect(gone, `wrapper ${pid} survived being dropped`).toBe(true);
   });
 
   it('times out a worker that never answers', async () => {
