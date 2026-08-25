@@ -36,6 +36,19 @@ individual gates they (or CI, or a package script) invoke.
 | `tasks-index.mjs` | `pnpm tasks:index` | Regenerates `docs/tasks/README.md` from the task files. Never hand-edit that index. |
 | `tasks-archive.mjs` | `pnpm tasks:archive` | Moves completed task pairs from `docs/tasks/active/` to `archive/`, then reindexes. Keys on unchecked boxes only, so read a todo's Review section before trusting it. |
 
+## Design editor
+
+The two commands that open the loop for someone who is not a wafflebase
+developer. Both run `git` and `gh` **as the person invoking them** — this project
+stores no credential and forwards none, which is what makes a pull request
+compatible with the local-plugin pivot (see
+[`design-editor-local-plugin.md` §7](../docs/design/design-editor/design-editor-local-plugin.md#7-what-this-replaces)).
+
+| Script | Entry point | Role |
+|--------|-------------|------|
+| `design.mjs` | `pnpm design` | Opens the design editor from a cold clone: checks Node, prepares pnpm through corepack, installs and rebuilds the shell only when they are missing or stale, starts Vite and opens the browser at the URL Vite actually printed. Idempotent — a warm environment goes straight to the server. Runnable as `node scripts/design.mjs` by someone who has no pnpm yet. |
+| `design-pr.mjs` | `pnpm design-pr` | Turns the editor's changes into a pull request, descending a ladder: push rights → `gh repo fork` → a compare URL that needs only a browser. Commits **only the files the editor's write log names**, never on `main`, never force-pushes. `--dry-run` prints the plan. `.claude/skills/design-changes-to-pr` supplies a better title and body through `--title` / `--body-file`; the loop closes without it. |
+
 ## Directories
 
 | Directory | Contents |

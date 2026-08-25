@@ -190,6 +190,19 @@ Each row: the symptom you will actually see, then the cause.
 | Adding `"@/*"` to the consumer tsconfig explodes into hundreds of errors | Measured at 471: it makes `tsc` follow the alias into the app's whole graph and typecheck it under the sandbox's options. Declare the handful of app modules the sandbox imports in a `.d.ts` instead, loosely — the app's own `typecheck` is the program that should be checking them. Package aliases (`lucide-react` → the app's copy) are fine; it is **source** mapping that costs. |
 | An edit to plugin source changes nothing | **Vite does not hot-reload its own plugins.** Restart the dev server. The other two stale-artifact traps: a prebuilt `dist/shell` (rebuild it — `predev` does) and a stale `packages/core/dist`. |
 
+## Once it runs
+
+Two commands close the loop for someone who is not the person who built it:
+`pnpm design` starts the editor from a cold clone, and `pnpm design-pr` turns
+what they changed into a pull request — descending a ladder so that the last rung
+needs only a browser, never `gh auth login`. In wafflebase they live at the
+repository root; a consumer would put the equivalent in their own `package.json`.
+Neither holds a credential: they run `git` and `gh` as the person invoking them.
+
+`.claude/skills/design-changes-to-pr` is the optional half — it reads the write
+log (`GET {BASE}/api/transactions`, which carries the intent labels rather than a
+text diff) and writes the title and body. The loop must close without it.
+
 ## Bring-up order
 
 Do them in this order; each step is verifiable before the next has any chance of working.

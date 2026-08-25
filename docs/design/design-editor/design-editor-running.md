@@ -17,17 +17,27 @@ but shows the wrong thing.
 
 ## Summary
 
-One command, one URL:
+One command:
 
 ```bash
-pnpm --filter @wafflebase/design-sandbox dev
-# → open http://localhost:5173/__design-editor/
+pnpm design
 ```
 
-> **Rebuild the shell after changing it.** The editor UI is served from a prebuilt
-> `dist/shell`, not from source, so `pnpm dev` will happily serve yesterday's shell
-> against today's `App.tsx`. Run
-> `pnpm --filter @wafflebase/design-editor build` first. The scene half — the frame,
+It checks Node, prepares pnpm, installs and rebuilds the shell only when they are
+missing or stale, starts the server and opens the browser at the URL Vite actually
+printed. `pnpm design-pr` then turns what you changed into a pull request. Both are
+documented for the person *using* the editor in
+[the user guide](../../../packages/documentation/developers/design-editor.md); this
+document is for the person maintaining it.
+
+**That command exists to close the stale-shell trap**, which cost this project real
+time more than once: the editor UI is served from a prebuilt `dist/shell`, not from
+source, so
+`pnpm --filter @wafflebase/design-sandbox dev` will happily serve yesterday's shell
+against today's `App.tsx`. `pnpm design` compares mtimes and rebuilds when it has
+to. Reach for the raw command only when you want to control the two halves
+separately — and then run
+`pnpm --filter @wafflebase/design-editor build` first. The scene half — the frame,
 > the fixtures, the consumer's own components — *is* live over HMR, which is what
 > makes the staleness easy to miss.
 
@@ -49,7 +59,16 @@ section. Nor the design of any of this, which is
 ### 1. Boot it
 
 ```bash
+pnpm design
+```
+
+That is the whole procedure, and it is the one to use: it installs on the first
+run and rebuilds the shell when it is stale, which is the trap below. The two
+halves separately, when you want to control them:
+
+```bash
 pnpm install                                        # once
+pnpm --filter @wafflebase/design-editor build       # NOT optional — see below
 pnpm --filter @wafflebase/design-sandbox dev
 ```
 

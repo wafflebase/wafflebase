@@ -148,6 +148,7 @@ export default defineConfig({
         text: "Developers",
         items: [
           { text: "Self-Hosting", link: "/developers/self-hosting" },
+          { text: "Design Editor", link: "/developers/design-editor" },
           { text: "REST API", link: "/developers/rest-api" },
           { text: "CLI", link: "/developers/cli" },
         ],

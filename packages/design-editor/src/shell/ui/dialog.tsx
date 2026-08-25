@@ -32,10 +32,19 @@ function useDialog(part: string) {
 export function Dialog({
   open,
   onOpenChange,
+  panelClassName,
   children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Overrides on the PANEL, which is the box with the width.
+   *
+   * `DialogContent` is an inner div, so a `max-w-*` passed there is bounded by this
+   * one and silently does nothing — measured: a dialog asking for 1024px rendered at
+   * 768. Sizing has to reach the element that owns it.
+   */
+  panelClassName?: string;
   children?: ReactNode;
 }) {
   const panel = useRef<HTMLDivElement | null>(null);
@@ -77,7 +86,10 @@ export function Dialog({
           aria-labelledby="wb-dialog-title"
           aria-describedby="wb-dialog-desc"
           tabIndex={-1}
-          className="flex max-h-[85vh] w-full max-w-3xl flex-col gap-3 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-4 text-wb-fg shadow-xl outline-none"
+          className={cn(
+            'flex max-h-[85vh] w-full max-w-3xl flex-col gap-3 overflow-hidden rounded-lg border border-wb-border bg-wb-panel p-4 text-wb-fg shadow-xl outline-none',
+            panelClassName,
+          )}
         >
           {children}
         </div>

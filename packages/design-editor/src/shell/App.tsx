@@ -1321,15 +1321,37 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
                   {writeDepth}
                 </button>
               </PopoverTrigger>
-              <PopoverContent className="w-80" label="Write log">
+              <PopoverContent className="w-96" label="Write log">
                 <p className="mb-1 text-[10px] font-medium text-wb-muted">Write log</p>
                 {writeLog.length === 0 ? (
                   <p className="text-[10px] text-wb-muted">Nothing written this session.</p>
                 ) : (
-                  <ul className="flex flex-col gap-1">
+                  /*
+                    BOUNDED, because the file paths added below made each entry taller and
+                    a long session could push `Revert last` off the bottom of the screen —
+                    the two controls that undo a write are the last thing that may become
+                    unreachable. The list scrolls; the buttons sit outside it.
+                  */
+                  <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto">
                     {writeLog.map((t) => (
                       <li key={t.id} className="font-mono text-[10px] text-wb-muted">
-                        #{t.id} {t.labels.join(', ')}
+                        <p className="text-wb-fg">
+                          #{t.id} {t.labels.join(', ')}
+                        </p>
+                        {/*
+                          THE FILES, which this list is the durable answer to.
+                          
+                          It carried labels only, and a label says what was changed rather
+                          than WHERE it landed — so "I saved, now what do I look at" had no
+                          answer here. The toast at save time names the file and then
+                          disappears; this is the record that does not. The transaction
+                          summary has carried `files` all along.
+                        */}
+                        {t.files?.map((f) => (
+                          <p key={f} className="truncate pl-3 opacity-70" title={f}>
+                            {f}
+                          </p>
+                        ))}
                       </li>
                     ))}
                   </ul>

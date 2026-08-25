@@ -46,6 +46,21 @@ why it patches a module rather than pushing an override.
 
 ## Commands
 
+**From nothing:** `pnpm design` at the repository root, or `node scripts/design.mjs`
+if you do not have pnpm yet — it prepares one, installs only what is missing,
+rebuilds the editor shell only when it is stale, starts the server and opens the
+browser. Someone whose environment is already warm runs the same command and it
+goes straight to the server. `pnpm design-pr` turns what they changed into a pull
+request; both are documented in
+[`design-editor-local-plugin.md` §7](../../docs/design/design-editor/design-editor-local-plugin.md#7-what-this-replaces).
+
+This package is the reason either can exist: its scenes answer `fetch` from
+fixtures behind a guard aimed at `http://scene.invalid`, so the editor needs no
+backend, no database, no Yorkie and no `docker compose` — the only part of
+wafflebase that runs standalone.
+
+The rest are the maintainer's commands:
+
 ```bash
 pnpm --filter @wafflebase/design-sandbox typecheck
 pnpm --filter @wafflebase/design-sandbox test
