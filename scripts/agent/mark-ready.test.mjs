@@ -347,10 +347,17 @@ test("agent-review-panel.yml handles every mark-ready code, defaults the rest", 
   );
   // A REDIRECT, not a pipe: `| tee` makes `$?` the status of the last pipeline
   // element and the script's code — the only thing this block reads — is lost.
-  const invocation = window.slice(0, window.indexOf("code=$?"));
+  //
+  // `code=$?` is asserted BEFORE it is used as a slice bound, for the reason the
+  // `-1` above exists: a missing needle makes `indexOf` return -1, `slice(0, -1)`
+  // is the whole window minus its last character rather than the empty string,
+  // and the `||` inside the `1)` branch would then trip the no-pipe check —
+  // reporting a deleted `code=$?` as a pipe that isn't there.
+  const codeCapture = window.indexOf("code=$?");
+  assert.notEqual(codeCapture, -1, "the step must still capture mark-ready's status into $code");
+  const invocation = window.slice(0, codeCapture);
   assert.match(invocation, />\s*"\$RUNNER_TEMP\/mark-ready\.log" 2>&1/, "output must be redirected to a log");
   assert.ok(!invocation.includes("|"), "the capture must not be a pipe, or $? is not mark-ready's");
-  assert.match(window, /code=\$\?/);
 
   // The chain itself: a `case` with a default, not bare `if`s that fall through.
   assert.match(window, /case "\$code" in/, "branch with `case`, so an unhandled status has somewhere to land");
