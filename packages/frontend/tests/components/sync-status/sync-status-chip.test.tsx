@@ -34,6 +34,8 @@ interface FakeDoc {
   type: () => void;
   /** Test control: the server accepted everything pushed so far. */
   ack: () => void;
+  /** Test control: fire a document event of the given type. */
+  emit: (type: string, value?: unknown) => void;
 }
 
 const DEFAULT_STREAM = '__default__';
@@ -62,6 +64,11 @@ function fakeDoc(): FakeDoc {
     ack: () => {
       acked = clientSeq;
     },
+    emit: (type, value) => {
+      for (const key of [type, DEFAULT_STREAM]) {
+        for (const h of handlers.get(key) ?? []) h({ type, value });
+      }
+    },
   };
 }
 
@@ -81,6 +88,24 @@ function unloadGuards() {
     addSpy.mock.calls.filter(([type]) => type === 'beforeunload').length -
     removeSpy.mock.calls.filter(([type]) => type === 'beforeunload').length
   );
+}
+
+/**
+ * Fires the currently-registered `beforeunload` handler and reports whether it
+ * actually blocked. Registration alone is not the behaviour that matters — the
+ * handler decides at fire time whether anything is really at risk.
+ */
+function prevented(): boolean {
+  const calls = addSpy.mock.calls.filter(([type]) => type === 'beforeunload');
+  const handler = calls.at(-1)?.[1] as ((e: Event) => void) | undefined;
+  if (!handler) return false;
+  let blocked = false;
+  handler({
+    preventDefault: () => {
+      blocked = true;
+    },
+  } as unknown as Event);
+  return blocked;
 }
 
 beforeEach(() => {
@@ -117,14 +142,14 @@ describe('SyncStatusChip', () => {
     expect(screen.queryByText('Not saved')).toBeNull();
   });
 
-  it('arms the unload guard only while edits are stranded', () => {
+  it('stops blocking the unload once the work is on the server', () => {
     const doc = fakeDoc();
     mockCtx = { doc, connection: 'disconnected' };
     const { rerender } = renderChip();
     act(() => { doc.type(); });
-    expect(unloadGuards()).toBe(1);
+    expect(prevented()).toBe(true);
 
-    // Reconnect and let the queue drain.
+    // Reconnect and let the server take it.
     mockCtx = { doc, connection: 'connected' };
     act(() => {
       doc.ack();
@@ -133,10 +158,68 @@ describe('SyncStatusChip', () => {
           <SyncStatusChip />
         </TooltipProvider>,
       );
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(5000);
     });
 
+    expect(prevented()).toBe(false);
+    // ...and by then the listener is gone too, so a synced document carries no
+    // handler at all.
     expect(unloadGuards()).toBe(0);
+  });
+
+  it('guards an edit that is still in flight, not only a stranded one', () => {
+    // `Saving…` also means the work is not on the server yet. Reloading here
+    // loses it just as surely as reloading while disconnected does.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+    renderChip();
+
+    act(() => {
+      doc.type();
+    });
+
+    expect(prevented()).toBe(true);
+  });
+
+  it('does not prompt once the edit is accepted, even while still showing Saving', () => {
+    // The chip holds `Saving…` for a quiet window after the last keystroke, so
+    // guarding on the label alone would prompt on every reload for two seconds
+    // after any edit — with nothing actually at risk. The handler asks the
+    // document at fire time instead.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+    const { container } = renderChip();
+
+    act(() => {
+      doc.type();
+      doc.ack();
+    });
+
+    expect(container.textContent).toContain('Saving');
+    expect(prevented()).toBe(false);
+  });
+
+  it('names the cause when the server rejected the push', () => {
+    // `Not saved` is reached two ways. Telling a user whose connection is fine
+    // that "your connection dropped" sends them to debug the wrong thing.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+    renderChip();
+    act(() => {
+      doc.type();
+      doc.emit('sync', 'sync-failed');
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(warning).toHaveBeenCalledTimes(1);
+    const description = String(
+      (warning.mock.calls[0][1] as { description?: string })?.description ?? '',
+    );
+    expect(description).not.toMatch(/connection dropped/i);
+    expect(description).toMatch(/reject/i);
   });
 
   it('never arms the unload guard for a healthy document', () => {

@@ -74,15 +74,24 @@ function tooltipFor(state: SyncState, pendingSince: Date | null): string {
  * Design: docs/design/sync-status.md
  */
 export function SyncStatusChip({ className }: { className?: string }) {
-  const { state, pendingSince } = useSyncStatus();
+  const { state, connected, hasUnsentEdits, pendingSince } = useSyncStatus();
   const stranded = state === 'not-saved';
+  // `Saving…` is not safe either — the work is not on the server yet, and a
+  // reload during it loses the edit just as surely as one while disconnected.
+  const mayHaveUnsent = stranded || state === 'saving';
 
-  // The guard is registered only while edits are actually at risk. A handler
-  // left permanently attached would prompt on every navigation away from a
+  // Registered only while something could be at risk; a handler left
+  // permanently attached would prompt on every navigation away from a
   // perfectly synced document, which teaches people to click through it.
+  //
+  // Whether it actually blocks is decided at fire time, because `Saving…`
+  // persists through a quiet window after the last keystroke: by then the
+  // server has usually taken the work, and prompting anyway would put a dialog
+  // in front of every reload for two seconds after any edit.
   useEffect(() => {
-    if (!stranded) return;
+    if (!mayHaveUnsent) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsentEdits()) return;
       event.preventDefault();
       // Legacy browsers require a returnValue to show the prompt at all; the
       // string itself has been ignored by every current browser for years.
@@ -90,7 +99,7 @@ export function SyncStatusChip({ className }: { className?: string }) {
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [stranded]);
+  }, [mayHaveUnsent, hasUnsentEdits]);
 
   // Tracks whether the warning is currently on screen, so recovery only
   // confirms when there was something to recover from.
@@ -103,8 +112,12 @@ export function SyncStatusChip({ className }: { className?: string }) {
         toast.warning('Not saved', {
           id: TOAST_ID,
           duration: Infinity,
-          description:
-            "Your connection dropped and recent changes haven't reached the server. Keep this tab open; they'll sync when the connection returns.",
+          // `Not saved` is reached two ways, and they call for different
+          // advice. Telling someone whose connection is fine that it dropped
+          // sends them to debug the wrong thing.
+          description: connected
+            ? "The server rejected your recent changes, so they haven't been saved. Keep this tab open — closing it will lose them."
+            : "Your connection dropped and recent changes haven't reached the server. Keep this tab open; they'll sync when the connection returns.",
         });
       }, TOAST_DELAY_MS);
       return () => clearTimeout(timer);
@@ -126,7 +139,7 @@ export function SyncStatusChip({ className }: { className?: string }) {
       id: RECOVERY_TOAST_ID,
       description: 'Your changes reached the server.',
     });
-  }, [stranded, state]);
+  }, [stranded, state, connected]);
 
   // `<Toaster />` is mounted outside the router, and the warning is
   // `duration: Infinity` with no close button. Without this, leaving the

@@ -30,6 +30,19 @@ const SYNC_FAILED = 'sync-failed';
 
 export interface SyncStatus {
   state: SyncState;
+  /** Yorkie's watch stream is open. Lets a caller tell the two routes into
+   *  `not-saved` apart: a dropped connection, or a rejected push. */
+  connected: boolean;
+  /**
+   * Whether the user's last edit is *right now* still ahead of the server.
+   *
+   * A live read rather than a rendered value, for the one caller that needs
+   * the unsmoothed truth at the instant it asks: the unload guard. `state`
+   * holds `Saving…` through a quiet window after the last keystroke, so
+   * guarding on the label would prompt for two seconds after every edit with
+   * nothing actually at risk.
+   */
+  hasUnsentEdits: () => boolean;
   /**
    * When the currently-outstanding stretch of editing began — i.e. how far
    * back the work now at risk goes. Re-stamped whenever an edit follows an
@@ -175,7 +188,11 @@ export function useSyncStatus(): SyncStatus {
   useEffect(() => {
     if (!doc) return;
     return doc.subscribe('sync', (event) => {
-      setSyncFailed(String(event.value) === SYNC_FAILED);
+      // A failure only counts when the user had something outstanding. A pull
+      // that did not land costs them none of their own work — and remembering
+      // it would make the *next* edit report as rejected, arming the guard and
+      // the warning over a push that was never attempted.
+      setSyncFailed(String(event.value) === SYNC_FAILED && pendingRef.current);
     });
   }, [doc]);
 
@@ -185,11 +202,18 @@ export function useSyncStatus(): SyncStatus {
   // `reconnecting`, flashing that on every document open for the length of the
   // attach.
   if (!doc) {
-    return { state: 'saved', pendingSince: null };
+    return {
+      state: 'saved',
+      connected,
+      hasUnsentEdits: unflushed,
+      pendingSince: null,
+    };
   }
 
   return {
     state: deriveSyncState({ connected, pending, syncFailed }),
+    connected,
+    hasUnsentEdits: unflushed,
     pendingSince,
   };
 }

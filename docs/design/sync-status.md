@@ -96,17 +96,19 @@ can never enter into it.
 The chip is a function of two booleans — connected, and pending — plus
 a transient "a sync is in flight" bit:
 
-| Connection | Local changes | Chip | Tone |
+| Connection | Outstanding work | Chip | Tone |
 | --- | --- | --- | --- |
 | Connected | none | `Saved` | muted |
 | Connected | pending | `Saving…` | muted |
 | Disconnected | none | `Reconnecting…` | muted |
 | Disconnected | pending | **`Not saved`** | destructive |
 
-Only the fourth state is loud, and only it arms the unload guard. That is the
-whole point of keying on outstanding work rather than on connectivity: a
-user reading a document on a flaky train connection should not be alarmed, and
-a user who has typed a paragraph into a dead socket should be.
+Only the fourth state is loud. That is the whole point of keying on outstanding
+work rather than on connectivity: a user reading a document on a flaky train
+connection should not be alarmed, and a user who has typed a paragraph into a
+dead socket should be. The unload guard covers the second and fourth rows —
+both mean the work is not on the server yet; see [The unload
+guard](#the-unload-guard).
 
 The chip carries a tooltip that says what the state actually means. For
 `Not saved`: *"Changes since <time> haven't reached the server. They exist only
@@ -115,9 +117,11 @@ the real risk rather than the reassuring version.
 
 `DocSyncStatus.SyncFailed` while still connected (a rejected push — auth
 expiry, a removed document) also resolves to `Not saved`, since the outcome for
-the user is identical. It is ignored once the queue has drained: a failed
-*pull* costs the user none of their own edits, so reporting it would be alarm
-with no consequence behind it.
+the user is identical; only the toast copy differs, per [The transition
+notice](#the-transition-notice). A failure is recorded **only when something
+was pending at the time** — a pull that did not land costs the user none of
+their own edits, and remembering it would make the *next* edit report as
+rejected over a push that was never attempted.
 
 Before the provider has a document at all, the state is `Saved` rather than
 `Reconnecting…`. There is no connection to have lost and nothing queued to
@@ -183,6 +187,14 @@ It is a toast on the edge, not a persistent banner — the chip is the persisten
 surface. Transitions are debounced (~2s) so that a single dropped frame of the
 watch stream, which the SDK recovers from on its own, never produces a toast.
 
+`Not saved` is reached two ways, and the copy follows the cause. If the
+connection is still up, the state came from a **rejected push**, and the
+message says so instead — telling someone whose network is fine that it dropped
+sends them to debug the wrong thing:
+
+> **Not saved** — The server rejected your recent changes, so they haven't been
+> saved. Keep this tab open — closing it will lose them.
+
 Retraction and confirmation are **two different things**, and conflating them
 hands out a false receipt. Leaving `Not saved` dismisses the warning
 immediately — it is no longer true. But the confirmation waits for `Saved`,
@@ -193,17 +205,31 @@ no evidence behind it, which is the one thing this feature must never do.
 
 ### The unload guard
 
-Registered only while the state is `Not saved`, deregistered as soon as it is
-not:
+`Saving…` is not a safe state either — the work is not on the server yet, and a
+reload during it loses the edit as surely as one while disconnected. So the
+guard covers both, and `Reconnecting…` (nothing outstanding) neither:
 
 ```ts
+const mayHaveUnsent = state === 'saving' || state === 'not-saved';
+
 useEffect(() => {
-  if (state !== 'not-saved') return;
-  const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+  if (!mayHaveUnsent) return;
+  const onBeforeUnload = (e: BeforeUnloadEvent) => {
+    if (!hasUnsentEdits()) return;   // live read, not the smoothed label
+    e.preventDefault();
+  };
   window.addEventListener('beforeunload', onBeforeUnload);
   return () => window.removeEventListener('beforeunload', onBeforeUnload);
-}, [state]);
+}, [mayHaveUnsent, hasUnsentEdits]);
 ```
+
+**Whether it blocks is decided at fire time, not at registration.** The chip
+holds `Saving…` through the quiet window after the last keystroke, by which
+point the server has usually taken the work — guarding on the label alone would
+put a browser dialog in front of every reload for two seconds after any edit,
+which is exactly how a prompt gets trained into a reflex. `hasUnsentEdits()` is
+the unsmoothed sequence comparison, asked at the instant the user tries to
+leave. Smoothing is for the chip; the guard wants the truth.
 
 There is no `beforeunload` handler anywhere in `packages/frontend/src` today,
 so nothing conflicts. Conditional registration matters: a handler that is
@@ -265,7 +291,11 @@ export type SyncState = 'saved' | 'saving' | 'reconnecting' | 'not-saved';
 /** Reads the ambient DocumentProvider. Must be called inside one. */
 export function useSyncStatus(): {
   state: SyncState;
-  /** When the oldest currently-unpushed change was made; null when saved. */
+  /** Tells the two routes into `not-saved` apart: dropped, or rejected. */
+  connected: boolean;
+  /** A live read of the unsmoothed truth, for the unload guard. */
+  hasUnsentEdits: () => boolean;
+  /** When the currently-outstanding stretch of editing began; null when none. */
   pendingSince: Date | null;
 };
 

@@ -32,7 +32,9 @@ derive a 4-state `SyncState`, and render it from one shared chip mounted in
 
 Severity keys on whether the user has outstanding work, not on connectivity: a
 disconnected *reader* sees a muted `Reconnecting…`; only a disconnected editor
-with an unacknowledged edit gets `Not saved`, the toast, and the unload guard.
+with an unacknowledged edit gets `Not saved` and the toast. The unload guard is
+wider — it covers `Saving…` too, since that also means the work is not on the
+server — and decides whether to actually block at fire time.
 
 Three assumptions here did not survive contact with the code — the mount cannot
 be unconditional, PDF is not covered, and `hasLocalChanges()` (the obvious
@@ -59,7 +61,8 @@ design](#correction-to-the-design) and Phase 5.
   - [x] Track `pendingSince` — stamped when an edit opens a fresh window of
         exposure, cleared when the server acknowledges it.
   - [x] `DocSyncStatus.SyncFailed` while connected also resolves to
-        `not-saved`, and is ignored once the queue has drained.
+        `not-saved`, and is recorded only when something was pending at the
+        time (Phase 7).
   - [x] No document yet → `saved`, not `reconnecting`. Found by the test:
         falling through flashes "Reconnecting…" on every document open for the
         length of the attach.
@@ -94,8 +97,9 @@ design](#correction-to-the-design) and Phase 5.
 - [x] Recovery dismisses it and shows a brief `Saved` confirmation — only when
       a warning was actually shown, and (after Phase 6) only once the server
       has genuinely taken the work.
-- [x] `beforeunload` registered **only** while `not-saved`, removed as soon as
-      the state leaves it.
+- [x] `beforeunload` registered while `saving` or `not-saved` (Phase 7 widened
+      it), removed as soon as neither holds, and blocking decided at fire time
+      against a live read.
 
 ### Phase 4 — chip strobe found in the smoke test
 
@@ -216,6 +220,33 @@ reproduced with a failing test before being fixed.
   in Slides while offline drops the chip and disarms the guard until the next
   keystroke.
 
+### Phase 7 — PR review (CodeRabbit on #967)
+
+Three findings, all valid, all reproduced with a failing test first.
+
+- [x] **The unload guard skipped `saving` (major).** `Saving…` also means the
+      work is not on the server, and a reload during it loses the edit. The
+      literal fix — guard on `saving || not-saved` — over-prompts, because the
+      chip holds `Saving…` through the 2 s quiet window when the server has
+      usually already taken the work. Instead the guard is *registered* for
+      both states but *decides at fire time* against `hasUnsentEdits()`, a live
+      unsmoothed read the hook now exposes. Smoothing is for the chip; the
+      guard wants the truth.
+- [x] **A failed pull leaked into the next edit (minor).** `syncFailed` was set
+      by any `SyncFailed` event, including one with nothing pending. The next
+      edit then combined a fresh `pending` with that stale flag and reported
+      `not-saved` — arming the guard and the warning over a push that had never
+      been attempted. A failure is now recorded only when something was pending
+      at the time.
+- [x] **The warning copy assumed a dropped connection (minor).** `Not saved` is
+      reached two ways; a rejected push while connected got told "your
+      connection dropped", sending the user to debug the wrong thing. The copy
+      now follows the cause.
+
+The chip's test fake had lost its `emit`, so the sync-failure test failed as a
+`TypeError` before it could fail as an assertion — the same shape of gap as
+Phase 5's missing sync event.
+
 ## Correction to the design
 
 Two claims in the first draft of `docs/design/sync-status.md` were wrong and
@@ -235,12 +266,12 @@ have been fixed in the same branch:
 
 ## Tests
 
-38 new, all written before the code they cover and watched fail first.
+42 new, all written before the code they cover and watched fail first.
 
 - [x] `tests/components/sync-status/sync-state.test.ts` (6) — the truth table,
       including the two asymmetries: a rejected push with a non-empty queue is
       `not-saved`, a failed pull with an empty one is not.
-- [x] `tests/components/sync-status/use-sync-status.test.ts` (17)
+- [x] `tests/components/sync-status/use-sync-status.test.ts` (18)
   - [x] Typing raises `saving` immediately and holds it across a whole burst
         even with a permanently empty queue; it settles only once typing
         stops; a full queue never settles however long it waits. (Phase 4.)
@@ -252,7 +283,7 @@ have been fixed in the same branch:
   - [x] A tick that does not change the derived state does not re-render.
   - [x] `pendingSince` stamped on fill, cleared on drain.
   - [x] No document yet → `saved`.
-- [x] `tests/components/sync-status/sync-status-chip.test.tsx` (11)
+- [x] `tests/components/sync-status/sync-status-chip.test.tsx` (14)
   - [x] `beforeunload` added on entering `not-saved`, removed on leaving, never
         added for a healthy document — the regression that would otherwise
         prompt on every navigation.
@@ -268,7 +299,7 @@ have been fixed in the same branch:
 ## Verify
 
 - [x] `pnpm --filter @wafflebase/frontend lint` clean
-- [x] `pnpm --filter @wafflebase/frontend test` — 1644 passed / 44 skipped
+- [x] `pnpm --filter @wafflebase/frontend test` — 1648 passed / 44 skipped
       (was 1606), no regressions
 - [x] `pnpm verify:fast`
 - [x] Self code review over the branch diff — see Phase 6

@@ -367,6 +367,27 @@ describe('useSyncStatus', () => {
     expect(result.current.pendingSince).not.toBe(first);
   });
 
+  it('does not carry a failed pull into the next edit', () => {
+    // A sync can fail with nothing of the user's outstanding — a pull that did
+    // not land. Remembering that failure would make the *next* edit report as
+    // rejected, arming the guard and the warning over a push that was never
+    // even attempted.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+    const { result } = renderHook(() => useSyncStatus());
+
+    act(() => {
+      doc.emit('sync', 'sync-failed');
+    });
+    expect(result.current.state).toBe('saved');
+
+    act(() => {
+      doc.type();
+    });
+
+    expect(result.current.state).toBe('saving');
+  });
+
   it('reports saved when there is no document yet', () => {
     mockCtx = { doc: undefined, connection: 'disconnected' };
 
