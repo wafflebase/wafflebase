@@ -52,8 +52,10 @@ missed a great deal.
 **Non-Goals**
 
 - **Hosting anything.** No containers, no repo checkout, no server-side install.
-- **Git credentials.** No GitHub App, no PAT, no branch creation, no PR
-  creation. Superseded — see [§7](#7-what-this-replaces).
+- **Git credentials of ours.** No GitHub App, no PAT, no token this project
+  stores or forwards. Branch and PR creation are *not* excluded by that — they
+  run as the person invoking them, through their own `git` and `gh`. See
+  [§7](#7-what-this-replaces), which is where the distinction is drawn.
 - **Non-Vite hosts.** The engine is Vite-specific by construction: `apply:
   "serve"`, module-id patching (`?wbFrame=`), HMR pushes, a second HTML entry. A
   webpack/Next host is a rewrite of the host layer, not a config flag.
@@ -538,11 +540,71 @@ and nothing ever read the `.bak` back.
 ### 7. What this replaces
 
 The Phase 4 roadmap entry ("convert approved intents into a branch + commit + a
-GitHub PR") is **withdrawn**. Its motivation was that a hosted editor has no
-other way to return work to the user. A local plugin writes to the working tree,
-so the user's own `git diff` / `git commit` is the review surface — better than
-a generated PR, and it deletes the entire credential surface (GitHub App,
-installation tokens, secret storage) from the MVP.
+GitHub PR") was **withdrawn as designed**. Its motivation was that a hosted editor
+has no other way to return work to the user, and it carried an entire credential
+surface — GitHub App, installation tokens, secret storage — to do it. A local
+plugin writes to the working tree, so the user's own `git diff` / `git commit` is
+the review surface, and none of that is needed.
+
+#### 7.1 The PR came back, and the objection does not apply to it
+
+What that reasoning rules out is **this project holding a credential on someone's
+behalf**. It does not rule out a pull request. Running on the person's own machine,
+`git` and `gh` are already authenticated *as them*; shelling out to those is the
+same thing they would type, and adds no surface at all. The withdrawn thing was
+the hosting and the delegation, not the artifact.
+
+So `scripts/design-pr.mjs` opens one, and the distinction is load-bearing enough
+to state as a rule: **the editor never authenticates. It only ever runs a program
+the person has already authenticated.**
+
+The reason to bother is the audience. For a developer, the working tree genuinely
+is the better review surface. For everyone else it is a dead end — a designer who
+has just fixed a hover state has no way to hand it over, and "run these four git
+commands" is not an answer. The script descends a ladder so that the last rung
+still works with nothing but a browser:
+
+| Rung | Detected by | Does |
+| --- | --- | --- |
+| 3 · push rights | `viewerPermission` is WRITE or better | branch, commit, push, `gh pr create` |
+| 2 · `gh`, no rights | otherwise, with `gh` authenticated | `gh repo fork`, push to the fork, PR against upstream |
+| 1 · git only | `gh` absent or unauthenticated | push, then open `…/compare/<branch>?expand=1` |
+| 0 · no git | — | says so, and stops |
+
+Rung 1 is the point: `gh auth login` is not a precondition for opening a pull
+request, and requiring it would put the whole thing behind a step this audience
+cannot take.
+
+Two guardrails are not negotiable, because this writes to someone else's
+repository. It commits **only the files the editor's write log names** — the tree
+may hold unrelated work, which is reported and left alone — and it never commits
+on `main`, never force-pushes, and never overwrites a branch.
+
+#### 7.2 Two destinations, and the editor knows which
+
+An observation made in the editor is one of two kinds:
+
+- **It maps to an intent** — `class-rewrite`, `token-value`, `token-add`,
+  `token-rebind`, `palette-value`, `layout-props`, `layout-insert`,
+  `layout-remove`. Then the edit already *exists in source* and has been dry-run
+  applied. → a pull request, directly. Turning it into a spec would be a
+  downgrade: exact, verified edits discarded so something can re-derive them.
+- **It does not** — "add a button that opens a dialog", "paginate this list". No
+  intent invents behaviour; `layout-insert` places an element but wires no state
+  or handler. → a **spec**, which the repository's existing pipeline implements
+  (issue → `@claude fix` → `agent-implement.yml` → draft PR).
+
+The split is mechanical rather than a judgement call: an intent either applies or
+it does not. The debug reporter embedded in the scene frame is the natural intake
+for the second kind, because it already captures the selector, the region and the
+session — the context a spec needs.
+
+**A constraint that half inherits:** `agent-review-panel.yml` excludes fork PRs
+("the auto-fix loop cannot push to a fork"), and an outside contributor is by
+definition on a fork. Today their spec can reach an *issue* and stops there. That
+is a real gap in the story rather than an oversight, and it needs a decision —
+either a trusted path for fork-originated specs, or an honest statement that the
+loop ends at the issue for outsiders.
 
 What survives from Phase 4 is the **agent loop**, which was always the valuable
 half and remains unbuilt: `AgentPopover.onSubmit` is still a `console.log` stub,

@@ -55,6 +55,7 @@ VitePress-based documentation site for Wafflebase. Serves user guides and develo
 | Page | Description |
 |------|-------------|
 | [Self-Hosting](developers/self-hosting.md) | Docker Compose setup, environment variables, GitHub OAuth, architecture |
+| [Design Editor](developers/design-editor.md) | Change how Wafflebase looks by clicking on it, and open a pull request — written for someone who does not write code. The two commands, what each pane does, and what happens for each of the three ways a person's machine can be set up |
 | [REST API](developers/rest-api.md) | API endpoints for documents, tabs, cells, authentication |
 | [CLI](developers/cli.md) | CLI tool installation, authentication, usage examples |
 

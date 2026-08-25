@@ -253,3 +253,89 @@ describe('ReviewApproveModal — a refused commit is not a dead bridge', () => {
     expect(document.body.textContent).toContain('Bridge offline');
   });
 });
+
+/**
+ * The before/after panes mount the REAL component, one per frame side, and a component
+ * with required props throws the moment it is mounted bare. The centre pane has always
+ * supplied generated stand-ins; these panes were added without them, so `DocumentList`
+ * would have reported a crash in both halves of a colour change.
+ */
+describe('ReviewApproveModal — the component panes', () => {
+  const classEdit = (over: Record<string, unknown> = {}) => ({
+    key: 'DocumentList|variant=default|c|primary',
+    componentName: 'DocumentList',
+    file: 'packages/frontend/src/app/documents/document-list.tsx',
+    cvaName: 'listVariants',
+    axis: 'variant',
+    value: 'default',
+    scopeLabel: 'variant = default',
+    property: 'Background Color',
+    fromLabel: 'primary',
+    toLabel: 'destructive',
+    replacements: [{ from: 'bg-primary', to: 'bg-destructive' }],
+    revealVariant: { variant: 'default' },
+    ...over,
+  });
+
+  const meta = {
+    name: 'DocumentList',
+    kind: 'function' as const,
+    exported: true,
+    propOrigins: [],
+    cva: null,
+    props: [
+      { name: 'data', type: 'Document[]', optional: false, origin: 'explicit' as const },
+      { name: 'onNavigate', type: '(id: string) => void', optional: false, origin: 'explicit' as const },
+    ],
+  };
+
+  // `Dialog` portals into `document.body`, so the element `render` returns is empty —
+  // the same reason the tests above read both.
+  const frames = () =>
+    [...document.body.querySelectorAll('iframe')].map(
+      (f) => new URL(f.getAttribute('src')!, 'http://x'),
+    );
+
+  it('mounts the component on both frame sides, not a list of class names', () => {
+    render(<ReviewApproveModal {...props({ classEdits: [classEdit()], allComponents: [meta] })} />);
+    const sides = frames().map((u) => u.searchParams.get('frame'));
+    expect(sides).toEqual(['before', 'after']);
+    // `before` and `after` exist because the staged plan reaches one of them. Rendering
+    // both from one side would show the same thing twice and prove nothing.
+    expect(new Set(sides).size).toBe(2);
+  });
+
+  it('carries the generated stand-ins a required prop needs', () => {
+    render(<ReviewApproveModal {...props({ classEdits: [classEdit()], allComponents: [meta] })} />);
+    for (const url of frames()) {
+      expect(JSON.parse(url.searchParams.get('props')!)).toEqual({ data: [] });
+      // A callback cannot survive a query string, so it travels by name and the frame
+      // substitutes a no-op.
+      expect(url.searchParams.get('noops')).toBe('onNavigate');
+    }
+  });
+
+  it('pins the variant the edit is scoped to', () => {
+    // A rewrite scoped to `variant=destructive` is invisible on the default one, which
+    // reads as "the preview shows nothing changing".
+    render(
+      <ReviewApproveModal
+        {...props({
+          classEdits: [classEdit({ revealVariant: { variant: 'destructive' } })],
+          allComponents: [meta],
+        })}
+      />,
+    );
+    for (const url of frames()) {
+      expect(url.searchParams.get('axes')).toBe('variant:destructive');
+    }
+  });
+
+  it('falls back to class names when there is no file to import from', () => {
+    const host = render(
+      <ReviewApproveModal {...props({ classEdits: [classEdit({ file: '' })], allComponents: [meta] })} />,
+    );
+    expect(frames()).toEqual([]);
+    expect((host.textContent ?? '') + document.body.textContent).toContain('bg-destructive');
+  });
+});

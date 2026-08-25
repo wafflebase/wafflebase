@@ -14,6 +14,8 @@ import { cn } from '../lib/cn.ts';
 // and a hand-typed second copy is exactly how it came to name the prototype's namespace
 // — one the shipped plugin has never served. `panels.test.tsx` guards the rule.
 import { BASE } from '../../base.ts';
+import { mockPropsFor, noopPropsFor } from '../../client/mock-props.ts';
+import { componentFrameUrl } from '../../scenes/frame-protocol.ts';
 import type { ComponentMeta } from '../../types.ts';
 import type { VariantState } from '../../client/edits.ts';
 import {
@@ -87,6 +89,14 @@ interface ReviewApproveModalProps {
 
 interface PreviewCard {
   componentName: string;
+  /**
+   * The component's own file, when there is one.
+   *
+   * Present only for a class rewrite, and only since the caller began stamping it —
+   * it is what lets the two panes below mount the REAL component instead of listing
+   * its classes.
+   */
+  file?: string;
   title: string;
   subtitle: string;
   variant: VariantState;
@@ -157,6 +167,7 @@ export function ReviewApproveModal({
     for (const e of classEdits) {
       cards.push({
         componentName: e.componentName,
+        file: e.file || undefined,
         title: e.componentName,
         subtitle: `${e.property}: ${e.fromLabel} → ${e.toLabel} (${e.scopeLabel})`,
         variant: e.revealVariant,
@@ -367,6 +378,10 @@ export function ReviewApproveModal({
    */
   const blockedByUnmatched = useMemo(() => diffs.some((d) => !d.located && !d.error), [diffs]);
   const card = cards[index];
+  /** The analysis for whatever the current card is about, when it names a component. */
+  const cardMeta = card?.componentName
+    ? allComponents.find((c) => c.name === card.componentName)
+    : undefined;
 
   const approve = async () => {
     setApplying(true);
@@ -412,7 +427,18 @@ export function ReviewApproveModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      /*
+        WIDE ENOUGH FOR WHAT IS IN IT. The default 768px is right for a confirmation
+        and wrong for this: the body is a two-column before/after over a file diff, and
+        at that width the columns squash and the diff wraps into a letterbox — a change
+        that is on screen and still unreadable. Capped against the viewport so it never
+        fills a small one.
+      */
+      panelClassName="w-[min(64rem,92vw)] max-w-none"
+    >
       {/*
         THE TITLE AND THE CLOSE BUTTON DO NOT SCROLL.
         
@@ -422,7 +448,7 @@ export function ReviewApproveModal({
         height, a fixed header and one scrolling body is the shape every review dialog
         has for that reason.
       */}
-      <DialogContent className={cn('flex max-h-[85vh] max-w-2xl flex-col gap-0', dark && 'dark')}>
+      <DialogContent className={cn('gap-0', dark && 'dark')}>
         <DialogHeader className="shrink-0 pb-3">
           <DialogTitle className="flex items-center gap-2">
             <ShieldCheck className="size-4 text-primary" /> Review &amp; Approve
@@ -542,18 +568,37 @@ export function ReviewApproveModal({
                   </p>
                 </div>
               </div>
-            ) : (
+            ) : card.file && card.componentName ? (
               /*
-                THE CLASSES, not a live render.
+                THE REAL COMPONENT, BOTH WAYS — and the reason this was class strings is
+                gone rather than merely outweighed.
                 
-                The prototype rendered the real component here through `previewRegistry` —
-                a hand-written renderer per component, with sample children a human chose.
-                That map is the consumer's own code and cannot be derived from source, so it
-                is not part of this rollout. Two empty boxes would be the literal port; the
-                class strings are what a class rewrite actually IS, and they are exact
-                rather than illustrative. The live judgement happens in the scene frame,
-                against the real page.
+                It used to say a live render needed `previewRegistry`, a hand-written
+                renderer per component that the consumer would have to write and that
+                cannot be derived from source. True when it was written. Since the
+                component preview shipped there is no registry: the frame imports the
+                component by name and mounts it, and a consumer who needs a composite
+                assembled says so once in `previews.tsx`.
+                
+                TWO FRAME SIDES, which is what `before` / `after` were built for and had
+                no user until now. The staged plan is published to `after` only, so the
+                two documents render the same component from the same source with and
+                without the edit — a real difference rather than an illustrated one. A
+                shared realm could not do this: module state is per realm, so one
+                instance would show both sides the same.
               */
+              <div className="grid grid-cols-2 gap-3">
+                <PreviewCell label="Before">
+                  <ComponentPane card={card} side="before" dark={dark} meta={cardMeta} />
+                </PreviewCell>
+                <PreviewCell label="After" style={card.tokenStyle}>
+                  <ComponentPane card={card} side="after" dark={dark} meta={cardMeta} />
+                </PreviewCell>
+              </div>
+            ) : (
+              // No file to import from — a layout edit on a scene node, or metadata from
+              // before the file was stamped. The class strings are exact, and they are what
+              // a class rewrite IS; they just cannot be looked at.
               <div className="grid grid-cols-2 gap-3">
                 <PreviewCell label="Before">
                   <ClassList value={card.baseClass} empty="no classes on this node" />
@@ -568,8 +613,8 @@ export function ReviewApproveModal({
           <p className="py-6 text-center text-sm text-muted-foreground">No changes to review.</p>
         )}
 
-        {/* Diffs (secondary) */}
-        <div className="max-h-40 space-y-2 overflow-y-auto">
+        {/* Diffs (secondary) — but not squeezed into a letterbox; see the dialog above. */}
+        <div className="min-h-32 space-y-2">
           {loading ? (
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" /> Computing changes…
@@ -681,6 +726,61 @@ export function ReviewApproveModal({
  * hides the part being changed; an empty value is NAMED rather than left blank, since a
  * blank cell reads as "the preview failed" instead of "there is nothing there".
  */
+/**
+ * One side of the before/after: the component itself, in its own frame.
+ *
+ * A PLAIN IFRAME, NOT `SceneHost`. That host owns a toolbar, a grid, pan and zoom, a
+ * picker and a selection protocol — every one of which is wrong inside a modal whose
+ * job is to show two states side by side and be dismissed. What is shared is the URL
+ * builder, so the frame is configured the same way the centre pane configures it.
+ *
+ * The variant is pinned to the one the edit belongs to (`revealVariant`), because a
+ * rewrite scoped to `variant=destructive` is invisible on the default one — which is
+ * the failure this pane exists to prevent, dressed as "the preview shows nothing".
+ */
+function ComponentPane({
+  card,
+  side,
+  dark,
+  meta,
+}: {
+  card: PreviewCard;
+  side: 'before' | 'after';
+  dark: boolean;
+  /** The component's analysis, for the props it cannot mount without. */
+  meta?: ComponentMeta;
+}) {
+  const props = meta?.props ?? [];
+  const src = componentFrameUrl({
+    file: card.file!,
+    component: card.componentName,
+    axes: Object.fromEntries(Object.entries(card.variant ?? {}).map(([k, v]) => [k, [v]])),
+    /*
+     * THE SAME STAND-INS THE CENTRE PANE USES.
+     *
+     * A component with required props throws the moment it is mounted bare —
+     * `DocumentList` iterates `data`, `NavUser` reads `user.username` — so without
+     * these both panes would report a crash instead of showing a colour change. The
+     * generated values come from the declared types and are the same ones the
+     * preview mounts with, which also keeps the two views agreeing.
+     */
+    mockProps: mockPropsFor(props),
+    noopProps: noopPropsFor(props),
+    side,
+    theme: dark ? 'dark' : 'light',
+  });
+  return (
+    <iframe
+      // The side is in the key with the src: the frame reads its whole configuration
+      // from the URL once, at load, so React reusing the element would keep the old one.
+      key={`${src}|${side}`}
+      src={src}
+      title={`${card.componentName}, ${side} this change`}
+      className="h-32 w-full rounded-sm border-0 bg-transparent"
+    />
+  );
+}
+
 function ClassList({ value, empty }: { value: string; empty: string }) {
   const classes = value.split(/\s+/).filter(Boolean);
   if (!classes.length) return <span className="text-[10px] text-wb-muted italic">{empty}</span>;
