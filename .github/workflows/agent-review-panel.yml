@@ -1067,6 +1067,72 @@ jobs:
             const infra = required.length > 0 && infraDetails.length === required.length ? infraDetails[0] : '';
             core.setOutput('infra', infra);
 
+      # THE DEFERRED-FINDINGS CHANNEL. `output.text` above is filtered to the
+      # findings that GATE — deliberately, for the three consumers named in the
+      # comment beside that filter — and `proseOnly` strips every finding section
+      # out of the markdown bodies before the fixer reads them. So a round's
+      # non-blocking and demoted findings are durable (`verdict.json` keeps them,
+      # and so does the stage-detail capture) but ADDRESSED TO NOBODY: there is no
+      # channel on the pull request that a tool can read, in the round, to find out
+      # what the gate did not act on.
+      #
+      # This records them as a SECOND check run rather than widening the first.
+      # Widening it would break the non-convergence detector, which needs a
+      # quantity that shrinks as the fixer works — a pile nobody is obliged to fix
+      # never shrinks.
+      #
+      # ADVISORY ON ALL THREE COUNTS, and the module refuses to emit anything else:
+      # the conclusion is `neutral` (never `failure`), the name is NOT pushed into
+      # `required` above, and it sits outside the `agent-review-` namespace that
+      # `set-state.mjs` enumerates by prefix to decide `lensBlocked`.
+      - name: Record the deferred findings
+        if: always() && steps.pr.outputs.number != ''
+        continue-on-error: true
+        # [ -f ] guard: .trusted is the DEFAULT BRANCH's copy, so until this script
+        # has merged the step must skip quietly, not red every panel run.
+        run: |
+          [ -f .trusted/scripts/agent/deferred-findings.mjs ] || { echo "deferred-findings.mjs not on main yet; skipping"; exit 0; }
+          # THE RUBRIC GENERATION STAMP, and it is `.trusted`'s HEAD rather than the
+          # PR head on purpose: `.trusted` is checked out at `ref: main`, so it is
+          # the tree the rubrics the panel actually read came from, and the PR head
+          # names a tree that need not contain them. `severity` means whatever the
+          # rubric in force said it meant, so without this a record written after a
+          # rubric change is indistinguishable from one written before it — and an
+          # archive's value grows with time, so the stamp cannot be added later.
+          #
+          # The same expression the capture already uses for `--panel-sha`; `|| true`
+          # so a missing `.trusted` reaches the module's `null` rather than dying here
+          # under `set -e`. A fabricated stamp is worse than an absent one.
+          PANEL_SHA=$(git -C .trusted rev-parse HEAD 2>/dev/null || true)
+          node .trusted/scripts/agent/deferred-findings.mjs \
+            --review-dir .agent-review \
+            --lenses .trusted/scripts/agent/lenses/lenses.json \
+            --panel-sha "$PANEL_SHA" \
+            --out-json "$RUNNER_TEMP/deferred-findings.json"
+
+      - name: Post the deferred-findings check run
+        if: always() && steps.pr.outputs.number != ''
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          retries: 3
+          script: |
+            const fs = require('fs');
+            // Absent whenever the step above skipped (script not yet on main) or
+            // failed. Nothing to record is not an error: this channel is advisory
+            // and must never be the reason a panel run goes red.
+            let check;
+            try { check = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/deferred-findings.json`, 'utf8')); } catch { return; }
+            // The payload is emitted whole by `buildDeferredCheck`, which asserts the
+            // name and conclusion are advisory before returning it. Spread rather than
+            // rebuilt from fields: re-deriving `conclusion` here would put the
+            // never-gates guard in YAML, where no test can break it.
+            await github.rest.checks.create({
+              owner: context.repo.owner, repo: context.repo.repo,
+              name: check.name, head_sha: context.payload.workflow_run.head_sha,
+              status: 'completed', conclusion: check.conclusion, output: check.output,
+            });
+
       # OBSERVABILITY (Phase 1): make the run page self-explanatory — a per-lens
       # verdict/verifier/cost table rendered from files the orchestrator already
       # wrote (panel.json, review-lens-stats.json, review-timing.json,
