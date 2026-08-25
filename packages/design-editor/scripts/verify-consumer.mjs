@@ -29,11 +29,12 @@
  *   pnpm --filter @wafflebase/design-editor verify:consumer --write
  */
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { buildDesignEditorIfStale } from './build-if-stale.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG = path.resolve(HERE, '..');
@@ -162,51 +163,15 @@ async function scenesModule() {
 /** A shell URL, which is NOT under `/api` — `BASE` cannot be reused for these. */
 const shell = (p) => fetch(`http://127.0.0.1:${PORT}/__design-editor${p}`);
 
-/**
- * Build the shell if it is not there.
- *
- * `dist` is gitignored, so a clean checkout has no shell at all and every check
- * below would fail on a missing file rather than on a wrong one. Building here
- * rather than trusting the caller to remember is what makes this gate's verdict mean
- * something on CI — and the build is on the `design-editor:check` lane besides, so a
- * broken build fails before this script is reached.
- */
-/** The newest mtime under `src/`, which is everything the shell bundle is built from. */
-function newestSourceMtime() {
-  let newest = 0;
-  const walk = (dir) => {
-    for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else newest = Math.max(newest, fsSync.statSync(full).mtimeMs);
-    }
-  };
-  walk(path.join(PKG, 'src'));
-  // The build config decides what goes in, so a change to it invalidates the bundle too.
-  return Math.max(newest, fsSync.statSync(path.join(PKG, 'vite.shell.config.ts')).mtimeMs);
-}
-
-/**
- * Build when the bundle is missing OR older than its source.
- *
- * MISSING-ONLY SERVED STALE BYTES, twice. `verify:frame` had the same shape and cost an hour
- * there; here it meant the stylesheet checks below passed against a bundle built before the
- * change under test — including, on the run that added them, a fix they were written to prove.
- * A gate that can pass on stale bytes is worse than no gate, because its green is not evidence.
- */
-function buildShellIfMissing() {
-  const bundle = path.join(PKG, 'dist/shell/index.html');
-  if (fsSync.existsSync(bundle) && newestSourceMtime() <= fsSync.statSync(bundle).mtimeMs) return;
-  console.log('building the shell (missing or older than src/)');
-  const r = spawnSync('pnpm', ['exec', 'vite', 'build', '--config', './vite.shell.config.ts'], {
-    cwd: PKG,
-    stdio: 'inherit',
-  });
-  if (r.status !== 0) throw new Error('shell build failed');
-}
-
 async function main() {
-  buildShellIfMissing();
+  /*
+   * Shared with `verify-frame.mjs`, which boots the SAME fixture project: the two had
+   * identical copies of this build-if-stale logic and the copies diverged, leaving that
+   * gate rebuilding only the shell. The reasoning — why both artefacts, why not
+   * missing-only, why a gate CI never runs has to build for itself — is in
+   * `build-if-stale.mjs`.
+   */
+  buildDesignEditorIfStale();
   console.log(`booting vite in ${path.relative(PKG, PROJECT)} on :${PORT}`);
   const child = await boot();
   try {

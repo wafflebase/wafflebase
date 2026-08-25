@@ -10,7 +10,9 @@
  *
  * Loading model: only `eager` web fonts are requested in the bootstrap
  * CSS link; the long tail lazy-loads via `ensureFontLink` the first time
- * a family is picked, hovered, or previewed.
+ * a family is picked or hovered. Merely *previewing* a row goes through
+ * `ensurePreviewFontLink`, which requests only that row's glyphs and lasts
+ * only as long as the list that asked for it (`releasePreviewFontLinks`).
  */
 import { useEffect } from 'react';
 import { FONT_CATALOG_DATA } from './font-catalog.data';
@@ -129,13 +131,34 @@ function findFontLink(family: string): HTMLLinkElement | null {
   return null;
 }
 
+/** The promise that settles when a full link's stylesheet has parsed (or
+ *  failed), hung off the link ELEMENT rather than off the family name: the
+ *  DOM stays the single source of truth for what has been requested, so a
+ *  removed link is genuinely re-requestable and module state can never
+ *  claim a link exists when the head says otherwise. */
+const fullLinkSettled = new WeakMap<HTMLLinkElement, Promise<void>>();
+
 /**
  * On-demand counterpart to `ensureGoogleFontsLink`: inject a per-family
  * Google Fonts CSS `<link>` the first time a non-bootstrap family is
- * needed (picker hover, selection, or in-view preview in the "More
- * fonts…" dialog). After the CSS link resolves, `FontRegistry.ensureFont`
- * (`@wafflebase/docs`) can `document.fonts.load()` the face and trigger
- * a Canvas re-layout.
+ * needed (picker hover, or selection). After the CSS link resolves,
+ * `FontRegistry.ensureFont` (`@wafflebase/docs`) can `document.fonts.load()`
+ * the face and trigger a Canvas re-layout. Row previews go through
+ * `ensurePreviewFontLink` instead, which fetches only the glyphs the row
+ * paints.
+ *
+ * Returns a promise that settles once the stylesheet has parsed — the point
+ * at which the family's real faces are in `document.fonts` and the Font
+ * Loading API can be asked about them truthfully. It NEVER rejects: a font
+ * that fails to load is a fallback face, not an error a caller should have
+ * to handle. Callers that only want the fetch started can ignore it.
+ *
+ * AWAIT IT BEFORE `document.fonts.load()`/`check()`. Injecting the element
+ * is synchronous but its `@font-face` rules are not: ask the Font Loading
+ * API in that window and it answers about whatever faces ARE connected —
+ * nothing (so it resolves instantly and the caller paints a fallback), or,
+ * since previews became subsets, this family's `&text=` face, whose handful
+ * of glyphs would then be what a PDF export rasterises.
  *
  * No-ops when:
  *   - running under SSR (no `document`);
@@ -148,17 +171,196 @@ function findFontLink(family: string): HTMLLinkElement | null {
  * Unknown families (e.g. an arbitrary Google Font chosen from the full
  * library) load with their provided `weights`, or `400;700` by default.
  */
-export function ensureFontLink(family: string, weights?: string): void {
-  if (typeof document === 'undefined') return;
+export function ensureFontLink(family: string, weights?: string): Promise<void> {
+  if (typeof document === 'undefined') return Promise.resolve();
   const entry = CATALOG_INDEX.get(family);
-  if (entry && !entry.webFont) return; // system font: nothing to fetch
-  if (entry && entry.eager) return; // already in bootstrap link
-  if (findFontLink(family)) return;
+  if (entry && !entry.webFont) return Promise.resolve(); // system font: nothing to fetch
+  if (entry && entry.eager) return Promise.resolve(); // already in bootstrap link
+  const existing = findFontLink(family);
+  // Already requested. Its promise is normally there to await; a link with none
+  // beside it survived an HMR module reload, and the request it made cannot be
+  // waited on any more — report it settled rather than issuing a second one.
+  if (existing) return fullLinkSettled.get(existing) ?? Promise.resolve();
 
   const link = document.createElement('link');
   link.rel = 'stylesheet';
   link.dataset.wafflebaseFont = family;
   link.href = css2Url([familyParam(family, weights ?? entry?.weights)]);
+  const settled = new Promise<void>((resolve) => {
+    link.addEventListener('load', () => resolve(), { once: true });
+    link.addEventListener('error', () => resolve(), { once: true });
+  }).then(() => {
+    // The full face is connected now and declared later, so it wins the
+    // cascade for painting — but the subset face is still in `document.fonts`,
+    // where `check()`/`load()` would keep counting it. Dropping it leaves one
+    // authoritative face for the family. Done on settle rather than on inject
+    // so the previewed row never flashes back to a fallback.
+    removePreviewFontLink(family);
+  });
+  fullLinkSettled.set(link, settled);
+  document.head.appendChild(link);
+  return settled;
+}
+
+/** Find an already-injected per-family *preview* link. Deliberately a
+ *  separate marker attribute from `data-wafflebase-font`: an attribute
+ *  selector matches the whole attribute name, so a subsetted link is
+ *  invisible to `findFontLink` and cannot be mistaken for a full load. */
+function findPreviewFontLink(family: string): HTMLLinkElement | null {
+  const links = document.head.querySelectorAll<HTMLLinkElement>(
+    'link[data-wafflebase-font-preview]',
+  );
+  for (const link of links) {
+    if (link.dataset.wafflebaseFontPreview === family) return link;
+  }
+  return null;
+}
+
+/** Drop a family's subset link once its full stylesheet has parsed. The
+ *  subset face has no `unicode-range`, so while it is connected it is a
+ *  face `document.fonts.check()`/`load()` will match for this family —
+ *  which is how a whole slide deck could export rasterised with only the
+ *  glyphs a picker row happened to paint. */
+function removePreviewFontLink(family: string): void {
+  findPreviewFontLink(family)?.remove();
+}
+
+/**
+ * Drop EVERY subset link currently in the head. A subset face is scoped to
+ * one list of picker rows in intent but to the whole document in effect:
+ * `&text=` returns a face with no `unicode-range`, so for as long as it is
+ * connected it is the face the browser paints that family with — everywhere,
+ * including body text in the document behind the menu, which would then
+ * render the handful of glyphs the row painted and fall back for the rest.
+ *
+ * So a subset must not outlive the list that asked for it. Callers are the
+ * two preview surfaces (`FontFamilyPicker`, `MoreFontsDialog`), which release
+ * when their list unmounts and again before handing a pick to `onChange` —
+ * the latter so the caller's `ensureFontLink` + `document.fonts.load()`/
+ * `check()` cannot be answered by the subset for the family being applied.
+ *
+ * Releasing everything rather than tracking per-row refcounts is deliberate:
+ * only these lists ever inject a subset, they are modal, and the browser's
+ * HTTP cache makes re-requesting one on the next open free.
+ */
+export function releasePreviewFontLinks(): void {
+  if (typeof document === 'undefined') return;
+  for (const link of document.head.querySelectorAll<HTMLLinkElement>(
+    'link[data-wafflebase-font-preview]',
+  )) {
+    link.remove();
+  }
+}
+
+/** The single weight a preview requests: the first cut of the family's
+ *  `weights` spec. Never a hardcoded 400 — `Sunflower` ships only 700 and
+ *  `css2?family=Sunflower:wght@400` answers HTTP 400 with an HTML error
+ *  page, which would strand that row in a fallback face forever. */
+function previewWeight(weights: string | undefined): string {
+  const first = (weights ?? DEFAULT_WEIGHTS).split(';')[0].trim();
+  return first || DEFAULT_WEIGHTS;
+}
+
+/** Unique characters of `text`, in first-appearance order, so the `&text=`
+ *  query carries each glyph once. */
+function uniqueChars(text: string): string {
+  return [...new Set([...text])].join('');
+}
+
+/**
+ * Is this family already requested IN FULL by *some* stylesheet link in the
+ * document — ours or not?
+ *
+ * `findFontLink` only sees links this module injected, and the catalog's
+ * `eager` flag only describes `buildGoogleFontsHref`'s bootstrap link. Neither
+ * knows about the app shell's own `<link>` in `packages/frontend/index.html`,
+ * which loads `Inter`, `Fraunces` and `JetBrains Mono` in full — all three are
+ * curated-catalog entries with `eager` absent. A subset link for one of them is
+ * not merely redundant: `&text=` returns a face with no `unicode-range`, so
+ * being declared later it wins the cascade for every codepoint and *removes*
+ * glyphs (and the bold cut) from a family that already had them.
+ *
+ * Matched on the href rather than on a marker attribute, because the shell's
+ * link carries none. Every `family=` segment is compared whole — a css2 URL
+ * carries many, and `Inter` must not match `Inter+Tight` — against both
+ * spellings of the space: the shell writes `JetBrains+Mono`,
+ * `encodeURIComponent` produces `JetBrains%20Mono`.
+ */
+function hasFullFamilyLink(family: string): boolean {
+  const encoded = encodeURIComponent(family);
+  const names = new Set([encoded, encoded.replace(/%20/g, '+')]);
+  const links = document.head.querySelectorAll<HTMLLinkElement>(
+    'link[rel="stylesheet"]',
+  );
+  for (const link of links) {
+    // Our own subset links are stylesheet links to the same host; they are the
+    // thing this function exists to distinguish from a full load.
+    if (link.dataset.wafflebaseFontPreview !== undefined) continue;
+    const href = link.href;
+    if (!href.includes('fonts.googleapis.com')) continue;
+    if (/[?&]text=/.test(href)) continue; // somebody else's subset request
+    for (const segment of href.matchAll(/[?&]family=([^&]*)/g)) {
+      // Everything after `:` is the axis spec, not part of the name.
+      if (names.has(segment[1].split(':')[0])) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Preview counterpart to `ensureFontLink`: request only the glyphs a row
+ * actually paints, via the css2 `&text=` parameter, instead of the whole
+ * family. Painting one label in the "More fonts…" list costs a few
+ * hundred bytes rather than the family's full character set.
+ *
+ * The link is marked with `data-wafflebase-font-preview`, NOT
+ * `data-wafflebase-font`, so `findFontLink` — and therefore
+ * `ensureFontLink` — cannot mistake a subset for a full load. Selecting a
+ * family that was only ever previewed still injects the complete family.
+ *
+ * Shares `ensureFontLink`'s no-op conditions (SSR, system fonts, eager
+ * bootstrap families, idempotency) and adds one: if a full link for the
+ * family already exists there is nothing to save, and a subset link —
+ * declared later, so winning the cascade — would *remove* glyphs from a
+ * face that had them. "Already exists" means ANY full css2 link in the
+ * head, not just one this module injected: see `hasFullFamilyLink`.
+ *
+ * `text` is what the row renders (its `textContent`), not a catalog
+ * lookup: recents and the full library both contain families absent from
+ * `CATALOG_INDEX`, and a row's text is more than its label whenever the
+ * `font-family` is set on a container.
+ *
+ * THE LINK IS BORROWED, NOT OWNED. A subset face applies to the family
+ * everywhere, not just to the row, so the caller must release it when its
+ * list goes away — see `releasePreviewFontLinks`. Left connected, a family
+ * whose row was merely scrolled past would repaint the document behind the
+ * menu in the row's glyphs plus fallback for everything else.
+ */
+export function ensurePreviewFontLink(
+  family: string,
+  text: string,
+  weights?: string,
+): void {
+  if (typeof document === 'undefined') return;
+  const entry = CATALOG_INDEX.get(family);
+  if (entry && !entry.webFont) return; // system font: nothing to fetch
+  if (entry && entry.eager) return; // already in bootstrap link
+  if (findPreviewFontLink(family)) return;
+  // Covers `findFontLink`'s per-family links, the bootstrap link, AND the app
+  // shell's own `index.html` stylesheet — the last of which no attribute or
+  // catalog flag can see.
+  if (hasFullFamilyLink(family)) return; // fully loaded already: nothing to save
+
+  const subset = uniqueChars(text);
+  if (!subset) return; // nothing painted: nothing to request
+
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.dataset.wafflebaseFontPreview = family;
+  link.href = css2Url([
+    familyParam(family, previewWeight(weights ?? entry?.weights)),
+    `text=${encodeURIComponent(subset)}`,
+  ]);
   document.head.appendChild(link);
 }
 

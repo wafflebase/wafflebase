@@ -839,11 +839,12 @@ test("the real repository config", async (t) => {
     //
     // Inert-to-inert is the exception, and it is narrower than it looks: an inert
     // package never lands in `packages`, so its lane is reached by TAG alone.
-    // `design-sandbox` importing `design-editor`'s source is the dogfood edge that
+    // `design-sandbox` importing `design-editor` is the dogfood edge that
     // proves the plugin's package boundary holds, and it is safe only because both
     // sides share the `designEditor` tag — asserted below rather than assumed,
-    // because the edge would otherwise let a design-editor-only change skip the
-    // typecheck that consumes its source.
+    // because the edge would otherwise let a design-editor-only change skip both
+    // the typecheck that consumes it and the `design-editor:build` its
+    // `exports["."]` now resolves through.
     for (const [pkg, deps] of Object.entries(graph)) {
       for (const dep of deps) {
         if (!INERT_PACKAGES.has(dep)) continue;

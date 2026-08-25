@@ -62,10 +62,23 @@ function shutdown(child) {
   }
 }
 
-/** The design-editor shell is a prebuilt bundle; without it `/` serves nothing. */
-function buildShellIfStale() {
+/**
+ * `@wafflebase/design-editor` IS BUILT OUTPUT, on both halves.
+ *
+ * The shell is a prebuilt bundle; without it `/` serves nothing. And since #966 the
+ * plugin is built too — `exports["."]` names `dist/plugin/index.js`, which is what
+ * `packages/design-sandbox/vite.config.ts` reaches when it does
+ * `import { designEditor, BASE } from '@wafflebase/design-editor'`. Rebuilding only the
+ * shell meant `boot()` below died on `Cannot find module` in a clean checkout, and ran
+ * every scene against stale plugin bytes in a dirty one.
+ *
+ * `verify:scenes` is not on CI (it needs Chromium), so `design-editor:build` guarantees
+ * it nothing — the build has to happen here or not at all. Same mtime comparison
+ * `buildCoreIfStale` uses, and for the same reason: rebuilding only when an artefact is
+ * MISSING serves stale bytes forever.
+ */
+function buildDesignEditorIfStale() {
   const pkg = path.resolve(HERE, '../design-editor');
-  const bundle = path.join(pkg, 'dist/shell/index.html');
   let newest = 0;
   const walk = (dir) => {
     for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
@@ -75,14 +88,20 @@ function buildShellIfStale() {
     }
   };
   walk(path.join(pkg, 'src'));
-  if (fsSync.existsSync(bundle) && newest <= fsSync.statSync(bundle).mtimeMs) return;
-  console.log('building the design-editor shell (missing or older than its src/)');
-  const r = spawn('pnpm', ['exec', 'vite', 'build', '--config', './vite.shell.config.ts'], {
-    cwd: pkg,
-    stdio: 'inherit',
+  // A change to either build config invalidates the output it governs.
+  for (const config of ['vite.shell.config.ts', 'tsconfig.build.json']) {
+    newest = Math.max(newest, fsSync.statSync(path.join(pkg, config)).mtimeMs);
+  }
+  const outdated = ['dist/shell/index.html', 'dist/plugin/index.js'].filter((rel) => {
+    const artefact = path.join(pkg, rel);
+    return !fsSync.existsSync(artefact) || fsSync.statSync(artefact).mtimeMs < newest;
   });
+  if (outdated.length === 0) return Promise.resolve();
+  console.log(`building @wafflebase/design-editor (${outdated.join(', ')} missing or older than its src/)`);
+  // The package's own `build` — shell AND plugin — so the two can never drift apart here.
+  const r = spawn('pnpm', ['run', 'build'], { cwd: pkg, stdio: 'inherit' });
   return new Promise((resolve, reject) => {
-    r.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('shell build failed'))));
+    r.on('exit', (code) => (code === 0 ? resolve() : reject(new Error('design-editor build failed'))));
   });
 }
 
@@ -198,7 +217,7 @@ async function waitForSettled(page) {
  * silently: every scene failed with `does not provide an export named …`, which reads as a
  * broken scene rather than as a stale artefact. That cost an hour finding it once.
  *
- * Same mtime comparison `buildShellIfStale` uses in `verify:frame`, and for the same reason —
+ * Same mtime comparison `buildDesignEditorIfStale` above uses, and for the same reason —
  * a gate that rebuilds only when its artefact is MISSING serves stale bytes forever.
  */
 function buildCoreIfStale() {
@@ -219,7 +238,7 @@ function buildCoreIfStale() {
 }
 
 async function main() {
-  await buildShellIfStale();
+  await buildDesignEditorIfStale();
   buildCoreIfStale();
   const { child, log } = await boot();
   let browser;
