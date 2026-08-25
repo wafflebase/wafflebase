@@ -292,56 +292,82 @@ const LANES = [
     pkgs: ["slides"],
     needs: ["core:build", "docs:build"],
   },
-  // notes and design-editor reach no BUILT workspace output, so they are the lanes
-  // that can run against a tree with nothing built.
+  // notes reaches no BUILT workspace output, so this is the lane that can run
+  // against a tree with nothing built. design-editor used to sit here too; it no
+  // longer does — see `design-editor:build` below.
   {
     name: "notes:check",
     cmd: "pnpm --filter @wafflebase/notes typecheck && pnpm --filter @wafflebase/notes test",
     pkgs: ["notes"],
   },
+  // `@wafflebase/design-editor` is now a BUILT workspace output like the engines,
+  // and this lane exists because that changed. Its `exports["."]` used to name
+  // `src/plugin/index.ts`; #966 pointed it at `dist/plugin/index.js`, because Node
+  // refuses to strip types under `node_modules` and the entry Node loads has to be
+  // loadable by an installed copy. Every consumer of the package therefore needs
+  // its `dist/` present — `packages/design-sandbox`'s typecheck resolves the
+  // package through that map, and so does knip when it LOADS that package's
+  // `vite.config.ts` to discover its plugins. Without this lane, an unbuilt
+  // checkout failed verify:entropy with `Could not parse knip output as JSON`,
+  // whose real cause was `Cannot find module …/dist/plugin/index.js` — the same
+  // class of failure `core:build` exists to prevent, one package later.
+  //
+  // The shell build rides along. `dist/` is gitignored, so nothing else in CI
+  // would ever run it — and a broken shell build is not cosmetic: `shellServer`
+  // serves `dist/shell`, so the whole editor 404s without it. ~3s total.
   {
-    name: "design-editor:check",
-    // The shell build joins this lane rather than earning its own. `dist/` is
-    // gitignored, so nothing else in CI would ever run it — and a broken shell build
-    // is not cosmetic: `shellServer` serves `dist/shell`, so the whole editor 404s
-    // without it. ~3s, which is well under the cost of another lane.
-    //
-    // `lint` joins it for the same reason, and because of what its absence cost: this
-    // package carried ~17 React files with no ESLint config at all, so `react-hooks`
-    // never saw it and a `useState` below an early return reached main. It runs FIRST —
-    // a lint error is the cheapest failure here, and finding it after a 3s build and a
-    // 1000-test suite wastes the difference.
-    //
-    // BUILD BEFORE TEST, since the publish contract asserts on what a consumer would
-    // actually install — `exports` resolves to `dist/plugin/index.js`, and a suite run
-    // against an unbuilt checkout could only check that the manifest names a path.
-    cmd: "pnpm --filter @wafflebase/design-editor lint && pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor build && pnpm --filter @wafflebase/design-editor test",
+    name: "design-editor:build",
+    cmd: "pnpm --filter @wafflebase/design-editor build",
     pkgs: ["design-editor"],
     // `pkgs` alone would never select this lane: harness.config.json lists
     // packages/design-editor/** as inert, and an inert match short-circuits the
     // packages/ classification, so the package never reaches `packages`. The tag
-    // is what keeps the lane reachable — same shape as documentation:build.
+    // is what keeps the lane reachable — same shape as documentation:build. The
+    // `needs` edges below are what select it on a change that never mentions the
+    // package at all.
     tags: ["designEditor"],
+  },
+  {
+    name: "design-editor:check",
+    // `lint` runs FIRST, and because of what its absence cost: this package carried
+    // ~17 React files with no ESLint config at all, so `react-hooks` never saw it
+    // and a `useState` below an early return reached main. A lint error is the
+    // cheapest failure here, and finding it after a 1000-test suite wastes the
+    // difference.
+    //
+    // BUILD BEFORE TEST, since the publish contract asserts on what a consumer
+    // would actually install — `exports` resolves to `dist/plugin/index.js`, and a
+    // suite run against an unbuilt checkout could only check that the manifest
+    // names a path. That build is `design-editor:build` above rather than a step in
+    // this command, so the packages that merely CONSUME the output can depend on it
+    // without dragging this lane's lint and suite along.
+    cmd: "pnpm --filter @wafflebase/design-editor lint && pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test",
+    pkgs: ["design-editor"],
+    tags: ["designEditor"],
+    needs: ["design-editor:build"],
   },
   {
     name: "design-sandbox:check",
     cmd: "pnpm --filter @wafflebase/design-sandbox typecheck && pnpm --filter @wafflebase/design-sandbox test",
     // Tagged on the same `designEditor` tag as the lane above, deliberately: this
-    // package imports design-editor's source directly, so its typecheck program
-    // contains that package's files and a change to either can break the other. Two
-    // separate tags would let a design-editor-only change skip the lane that would
-    // have caught it.
+    // package imports design-editor through its `exports` map, so its typecheck
+    // program contains that package's files and a change to either can break the
+    // other. Two separate tags would let a design-editor-only change skip the lane
+    // that would have caught it.
     pkgs: ["design-sandbox"],
     tags: ["designEditor"],
-    // It does reach a `dist/`, one step removed and easy to miss: this package
-    // consumes `@wafflebase/design-editor` as SOURCE, but `vitest.config.ts`
-    // aliases the ENGINES to their `src/` too (the canvas seed tests must load the
-    // same copy the scenes do), and engine source imports `@wafflebase/core`
-    // through its `exports` map — `packages/sheets/src/view/theme.ts` pulls
-    // `@wafflebase/core/tokens`. Without core built that is an ERR_MODULE_NOT_FOUND
-    // inside sheets, reported against a design-sandbox test. Same shape as the
-    // frontend lanes: engines aliased to src, core resolved for real.
-    needs: ["core:build"],
+    // Two `dist/` trees, both one step removed and both easy to miss.
+    // `design-editor:build` is the one this package resolves DIRECTLY: since #966
+    // `exports["."]` names `dist/plugin/index.js`, so without it `tsc` reports
+    // "Cannot find module '@wafflebase/design-editor'" against `vite.config.ts`,
+    // `core-adapter.ts` and `preview-worker.ts` at once.
+    // `core:build` is reached transitively: `vitest.config.ts` aliases the ENGINES
+    // to their `src/` (the canvas seed tests must load the same copy the scenes
+    // do), and engine source imports `@wafflebase/core` through its `exports` map —
+    // `packages/sheets/src/view/theme.ts` pulls `@wafflebase/core/tokens`. Without
+    // core built that is an ERR_MODULE_NOT_FOUND inside sheets, reported against a
+    // design-sandbox test.
+    needs: ["core:build", "design-editor:build"],
   },
   {
     name: "debug-report:check",
@@ -423,7 +449,19 @@ const LANES = [
     // and first fail on main's push run. It costs the four engine builds in
     // `needs`; the heavy jobs and the frontend/backend suites still skip.
     tags: ["docsProse", "designEditor"],
-    needs: ["core:build", "sheets:build", "docs:build", "slides:build"],
+    // `design-editor:build` is in here for a reason that is invisible from the
+    // knip config: knip EXECUTES `packages/design-sandbox/vite.config.ts` to
+    // discover its plugins, and that config imports `@wafflebase/design-editor`,
+    // whose `exports["."]` names `dist/plugin/index.js` since #966. An unbuilt
+    // checkout made knip exit before emitting any JSON, which this lane reported as
+    // `Could not parse knip output as JSON` — a failure that names neither package.
+    needs: [
+      "core:build",
+      "sheets:build",
+      "docs:build",
+      "slides:build",
+      "design-editor:build",
+    ],
   },
 ];
 

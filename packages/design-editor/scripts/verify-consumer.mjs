@@ -168,7 +168,7 @@ const shell = (p) => fetch(`http://127.0.0.1:${PORT}/__design-editor${p}`);
  * `dist` is gitignored, so a clean checkout has no shell at all and every check
  * below would fail on a missing file rather than on a wrong one. Building here
  * rather than trusting the caller to remember is what makes this gate's verdict mean
- * something on CI — and the build is on the `design-editor:check` lane besides, so a
+ * something on CI — and the build is its own `design-editor:build` lane besides, so a
  * broken build fails before this script is reached.
  */
 /** The newest mtime under `src/`, which is everything the shell bundle is built from. */

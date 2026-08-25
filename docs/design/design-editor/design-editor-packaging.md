@@ -141,9 +141,15 @@ is worth not breaking.
 ### 4. What now guards each finding
 
 - **a** — `publish-contract.test.ts` asserts `exports["."]` resolves to `.js` and
-  its types to `.d.ts`. The `design-editor:check` lane builds **before** it tests,
-  since the contract is about what a consumer installs and that only exists after
-  a build.
+  its types to `.d.ts`. A `design-editor:build` lane runs **before** the check
+  lane, since the contract is about what a consumer installs and that only exists
+  after a build. It is its own lane rather than a step inside `design-editor:check`
+  because the built entry has consumers that want none of that lane's lint and
+  suite: `design-sandbox:check` resolves the package through the map, and so does
+  knip when it loads that package's `vite.config.ts` — an unbuilt checkout failed
+  `verify:entropy` with `Could not parse knip output as JSON`, naming neither
+  package. Anything that resolves `@wafflebase/design-editor` now needs a
+  `needs: ["design-editor:build"]` edge.
 - **b** — the same suite pins `peerDependencies.typescript` to `^5.0.0`. An upper
   bound is the honest declaration: this package is written against the TS 5 API,
   and 6/7 compatibility is untested rather than merely unsupported.

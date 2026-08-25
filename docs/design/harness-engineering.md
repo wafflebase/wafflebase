@@ -491,7 +491,7 @@ answer differs for these two:
 | Package | In `knip.json`? | Tag claimed by |
 | --- | --- | --- |
 | `documentation` | no | `documentation:build` |
-| `design-editor` | **yes** (added by #819) | `design-editor:check` **and** `verify:entropy` |
+| `design-editor` | **yes** (added by #819) | `design-editor:build`, `design-editor:check`, `design-sandbox:check` **and** `verify:entropy` |
 
 `design-editor` needs the second claimant because knip analyses it, so its
 dead-code pass is a gate a change there can genuinely fail — and `anyPkg`, which
@@ -499,7 +499,17 @@ is how `verify:entropy` normally gets selected, cannot see an inert package. Wit
 only `design-editor:check` claiming the tag, dead code added under
 `packages/design-editor/` would pass its PR and first fail on `main`'s push run.
 That cost the four engine builds in entropy's `needs`; a design-editor change
-selects 6 of 28 lanes and still skips both heavy jobs. The general rule when
+selects a handful of lanes and still skips both heavy jobs.
+
+`design-editor:build` is a claimant of the same tag for a different reason, and
+the reason runs the OTHER way: since #966 the package's `exports["."]` names its
+built plugin entry under `dist/plugin/`, so every consumer needs that build —
+including
+knip, which loads `packages/design-sandbox/vite.config.ts` to discover its
+plugins. Entropy therefore `needs` it on **any** package change, not only on a
+tagged one, and the tag is what lets a design-editor-only change reach it at all.
+A `needs` edge into an inert package's build lane is the shape to reach for
+whenever an inert package starts publishing a built entry: the general rule when
 listing a package inert: **enumerate every gate that can currently fail on it,
 and check each one's route in is a tag rather than `pkgs` or `anyPkg`.**
 
