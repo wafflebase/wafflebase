@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { SyncStatusChip } from "@/components/sync-status/sync-status-chip";
 
 /**
  * Renders the SiteHeader component.
@@ -11,6 +12,7 @@ export function SiteHeader({
   editable = false,
   onRename,
   leading,
+  syncStatus = false,
   children,
 }: {
   title: string;
@@ -18,6 +20,15 @@ export function SiteHeader({
   onRename?: (newTitle: string) => void;
   /** Optional control rendered left of the title (e.g. a back button). */
   leading?: React.ReactNode;
+  /**
+   * Show whether local edits have reached the server. Opt-in, and NOT because
+   * the chip is optional for an editor — it is because this header is also
+   * used by shells with no Yorkie document at all (the documents list in
+   * `app/Layout.tsx`, the static-file viewer in `app/files/file-shell.tsx`),
+   * and `useDocument()` throws outside a `DocumentProvider`. Pass it from any
+   * shell that mounts inside one.
+   */
+  syncStatus?: boolean;
   children?: React.ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
@@ -92,6 +103,9 @@ export function SiteHeader({
 
         {/* Always reserve space for children to prevent layout shift */}
         <div className="flex shrink-0 items-center">
+          {/* Left of the per-editor controls, so it reads as a property of the
+              document rather than as one more button. */}
+          {syncStatus && <SyncStatusChip className="mr-2" />}
           {children}
           {/* One mount point for the whole app: this header is used by the
               documents shell and by every editor. Renders nothing for
