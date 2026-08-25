@@ -26,7 +26,8 @@ import {
 import { IconChevronDown } from "@tabler/icons-react";
 import {
   FONT_CATALOG,
-  ensureFontLink,
+  ensurePreviewFontLink,
+  releasePreviewFontLinks,
   type FontEntry,
   type FontGroup,
 } from "./font-catalog";
@@ -83,9 +84,22 @@ export function FontFamilyPicker({
   const [fullCatalog, setFullCatalog] = useState<readonly FontEntry[] | null>(
     null,
   );
+  // Set once a full-catalog load has SETTLED, successfully or not. Distinct from
+  // `fullCatalog` because a failed load must still unblock the recent rows below:
+  // previewing at the default weights beats never previewing at all.
+  const [fullSettled, setFullSettled] = useState(false);
 
+  // A recent family can come from the full ~1,900-entry library, which the
+  // curated catalog has no `weights` for — and a preview requested at the
+  // default `400` renders in a fallback face for any family that ships no 400
+  // cut (`css2?family=Sunflower:wght@400` answers HTTP 400). So pull the full
+  // library whenever a recent is not in the curated index, not only when the
+  // dialog opens. Same memoized import either way, so the second trigger costs
+  // nothing once the first has run.
+  const needFullForRecents = recents.some((f) => !CATALOG_BY_FAMILY.has(f));
   useEffect(() => {
-    if (!moreOpen || fullCatalog) return;
+    if (fullCatalog) return;
+    if (!moreOpen && !(open && needFullForRecents)) return;
     let cancelled = false;
     loadFullFontCatalog()
       .then((c) => {
@@ -93,11 +107,22 @@ export function FontFamilyPicker({
       })
       .catch(() => {
         /* keep the curated fallback on load failure */
+      })
+      .finally(() => {
+        if (!cancelled) setFullSettled(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [moreOpen, fullCatalog]);
+  }, [moreOpen, open, needFullForRecents, fullCatalog]);
+
+  const fullByFamily = useMemo(
+    () =>
+      fullCatalog
+        ? new Map(fullCatalog.map((e) => [e.family, e] as const))
+        : null,
+    [fullCatalog],
+  );
 
   // Radix remounts the portalled content on every open, so the scroll
   // container has to reach the effect below through a callback ref into
@@ -108,15 +133,25 @@ export function FontFamilyPicker({
   // keyboard navigation paint real previews instead of leaving everything
   // but the 8 `eager` families in a fallback (#727). Mirrors the observer
   // `MoreFontsDialog` runs over its own list. `recents` is a dep because
-  // `onOpenChange` sets it, rendering the list a second time.
+  // `onOpenChange` sets it, rendering the list a second time; `fullByFamily`
+  // and `fullSettled` are deps because a recent row only grows its
+  // `data-font-row` once its weights are resolvable (see the Recent section).
   useEffect(() => {
     if (!listEl || typeof IntersectionObserver === "undefined") return;
     const obs = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
-          const family = (entry.target as HTMLElement).dataset.fontRow;
-          if (family) ensureFontLink(family);
+          const row = entry.target as HTMLElement;
+          const family = row.dataset.fontRow;
+          // Subset to the row's own text: a preview only ever paints the
+          // label, so pulling the whole family is wasted bytes.
+          if (family)
+            ensurePreviewFontLink(
+              family,
+              row.textContent ?? "",
+              row.dataset.fontWeights,
+            );
           obs.unobserve(entry.target);
         }
       },
@@ -128,7 +163,19 @@ export function FontFamilyPicker({
       .querySelectorAll<HTMLElement>("[data-font-row]")
       .forEach((el) => obs.observe(el));
     return () => obs.disconnect();
-  }, [listEl, recents]);
+  }, [listEl, recents, fullByFamily, fullSettled]);
+
+  // The subsets above only ever paint THIS list, but the faces they connect
+  // are the family's faces document-wide: `&text=` carries no
+  // `unicode-range`, so a family whose row was merely scrolled past would go
+  // on painting the document behind the menu in that row's glyphs and fall
+  // back for the rest. So the subsets die with the list. Keyed on `listEl`
+  // alone — the observer effect above re-runs as rows resolve their weights,
+  // and releasing on those runs would drop faces the open list still paints.
+  useEffect(() => {
+    if (!listEl) return;
+    return () => releasePreviewFontLinks();
+  }, [listEl]);
 
   // Stash the picked family in a ref and replay it from `onCloseAutoFocus`
   // rather than firing `onChange` directly from the item's onClick. The
@@ -143,6 +190,12 @@ export function FontFamilyPicker({
   const pendingMoreRef = useRef(false);
 
   const applyPick = (family: string): void => {
+    // Before `onChange`, not after: the caller loads the family for real
+    // (`ensureFontLink`) and then asks the Font Loading API about it, and a
+    // subset face still connected is a face `document.fonts.check()`/`load()`
+    // answers with. Both close paths run through here, so this covers the
+    // window between the list unmounting and its effect cleanup firing.
+    releasePreviewFontLinks();
     addRecentFont(family);
     onChange(family);
   };
@@ -205,11 +258,21 @@ export function FontFamilyPicker({
                 Recent
               </DropdownMenuLabel>
               {recents.map((family) => {
-                const entry = CATALOG_BY_FAMILY.get(family);
+                const entry =
+                  CATALOG_BY_FAMILY.get(family) ?? fullByFamily?.get(family);
+                // No `data-font-row` until the weights are known, so the
+                // observer below cannot fire a `wght@400` request for a family
+                // whose real cuts are still loading — it unobserves on first
+                // hit and `ensurePreviewFontLink` is idempotent, so a wrong
+                // first request is permanent. Once the load settles the effect
+                // re-runs and the row is observed with its real weights (or,
+                // if the load failed, with the defaults).
+                const previewable = entry !== undefined || fullSettled;
                 return (
                   <DropdownMenuCheckboxItem
                     key={`recent:${family}`}
-                    data-font-row={family}
+                    data-font-row={previewable ? family : undefined}
+                    data-font-weights={entry?.weights}
                     checked={family === value}
                     onPointerEnter={() => {
                       if (entry?.webFont ?? true) onPrefetch?.(family);
@@ -239,6 +302,7 @@ export function FontFamilyPicker({
                   <DropdownMenuCheckboxItem
                     key={entry.family}
                     data-font-row={entry.family}
+                    data-font-weights={entry.weights}
                     checked={entry.family === value}
                     onPointerEnter={() => {
                       if (entry.webFont) onPrefetch?.(entry.family);

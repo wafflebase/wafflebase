@@ -320,8 +320,23 @@ async function runKnip() {
   let report;
   try {
     report = JSON.parse(stdout);
-  } catch {
-    findings.push(`Could not parse knip output as JSON`);
+  } catch (parseError) {
+    // This used to say only "Could not parse knip output as JSON", which is
+    // unactionable: it reproduces on no developer machine, and knip's own
+    // output never reaches the log because it is captured into `stdout` /
+    // `stderr` here. Every fact needed to tell the cases apart -- knip
+    // crashed, `npx` printed a notice ahead of the JSON, the output was
+    // truncated at `maxBuffer` -- is in hand at this point, so report it.
+    const head = stdout.slice(0, 400).replace(/\s+/g, " ");
+    const tail = stdout.slice(-200).replace(/\s+/g, " ");
+    findings.push(
+      `Could not parse knip output as JSON: ${parseError.message}`,
+      `  knip exit: ${error ? `${error.code ?? error.message}` : "0"}`,
+      `  stdout: ${stdout.length} bytes (maxBuffer 10485760)`,
+      `  stdout starts: ${head}`,
+      `  stdout ends: ${tail}`,
+      `  stderr: ${stderr ? stderr.slice(0, 600).replace(/\s+/g, " ") : "(empty)"}`,
+    );
     return { passed: false, findings };
   }
 
