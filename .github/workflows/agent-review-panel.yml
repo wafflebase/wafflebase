@@ -1067,6 +1067,110 @@ jobs:
             const infra = required.length > 0 && infraDetails.length === required.length ? infraDetails[0] : '';
             core.setOutput('infra', infra);
 
+      # THE DEFERRED-FINDINGS CHANNEL. `output.text` above is filtered to the
+      # findings that GATE — deliberately, for the three consumers named in the
+      # comment beside that filter — and `proseOnly` strips every finding section
+      # out of the markdown bodies before the fixer reads them. So a round's
+      # non-blocking and demoted findings are durable (`verdict.json` keeps them,
+      # and so does the stage-detail capture) but ADDRESSED TO NOBODY: there is no
+      # channel on the pull request that a tool can read, in the round, to find out
+      # what the gate did not act on.
+      #
+      # This records them as a SECOND check run rather than widening the first.
+      # Widening it would break the non-convergence detector, which needs a
+      # quantity that shrinks as the fixer works — a pile nobody is obliged to fix
+      # never shrinks.
+      #
+      # ADVISORY ON ALL THREE COUNTS, and the module refuses to emit anything else:
+      # the conclusion is `neutral` (never `failure`), the name is NOT pushed into
+      # `required` above, and it sits outside the `agent-review-` namespace that
+      # `set-state.mjs` enumerates by prefix to decide `lensBlocked`.
+      # `!cancelled()`, not `always()`, and it matches "Post per-lens check runs"
+      # above rather than the observability steps below. A cancelled panel has not
+      # finished routing, so the lenses that happen to have written a verdict.json
+      # are an arbitrary prefix of the round — and this channel's whole contract is
+      # that its counts are complete unless the tally says otherwise. Publishing
+      # `total: 4` from a cancelled round is the silent-partial failure the omission
+      # tally exists to prevent, wearing a different hat. An ordinary FAILURE still
+      # publishes: a lens that crashed while others deferred findings is a round
+      # worth recording.
+      - name: Record the deferred findings
+        if: >-
+          !cancelled() && steps.pr.outputs.number != ''
+        continue-on-error: true
+        # [ -f ] guard: .trusted is the DEFAULT BRANCH's copy, so until this script
+        # has merged the step must skip quietly, not red every panel run.
+        run: |
+          [ -f .trusted/scripts/agent/deferred-findings.mjs ] || { echo "deferred-findings.mjs not on main yet; skipping"; exit 0; }
+          # THE RUBRIC GENERATION STAMP, and it is `.trusted`'s HEAD rather than the
+          # PR head on purpose: `.trusted` is checked out at `ref: main`, so it is
+          # the tree the rubrics the panel actually read came from, and the PR head
+          # names a tree that need not contain them. `severity` means whatever the
+          # rubric in force said it meant, so without this a record written after a
+          # rubric change is indistinguishable from one written before it — and an
+          # archive's value grows with time, so the stamp cannot be added later.
+          #
+          # The same expression the capture already uses for `--panel-sha`; `|| true`
+          # so a missing `.trusted` reaches the module's `null` rather than dying here
+          # under `set -e`. A fabricated stamp is worse than an absent one.
+          PANEL_SHA=$(git -C .trusted rev-parse HEAD 2>/dev/null || true)
+          node .trusted/scripts/agent/deferred-findings.mjs \
+            --review-dir .agent-review \
+            --lenses .trusted/scripts/agent/lenses/lenses.json \
+            --panel-sha "$PANEL_SHA" \
+            --out-json "$RUNNER_TEMP/deferred-findings.json"
+
+      - name: Post the deferred-findings check run
+        if: >-
+          !cancelled() && steps.pr.outputs.number != ''
+        continue-on-error: true
+        uses: actions/github-script@v7
+        with:
+          retries: 3
+          script: |
+            const fs = require('fs');
+            // Absent whenever the step above skipped (script not yet on main) or
+            // failed. Nothing to record is not an error: this channel is advisory
+            // and must never be the reason a panel run goes red.
+            let check;
+            try { check = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/deferred-findings.json`, 'utf8')); } catch { return; }
+            // The payload is emitted whole by `buildDeferredCheck`, which asserts the
+            // name and conclusion are advisory before returning it. Spread rather than
+            // rebuilt from fields: re-deriving `conclusion` here would put the
+            // never-gates guard in YAML, where no test can break it.
+            //
+            // BELT AND BRACES at the point of use. The module owns the invariant and a
+            // test breaks it there; this re-checks the two values actually being sent,
+            // because everything above this line is a file read and a file read is the
+            // one thing the module's own assertion cannot cover.
+            if (check.name !== 'agent-deferred-findings' || check.conclusion !== 'neutral') {
+              core.warning(`refusing a non-advisory deferred payload: ${check.name} / ${check.conclusion}`);
+              return;
+            }
+            const sha = context.payload.workflow_run.head_sha;
+            // UPDATE the existing run when one is already on this sha, rather than
+            // creating a second. A re-run of the panel on the same head would otherwise
+            // leave two `agent-deferred-findings` runs with different counts and no way
+            // to tell which is current — the same one-run-per-round property the
+            // per-lens writer keeps via `inProgressIds`.
+            const existing = await github.rest.checks.listForRef({
+              owner: context.repo.owner, repo: context.repo.repo, ref: sha,
+              check_name: 'agent-deferred-findings', per_page: 100,
+            });
+            const prior = (existing.data.check_runs || [])[0];
+            if (prior) {
+              await github.rest.checks.update({
+                owner: context.repo.owner, repo: context.repo.repo, check_run_id: prior.id,
+                status: 'completed', conclusion: check.conclusion, output: check.output,
+              });
+            } else {
+              await github.rest.checks.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                name: check.name, head_sha: sha,
+                status: 'completed', conclusion: check.conclusion, output: check.output,
+              });
+            }
+
       # OBSERVABILITY (Phase 1): make the run page self-explanatory — a per-lens
       # verdict/verifier/cost table rendered from files the orchestrator already
       # wrote (panel.json, review-lens-stats.json, review-timing.json,

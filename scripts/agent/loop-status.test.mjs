@@ -39,6 +39,42 @@ const run = (name, conclusion, extra = {}) => ({
 
 // --- buildRounds ---------------------------------------------------------------
 
+test("🔴 the advisory deferred-findings run is NOT evidence about CI", () => {
+  // It is written by the panel, always `neutral`, and `neutral` is not a RED
+  // conclusion — so if it counted as an "other" check it would be the sole member of
+  // that bucket on a commit CI has not reported on yet, and the cell would read a
+  // confident ✅ for a run that never happened.
+  const rounds = buildRounds(
+    [
+      {
+        sha: "a".repeat(40),
+        checkRuns: [
+          run("agent-review-correctness", "success"),
+          run("agent-deferred-findings", "neutral"),
+        ],
+      },
+    ],
+    LENSES,
+  );
+  assert.equal(rounds.length, 1);
+  assert.equal(rounds[0].checks, "none", "the deferred record must not stand in for CI");
+  // A real CI check still counts.
+  const withCi = buildRounds(
+    [
+      {
+        sha: "a".repeat(40),
+        checkRuns: [
+          run("agent-review-correctness", "success"),
+          run("agent-deferred-findings", "neutral"),
+          run("verify-self (22.x)", "success"),
+        ],
+      },
+    ],
+    LENSES,
+  );
+  assert.equal(withCi[0].checks, "success");
+});
+
 test("a commit with no lens runs is not a round", () => {
   const rounds = buildRounds(
     [{ sha: "a".repeat(40), checkRuns: [run("verify-self (22.x)", "success")] }],
