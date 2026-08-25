@@ -31,8 +31,10 @@ const SYNC_FAILED = 'sync-failed';
 export interface SyncStatus {
   state: SyncState;
   /**
-   * When the queue last went from empty to non-empty — i.e. how far back the
-   * work now at risk begins. Null whenever nothing is queued.
+   * When the currently-outstanding stretch of editing began — i.e. how far
+   * back the work now at risk goes. Re-stamped whenever an edit follows an
+   * acknowledged one, so a long session does not report itself as all at
+   * risk. Null whenever nothing is outstanding.
    */
   pendingSince: Date | null;
 }
@@ -44,8 +46,8 @@ export interface SyncStatus {
  * context and sync outcomes from the document's own `sync` events. Whether
  * work is outstanding comes from two sources that have to be combined: the
  * `local-change` event, which is edge-triggered and says the user just edited,
- * and `doc.hasLocalChanges()`, which is a getter and says whether the server
- * has taken it. Neither alone is enough — see `QUIET_MS`.
+ * and `doc.getCheckpoint().getClientSeq()`, which says how far the server has
+ * acknowledged. Neither alone is enough — see `QUIET_MS`.
  *
  * Design: docs/design/sync-status.md
  */
@@ -96,11 +98,15 @@ export function useSyncStatus(): SyncStatus {
    */
   const markEdited = useCallback(
     (clientSeq: number) => {
+      // Re-stamp whenever this edit opens a fresh window of exposure, not just
+      // when `pending` flips. Keeping the very first stamp of a long session
+      // would have the tooltip report an hour of writing as at risk when only
+      // the last keystroke is.
+      if (!unflushed()) setPendingSince(new Date());
       lastEditSeqRef.current = Math.max(lastEditSeqRef.current, clientSeq);
       if (!pendingRef.current) {
         pendingRef.current = true;
         setPending(true);
-        setPendingSince(new Date());
       }
       if (quietRef.current !== null) clearTimeout(quietRef.current);
       const settle = () => {
@@ -127,6 +133,24 @@ export function useSyncStatus(): SyncStatus {
     [],
   );
 
+  // `DocumentProvider` keeps one store for its whole lifetime and swaps `doc`
+  // in place rather than remounting its children, so this hook can outlive the
+  // document it was measuring. The replacement starts at checkpoint 0, which a
+  // sequence carried over from the old document is permanently ahead of —
+  // leaving the chip stuck on `Saving…` and escalating to a false `Not saved`
+  // on any blip. Everything derived from a document is therefore reset with it.
+  useEffect(() => {
+    if (quietRef.current !== null) {
+      clearTimeout(quietRef.current);
+      quietRef.current = null;
+    }
+    lastEditSeqRef.current = 0;
+    pendingRef.current = false;
+    setPending(false);
+    setPendingSince(null);
+    setSyncFailed(false);
+  }, [doc]);
+
   // `local-change` is the only thing that raises this state. It is
   // edge-triggered, so no poll can miss it, and it fires only for changes that
   // carried operations — which is what makes a moved selection a non-event.
@@ -136,7 +160,15 @@ export function useSyncStatus(): SyncStatus {
     return doc.subscribe((event) => {
       if (event.type !== 'local-change') return;
       const { clientSeq } = event.value as { clientSeq?: number };
-      markEdited(clientSeq ?? lastEditSeqRef.current + 1);
+      // The SDK always supplies `clientSeq`. If it ever did not, deriving the
+      // fallback from the checkpoint keeps it bounded — inventing one above
+      // the real sequence would leave the chip permanently unflushed with no
+      // acknowledgement able to clear it.
+      markEdited(
+        typeof clientSeq === 'number'
+          ? clientSeq
+          : doc.getCheckpoint().getClientSeq() + 1,
+      );
     });
   }, [doc, markEdited]);
 

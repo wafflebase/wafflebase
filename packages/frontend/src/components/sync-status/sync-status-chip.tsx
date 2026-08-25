@@ -24,6 +24,10 @@ const TOAST_DELAY_MS = 2000;
 /** Stable id so the recovery path can retract the exact toast it replaced. */
 const TOAST_ID = 'wafflebase-sync-status';
 
+/** Likewise stable, so a flapping connection replaces the confirmation rather
+ *  than stacking a new one on every recovery. */
+const RECOVERY_TOAST_ID = 'wafflebase-sync-status-recovered';
+
 const LABELS: Record<SyncState, string> = {
   saved: 'Saved',
   saving: 'Saving…',
@@ -93,27 +97,48 @@ export function SyncStatusChip({ className }: { className?: string }) {
   const warned = useRef(false);
 
   useEffect(() => {
-    if (!stranded) {
-      if (warned.current) {
-        warned.current = false;
-        toast.dismiss(TOAST_ID);
-        toast.success('Saved', {
-          description: 'Your changes reached the server.',
+    if (stranded) {
+      const timer = setTimeout(() => {
+        warned.current = true;
+        toast.warning('Not saved', {
+          id: TOAST_ID,
+          duration: Infinity,
+          description:
+            "Your connection dropped and recent changes haven't reached the server. Keep this tab open; they'll sync when the connection returns.",
         });
-      }
-      return;
+      }, TOAST_DELAY_MS);
+      return () => clearTimeout(timer);
     }
-    const timer = setTimeout(() => {
-      warned.current = true;
-      toast.warning('Not saved', {
-        id: TOAST_ID,
-        duration: Infinity,
-        description:
-          "Your connection dropped and recent changes haven't reached the server. Keep this tab open; they'll sync when the connection returns.",
-      });
-    }, TOAST_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [stranded]);
+
+    if (!warned.current) return;
+
+    // The warning is no longer true, so retract it either way.
+    toast.dismiss(TOAST_ID);
+
+    // But only *confirm* once the work is actually on the server. Reconnecting
+    // moves the state to `saving`, not `saved` — the push has not been
+    // attempted yet and can still be rejected. Saying "reached the server"
+    // there would hand out a receipt for work that may not survive, which is
+    // the precise failure this feature exists to prevent.
+    if (state !== 'saved') return;
+    warned.current = false;
+    toast.success('Saved', {
+      id: RECOVERY_TOAST_ID,
+      description: 'Your changes reached the server.',
+    });
+  }, [stranded, state]);
+
+  // `<Toaster />` is mounted outside the router, and the warning is
+  // `duration: Infinity` with no close button. Without this, leaving the
+  // editor by any in-app link strands a red "Not saved" on every other page
+  // for the rest of the session — undismissable, and beyond the reach of a
+  // later recovery, whose freshly mounted chip has no memory of having warned.
+  useEffect(
+    () => () => {
+      if (warned.current) toast.dismiss(TOAST_ID);
+    },
+    [],
+  );
 
   const Icon = ICONS[state];
 
@@ -123,6 +148,10 @@ export function SyncStatusChip({ className }: { className?: string }) {
         <span
           role="status"
           aria-live={stranded ? 'assertive' : 'polite'}
+          // Radix adds no tabIndex to a bare span, which would leave the
+          // tooltip hover-only — and the tooltip is where the "this tab is the
+          // only copy" wording lives.
+          tabIndex={0}
           className={cn(
             'flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs whitespace-nowrap',
             stranded

@@ -56,8 +56,8 @@ design](#correction-to-the-design) and Phase 5.
   - [x] Only `setState` when the derived `SyncState` changes (otherwise the
         header re-renders once a second for the whole disconnection). Done via
         a `pendingRef` mirror rather than trusting React's bail-out.
-  - [x] Track `pendingSince` — stamped when the queue goes empty → non-empty,
-        cleared when it drains.
+  - [x] Track `pendingSince` — stamped when an edit opens a fresh window of
+        exposure, cleared when the server acknowledges it.
   - [x] `DocSyncStatus.SyncFailed` while connected also resolves to
         `not-saved`, and is ignored once the queue has drained.
   - [x] No document yet → `saved`, not `reconnecting`. Found by the test:
@@ -92,7 +92,8 @@ design](#correction-to-the-design) and Phase 5.
 - [x] Transition toast (`sonner`, already mounted in `App.tsx`) on entering
       `not-saved`; 2s debounce so a self-healing blip is silent.
 - [x] Recovery dismisses it and shows a brief `Saved` confirmation — only when
-      a warning was actually shown.
+      a warning was actually shown, and (after Phase 6) only once the server
+      has genuinely taken the work.
 - [x] `beforeunload` registered **only** while `not-saved`, removed as soon as
       the state leaves it.
 
@@ -116,9 +117,9 @@ being reported.
       with typing and see an empty queue mid-sentence. `hasLocalChanges()` can
       never drive this on its own.
 - [x] `Saving…` is now raised by the **`local-change` event** (edge-triggered,
-      cannot be missed) and by any non-empty queue read, and lowered only after
-      a 2 s quiet window that *also* re-checks the queue — a quiet keyboard is
-      not a flushed document, so it re-arms if the server still has the work.
+      cannot be missed) and lowered only after a 2 s quiet window that *also*
+      re-checks acknowledgement — a quiet keyboard is not a flushed document,
+      so it re-arms if the server still has the work.
       Remote changes excluded: a peer's edit must not hold up this user's chip.
 - [x] Three new failing tests first: types → `saving` immediately; a six-
       keystroke burst with a permanently empty queue stays `saving`; it settles
@@ -154,6 +155,67 @@ Selecting cells with the mouse — editing nothing — flipped `Saving`/`Saved`.
       sequence-based it had nothing left to observe. A document nobody is
       editing now schedules no timer and asks the SDK nothing at all.
 
+### Phase 6 — code review
+
+A reviewer independently confirmed the SDK claims Phase 5 rests on (the
+`localChanges.push` / `if (opInfos.length)` asymmetry, and that
+`getCheckpoint().getClientSeq()` is public), then found six defects. Each was
+reproduced with a failing test before being fixed.
+
+- [x] **Orphaned warning toast (blocking).** The warning is `duration: Infinity`
+      with no close button, and `<Toaster />` is mounted outside the router. An
+      unmount left it stranded on every other page for the rest of the session,
+      undismissable, and beyond the reach of a later recovery whose fresh chip
+      has no memory of having warned. The chip now dismisses on unmount.
+- [x] **False receipt (blocking).** The confirmation fired on leaving
+      `not-saved` — but reconnecting moves the state to `saving`, not `saved`.
+      The user was told "your changes reached the server" before the push had
+      been attempted, *and* the unload guard was dropped at the same instant.
+      Retraction and confirmation are now separate: dismiss on leaving, confirm
+      only on `saved`.
+- [x] **`doc` swap left the hook measuring a document that is gone.**
+      `DocumentProvider` keeps one store for its lifetime and replaces `doc` in
+      place without remounting children; the replacement starts at checkpoint 0,
+      so a carried-over sequence is permanently ahead of it — stuck `Saving…`
+      forever. All per-document refs and state now reset on `doc` change.
+- [x] `clientSeq` fallback derived from the checkpoint instead of
+      `lastEditSeq + 1`, which could have stranded the chip permanently.
+- [x] `pendingSince` re-stamped when an edit follows an acknowledged one, so a
+      long session does not report itself as entirely at risk.
+- [x] `tabIndex={0}` on the chip — Radix adds none to a bare span, leaving the
+      tooltip hover-only, and the tooltip carries the most important wording in
+      the feature.
+- [x] Stable id on the recovery toast so a flapping connection replaces it
+      rather than stacking.
+- [x] Dead `hasLocalChanges()` removed from the test fake, where its `reads++`
+      was quietly participating in an assertion nothing read.
+- [x] Stale claims corrected in `docs/design/README.md`, `sync-status.md` (an
+      orphaned polling paragraph contradicting "there is **no** polling" eleven
+      lines above it, plus four `hasLocalChanges` references), and this file.
+
+**Rejected, with reasons:**
+
+- *Re-renders on every root/presence change.* Real, but not introduced here —
+  `SiteHeader` already re-renders on every change because `UserPresence` calls
+  `useDocument()` (`components/user-presence.tsx:51`). Optimising it is a
+  separate concern from this branch.
+- *Up to 2 s of false `Not saved` after an acknowledged edit.* Transient,
+  self-correcting, and errs toward warning — the safe direction for a feature
+  whose whole point is not to under-report risk. No toast escapes.
+- *Seed the pending state on mount from `doc.getChangeID().getClientSeq()`* (to
+  survive the slides mobile/desktop remount). That counter includes presence,
+  so it would reintroduce exactly the drag bug Phase 5 removed. Recorded as a
+  known limitation instead.
+
+**Recorded as known limitations** (both now in the design's Risks section):
+
+- In-app navigation is not guarded at all. `beforeunload` covers tab close and
+  reload; a sidebar click unmounts the provider silently, and that is the more
+  common way to leave an editor. Closing it needs a router-level `useBlocker`.
+- A remount inside a live provider forgets what was pending — crossing 768 px
+  in Slides while offline drops the chip and disarms the guard until the next
+  keystroke.
+
 ## Correction to the design
 
 Two claims in the first draft of `docs/design/sync-status.md` were wrong and
@@ -173,23 +235,24 @@ have been fixed in the same branch:
 
 ## Tests
 
-33 new, all written before the code they cover and watched fail first.
+38 new, all written before the code they cover and watched fail first.
 
 - [x] `tests/components/sync-status/sync-state.test.ts` (6) — the truth table,
       including the two asymmetries: a rejected push with a non-empty queue is
       `not-saved`, a failed pull with an empty one is not.
-- [x] `tests/components/sync-status/use-sync-status.test.ts` (15)
+- [x] `tests/components/sync-status/use-sync-status.test.ts` (17)
   - [x] Typing raises `saving` immediately and holds it across a whole burst
         even with a permanently empty queue; it settles only once typing
         stops; a full queue never settles however long it waits. (Phase 4.)
   - [x] Each of the four states from a stubbed doc.
   - [x] `SyncFailed` while connected → `not-saved`, and cleared on `synced`.
-  - [x] The queue is **not** read on a timer while connected + empty; it is
-        while disconnected. Guards the "polls nothing when healthy" rule.
+  - [x] A `doc` swap inside a live provider resets everything per-document.
+  - [x] Nothing is asked of the document at all while no work is outstanding.
+        Guards the "costs nothing when healthy" rule.
   - [x] A tick that does not change the derived state does not re-render.
   - [x] `pendingSince` stamped on fill, cleared on drain.
   - [x] No document yet → `saved`.
-- [x] `tests/components/sync-status/sync-status-chip.test.tsx` (8)
+- [x] `tests/components/sync-status/sync-status-chip.test.tsx` (11)
   - [x] `beforeunload` added on entering `not-saved`, removed on leaving, never
         added for a healthy document — the regression that would otherwise
         prompt on every navigation.
@@ -205,21 +268,24 @@ have been fixed in the same branch:
 ## Verify
 
 - [x] `pnpm --filter @wafflebase/frontend lint` clean
-- [x] `pnpm --filter @wafflebase/frontend test` — 1639 passed / 44 skipped
+- [x] `pnpm --filter @wafflebase/frontend test` — 1644 passed / 44 skipped
       (was 1606), no regressions
-- [ ] `pnpm verify:fast`
-- [ ] Self code review over the branch diff
-- [ ] Manual, per the design's premise — in `pnpm dev`, open a doc, then
-      DevTools → Network → Offline:
-  - [ ] Chip goes `Saved` → `Reconnecting…` with no toast while idle.
-  - [ ] Type one character → `Not saved` + toast.
-  - [ ] Attempt to close the tab → browser confirmation appears.
-  - [ ] Go back online → queue drains, chip returns to `Saved`, toast clears,
-        closing the tab no longer prompts.
-  - [ ] Repeat on a second type (slides or sheets) to confirm the `SiteHeader`
-        mount covers it with no per-engine change.
+- [x] `pnpm verify:fast`
+- [x] Self code review over the branch diff — see Phase 6
+- [x] Manual smoke in `pnpm dev`, confirmed working. It is what found both
+      Phase 4 (typing strobe in Docs) and Phase 5 (bare cell drag in Sheets) —
+      neither of which any unit test in the suite at the time would have
+      caught, because both fakes modelled what the code assumed rather than
+      what the SDK does.
+- [ ] Re-smoke after Phase 6, which changed the toast and recovery paths:
+  - [ ] Go offline, type, wait for the toast, then click a sidebar link. The
+        warning must disappear with the editor, not follow you to the
+        documents list.
+  - [ ] Go offline, type, wait for the toast, then go back online. No "Saved"
+        confirmation until the chip itself reaches `Saved`.
+  - [ ] Tab-focus the chip with the keyboard; the tooltip must open.
 - [ ] No visual-lane impact expected; if the header baseline moves, the chip's
-      `saved` state is rendering when it should be `null` on narrow viewports.
+      `saved` state is rendering when it should be hidden on narrow viewports.
 
 ## Out of scope
 

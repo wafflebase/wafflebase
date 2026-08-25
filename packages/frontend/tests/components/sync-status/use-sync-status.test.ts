@@ -17,7 +17,6 @@ import { useSyncStatus } from '@/components/sync-status/use-sync-status';
 type DocEvent = { type: string; value: unknown };
 
 interface FakeDoc {
-  hasLocalChanges: () => boolean;
   getCheckpoint: () => { getClientSeq: () => number };
   subscribe: (
     arg1: string | ((e: DocEvent) => void),
@@ -63,10 +62,6 @@ function fakeDoc(): FakeDoc {
     for (const h of handlers.get(key) ?? []) h(e);
   };
   return {
-    hasLocalChanges: () => {
-      reads++;
-      return acked < clientSeq;
-    },
     getCheckpoint: () => ({
       getClientSeq: () => {
         reads++;
@@ -322,6 +317,54 @@ describe('useSyncStatus', () => {
       vi.advanceTimersByTime(5000);
     });
     expect(result.current.pendingSince).toBeNull();
+  });
+
+  it('starts over when the provider swaps in a different document', () => {
+    // `DocumentProvider` keeps one store for its lifetime and replaces `doc`
+    // in place rather than remounting its children. The replacement starts at
+    // checkpoint 0, so a sequence carried over from the old document is
+    // permanently ahead of it — the chip would stick on Saving… forever and
+    // escalate to a false Not saved on any blip.
+    const first = fakeDoc();
+    mockCtx = { doc: first, connection: 'connected' };
+    const { result, rerender } = renderHook(() => useSyncStatus());
+    act(() => {
+      first.type();
+    });
+    expect(result.current.state).toBe('saving');
+
+    const second = fakeDoc();
+    mockCtx = { doc: second, connection: 'connected' };
+    act(() => {
+      rerender();
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(result.current.state).toBe('saved');
+  });
+
+  it('re-stamps pendingSince when a fresh edit follows an accepted one', () => {
+    // Otherwise the tooltip reports an hour of writing as at risk when only
+    // the last keystroke is.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+    const { result } = renderHook(() => useSyncStatus());
+
+    act(() => {
+      doc.type();
+    });
+    const first = result.current.pendingSince;
+    expect(first).toBeInstanceOf(Date);
+
+    act(() => {
+      doc.ack();
+      vi.advanceTimersByTime(1000);
+      doc.type();
+    });
+
+    expect(result.current.pendingSince).not.toBe(first);
   });
 
   it('reports saved when there is no document yet', () => {

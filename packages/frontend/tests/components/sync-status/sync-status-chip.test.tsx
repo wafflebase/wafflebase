@@ -194,28 +194,103 @@ describe('SyncStatusChip', () => {
     expect(warning).not.toHaveBeenCalled();
   });
 
-  it('confirms recovery after it has warned', () => {
+  it('retracts its warning when it unmounts', () => {
+    // `<Toaster />` lives outside the router (App.tsx), and the warning is
+    // `duration: Infinity` with no close button. Leaving the editor by any
+    // in-app link would otherwise strand a red "Not saved" on every other
+    // page for the rest of the session, with no way to dismiss it and no
+    // later recovery able to retract it.
     const doc = fakeDoc();
     mockCtx = { doc, connection: 'disconnected' };
-    const { rerender } = renderChip();
-    act(() => { doc.type(); });
+    const { unmount } = renderChip();
+    act(() => {
+      doc.type();
+    });
     act(() => {
       vi.advanceTimersByTime(2000);
     });
     expect(warning).toHaveBeenCalledTimes(1);
 
+    unmount();
+
+    expect(dismiss).toHaveBeenCalled();
+  });
+
+  it('does not confirm a rescue the server has not performed yet', () => {
+    // Reconnecting moves the state to `saving`, not `saved` — the push has not
+    // even been attempted. Confirming there would hand the user a receipt for
+    // work that can still be rejected, which is the exact failure this whole
+    // feature exists to prevent.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    const { rerender } = renderChip();
+    act(() => {
+      doc.type();
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(warning).toHaveBeenCalledTimes(1);
+
+    // Connection back, but nothing acknowledged.
     mockCtx = { doc, connection: 'connected' };
     act(() => {
-      doc.ack();
       rerender(
         <TooltipProvider>
           <SyncStatusChip />
         </TooltipProvider>,
       );
-      vi.advanceTimersByTime(1000);
+    });
+
+    expect(success).not.toHaveBeenCalled();
+  });
+
+  it('confirms only once the server has actually taken the work', () => {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    const { rerender } = renderChip();
+    act(() => {
+      doc.type();
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    mockCtx = { doc, connection: 'connected' };
+    doc.ack();
+    act(() => {
+      rerender(
+        <TooltipProvider>
+          <SyncStatusChip />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
     });
 
     expect(success).toHaveBeenCalledTimes(1);
+    // Stable id, so a flapping connection replaces the confirmation rather
+    // than stacking a new one on every recovery.
+    expect(success).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: expect.anything() }),
+    );
+  });
+
+  it('offers its explanation to the keyboard, not only the mouse', () => {
+    // The tooltip carries the "this tab is the only copy" wording — the most
+    // load-bearing text in the feature. Radix adds no tabIndex to a bare span,
+    // so without one it is hover-only.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    const { container } = renderChip();
+    act(() => {
+      doc.type();
+    });
+
+    expect(container.querySelector('[role="status"]')?.getAttribute('tabindex')).toBe('0');
   });
 
   it('does not claim the work is stored locally', () => {

@@ -93,7 +93,7 @@ can never enter into it.
 
 ### The four states
 
-The chip is a function of two booleans — connected, and hasLocalChanges — plus
+The chip is a function of two booleans — connected, and pending — plus
 a transient "a sync is in flight" bit:
 
 | Connection | Local changes | Chip | Tone |
@@ -104,7 +104,7 @@ a transient "a sync is in flight" bit:
 | Disconnected | pending | **`Not saved`** | destructive |
 
 Only the fourth state is loud, and only it arms the unload guard. That is the
-whole point of keying on `hasLocalChanges()` rather than on connectivity: a
+whole point of keying on outstanding work rather than on connectivity: a
 user reading a document on a flaky train connection should not be alarmed, and
 a user who has typed a paragraph into a dead socket should be.
 
@@ -180,11 +180,16 @@ fires on the **transition** into `Not saved`:
 > the server. Keep this tab open; they'll sync when the connection returns.
 
 It is a toast on the edge, not a persistent banner — the chip is the persistent
-surface. Recovery dismisses it and shows a brief `Saved` confirmation, so a
-blip that resolves itself does not leave a stale warning on screen.
+surface. Transitions are debounced (~2s) so that a single dropped frame of the
+watch stream, which the SDK recovers from on its own, never produces a toast.
 
-Transitions are debounced (~2s) so that a single dropped frame of the watch
-stream, which the SDK recovers from on its own, never produces a toast.
+Retraction and confirmation are **two different things**, and conflating them
+hands out a false receipt. Leaving `Not saved` dismisses the warning
+immediately — it is no longer true. But the confirmation waits for `Saved`,
+because reconnecting moves the state to `Saving…`: the push has not been
+attempted yet and can still be rejected. Saying *"your changes reached the
+server"* at the moment the socket comes back would be a durability claim with
+no evidence behind it, which is the one thing this feature must never do.
 
 ### The unload guard
 
@@ -215,12 +220,6 @@ schedules no timer and asks the SDK nothing.
 An earlier draft polled `hasLocalChanges()` on a 1s interval. Once the raise
 became event-driven and the lower became sequence-based, the interval had
 nothing left to observe.
-
-The interval exists because the transition from "connected, queue draining" to
-"connected, queue empty" is not always announced by an event the subscription
-sees. 1s is well under the threshold where a status chip feels stale and far
-above anything that costs measurable work: the call is a length check on an
-array.
 
 #### Why a quiet window is needed on top
 
@@ -293,13 +292,36 @@ This is also why the calm fourth state Google has does not exist here.
 
 **Alarm fatigue on flaky connections.** A watch stream that flaps would
 otherwise produce a toast per flap. Mitigated by the 2s debounce, by keying
-severity on `hasLocalChanges()` (a reader sees only a muted
+severity on the user's own outstanding work (a reader sees only a muted
 `Reconnecting…`), and by making recovery clear the notice automatically.
 
 **`beforeunload` is unreliable by design.** Browsers ignore it without prior
 user interaction, and it cannot stop a crash, a tab discard, or an OS restart.
 It narrows the window; it does not close it. The real fix is offline
 persistence, listed as a Non-Goal and the natural follow-up to this document.
+
+**In-app navigation is not guarded at all.** `beforeunload` covers closing the
+tab and reloading. It does not fire for a route change, and every editor
+renders `AppSidebar` inside its own shell — so one click on a sidebar link
+unmounts the `DocumentProvider` and detaches a document whose queue was never
+pushed, silently. This is the *more common* way to leave an editor, and it is
+uncovered. Closing it means a router-level block (`useBlocker`) alongside the
+unload guard; recorded here as a known limitation rather than left implied by
+the Goals, which speak only of closing a tab.
+
+**A remount inside a live provider forgets what was pending.** The hook's
+memory of "the user has edited" is per-mount. `SlidesLayout`
+(`app/slides/slides-detail.tsx`) swaps between its mobile and desktop layouts
+on a 768px viewport crossing *inside* one `DocumentProvider`, so crossing that
+width while offline with unpushed edits drops the chip back to `Reconnecting…`
+and disarms the guard until the next keystroke.
+
+Seeding the new mount from `doc.getChangeID().getClientSeq()` was considered
+and rejected: that counter includes presence, so it would reintroduce exactly
+the confusion [Why not `hasLocalChanges()`](#why-not-haslocalchanges) removes —
+a mount after a bare drag would report unsaved work. Correcting it properly
+means lifting the pending state to the provider level, which is more machinery
+than the window-resize-while-offline case justifies.
 
 **Mount points that can drift.** Because the chip is opt-in, a new editor can
 be written that simply never passes `syncStatus` — and nothing fails. The same
@@ -310,7 +332,17 @@ badge for a viewer), but neither can catch a call site that was never written.
 This is the cost of the opt-in, accepted because the alternative crashes the
 documents list.
 
-**Polling in a hot path.** Reading `hasLocalChanges()` on a timer is cheap, but
-a naive implementation that calls `setState` every tick would re-render the
-header once a second during any disconnection. The hook must only set state
-when the derived `SyncState` actually changes.
+**The hook can outlive the document it is measuring.** `DocumentProvider` keeps
+one store for its whole lifetime and swaps `doc` in place rather than
+remounting its children. The replacement starts at checkpoint 0, so a sequence
+carried over from the previous document is permanently ahead of it — the chip
+sticks on `Saving…` and any blip escalates it to a false `Not saved`. Every
+per-document ref and piece of state is therefore reset on a `doc` change, and a
+test drives the swap.
+
+**A stranded warning that outlives its chip.** The warning toast is
+`duration: Infinity` with no close button, and `<Toaster />` is mounted outside
+the router — so an unmount that left it on screen would strand an
+undismissable red notice on every other page for the rest of the session, with
+no later recovery able to retract it (a fresh chip has no memory of having
+warned). The chip dismisses on unmount for that reason.
