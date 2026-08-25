@@ -311,7 +311,11 @@ const LANES = [
     // never saw it and a `useState` below an early return reached main. It runs FIRST —
     // a lint error is the cheapest failure here, and finding it after a 3s build and a
     // 1000-test suite wastes the difference.
-    cmd: "pnpm --filter @wafflebase/design-editor lint && pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor test && pnpm --filter @wafflebase/design-editor build",
+    //
+    // BUILD BEFORE TEST, since the publish contract asserts on what a consumer would
+    // actually install — `exports` resolves to `dist/plugin/index.js`, and a suite run
+    // against an unbuilt checkout could only check that the manifest names a path.
+    cmd: "pnpm --filter @wafflebase/design-editor lint && pnpm --filter @wafflebase/design-editor typecheck && pnpm --filter @wafflebase/design-editor build && pnpm --filter @wafflebase/design-editor test",
     pkgs: ["design-editor"],
     // `pkgs` alone would never select this lane: harness.config.json lists
     // packages/design-editor/** as inert, and an inert match short-circuits the

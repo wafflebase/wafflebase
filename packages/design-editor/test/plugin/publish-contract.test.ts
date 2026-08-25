@@ -17,8 +17,18 @@ import ts from 'typescript';
 const PKG = path.resolve(import.meta.dirname, '../..');
 const manifest = JSON.parse(fs.readFileSync(path.join(PKG, 'package.json'), 'utf8'));
 
+/**
+ * Every file `exports` can resolve to, through conditions as well as bare strings.
+ *
+ * `Object.values` alone was enough while every subpath was a string. `.` is a
+ * conditional object now — `types` for the checker, `default` for the loader — and a
+ * flat read returned that object, so both on-disk checks compared a path against
+ * `[object Object]` and passed nothing.
+ */
 const exportTargets = (): string[] =>
-  Object.values(manifest.exports as Record<string, string>);
+  Object.values(manifest.exports as Record<string, unknown>).flatMap((v) =>
+    typeof v === 'string' ? [v] : Object.values(v as Record<string, string>),
+  );
 
 /**
  * Every bare specifier imported under `dir`, read with the TypeScript parser.
@@ -92,6 +102,46 @@ describe('the published package', () => {
     for (const target of exportTargets()) {
       expect(fs.existsSync(path.join(PKG, target)), `${target} does not exist`).toBe(true);
     }
+  });
+
+  it('resolves its main entry to JavaScript, not TypeScript', () => {
+    /*
+     * THE FINDING THAT MADE THE BUILD EXIST, pinned so it cannot come back.
+     *
+     * A Vite plugin is imported by the consumer's `vite.config`, which Vite bundles with
+     * esbuild while leaving bare specifiers external — so NODE loads this entry. Node
+     * refuses to strip types under `node_modules`
+     * (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), so pointing `.` at `.ts` made an
+     * installed copy unloadable. Measured against a real `npm install` of the tarball;
+     * the same bytes outside `node_modules` boot fine, which is why the workspace never
+     * showed it — pnpm links the package, so its real path is the source tree.
+     *
+     * `./client` and `./scenes` stay TypeScript on purpose: the browser reaches them
+     * through Vite, which transforms source from anywhere.
+     */
+    const main = (manifest.exports as Record<string, Record<string, string>>)['.'];
+    expect(main.default).toMatch(/\.m?js$/);
+    expect(main.types).toMatch(/\.d\.ts$/);
+    expect(manifest.types).toBe(main.types);
+  });
+
+  it('bounds the TypeScript peer to the major it is written against', () => {
+    /*
+     * MEASURED ON A REAL INSTALL. The range was `>=5.0.0`, so npm's peer auto-install
+     * pulled TypeScript **7.0.2** into a fresh consumer — and 7 is the native-port
+     * rewrite, whose module shape the extractor does not have:
+     *
+     *   TS 5.9.3   `(await import('typescript')).default.ScriptTarget` → object
+     *   TS 7.0.2   the same expression                                 → undefined
+     *
+     * So `ts.ScriptTarget.Latest` threw `Cannot read properties of undefined`, the
+     * lazily-imported extractor failed, and `GET /metadata` answered `files: []` with no
+     * error anywhere — a consumer would see an editor that boots and analyses nothing.
+     *
+     * An upper bound is the honest declaration: this package is written against the
+     * TS 5 API and its 6/7 compatibility is untested, not merely unsupported.
+     */
+    expect(manifest.peerDependencies?.typescript).toBe('^5.0.0');
   });
 
   it('declares every runtime import the shipped entries make', () => {

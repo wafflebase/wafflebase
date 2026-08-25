@@ -228,6 +228,26 @@ export function designEditor(options?: DesignEditorOptions): Plugin[] {
     name: 'wafflebase-design-editor',
     apply: 'serve',
 
+    /**
+     * The frame entry's own dependencies, declared to Vite's optimizer.
+     *
+     * MEASURED ON A REAL INSTALL, and invisible in a workspace. `scene-entry.tsx` is
+     * served by absolute path (`/@fs/…` into the consumer's `node_modules`), so it sits
+     * outside the graph Vite scans to discover dependencies — and an undiscovered CJS
+     * dependency is served raw. `react/jsx-dev-runtime` survived that because the React
+     * plugin injects it everywhere and Vite auto-includes it; `react-dom/client` did
+     * not, so the frame died on
+     * `does not provide an export named 'createRoot'` while the shell around it worked.
+     *
+     * The plugin knows what its own entry imports and the consumer does not, so this
+     * belongs here rather than in their config — one fewer line of the onboarding cliff
+     * §5 is about. Vite merges `include`, so a consumer listing the same package again
+     * costs nothing.
+     */
+    config() {
+      return { optimizeDeps: { include: ['react', 'react-dom/client'] } };
+    },
+
     configResolved(config) {
       resolved = resolveOptions(options, config.root, config.resolve.alias);
       guard = createPathGuard(resolved.root, resolved.opaqueRoots);
