@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The hook reads the ambient `DocumentProvider`. Mocking `@yorkie-js/react` is
- * the seam that lets these tests drive connection + queue state directly,
- * without a real attach (which cannot run in jsdom).
+ * the seam that lets these tests drive editing, presence and acknowledgement
+ * directly, without a real attach (which cannot run in jsdom).
  */
 let mockCtx: { doc: FakeDoc | undefined; connection: string };
 
@@ -18,35 +18,76 @@ type DocEvent = { type: string; value: unknown };
 
 interface FakeDoc {
   hasLocalChanges: () => boolean;
-  subscribe: (type: string, cb: (e: DocEvent) => void) => () => void;
-  /** Test control: set what the change queue reports. */
-  setQueued: (v: boolean) => void;
-  /** Test control: fire a document event of the given type. */
-  emit: (type: string, value: unknown) => void;
-  /** How many times the hook has read the queue. */
+  getCheckpoint: () => { getClientSeq: () => number };
+  subscribe: (
+    arg1: string | ((e: DocEvent) => void),
+    arg2?: (e: DocEvent) => void,
+  ) => () => void;
+  emit: (type: string, value?: unknown) => void;
+  /** Test control: the user edited the document. */
+  type: () => void;
+  /** Test control: the user moved a selection — presence only, no operation. */
+  drag: () => void;
+  /** Test control: the server accepted everything pushed so far. */
+  ack: () => void;
+  /** How many times the hook has asked about outstanding work. */
   reads: () => number;
 }
 
+const DEFAULT_STREAM = '__default__';
+
+/**
+ * Models the two facts about `Document.update()` that this feature turns on,
+ * both read off `@yorkie-js/sdk`'s published bundle:
+ *
+ *   this.localChanges.push(change);   // EVERY change, presence-only included
+ *   if (opInfos.length) { ...publish a 'local-change' event... }
+ *
+ * So a presence-only change — dragging a selection, moving a caret — makes
+ * `hasLocalChanges()` true while emitting no `local-change` event at all. That
+ * asymmetry is the whole reason this fake distinguishes `type()` from
+ * `drag()`.
+ */
 function fakeDoc(): FakeDoc {
-  let queued = false;
+  let clientSeq = 0;
+  let acked = 0;
   let reads = 0;
   const handlers = new Map<string, Array<(e: DocEvent) => void>>();
+  const on = (key: string, cb: (e: DocEvent) => void) => {
+    const list = handlers.get(key) ?? [];
+    list.push(cb);
+    handlers.set(key, list);
+    return () => handlers.set(key, (handlers.get(key) ?? []).filter((h) => h !== cb));
+  };
+  const fire = (key: string, e: DocEvent) => {
+    for (const h of handlers.get(key) ?? []) h(e);
+  };
   return {
     hasLocalChanges: () => {
       reads++;
-      return queued;
+      return acked < clientSeq;
     },
-    subscribe: (type, cb) => {
-      const list = handlers.get(type) ?? [];
-      list.push(cb);
-      handlers.set(type, list);
-      return () => handlers.set(type, (handlers.get(type) ?? []).filter((h) => h !== cb));
-    },
-    setQueued: (v) => {
-      queued = v;
-    },
+    getCheckpoint: () => ({
+      getClientSeq: () => {
+        reads++;
+        return acked;
+      },
+    }),
+    subscribe: (arg1, arg2) =>
+      typeof arg1 === 'function' ? on(DEFAULT_STREAM, arg1) : on(arg1, arg2!),
     emit: (type, value) => {
-      for (const h of handlers.get(type) ?? []) h({ type, value });
+      fire(type, { type, value });
+      fire(DEFAULT_STREAM, { type, value });
+    },
+    type: () => {
+      clientSeq++;
+      fire(DEFAULT_STREAM, { type: 'local-change', value: { clientSeq } });
+    },
+    drag: () => {
+      clientSeq++;
+    },
+    ack: () => {
+      acked = clientSeq;
     },
     reads: () => reads,
   };
@@ -61,7 +102,7 @@ afterEach(() => {
 });
 
 describe('useSyncStatus', () => {
-  it('reports saved when connected with an empty queue', () => {
+  it('reports saved on a document nobody has edited', () => {
     const doc = fakeDoc();
     mockCtx = { doc, connection: 'connected' };
 
@@ -70,66 +111,140 @@ describe('useSyncStatus', () => {
     expect(result.current.state).toBe('saved');
   });
 
-  it('reports not-saved when disconnected with a queued change', () => {
-    const doc = fakeDoc();
-    doc.setQueued(true);
-    mockCtx = { doc, connection: 'disconnected' };
-
-    const { result } = renderHook(() => useSyncStatus());
-
-    expect(result.current.state).toBe('not-saved');
-  });
-
-  it('does not poll the queue while connected and saved', () => {
-    // A healthy document must cost nothing on a timer. This is the guard
-    // against a 1s re-render loop running for every open editor.
+  it('reports saving the moment the user types', () => {
     const doc = fakeDoc();
     mockCtx = { doc, connection: 'connected' };
+    const { result } = renderHook(() => useSyncStatus());
 
-    renderHook(() => useSyncStatus());
-    const before = doc.reads();
     act(() => {
+      doc.type();
+    });
+
+    expect(result.current.state).toBe('saving');
+  });
+
+  it('stays saved while the user only drags a selection', () => {
+    // Dragging writes presence. Presence-only changes join the local change
+    // queue — so `hasLocalChanges()` goes true — but carry no operation and
+    // emit no `local-change`. Nothing of the user's document is at stake, and
+    // reporting it made the chip toggle Saving/Saved on every drag in Sheets.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+    const { result } = renderHook(() => useSyncStatus());
+
+    act(() => {
+      for (let i = 0; i < 5; i++) {
+        doc.drag();
+        // The presence change is pushed like any other, so a sync event
+        // follows it — which is the moment the old code sampled the queue and
+        // mistook a moved selection for unsaved work.
+        doc.emit('sync', 'synced');
+        vi.advanceTimersByTime(400);
+      }
+    });
+
+    expect(result.current.state).toBe('saved');
+  });
+
+  it('does not let a later drag hold up an edit that was already accepted', () => {
+    // The residue of the same confusion: once the typing is acknowledged, a
+    // presence change refilling the queue must not read as unfinished work.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+    const { result } = renderHook(() => useSyncStatus());
+
+    act(() => {
+      doc.type();
+      doc.ack();
+      doc.drag();
       vi.advanceTimersByTime(5000);
     });
 
-    expect(doc.reads()).toBe(before);
+    expect(result.current.state).toBe('saved');
   });
 
-  it('polls the queue while disconnected', () => {
+  it('holds saving through a whole burst of typing', () => {
+    // Each push is accepted almost immediately, so between keystrokes there is
+    // genuinely nothing outstanding. The chip must not read that as done.
     const doc = fakeDoc();
-    mockCtx = { doc, connection: 'disconnected' };
+    mockCtx = { doc, connection: 'connected' };
+    const { result } = renderHook(() => useSyncStatus());
 
-    renderHook(() => useSyncStatus());
-    const before = doc.reads();
     act(() => {
-      vi.advanceTimersByTime(3000);
+      for (let i = 0; i < 6; i++) {
+        doc.type();
+        doc.ack();
+        doc.emit('sync', 'synced');
+        vi.advanceTimersByTime(500);
+      }
     });
 
-    expect(doc.reads()).toBeGreaterThan(before);
+    expect(result.current.state).toBe('saving');
   });
 
-  it('leaves not-saved once the queue drains after reconnecting', () => {
+  it('settles to saved once typing stops and the edit is accepted', () => {
     const doc = fakeDoc();
-    doc.setQueued(true);
-    mockCtx = { doc, connection: 'disconnected' };
-    const { result, rerender } = renderHook(() => useSyncStatus());
-    expect(result.current.state).toBe('not-saved');
-
     mockCtx = { doc, connection: 'connected' };
-    rerender();
+    const { result } = renderHook(() => useSyncStatus());
     act(() => {
-      doc.setQueued(false);
-      vi.advanceTimersByTime(1000);
+      doc.type();
+    });
+    expect(result.current.state).toBe('saving');
+
+    act(() => {
+      doc.ack();
+      vi.advanceTimersByTime(5000);
     });
 
     expect(result.current.state).toBe('saved');
+  });
+
+  it('never settles while an edit remains unaccepted, however long it waits', () => {
+    // A quiet keyboard is not a flushed document.
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+    const { result } = renderHook(() => useSyncStatus());
+
+    act(() => {
+      doc.type();
+      vi.advanceTimersByTime(30000);
+    });
+
+    expect(result.current.state).toBe('not-saved');
+  });
+
+  it('reports reconnecting when disconnected with nothing outstanding', () => {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'disconnected' };
+
+    const { result } = renderHook(() => useSyncStatus());
+
+    expect(result.current.state).toBe('reconnecting');
+  });
+
+  it('reports a stranded edit immediately, without waiting to settle', () => {
+    const doc = fakeDoc();
+    mockCtx = { doc, connection: 'connected' };
+    const { result, rerender } = renderHook(() => useSyncStatus());
+
+    act(() => {
+      doc.type();
+    });
+    mockCtx = { doc, connection: 'disconnected' };
+    act(() => {
+      rerender();
+    });
+
+    expect(result.current.state).toBe('not-saved');
   });
 
   it('reports not-saved when a push is rejected while still connected', () => {
     const doc = fakeDoc();
-    doc.setQueued(true);
     mockCtx = { doc, connection: 'connected' };
     const { result } = renderHook(() => useSyncStatus());
+    act(() => {
+      doc.type();
+    });
     expect(result.current.state).toBe('saving');
 
     act(() => {
@@ -141,11 +256,10 @@ describe('useSyncStatus', () => {
 
   it('clears a past failure once a sync succeeds', () => {
     const doc = fakeDoc();
-    doc.setQueued(true);
     mockCtx = { doc, connection: 'connected' };
     const { result } = renderHook(() => useSyncStatus());
-
     act(() => {
+      doc.type();
       doc.emit('sync', 'sync-failed');
     });
     expect(result.current.state).toBe('not-saved');
@@ -157,39 +271,55 @@ describe('useSyncStatus', () => {
     expect(result.current.state).toBe('saving');
   });
 
-  it('does not re-render on a poll tick that changes nothing', () => {
+  it('asks nothing of the document while there is no outstanding work', () => {
+    // A document nobody is editing must not cost a timer. This is the guard
+    // against a background loop running for every open editor.
     const doc = fakeDoc();
-    doc.setQueued(true);
+    mockCtx = { doc, connection: 'connected' };
+
+    renderHook(() => useSyncStatus());
+    const before = doc.reads();
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
+
+    expect(doc.reads()).toBe(before);
+  });
+
+  it('does not re-render while the state is unchanged', () => {
+    const doc = fakeDoc();
     mockCtx = { doc, connection: 'disconnected' };
     let renders = 0;
     renderHook(() => {
       renders++;
       return useSyncStatus();
     });
+    act(() => {
+      doc.type();
+    });
     const before = renders;
 
     act(() => {
-      vi.advanceTimersByTime(3000);
+      vi.advanceTimersByTime(10000);
     });
 
     expect(renders).toBe(before);
   });
 
-  it('stamps pendingSince when the queue fills and clears it when it drains', () => {
+  it('stamps pendingSince when an edit starts and clears it when accepted', () => {
     const doc = fakeDoc();
-    mockCtx = { doc, connection: 'disconnected' };
+    mockCtx = { doc, connection: 'connected' };
     const { result } = renderHook(() => useSyncStatus());
     expect(result.current.pendingSince).toBeNull();
 
     act(() => {
-      doc.setQueued(true);
-      vi.advanceTimersByTime(1000);
+      doc.type();
     });
     expect(result.current.pendingSince).toBeInstanceOf(Date);
 
     act(() => {
-      doc.setQueued(false);
-      vi.advanceTimersByTime(1000);
+      doc.ack();
+      vi.advanceTimersByTime(5000);
     });
     expect(result.current.pendingSince).toBeNull();
   });

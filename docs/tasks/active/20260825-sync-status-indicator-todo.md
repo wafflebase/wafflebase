@@ -23,15 +23,22 @@ SDK holds it in memory only — with no prompt at any point.
 
 ## Approach
 
-Read the three signals the SDK already emits — `connection`, `sync`,
-`hasLocalChanges()` — derive a 4-state `SyncState`, and render it from one
-shared chip in `SiteHeader`, which sits inside the `DocumentProvider` subtree
-in every editor (proven by `UserPresence` calling `useDocument()` from there
-today, `components/user-presence.tsx:51`).
+Read the signals the SDK already emits — `connection`, `sync`, and the
+`local-change` event weighed against `doc.getCheckpoint().getClientSeq()` —
+derive a 4-state `SyncState`, and render it from one shared chip mounted in
+`SiteHeader`, which sits inside the `DocumentProvider` subtree in every editor
+(proven by `UserPresence` calling `useDocument()` from there today,
+`components/user-presence.tsx:51`).
 
-Severity keys on `hasLocalChanges()`, not on connectivity: a disconnected
-*reader* sees a muted `Reconnecting…`; only a disconnected editor with a
-non-empty queue gets `Not saved`, the toast, and the unload guard.
+Severity keys on whether the user has outstanding work, not on connectivity: a
+disconnected *reader* sees a muted `Reconnecting…`; only a disconnected editor
+with an unacknowledged edit gets `Not saved`, the toast, and the unload guard.
+
+Three assumptions here did not survive contact with the code — the mount cannot
+be unconditional, PDF is not covered, and `hasLocalChanges()` (the obvious
+signal, and what the first three phases used) counts presence and so cannot
+drive this at all. See [Correction to the
+design](#correction-to-the-design) and Phase 5.
 
 ## Changes
 
@@ -44,11 +51,11 @@ non-empty queue gets `Not saved`, the toast, and the unload guard.
   - [x] `SyncState = 'saved' | 'saving' | 'reconnecting' | 'not-saved'`.
   - [x] Connection from `useDocument().connection`; `doc.subscribe('sync', …)`
         for sync outcomes.
-  - [x] Poll `doc.hasLocalChanges()` on a 1s interval **only** while
-        disconnected or pending — a healthy connected doc polls nothing.
+  - [x] ~~Poll `doc.hasLocalChanges()` on a 1s interval~~ — removed in Phase 5;
+        there is no polling at all.
   - [x] Only `setState` when the derived `SyncState` changes (otherwise the
         header re-renders once a second for the whole disconnection). Done via
-        a `queuedRef` mirror rather than trusting React's bail-out.
+        a `pendingRef` mirror rather than trusting React's bail-out.
   - [x] Track `pendingSince` — stamped when the queue goes empty → non-empty,
         cleared when it drains.
   - [x] `DocSyncStatus.SyncFailed` while connected also resolves to
@@ -89,6 +96,64 @@ non-empty queue gets `Not saved`, the toast, and the unload guard.
 - [x] `beforeunload` registered **only** while `not-saved`, removed as soon as
       the state leaves it.
 
+### Phase 4 — chip strobe found in the smoke test
+
+Typing continuously in the docs editor made the chip flicker between `Saved`
+and `Saving…` several times a second. Not a rendering bug: the queue really is
+empty about as often as it is full mid-sentence, and every observation was
+being reported.
+
+- [x] Failing test first — `holds saving through the gaps between keystrokes`
+      reproduced it (`expected 'saved' to be 'saving'`).
+- [x] **First attempt, insufficient.** Held an empty observation for 800 ms
+      before believing it. Re-tested by hand: still awkward. Nothing *re-raised*
+      the state when the next keystroke arrived — keystrokes were not a signal
+      at all — so it changed the rhythm of the flicker without removing it.
+      Recorded rather than quietly replaced, because "add a debounce" is the
+      obvious wrong answer here and the next person will reach for it too.
+- [x] **Root cause.** `sample()` ran only on `sync` events and the poll. A push
+      lands within milliseconds, so those reads land at moments uncorrelated
+      with typing and see an empty queue mid-sentence. `hasLocalChanges()` can
+      never drive this on its own.
+- [x] `Saving…` is now raised by the **`local-change` event** (edge-triggered,
+      cannot be missed) and by any non-empty queue read, and lowered only after
+      a 2 s quiet window that *also* re-checks the queue — a quiet keyboard is
+      not a flushed document, so it re-arms if the server still has the work.
+      Remote changes excluded: a peer's edit must not hold up this user's chip.
+- [x] Three new failing tests first: types → `saving` immediately; a six-
+      keystroke burst with a permanently empty queue stays `saving`; it settles
+      only once typing stops. Plus a guard that a full queue never settles no
+      matter how long it waits.
+- [x] `SyncSignals.hasLocalChanges` renamed to `pending`. Conflating "the queue
+      is empty right now" with "there is no outstanding work" *is* the bug; a
+      field name that keeps the two apart is worth the churn.
+- [x] Quiet timer cleared on unmount.
+
+### Phase 5 — dragging a cell in Sheets toggled the chip
+
+Selecting cells with the mouse — editing nothing — flipped `Saving`/`Saved`.
+
+- [x] **Root cause, from the SDK's published `Document.update()`:**
+      `this.localChanges.push(change)` runs for **every** change, presence-only
+      included, while the `local-change` event is published only
+      `if (opInfos.length)`. A drag writes presence, so it fills the queue and
+      emits no event — `hasLocalChanges()` goes true with nothing edited. Every
+      editor was affected; moving a caret in Docs did the same.
+- [x] The queue is a transport detail, not a record of the user's work. Replaced
+      it with the exact question: the `local-change` event's `clientSeq` versus
+      `doc.getCheckpoint().getClientSeq()` (both public API). Presence bumps the
+      sequence but never produces an event, so it can no longer enter into it.
+- [x] Two failing tests first: a bare drag (with the `sync` event that really
+      follows the presence push) stays `Saved`; a drag after an accepted edit
+      does not hold `Saving` up.
+- [x] Test fakes rewritten to model the asymmetry — `type()` bumps the sequence
+      *and* emits `local-change`, `drag()` only bumps it. The first version of
+      the drag test passed against the broken code because it omitted the sync
+      event; a fake that does not reproduce the SDK's shape proves nothing.
+- [x] **The 1s poll is gone.** With raising event-driven and lowering
+      sequence-based it had nothing left to observe. A document nobody is
+      editing now schedules no timer and asks the SDK nothing at all.
+
 ## Correction to the design
 
 Two claims in the first draft of `docs/design/sync-status.md` were wrong and
@@ -108,12 +173,15 @@ have been fixed in the same branch:
 
 ## Tests
 
-28 new, all written before the code they cover and watched fail first.
+33 new, all written before the code they cover and watched fail first.
 
 - [x] `tests/components/sync-status/sync-state.test.ts` (6) — the truth table,
       including the two asymmetries: a rejected push with a non-empty queue is
       `not-saved`, a failed pull with an empty one is not.
-- [x] `tests/components/sync-status/use-sync-status.test.ts` (10)
+- [x] `tests/components/sync-status/use-sync-status.test.ts` (15)
+  - [x] Typing raises `saving` immediately and holds it across a whole burst
+        even with a permanently empty queue; it settles only once typing
+        stops; a full queue never settles however long it waits. (Phase 4.)
   - [x] Each of the four states from a stubbed doc.
   - [x] `SyncFailed` while connected → `not-saved`, and cleared on `synced`.
   - [x] The queue is **not** read on a timer while connected + empty; it is
@@ -137,7 +205,7 @@ have been fixed in the same branch:
 ## Verify
 
 - [x] `pnpm --filter @wafflebase/frontend lint` clean
-- [x] `pnpm --filter @wafflebase/frontend test` — 1634 passed / 44 skipped
+- [x] `pnpm --filter @wafflebase/frontend test` — 1639 passed / 44 skipped
       (was 1606), no regressions
 - [ ] `pnpm verify:fast`
 - [ ] Self code review over the branch diff

@@ -25,24 +25,42 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 type DocEvent = { type: string; value: unknown };
 
 interface FakeDoc {
-  hasLocalChanges: () => boolean;
-  subscribe: (type: string, cb: (e: DocEvent) => void) => () => void;
-  setQueued: (v: boolean) => void;
+  getCheckpoint: () => { getClientSeq: () => number };
+  subscribe: (
+    arg1: string | ((e: DocEvent) => void),
+    arg2?: (e: DocEvent) => void,
+  ) => () => void;
+  /** Test control: the user edited the document. */
+  type: () => void;
+  /** Test control: the server accepted everything pushed so far. */
+  ack: () => void;
 }
 
+const DEFAULT_STREAM = '__default__';
+
+/** The same model `use-sync-status.test.ts` documents in full. */
 function fakeDoc(): FakeDoc {
-  let queued = false;
+  let clientSeq = 0;
+  let acked = 0;
   const handlers = new Map<string, Array<(e: DocEvent) => void>>();
+  const on = (key: string, cb: (e: DocEvent) => void) => {
+    const list = handlers.get(key) ?? [];
+    list.push(cb);
+    handlers.set(key, list);
+    return () => handlers.set(key, (handlers.get(key) ?? []).filter((h) => h !== cb));
+  };
   return {
-    hasLocalChanges: () => queued,
-    subscribe: (type, cb) => {
-      const list = handlers.get(type) ?? [];
-      list.push(cb);
-      handlers.set(type, list);
-      return () => handlers.set(type, (handlers.get(type) ?? []).filter((h) => h !== cb));
+    getCheckpoint: () => ({ getClientSeq: () => acked }),
+    subscribe: (arg1, arg2) =>
+      typeof arg1 === 'function' ? on(DEFAULT_STREAM, arg1) : on(arg1, arg2!),
+    type: () => {
+      clientSeq++;
+      for (const h of handlers.get(DEFAULT_STREAM) ?? []) {
+        h({ type: 'local-change', value: { clientSeq } });
+      }
     },
-    setQueued: (v) => {
-      queued = v;
+    ack: () => {
+      acked = clientSeq;
     },
   };
 }
@@ -81,10 +99,10 @@ afterEach(() => {
 describe('SyncStatusChip', () => {
   it('names the state when unpushed edits are stranded', () => {
     const doc = fakeDoc();
-    doc.setQueued(true);
     mockCtx = { doc, connection: 'disconnected' };
 
     renderChip();
+    act(() => { doc.type(); });
 
     expect(screen.getByText('Not saved')).toBeTruthy();
   });
@@ -101,15 +119,15 @@ describe('SyncStatusChip', () => {
 
   it('arms the unload guard only while edits are stranded', () => {
     const doc = fakeDoc();
-    doc.setQueued(true);
     mockCtx = { doc, connection: 'disconnected' };
     const { rerender } = renderChip();
+    act(() => { doc.type(); });
     expect(unloadGuards()).toBe(1);
 
     // Reconnect and let the queue drain.
     mockCtx = { doc, connection: 'connected' };
     act(() => {
-      doc.setQueued(false);
+      doc.ack();
       rerender(
         <TooltipProvider>
           <SyncStatusChip />
@@ -135,10 +153,10 @@ describe('SyncStatusChip', () => {
 
   it('warns once the stranded state has lasted past the debounce', () => {
     const doc = fakeDoc();
-    doc.setQueued(true);
     mockCtx = { doc, connection: 'disconnected' };
 
     renderChip();
+    act(() => { doc.type(); });
     expect(warning).not.toHaveBeenCalled();
 
     act(() => {
@@ -152,16 +170,16 @@ describe('SyncStatusChip', () => {
     // A watch stream that drops a single frame recovers on its own. Toasting
     // that would train users to ignore the toast.
     const doc = fakeDoc();
-    doc.setQueued(true);
     mockCtx = { doc, connection: 'disconnected' };
     const { rerender } = renderChip();
+    act(() => { doc.type(); });
 
     // Two acts, deliberately: React must process the reconnect before the
     // clock is allowed to reach the debounce, which is the real ordering.
     // Advancing inside the same act would fire the pending timer before the
     // effect that cancels it had ever run.
     mockCtx = { doc, connection: 'connected' };
-    doc.setQueued(false);
+    doc.ack();
     act(() => {
       rerender(
         <TooltipProvider>
@@ -178,9 +196,9 @@ describe('SyncStatusChip', () => {
 
   it('confirms recovery after it has warned', () => {
     const doc = fakeDoc();
-    doc.setQueued(true);
     mockCtx = { doc, connection: 'disconnected' };
     const { rerender } = renderChip();
+    act(() => { doc.type(); });
     act(() => {
       vi.advanceTimersByTime(2000);
     });
@@ -188,7 +206,7 @@ describe('SyncStatusChip', () => {
 
     mockCtx = { doc, connection: 'connected' };
     act(() => {
-      doc.setQueued(false);
+      doc.ack();
       rerender(
         <TooltipProvider>
           <SyncStatusChip />
@@ -204,10 +222,10 @@ describe('SyncStatusChip', () => {
     // The SDK persists nothing; wording that implies otherwise would be a
     // false promise to a user who then reloads. See docs/design/sync-status.md.
     const doc = fakeDoc();
-    doc.setQueued(true);
     mockCtx = { doc, connection: 'disconnected' };
 
     const { container } = renderChip();
+    act(() => { doc.type(); });
 
     expect(container.textContent).not.toMatch(/this device|saved locally|offline/i);
   });

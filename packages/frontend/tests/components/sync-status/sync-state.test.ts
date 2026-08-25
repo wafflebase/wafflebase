@@ -12,25 +12,25 @@ import { deriveSyncState } from '@/components/sync-status/sync-state';
 describe('deriveSyncState', () => {
   it('is saved when connected with an empty queue', () => {
     expect(
-      deriveSyncState({ connected: true, hasLocalChanges: false, syncFailed: false }),
+      deriveSyncState({ connected: true, pending: false, syncFailed: false }),
     ).toBe('saved');
   });
 
   it('is saving when connected with changes still in flight', () => {
     expect(
-      deriveSyncState({ connected: true, hasLocalChanges: true, syncFailed: false }),
+      deriveSyncState({ connected: true, pending: true, syncFailed: false }),
     ).toBe('saving');
   });
 
   it('is reconnecting when disconnected with nothing to lose', () => {
     expect(
-      deriveSyncState({ connected: false, hasLocalChanges: false, syncFailed: false }),
+      deriveSyncState({ connected: false, pending: false, syncFailed: false }),
     ).toBe('reconnecting');
   });
 
   it('is not-saved when disconnected with unpushed changes', () => {
     expect(
-      deriveSyncState({ connected: false, hasLocalChanges: true, syncFailed: false }),
+      deriveSyncState({ connected: false, pending: true, syncFailed: false }),
     ).toBe('not-saved');
   });
 
@@ -38,7 +38,7 @@ describe('deriveSyncState', () => {
     // A rejected push leaves the changes in the queue, so "Saving…" would
     // claim progress that is not happening.
     expect(
-      deriveSyncState({ connected: true, hasLocalChanges: true, syncFailed: true }),
+      deriveSyncState({ connected: true, pending: true, syncFailed: true }),
     ).toBe('not-saved');
   });
 
@@ -46,7 +46,7 @@ describe('deriveSyncState', () => {
     // A failed *pull* costs the user none of their own work; reporting it as
     // "Not saved" would be alarm with no consequence behind it.
     expect(
-      deriveSyncState({ connected: true, hasLocalChanges: false, syncFailed: true }),
+      deriveSyncState({ connected: true, pending: false, syncFailed: true }),
     ).toBe('saved');
   });
 });

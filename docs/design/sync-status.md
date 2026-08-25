@@ -62,13 +62,34 @@ Verified against `@yorkie-js/sdk` and `@yorkie-js/react` as installed
 
 | Signal | API | Meaning |
 | --- | --- | --- |
-| Watch stream up/down | `doc.subscribe('connection', …)` → `StreamConnectionStatus.Connected \| Disconnected` | Whether the realtime channel is open. Also surfaced as the `useConnection()` hook. |
+| Watch stream up/down | `useDocument().connection` → `StreamConnectionStatus.Connected \| Disconnected` | Whether the realtime channel is open. Also surfaced as the `useConnection()` hook. |
 | Push/pull outcome | `doc.subscribe('sync', …)` → `DocSyncStatus.Synced \| SyncFailed` | The result of the last sync attempt. |
-| **Unpushed edits** | `doc.hasLocalChanges()` | `localChanges.length > 0` — the queue of changes not yet accepted by the server. This is the durability bit the whole feature turns on. |
+| **The user edited** | `doc.subscribe(cb)` → `LocalChangeEvent` | Edge-triggered, and raised *only* for a change that carried operations. Carries the change's `clientSeq`. |
+| **The server took it** | `doc.getCheckpoint().getClientSeq()` | The client sequence the server has acknowledged. |
 
-`hasLocalChanges()` is a getter, not an event. It is read on every
-`connection`/`sync` event and on a low-frequency interval (see
-[Sampling](#sampling)), never in a render path.
+Outstanding work is `lastEditSeq > checkpoint.clientSeq`.
+
+#### Why not `hasLocalChanges()`
+
+It is the obvious candidate and it is wrong. `Document.update()` reads, in the
+published bundle:
+
+```js
+this.localChanges.push(change);        // EVERY change, presence-only included
+...
+if (opInfos.length) {                  // an event only when there were operations
+  event.push({ type: 'local-change', ... });
+}
+```
+
+So a presence-only change — dragging a selection, moving a caret — enters the
+queue and makes `hasLocalChanges()` true while emitting no `local-change` at
+all. The queue is a transport detail, not a record of the user's work. Driving
+the chip from it made Sheets toggle `Saving`/`Saved` on a bare cell drag, with
+nothing edited.
+
+The sequence comparison asks the question the chip actually means, and presence
+can never enter into it.
 
 ### The four states
 
@@ -186,17 +207,54 @@ document, which trains users to click through it.
 
 ### Sampling
 
-`hasLocalChanges()` is read:
+There is **no polling**. `pending` is raised only by the `local-change` event,
+and the checkpoint is read only at the end of a quiet window, to decide whether
+that window may lower the state or must re-arm. A document nobody is editing
+schedules no timer and asks the SDK nothing.
 
-- on every `connection` and `sync` document event, and
-- on a 1s interval, but **only while disconnected or while local changes are
-  pending** — a healthy connected document polls nothing.
+An earlier draft polled `hasLocalChanges()` on a 1s interval. Once the raise
+became event-driven and the lower became sequence-based, the interval had
+nothing left to observe.
 
 The interval exists because the transition from "connected, queue draining" to
 "connected, queue empty" is not always announced by an event the subscription
 sees. 1s is well under the threshold where a status chip feels stale and far
 above anything that costs measurable work: the call is a length check on an
 array.
+
+#### Why a quiet window is needed on top
+
+Even with the exact signal, the truth oscillates. A push is accepted within
+milliseconds, so between two keystrokes there really is nothing outstanding,
+and a chip that reported every transition faithfully would strobe between
+`Saved` and `Saving…`. A smoke test of the docs editor found exactly that.
+
+So:
+
+- A `local-change` raises `pending` immediately and restarts a **2 s quiet
+  window**.
+- The window lowers `pending` only if, when it elapses, the user's last edit is
+  *also* acknowledged. A quiet keyboard is not a flushed document: if the
+  server still has the work, it re-arms and keeps waiting rather than reassure.
+
+Continuous typing therefore holds one `Saving…` for the whole burst and
+resolves to `Saved` about two seconds after the user actually stops. Remote
+changes are excluded — somebody else's edit must not hold up this user's chip.
+
+One attempt in between is worth recording, because it is the obvious fix and it
+does not work: delaying only the "nothing outstanding" observation by 800 ms.
+Nothing *re-raised* the state when the next keystroke arrived, because
+keystrokes were not a signal at all, so it changed the rhythm of the flicker
+without removing it. The problem was never the delay; it was the input.
+
+This is also why `SyncSignals.pending` is not named `hasLocalChanges` —
+conflating "the queue is empty" with "there is no outstanding work" is
+precisely the bug.
+
+The 2 s quiet window and the toast's 2 s debounce ([The transition
+notice](#the-transition-notice)) are separate and differently motivated — one
+decides what the chip *displays*, the other whether an interruption is
+warranted at all.
 
 ### API shape
 
