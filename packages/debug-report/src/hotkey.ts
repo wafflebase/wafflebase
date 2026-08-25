@@ -26,8 +26,6 @@ export type HotkeyAction =
   | 'toggle'
   /** Capture what is under the cursor right now, without moving it. */
   | 'capture'
-  /** Aim at DOM elements. */
-  | 'pick'
   /** Drag out a rectangle. */
   | 'region'
   /** Open the preview panel over what has been collected. */
@@ -57,13 +55,19 @@ export type Chord = {
 export const DEFAULT_BINDINGS: Readonly<Record<HotkeyAction, Chord>> = {
   toggle: { key: 'y', mod: true, shift: true },
   capture: { key: 'c' },
-  pick: { key: 'p' },
+  // THERE IS NO `pick` BINDING. `p` used to enter a "pick" mode whose entire
+  // effect was painting the hover outline — it could never produce an item, and
+  // `capture` already works in any mode, so the badge listed it beside `c` and
+  // `r` as if it were a third action while doing nothing a reporter could see.
+  // The outline is now always on while debug mode is live, which also fixes the
+  // real defect underneath: `c` used to fire with nothing outlined, so what it
+  // would record was invisible until after the keystroke.
   region: { key: 'r' },
   // NOT `Enter`, which was the first choice and was wrong: a recognised binding
   // is intercepted at capture phase, so binding Enter took it from the entire app
   // while debug mode was live — the review panel's own buttons stopped being
   // keyboard-activatable, and Enter-to-commit in the sheet grid went dead. Enter
-  // is load-bearing across menus, dialogs and the grid in a way `c`/`p`/`r` are
+  // is load-bearing across menus, dialogs and the grid in a way `c` and `r` are
   // not, and a reporting tool may not break the app it is used to report on.
   review: { key: 'v' },
   cancel: { key: 'Escape' },
@@ -91,7 +95,7 @@ export function matchChord(event: KeyLike, chord: Chord): boolean {
  * The action a key press asks for, given whether debug mode is live.
  *
  * When it is NOT live only `toggle` can fire: the single-letter bindings would
- * otherwise steal `c`, `p` and `r` from the app on every keystroke, which is a
+ * otherwise steal `c` and `r` from the app on every keystroke, which is a
  * far worse defect than anything this feature reports.
  */
 export function actionFor(
@@ -101,7 +105,7 @@ export function actionFor(
 ): HotkeyAction | undefined {
   if (matchChord(event, bindings.toggle)) return 'toggle';
   if (!live) return undefined;
-  for (const action of ['capture', 'pick', 'region', 'review', 'cancel'] as const) {
+  for (const action of ['capture', 'region', 'review', 'cancel'] as const) {
     if (matchChord(event, bindings[action])) return action;
   }
   return undefined;

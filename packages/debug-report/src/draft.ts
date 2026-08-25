@@ -118,7 +118,15 @@ const isNonEmptyString = (v: unknown): v is string =>
  * reported, not fatal: one hallucinated id should not cost the reporter the other
  * nine drafts they were waiting for, and the drop is visible.
  */
-export function parseDraftResult(input: unknown, itemIds: readonly string[]): DraftParse {
+export function parseDraftResult(
+  input: unknown,
+  items: ReadonlyArray<{ id: string; note: string }>,
+): DraftParse {
+  // THE SAME SHAPE `ungrouped()` TAKES. Both are entry points into grouping —
+  // one for a partial answer, one for no answer at all — and the note is what
+  // titles a PR for an item the model did not draft. Passing bare ids left that
+  // PR titled "Report".
+  const itemIds = items.map((item) => item.id);
   let value = input;
   if (typeof input === 'string') {
     try {
@@ -188,6 +196,7 @@ export function parseDraftResult(input: unknown, itemIds: readonly string[]): Dr
   const groups = normaliseGroups(
     Array.isArray(value.proposedGroups) ? value.proposedGroups : [],
     drafts,
+    items,
     dropped,
   );
   return { ok: true, result: { drafts, proposedGroups: groups }, dropped };
@@ -212,8 +221,10 @@ export function parseDraftResult(input: unknown, itemIds: readonly string[]): Dr
 function normaliseGroups(
   raw: readonly unknown[],
   drafts: readonly ItemDraft[],
+  items: ReadonlyArray<{ id: string; note: string }>,
   dropped: string[],
 ): ProposedGroup[] {
+  const notes = new Map(items.map((item) => [item.id, item.note]));
   const kindOf = new Map(drafts.map((d) => [d.itemId, d.draft.kind]));
   const claimed = new Set<string>();
   const groups: ProposedGroup[] = [];
@@ -260,20 +271,39 @@ function normaliseGroups(
   // Everything not in a legal group becomes its own PR. An ungrouped item is a
   // normal state — `logic` is never grouped, and drafting may be unavailable
   // entirely — so this is the default shape rather than an error path.
-  for (const { itemId } of drafts) {
+  //
+  // ITERATED OVER THE CALLER'S ITEMS, NOT OVER `drafts`, AND THAT IS THE
+  // COVERAGE RULE. `handOver` sends only items that appear in a group, so an
+  // item the model never mentioned used to be dropped from the batch while
+  // counting toward the "N reports" the panel showed — reported as neither sent
+  // nor queued. An undrafted item still has the reporter's own sentence, which
+  // is the stated fallback for drafting being unavailable at all; there is no
+  // reason a partial answer should be treated worse than no answer.
+  for (const { id: itemId } of items) {
     if (claimed.has(itemId)) continue;
+    const kind = kindOf.get(itemId);
+    if (kind === undefined) dropped.push(`${itemId} (not drafted)`);
     groups.push({
+      // `logic` for an unclassified item, matching `ungrouped()`: an item whose
+      // kind nobody established must not be grouped with anything.
+      kind: kind ?? 'logic',
       id: `solo-${itemId}`,
-      kind: kindOf.get(itemId)!,
       itemIds: [itemId],
-      prTitle: titleFor(drafts, itemId),
+      prTitle: titleFor(drafts, itemId, notes),
     });
   }
   return dedupeGroupIds(groups);
 }
 
-function titleFor(drafts: readonly ItemDraft[], itemId: string): string {
-  return drafts.find((d) => d.itemId === itemId)?.draft.title ?? 'Report';
+function titleFor(
+  drafts: readonly ItemDraft[],
+  itemId: string,
+  notes?: ReadonlyMap<string, string>,
+): string {
+  const drafted = drafts.find((d) => d.itemId === itemId)?.draft.title;
+  // The reporter's own sentence, exactly as `ungrouped()` uses it. A PR titled
+  // "Report" tells a reviewer nothing about what is in it.
+  return drafted ?? notes?.get(itemId)?.slice(0, 70) ?? 'Report';
 }
 
 /** Group ids must be unique for the reporter's operations to address them. */

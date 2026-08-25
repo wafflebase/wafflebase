@@ -226,9 +226,6 @@ export function DebugOverlay({
         case "capture":
           void capture();
           return;
-        case "pick":
-          session.setMode("pick");
-          return;
         case "region":
           session.setMode("region");
           return;
@@ -236,18 +233,24 @@ export function DebugOverlay({
           setReviewing(true);
           return;
         case "cancel":
-          // Escape peels ONE layer: the panel, then the pending item, then debug
-          // mode. Collapsing those would mean one keystroke throwing away work
-          // the reporter could not see they were about to lose.
+          // Escape peels ONE layer: the panel, then the pending item, then
+          // region mode, then debug mode. Collapsing those would mean one
+          // keystroke throwing away work the reporter could not see they were
+          // about to lose.
+          //
+          // Region is a layer because it is the one mode with no other way out.
+          // `p` used to return to aiming, and removing that binding left region
+          // mode a trap whose only exit turned the whole tool off.
           if (reviewing) setReviewing(false);
           else if (pending) discard();
+          else if (mode === "region") session.setMode("idle");
           else session.setMode("off");
           return;
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [capture, discard, live, pending, reviewing, session]);
+  }, [capture, discard, live, mode, pending, reviewing, session]);
 
   // ── Where the cursor is, tracked ALWAYS ─────────────────────────────────
   //
@@ -267,7 +270,7 @@ export function DebugOverlay({
   // ── Pointer, watched passively ──────────────────────────────────────────
   useEffect(() => {
     // Cleared on every mode change, not only on leaving debug mode: pressing `r`
-    // after aiming otherwise left the last pick outline painted on screen until
+    // after aiming otherwise left the last hover outline painted on screen until
     // the first band replaced it.
     setHover(null);
     setBand(null);
@@ -275,6 +278,7 @@ export function DebugOverlay({
       dragFrom.current = null;
       return;
     }
+    let frame = 0;
     const onMove = (e: MouseEvent) => {
       if (pending || reviewing) return;
       const from = dragFrom.current;
@@ -282,20 +286,37 @@ export function DebugOverlay({
         setBand(normalizeRect(from.x, from.y, e.clientX, e.clientY));
         return;
       }
-      if (mode === "pick") {
-        // THE OUTLINE IS WHAT A CAPTURE WOULD RECORD, not the raw hit-test box.
-        // Outlining `elementFromPoint` directly showed the glyph inside a button
-        // while `c` recorded the button, and on the sheet it showed the wrapper
-        // `div` covering the entire grid — the "photograph of everything" visual
-        // this design rejects — while `c` recorded one cell. Routing the hover
-        // through the same resolver the capture uses makes the reticle honest.
-        setHover(locatePoint({ x: e.clientX, y: e.clientY }, locateOptions).rect);
-      }
+      // ALWAYS ON while live, not behind a mode. It used to require pressing
+      // `p`, whose only effect was this — so `p` looked like a third action
+      // beside `c` and `r` while never producing an item, and `c` in every other
+      // mode fired with nothing outlined: what it would record was invisible
+      // until after the keystroke. Aiming at transient state is the whole point
+      // of this feature, and you cannot aim at what you cannot see.
+      //
+      // THE OUTLINE IS WHAT A CAPTURE WOULD RECORD, not the raw hit-test box.
+      // Outlining `elementFromPoint` directly showed the glyph inside a button
+      // while `c` recorded the button, and on the sheet it showed the wrapper
+      // `div` covering the entire grid — the "photograph of everything" visual
+      // this design rejects — while `c` recorded one cell. Routing the hover
+      // through the same resolver the capture uses makes the reticle honest.
+      //
+      // Coalesced to one resolve per frame: `locatePoint` hit-tests and may scan
+      // the canvas layers, and mousemove fires far faster than the overlay can
+      // repaint. Being mode-gated was previously doing this job by accident.
+      const { clientX, clientY } = e;
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        setHover(locatePoint({ x: clientX, y: clientY }, locateOptions).rect);
+      });
     };
     // `passive` is the point: this listener must never call `preventDefault`,
     // because the app underneath needs the same events to keep its hover state.
     document.addEventListener("mousemove", onMove, { passive: true });
-    return () => document.removeEventListener("mousemove", onMove);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      if (frame) cancelAnimationFrame(frame);
+    };
   }, [live, locateOptions, mode, pending, reviewing]);
 
   // ── Region drag, the one place the pointer is taken ─────────────────────
@@ -303,9 +324,9 @@ export function DebugOverlay({
     if (!live || mode !== "region" || pending || reviewing) {
       // A drag origin that outlives its mode freezes a rubber band onto the
       // cursor: `onMove` keeps taking the `if (from)` branch, the band wins over
-      // the hover outline, and pick mode shows a box anchored to a point the
-      // reporter abandoned. Reachable by pressing `p` mid-drag, or by releasing
-      // the button outside the window so no `mouseup` ever arrives.
+      // the hover outline, and the overlay shows a box anchored to a point the
+      // reporter abandoned. Reachable by leaving region mode mid-drag, or by
+      // releasing the button outside the window so no `mouseup` ever arrives.
       dragFrom.current = null;
       setBand(null);
       return;
@@ -367,7 +388,7 @@ export function DebugOverlay({
           pointerEvents: "none",
         }}
       >
-        {outline && <div style={outlineStyle(outline)} />}
+        {outline && <div data-testid="debug-outline" style={outlineStyle(outline)} />}
       </div>
 
       <DebugBadge
@@ -589,7 +610,7 @@ function DebugBadge({
       )}
       <br />
       <span style={{ opacity: 0.7 }}>
-        c capture · p pick · r region · v review · Esc{" "}
+        c capture · r region · v review · Esc{" "}
         {mode === "reviewing" ? "close" : mode === "describing" ? "discard" : "off"}
       </span>
       {!persistent && (

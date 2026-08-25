@@ -3294,11 +3294,29 @@ label AND a non-Bot author, so an Actions-opened issue does not open it even whe
 labelled. The checkbox records intent: a local run applies the label, Actions mode
 renders a checklist in the issue body. Intent conveyed, gate unweakened.
 
+**The intake lane files nothing by itself, and the separation is structural.**
+`report-intake.mjs` emits a plan; `report-verify.mjs` prints the lane commands rather
+than running them; `report-to-pr.mjs` assembles branches, commits and bodies and spawns
+no process at all — a test asserts that rather than trusting it. Opening a PR stays
+`spec-to-pr.mjs handoff`, taken after a person has read the assembly. The payoff is that
+`--dry-run` is the SAME code path as a real run, not a second one that drifts from it.
+
+`report-bundle.mjs` re-validates a bundle at the disk boundary and cannot share code
+with the browser's parser — `scripts/agent/` is a separate npm install, the same
+constraint behind the UI hunter's subprocess runner. Shared fixtures under
+`scripts/agent/fixtures/debug-report/`, loaded by both suites, are what keep the two
+from drifting.
+
 Status: SP0 spike run 2026-08-21 (throwaway; four findings recorded in
-[debug-report.md](debug-report.md), three of which changed the capture design). PR 1a —
-core package, item/bundle model, session, capture store, `HostAdapter` — is the first
-landed increment; capture + locators, preview + drafting, and the `scripts/agent/` intake
-lane follow.
+[debug-report.md](debug-report.md), three of which changed the capture design). Shipped
+as a four-PR stack: 1a core model/session/store/`HostAdapter`; 1b capture, engine
+locators and the overlay; 2 the preview panel, drafting and the dev transport; 3 the
+`scripts/agent/` intake lane and the `visual-intent` lens. Each stage took one
+`/code-review` round, and both of the first two rounds found real defects in the path
+that had just been wired — including a drafting endpoint that could never have
+succeeded, which its own unit tests could not see because they tested the
+implementation rather than the wiring. Still to come: SP1.5 auto-detection and the SP2
+deployed mailbox.
 
 ## Harness Policy
 

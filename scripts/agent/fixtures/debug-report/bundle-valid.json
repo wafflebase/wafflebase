@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "sessionId": "wb-fixture",
+  "createdAt": 1787500000000,
+  "env": {
+    "buildSha": "abc1234",
+    "route": "/s/:id",
+    "viewport": { "w": 1280, "h": 800 },
+    "dpr": 2,
+    "theme": "light",
+    "userAgent": "fixture",
+    "documentType": "sheet"
+  },
+  "items": [
+    {
+      "id": "i1",
+      "createdAt": 1787500000001,
+      "note": "the toolbar icons are cramped",
+      "target": {
+        "kind": "dom",
+        "selector": "div.toolbar > button",
+        "tag": "button",
+        "testId": "bold",
+        "text": "Bold",
+        "rect": { "x": 10, "y": 20, "w": 32, "h": 32 }
+      },
+      "disposition": "verify",
+      "agentCandidate": false,
+      "draft": {
+        "title": "Give the toolbar room to breathe",
+        "body": "The icon row has no gap between buttons.",
+        "severity": "minor",
+        "kind": "spacing",
+        "labels": ["ui"]
+      }
+    },
+    {
+      "id": "i2",
+      "createdAt": 1787500000002,
+      "note": "the merged cell border looks broken",
+      "target": {
+        "kind": "canvas",
+        "surface": "sheet",
+        "address": "Sheet1!C7",
+        "rect": { "x": 120, "y": 300, "w": 80, "h": 21 }
+      },
+      "capture": {
+        "id": "cap-1",
+        "w": 160,
+        "h": 42,
+        "bytes": 2048,
+        "layers": 2,
+        "mime": "image/jpeg"
+      },
+      "disposition": "verify",
+      "agentCandidate": true
+    },
+    {
+      "id": "i3",
+      "createdAt": 1787500000003,
+      "note": "the sign-in form is misaligned",
+      "target": {
+        "kind": "viewport",
+        "rect": { "x": 0, "y": 0, "w": 400, "h": 200 },
+        "elements": [
+          {
+            "selector": "form > button",
+            "tag": "button",
+            "text": "Sign in",
+            "rect": { "x": 10, "y": 10, "w": 80, "h": 30 }
+          }
+        ]
+      },
+      "disposition": "publish",
+      "agentCandidate": false
+    }
+  ],
+  "groups": [
+    { "id": "g1", "kind": "spacing", "itemIds": ["i1", "i3"], "prTitle": "Give the toolbar and the form room to breathe" },
+    { "id": "g2", "kind": "logic", "itemIds": ["i2"], "prTitle": "Fix the merged-cell border" }
+  ]
+}

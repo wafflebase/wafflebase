@@ -191,6 +191,92 @@ export type ParseResult =
   | { ok: true; bundle: Bundle }
   | { ok: false; errors: string[] };
 
+/**
+ * What the drafting endpoint is asked to draft.
+ *
+ * NOT a `Bundle`, and the difference is the point: drafting happens BEFORE the
+ * reporter confirms, so there is no `sessionId`, no `createdAt` and no
+ * confirmed grouping yet. `parseBundle` would reject every legitimate draft
+ * request, which is why this has its own parser rather than reusing that one.
+ */
+export type DraftRequest = {
+  items: DebugItem[];
+  env: Environment;
+};
+
+export type DraftRequestParse =
+  | { ok: true; request: DraftRequest }
+  | { ok: false; errors: string[] };
+
+/**
+ * The most items one drafting call may carry.
+ *
+ * `MAX_SESSION_PRS × MAX_GROUP_ITEMS` from `draft.ts` — the most a single batch
+ * could ever send. The number is written out rather than imported because
+ * `draft.ts` imports THIS module, and a cycle between the two would be a worse
+ * problem than a duplicated constant.
+ *
+ * REFUSED, not truncated. Drafting 40 of 60 items and grouping only those would
+ * hand the reporter a preview that silently omits a third of what they
+ * collected, which is the exact failure `normaliseGroups`' coverage rule exists
+ * to prevent.
+ */
+export const MAX_DRAFT_ITEMS = 5 * 8;
+
+/**
+ * Validate a drafting request before a model credential is spent on it.
+ *
+ * The endpoint that calls this listens on a port every page the developer
+ * visits can reach, and answering it costs tokens. An unvalidated body is
+ * therefore not merely untidy: it is an unbounded bill payable by anything that
+ * can issue a same-origin POST.
+ */
+export function parseDraftRequest(input: unknown): DraftRequestParse {
+  let value = input;
+  if (typeof input === 'string') {
+    try {
+      value = JSON.parse(input);
+    } catch (err) {
+      return { ok: false, errors: [`draftRequest: not valid JSON (${String(err)})`] };
+    }
+  }
+  if (!isRecord(value)) {
+    return { ok: false, errors: ['draftRequest: expected an object'] };
+  }
+  if (!Array.isArray(value.items)) {
+    return { ok: false, errors: ['draftRequest.items: expected an array'] };
+  }
+  if (value.items.length === 0) {
+    return { ok: false, errors: ['draftRequest.items: expected at least one item'] };
+  }
+  if (value.items.length > MAX_DRAFT_ITEMS) {
+    return {
+      ok: false,
+      errors: [
+        `draftRequest.items: ${value.items.length} items exceeds the ${MAX_DRAFT_ITEMS} one batch can send`,
+      ],
+    };
+  }
+
+  const e = new Errors();
+  const env = parseEnv(value.env, 'draftRequest.env', e);
+  const items: DebugItem[] = [];
+  const ids = new Set<string>();
+  value.items.forEach((raw, i) => {
+    const item = parseItem(raw, `draftRequest.items[${i}]`, e);
+    if (!item) return;
+    if (ids.has(item.id)) {
+      e.bad(`draftRequest.items[${i}].id`, `duplicate item id ${item.id}`);
+      return;
+    }
+    ids.add(item.id);
+    items.push(item);
+  });
+
+  if (e.list.length > 0 || !env) return { ok: false, errors: e.list };
+  return { ok: true, request: { items, env } };
+}
+
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -615,6 +701,14 @@ export function parseBundle(input: unknown): ParseResult {
   }
   const env = parseEnv(value.env, 'bundle.env', e);
 
+  // AN EMPTY BUNDLE IS REFUSED, matching `report-bundle.mjs`. The two validators
+  // disagreed here: this one returned `{ ok: true, items: [] }` for a bundle the
+  // pipeline rejects, so a batch whose every item was discarded would have been
+  // written to disk, cleared from the session, and then refused downstream — a
+  // report destroyed behind a success message.
+  if (Array.isArray(value.items) && value.items.length === 0) {
+    e.bad('bundle.items', 'expected at least one item');
+  }
   if (!Array.isArray(value.items)) {
     e.bad('bundle.items', 'expected an array');
     return { ok: false, errors: e.list };

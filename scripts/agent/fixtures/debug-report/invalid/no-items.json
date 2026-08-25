@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "sessionId": "wb-fixture",
+  "createdAt": 1787500000000,
+  "env": {
+    "buildSha": "abc1234",
+    "route": "/s/:id",
+    "viewport": {
+      "w": 1280,
+      "h": 800
+    },
+    "dpr": 2,
+    "theme": "light",
+    "userAgent": "fixture",
+    "documentType": "sheet"
+  },
+  "items": []
+}

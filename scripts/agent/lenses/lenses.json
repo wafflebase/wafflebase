@@ -4,8 +4,14 @@
     "title": "Correctness",
     "gating": "blocking",
     "needsIssueSpec": false,
-    "appliesWhen": ["**"],
-    "scopeClasses": ["code", "code-adjacent", "policy"],
+    "appliesWhen": [
+      "**"
+    ],
+    "scopeClasses": [
+      "code",
+      "code-adjacent",
+      "policy"
+    ],
     "model": "claude-opus-5",
     "samples": 1,
     "effort": "medium"
@@ -15,8 +21,16 @@
     "title": "Security",
     "gating": "blocking",
     "needsIssueSpec": false,
-    "appliesWhen": ["**"],
-    "scopeClasses": ["code", "code-adjacent", "policy", "design-spec", "prose"],
+    "appliesWhen": [
+      "**"
+    ],
+    "scopeClasses": [
+      "code",
+      "code-adjacent",
+      "policy",
+      "design-spec",
+      "prose"
+    ],
     "model": "claude-opus-5",
     "samples": 1
   },
@@ -25,8 +39,17 @@
     "title": "Design-fit",
     "gating": "blocking",
     "needsIssueSpec": true,
-    "appliesWhen": ["packages/**", "scripts/**", "docs/design/**"],
-    "scopeClasses": ["code", "code-adjacent", "policy", "design-spec"],
+    "appliesWhen": [
+      "packages/**",
+      "scripts/**",
+      "docs/design/**"
+    ],
+    "scopeClasses": [
+      "code",
+      "code-adjacent",
+      "policy",
+      "design-spec"
+    ],
     "model": "claude-opus-5",
     "samples": 1,
     "effort": "medium"
@@ -36,8 +59,15 @@
     "title": "Test-adequacy",
     "gating": "blocking",
     "needsIssueSpec": false,
-    "appliesWhen": ["packages/**", "scripts/**"],
-    "scopeClasses": ["code", "code-adjacent", "policy"],
+    "appliesWhen": [
+      "packages/**",
+      "scripts/**"
+    ],
+    "scopeClasses": [
+      "code",
+      "code-adjacent",
+      "policy"
+    ],
     "model": "claude-opus-5",
     "samples": 1,
     "effort": "medium"
@@ -47,8 +77,15 @@
     "title": "Blast-radius",
     "gating": "blocking",
     "needsIssueSpec": false,
-    "appliesWhen": ["packages/**", "scripts/**"],
-    "scopeClasses": ["code", "code-adjacent", "policy"],
+    "appliesWhen": [
+      "packages/**",
+      "scripts/**"
+    ],
+    "scopeClasses": [
+      "code",
+      "code-adjacent",
+      "policy"
+    ],
     "model": "claude-opus-5",
     "samples": 1,
     "effort": "medium"
@@ -68,7 +105,9 @@
       "packages/documentation/**/*.mdx",
       ".changeset/*.md"
     ],
-    "scopeClasses": ["prose"],
+    "scopeClasses": [
+      "prose"
+    ],
     "model": "claude-sonnet-5",
     "samples": 1,
     "effort": "medium"

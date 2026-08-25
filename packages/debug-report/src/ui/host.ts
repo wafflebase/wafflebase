@@ -1,7 +1,8 @@
 /**
  * The development host: where a report goes, and who writes its issue text.
  *
- * Both endpoints are served by the Vite plugin (`vite/debug-report.ts`), which
+ * Both endpoints are served by the Vite plugin
+ * (`packages/debug-report/src/plugin/report-endpoint.ts`), which
  * means the model credential is read in the DEV-SERVER PROCESS and never reaches
  * the browser. In SP2 the backend re-hosts the same two calls, and because they
  * sit behind `HostAdapter` that is a substitution rather than a rewrite.
@@ -52,6 +53,22 @@ function currentTheme(): string {
  * drafting the hard dependency this design says it is not.
  */
 const DRAFT_TIMEOUT_MS = 60_000;
+
+/**
+ * The same rule for the handover, with more room.
+ *
+ * THE SEND HAD NO TIMEOUT AT ALL, and the drafting one being right made that
+ * easy to miss: a dev server stopped mid-upload left the promise unsettled and
+ * the button stuck on "Sending…", with no way back to the batch except
+ * reloading the page — which is exactly when the reports are still only in the
+ * session.
+ *
+ * Longer than drafting because this one carries the images: up to the store's
+ * 32 MB budget, base64-expanded. Aborting is safe at any point, because the
+ * endpoint writes nothing until it has read and validated the whole body — a
+ * cut-off upload leaves no half-written bundle behind.
+ */
+const REPORT_TIMEOUT_MS = 120_000;
 
 async function postJson(
   url: string,
@@ -179,7 +196,11 @@ export function createDevHost(options: DevHostOptions): HostAdapter {
       bundle: Bundle,
       captures: readonly CapturePayload[],
     ): Promise<SendResult> {
-      const answer = await postJson(REPORT_ENDPOINT, { bundle, captures });
+      const answer = await postJson(
+        REPORT_ENDPOINT,
+        { bundle, captures },
+        REPORT_TIMEOUT_MS,
+      );
       if (!answer.ok) return { ok: false, error: answer.error };
       const ref = (answer.data as { ref?: unknown } | undefined)?.ref;
       const refused = (answer.data as { refused?: unknown } | undefined)?.refused;

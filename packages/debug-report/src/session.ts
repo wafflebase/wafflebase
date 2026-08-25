@@ -17,11 +17,16 @@ import type { Capture, DebugItem, Disposition, Draft, Target } from './types';
 
 /**
  * `off` — nothing mounted but the hotkey listener.
- * `idle` — overlay up, nothing being aimed at (the panel is open, say).
- * `pick` — pointing at a node or a canvas address.
+ * `idle` — overlay up, aiming. The hover outline shows what a capture would
+ *   record, and `capture` acts on it.
  * `region` — dragging a box.
+ *
+ * There is no separate `pick`. It existed as a mode whose only effect was
+ * painting that outline, which made it indistinguishable from `idle` in every
+ * way a reporter could observe except that `p` had to be pressed first — and it
+ * could never produce an item, because `capture` was always the key that did.
  */
-export type Mode = 'off' | 'idle' | 'pick' | 'region';
+export type Mode = 'off' | 'idle' | 'region';
 
 /** What a caller supplies; the session owns identity and time. */
 export type NewItem = {
@@ -44,7 +49,7 @@ export interface DebugSession {
   mode(): Mode;
   /** No-op when the mode is unchanged, so subscribers are not woken pointlessly. */
   setMode(next: Mode): void;
-  /** Hotkey behaviour: into `pick` from anywhere off, back to `off` from anywhere on. */
+  /** Hotkey behaviour: into `idle` from off, back to `off` from anywhere on. */
   toggle(): void;
   items(): readonly DebugItem[];
   count(): number;
@@ -136,7 +141,7 @@ export function createSession(options: SessionOptions = {}): DebugSession {
     },
 
     toggle() {
-      mode = mode === 'off' ? 'pick' : 'off';
+      mode = mode === 'off' ? 'idle' : 'off';
       notify();
     },
 

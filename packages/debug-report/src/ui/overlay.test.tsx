@@ -93,7 +93,7 @@ describe('DebugOverlay', () => {
     expect(screen.queryByTestId('debug-badge')).toBeNull();
     await press(toggle);
     expect(screen.getByTestId('debug-badge')).toBeTruthy();
-    expect(screen.getByTestId('debug-overlay').dataset.debugMode).toBe('pick');
+    expect(screen.getByTestId('debug-overlay').dataset.debugMode).toBe('idle');
   });
 
   it('leaves the app its own pointer events while aiming', async () => {
@@ -229,7 +229,7 @@ describe('DebugOverlay', () => {
   it('shows the anonymised route it was told, not a document id', () => {
     render(<DebugOverlay route="/s/:id" host={testHost()} sessionId="test" />);
     act(() => {
-      debugSession.setMode('pick');
+      debugSession.setMode('idle');
     });
     expect(screen.getByTestId('debug-badge').textContent).toContain('/s/:id');
     expect(screen.getByTestId('debug-badge').textContent).not.toMatch(/[0-9a-f]{8}-/);
@@ -264,7 +264,7 @@ describe('DebugOverlay · keys the app must keep', () => {
 
     expect(seen).toEqual(['c', 'r']);
     // And the mode did not change under the typing.
-    expect(screen.getByTestId('debug-overlay').dataset.debugMode).toBe('pick');
+    expect(screen.getByTestId('debug-overlay').dataset.debugMode).toBe('idle');
     field.remove();
   });
 });
@@ -279,12 +279,15 @@ describe('DebugOverlay · a drag origin does not outlive its mode', () => {
         new MouseEvent('mousedown', { clientX: 10, clientY: 10, bubbles: true }),
       );
     });
-    // Switch modes without releasing. The origin used to survive, so `onMove`
-    // painted a rubber band anchored to an abandoned point for the rest of the
-    // session, and pick mode never showed a hover outline again.
-    await press({ key: 'p' });
+    // Leave region mode without releasing. The origin used to survive, so
+    // `onMove` painted a rubber band anchored to an abandoned point for the rest
+    // of the session, and the hover outline never came back.
+    //
+    // Escape is the way out: region is the one mode with no other exit, so it is
+    // a layer Escape peels before it turns debug mode off.
+    await press({ key: 'Escape' });
     moveMouse(200, 200);
-    expect(screen.getByTestId('debug-overlay').dataset.debugMode).toBe('pick');
+    expect(screen.getByTestId('debug-overlay').dataset.debugMode).toBe('idle');
     // No note form appeared, and releasing does not now record a phantom region.
     act(() => {
       document.dispatchEvent(
@@ -381,5 +384,37 @@ describe('DebugOverlay · the panel cannot outlive debug mode', () => {
     await press(toggle);
     expect(screen.getByTestId('debug-badge')).toBeTruthy();
     expect(screen.queryByTestId('debug-panel')).toBeNull();
+  });
+});
+
+describe('DebugOverlay · aiming needs no mode', () => {
+  // `p` used to enter a "pick" mode whose only effect was this outline. It could
+  // never produce an item — `c` was always the key that did, in any mode — so it
+  // read as a third action beside `c` and `r` and did nothing a reporter could
+  // see. Meanwhile `c` in every other mode fired blind.
+  it('outlines what a capture would record, with no mode key pressed', async () => {
+    renderOverlay();
+    await press(toggle);
+    expect(screen.getByTestId('debug-overlay').dataset.debugMode).toBe('idle');
+    expect(screen.queryByTestId('debug-outline')).toBeNull();
+
+    moveMouse(120, 240);
+    await waitFor(() => expect(screen.queryByTestId('debug-outline')).not.toBeNull());
+  });
+
+  it('leaves `p` to the app', async () => {
+    // An unbound letter must reach the page: this tool may not take a key it has
+    // no use for. `actionFor` returns undefined, so nothing calls preventDefault.
+    renderOverlay();
+    await press(toggle);
+
+    const seen: string[] = [];
+    const listener = (e: KeyboardEvent) => seen.push(e.key);
+    window.addEventListener('keydown', listener);
+    await press({ key: 'p' });
+    window.removeEventListener('keydown', listener);
+
+    expect(seen).toContain('p');
+    expect(screen.getByTestId('debug-overlay').dataset.debugMode).toBe('idle');
   });
 });

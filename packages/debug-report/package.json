@@ -37,11 +37,15 @@
     "@wafflebase/core": "workspace:*"
   },
   "peerDependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "vite": "^6.0.0 || ^7.0.0"
   },
   "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
     "react": {
       "optional": true
     },

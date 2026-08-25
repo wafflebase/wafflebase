@@ -22,7 +22,13 @@
  * gate plus never shipping the image further than it has to go.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+// TYPE-ONLY, so nothing is loaded at module scope. The SDK costs ~500 ms to
+// import, and this module is reachable from `vite.config.ts` — which every
+// vitest worker loads — so a static import taxed the entire test suite for a
+// dependency only a drafting request needs. Measured: it pushed a 5-second
+// boundary test over. `scripts/agent/ask.mjs` defers its SDK for the same
+// reason.
+import type Anthropic from "@anthropic-ai/sdk";
 
 /** The model. Opus 5 because a bad draft costs the reporter's trust, not just a retry. */
 const MODEL = "claude-opus-5";
@@ -44,43 +50,43 @@ const SYSTEM_PROMPT = [
   "At most 8 items per group. Every item appears in exactly one group, and every group is a single kind.",
 ].join("\n");
 
-type Rect = { x?: number; y?: number; w?: number; h?: number };
+/**
+ * THE CORE'S MODEL, type-imported.
+ *
+ * This module used to mirror `DebugItem`, `Target` and `Environment` here as
+ * all-optional shapes, on the reasoning that the endpoint receives untrusted
+ * JSON. It no longer does: `report-endpoint.ts` runs `parseDraftRequest` before
+ * anything reaches this file, so what arrives is the real model — and a second
+ * copy of it could only drift away from the one the parser enforces.
+ *
+ * `.ts` on the specifier because `vite.config.ts` reaches this module, and the
+ * extensionless form does not resolve there. The import is type-only, so
+ * nothing is loaded at runtime either way.
+ */
+import type { DebugItem, DraftRequest } from "../types.ts";
 
-type Target = {
-  kind?: string;
-  tag?: string;
-  selector?: string;
-  testId?: string;
-  text?: string;
-  surface?: string;
-  address?: string;
-  rect?: Rect;
-  elements?: Array<{ tag?: string; text?: string; selector?: string }>;
-};
+/** Kept as the module's own name for its input, so callers read one word. */
+export type DraftBundle = DraftRequest;
 
-type Item = {
-  id?: string;
-  note?: string;
-  target?: Target;
-  capture?: unknown;
-  disposition?: string;
-};
+/**
+ * The most characters of one note the model is shown.
+ *
+ * TRUNCATED HERE, NOT REJECTED UPSTREAM. `parseDraftRequest` bounds how MANY
+ * items a call carries; this bounds how much prose each one spends. The full
+ * note still travels in the bundle — only the prompt is trimmed, and the
+ * marker tells the model it was.
+ */
+const MAX_NOTE_CHARS = 2_000;
 
-export type DraftBundle = {
-  items?: Item[];
-  env?: {
-    route?: string;
-    buildSha?: string;
-    viewport?: { w?: number; h?: number };
-    dpr?: number;
-    theme?: string;
-    documentType?: string;
-  };
-};
+function forPrompt(note: string): string {
+  return note.length <= MAX_NOTE_CHARS
+    ? note
+    : `${note.slice(0, MAX_NOTE_CHARS)}… (truncated)`;
+}
 
 /** How one item is described to the model. */
-export function renderItem(item: Item): string {
-  const target = item.target ?? {};
+export function renderItem(item: DebugItem): string {
+  const target = item.target;
   const where =
     target.kind === "dom"
       ? `a DOM element: <${target.tag}>${
@@ -102,15 +108,15 @@ export function renderItem(item: Item): string {
           }`;
   return [
     `- itemId: ${item.id}`,
-    `  reporter said: ${JSON.stringify(item.note ?? "")}`,
+    `  reporter said: ${JSON.stringify(forPrompt(item.note))}`,
     `  aimed at: ${where}`,
     `  screenshot exists: ${item.capture ? "yes" : "no"}`,
-    `  reporter's disposition: ${item.disposition ?? "verify"}`,
+    `  reporter's disposition: ${item.disposition}`,
   ].join("\n");
 }
 
 export function renderPrompt(bundle: DraftBundle): string {
-  const env = bundle.env ?? {};
+  const env = bundle.env;
   return [
     "A person collected these reports while using the app. Write the issue text for each, and propose how they split into PRs.",
     "",
@@ -123,7 +129,7 @@ export function renderPrompt(bundle: DraftBundle): string {
     env.documentType ? `- document type: ${env.documentType}` : "",
     "",
     "Reports:",
-    (bundle.items ?? []).map(renderItem).join("\n"),
+    bundle.items.map(renderItem).join("\n"),
   ]
     .filter(Boolean)
     .join("\n");
@@ -156,10 +162,20 @@ export type DraftClient = {
   };
 };
 
+type Sdk = typeof import("@anthropic-ai/sdk");
+
 let cached: DraftClient | undefined;
+let sdk: Sdk | undefined;
 
 /**
- * The client, built once.
+ * The client, built once, from a lazily loaded SDK.
+ *
+ * `@anthropic-ai/sdk` IS AN OPTIONAL PEER DEPENDENCY, so a consumer that
+ * installs this package without it is a supported state, not a broken one: the
+ * import rejects, the catch below turns that into `not-configured`, and the
+ * panel degrades to the reporter's own sentences with one PR per item. The
+ * import is also lazy because `vite.config.ts` reaches this module — a static
+ * one loaded the SDK in every process that read a Vite config, tests included.
  *
  * An unset `ANTHROPIC_API_KEY` does NOT mean there is no credential — the SDK
  * also resolves `ANTHROPIC_AUTH_TOKEN` and an `ant auth login` profile — so
@@ -167,9 +183,22 @@ let cached: DraftClient | undefined;
  * "not configured". Guessing from environment variables would tell a developer
  * who is logged in that they are not.
  */
-function defaultClient(): DraftClient {
-  cached ??= new Anthropic();
+async function defaultClient(): Promise<DraftClient> {
+  sdk ??= await import("@anthropic-ai/sdk");
+  cached ??= new sdk.default();
   return cached;
+}
+
+/**
+ * Whether this failure means "no usable credential".
+ *
+ * Checked against the loaded SDK's class where it is available, and against the
+ * HTTP status where it is not — an injected client in a test never loads the SDK,
+ * and a 401 means the same thing either way.
+ */
+function isAuthFailure(err: unknown): boolean {
+  if (sdk && err instanceof sdk.AuthenticationError) return true;
+  return typeof err === "object" && err !== null && (err as { status?: unknown }).status === 401;
 }
 
 /**
@@ -181,13 +210,13 @@ export async function draftBundle(
   bundle: DraftBundle,
   options: { client?: DraftClient; schema: JsonSchema },
 ): Promise<DraftOutcome> {
-  if (!bundle.items || bundle.items.length === 0) {
+  if (bundle.items.length === 0) {
     return { ok: false, reason: "empty", detail: "the bundle has no items" };
   }
 
   let client: DraftClient;
   try {
-    client = options.client ?? defaultClient();
+    client = options.client ?? (await defaultClient());
   } catch (err) {
     return {
       ok: false,
@@ -234,7 +263,7 @@ export async function draftBundle(
       return { ok: false, reason: "failed", detail: "the response was not JSON" };
     }
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) {
+    if (isAuthFailure(err)) {
       return {
         ok: false,
         reason: "not-configured",
