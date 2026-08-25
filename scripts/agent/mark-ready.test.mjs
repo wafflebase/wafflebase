@@ -44,6 +44,14 @@ const argv = process.argv.slice(2);
 const joined = argv.join(" ");
 const cfg = JSON.parse(readFileSync(process.env.GH_STUB_CONFIG, "utf8"));
 appendFileSync(process.env.GH_STUB_LOG, joined + "\\n");
+// Which credential each call went out with. A SEPARATE log so the call
+// assertions above stay string-clean, and one line per call — the hand-off
+// comment's body is multi-line, which the log above can afford to be and a
+// token-per-call log cannot.
+appendFileSync(
+  process.env.GH_STUB_TOKEN_LOG,
+  (process.env.GH_TOKEN || "<unset>") + "\\t" + joined.split("\\n").join(" ") + "\\n",
+);
 
 if ((cfg.fail || []).some((p) => joined.startsWith(p))) {
   process.stderr.write("stub gh: forced failure for '" + joined + "'\\n");
@@ -85,13 +93,21 @@ function okConfig(over = {}) {
   };
 }
 
+// Two DIFFERENT credentials, so "which token was this call made with" is an
+// observable rather than a guess: the App token may only appear on the three
+// promotion mutations, the read token only on the reads.
+const APP_TOKEN = "stub-app-token";
+const READ_TOKEN = "stub-default-token";
+
 function run(argv, cfg = okConfig()) {
   const dir = mkdtempSync(path.join(tmpdir(), "mark-ready-"));
   const cfgPath = path.join(dir, "config.json");
   const logPath = path.join(dir, "calls.log");
+  const tokenLogPath = path.join(dir, "tokens.log");
   writeFileSync(path.join(dir, "gh"), STUB_GH, { mode: 0o755 });
   writeFileSync(cfgPath, JSON.stringify(cfg));
   writeFileSync(logPath, "");
+  writeFileSync(tokenLogPath, "");
   const res = spawnSync(process.execPath, [CLI, ...argv], {
     encoding: "utf8",
     env: {
@@ -99,7 +115,9 @@ function run(argv, cfg = okConfig()) {
       PATH: `${dir}${path.delimiter}${process.env.PATH}`,
       GH_STUB_CONFIG: cfgPath,
       GH_STUB_LOG: logPath,
-      GH_MUTATION_TOKEN: "stub-app-token",
+      GH_STUB_TOKEN_LOG: tokenLogPath,
+      GH_TOKEN: READ_TOKEN,
+      GH_MUTATION_TOKEN: APP_TOKEN,
     },
   });
   return {
@@ -107,6 +125,13 @@ function run(argv, cfg = okConfig()) {
     stdout: res.stdout ?? "",
     stderr: res.stderr ?? "",
     calls: readFileSync(logPath, "utf8").split("\n").filter(Boolean),
+    tokenCalls: readFileSync(tokenLogPath, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const tab = line.indexOf("\t");
+        return { token: line.slice(0, tab), call: line.slice(tab + 1) };
+      }),
   };
 }
 
@@ -154,6 +179,33 @@ test("exit 1, not 0: CI not green leaves the PR a draft without promoting", () =
     assert.match(stdout, /Not promoting: one or more gates are not satisfied/);
     assert.ok(!promoted(calls), "a failed gate must never flip the PR to ready");
   }
+});
+
+test("gate 1 reads the run NAMED 'CI' — another green workflow is not evidence", () => {
+  // Every workflow on the repo reports a run for the same head SHA, and the
+  // panel's own runs go green routinely. Without the `name === "CI"` filter the
+  // newest of them wins the sort, so `agent-review-panel` concluding success
+  // would satisfy the one gate that is supposed to mean "the tests passed".
+  const other = { name: "agent-review-panel", conclusion: "success", created_at: "2026-08-22T09:00:00Z" };
+
+  const ciRed = run(
+    ["7", "--promote"],
+    okConfig({ workflowRuns: [{ name: "CI", conclusion: "failure", created_at: AT }, other] }),
+  );
+  assert.equal(ciRed.code, 1, "a green non-CI run must not stand in for a red CI run");
+  assert.ok(!promoted(ciRed.calls));
+
+  const ciAbsent = run(["7", "--promote"], okConfig({ workflowRuns: [other] }));
+  assert.equal(ciAbsent.code, 1, "a green non-CI run must not stand in for a missing CI run");
+  assert.ok(!promoted(ciAbsent.calls));
+
+  // ...and the filter must not go the other way: CI green among the noise promotes.
+  const ciGreen = run(
+    ["7", "--promote"],
+    okConfig({ workflowRuns: [other, { name: "CI", conclusion: "success", created_at: AT }] }),
+  );
+  assert.equal(ciGreen.code, 0);
+  assert.ok(promoted(ciGreen.calls));
 });
 
 test("exit 1: a missing review check or a missing disclosure is also code 1", () => {
@@ -216,6 +268,30 @@ test("exit 0: the best-effort label and comment steps cannot change the code", (
   }
 });
 
+test("the three promotion mutations go out with GH_MUTATION_TOKEN, the reads do not", () => {
+  // `ghMutate`'s env override is the fix for "Resource not accessible by
+  // integration": the default GITHUB_TOKEN cannot markPullRequestReadyForReview,
+  // and dropping the override puts every gate-passing PR back to silently stuck
+  // as a draft — with no test failure, because a stub `gh` succeeds either way.
+  const { code, tokenCalls } = run(["7", "--promote"]);
+  assert.equal(code, 0);
+
+  const tokensFor = (prefix) => tokenCalls.filter((c) => c.call.startsWith(prefix)).map((c) => c.token);
+  for (const mutation of ["pr ready", "api -X PUT", "pr comment"]) {
+    const seen = tokensFor(mutation);
+    assert.ok(seen.length > 0, `${mutation} must have been called`);
+    for (const token of seen) {
+      assert.equal(token, APP_TOKEN, `'${mutation}' must be sent with GH_MUTATION_TOKEN`);
+    }
+  }
+
+  const reads = tokenCalls.filter((c) => !/^(pr ready|api -X PUT|pr comment)/.test(c.call));
+  assert.ok(reads.length > 0, "the gates must still read the PR, the CI runs and the checks");
+  for (const read of reads) {
+    assert.equal(read.token, READ_TOKEN, `read '${read.call}' must keep the default token`);
+  }
+});
+
 // ---- exit 3: gates passed, the flip failed (pages a human) ----------------
 
 test("exit 3, not 1: gates passed but flipping to ready failed", () => {
@@ -230,29 +306,87 @@ test("exit 3, not 1: gates passed but flipping to ready failed", () => {
 
 // ---- the contract's other half: the consumer -----------------------------
 
-test("mark-ready uses no exit code outside {0,1,2,3}", () => {
-  // The workflow's `if [ "$code" -eq N ]` chain handles exactly these four; any
-  // fifth code would fall through the chain and SUCCEED silently.
-  const used = new Set([...SOURCE.matchAll(/process\.exit\((\d+)\)/g)].map((m) => Number(m[1])));
-  assert.ok(used.size > 0, "the CLI must still signal through process.exit");
-  for (const code of used) {
-    assert.ok([0, 1, 2, 3].includes(code), `unhandled exit code ${code}: teach the promote job about it`);
+test("every process.exit in mark-ready is a LITERAL 0, 1, 2 or 3", () => {
+  // The promote job's `case` enumerates exactly these four and defaults the
+  // rest to a failed job, so a fifth code is now loud rather than silent — but
+  // it is still a contract break, and it is still cheapest to catch here.
+  //
+  // The argument must be a literal, not merely `\d+`: `const c = 5;
+  // process.exit(c)` reads as a legal exit site to a `(\d+)` census, and the
+  // whole point of the census is that the set of codes is readable from source.
+  const args = [...SOURCE.matchAll(/process\.exit\(([^)]*)\)/g)].map((m) => m[1].trim());
+  assert.ok(args.length > 0, "the CLI must still signal through process.exit");
+  for (const arg of args) {
+    assert.match(
+      arg,
+      /^[0-3]$/,
+      `process.exit(${arg}): the promote job branches on the literal codes 0/1/2/3 — ` +
+        "a computed or out-of-range status is not part of the contract",
+    );
   }
 });
 
-test("agent-review-panel.yml still branches on every mark-ready code", () => {
+test("agent-review-panel.yml handles every mark-ready code, defaults the rest", () => {
   const yml = readFileSync(PANEL_YML, "utf8");
   // `-1` explicitly: `slice(-1)` is the LAST CHARACTER, not the empty string, so
   // a length check would pass on a workflow that no longer calls mark-ready at
-  // all and the failure would surface as four confusing regex misses instead.
+  // all and the failure would surface as confusing regex misses instead.
   const at = yml.indexOf("node ./scripts/agent/mark-ready.mjs");
   assert.notEqual(at, -1, "the promote job must still invoke mark-ready.mjs");
-  // The whole `if` chain sits immediately below the invocation; bounding the
-  // window keeps an unrelated `-eq 2` elsewhere in the file out of the match.
-  const window = yml.slice(at, at + 1200);
+  // The whole `case` sits immediately below the invocation; bounding the window
+  // keeps an unrelated `esac` elsewhere in the file out of the match.
+  const window = yml.slice(at, at + 2600);
+
+  // The invocation. `--promote` is what makes this a promotion at all — without
+  // it mark-ready is a dry run that exits 0 on a satisfied gate and flips
+  // nothing, so the job would export ready=true for a PR still sitting as a draft.
+  assert.match(
+    window,
+    /mark-ready\.mjs "\$PR" --promote --require-checks "\$REQUIRED"/,
+    "the gate must run with --promote and the panel's required checks",
+  );
+  // A REDIRECT, not a pipe: `| tee` makes `$?` the status of the last pipeline
+  // element and the script's code — the only thing this block reads — is lost.
+  const invocation = window.slice(0, window.indexOf("code=$?"));
+  assert.match(invocation, />\s*"\$RUNNER_TEMP\/mark-ready\.log" 2>&1/, "output must be redirected to a log");
+  assert.ok(!invocation.includes("|"), "the capture must not be a pipe, or $? is not mark-ready's");
   assert.match(window, /code=\$\?/);
-  assert.match(window, /"\$code" -eq 2 \]; then .*exit 2/, "2 → tooling error, fail the job");
-  assert.match(window, /"\$code" -eq 3 \]; then .*exit 3/, "3 → promotion failed, page a human");
-  assert.match(window, /"\$code" -eq 1 \]; then echo "Not all ready-gates satisfied/, "1 → draft, job succeeds");
-  assert.match(window, /"\$code" -eq 0 \]; then echo "ready=true"/, "0 → promoted");
+
+  // The chain itself: a `case` with a default, not bare `if`s that fall through.
+  assert.match(window, /case "\$code" in/, "branch with `case`, so an unhandled status has somewhere to land");
+  assert.match(window, /^\s*0\) echo "ready=true" >> "\$GITHUB_OUTPUT" ;;/m, "0 → promoted");
+  assert.match(window, /^\s*2\) echo "mark-ready tooling error" >&2; exit 2 ;;/m, "2 → tooling error, fail the job");
+  assert.match(window, /^\s*3\) echo .* >&2; exit 3 ;;/m, "3 → promotion failed, page a human");
+  assert.match(
+    window,
+    /^\s*\*\) echo "mark-ready returned unhandled status \$code" >&2; exit 2 ;;/m,
+    "an unenumerated status (127, 128+signal) must fail the job, not fall through it",
+  );
+  assert.match(window, /^\s*esac$/m, "the case must be closed");
+
+  // The `1` branch, in full: it is the one branch that lets the job SUCCEED, so
+  // its body is the load-bearing part. It must corroborate the code against the
+  // script's own verdict (1 is also node's crash code) and must not exit.
+  const oneBranch = window.match(/\n\s*1\)[\s\S]*?;;/);
+  assert.ok(oneBranch, "the case must still have a `1)` branch");
+  const one = oneBranch[0];
+  assert.match(one, /grep -qF "([^"]+)" "\$RUNNER_TEMP\/mark-ready\.log"/, "a bare exit 1 must not be believed");
+  assert.match(one, /exit 2; \}/, "an exit 1 with no verdict line is a crash → fail the job");
+  assert.match(one, /echo "Not all ready-gates satisfied; leaving as draft\." ;;$/, "1 → draft, job succeeds");
+  // In command position only — the crash message legitimately says "exit 1".
+  assert.ok(
+    !/(^|[;{&|(]\s*)exit\s+[013]\b/m.test(one.replace(/"[^"]*"/g, '""')),
+    "the gates-said-no branch must let the job succeed",
+  );
+
+  // CROSS-FILE CONTRACT: the string the workflow greps for has to be a string
+  // mark-ready actually prints, or every exit 1 reads as a crash and every
+  // legitimately-unready PR reds the job.
+  const needle = one.match(/grep -qF "([^"]+)"/)[1];
+  const gateSaidNo = run(["7", "--promote"], okConfig({ workflowRuns: [] }));
+  assert.equal(gateSaidNo.code, 1);
+  assert.ok(
+    gateSaidNo.stdout.includes(needle),
+    `the promote job greps for ${JSON.stringify(needle)}, which mark-ready no longer prints`,
+  );
 });
