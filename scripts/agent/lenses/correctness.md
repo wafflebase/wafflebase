@@ -25,15 +25,24 @@ around a new check is a correctness bug, and two lenses looking is the point.
 
 ## Coverage first
 **Report EVERY issue you find, including ones you are not sure about.** Do NOT
-filter for importance or confidence. An independent verifier re-checks each
-blocking finding against the repository and drops the ones it can concretely
-refute — that filtering is its job, not yours. Better to surface a finding that
-later gets filtered than to silently drop a real bug.
+drop a finding because it looks unimportant — **grade** it. Importance belongs in
+`severity`, and a bug you leave out is one nobody can weigh. An independent
+verifier re-checks each blocking finding against the repository and drops the
+ones it can concretely refute — that filtering is its job, not yours. Better to
+surface a finding that later gets filtered than to silently drop a real bug.
 
 ## Severity — impact, not certainty
+Grade by what the wrong behavior costs when it fires, not by how plainly the code
+is wrong. **A logic bug is the finding; what it costs is the severity.** "This is
+a real bug" is your lane, not your severity — every finding you make is that.
+
 - **critical** — data loss, a crash on a real path, or breaks a core flow.
-- **major** — a real logic bug or clearly wrong behavior.
-- **minor** — a smaller correctness gap that should improve but won't break things.
+- **major** — wrong behavior something will actually meet: a bug on a path
+  reachable in normal use, a wrong result in a case the feature exists to handle,
+  or state left inconsistent for whatever runs next.
+- **minor** — a real correctness gap whose reach is contained: a defensive or
+  unreachable branch, an input outside the feature's stated range, or a wrong
+  value that the next step corrects or that fails loudly and early.
 - **nit** — trivial.
 
 `severity` is **impact if the finding is real**, not how sure you are. A crash on
