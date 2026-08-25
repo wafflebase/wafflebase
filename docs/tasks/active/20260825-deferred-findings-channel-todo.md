@@ -118,6 +118,9 @@ identity can be derived from it later."*
   `existsSync` rather than reachability. Neither list is correct on the documented
   domain of that set (*"local imports reachable from `PANEL_ENTRY`"*), so neither was
   edited.
+- **Two review findings acted on, one skipped as measured-invalid.** The `!cancelled()` guard and
+  the summary-tally fix below both came from review; the redaction finding did not survive
+  verification. See *Review findings* at the end.
 - **One mutation was ineffective, not uncaught.** A `panel_sha` override spread was
   inserted *above* the explicit `panel_sha:` key in the same object literal, so the
   later key overwrote it and behaviour was unchanged. It reported as SURVIVED, which
@@ -156,14 +159,15 @@ Measured on one machine, both trees extracted with the same `node_modules` symli
 into each, so a skip delta cannot be an environment artefact. Reported as
 `rest + iso`, the way the lane produces them.
 
-- [x] **`agent:tests` — 2508 + 57 = 2565 tests, 0 fail, 0 skip.** Baseline at
-      `70e5be9ad30e`: **2475 + 57 = 2532, 0 fail, 0 skip.** Delta **+33**, which is
+- [x] **`agent:tests` — 2510 + 57 = 2567 tests, 0 fail, 0 skip.** Baseline at
+      `70e5be9ad30e`: **2475 + 57 = 2532, 0 fail, 0 skip.** Delta **+35**, which is
       exactly the new test file.
 - [x] **`npx eslint scripts` exit 0** (eslint 9.24.0, lockfile-pinned). Baseline also 0.
-- [x] **Mutation testing: 28/28 caught by the specifically-named test**, tree restored
+- [x] **Mutation testing: 30/30 caught by the specifically-named test**, tree restored
       byte-identical and re-runs clean. Covers the never-gates guard (5), the trim
       tally (6), the provenance fields (7), the generation stamp (4), the population
-      rule (3), the two fail directions (2), and the new step's `retries` (1).
+      rule (3), the two fail directions (2), the new step's `retries` (1), and the two
+      review fixes (2).
 - [x] **`eval/panel-identity.test.mjs` 8/8** and **`eval/test-lane.test.mjs` 8/8**
       unchanged — the two tests a new module and a new `github-script` step can break.
 - [x] **Workflow structural diff:** triggers identical, job list identical, **every
@@ -177,3 +181,53 @@ into each, so a skip delta cannot be an environment artefact. Reported as
       `agent-deferred-findings` check run yet; the end-to-end test drives the CLI over
       a synthesised `.agent-review` tree, which exercises the module but not the
       workflow wiring or the API call.
+
+## Review findings
+
+Three were raised. **Two were valid and are fixed; one did not survive verification.**
+
+**1. `always()` on both steps published a cancelled panel — FIXED.** Both are now
+`!cancelled()`, matching *"Post per-lens check runs"* rather than the observability
+steps below them. A cancelled round has not finished routing, so the lenses that
+happen to have written a `verdict.json` are an arbitrary prefix — publishing a
+`total` from that is the silent-partial failure the omission tally exists to
+prevent. An ordinary failure still publishes, which is the case worth recording.
+Guarded by a new test that reads the workflow and rejects `always()`.
+
+**2. The summary tallied only the emitted prefix — FIXED.** `renderDeferredSummary`
+was passed `records.slice(0, emitted)` while being given the full `total`, so a
+demoted finding that fell off the trim was counted as non-blocking and the tables
+summed to less than the prose. It now receives every record. This costs nothing:
+the tables are keyed by lens and severity, so their size is bounded by the manifest
+regardless of how many findings there are — only `text`, which carries records
+whole, needs the trim. Guarded by a test that drops a trailing demoted major and
+asserts it still appears in the counts; verified to fail on the previous code.
+
+**3. `summary`/`evidence` published without `redactSecrets` — NOT FIXED, and the
+premise does not hold.** Two independent reasons, both measured rather than argued:
+
+- **It is not a new publication boundary.** The existing per-lens check runs already
+  publish the same two fields, from the same `verdict.json`, through the same
+  `checks` API, in the same job. Neither `severity.mjs::renderSummaryMd` (which
+  writes every `output.summary`) nor the `output.text` projection redacts anything;
+  `review-panel.mjs` imports `redactSecrets` for **infra error text only**.
+- 🔴 **Applying it would corrupt the record.** `redactSecrets` is built for short
+  infra strings: layer 4 masks whatever follows a field name like `token`, `secret`,
+  `password` or `api_key`, and layer 5 is an unconditional entropy catch-all.
+  Measured on seven realistic finding texts, **three were mangled and all three were
+  the security-relevant ones**:
+
+  ```
+  "password validation is skipped when …"   → "password <REDACTED> is skipped when …"
+  "the secret: process.env.SIGNING_KEY …"   → "the secret: <REDACTED> …"
+  "api_key handling in cli-auth.store.ts"   → "api_key <REDACTED> in cli-auth.store.ts"
+  ```
+
+  So it would silently gut every finding *about* credential handling — which is why
+  the repository applies it to transport errors and not to findings. That is a
+  domain boundary, not an omission.
+
+⚠ **The underlying concern is still real and is repo-wide:** a lens quoting a
+hardcoded secret out of the diff would publish it, today, through six existing
+per-lens check runs. That wants a redactor scoped to credential *shapes* only
+(layers 1–3), applied to all seven channels at once. It is not this change.

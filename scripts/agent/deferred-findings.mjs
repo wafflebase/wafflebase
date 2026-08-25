@@ -128,6 +128,13 @@ const clip = (s, n) => {
  */
 export function isDeferred(finding) {
   if (!finding || typeof finding !== "object" || Array.isArray(finding)) return false;
+  // `discarded` is tested FIRST, before severity, and the order is the whole point.
+  // Testing severity first returned `true` for a refuted NON-blocker, because the
+  // non-blocking branch never looked at the lane — so the one population this
+  // docblock promises can never appear had an open door for half of its members.
+  // `keepUnrefuted` means production does not produce these, which is exactly why
+  // the asymmetry survived review of the code that documents it.
+  if (finding.lane === "discarded") return false;
   if (!BLOCKING.has(normalizeSeverity(finding.severity))) return true;
   return finding.lane === "backlog";
 }
@@ -164,7 +171,19 @@ export function isDeferred(finding) {
 export function deferredRecord(finding, lens) {
   const loc = findingLocation(finding);
   const line = Number.isInteger(loc?.line) && loc.line >= 1 ? loc.line : undefined;
-  const file = str(loc?.file).trim() || str(finding.file).trim() || undefined;
+  // No `|| finding.file` fallback: `findingLocation` returns null only when the
+  // finding has no usable file AND no citation naming one, so the fallback was
+  // unreachable by construction. An unreachable branch in a projection is worse than
+  // no branch — it reads as a handled case.
+  const file = str(loc?.file).trim() || undefined;
+  // Did the PANEL stamp this finding's provenance, or did the MODEL write it?
+  // `annotateFindings` returns non-blockers untouched, so `lane`, `novelty` and
+  // `surface` on a `minor` are whatever the lens chose to emit — and a model that
+  // writes `lane: "backlog"` on a nit would otherwise have it recorded here as
+  // though the gate had demoted a major. That forges exactly the provenance §4
+  // exists to make trustworthy, so these three fields are carried ONLY for the
+  // severities the gate actually routes.
+  const stamped = BLOCKING.has(normalizeSeverity(finding.severity));
   return {
     lens: str(lens),
     // Clipped to the same widths the gating projection uses, so one oversized
@@ -176,13 +195,16 @@ export function deferredRecord(finding, lens) {
     // because it is the only field a lens has for expressing doubt without moving
     // severity, which is exactly the discrimination a later triage pass over this
     // pile needs and cannot recover from anything else here.
-    ...(str(finding.confidence) ? { confidence: str(finding.confidence) } : {}),
+    // Clipped like every other model-controlled string. It was the one copied whole,
+    // so a lens emitting a megabyte `confidence` could evict every real record.
+    // 20 chars fits the widest legal value ("medium") many times over.
+    ...(str(finding.confidence) ? { confidence: clip(finding.confidence, 20) } : {}),
     summary: clip(finding.summary, 2000),
     evidence: clip(finding.evidence, 2000),
     // ABSENT for a native minor, `"backlog"` for a demoted blocker. See the docblock.
-    ...(str(finding.lane) ? { lane: str(finding.lane) } : {}),
-    ...(str(finding.novelty?.origin) ? { noveltyOrigin: str(finding.novelty.origin) } : {}),
-    ...(str(finding.surface?.scope) ? { surfaceScope: str(finding.surface.scope) } : {}),
+    ...(stamped && str(finding.lane) ? { lane: str(finding.lane) } : {}),
+    ...(stamped && str(finding.novelty?.origin) ? { noveltyOrigin: str(finding.novelty.origin) } : {}),
+    ...(stamped && str(finding.surface?.scope) ? { surfaceScope: str(finding.surface.scope) } : {}),
   };
 }
 
@@ -268,8 +290,17 @@ export function buildDeferredText(records, { panelSha = null, maxChars = MAX_TEX
 /**
  * The human-readable body. A count per lens and per severity, and the omission tally
  * again — a reader who never opens `text` still has to be told the list is partial.
+ *
+ * ⚠ `records` here is EVERY deferred finding, not the trimmed prefix that reached
+ * `text`. The two channels are bounded by different things and the asymmetry is
+ * deliberate: `text` is capped because it carries each record whole, while these
+ * tables are keyed by lens and by severity, so their size is bounded by the manifest
+ * (six lenses, four severities) no matter how many findings there are. Tallying only
+ * the emitted prefix would report `total` in the prose and a smaller number in the
+ * tables, and would count a demoted finding that fell off the tail as non-blocking —
+ * which is the population confusion this whole record exists to prevent.
  */
-export function renderDeferredSummary({ total, emitted, omitted, records, panelSha }) {
+export function renderDeferredSummary({ total, emitted, omitted, records, panelSha, maxChars = MAX_TEXT_CHARS }) {
   const rows = Array.isArray(records) ? records : [];
   if (total === 0) {
     return [
@@ -310,15 +341,21 @@ export function renderDeferredSummary({ total, emitted, omitted, records, panelS
   ];
   if (omitted > 0) {
     out.push(
+      // The budget ACTUALLY applied, not the module default. They differ whenever a
+      // caller passes `maxChars`, and a notice that names a number the trim did not
+      // use is a false explanation of a real omission.
       `⚠ **This record is PARTIAL** — ${emitted} of ${total} findings are in \`output.text\`; `
-        + `${omitted} were dropped to fit the ${MAX_TEXT_CHARS} character budget.`,
+        + `${omitted} were dropped to fit the ${maxChars} character budget.`,
       "",
     );
   }
   out.push(
     `_Advisory. This check never gates. Rubric generation: \`${panelSha ?? "unknown"}\`._`,
   );
-  return clip(out.join("\n"), MAX_SUMMARY_CHARS);
+  // `MAX_SUMMARY_CHARS - 1`, because `clip` appends an ellipsis and so returns n+1
+  // characters. Clipping at the ceiling itself produced 60001 and a constant the code
+  // exceeds is worse than no constant — the marker is kept, the ceiling is exact.
+  return clip(out.join("\n"), MAX_SUMMARY_CHARS - 1);
 }
 
 /**
@@ -359,7 +396,10 @@ export function buildDeferredCheck({ lensFindings, panelSha = null, maxChars = M
       title: omitted > 0
         ? `${total} deferred (${omitted} not recorded)`
         : `${total} deferred`,
-      summary: renderDeferredSummary({ total, emitted, omitted, records: records.slice(0, emitted), panelSha: sha }),
+      // ALL records, not the emitted prefix — see `renderDeferredSummary`. The trim
+      // bounds `text`; the tables are bounded by the manifest, so narrowing them to
+      // the prefix would only make the counts disagree with the prose.
+      summary: renderDeferredSummary({ total, emitted, omitted, records, panelSha: sha, maxChars }),
       text,
     },
   };

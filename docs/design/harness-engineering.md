@@ -1048,7 +1048,9 @@ a link that appeared for some of them would flap.
 **Per-round findings comment (`<!-- agent-panel-round:<sha> -->`).** The
 dashboard above summarizes conclusions; this posts the findings themselves.
 Until it shipped, the autonomous panel recorded verdicts ONLY as `agent-review-*`
-check runs — one set per commit — while the triage renderer that makes them
+check runs — one set per commit (a second, advisory `agent-deferred-findings` run
+was added later; see *The deferred-findings channel* below) — while the triage
+renderer that makes them
 readable (`scripts/agent/review-comment.mjs`) was wired solely into
 `.github/workflows/agent-review-on-demand.yml`, which posts no checks. The two arms were
 complementary and neither was complete: `@claude review` gave a comment and no
@@ -1673,6 +1675,57 @@ Components:
        next round rather than re-surfacing the error forever — without ever letting
        model text suppress a real blocker. The lens still fails closed via its check
        `conclusion`; only the bogus re-check input is suppressed.
+
+    **The deferred-findings channel (`agent-deferred-findings`).** The carry-forward
+    contract above is deliberately narrow: `output.text` holds only findings that
+    GATE, because it feeds the fixer checklist, the next round's re-check, and the
+    non-convergence detector, and the last of those needs a quantity that *shrinks*
+    as the fixer works — a pile nobody is obliged to fix never shrinks. The
+    consequence is that a round's `minor`/`nit` findings, and any blocker the novelty
+    or surface gate demoted to `backlog`, reach no tool: `proseOnly` strips finding
+    sections out of the markdown bodies, and carry-forward reads `output.text`.
+    They are not lost — `verdict.json` keeps every finding with the `lane` and
+    `novelty` that explain each decision, and the stage-detail capture keeps the raw
+    per-sample ones — but nothing on the pull request is addressed to a reader.
+
+    So the panel writes a **second, advisory check run**, once per round, aggregated
+    across lenses (`scripts/agent/deferred-findings.mjs`), whose `output.text` is a
+    versioned JSON envelope (`agent-deferred-findings/v1`) carrying each record's
+    `lens`, `file`, `line`, `severity`, `confidence`, `summary`, `evidence` and its
+    provenance. Four properties are load-bearing:
+
+    - **It never gates**, on three counts: `conclusion` is always `neutral`, the name
+      is never pushed into the required set, and the name sits *outside* the
+      `agent-review-` prefix — which is not defensive about a hypothetical consumer,
+      because `scripts/agent/set-state.mjs` enumerates every check run on the commit,
+      filters that prefix, and derives `lensBlocked` from what it finds.
+      `scripts/agent/loop-status.mjs` excludes it from the CI cell for the same
+      reason: `neutral` is not a red conclusion, so counted as an ordinary check it
+      would report a confident green for a CI run that never happened.
+    - **Provenance is recorded as primitives, absence included.** A native minor
+      carries *no* `lane` — `annotateFindings` returns non-blockers untouched — and
+      that absence is the signal that it never reached the gate. `novelty.origin` and
+      `surface.scope` are recorded separately, because the two gates make opposite
+      claims about the same code, and only for the severities the gate actually
+      routes: on a non-blocker those fields are model output and would forge a
+      demotion that never happened. No derived "why deferred" field is stored;
+      `severity.mjs::demotedBy` already answers that and defaults to `relocated` for
+      unstamped rows, so storing its answer would bake a default into an archive as
+      though it were measured.
+    - **Every record carries the rubric generation** it was produced under, as one
+      `panel_sha` per run resolved from the `.trusted` checkout — the tree the rubrics
+      actually came from, which is *not* the PR head. `severity` means whatever the
+      rubric in force said it meant, so without the stamp a record written after a
+      rubric change is indistinguishable from one written before it. An archive's
+      value grows with time, which is why this could not be added in a later version.
+    - **The trim states what it dropped.** `output.text` is bounded to 60k like the
+      gating channel, but the envelope carries `total`, `emitted` and `omitted`, so a
+      partial record announces itself rather than reading as complete — the
+      convention `fix-brief.mjs::buildChecklist` already sets and the gating trim
+      does not.
+
+    Nothing consumes the channel yet; it exists so that a later pass over the
+    deferred pile has an input, off the critical path.
 
     3. **Out-of-diff review.** The two measures above both re-read the *same
        artifact*, so neither finds a defect the diff does not contain. A Major

@@ -10,6 +10,7 @@ import {
   DEFERRED_CHECK_NAME,
   DEFERRED_CONCLUSION,
   DEFERRED_SCHEMA,
+  MAX_SUMMARY_CHARS,
   MAX_TEXT_CHARS,
   assertAdvisory,
   buildDeferredCheck,
@@ -66,6 +67,16 @@ test("junk is not a finding", () => {
   }
 });
 
+test("🔴 a refuted NON-BLOCKER is refused too — the lane is tested before severity", () => {
+  // The original code tested severity first and returned `true` for any non-blocker,
+  // so a refuted `minor` was filed as deferred work while a refuted `major` was not.
+  // `keepUnrefuted` means production never emits either, which is exactly why the
+  // asymmetry survived. A refuted finding is not deferred work at ANY severity.
+  for (const sev of ["nit", "minor", "major", "critical"]) {
+    assert.equal(isDeferred({ severity: sev, lane: "discarded", summary: "s" }), false, `${sev} + discarded was admitted`);
+  }
+});
+
 test("a refuted finding cannot reach this channel, and is not tested for", () => {
   // `keepUnrefuted` runs before `writeVerdict`, so `lane: "discarded"` is absent from
   // verdict.json by construction. If it ever DID appear it must not be recorded as
@@ -96,6 +107,29 @@ test("novelty.origin and surface.scope are recorded SEPARATELY, and absent when 
   const neither = deferredRecord(MINOR, "l");
   assert.equal("noveltyOrigin" in neither, false);
   assert.equal("surfaceScope" in neither, false);
+});
+
+test("🔴 provenance a MODEL wrote on a non-blocker is not recorded as the panel's", () => {
+  // `annotateFindings` returns non-blockers untouched, so lane/novelty/surface on a
+  // minor are model output. Recording them would let a lens forge "the gate demoted a
+  // major" — the exact provenance §4 exists to make trustworthy.
+  const forged = deferredRecord(
+    { severity: "nit", summary: "s", file: "a.mjs", line: 1, lane: "backlog", novelty: { origin: "relocated" }, surface: { scope: "out-of-scope" } },
+    "correctness",
+  );
+  assert.equal("lane" in forged, false, "a model-written lane must not be recorded");
+  assert.equal("noveltyOrigin" in forged, false);
+  assert.equal("surfaceScope" in forged, false);
+  assert.equal(forged.severity, "nit", "the finding itself is still recorded");
+  // …and a real demoted blocker keeps every stamp, because the gate did route it.
+  const real = deferredRecord(DEMOTED, "correctness");
+  assert.equal(real.lane, "backlog");
+  assert.equal(real.noveltyOrigin, "relocated");
+});
+
+test("confidence is clipped like every other model-controlled string", () => {
+  const r = deferredRecord({ severity: "minor", summary: "s", confidence: "z".repeat(5000) }, "l");
+  assert.equal(r.confidence.length, 21, "20 chars plus the ellipsis");
 });
 
 test("no derived 'why deferred' discriminator is stored", () => {
@@ -193,8 +227,31 @@ test("a budget too small for even one record floors at a truthful header, not a 
   assert.deepEqual(parsed.records, []);
 });
 
-test("the default budget is the gating channel's own 60k, and it is this channel's OWN", () => {
+test("the default budget is the gating channel's own 60k, and it is actually APPLIED", () => {
   assert.equal(MAX_TEXT_CHARS, 60000);
+  // Asserting the constant against its own literal proves nothing about whether the
+  // trim uses it. Drive the default path with a payload that overflows 60k and check
+  // the output really is bounded by it.
+  const many = Array.from({ length: 200 }, (_, i) => deferredRecord({ ...MINOR, summary: `s${i}`.padEnd(2000, "x"), evidence: "e".padEnd(2000, "y") }, `l${i}`));
+  const { text, total, emitted, omitted } = buildDeferredText(many, { panelSha: PANEL });
+  assert.ok(text.length <= MAX_TEXT_CHARS, `default path emitted ${text.length} chars`);
+  assert.ok(emitted < total, "the fixture must overflow the DEFAULT budget, or this proves nothing");
+  assert.equal(omitted, total - emitted);
+});
+
+test("the PARTIAL notice states the budget actually applied, not the default", () => {
+  const many = Array.from({ length: 60 }, (_, i) => deferredRecord({ ...MINOR, summary: `s${i}`.padEnd(400, "x") }, "l"));
+  const { total, emitted, omitted } = buildDeferredText(many, { panelSha: PANEL, maxChars: 4000 });
+  const md = renderDeferredSummary({ total, emitted, omitted, records: many, panelSha: PANEL, maxChars: 4000 });
+  assert.match(md, /4000 character budget/);
+  assert.doesNotMatch(md, /60000 character budget/, "naming the default explains a real omission with a wrong number");
+});
+
+test("the human body is clipped to its own ceiling", () => {
+  // One lens id per record, so the table grows without bound and the clip must fire.
+  const many = Array.from({ length: 4000 }, (_, i) => deferredRecord(MINOR, `lens-${i}`.padEnd(60, "n")));
+  const md = renderDeferredSummary({ total: many.length, emitted: many.length, omitted: 0, records: many, panelSha: PANEL });
+  assert.ok(md.length <= MAX_SUMMARY_CHARS, `summary is ${md.length} chars, over its ceiling`);
 });
 
 // ---------------------------------------------------------------- the generation stamp
@@ -287,6 +344,30 @@ test("the summary splits the two populations rather than pooling them", () => {
   assert.match(check.output.summary, new RegExp(PANEL));
 });
 
+test("🔴 a demoted finding that FELL OFF the trim is still counted as demoted in the summary", () => {
+  // The tally is over every deferred finding, not the prefix that fitted in `text`.
+  // Tallying the prefix would report `total` in the prose and a smaller number in the
+  // tables, and would silently re-file a dropped demoted major as non-blocking —
+  // exactly the population confusion the record exists to prevent.
+  const filler = Array.from({ length: 40 }, (_, i) => ({ ...MINOR, summary: `s${i}`.padEnd(400, "x") }));
+  // The demoted major is LAST, so the trim is guaranteed to drop it first.
+  const findings = [...filler, { ...DEMOTED, summary: "the trailing demoted one".padEnd(400, "z") }];
+  const check = buildDeferredCheck({ lensFindings: [{ lens: "correctness", findings }], panelSha: PANEL, maxChars: 4000 });
+
+  assert.equal(check.total, 41);
+  assert.ok(check.omitted > 0, "the fixture must actually overflow, or this test proves nothing");
+  const text = JSON.parse(check.output.text);
+  assert.equal(
+    text.records.some((r) => r.lane === "backlog"),
+    false,
+    "the demoted finding must really have been dropped from text, or this tests nothing",
+  );
+  // …and it is still in the counts.
+  assert.match(check.output.summary, /40 non-blocking, 1 demoted/);
+  assert.match(check.output.summary, /\| major \| 1 \|/, "severity table must include the dropped finding");
+  assert.match(check.output.summary, /\| correctness \| 41 \|/, "lens table must total every deferred finding");
+});
+
 test("the summary states the omission when the record is partial", () => {
   const many = Array.from({ length: 60 }, (_, i) => deferredRecord({ ...MINOR, summary: `s${i}`.padEnd(300, "x") }, "l"));
   const { total, emitted, omitted } = buildDeferredText(many, { panelSha: PANEL, maxChars: 4000 });
@@ -301,6 +382,30 @@ test("an empty round says so, and still says it never gates", () => {
   assert.match(check.output.summary, /None this round/);
   assert.match(check.output.summary, /never gates/);
   assert.equal(JSON.parse(check.output.text).records.length, 0);
+});
+
+// ---------------------------------------------------------------- the workflow wiring
+
+test("🔴 neither channel step runs on a CANCELLED panel", () => {
+  // A cancelled round has not finished routing, so the lenses that happen to have
+  // written a verdict.json are an arbitrary prefix — and publishing a `total` from
+  // that is the silent-partial failure the omission tally exists to prevent.
+  // `always()` would do exactly that. Asserted rather than documented because
+  // `always()` is the value the neighbouring observability steps use, so it is the
+  // easy thing to copy in.
+  const src = readFileSync(
+    new URL("../../.github/workflows/agent-review-panel.yml", import.meta.url),
+    "utf8",
+  );
+  const lines = src.split("\n");
+  for (const step of ["Record the deferred findings", "Post the deferred-findings check run"]) {
+    const at = lines.findIndex((l) => l.trim() === `- name: ${step}`);
+    assert.ok(at >= 0, `step not found: ${step} — re-point this test rather than deleting it`);
+    // The `if:` may be a folded block (`>-`), so join the few lines after the name.
+    const block = lines.slice(at, at + 5).join(" ");
+    assert.match(block, /!cancelled\(\)/, `${step} must not run on a cancelled panel`);
+    assert.doesNotMatch(block, /always\(\)/, `${step} uses always(), which publishes a partial round`);
+  }
 });
 
 // ---------------------------------------------------------------- reading verdict.json
@@ -348,6 +453,16 @@ test("END TO END: the CLI writes a guarded payload from a real .agent-review tre
   assert.equal("lane" in text.records[0], false, "the native minor keeps no lane through the whole pipeline");
   assert.equal(text.records[1].lane, "backlog");
   assert.equal(text.records[1].noveltyOrigin, "relocated");
+});
+
+test("END TO END: the CLI refuses with exit 2 when told nothing to read or write", () => {
+  for (const argv of [[], ["--lenses", "x.json"], ["--out-json", "o.json"]]) {
+    assert.throws(
+      () => execFileSync(process.execPath, [CLI, ...argv], { encoding: "utf8", stdio: "pipe" }),
+      (e) => e.status === 2 && /usage:/.test(String(e.stderr)),
+      `argv ${JSON.stringify(argv)} did not exit 2 with a usage line`,
+    );
+  }
 });
 
 test("END TO END: a missing manifest REFUSES rather than writing an empty record", () => {

@@ -62,6 +62,7 @@ import {
   PAGED_LATCH,
   PAGE_AUTHOR_LOGINS,
 } from "./rounds.mjs";
+import { DEFERRED_CHECK_NAME } from "./deferred-findings.mjs";
 import { collectFixReports } from "./fix-report.mjs";
 import { collectRebuttals } from "./rebuttal.mjs";
 import { emitBestEffortWarning } from "./guard-verdict.mjs";
@@ -204,7 +205,13 @@ export function buildRounds(commits, lensCheckNames) {
       conclusion: run.conclusion ?? null,
     }));
     // Everything that is not a lens check — CI's own job checks, mostly.
-    const others = runs.filter((r) => !names.has(r.name));
+    //
+    // `agent-deferred-findings` is excluded explicitly. It is written by the panel
+    // itself, always `neutral`, and `neutral` is not in `RED_CONCLUSIONS` — so on a
+    // commit where CI has not reported yet it would be the only member of this bucket
+    // and the cell would read a confident ✅ for a CI run that never happened. An
+    // advisory record of what the panel deferred is not evidence about CI.
+    const others = runs.filter((r) => !names.has(r.name) && r.name !== DEFERRED_CHECK_NAME);
     let checks = "none";
     if (others.length > 0) {
       if (others.some((r) => RED_CONCLUSIONS.has(String(r.conclusion)))) checks = "failure";
