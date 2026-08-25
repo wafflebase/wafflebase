@@ -275,3 +275,110 @@ engine packages would have been debugged through a UI that had never rendered.
 The same discipline is why `previewScene` and `planRebase` are knowingly unwired
 rather than half-wired: both are inert until something can stage a layout edit, so
 they are listed as CP3.5 work rather than quietly "done".
+
+## Running the editor against wafflebase's own frontend (#916 · #917 · #960)
+
+Everything below was found by *using* the thing, not by reading it. Three PRs of
+gaps, and the shape of them is the lesson: each mechanism was built, wired at
+both ends, and silently doing nothing.
+
+### A pipeline that is wired at both ends can still be dead in the middle
+
+Six of them, and none announced itself:
+
+| Mechanism | Where it stopped |
+| --- | --- |
+| Tailwind safelist | appended to the entry *after* Tailwind had already compiled it |
+| Class-edit preview | `planFiles` reported only layout intents, so nothing patched or reloaded |
+| Class-edit target | every edit carried `file: ''`, left for a component the shell never grew |
+| `wb:view` (pan/zoom) | in the type union and the host's switch, absent from the runtime validator |
+| Interaction-state filter | filtered correctly; duplicate React keys left the old rows in the DOM |
+| Token swatches | computed and painted in the panel, never sent to the frame |
+
+The common failure is the same one in six costumes: **two halves that each look
+complete, with no test spanning the join.** A unit test on either side passes.
+What catches it is a gate that drives the real thing and *measures the pixel*.
+
+### Tailwind compiles the entry once per dev server
+
+The most expensive single finding. `@tailwindcss/vite` builds its compiler from
+the entry on first transform and afterwards only re-scans *source* files for
+candidates. So a `@source inline(...)` appended in `transform` or `load` is read
+exactly once, at boot, and every later registration is invisible. Measured:
+`load` ran with the directive appended and the served bytes did not move.
+
+Neither `reloadModule`, `invalidateModule` nor a synthetic `watcher.emit('change')`
+helps — what Tailwind reacts to is a file whose mtime changed. The working shape
+is a file the plugin owns, `@import`ed by the entry (so it is present at the first
+compile and Tailwind watches it), rewritten on every registration.
+
+Two hours went into the algebra of "why is the class not applying" before
+measuring the *served CSS* rather than reading the code that produces it.
+
+### The type union is not the runtime contract
+
+`ViewGesture` was in `FrameMessage` and in the host's `switch`, and TypeScript was
+satisfied — but `shapedLike` refuses any `type` its table does not own, so every
+pan and zoom was dropped at the door. Nothing logged it, because dropping an
+unrecognised `postMessage` is exactly correct behaviour. **A guard doing its job
+is indistinguishable from a feature that was never wired.**
+
+The test that now exists reads the union *out of the source* and asserts every
+member has a validator, rather than listing them by hand — a new variant has to
+be registered or the test fails.
+
+### Deriving a layout is a model; measuring one is not
+
+Cursor-anchored zoom traced an arc. Two errors that only show together: the frame
+reports frame-local coordinates (never scaled by the zoom), and the stage is
+`mx-auto`, so its left edge moves with the zoom while its top does not — one axis
+held, the other drifted. The algebra needed a model of the layout, and the model
+was wrong in two places at once.
+
+Recording where the anchor sits, changing the zoom, then measuring again in a
+layout effect and shifting by the difference needs no model at all and cannot
+drift when the layout changes. 0.2px across three zoom steps.
+
+### The editor finds product bugs, and that is the point
+
+Mounting `DocumentList` with only its required props froze the tab. `folders = []`
+is a fresh array per render; through `childFolders` → `rows` it reaches
+`useReactTable`'s `data`, whose `onChange` queues `resetPageIndex()` on a
+microtask, which sets state, which renders again. A microtask loop never yields,
+so the tab stops responding rather than merely re-rendering too often.
+
+`/documents` omits the prop, so the app was one state change away from it. No
+existing test could have found it: every call site in the app passes `folders`.
+**Mounting a component with the minimum it declares is a fuzz test for prop
+stability**, and it is free here because the preview does it anyway.
+
+### A test that cannot see the thing it asserts
+
+Two in this batch. The `is styled` gate counted 413 preflight rules and zero
+utilities and passed. A `position: fixed` panel is invisible to an
+`offsetParent` check, so a visibility assertion reported the panel absent — and
+would have passed against the bug it was written for.
+
+Both are the same error: **asserting on a proxy without checking that the proxy
+moves when the subject does.** The discipline that catches it is to re-break the
+code and confirm the gate fails.
+
+### What the consumer must own, and how it surfaced
+
+The catalogue grew from 8 declared files to every `components/ui/*`, and most of
+those exports do not mount alone: a menu item outside its menu throws, a slider
+with no width cannot slide. The instinct is a table in the plugin. The correct
+answer is a `previews` option — "a slider wants 260px" and "our menus carry an
+icon and a shortcut" are facts about *a* design system, not about design systems.
+
+The same boundary test settles the rest: the plugin knows *that* a component
+needs mounting, the consumer knows *how*.
+
+### The hand-off is the deliverable
+
+`.claude/skills/design-sandbox-bringup/SKILL.md` exists because this session's
+findings are worth more as a bring-up path than as history. It carries the six
+files a consumer writes, a verifiable order, and a trap table pairing every
+symptom above with its cause — written so the next project does not rediscover
+them. An extraction that only *claims* to be reusable has not been tested; the
+skill is what makes the claim checkable.
