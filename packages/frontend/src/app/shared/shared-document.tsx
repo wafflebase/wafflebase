@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { resolveShareLink, ResolvedShareLink } from "@/api/share-links";
 import { fetchMeOptional, fetchYorkieShareToken } from "@/api/auth";
 import { Loader } from "@/components/loader";
+import { SharedHeaderStatus } from "@/app/shared/shared-header-status";
 import SheetView from "@/app/spreadsheet/sheet-view";
 import {
   SpreadsheetDocument,
@@ -229,11 +230,7 @@ function SharedDocumentLayout({
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
           <h1 className="text-base font-medium">{resolved.title}</h1>
-          {readOnly && (
-            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              View only
-            </span>
-          )}
+          <SharedHeaderStatus readOnly={readOnly} />
         </div>
         <UserPresence onSelectPeer={handleSelectPeer} getJumpHint={getJumpHint} />
       </header>
@@ -287,11 +284,7 @@ function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
           <h1 className="text-base font-medium">{resolved.title}</h1>
-          {readOnly && (
-            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              View only
-            </span>
-          )}
+          <SharedHeaderStatus readOnly={readOnly} />
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -335,11 +328,7 @@ function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
           <h1 className="text-base font-medium">{resolved.title}</h1>
-          {readOnly && (
-            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              View only
-            </span>
-          )}
+          <SharedHeaderStatus readOnly={readOnly} />
         </div>
         <UserPresence />
       </header>
@@ -374,11 +363,7 @@ function SharedBoardLayout({ resolved }: { resolved: ResolvedShareLink }) {
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
           <h1 className="text-base font-medium">{resolved.title}</h1>
-          {readOnly && (
-            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              View only
-            </span>
-          )}
+          <SharedHeaderStatus readOnly={readOnly} />
         </div>
         <UserPresence />
       </header>
@@ -461,11 +446,7 @@ function SharedDesktopSlidesLayout({
       <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
           <h1 className="text-base font-medium">{resolved.title}</h1>
-          {readOnly && (
-            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              View only
-            </span>
-          )}
+          <SharedHeaderStatus readOnly={readOnly} />
         </div>
         <UserPresence />
       </header>
@@ -591,11 +572,7 @@ function SharedMobileSlidesLayout({
       <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
         <div className="flex min-w-0 items-center gap-2">
           <h1 className="truncate text-base font-medium">{resolved.title}</h1>
-          {readOnly && (
-            <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              View only
-            </span>
-          )}
+          <SharedHeaderStatus readOnly={readOnly} />
         </div>
         <UserPresence />
       </header>
@@ -712,8 +689,15 @@ function SharedPdfLayout({
           <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
             <div className="flex items-center gap-2">
               <h1 className="text-base font-medium">{resolved.title}</h1>
+              {/* Deliberately NOT `SharedHeaderStatus`, which every other
+                  shared layout uses. It would work here — the comment
+                  `DocumentProvider` does wrap this header — but the owned PDF
+                  route (`app/files/file-shell.tsx`) mounts no provider and
+                  cannot have it, and one document type whose sync chip depends
+                  on which URL you opened is worse than one with none. PDF is
+                  uniformly out of scope; see docs/design/sync-status.md. */}
               {readOnly && (
-                <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                   View only
                 </span>
               )}

@@ -178,6 +178,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
         <SiteHeader
           title={documentData?.title ?? "Loading..."}
           editable
+          syncStatus
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">

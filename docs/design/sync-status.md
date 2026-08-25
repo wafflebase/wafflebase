@@ -33,8 +33,9 @@ warning half and states the risk plainly.
 - A user who loses connectivity finds out **while it happens**, not by
   discovering missing work later.
 - Closing a tab that holds unpushed edits requires a deliberate confirmation.
-- One implementation covers sheets, docs, slides, notes, board, and PDF
-  comments — no per-engine work.
+- One implementation covers sheets, docs, slides, notes, and board — no
+  per-engine work beyond opting the shell in. PDF comments are excluded; see
+  [Where it lives](#where-it-lives).
 
 ### Non-Goals
 
@@ -93,7 +94,14 @@ the real risk rather than the reassuring version.
 
 `DocSyncStatus.SyncFailed` while still connected (a rejected push — auth
 expiry, a removed document) also resolves to `Not saved`, since the outcome for
-the user is identical.
+the user is identical. It is ignored once the queue has drained: a failed
+*pull* costs the user none of their own edits, so reporting it would be alarm
+with no consequence behind it.
+
+Before the provider has a document at all, the state is `Saved` rather than
+`Reconnecting…`. There is no connection to have lost and nothing queued to
+lose, and the alternative flashes "Reconnecting…" on every document open for
+the length of the attach.
 
 ### Where it lives
 
@@ -114,13 +122,32 @@ Mount points, all of which nest `<Layout>` inside `<DocumentProvider>`:
 | board | `board/board-detail.tsx:117` | `:166` |
 
 So the chip goes in `SiteHeader` itself, left of the `children` slot — the same
-position Google's status control occupies relative to the title. Every editor
-gets it with no per-type change.
+position Google's status control occupies relative to the title.
+
+It is **opt-in**, via a `syncStatus` prop, and not because an editor could
+reasonably decline it. `SiteHeader` is also mounted by two shells that have no
+Yorkie document in scope — the documents list (`app/Layout.tsx`) and the
+static-file viewer (`app/files/file-shell.tsx`) — and `useDocument()` throws
+`"useDocument must be used within a DocumentProvider"` outside a provider. An
+always-on chip would take those pages down. The prop is the smallest thing that
+keeps the position uniform while letting the two document-less shells abstain.
 
 `shared/shared-document.tsx` builds a bare top bar instead of using
-`SiteHeader`, and its share role can be editable, so it needs its own mount of
-the same component. That is why the chip ships as a standalone
-`<SyncStatusChip />` rather than as markup inlined into `SiteHeader`.
+`SiteHeader`, and its share role can be editable, so it needs its own mount.
+That is why the chip ships as a standalone `<SyncStatusChip />` rather than as
+markup inlined into `SiteHeader`. All five shared layouts had duplicated the
+same inline "View only" badge; that badge becomes one `SharedHeaderStatus`
+component which answers the whole question — the badge for a viewer, the chip
+for an editor — so the shared path has a single seam rather than five.
+
+PDF and image are **not** covered, on either route. The owned route
+(`app/files/file-shell.tsx`) mounts no `DocumentProvider` — the PDF comment
+document lives further down in `pdf-collab.tsx` — so the chip cannot be reached
+there without restructuring that shell, which is out of proportion to the risk
+of losing a stranded comment. The shared PDF layout *could* have it (its header
+does sit inside the comment provider), and deliberately does not: a document
+type whose sync chip depends on which URL you opened is worse than one with
+none. `SharedPdfLayout` keeps its inline badge, with a comment saying why.
 
 ### The transition notice
 
@@ -185,12 +212,17 @@ export function useSyncStatus(): {
   pendingSince: Date | null;
 };
 
-export function SyncStatusChip(props: { className?: string }): JSX.Element | null;
+export function SyncStatusChip(props: { className?: string }): JSX.Element;
 ```
 
-`SyncStatusChip` returns `null` in the `saved` steady state on narrow
-viewports, so the mobile slides header does not lose room to a chip that says
-"everything is fine".
+The `saved` steady state is hidden below the `sm` breakpoint (`hidden sm:flex`
+rather than a JS media query, so it costs no listener and no re-render) — the
+mobile slides header does not lose room to a chip that says "everything is
+fine". Every other state is shown at every width.
+
+The toast and the `beforeunload` guard live in `SyncStatusChip`, not in
+`useSyncStatus`, so that mounting the chip is what arms them and the hook stays
+usable for plain display.
 
 ## Risks and Mitigation
 
@@ -211,10 +243,14 @@ user interaction, and it cannot stop a crash, a tab discard, or an OS restart.
 It narrows the window; it does not close it. The real fix is offline
 persistence, listed as a Non-Goal and the natural follow-up to this document.
 
-**Six mount points to keep in sync.** Five editors reach it through
-`SiteHeader`, so they cannot drift. `shared-document.tsx` is the one separate
-mount, and the one place a future document type could forget the chip. A test
-that asserts the shared editable layout renders it pins that.
+**Mount points that can drift.** Because the chip is opt-in, a new editor can
+be written that simply never passes `syncStatus` — and nothing fails. The same
+is true of a new shared document type that hand-rolls its own top bar instead
+of using `SharedHeaderStatus`. Tests pin the two seams (the header renders the
+chip only when asked; the shared status shows the chip for an editor and the
+badge for a viewer), but neither can catch a call site that was never written.
+This is the cost of the opt-in, accepted because the alternative crashes the
+documents list.
 
 **Polling in a hot path.** Reading `hasLocalChanges()` on a timer is cheap, but
 a naive implementation that calls `setState` every tick would re-render the
