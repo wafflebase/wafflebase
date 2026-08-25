@@ -11,15 +11,15 @@ viewer's keydown handler only maps ←/→ (prev/next image); Esc does nothing.
 
 ## Acceptance criteria
 
-- [ ] The image viewer's top bar shows a back button that returns to the
+- [x] The image viewer's top bar shows a back button that returns to the
       documents list.
-- [ ] Esc in the image viewer returns to the documents list.
-- [ ] The destination is the document's own workspace list (`/w/:slug`),
+- [x] Esc in the image viewer returns to the documents list.
+- [x] The destination is the document's own workspace list (`/w/:slug`),
       falling back to `/documents`.
-- [ ] Esc is ignored while typing in an input/textarea/contenteditable
+- [x] Esc is ignored while typing in an input/textarea/contenteditable
       (e.g. the header's rename field), and does nothing for anonymous
       share-link viewers, who have no documents list.
-- [ ] Unchanged: pdf/file layouts, ←/→ prev/next, zoom, download, share.
+- [x] Unchanged: pdf/file layouts, ←/→ prev/next, zoom, download, share.
 
 ## Plan
 

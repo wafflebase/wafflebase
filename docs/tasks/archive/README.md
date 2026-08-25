@@ -6,21 +6,26 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 546
+Total archived tasks: 553
 
-## 2026/08 (116 tasks)
+## 2026/08 (123 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| panel pool exhaustion infra (2026-08-24) | [20260824-panel-pool-exhaustion-infra-todo.md](./2026/08/20260824-panel-pool-exhaustion-infra-todo.md) | - |
 | docs large paste perf (2026-08-23) | [20260823-docs-large-paste-perf-todo.md](./2026/08/20260823-docs-large-paste-perf-todo.md) | [20260823-docs-large-paste-perf-lessons.md](./2026/08/20260823-docs-large-paste-perf-lessons.md) |
 | caret line affinity (2026-08-22) | [20260822-caret-line-affinity-todo.md](./2026/08/20260822-caret-line-affinity-todo.md) | [20260822-caret-line-affinity-lessons.md](./2026/08/20260822-caret-line-affinity-lessons.md) |
 | docs cell hf wrap affinity (2026-08-22) | [20260822-docs-cell-hf-wrap-affinity-todo.md](./2026/08/20260822-docs-cell-hf-wrap-affinity-todo.md) | [20260822-docs-cell-hf-wrap-affinity-lessons.md](./2026/08/20260822-docs-cell-hf-wrap-affinity-lessons.md) |
 | docs visual line affinity (2026-08-22) | [20260822-docs-visual-line-affinity-todo.md](./2026/08/20260822-docs-visual-line-affinity-todo.md) | [20260822-docs-visual-line-affinity-lessons.md](./2026/08/20260822-docs-visual-line-affinity-lessons.md) |
+| image viewer back button (2026-08-22) | [20260822-image-viewer-back-button-todo.md](./2026/08/20260822-image-viewer-back-button-todo.md) | [20260822-image-viewer-back-button-lessons.md](./2026/08/20260822-image-viewer-back-button-lessons.md) |
 | mark ready exit codes (2026-08-22) | [20260822-mark-ready-exit-codes-todo.md](./2026/08/20260822-mark-ready-exit-codes-todo.md) | [20260822-mark-ready-exit-codes-lessons.md](./2026/08/20260822-mark-ready-exit-codes-lessons.md) |
 | notes blame gutter (2026-08-22) | [20260822-notes-blame-gutter-todo.md](./2026/08/20260822-notes-blame-gutter-todo.md) | [20260822-notes-blame-gutter-lessons.md](./2026/08/20260822-notes-blame-gutter-lessons.md) |
+| notes foldout toolbar (2026-08-22) | [20260822-notes-foldout-toolbar-todo.md](./2026/08/20260822-notes-foldout-toolbar-todo.md) | [20260822-notes-foldout-toolbar-lessons.md](./2026/08/20260822-notes-foldout-toolbar-lessons.md) |
+| notes list controls (2026-08-22) | [20260822-notes-list-controls-todo.md](./2026/08/20260822-notes-list-controls-todo.md) | [20260822-notes-list-controls-lessons.md](./2026/08/20260822-notes-list-controls-lessons.md) |
 | notes mermaid label beacon (2026-08-22) | [20260822-notes-mermaid-label-beacon-todo.md](./2026/08/20260822-notes-mermaid-label-beacon-todo.md) | [20260822-notes-mermaid-label-beacon-lessons.md](./2026/08/20260822-notes-mermaid-label-beacon-lessons.md) |
 | release v0.6.5 (2026-08-22) | [20260822-release-v0.6.5-todo.md](./2026/08/20260822-release-v0.6.5-todo.md) | [20260822-release-v0.6.5-lessons.md](./2026/08/20260822-release-v0.6.5-lessons.md) |
 | selection line affinity (2026-08-22) | [20260822-selection-line-affinity-todo.md](./2026/08/20260822-selection-line-affinity-todo.md) | [20260822-selection-line-affinity-lessons.md](./2026/08/20260822-selection-line-affinity-lessons.md) |
+| sheet move merge propagation (2026-08-22) | [20260822-sheet-move-merge-propagation-todo.md](./2026/08/20260822-sheet-move-merge-propagation-todo.md) | [20260822-sheet-move-merge-propagation-lessons.md](./2026/08/20260822-sheet-move-merge-propagation-lessons.md) |
 | sheets clear borders prune (2026-08-22) | [20260822-sheets-clear-borders-prune-todo.md](./2026/08/20260822-sheets-clear-borders-prune-todo.md) | [20260822-sheets-clear-borders-prune-lessons.md](./2026/08/20260822-sheets-clear-borders-prune-lessons.md) |
 | sheets merge refusal notice (2026-08-22) | [20260822-sheets-merge-refusal-notice-todo.md](./2026/08/20260822-sheets-merge-refusal-notice-todo.md) | [20260822-sheets-merge-refusal-notice-lessons.md](./2026/08/20260822-sheets-merge-refusal-notice-lessons.md) |
 | task archive audit (2026-08-22) | [20260822-task-archive-audit-todo.md](./2026/08/20260822-task-archive-audit-todo.md) | [20260822-task-archive-audit-lessons.md](./2026/08/20260822-task-archive-audit-lessons.md) |
@@ -29,6 +34,7 @@ Total archived tasks: 546
 | eval validity scorer (2026-08-20) | [20260820-eval-validity-scorer-todo.md](./2026/08/20260820-eval-validity-scorer-todo.md) | - |
 | fixer live credential (2026-08-20) | [20260820-fixer-live-credential-todo.md](./2026/08/20260820-fixer-live-credential-todo.md) | - |
 | pool select all agents (2026-08-20) | [20260820-pool-select-all-agents-todo.md](./2026/08/20260820-pool-select-all-agents-todo.md) | - |
+| pr786 conflict resolution (2026-08-20) | [20260820-pr786-conflict-resolution-todo.md](./2026/08/20260820-pr786-conflict-resolution-todo.md) | - |
 | slides undo add slide current (2026-08-20) | [20260820-slides-undo-add-slide-current-todo.md](./2026/08/20260820-slides-undo-add-slide-current-todo.md) | [20260820-slides-undo-add-slide-current-lessons.md](./2026/08/20260820-slides-undo-add-slide-current-lessons.md) |
 | citation same file match (2026-08-19) | [20260819-citation-same-file-match-todo.md](./2026/08/20260819-citation-same-file-match-todo.md) | - |
 | design editor token panels (2026-08-19) | [20260819-design-editor-token-panels-todo.md](./2026/08/20260819-design-editor-token-panels-todo.md) | [20260819-design-editor-token-panels-lessons.md](./2026/08/20260819-design-editor-token-panels-lessons.md) |
@@ -128,6 +134,7 @@ Total archived tasks: 546
 | design doc audit (2026-08-02) | [20260802-design-doc-audit-todo.md](./2026/08/20260802-design-doc-audit-todo.md) | [20260802-design-doc-audit-lessons.md](./2026/08/20260802-design-doc-audit-lessons.md) |
 | board miro import (2026-08-01) | [20260801-board-miro-import-todo.md](./2026/08/20260801-board-miro-import-todo.md) | [20260801-board-miro-import-lessons.md](./2026/08/20260801-board-miro-import-lessons.md) |
 | datasource test without save (2026-08-01) | [20260801-datasource-test-without-save-todo.md](./2026/08/20260801-datasource-test-without-save-todo.md) | - |
+| docs sync (2026-08-01) | [20260801-docs-sync-todo.md](./2026/08/20260801-docs-sync-todo.md) | - |
 
 ## 2026/07 (100 tasks)
 

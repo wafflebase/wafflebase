@@ -46,7 +46,7 @@ rather than the reverse.
 - [x] `packages/backend/README.md` — de-duplicate the duplicated `COOKIE_SECURE` block
 - [x] `packages/cli/test/output.test.ts` — reconcile both suites
 - [x] `pnpm cli test` + `pnpm verify:fast` green
-- [ ] Push to the PR branch
+- [x] Push to the PR branch
 
 ## Review
 

@@ -39,11 +39,14 @@ New design docs and new end-user pages are deferred (need authoring judgment).
       material); slides README listed `ChartElement` (not barrel-exported);
       shared-core note mislabeled `/url`. All fixed + re-verified vs code.
 
-## Still deferred (not in this PR)
+## Still deferred (not in this task)
 
-- [ ] `docs-hyperlinks.md` design doc (#520/#532/#548/#580) + reconcile xlsx `Cell.lk` gap
-- [ ] Sheets auto-link / header-ref subsections
-- [ ] Docs find & replace + viewer read-only subsections
+Out of scope here — they need authoring judgment, not a factual sync. Listed
+so the gap is on the record; they are not work this task ever intended to do:
+
+- `docs-hyperlinks.md` design doc (#520/#532/#548/#580) + reconcile xlsx `Cell.lk` gap
+- Sheets auto-link / header-ref subsections
+- Docs find & replace + viewer read-only subsections
 
 ## Verify
 

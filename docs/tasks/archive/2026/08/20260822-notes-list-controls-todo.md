@@ -13,15 +13,15 @@ toggle, and no indent / outdent.
 
 ## Acceptance criteria
 
-- [ ] Typing `[ ]` (or `[x]`) at the start of a line converts to a checkbox
+- [x] Typing `[ ]` (or `[x]`) at the start of a line converts to a checkbox
       item without the user typing the `-`.
-- [ ] In preview mode, clicking anywhere on a task item — the checkbox or its
+- [x] In preview mode, clicking anywhere on a task item — the checkbox or its
       adjacent text — toggles checked/unchecked, writing back to the source.
-- [ ] Toolbar gains Checkbox, Numbered list and Bullet list toggle buttons.
-- [ ] Toolbar gains Indent / Outdent buttons, disabled when the line cannot be
+- [x] Toolbar gains Checkbox, Numbered list and Bullet list toggle buttons.
+- [x] Toolbar gains Indent / Outdent buttons, disabled when the line cannot be
       indented / outdented any further.
-- [ ] All four list actions apply to every line of a multi-line selection.
-- [ ] A read-only note (share viewer) stays read-only: preview checkboxes are
+- [x] All four list actions apply to every line of a multi-line selection.
+- [x] A read-only note (share viewer) stays read-only: preview checkboxes are
       not clickable and the toolbar controls are hidden as today.
 
 ## Plan
