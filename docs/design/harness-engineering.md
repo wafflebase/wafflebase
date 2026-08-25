@@ -1684,9 +1684,10 @@ Components:
     consequence is that a round's `minor`/`nit` findings, and any blocker the novelty
     or surface gate demoted to `backlog`, reach no tool: `proseOnly` strips finding
     sections out of the markdown bodies, and carry-forward reads `output.text`.
-    They are not lost — `verdict.json` keeps every finding with the `lane` and
-    `novelty` that explain each decision, and the stage-detail capture keeps the raw
-    per-sample ones — but nothing on the pull request is addressed to a reader.
+    They are not lost — `.agent-review/<lens>/verdict.json` keeps every finding with
+    the `lane` and `novelty` that explain each decision, and the stage-detail capture
+    keeps the raw per-sample ones — but nothing on the pull request is addressed to a
+    reader.
 
     So the panel writes a **second, advisory check run**, once per round, aggregated
     across lenses (`scripts/agent/deferred-findings.mjs`), whose `output.text` is a
