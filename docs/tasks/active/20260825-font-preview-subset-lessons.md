@@ -74,3 +74,27 @@ and was left rebuilding only the shell — three reviewers found it, no lane
 could, because none of these scripts run on CI. The copies existed because the
 helper was copy-pasted; they diverged because that is what copies do. It is now
 one `scripts/build-if-stale.mjs` that both design-editor gates import.
+
+## A face is scoped to the family, never to the row that asked for it
+
+The subset guards above are all about the *other* faces of the same family:
+don't shadow the app shell's full `Inter`, don't let `check()` answer with a
+subset. Review found the one they all miss — the family a subset is the ONLY
+face for. `&text=` still carries no `unicode-range`, so a row merely scrolled
+past becomes the face the document behind the menu paints that family with,
+and body text renders the row's handful of glyphs plus fallback for the rest.
+Before subsetting, the same scroll accidentally *repaired* such a document by
+pulling the whole family.
+
+The fix is lifetime, not another guard: a subset is borrowed, so
+`releasePreviewFontLinks()` drops all of them when the list unmounts, and the
+picker drops them once more before `onChange` — that hand-off is the exact
+moment the caller starts asking `document.fonts` about the family it just
+applied. Releasing everything rather than refcounting is honest about who
+injects them: only these two modal lists ever do, and the HTTP cache makes the
+next open free.
+
+Same lesson one level up: `applySlideFontFamily` was still calling
+`document.fonts.load()` beside a promise it dropped, on a dirty-gated canvas
+that repaints exactly once. A contract added to a function's doc comment is
+not a contract until its existing callers are read.

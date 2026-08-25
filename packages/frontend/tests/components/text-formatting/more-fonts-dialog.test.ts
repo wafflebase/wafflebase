@@ -175,4 +175,29 @@ describe("MoreFontsDialog", () => {
     // Weight comes from the row's entry, never a hardcoded 400.
     expect(href.searchParams.get("family")).toBe("Lobster:wght@700");
   });
+
+  // A `&text=` face carries no `unicode-range`, so while it is connected it
+  // is the family's face for the whole document — browsing the list would
+  // otherwise leave the document behind the dialog painting every family
+  // scrolled past in that row's glyphs plus fallback for the rest.
+  test("closing the dialog releases the row subsets", () => {
+    const ui = (open: boolean) =>
+      h(MoreFontsDialog, {
+        open,
+        onOpenChange: () => {},
+        value: undefined,
+        onPick: () => {},
+        catalog: CATALOG,
+      });
+    render(ui(true));
+    const observer = observers.at(-1)!;
+    const row = observer.observed.find(
+      (node) => (node as HTMLElement).dataset.fontRow === "Lobster",
+    )!;
+    act(() => observer.callback([{ target: row, isIntersecting: true }]));
+    expect(previewLinks()).toHaveLength(1);
+
+    act(() => root!.render(ui(false)));
+    expect(previewLinks()).toHaveLength(0);
+  });
 });

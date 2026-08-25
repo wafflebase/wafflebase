@@ -436,6 +436,35 @@ describe("FontFamilyPicker", () => {
   });
 
   /*
+   * A SUBSET MUST NOT OUTLIVE THE LIST THAT ASKED FOR IT. `&text=` returns a
+   * face with no `unicode-range`, so for as long as it is connected it is the
+   * face the browser paints that family with everywhere — a family whose row
+   * was merely scrolled past would go on painting the document behind the
+   * menu in that row's glyphs and fall back for the rest.
+   */
+  test("closing the menu releases the row subsets", () => {
+    const el = render(
+      h(FontFamilyPicker, { value: "Arial", onChange: () => {} }),
+    );
+    openMenu(el.querySelector('[aria-label="Font"]') as HTMLElement);
+    const observer = observers.at(-1)!;
+    const row = observer.observed.find(
+      (node) => (node as HTMLElement).dataset.fontRow === "Open Sans",
+    )!;
+    act(() => observer.callback([{ target: row, isIntersecting: true }]));
+    expect(previewLinks()).toHaveLength(1);
+
+    // Esc dismisses the menu; Radix unmounts the portalled content, which is
+    // what the release is keyed on.
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(previewLinks()).toHaveLength(0);
+  });
+
+  /*
    * A RECENT FROM OUTSIDE THE CURATED CATALOG. `addRecentFont` stores bare
    * family names, so a font picked out of the 1,900-entry library resurfaces in
    * the Recent section with no catalog entry behind it — and previewing it at

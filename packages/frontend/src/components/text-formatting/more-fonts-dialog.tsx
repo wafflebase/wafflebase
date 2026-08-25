@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import {
   FONT_CATALOG,
   ensurePreviewFontLink,
+  releasePreviewFontLinks,
   type FontEntry,
 } from "./font-catalog";
 import {
@@ -163,6 +164,17 @@ export function MoreFontsDialog({
       .forEach((el) => obs.observe(el));
     return () => obs.disconnect();
   }, [open, results, scrollEl]);
+
+  // A `&text=` face has no `unicode-range`, so it is the family's face for the
+  // whole document, not just for this list — browsing ~1,900 rows would
+  // otherwise leave every family scrolled past painting the document behind
+  // the dialog in that row's glyphs plus fallback. Keyed on `scrollEl` alone
+  // so a re-filter (which re-runs the observer effect) keeps the faces the
+  // open list is still painting with.
+  useEffect(() => {
+    if (!scrollEl) return;
+    return () => releasePreviewFontLinks();
+  }, [scrollEl]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

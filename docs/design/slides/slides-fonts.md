@@ -201,6 +201,17 @@ The bootstrap injector was generalized into a **per-family** loader
     Recent section can name a family from the full library that the curated
     catalog has no entry for, so it pulls `loadFullFontCatalog()` and holds
     the row back until the weights resolve (or the load fails).
+  - **A subset is borrowed, not owned.** The same missing `unicode-range`
+    that makes a subset dangerous over an already-loaded family makes it
+    dangerous over a family the *document* uses: while connected it is that
+    family's face everywhere, so body text would paint the row's handful of
+    glyphs and fall back for the rest. So the two preview surfaces call
+    `releasePreviewFontLinks()` when their list unmounts, and the picker
+    calls it once more before handing a pick to `onChange` — the caller
+    immediately asks the Font Loading API about that family, and a subset
+    still connected is a face `check()`/`load()` answers with. Nothing but
+    these lists ever injects a subset, so releasing all of them is
+    sufficient, and the browser's HTTP cache makes the next open free.
 - `FontRegistry.ensureFont()` is unchanged — it already does
   `document.fonts.load()` + re-layout notification; the only addition is
   that the CSS `<link>` for that family must be present first, which

@@ -21,6 +21,7 @@ import { describe, test, expect, afterEach } from 'vitest';
 import {
   ensureFontLink,
   ensurePreviewFontLink,
+  releasePreviewFontLinks,
 } from '../../../src/components/text-formatting/font-catalog.ts';
 
 function fontLinks(): HTMLLinkElement[] {
@@ -304,6 +305,33 @@ describe('ensurePreviewFontLink', () => {
         'https://fonts.googleapis.com/css2?family=Lobster&text=Lobster&display=swap',
       );
       ensurePreviewFontLink('Lobster', 'Lobster');
+      expect(previewLinks()).toHaveLength(1);
+    });
+  });
+
+  /*
+   * A SUBSET IS BORROWED, NOT OWNED. `&text=` returns a face with no
+   * `unicode-range`, so it is the family's face for the whole document while
+   * connected — the preview surfaces release theirs when their list goes away
+   * rather than leaving the document painting a picker row's glyph set.
+   */
+  describe('releasePreviewFontLinks', () => {
+    test('drops every subset and leaves full links alone', () => {
+      ensurePreviewFontLink(FAKE_A, 'One');
+      ensurePreviewFontLink(FAKE_KR, '가짜');
+      ensureFontLink(FAKE_B);
+      expect(previewLinks()).toHaveLength(2);
+
+      releasePreviewFontLinks();
+
+      expect(previewLinks()).toHaveLength(0);
+      expect(fontLinks()).toHaveLength(1);
+    });
+
+    test('a released family is previewable again', () => {
+      ensurePreviewFontLink(FAKE_A, 'One');
+      releasePreviewFontLinks();
+      ensurePreviewFontLink(FAKE_A, 'One');
       expect(previewLinks()).toHaveLength(1);
     });
   });

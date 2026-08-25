@@ -11,7 +11,8 @@
  * Loading model: only `eager` web fonts are requested in the bootstrap
  * CSS link; the long tail lazy-loads via `ensureFontLink` the first time
  * a family is picked or hovered. Merely *previewing* a row goes through
- * `ensurePreviewFontLink`, which requests only that row's glyphs.
+ * `ensurePreviewFontLink`, which requests only that row's glyphs and lasts
+ * only as long as the list that asked for it (`releasePreviewFontLinks`).
  */
 import { useEffect } from 'react';
 import { FONT_CATALOG_DATA } from './font-catalog.data';
@@ -224,6 +225,33 @@ function removePreviewFontLink(family: string): void {
   findPreviewFontLink(family)?.remove();
 }
 
+/**
+ * Drop EVERY subset link currently in the head. A subset face is scoped to
+ * one list of picker rows in intent but to the whole document in effect:
+ * `&text=` returns a face with no `unicode-range`, so for as long as it is
+ * connected it is the face the browser paints that family with — everywhere,
+ * including body text in the document behind the menu, which would then
+ * render the handful of glyphs the row painted and fall back for the rest.
+ *
+ * So a subset must not outlive the list that asked for it. Callers are the
+ * two preview surfaces (`FontFamilyPicker`, `MoreFontsDialog`), which release
+ * when their list unmounts and again before handing a pick to `onChange` —
+ * the latter so the caller's `ensureFontLink` + `document.fonts.load()`/
+ * `check()` cannot be answered by the subset for the family being applied.
+ *
+ * Releasing everything rather than tracking per-row refcounts is deliberate:
+ * only these lists ever inject a subset, they are modal, and the browser's
+ * HTTP cache makes re-requesting one on the next open free.
+ */
+export function releasePreviewFontLinks(): void {
+  if (typeof document === 'undefined') return;
+  for (const link of document.head.querySelectorAll<HTMLLinkElement>(
+    'link[data-wafflebase-font-preview]',
+  )) {
+    link.remove();
+  }
+}
+
 /** The single weight a preview requests: the first cut of the family's
  *  `weights` spec. Never a hardcoded 400 — `Sunflower` ships only 700 and
  *  `css2?family=Sunflower:wght@400` answers HTTP 400 with an HTML error
@@ -301,6 +329,12 @@ function hasFullFamilyLink(family: string): boolean {
  * lookup: recents and the full library both contain families absent from
  * `CATALOG_INDEX`, and a row's text is more than its label whenever the
  * `font-family` is set on a container.
+ *
+ * THE LINK IS BORROWED, NOT OWNED. A subset face applies to the family
+ * everywhere, not just to the row, so the caller must release it when its
+ * list goes away — see `releasePreviewFontLinks`. Left connected, a family
+ * whose row was merely scrolled past would repaint the document behind the
+ * menu in the row's glyphs plus fallback for everything else.
  */
 export function ensurePreviewFontLink(
   family: string,

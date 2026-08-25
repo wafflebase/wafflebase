@@ -19,18 +19,25 @@ interface FamilyTextEditor {
  * so without the explicit `markDirty` the canvas would keep painting the
  * fallback until the next unrelated edit — the same reason image-cache
  * loads call back into a repaint.
+ *
+ * THE STYLESHEET WAIT IS LOAD-BEARING. `ensureFontLink` resolves when the
+ * family's real faces are connected; asking `document.fonts.load()` before
+ * that answers about whatever IS connected — nothing, or (since previews
+ * became subsets) the picker row's `&text=` face, whose handful of glyphs
+ * would then be what this one dirty-gated repaint paints, with no second
+ * repaint coming to correct it.
  */
 export function applySlideFontFamily(
   textEditor: FamilyTextEditor,
   family: string,
   editor: SlidesEditor | null,
 ): void {
-  ensureFontLink(family);
+  const linked = ensureFontLink(family);
   textEditor.applyStyle({ fontFamily: family });
   textEditor.focus();
   if (typeof document !== "undefined" && editor) {
-    document.fonts
-      .load(`16px ${JSON.stringify(family)}`)
+    linked
+      .then(() => document.fonts.load(`16px ${JSON.stringify(family)}`))
       .then(() => {
         editor.markDirty();
         editor.render();

@@ -27,6 +27,7 @@ import { IconChevronDown } from "@tabler/icons-react";
 import {
   FONT_CATALOG,
   ensurePreviewFontLink,
+  releasePreviewFontLinks,
   type FontEntry,
   type FontGroup,
 } from "./font-catalog";
@@ -164,6 +165,18 @@ export function FontFamilyPicker({
     return () => obs.disconnect();
   }, [listEl, recents, fullByFamily, fullSettled]);
 
+  // The subsets above only ever paint THIS list, but the faces they connect
+  // are the family's faces document-wide: `&text=` carries no
+  // `unicode-range`, so a family whose row was merely scrolled past would go
+  // on painting the document behind the menu in that row's glyphs and fall
+  // back for the rest. So the subsets die with the list. Keyed on `listEl`
+  // alone — the observer effect above re-runs as rows resolve their weights,
+  // and releasing on those runs would drop faces the open list still paints.
+  useEffect(() => {
+    if (!listEl) return;
+    return () => releasePreviewFontLinks();
+  }, [listEl]);
+
   // Stash the picked family in a ref and replay it from `onCloseAutoFocus`
   // rather than firing `onChange` directly from the item's onClick. The
   // caller's onChange typically ends with `editor.focus()` to restore the
@@ -177,6 +190,12 @@ export function FontFamilyPicker({
   const pendingMoreRef = useRef(false);
 
   const applyPick = (family: string): void => {
+    // Before `onChange`, not after: the caller loads the family for real
+    // (`ensureFontLink`) and then asks the Font Loading API about it, and a
+    // subset face still connected is a face `document.fonts.check()`/`load()`
+    // answers with. Both close paths run through here, so this covers the
+    // window between the list unmounting and its effect cleanup firing.
+    releasePreviewFontLinks();
     addRecentFont(family);
     onChange(family);
   };
