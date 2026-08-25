@@ -159,15 +159,17 @@ Measured on one machine, both trees extracted with the same `node_modules` symli
 into each, so a skip delta cannot be an environment artefact. Reported as
 `rest + iso`, the way the lane produces them.
 
-- [x] **`agent:tests` — 2510 + 57 = 2567 tests, 0 fail, 0 skip.** Baseline at
-      `70e5be9ad30e`: **2475 + 57 = 2532, 0 fail, 0 skip.** Delta **+35**, which is
-      exactly the new test file.
+- [x] **`agent:tests` — 2517 + 57 = 2574 tests, 0 fail, 0 skip.** Baseline at
+      `70e5be9ad30e`: **2475 + 57 = 2532, 0 fail, 0 skip.** Delta **+42** — 41 in the
+      new test file, 1 added to `loop-status.test.mjs`.
 - [x] **`npx eslint scripts` exit 0** (eslint 9.24.0, lockfile-pinned). Baseline also 0.
-- [x] **Mutation testing: 30/30 caught by the specifically-named test**, tree restored
+- [x] **Mutation testing: 37/37 caught by the specifically-named test**, tree restored
       byte-identical and re-runs clean. Covers the never-gates guard (5), the trim
       tally (6), the provenance fields (7), the generation stamp (4), the population
-      rule (3), the two fail directions (2), the new step's `retries` (1), and the two
-      review fixes (2).
+      rule (3), the fail directions (2), the new step's `retries` (1), and the review
+      fixes (9). ⚠ Six patterns went stale when the review fixes moved their lines;
+      the harness reported them as HARNESS ERROR rather than as passes, which is the
+      property it exists to have.
 - [x] **`eval/panel-identity.test.mjs` 8/8** and **`eval/test-lane.test.mjs` 8/8**
       unchanged — the two tests a new module and a new `github-script` step can break.
 - [x] **Workflow structural diff:** triggers identical, job list identical, **every
@@ -184,50 +186,59 @@ into each, so a skip delta cannot be an environment artefact. Reported as
 
 ## Review findings
 
-Three were raised. **Two were valid and are fixed; one did not survive verification.**
+Thirteen were raised across two rounds. **Ten are fixed; three are declined.**
 
-**1. `always()` on both steps published a cancelled panel — FIXED.** Both are now
-`!cancelled()`, matching *"Post per-lens check runs"* rather than the observability
-steps below them. A cancelled round has not finished routing, so the lenses that
-happen to have written a `verdict.json` are an arbitrary prefix — publishing a
-`total` from that is the silent-partial failure the omission tally exists to
-prevent. An ordinary failure still publishes, which is the case worth recording.
-Guarded by a new test that reads the workflow and rejects `always()`.
+### Fixed
 
-**2. The summary tallied only the emitted prefix — FIXED.** `renderDeferredSummary`
-was passed `records.slice(0, emitted)` while being given the full `total`, so a
-demoted finding that fell off the trim was counted as non-blocking and the tables
-summed to less than the prose. It now receives every record. This costs nothing:
-the tables are keyed by lens and severity, so their size is bounded by the manifest
-regardless of how many findings there are — only `text`, which carries records
-whole, needs the trim. Guarded by a test that drops a trailing demoted major and
-asserts it still appears in the counts; verified to fail on the previous code.
+| # | finding | fix |
+|---|---|---|
+| 1 | The summary mixed a full `total` with emitted-only counts, so on a trimmed round the non-blocking/demoted split and both tables were wrong — a demoted finding that fell off the tail read as non-blocking | `renderDeferredSummary` receives every record. Free: the tables are keyed by lens and severity, so the manifest bounds their size; only `text` needs the trim |
+| 2 | Both steps ran under `always()`, publishing a cancelled, half-routed panel | `!cancelled()`, matching the sibling check-writer. Ordinary failures still publish |
+| 3 | `isDeferred` tested severity before the lane, so a refuted **non-blocker** was admitted as deferred work | The lane is tested first, for every severity |
+| 4 | `lane`/`noveltyOrigin`/`surfaceScope` were recorded from non-blockers, where they are **model output** — a lens could forge "the gate demoted a major" | Carried only for the severities the gate actually routes |
+| 5 | `confidence` was the one model string copied unclipped, so one finding could evict the record | Clipped to 20 |
+| 6 | The PARTIAL notice hard-coded `MAX_TEXT_CHARS` instead of the applied budget | States `maxChars` |
+| 7 | The body clipped at `MAX_SUMMARY_CHARS` while `clip` appends an ellipsis, returning **60001** against a stated 60000 | Clips at `MAX_SUMMARY_CHARS - 1`. Found by the new clipping test, not by inspection |
+| 8 | Unconditional `checks.create` left two contradictory runs after a panel re-run on one head sha | Updates an existing run when present |
+| 9 | `loop-status.mjs` bucketed the run with CI's checks, and `neutral` is not red — so the dashboard could show green for a CI run that never happened | Excluded by name, with a test |
+| 10 | CONTRIBUTING.md requires a design doc for a non-trivial change; this had only a task plan | `docs/design/harness-engineering.md` documents the channel, and its "ONLY as `agent-review-*` check runs" claim is no longer stale. `pnpm tasks:index` re-run |
 
-**3. `summary`/`evidence` published without `redactSecrets` — NOT FIXED, and the
-premise does not hold.** Two independent reasons, both measured rather than argued:
+A `file` fallback in `deferredRecord` was also removed as unreachable — `findingLocation`
+returns null only when there is no usable file and no citation naming one.
 
-- **It is not a new publication boundary.** The existing per-lens check runs already
-  publish the same two fields, from the same `verdict.json`, through the same
-  `checks` API, in the same job. Neither `severity.mjs::renderSummaryMd` (which
-  writes every `output.summary`) nor the `output.text` projection redacts anything;
-  `review-panel.mjs` imports `redactSecrets` for **infra error text only**.
-- 🔴 **Applying it would corrupt the record.** `redactSecrets` is built for short
-  infra strings: layer 4 masks whatever follows a field name like `token`, `secret`,
-  `password` or `api_key`, and layer 5 is an unconditional entropy catch-all.
-  Measured on seven realistic finding texts, **three were mangled and all three were
-  the security-relevant ones**:
+### Declined
+
+**Publishing `summary`/`evidence` without `redactSecrets`.** Two reasons, both measured:
+
+- **Not a new boundary.** The existing per-lens runs publish the same two fields, from
+  the same `verdict.json`, through the same API, in the same job. Neither
+  `severity.mjs::renderSummaryMd` nor the `output.text` projection redacts;
+  `review-panel.mjs` imports `redactSecrets` for infra error text only.
+- 🔴 **It would corrupt the record.** Layer 4 masks whatever follows a field name like
+  `token`, `secret` or `api_key`; layer 5 is an unconditional entropy catch-all. On
+  seven realistic finding texts, **three came back mangled and all three were the
+  security-relevant ones**:
 
   ```
-  "password validation is skipped when …"   → "password <REDACTED> is skipped when …"
-  "the secret: process.env.SIGNING_KEY …"   → "the secret: <REDACTED> …"
-  "api_key handling in cli-auth.store.ts"   → "api_key <REDACTED> in cli-auth.store.ts"
+  "password validation is skipped when …"  → "password <REDACTED> is skipped when …"
+  "the secret: process.env.SIGNING_KEY …"  → "the secret: <REDACTED> …"
+  "api_key handling in cli-auth.store.ts" → "api_key <REDACTED> in cli-auth.store.ts"
   ```
 
-  So it would silently gut every finding *about* credential handling — which is why
-  the repository applies it to transport errors and not to findings. That is a
-  domain boundary, not an omission.
+  It would gut every finding *about* credential handling, which is why the repository
+  scopes that filter to transport errors rather than findings.
 
-⚠ **The underlying concern is still real and is repo-wide:** a lens quoting a
-hardcoded secret out of the diff would publish it, today, through six existing
-per-lens check runs. That wants a redactor scoped to credential *shapes* only
-(layers 1–3), applied to all seven channels at once. It is not this change.
+⚠ **The underlying concern is real and repo-wide** — a lens quoting a hardcoded secret
+out of the diff publishes it today through six existing check runs. It wants a
+shape-only redactor (layers 1–3) applied to all seven channels at once. Not this change.
+
+**Advisory-lens findings are not captured.** Every lens in the manifest is
+`gating: blocking`, so the population is empty today, and reaching it means plumbing
+lens gating into a module that reads only `verdict.json`.
+
+**The population rule is "a third copy of the gating filter."** Accurate, and not
+fixable here: that filter is inline `github-script` with no exported function to derive
+from. Recorded as a known coupling.
+
+**`mark-ready.mjs` reads check runs unpaginated** (`per_page=100`). Pre-existing; this
+adds one run per round to a 100-run first page.
