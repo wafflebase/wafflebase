@@ -151,7 +151,45 @@ to: the scenes resolve `@wafflebase/core/*` to built output, and a stale `dist` 
 scene with `does not provide an export named …`, which reads as broken scenes rather than a
 stale artefact.
 
-### 5. When something is wrong
+### 5. Reporting a defect you see in a scene
+
+The scene frame is the second host of the bug reporter
+(`docs/design/debug-report.md`): press a hotkey, point at what is wrong, say it in one
+sentence, collect a few, hand them over once.
+
+**It is off unless you ask for it**, and it takes a restart:
+
+```bash
+VITE_WB_DEBUG_REPORT=1 pnpm --filter @wafflebase/design-sandbox dev
+```
+
+Then, **with the pointer over a scene**, `Mod+Shift+Y` arms the reporter (a badge appears
+bottom-left of the frame), `c` captures whatever is under the cursor, `r` drags out a
+region instead, `v` opens the preview panel, `Esc` peels one layer back.
+
+Over a scene, not merely somewhere in the editor: the overlay lives inside the frame, so
+the shell hands the key to the frame under the POINTER and focuses it. Press it while the
+cursor is over the editor's own chrome and nothing happens — deliberately, because with
+`before` and `after` both on screen there is no other way to say which one you meant, and
+arming both would put two capture stores on one origin. Confirmed bundles land in
+`<repo>/.wb-reports/<session>/` — the same directory the app's own reporter writes to,
+because intake is one repository-wide runner. They are gitignored.
+
+Two things worth knowing about where it lives:
+
+- **The overlay is inside the frame, not the shell.** It has to be:
+  `elementFromPoint` in the shell returns the `<iframe>`, so a shell-side overlay could
+  name nothing inside the scene and every report would carry a picture with no selector.
+  The consequence for you is that the reporter aims at the SCENE — the editor's own chrome
+  is not reportable this way.
+- **A scene is DOM, so no canvas locator is supplied.** Point at a canvas scene's canvas
+  and you get a region rather than `Sheet1!C7`. That is deliberate: only a mounted engine
+  can turn a point into an address, and the design editor mounts none of its own.
+
+Without `VITE_WB_DEBUG_REPORT` the reporter is not merely idle — it is never loaded, and no
+capture store is opened. The flag is read once per frame load.
+
+### 6. When something is wrong
 
 | Symptom | Cause |
 | --- | --- |
@@ -162,8 +200,11 @@ stale artefact.
 | Scene shows `Loading…` forever | The engine mounted but its document never resolved; check the offline Yorkie shim. |
 | Scene renders but every Tailwind class is inert (`text-[28px]` computes to 16px) | The host stylesheet loaded without its compiler. `tailwindcss()` must be in the consumer's Vite plugins, and `@source` must point at wherever the classes live — Tailwind roots its scan at the project being built, not at the imported CSS. |
 | Editor UI does not reflect a change you just made to it | The shell is prebuilt; see the note in the Summary. |
+| `Mod+Shift+Y` does nothing in a scene | `VITE_WB_DEBUG_REPORT` is unset, so the reporter was never loaded. It is read at frame load, so the dev server has to be restarted with it. |
+| `Mod+Shift+Y` does nothing, and the flag IS set | The pointer was not over a scene when you pressed it. The shell routes the key by cursor position, not by focus. |
+| Hand over answers 404 | `debugReportPlugin` is missing from the consumer's Vite plugins. Both halves are armed together — see §5. |
 
-### 6. The original prototype
+### 7. The original prototype
 
 The editor was extracted from a prototype on the branch `feat/design-system`
 (`packages/design-sdk`). Everything it implemented is now landed, dropped as a recorded

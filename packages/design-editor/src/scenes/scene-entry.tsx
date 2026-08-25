@@ -39,6 +39,7 @@ import { installViewGestures } from './view-gestures.ts';
 import type { IconSlot } from './preview-icons.tsx';
 import { installHmrStatePreservation } from './hmr-state.ts';
 import { SceneFrame, type SceneConfigLike } from './scene-frame.tsx';
+import { DebugReportSlot } from './debug-report.tsx';
 import type { FrameMessage, FrameSide } from './frame-protocol.ts';
 import { parseAxes } from './frame-protocol.ts';
 
@@ -201,38 +202,62 @@ if (!root) {
   throw new Error('[design-editor] #wb-scene-root missing from the scene document');
 }
 createRoot(root).render(
-  componentName && componentFile ? (
-    <ComponentFrame
-      file={componentFile}
-      component={componentName}
-      axes={componentAxes}
-      forced={componentForced}
-      label={componentLabel}
-      mockProps={componentProps}
-      noopProps={componentNoops}
-      iconSlot={componentIconSlot}
-      icon={componentIcon}
+  <>
+    {componentName && componentFile ? (
+      <ComponentFrame
+        file={componentFile}
+        component={componentName}
+        axes={componentAxes}
+        forced={componentForced}
+        label={componentLabel}
+        mockProps={componentProps}
+        noopProps={componentNoops}
+        iconSlot={componentIconSlot}
+        icon={componentIcon}
+        side={side}
+        hasProviders={hasProviders}
+        theme={theme}
+        loadComponentFile={loadComponentFile}
+        onReady={() =>
+          // `scene` names WHAT the frame is showing, and in this mode that is a component
+          // rather than a route. The host keys its state on it either way.
+          send({ type: 'wb:ready', scene: componentName, side, selectable: selectableIds() })
+        }
+        onError={(message) => send({ type: 'wb:error', kind: 'mount', message })}
+      />
+    ) : (
+      <SceneFrame
+        sceneId={sceneId}
+        side={side}
+        theme={theme}
+        config={config}
+        loadScene={loadScene}
+        send={send}
+        selectableIds={selectableIds}
+        renderedClasses={renderedClasses}
+      />
+    )}
+    {/*
+     * A SIBLING of whatever the frame is showing, not a wrapper. The overlay
+     * renders nothing until its hotkey is pressed and never takes the pointer,
+     * so it cannot change what is painted — and wrapping would put a component
+     * of ours inside the tree under review, which is the one thing this frame
+     * exists not to do.
+     *
+     * OUTSIDE THE TERNARY, so a component preview is reportable too: it is a
+     * rendered thing a person can see a defect in, and the frame it lives in is
+     * this one. `componentName` names it, because for that mode the component IS
+     * the route — the same substitution `wb:ready` above makes.
+     *
+     * EMPTY UNLESS `VITE_WB_DEBUG_REPORT` IS SET: the slot decides, and an
+     * unarmed frame never even loads the reporter. `debug-report.tsx` carries
+     * the whole argument for why the mount is gated rather than merely idle.
+     */}
+    <DebugReportSlot
+      sceneId={componentName || sceneId}
       side={side}
-      hasProviders={hasProviders}
       theme={theme}
-      loadComponentFile={loadComponentFile}
-      onReady={() =>
-        // `scene` names WHAT the frame is showing, and in this mode that is a component
-        // rather than a route. The host keys its state on it either way.
-        send({ type: 'wb:ready', scene: componentName, side, selectable: selectableIds() })
-      }
-      onError={(message) => send({ type: 'wb:error', kind: 'mount', message })}
+      onLiveChange={(live) => send({ type: 'wb:debug-report', live })}
     />
-  ) : (
-  <SceneFrame
-    sceneId={sceneId}
-    side={side}
-    theme={theme}
-    config={config}
-    loadScene={loadScene}
-    send={send}
-    selectableIds={selectableIds}
-    renderedClasses={renderedClasses}
-  />
-  ),
+  </>,
 );

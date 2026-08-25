@@ -142,6 +142,16 @@ export type DevHostOptions = {
    * not know which engines a consumer has.
    */
   locateOnCanvas?: (point: Point) => Target | undefined;
+  /**
+   * Overrides reading the theme off the document.
+   *
+   * The default is right for an app, where the painted theme IS the document's.
+   * A host that renders the thing under review in a frame it themes itself —
+   * the design editor puts `?theme=` on the frame URL — knows better than the
+   * document does, and a report about contrast has to name the theme that was
+   * actually on screen.
+   */
+  theme?: () => string;
   documentType?: () => string | undefined;
   role?: () => string | undefined;
 };
@@ -156,7 +166,7 @@ export function createDevHost(options: DevHostOptions): HostAdapter {
       ...(import.meta.env.VITE_BUILD_SHA
         ? { buildSha: String(import.meta.env.VITE_BUILD_SHA) }
         : {}),
-      theme: currentTheme(),
+      theme: (options.theme ?? currentTheme)(),
       ...(options.documentType?.() ? { documentType: options.documentType() } : {}),
       ...(options.role?.() ? { role: options.role() } : {}),
     });
@@ -167,7 +177,7 @@ export function createDevHost(options: DevHostOptions): HostAdapter {
       import.meta.env.VITE_BUILD_SHA
         ? String(import.meta.env.VITE_BUILD_SHA)
         : undefined,
-    theme: currentTheme,
+    theme: options.theme ?? currentTheme,
     environment,
 
     async locate(point: Point): Promise<Target | undefined> {

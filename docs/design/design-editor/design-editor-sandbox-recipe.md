@@ -528,6 +528,18 @@ entry keyed to one patched module, so there is no way to keep this frame alive
 and have it become a different scene's editable module. A path matching no
 manifest scene toasts instead of switching, rather than silently doing nothing.
 
+**The bug reporter lives on the FRAME side of this boundary.** The scene frame is
+the second host of `@wafflebase/debug-report` (`docs/design/debug-report.md`), and
+it had to be the frame rather than the shell for the reason this whole section
+exists: the shell's `elementFromPoint` returns the `<iframe>`, so a shell-side
+overlay could name nothing inside the scene, and every report would carry a
+screenshot with no selector. Mounted in the frame it sees the real elements, and
+the selector it records is one a grep finds in the consumer's source. It is a
+SIBLING of `<SceneFrame>`, never a wrapper — a component of ours inside the tree
+under review is the one thing this frame exists not to do — and it is loaded only
+when `VITE_WB_DEBUG_REPORT` is set, because an idle overlay still opens a capture
+store and this frame reloads on every theme / scene / mock-data flip.
+
 ### 2.12 `SceneProviders` — real providers, substituted data
 
 Composed by name from the scene's `mocks`, nesting mirroring `App.tsx`

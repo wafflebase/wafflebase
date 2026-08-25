@@ -55,6 +55,29 @@ import { BASE } from '../base.ts';
  */
 const VITE_DEV_PATH_RE = /(?:^|\/)__open-in-editor$/;
 
+/**
+ * The bug reporter's two dev-server endpoints
+ * (`packages/debug-report/src/plugin/report-endpoint.ts`).
+ *
+ * The reporter runs INSIDE the frame — it has to, because only there can it name
+ * an element in the scene — so its handover and its drafting call are `fetch`es
+ * from this document, and this guard refused them as unmocked. What the reporter
+ * saw was a scene fetch error; what it means is that the one request the frame
+ * makes on the REPORTER's behalf rather than the SCENE's was being judged by the
+ * scene's rules.
+ *
+ * A regex rather than importing `REPORT_ENDPOINT` / `DRAFT_ENDPOINT`: this module
+ * is in every frame's graph, and importing the package here would make it a hard
+ * dependency of frames that never asked for a reporter — the thing
+ * `scenes/debug-report.tsx`'s lazy gate exists to prevent.
+ * `test/scenes/debug-report.test.tsx` pins this pattern against those constants,
+ * so the duplication cannot drift silently.
+ *
+ * Matched exactly, not as a `__wb_` prefix, for the reason the Vite rule above
+ * gives: a loose prefix is a passthrough for paths only a consumer could own.
+ */
+const DEBUG_REPORT_PATH_RE = /(?:^|\/)__wb_debug_(?:report|draft)$/;
+
 /** A fixture answer: JSON body, or a full `Response` for the odd status test. */
 export type FixtureValue = unknown | Response;
 
@@ -184,7 +207,8 @@ export function installFetchGuard(opts: FetchGuardOptions): void {
       path === BASE ||
       path.startsWith(`${BASE}/`) ||
       path.startsWith('/node_modules/') ||
-      VITE_DEV_PATH_RE.test(path)
+      VITE_DEV_PATH_RE.test(path) ||
+      DEBUG_REPORT_PATH_RE.test(path)
     ) {
       return real(input as RequestInfo, init);
     }

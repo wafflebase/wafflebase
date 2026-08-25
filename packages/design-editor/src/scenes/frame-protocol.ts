@@ -173,7 +173,17 @@ export type FrameMessage =
    * non-nullable, since a selection always names a real node), so an explicit
    * clear needs its own message.
    */
-  | { type: 'wb:deselect' };
+  | { type: 'wb:deselect' }
+  /**
+   * The bug reporter armed or disarmed inside this frame.
+   *
+   * The host uses it to drop out of Pick mode for the duration and put it back
+   * after: picking suppresses the product's own click handlers, which is exactly
+   * what a reporter aiming at the running interface must not have. It is the
+   * frame that knows — the reporter lives there — so this is the only way the
+   * shell can find out.
+   */
+  | { type: 'wb:debug-report'; live: boolean };
 
 /**
  * Per-variant validation, not a `wb:` prefix test.
@@ -244,6 +254,7 @@ const FRAME_SHAPES: Record<string, (d: Rec) => boolean> = {
    */
   'wb:view': (d) =>
     (d.kind === 'pan' || d.kind === 'zoom') && isNum(d.dx) && isNum(d.dy) && isNum(d.x) && isNum(d.y),
+  'wb:debug-report': (d) => typeof d.live === 'boolean',
 };
 
 /** `hasOwnProperty`, so a payload typed `"constructor"` cannot borrow a prototype member. */

@@ -47,6 +47,7 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { designEditor, BASE } from '@wafflebase/design-editor';
+import { debugReportPlugin } from '@wafflebase/debug-report/plugin';
 import tailwindcss from '@tailwindcss/vite';
 import { wafflebaseCore } from './src/tokens/core-adapter';
 
@@ -235,6 +236,22 @@ export default defineConfig({
        * value-imports has to be here; the current set is sheets/docs/slides/notes/board.
        */
       '@wafflebase/board': path.resolve(REPO_ROOT, 'packages/board/src/index.ts'),
+      /*
+       * `@wafflebase/debug-report` is deliberately NOT here, unlike in
+       * `packages/frontend/vite.config.ts` — measured, not assumed. Its exports map
+       * already points at `src/`, so the scene frame's
+       * `@wafflebase/debug-report/react` resolves through pnpm's link to
+       * `packages/debug-report/src/ui/index.ts` on its own, and every `react`
+       * specifier on that path — the frame's entry, the reporter's own modules, and a
+       * `packages/frontend/src` component — resolves to the SAME optimizer chunk. An
+       * alias here would buy nothing and would need the subpath-before-bare-name
+       * ordering the frontend's config documents.
+       *
+       * `@wafflebase/core/geometry`, which the reporter's overlay imports, resolves
+       * into `packages/core/dist` — so `pnpm core build` has to have run. That is not
+       * new: `providers.tsx` already reaches `@wafflebase/core/tokens.css` the same
+       * way.
+       */
       ...Object.fromEntries(
         APP_LIBS.map((pkg) => [pkg, path.resolve(REPO_ROOT, 'packages/frontend/node_modules', pkg)]),
       ),
@@ -311,6 +328,27 @@ export default defineConfig({
      * `packages/frontend/src`, which it would never look at.
      */
     tailwindcss(),
+    /*
+     * The receiving half of the reporter mounted in the scene frame. The frame
+     * posts to `/__wb_debug_report` and `/__wb_debug_draft`; this is what answers
+     * them.
+     *
+     * INSTALLED BY THIS PACKAGE, not by `@wafflebase/design-editor`. The editor
+     * supplies the adapter and the mount because it owns the frame; where reports
+     * LAND is the consumer's decision, the same way the scene manifest and the
+     * fixtures are. A different consumer installs this line and picks their own
+     * root.
+     *
+     * `REPO_ROOT`, NOT `HERE`, so bundles land in the monorepo's one
+     * `.wb-reports/` — the same directory `packages/frontend/vite.config.ts`
+     * writes to. Intake is a repository-wide runner reading `.wb-reports/<session>/`;
+     * a second directory under this package would make reports filed from the
+     * design editor invisible to it, and "the report was written and nothing ever
+     * read it" is the silent loss this feature exists to refuse. It matches the
+     * editor's own write boundary too — `designEditor({ root: REPO_ROOT })`
+     * below — which is the monorepo for the same reason.
+     */
+    debugReportPlugin({ repoRoot: REPO_ROOT }),
     designEditor({
       root: REPO_ROOT,
       scenes: path.join(HERE, 'scenes.config.json'),

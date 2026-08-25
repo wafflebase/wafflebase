@@ -23,6 +23,36 @@ export const PANEL_Z = 2147483647;
  */
 export const FORM_MAX_H = 220;
 
+/**
+ * The note form's and the preview panel's preferred widths — CEILINGS, not sizes.
+ *
+ * Both were fixed pixel widths, and a narrow viewport clipped them: measured in a
+ * 375-wide frame, the 420 form lost ~53px off the right edge and the 520 panel
+ * ran 161px off the LEFT, taking its buttons with it. A reporting tool that
+ * cannot be used at the width the defect appears at cannot report that defect.
+ *
+ * Applied through CSS `min()` rather than by reading `innerWidth`, so the box
+ * follows a resize (or a viewport-mode flip in the design editor) without the
+ * component needing to re-render.
+ */
+export const FORM_W = 420;
+export const PANEL_W = 520;
+
+/** Gutter kept clear on each side when a box is narrower than its ceiling. */
+export const EDGE_GUTTER = 8;
+
+/**
+ * How tall the note field may grow before it scrolls.
+ *
+ * Bounded by `FORM_MAX_H`, which is the reserve the form's vertical clamp keeps
+ * free: a field allowed to grow past it would push its own Send button off the
+ * bottom of the screen, which is the failure that clamp exists for.
+ */
+export const NOTE_MAX_H = 96;
+
+export const responsiveWidth = (ceiling: number, gutter = EDGE_GUTTER): string =>
+  `min(${ceiling}px, calc(100vw - ${gutter * 2}px))`;
+
 /** One line naming what a report is about. */
 export function describeTarget(target: Target): string {
   if (target.kind === "dom") {
