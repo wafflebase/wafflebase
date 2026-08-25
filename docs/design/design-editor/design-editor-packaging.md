@@ -65,7 +65,7 @@ The fixture is the existing foreign consumer: `app/` rather than
 
 **a. Node will not load TypeScript from `node_modules`.**
 
-```
+```text
 ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING
 Stripping types is currently unsupported for files under node_modules,
 for ".../node_modules/@wafflebase/design-editor/src/plugin/index.ts"
@@ -99,7 +99,7 @@ boots, serves, and analyses nothing.
 
 **c. The frame's own dependencies were never discovered.**
 
-```
+```text
 SyntaxError: The requested module '/node_modules/react-dom/client.js'
 does not provide an export named 'createRoot'
 ```
