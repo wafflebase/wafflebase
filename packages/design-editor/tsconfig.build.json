@@ -1,0 +1,38 @@
+{
+  /*
+   * The half of this package that NODE loads, compiled to JavaScript.
+   *
+   * WHY THIS EXISTS, measured rather than assumed. `exports` pointed at `.ts` source, and
+   * a Vite plugin is imported by the consumer's `vite.config`, which Vite bundles with
+   * esbuild while leaving bare specifiers EXTERNAL — so Node resolves and loads this
+   * entry itself. Node refuses to strip types under `node_modules`
+   * (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), so an installed copy could not be
+   * loaded at all. The same bytes outside `node_modules` boot fine, which is why the
+   * workspace never showed it: pnpm links the package, so its real path is the source
+   * tree. See `docs/design/design-editor/design-editor-packaging.md`.
+   *
+   * DELIBERATELY NOT THE WHOLE PACKAGE. `./client` and `./scenes` are reached by the
+   * BROWSER through Vite, which transforms TypeScript from anywhere — verified serving
+   * `scene-entry.tsx` out of an installed package — and `src/` ships regardless because
+   * the plugin serves that file by path. `./injector` is already `.mjs`. Building more
+   * would be output nobody loads.
+   */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    /*
+     * Internal imports carry explicit `.ts` extensions, which `allowImportingTsExtensions`
+     * permits only with `noEmit`. Emitting means rewriting them, and TypeScript 5.7+ does
+     * exactly that — `./options.ts` becomes `./options.js` in the output.
+     */
+    "allowImportingTsExtensions": false,
+    "rewriteRelativeImportExtensions": true,
+    "types": ["node"]
+  },
+  "include": ["src/plugin/**/*.ts", "src/base.ts", "src/tokens/adapter.ts", "src/types.ts"]
+}

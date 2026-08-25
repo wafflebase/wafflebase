@@ -17,8 +17,18 @@ import ts from 'typescript';
 const PKG = path.resolve(import.meta.dirname, '../..');
 const manifest = JSON.parse(fs.readFileSync(path.join(PKG, 'package.json'), 'utf8'));
 
+/**
+ * Every file `exports` can resolve to, through conditions as well as bare strings.
+ *
+ * `Object.values` alone was enough while every subpath was a string. `.` is a
+ * conditional object now — `types` for the checker, `default` for the loader — and a
+ * flat read returned that object, so both on-disk checks compared a path against
+ * `[object Object]` and passed nothing.
+ */
 const exportTargets = (): string[] =>
-  Object.values(manifest.exports as Record<string, string>);
+  Object.values(manifest.exports as Record<string, unknown>).flatMap((v) =>
+    typeof v === 'string' ? [v] : Object.values(v as Record<string, string>),
+  );
 
 /**
  * Every bare specifier imported under `dir`, read with the TypeScript parser.
@@ -94,6 +104,46 @@ describe('the published package', () => {
     }
   });
 
+  it('resolves its main entry to JavaScript, not TypeScript', () => {
+    /*
+     * THE FINDING THAT MADE THE BUILD EXIST, pinned so it cannot come back.
+     *
+     * A Vite plugin is imported by the consumer's `vite.config`, which Vite bundles with
+     * esbuild while leaving bare specifiers external — so NODE loads this entry. Node
+     * refuses to strip types under `node_modules`
+     * (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`), so pointing `.` at `.ts` made an
+     * installed copy unloadable. Measured against a real `npm install` of the tarball;
+     * the same bytes outside `node_modules` boot fine, which is why the workspace never
+     * showed it — pnpm links the package, so its real path is the source tree.
+     *
+     * `./client` and `./scenes` stay TypeScript on purpose: the browser reaches them
+     * through Vite, which transforms source from anywhere.
+     */
+    const main = (manifest.exports as Record<string, Record<string, string>>)['.'];
+    expect(main.default).toMatch(/\.m?js$/);
+    expect(main.types).toMatch(/\.d\.ts$/);
+    expect(manifest.types).toBe(main.types);
+  });
+
+  it('bounds the TypeScript peer to the major it is written against', () => {
+    /*
+     * MEASURED ON A REAL INSTALL. The range was `>=5.0.0`, so npm's peer auto-install
+     * pulled TypeScript **7.0.2** into a fresh consumer — and 7 is the native-port
+     * rewrite, whose module shape the extractor does not have:
+     *
+     *   TS 5.9.3   `(await import('typescript')).default.ScriptTarget` → object
+     *   TS 7.0.2   the same expression                                 → undefined
+     *
+     * So `ts.ScriptTarget.Latest` threw `Cannot read properties of undefined`, the
+     * lazily-imported extractor failed, and `GET /metadata` answered `files: []` with no
+     * error anywhere — a consumer would see an editor that boots and analyses nothing.
+     *
+     * An upper bound is the honest declaration: this package is written against the
+     * TS 5 API and its 6/7 compatibility is untested, not merely unsupported.
+     */
+    expect(manifest.peerDependencies?.typescript).toBe('^5.0.0');
+  });
+
   it('declares every runtime import the shipped entries make', () => {
     /*
      * `src/shell` is deliberately excluded: it is BUNDLED into `dist/shell` by
@@ -133,5 +183,69 @@ describe('the published package', () => {
      * drop exactly the code that makes a scene safe to render.
      */
     expect(manifest.sideEffects).toBeUndefined();
+  });
+
+  it('emits every module the built plugin loads at runtime', () => {
+    /*
+     * THE BUILD'S `include` IS NOT THE BUILD'S OUTPUT, and the difference is invisible.
+     *
+     * `tsconfig.build.json` lists `src/plugin/**` and three single files. It does NOT
+     * list `src/server/*.mjs` — yet the compiled plugin lazily imports them
+     * (`import('../server/inject.mjs')`), and they DO land in `dist/server`, because
+     * `allowJs` makes `tsc` follow those imports and emit what it finds. That is a
+     * consequence of two settings agreeing, not something either one states.
+     *
+     * So the emission is real but unasserted, and every way of losing it is quiet:
+     * `allowJs` off, an import rewritten, a future `tsc` that stops emitting files it
+     * was not told to include. Nothing would fail at build or import time — the entry
+     * loads fine. It would fail at the FIRST MUTATION, in someone else's project, as a
+     * rejected `import()` of a file the tarball never had.
+     *
+     * Checked against the output rather than a list of names, so a module added later
+     * is covered without anyone remembering this test. `dist/shell` is excluded: it is
+     * a Vite bundle whose internal graph is self-consistent by construction.
+     */
+    const dist = path.join(PKG, 'dist');
+    expect(fs.existsSync(dist), 'dist/ is missing — run `pnpm build` first').toBe(true);
+
+    const unresolved: string[] = [];
+    const walk = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const abs = path.join(d, e.name);
+        if (e.isDirectory()) {
+          if (abs !== path.join(dist, 'shell')) walk(abs);
+          continue;
+        }
+        if (!/\.(js|mjs)$/.test(e.name)) continue;
+        const src = ts.createSourceFile(
+          e.name,
+          fs.readFileSync(abs, 'utf8'),
+          ts.ScriptTarget.ESNext,
+          true,
+          ts.ScriptKind.JS,
+        );
+        const check = (spec: string) => {
+          if (!spec.startsWith('.')) return;
+          const target = path.resolve(path.dirname(abs), spec);
+          if (!fs.existsSync(target)) {
+            unresolved.push(`${path.relative(dist, abs)} → ${spec}`);
+          }
+        };
+        const visit = (node: ts.Node): void => {
+          if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
+            if (ts.isStringLiteral(node.moduleSpecifier)) check(node.moduleSpecifier.text);
+          }
+          if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+            const [arg] = node.arguments;
+            if (arg && ts.isStringLiteral(arg)) check(arg.text);
+          }
+          ts.forEachChild(node, visit);
+        };
+        visit(src);
+      }
+    };
+    walk(dist);
+
+    expect(unresolved).toEqual([]);
   });
 });
