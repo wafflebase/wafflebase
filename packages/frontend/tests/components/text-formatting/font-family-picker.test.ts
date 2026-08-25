@@ -21,6 +21,7 @@ import { createRoot, type Root } from "react-dom/client";
 
 import { TooltipProvider } from "../../../src/components/ui/tooltip.tsx";
 import { FontFamilyPicker } from "../../../src/components/text-formatting/font-family-picker.tsx";
+import { ensureFontLink } from "../../../src/components/text-formatting/font-catalog.ts";
 
 // Opt into React's act() testing environment so state flushes are applied
 // synchronously and React doesn't warn about unconfigured act().
@@ -77,6 +78,16 @@ function fontLinks(): HTMLLinkElement[] {
   );
 }
 
+/** Subsetted preview links, marked separately so the full-load path
+ *  cannot dedupe against them. */
+function previewLinks(): HTMLLinkElement[] {
+  return Array.from(
+    document.head.querySelectorAll<HTMLLinkElement>(
+      "link[data-wafflebase-font-preview]",
+    ),
+  );
+}
+
 /** Radix DropdownMenu opens on pointer events, not a synthetic .click(). */
 function openMenu(trigger: HTMLElement): void {
   act(() => {
@@ -111,7 +122,7 @@ afterEach(() => {
   host = null;
   // Every test here opens the menu, which arms the preview loader, so
   // the injected <link> elements have to be cleared between them.
-  for (const link of fontLinks()) link.remove();
+  for (const link of [...fontLinks(), ...previewLinks()]) link.remove();
   observers.length = 0;
 });
 
@@ -324,12 +335,14 @@ describe("FontFamilyPicker", () => {
     // observer were never wired up at all.
     expect(observers.at(-1)!.observed.length).toBeGreaterThan(0);
     expect(fontLinks()).toHaveLength(0);
+    expect(previewLinks()).toHaveLength(0);
   });
 
   // The fix for #727: a row becoming visible is what loads its face, so
   // scrolling and keyboard navigation paint real previews instead of
-  // leaving everything but the 8 eager families in a fallback.
-  test("a row scrolling into view loads exactly that family", () => {
+  // leaving everything but the 8 eager families in a fallback. Since
+  // #963 the face it loads is subsetted to the row's own label.
+  test("a row scrolling into view previews exactly that family", () => {
     const el = render(
       h(FontFamilyPicker, { value: "Arial", onChange: () => {} }),
     );
@@ -345,8 +358,49 @@ describe("FontFamilyPicker", () => {
 
     act(() => observer.callback([{ target: row!, isIntersecting: true }]));
 
-    const links = fontLinks();
+    // A preview costs a subset, not the family: no full link is injected.
+    expect(fontLinks()).toHaveLength(0);
+    const links = previewLinks();
     expect(links).toHaveLength(1);
-    expect(links[0].dataset.wafflebaseFont).toBe("Open Sans");
+    expect(links[0].dataset.wafflebaseFontPreview).toBe("Open Sans");
+    expect(links[0].getAttribute("href")).toContain(
+      `text=${encodeURIComponent("Open Sas")}`,
+    );
+  });
+
+  // The risk the split marker exists for (#963): a family the user only
+  // ever scrolled past must still load in full when they pick it —
+  // `ensureFontLink`'s dedupe must not resolve against the subset.
+  test("selecting a previewed-only family still loads the full family", async () => {
+    const el = render(
+      h(FontFamilyPicker, { value: "Arial", onChange: ensureFontLink }),
+    );
+    openMenu(el.querySelector('[aria-label="Font"]') as HTMLElement);
+
+    const observer = observers.at(-1)!;
+    const row = observer.observed.find(
+      (node) => (node as HTMLElement).dataset.fontRow === "Open Sans",
+    )!;
+    act(() => observer.callback([{ target: row, isIntersecting: true }]));
+    expect(previewLinks()).toHaveLength(1);
+
+    act(() => {
+      for (const type of ["pointerdown", "pointerup"] as const) {
+        row.dispatchEvent(
+          new PointerEvent(type, { bubbles: true, cancelable: true, button: 0 }),
+        );
+      }
+      row.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    const full = fontLinks();
+    expect(full).toHaveLength(1);
+    expect(full[0].dataset.wafflebaseFont).toBe("Open Sans");
+    expect(full[0].getAttribute("href")).not.toContain("text=");
   });
 });

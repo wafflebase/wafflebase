@@ -26,7 +26,7 @@ import {
 import { IconChevronDown } from "@tabler/icons-react";
 import {
   FONT_CATALOG,
-  ensureFontLink,
+  ensurePreviewFontLink,
   type FontEntry,
   type FontGroup,
 } from "./font-catalog";
@@ -115,8 +115,16 @@ export function FontFamilyPicker({
       (entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
-          const family = (entry.target as HTMLElement).dataset.fontRow;
-          if (family) ensureFontLink(family);
+          const row = entry.target as HTMLElement;
+          const family = row.dataset.fontRow;
+          // Subset to the row's own text: a preview only ever paints the
+          // label, so pulling the whole family is wasted bytes.
+          if (family)
+            ensurePreviewFontLink(
+              family,
+              row.textContent ?? "",
+              row.dataset.fontWeights,
+            );
           obs.unobserve(entry.target);
         }
       },
@@ -210,6 +218,7 @@ export function FontFamilyPicker({
                   <DropdownMenuCheckboxItem
                     key={`recent:${family}`}
                     data-font-row={family}
+                    data-font-weights={entry?.weights}
                     checked={family === value}
                     onPointerEnter={() => {
                       if (entry?.webFont ?? true) onPrefetch?.(family);
@@ -239,6 +248,7 @@ export function FontFamilyPicker({
                   <DropdownMenuCheckboxItem
                     key={entry.family}
                     data-font-row={entry.family}
+                    data-font-weights={entry.weights}
                     checked={entry.family === value}
                     onPointerEnter={() => {
                       if (entry.webFont) onPrefetch?.(entry.family);

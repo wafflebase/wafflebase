@@ -10,7 +10,8 @@
  *
  * Loading model: only `eager` web fonts are requested in the bootstrap
  * CSS link; the long tail lazy-loads via `ensureFontLink` the first time
- * a family is picked, hovered, or previewed.
+ * a family is picked or hovered. Merely *previewing* a row goes through
+ * `ensurePreviewFontLink`, which requests only that row's glyphs.
  */
 import { useEffect } from 'react';
 import { FONT_CATALOG_DATA } from './font-catalog.data';
@@ -159,6 +160,82 @@ export function ensureFontLink(family: string, weights?: string): void {
   link.rel = 'stylesheet';
   link.dataset.wafflebaseFont = family;
   link.href = css2Url([familyParam(family, weights ?? entry?.weights)]);
+  document.head.appendChild(link);
+}
+
+/** Find an already-injected per-family *preview* link. Deliberately a
+ *  separate marker attribute from `data-wafflebase-font`: an attribute
+ *  selector matches the whole attribute name, so a subsetted link is
+ *  invisible to `findFontLink` and cannot be mistaken for a full load. */
+function findPreviewFontLink(family: string): HTMLLinkElement | null {
+  const links = document.head.querySelectorAll<HTMLLinkElement>(
+    'link[data-wafflebase-font-preview]',
+  );
+  for (const link of links) {
+    if (link.dataset.wafflebaseFontPreview === family) return link;
+  }
+  return null;
+}
+
+/** The single weight a preview requests: the first cut of the family's
+ *  `weights` spec. Never a hardcoded 400 — `Sunflower` ships only 700 and
+ *  `css2?family=Sunflower:wght@400` answers HTTP 400 with an HTML error
+ *  page, which would strand that row in a fallback face forever. */
+function previewWeight(weights: string | undefined): string {
+  const first = (weights ?? DEFAULT_WEIGHTS).split(';')[0].trim();
+  return first || DEFAULT_WEIGHTS;
+}
+
+/** Unique characters of `text`, in first-appearance order, so the `&text=`
+ *  query carries each glyph once. */
+function uniqueChars(text: string): string {
+  return [...new Set([...text])].join('');
+}
+
+/**
+ * Preview counterpart to `ensureFontLink`: request only the glyphs a row
+ * actually paints, via the css2 `&text=` parameter, instead of the whole
+ * family. Painting one label in the "More fonts…" list costs a few
+ * hundred bytes rather than the family's full character set.
+ *
+ * The link is marked with `data-wafflebase-font-preview`, NOT
+ * `data-wafflebase-font`, so `findFontLink` — and therefore
+ * `ensureFontLink` — cannot mistake a subset for a full load. Selecting a
+ * family that was only ever previewed still injects the complete family.
+ *
+ * Shares `ensureFontLink`'s no-op conditions (SSR, system fonts, eager
+ * bootstrap families, idempotency) and adds one: if a full link for the
+ * family already exists there is nothing to save, and a subset link —
+ * declared later, so winning the cascade — would *remove* glyphs from a
+ * face that had them.
+ *
+ * `text` is what the row renders (its `textContent`), not a catalog
+ * lookup: recents and the full library both contain families absent from
+ * `CATALOG_INDEX`, and a row's text is more than its label whenever the
+ * `font-family` is set on a container.
+ */
+export function ensurePreviewFontLink(
+  family: string,
+  text: string,
+  weights?: string,
+): void {
+  if (typeof document === 'undefined') return;
+  const entry = CATALOG_INDEX.get(family);
+  if (entry && !entry.webFont) return; // system font: nothing to fetch
+  if (entry && entry.eager) return; // already in bootstrap link
+  if (findFontLink(family)) return; // fully loaded already: nothing to save
+  if (findPreviewFontLink(family)) return;
+
+  const subset = uniqueChars(text);
+  if (!subset) return; // nothing painted: nothing to request
+
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.dataset.wafflebaseFontPreview = family;
+  link.href = css2Url([
+    familyParam(family, previewWeight(weights ?? entry?.weights)),
+    `text=${encodeURIComponent(subset)}`,
+  ]);
   document.head.appendChild(link);
 }
 

@@ -4,10 +4,12 @@
  *
  * Preview loading is lazy: a single IntersectionObserver (rooted on the
  * scroll container) loads a row's Google Fonts `<link>` via
- * `ensureFontLink` only when it scrolls into view, so opening the dialog
- * does not fire ~90 font requests at once. DOM previews repaint
- * automatically once the face resolves. The technique scales to the
- * full library (P2) where windowing further trims the DOM.
+ * `ensurePreviewFontLink` only when it scrolls into view, so opening the
+ * dialog does not fire ~90 font requests at once — and each of those
+ * requests carries only the glyphs that row paints, not the whole
+ * family. DOM previews repaint automatically once the face resolves.
+ * The technique scales to the full library (P2) where windowing further
+ * trims the DOM.
  *
  * Picking a family calls `onPick` (which the caller wires to apply +
  * record as recent) and closes the dialog.
@@ -21,7 +23,11 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { FONT_CATALOG, ensureFontLink, type FontEntry } from "./font-catalog";
+import {
+  FONT_CATALOG,
+  ensurePreviewFontLink,
+  type FontEntry,
+} from "./font-catalog";
 import {
   filterFonts,
   type FontCategoryFilter,
@@ -87,7 +93,13 @@ export function MoreFontsDialog({
   const [debounced, setDebounced] = useState("");
   const [category, setCategory] = useState<FontCategoryFilter>("All");
   const [script, setScript] = useState<FontScriptFilter>("All");
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Radix mounts the portalled DialogContent one render *after* `open`
+  // flips, so a plain `useRef` is still null the first time the preview
+  // effect below runs — and with `[open, results]` deps it would never
+  // re-run, leaving the whole list unpreviewed. Route the scroll
+  // container through state (the callback ref re-runs the effect once it
+  // exists), the same way `FontFamilyPicker` reaches its menu content.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
   // Defer `onPick` to the dialog's close-autofocus, mirroring the
   // FontFamilyPicker dropdown: applying synchronously on click would let
@@ -125,14 +137,22 @@ export function MoreFontsDialog({
   // nodes is implicit in the fresh DOM each render.
   useEffect(() => {
     if (!open) return;
-    const root = scrollRef.current;
+    const root = scrollEl;
     if (typeof IntersectionObserver === "undefined" || !root) return;
     const obs = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
-          const family = (entry.target as HTMLElement).dataset.fontRow;
-          if (family) ensureFontLink(family);
+          const row = entry.target as HTMLElement;
+          const family = row.dataset.fontRow;
+          // Subset to the row's own text — the label *and* the group
+          // name, which inherits the button's fontFamily.
+          if (family)
+            ensurePreviewFontLink(
+              family,
+              row.textContent ?? "",
+              row.dataset.fontWeights,
+            );
           obs.unobserve(entry.target);
         }
       },
@@ -142,7 +162,7 @@ export function MoreFontsDialog({
       .querySelectorAll<HTMLElement>("[data-font-row]")
       .forEach((el) => obs.observe(el));
     return () => obs.disconnect();
-  }, [open, results]);
+  }, [open, results, scrollEl]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -188,7 +208,7 @@ export function MoreFontsDialog({
         </div>
 
         <div
-          ref={scrollRef}
+          ref={setScrollEl}
           className="min-h-0 flex-1 overflow-y-auto rounded-md border"
         >
           {results.length === 0 ? (
@@ -214,6 +234,7 @@ export function MoreFontsDialog({
                     <button
                       type="button"
                       data-font-row={entry.family}
+                      data-font-weights={entry.weights}
                       onClick={() => {
                         pendingPickRef.current = entry.family;
                         onOpenChange(false);
