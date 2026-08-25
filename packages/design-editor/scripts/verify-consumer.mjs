@@ -162,16 +162,7 @@ async function scenesModule() {
 /** A shell URL, which is NOT under `/api` — `BASE` cannot be reused for these. */
 const shell = (p) => fetch(`http://127.0.0.1:${PORT}/__design-editor${p}`);
 
-/**
- * Build the shell if it is not there.
- *
- * `dist` is gitignored, so a clean checkout has no shell at all and every check
- * below would fail on a missing file rather than on a wrong one. Building here
- * rather than trusting the caller to remember is what makes this gate's verdict mean
- * something on CI — and the build is its own `design-editor:build` lane besides, so a
- * broken build fails before this script is reached.
- */
-/** The newest mtime under `src/`, which is everything the shell bundle is built from. */
+/** The newest mtime under `src/`, which is everything both artefacts are built from. */
 function newestSourceMtime() {
   let newest = 0;
   const walk = (dir) => {
@@ -182,31 +173,49 @@ function newestSourceMtime() {
     }
   };
   walk(path.join(PKG, 'src'));
-  // The build config decides what goes in, so a change to it invalidates the bundle too.
-  return Math.max(newest, fsSync.statSync(path.join(PKG, 'vite.shell.config.ts')).mtimeMs);
+  // The build configs decide what goes in, so a change to either invalidates its output.
+  for (const config of ['vite.shell.config.ts', 'tsconfig.build.json']) {
+    newest = Math.max(newest, fsSync.statSync(path.join(PKG, config)).mtimeMs);
+  }
+  return newest;
 }
 
 /**
- * Build when the bundle is missing OR older than its source.
+ * Build the package when either artefact is missing OR older than its source.
+ *
+ * BOTH ARTEFACTS, not just the shell. `dist/shell` is what the mount point serves, but
+ * since #966 `exports["."]` names `dist/plugin/index.js` — and `boot()` below starts vite
+ * on `fixtures/consumer/vite.config.ts`, which imports the package BY NAME. Rebuilding
+ * only the shell therefore left a clean checkout failing on `Cannot find module` (read as
+ * a broken fixture, not as a missing build) and a dirty one running all 57 checks against
+ * plugin bytes older than the change under test.
+ *
+ * NOTHING IN CI RUNS THIS SCRIPT — it boots a dev server, so it is out of `verify:fast` /
+ * `verify:self` and out of the lane graph. `design-editor:build` therefore guarantees this
+ * script nothing; the caller is a person, and "remember to build first" is not a contract
+ * a gate can rest its verdict on.
  *
  * MISSING-ONLY SERVED STALE BYTES, twice. `verify:frame` had the same shape and cost an hour
  * there; here it meant the stylesheet checks below passed against a bundle built before the
  * change under test — including, on the run that added them, a fix they were written to prove.
  * A gate that can pass on stale bytes is worse than no gate, because its green is not evidence.
  */
-function buildShellIfMissing() {
-  const bundle = path.join(PKG, 'dist/shell/index.html');
-  if (fsSync.existsSync(bundle) && newestSourceMtime() <= fsSync.statSync(bundle).mtimeMs) return;
-  console.log('building the shell (missing or older than src/)');
-  const r = spawnSync('pnpm', ['exec', 'vite', 'build', '--config', './vite.shell.config.ts'], {
-    cwd: PKG,
-    stdio: 'inherit',
-  });
-  if (r.status !== 0) throw new Error('shell build failed');
+function buildIfStale() {
+  const newest = newestSourceMtime();
+  const stale = (rel) => {
+    const artefact = path.join(PKG, rel);
+    return !fsSync.existsSync(artefact) || fsSync.statSync(artefact).mtimeMs < newest;
+  };
+  const outdated = ['dist/shell/index.html', 'dist/plugin/index.js'].filter(stale);
+  if (outdated.length === 0) return;
+  console.log(`building the shell and the plugin (${outdated.join(', ')} missing or older than src/)`);
+  // The package's own `build`, so the two halves can never drift apart here.
+  const r = spawnSync('pnpm', ['run', 'build'], { cwd: PKG, stdio: 'inherit' });
+  if (r.status !== 0) throw new Error('design-editor build failed');
 }
 
 async function main() {
-  buildShellIfMissing();
+  buildIfStale();
   console.log(`booting vite in ${path.relative(PKG, PROJECT)} on :${PORT}`);
   const child = await boot();
   try {

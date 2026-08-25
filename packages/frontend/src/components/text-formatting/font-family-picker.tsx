@@ -83,9 +83,22 @@ export function FontFamilyPicker({
   const [fullCatalog, setFullCatalog] = useState<readonly FontEntry[] | null>(
     null,
   );
+  // Set once a full-catalog load has SETTLED, successfully or not. Distinct from
+  // `fullCatalog` because a failed load must still unblock the recent rows below:
+  // previewing at the default weights beats never previewing at all.
+  const [fullSettled, setFullSettled] = useState(false);
 
+  // A recent family can come from the full ~1,900-entry library, which the
+  // curated catalog has no `weights` for — and a preview requested at the
+  // default `400` renders in a fallback face for any family that ships no 400
+  // cut (`css2?family=Sunflower:wght@400` answers HTTP 400). So pull the full
+  // library whenever a recent is not in the curated index, not only when the
+  // dialog opens. Same memoized import either way, so the second trigger costs
+  // nothing once the first has run.
+  const needFullForRecents = recents.some((f) => !CATALOG_BY_FAMILY.has(f));
   useEffect(() => {
-    if (!moreOpen || fullCatalog) return;
+    if (fullCatalog) return;
+    if (!moreOpen && !(open && needFullForRecents)) return;
     let cancelled = false;
     loadFullFontCatalog()
       .then((c) => {
@@ -93,11 +106,22 @@ export function FontFamilyPicker({
       })
       .catch(() => {
         /* keep the curated fallback on load failure */
+      })
+      .finally(() => {
+        if (!cancelled) setFullSettled(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [moreOpen, fullCatalog]);
+  }, [moreOpen, open, needFullForRecents, fullCatalog]);
+
+  const fullByFamily = useMemo(
+    () =>
+      fullCatalog
+        ? new Map(fullCatalog.map((e) => [e.family, e] as const))
+        : null,
+    [fullCatalog],
+  );
 
   // Radix remounts the portalled content on every open, so the scroll
   // container has to reach the effect below through a callback ref into
@@ -108,7 +132,9 @@ export function FontFamilyPicker({
   // keyboard navigation paint real previews instead of leaving everything
   // but the 8 `eager` families in a fallback (#727). Mirrors the observer
   // `MoreFontsDialog` runs over its own list. `recents` is a dep because
-  // `onOpenChange` sets it, rendering the list a second time.
+  // `onOpenChange` sets it, rendering the list a second time; `fullByFamily`
+  // and `fullSettled` are deps because a recent row only grows its
+  // `data-font-row` once its weights are resolvable (see the Recent section).
   useEffect(() => {
     if (!listEl || typeof IntersectionObserver === "undefined") return;
     const obs = new IntersectionObserver(
@@ -136,7 +162,7 @@ export function FontFamilyPicker({
       .querySelectorAll<HTMLElement>("[data-font-row]")
       .forEach((el) => obs.observe(el));
     return () => obs.disconnect();
-  }, [listEl, recents]);
+  }, [listEl, recents, fullByFamily, fullSettled]);
 
   // Stash the picked family in a ref and replay it from `onCloseAutoFocus`
   // rather than firing `onChange` directly from the item's onClick. The
@@ -213,11 +239,20 @@ export function FontFamilyPicker({
                 Recent
               </DropdownMenuLabel>
               {recents.map((family) => {
-                const entry = CATALOG_BY_FAMILY.get(family);
+                const entry =
+                  CATALOG_BY_FAMILY.get(family) ?? fullByFamily?.get(family);
+                // No `data-font-row` until the weights are known, so the
+                // observer below cannot fire a `wght@400` request for a family
+                // whose real cuts are still loading — it unobserves on first
+                // hit and `ensurePreviewFontLink` is idempotent, so a wrong
+                // first request is permanent. Once the load settles the effect
+                // re-runs and the row is observed with its real weights (or,
+                // if the load failed, with the defaults).
+                const previewable = entry !== undefined || fullSettled;
                 return (
                   <DropdownMenuCheckboxItem
                     key={`recent:${family}`}
-                    data-font-row={family}
+                    data-font-row={previewable ? family : undefined}
                     data-font-weights={entry?.weights}
                     checked={family === value}
                     onPointerEnter={() => {

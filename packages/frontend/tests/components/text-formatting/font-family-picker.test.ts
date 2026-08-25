@@ -19,6 +19,35 @@ import { describe, test, expect, vi, afterEach } from "vitest";
 import { createElement as h, act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
+/*
+ * The full ~1,900-family library, stubbed. The picker pulls it whenever a
+ * recent family is missing from the curated catalog, because that is the only
+ * place its `weights` can be found — see the recents test at the bottom.
+ * Hoisted by Vitest, so every test in this file gets the stub; only that one
+ * triggers a load.
+ */
+// The family name is inlined rather than shared with `FAKE_RECENT` below:
+// `vi.mock` is hoisted above every declaration in this file, so a factory
+// closing over a module-level const reads it in its temporal dead zone.
+vi.mock(
+  "../../../src/components/text-formatting/font-catalog-full-loader.ts",
+  () => ({
+    loadFullFontCatalog: () =>
+      Promise.resolve([
+        {
+          label: "Wafflebase Fake Recent",
+          family: "Wafflebase Fake Recent",
+          group: "Display",
+          webFont: true,
+          // A single 700 cut, like the real `Sunflower`: css2 answers a
+          // :wght@400 request for such a family with an HTTP 400 error page.
+          weights: "700",
+        },
+      ]),
+  }),
+);
+const FAKE_RECENT = "Wafflebase Fake Recent";
+
 import { TooltipProvider } from "../../../src/components/ui/tooltip.tsx";
 import { FontFamilyPicker } from "../../../src/components/text-formatting/font-family-picker.tsx";
 import { ensureFontLink } from "../../../src/components/text-formatting/font-catalog.ts";
@@ -124,6 +153,8 @@ afterEach(() => {
   // the injected <link> elements have to be cleared between them.
   for (const link of [...fontLinks(), ...previewLinks()]) link.remove();
   observers.length = 0;
+  // The Recent section is localStorage-backed and shared across tests.
+  localStorage.removeItem("wafflebase:recent-fonts");
 });
 
 describe("FontFamilyPicker", () => {
@@ -402,5 +433,48 @@ describe("FontFamilyPicker", () => {
     expect(full).toHaveLength(1);
     expect(full[0].dataset.wafflebaseFont).toBe("Open Sans");
     expect(full[0].getAttribute("href")).not.toContain("text=");
+  });
+
+  /*
+   * A RECENT FROM OUTSIDE THE CURATED CATALOG. `addRecentFont` stores bare
+   * family names, so a font picked out of the 1,900-entry library resurfaces in
+   * the Recent section with no catalog entry behind it — and previewing it at
+   * the default `wght@400` is exactly the failure the weight lookup exists to
+   * avoid, because css2 answers a 400 request for a family that ships no 400
+   * with an HTML error page and the row stays in a fallback face forever.
+   * The picker pulls the full library for the weights and holds the row back
+   * until they arrive.
+   */
+  test("a recent outside the curated catalog previews at a weight it ships", async () => {
+    localStorage.setItem(
+      "wafflebase:recent-fonts",
+      JSON.stringify([FAKE_RECENT]),
+    );
+    const el = render(
+      h(FontFamilyPicker, { value: "Arial", onChange: () => {} }),
+    );
+    openMenu(el.querySelector('[aria-label="Font"]') as HTMLElement);
+
+    // Not yet observable: with no weights, a preview now would be permanent
+    // and wrong (the observer unobserves on first hit).
+    const rowOf = (o: StubObserver) =>
+      o.observed.find(
+        (node) => (node as HTMLElement).dataset.fontRow === FAKE_RECENT,
+      );
+    expect(rowOf(observers.at(-1)!)).toBeUndefined();
+
+    // Let the stubbed full-catalog import settle.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    const observer = observers.at(-1)!;
+    const row = rowOf(observer);
+    expect(row).toBeTruthy();
+    act(() => observer.callback([{ target: row!, isIntersecting: true }]));
+
+    const href = previewLinks()[0]?.getAttribute("href") ?? "";
+    expect(href).toContain(`${encodeURIComponent(FAKE_RECENT)}:wght@700`);
+    expect(href).not.toContain("wght@400");
   });
 });

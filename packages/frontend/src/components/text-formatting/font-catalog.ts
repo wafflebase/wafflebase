@@ -193,6 +193,46 @@ function uniqueChars(text: string): string {
 }
 
 /**
+ * Is this family already requested IN FULL by *some* stylesheet link in the
+ * document — ours or not?
+ *
+ * `findFontLink` only sees links this module injected, and the catalog's
+ * `eager` flag only describes `buildGoogleFontsHref`'s bootstrap link. Neither
+ * knows about the app shell's own `<link>` in `packages/frontend/index.html`,
+ * which loads `Inter`, `Fraunces` and `JetBrains Mono` in full — all three are
+ * curated-catalog entries with `eager` absent. A subset link for one of them is
+ * not merely redundant: `&text=` returns a face with no `unicode-range`, so
+ * being declared later it wins the cascade for every codepoint and *removes*
+ * glyphs (and the bold cut) from a family that already had them.
+ *
+ * Matched on the href rather than on a marker attribute, because the shell's
+ * link carries none. Every `family=` segment is compared whole — a css2 URL
+ * carries many, and `Inter` must not match `Inter+Tight` — against both
+ * spellings of the space: the shell writes `JetBrains+Mono`,
+ * `encodeURIComponent` produces `JetBrains%20Mono`.
+ */
+function hasFullFamilyLink(family: string): boolean {
+  const encoded = encodeURIComponent(family);
+  const names = new Set([encoded, encoded.replace(/%20/g, '+')]);
+  const links = document.head.querySelectorAll<HTMLLinkElement>(
+    'link[rel="stylesheet"]',
+  );
+  for (const link of links) {
+    // Our own subset links are stylesheet links to the same host; they are the
+    // thing this function exists to distinguish from a full load.
+    if (link.dataset.wafflebaseFontPreview !== undefined) continue;
+    const href = link.href;
+    if (!href.includes('fonts.googleapis.com')) continue;
+    if (/[?&]text=/.test(href)) continue; // somebody else's subset request
+    for (const segment of href.matchAll(/[?&]family=([^&]*)/g)) {
+      // Everything after `:` is the axis spec, not part of the name.
+      if (names.has(segment[1].split(':')[0])) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Preview counterpart to `ensureFontLink`: request only the glyphs a row
  * actually paints, via the css2 `&text=` parameter, instead of the whole
  * family. Painting one label in the "More fonts…" list costs a few
@@ -207,7 +247,8 @@ function uniqueChars(text: string): string {
  * bootstrap families, idempotency) and adds one: if a full link for the
  * family already exists there is nothing to save, and a subset link —
  * declared later, so winning the cascade — would *remove* glyphs from a
- * face that had them.
+ * face that had them. "Already exists" means ANY full css2 link in the
+ * head, not just one this module injected: see `hasFullFamilyLink`.
  *
  * `text` is what the row renders (its `textContent`), not a catalog
  * lookup: recents and the full library both contain families absent from
@@ -223,8 +264,11 @@ export function ensurePreviewFontLink(
   const entry = CATALOG_INDEX.get(family);
   if (entry && !entry.webFont) return; // system font: nothing to fetch
   if (entry && entry.eager) return; // already in bootstrap link
-  if (findFontLink(family)) return; // fully loaded already: nothing to save
   if (findPreviewFontLink(family)) return;
+  // Covers `findFontLink`'s per-family links, the bootstrap link, AND the app
+  // shell's own `index.html` stylesheet — the last of which no attribute or
+  // catalog flag can see.
+  if (hasFullFamilyLink(family)) return; // fully loaded already: nothing to save
 
   const subset = uniqueChars(text);
   if (!subset) return; // nothing painted: nothing to request

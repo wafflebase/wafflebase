@@ -28,8 +28,9 @@
  *   pnpm --filter @wafflebase/design-sandbox verify:tokens --write
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -80,12 +81,15 @@ const post = (p, payload) =>
  * PLAIN `vite`, with Vite's DEFAULT config loader — and that is load-bearing, because
  * getting here took two wrong turns worth recording.
  *
- * A Vite config that imports `@wafflebase/design-editor` is handed to Node as TypeScript
- * source (a pnpm workspace link resolves into `node_modules`, so the config bundler
- * externalizes it, and Node's own type stripping loads the `.ts`). Node ESM requires
- * explicit extensions, so the package's extensionless relative imports (`./options`) failed
- * to resolve and the dev server would not start at all. That is what forced the `.ts`
- * extensions now on every relative import in that package.
+ * A Vite config that imports `@wafflebase/design-editor` is handed to NODE (a pnpm
+ * workspace link resolves into `node_modules`, so the config bundler externalizes the
+ * bare specifier and Node resolves it itself). That used to mean loading the package's
+ * TypeScript source through Node's type stripping, and Node ESM requires explicit
+ * extensions, so the package's extensionless relative imports (`./options`) failed to
+ * resolve and the dev server would not start at all — which is what forced the `.ts`
+ * extensions still on every relative import there. Since #966 `exports["."]` names
+ * `dist/plugin/index.js` instead, so what Node loads is COMPILED output and
+ * `buildDesignEditorIfStale` below has to have produced it first.
  *
  * `--configLoader runner` looks like the fix and IS NOT: it loads the config, and then
  * closes the module runner. Every deferred dynamic import in config-loaded code then fails
@@ -131,7 +135,49 @@ async function boot() {
   }
 }
 
+/**
+ * `@wafflebase/design-editor` IS BUILT OUTPUT, and `boot()` loads it.
+ *
+ * `packages/design-sandbox/vite.config.ts` does
+ * `import { designEditor, BASE } from '@wafflebase/design-editor'`, and since #966 that
+ * resolves through `exports["."]` to `dist/plugin/index.js`. `dist/` is gitignored, so a
+ * clean checkout has nothing there and the dev server never starts — reported as
+ * "dev server exited early", which reads as a broken config rather than a missing build.
+ *
+ * The package prebuilds only for `dev` (`predev` in package.json); `verify:tokens` has no
+ * such hook, and this script is not on CI (it boots a dev server), so `design-editor:build`
+ * guarantees it nothing either. The build has to happen here.
+ *
+ * Mtime-compared rather than existence-checked, the same as `verify-scenes.mjs`: a gate
+ * that rebuilds only when its artefact is MISSING serves stale bytes forever.
+ */
+function buildDesignEditorIfStale() {
+  const pkg = path.resolve(PKG, '../design-editor');
+  let newest = 0;
+  /** @param {string} dir */
+  const walk = (dir) => {
+    for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else newest = Math.max(newest, fsSync.statSync(full).mtimeMs);
+    }
+  };
+  walk(path.join(pkg, 'src'));
+  for (const config of ['vite.shell.config.ts', 'tsconfig.build.json']) {
+    newest = Math.max(newest, fsSync.statSync(path.join(pkg, config)).mtimeMs);
+  }
+  const outdated = ['dist/shell/index.html', 'dist/plugin/index.js'].filter((rel) => {
+    const artefact = path.join(pkg, rel);
+    return !fsSync.existsSync(artefact) || fsSync.statSync(artefact).mtimeMs < newest;
+  });
+  if (outdated.length === 0) return;
+  console.log(`building @wafflebase/design-editor (${outdated.join(', ')} missing or older than its src/)`);
+  const r = spawnSync('pnpm', ['run', 'build'], { cwd: pkg, stdio: 'inherit' });
+  if (r.status !== 0) throw new Error('design-editor build failed');
+}
+
 async function main() {
+  buildDesignEditorIfStale();
   console.log(`booting vite in ${PKG} on :${PORT}`);
   const server = await boot();
   try {

@@ -175,13 +175,32 @@ The bootstrap injector was generalized into a **per-family** loader
   render with), not the whole catalog — so the dropdown previews are
   instant while the bootstrap request stays small.
 - `ensureFontLink(family, weights)` injects a **per-family CSS `<link>`**
-  the first time a non-eager family is needed (selection, picker hover,
-  or in-view preview in the dialog). It no-ops for system faces
-  (`webFont: false`), for `eager` fonts already in the bootstrap link,
-  and when a link for that family already exists; the DOM
-  (`data-wafflebase-font` attribute), not module state, is the idempotency
-  source so it survives HMR. It is wired into both editors' pickers and
-  toolbars (Docs and Slides).
+  the first time a non-eager family is *applied* — selection, or picker
+  hover as a prefetch. It no-ops for system faces (`webFont: false`), for
+  `eager` fonts already in the bootstrap link, and when a link for that
+  family already exists; the DOM (`data-wafflebase-font` attribute), not
+  module state, is the idempotency source so it survives HMR. It is wired
+  into both editors' pickers and toolbars (Docs and Slides).
+- `ensurePreviewFontLink(family, text, weights)` is the **preview**
+  counterpart, and the one an in-view row calls. Merely painting a label
+  needs a handful of glyphs, so it requests exactly those via the css2
+  `&text=` parameter and exactly one weight (`previewWeight` — the family's
+  *first* cut, never a hardcoded 400, because a family that ships no 400
+  answers HTTP 400 and strands the row in a fallback face). Its links carry
+  `data-wafflebase-font-preview`, a deliberately different marker from
+  `data-wafflebase-font`, so a subset can never be mistaken for a full load
+  and applying a previewed family still fetches the whole thing.
+  - It also refuses to inject when the family is **already loaded in full by
+    any stylesheet in the document** — including
+    `packages/frontend/index.html`'s own app-shell link (`Inter`,
+    `Fraunces`, `JetBrains Mono`), which no catalog flag describes. A
+    `&text=` response has no `unicode-range`, so declared later it wins the
+    cascade for every codepoint and would *remove* glyphs from a face that
+    already had them.
+  - A row whose weights are unknown does not preview yet: the picker's
+    Recent section can name a family from the full library that the curated
+    catalog has no entry for, so it pulls `loadFullFontCatalog()` and holds
+    the row back until the weights resolve (or the load fails).
 - `FontRegistry.ensureFont()` is unchanged — it already does
   `document.fonts.load()` + re-layout notification; the only addition is
   that the CSS `<link>` for that family must be present first, which
@@ -199,7 +218,8 @@ opens `MoreFontsDialog` (`more-fonts-dialog.tsx`, shipped):
 - **Category** and **script** (Korean / Latin / …) filters
   (`more-fonts-filter.ts`: `FontCategoryFilter` / `FontScriptFilter`).
 - Each visible row previews in its own family via an `IntersectionObserver`
-  that calls `ensureFontLink` only for on-screen rows.
+  that calls `ensurePreviewFontLink` only for on-screen rows — so a row
+  costs its own glyphs at one weight, not the family's whole character set.
 - The dialog lazy-loads the full library through `loadFullFontCatalog()`
   (a memoized dynamic import of `font-catalog.full.ts`).
 - Selecting a font adds it to the user's **recent** list, so it surfaces

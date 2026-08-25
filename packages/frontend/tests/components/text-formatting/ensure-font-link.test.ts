@@ -206,6 +206,65 @@ describe('ensurePreviewFontLink', () => {
     expect(href).toContain(`text=${encodeURIComponent('Lobster')}`);
   });
 
+  /*
+   * THE APP SHELL'S OWN STYLESHEET, which no catalog flag describes.
+   * `packages/frontend/index.html` loads Fraunces, Inter and JetBrains Mono in
+   * full, and all three are curated-catalog entries with `eager` absent — so
+   * neither the `eager` check nor `data-wafflebase-font` sees them. A `&text=`
+   * response carries no `unicode-range`, so a subset declared later wins the
+   * cascade for every codepoint and strips glyphs (and the bold cut) off a face
+   * that already had them.
+   */
+  describe('against a stylesheet this module did not inject', () => {
+    const SHELL_HREF =
+      'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap';
+
+    function appShellLink(href = SHELL_HREF): HTMLLinkElement {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.className = 'test-app-shell-fonts';
+      link.href = href;
+      document.head.appendChild(link);
+      return link;
+    }
+
+    afterEach(() => {
+      for (const link of document.head.querySelectorAll('.test-app-shell-fonts')) {
+        link.remove();
+      }
+    });
+
+    test('no-ops for a family the shell already loads in full', () => {
+      appShellLink();
+      // Both spellings: `Inter` is plain, `JetBrains+Mono` uses the shell's
+      // `+` where `encodeURIComponent` would write `%20`.
+      for (const family of ['Inter', 'Fraunces', 'JetBrains Mono']) {
+        ensurePreviewFontLink(family, family);
+      }
+      expect(previewLinks()).toHaveLength(0);
+    });
+
+    test('still previews a family the shell does not name', () => {
+      appShellLink();
+      ensurePreviewFontLink('Lobster', 'Lobster');
+      expect(previewLinks()).toHaveLength(1);
+    });
+
+    test('a longer family name is not mistaken for a shorter one', () => {
+      appShellLink('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400&display=swap');
+      ensurePreviewFontLink('Inter', 'Inter');
+      expect(previewLinks()).toHaveLength(1);
+    });
+
+    test("somebody else's subset link does not count as a full load", () => {
+      appShellLink(
+        'https://fonts.googleapis.com/css2?family=Lobster&text=Lobster&display=swap',
+      );
+      ensurePreviewFontLink('Lobster', 'Lobster');
+      expect(previewLinks()).toHaveLength(1);
+    });
+  });
+
   test('Korean family names and glyphs survive idempotency', () => {
     ensurePreviewFontLink(FAKE_KR, '가짜 손글씨체');
     ensurePreviewFontLink(FAKE_KR, '가짜 손글씨체');
