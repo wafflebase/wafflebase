@@ -130,13 +130,34 @@ function findFontLink(family: string): HTMLLinkElement | null {
   return null;
 }
 
+/** The promise that settles when a full link's stylesheet has parsed (or
+ *  failed), hung off the link ELEMENT rather than off the family name: the
+ *  DOM stays the single source of truth for what has been requested, so a
+ *  removed link is genuinely re-requestable and module state can never
+ *  claim a link exists when the head says otherwise. */
+const fullLinkSettled = new WeakMap<HTMLLinkElement, Promise<void>>();
+
 /**
  * On-demand counterpart to `ensureGoogleFontsLink`: inject a per-family
  * Google Fonts CSS `<link>` the first time a non-bootstrap family is
- * needed (picker hover, selection, or in-view preview in the "More
- * fonts…" dialog). After the CSS link resolves, `FontRegistry.ensureFont`
- * (`@wafflebase/docs`) can `document.fonts.load()` the face and trigger
- * a Canvas re-layout.
+ * needed (picker hover, or selection). After the CSS link resolves,
+ * `FontRegistry.ensureFont` (`@wafflebase/docs`) can `document.fonts.load()`
+ * the face and trigger a Canvas re-layout. Row previews go through
+ * `ensurePreviewFontLink` instead, which fetches only the glyphs the row
+ * paints.
+ *
+ * Returns a promise that settles once the stylesheet has parsed — the point
+ * at which the family's real faces are in `document.fonts` and the Font
+ * Loading API can be asked about them truthfully. It NEVER rejects: a font
+ * that fails to load is a fallback face, not an error a caller should have
+ * to handle. Callers that only want the fetch started can ignore it.
+ *
+ * AWAIT IT BEFORE `document.fonts.load()`/`check()`. Injecting the element
+ * is synchronous but its `@font-face` rules are not: ask the Font Loading
+ * API in that window and it answers about whatever faces ARE connected —
+ * nothing (so it resolves instantly and the caller paints a fallback), or,
+ * since previews became subsets, this family's `&text=` face, whose handful
+ * of glyphs would then be what a PDF export rasterises.
  *
  * No-ops when:
  *   - running under SSR (no `document`);
@@ -149,18 +170,35 @@ function findFontLink(family: string): HTMLLinkElement | null {
  * Unknown families (e.g. an arbitrary Google Font chosen from the full
  * library) load with their provided `weights`, or `400;700` by default.
  */
-export function ensureFontLink(family: string, weights?: string): void {
-  if (typeof document === 'undefined') return;
+export function ensureFontLink(family: string, weights?: string): Promise<void> {
+  if (typeof document === 'undefined') return Promise.resolve();
   const entry = CATALOG_INDEX.get(family);
-  if (entry && !entry.webFont) return; // system font: nothing to fetch
-  if (entry && entry.eager) return; // already in bootstrap link
-  if (findFontLink(family)) return;
+  if (entry && !entry.webFont) return Promise.resolve(); // system font: nothing to fetch
+  if (entry && entry.eager) return Promise.resolve(); // already in bootstrap link
+  const existing = findFontLink(family);
+  // Already requested. Its promise is normally there to await; a link with none
+  // beside it survived an HMR module reload, and the request it made cannot be
+  // waited on any more — report it settled rather than issuing a second one.
+  if (existing) return fullLinkSettled.get(existing) ?? Promise.resolve();
 
   const link = document.createElement('link');
   link.rel = 'stylesheet';
   link.dataset.wafflebaseFont = family;
   link.href = css2Url([familyParam(family, weights ?? entry?.weights)]);
+  const settled = new Promise<void>((resolve) => {
+    link.addEventListener('load', () => resolve(), { once: true });
+    link.addEventListener('error', () => resolve(), { once: true });
+  }).then(() => {
+    // The full face is connected now and declared later, so it wins the
+    // cascade for painting — but the subset face is still in `document.fonts`,
+    // where `check()`/`load()` would keep counting it. Dropping it leaves one
+    // authoritative face for the family. Done on settle rather than on inject
+    // so the previewed row never flashes back to a fallback.
+    removePreviewFontLink(family);
+  });
+  fullLinkSettled.set(link, settled);
   document.head.appendChild(link);
+  return settled;
 }
 
 /** Find an already-injected per-family *preview* link. Deliberately a
@@ -175,6 +213,15 @@ function findPreviewFontLink(family: string): HTMLLinkElement | null {
     if (link.dataset.wafflebaseFontPreview === family) return link;
   }
   return null;
+}
+
+/** Drop a family's subset link once its full stylesheet has parsed. The
+ *  subset face has no `unicode-range`, so while it is connected it is a
+ *  face `document.fonts.check()`/`load()` will match for this family —
+ *  which is how a whole slide deck could export rasterised with only the
+ *  glyphs a picker row happened to paint. */
+function removePreviewFontLink(family: string): void {
+  findPreviewFontLink(family)?.remove();
 }
 
 /** The single weight a preview requests: the first cut of the family's

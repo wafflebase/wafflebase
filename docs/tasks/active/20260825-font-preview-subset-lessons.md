@@ -42,3 +42,35 @@ general rule: when a package's `exports` starts pointing at `dist/`, its build
 belongs in the lane graph rather than in a sibling lane's command line — and
 `pnpm verify:fast` needs the same build for the same reason, which is why it was
 red on a clean clone too.
+
+## A subset face is still a face, and the Font Loading API counts it
+
+`ensurePreviewFontLink` keeps its subset out of `findFontLink`'s way with a
+separate marker attribute, so nothing in *this* module can mistake it for a
+full load. `document.fonts` has no such attribute. A `&text=` response carries
+no `unicode-range`, so its face matches the family for every codepoint, and
+`document.fonts.check()` / `load()` answer about it as readily as about the
+real one — which is how the slides PDF export could rasterise a whole deck
+with only the glyphs a dropdown row happened to paint.
+
+Two things follow. `ensureFontLink` now returns a promise that settles when
+the stylesheet has parsed, and drops the family's subset link at that point:
+on settle rather than on inject, so the previewed row never flashes back to a
+fallback. And a caller that is about to ask the Font Loading API has to await
+it — injecting the `<link>` is synchronous, its `@font-face` rules are not,
+and asking in that window gets an answer about whatever faces are connected:
+none (resolves instantly, paints a fallback) or the subset.
+
+The general shape: a marker attribute scopes an invariant to the module that
+reads it. Anything the *browser* indexes by family — `document.fonts`, the
+cascade — is a shared namespace, and a partial entry in it is visible to every
+consumer that never heard of the split.
+
+## The gates that build for themselves have to be found by grep, not by memory
+
+Three scripts learned to build both design-editor artefacts when `exports["."]`
+moved to `dist/plugin/`. `verify-frame.mjs` boots the *same* fixture consumer
+and was left rebuilding only the shell — three reviewers found it, no lane
+could, because none of these scripts run on CI. The copies existed because the
+helper was copy-pasted; they diverged because that is what copies do. It is now
+one `scripts/build-if-stale.mjs` that both design-editor gates import.

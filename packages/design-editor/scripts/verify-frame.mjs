@@ -35,11 +35,12 @@
  * cause buried in the browser log. `playwright install-deps chromium` fixes it.
  */
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { buildDesignEditorIfStale } from './build-if-stale.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG = path.resolve(HERE, '..');
@@ -71,42 +72,7 @@ function check(label, cond, detail) {
   return false;
 }
 
-/**
- * Build the shell when the bundle is missing OR older than its source.
- *
- * MISSING-ONLY WAS A REAL TRAP, and it cost an hour: the gate served a bundle built
- * before the change under test, so a wiring fix that was genuinely present in the source
- * failed here with no clue why. A browser gate that can silently test stale bytes is
- * worse than no browser gate, because its green is not evidence.
- */
-function buildShellIfStale() {
-  const bundle = path.join(PKG, 'dist/shell/index.html');
-  if (fsSync.existsSync(bundle) && newestSourceMtime() <= fsSync.statSync(bundle).mtimeMs) return;
-  console.log('building the shell (missing or older than src/)');
-  const r = spawnSync('pnpm', ['exec', 'vite', 'build', '--config', './vite.shell.config.ts'], {
-    cwd: PKG,
-    stdio: 'inherit',
-  });
-  if (r.status !== 0) throw new Error('shell build failed');
-}
-
 /** Kill the whole group: `pnpm exec` spawns vite as its own child. */
-/** The newest mtime under `src/`, which is everything the shell bundle is built from. */
-function newestSourceMtime() {
-  let newest = 0;
-  const walk = (dir) => {
-    for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else newest = Math.max(newest, fsSync.statSync(full).mtimeMs);
-    }
-  };
-  walk(path.join(PKG, 'src'));
-  // The build config decides what goes in, so a change to it invalidates the bundle too.
-  newest = Math.max(newest, fsSync.statSync(path.join(PKG, 'vite.shell.config.ts')).mtimeMs);
-  return newest;
-}
-
 function shutdown(child) {
   try {
     if (child.pid) process.kill(-child.pid, 'SIGTERM');
@@ -144,7 +110,16 @@ async function boot() {
 }
 
 async function main() {
-  buildShellIfStale();
+  /*
+   * BOTH ARTEFACTS, and shared with `verify-consumer.mjs` for that reason: this gate
+   * used to rebuild only `dist/shell`, yet `boot()` below starts vite on
+   * `fixtures/consumer/vite.config.ts`, which imports this package BY NAME — and since
+   * #966 that name resolves to `dist/plugin/index.js`. So a clean checkout died with
+   * `Cannot find module` (read as a broken fixture, not a missing build) and a dirty one
+   * painted against plugin bytes older than the change under test. `build-if-stale.mjs`
+   * carries the rest of the reasoning.
+   */
+  buildDesignEditorIfStale();
 
   let chromium;
   try {

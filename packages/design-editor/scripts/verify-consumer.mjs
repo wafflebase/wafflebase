@@ -29,11 +29,12 @@
  *   pnpm --filter @wafflebase/design-editor verify:consumer --write
  */
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { buildDesignEditorIfStale } from './build-if-stale.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG = path.resolve(HERE, '..');
@@ -162,60 +163,15 @@ async function scenesModule() {
 /** A shell URL, which is NOT under `/api` — `BASE` cannot be reused for these. */
 const shell = (p) => fetch(`http://127.0.0.1:${PORT}/__design-editor${p}`);
 
-/** The newest mtime under `src/`, which is everything both artefacts are built from. */
-function newestSourceMtime() {
-  let newest = 0;
-  const walk = (dir) => {
-    for (const e of fsSync.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, e.name);
-      if (e.isDirectory()) walk(full);
-      else newest = Math.max(newest, fsSync.statSync(full).mtimeMs);
-    }
-  };
-  walk(path.join(PKG, 'src'));
-  // The build configs decide what goes in, so a change to either invalidates its output.
-  for (const config of ['vite.shell.config.ts', 'tsconfig.build.json']) {
-    newest = Math.max(newest, fsSync.statSync(path.join(PKG, config)).mtimeMs);
-  }
-  return newest;
-}
-
-/**
- * Build the package when either artefact is missing OR older than its source.
- *
- * BOTH ARTEFACTS, not just the shell. `dist/shell` is what the mount point serves, but
- * since #966 `exports["."]` names `dist/plugin/index.js` — and `boot()` below starts vite
- * on `fixtures/consumer/vite.config.ts`, which imports the package BY NAME. Rebuilding
- * only the shell therefore left a clean checkout failing on `Cannot find module` (read as
- * a broken fixture, not as a missing build) and a dirty one running all 57 checks against
- * plugin bytes older than the change under test.
- *
- * NOTHING IN CI RUNS THIS SCRIPT — it boots a dev server, so it is out of `verify:fast` /
- * `verify:self` and out of the lane graph. `design-editor:build` therefore guarantees this
- * script nothing; the caller is a person, and "remember to build first" is not a contract
- * a gate can rest its verdict on.
- *
- * MISSING-ONLY SERVED STALE BYTES, twice. `verify:frame` had the same shape and cost an hour
- * there; here it meant the stylesheet checks below passed against a bundle built before the
- * change under test — including, on the run that added them, a fix they were written to prove.
- * A gate that can pass on stale bytes is worse than no gate, because its green is not evidence.
- */
-function buildIfStale() {
-  const newest = newestSourceMtime();
-  const stale = (rel) => {
-    const artefact = path.join(PKG, rel);
-    return !fsSync.existsSync(artefact) || fsSync.statSync(artefact).mtimeMs < newest;
-  };
-  const outdated = ['dist/shell/index.html', 'dist/plugin/index.js'].filter(stale);
-  if (outdated.length === 0) return;
-  console.log(`building the shell and the plugin (${outdated.join(', ')} missing or older than src/)`);
-  // The package's own `build`, so the two halves can never drift apart here.
-  const r = spawnSync('pnpm', ['run', 'build'], { cwd: PKG, stdio: 'inherit' });
-  if (r.status !== 0) throw new Error('design-editor build failed');
-}
-
 async function main() {
-  buildIfStale();
+  /*
+   * Shared with `verify-frame.mjs`, which boots the SAME fixture project: the two had
+   * identical copies of this build-if-stale logic and the copies diverged, leaving that
+   * gate rebuilding only the shell. The reasoning — why both artefacts, why not
+   * missing-only, why a gate CI never runs has to build for itself — is in
+   * `build-if-stale.mjs`.
+   */
+  buildDesignEditorIfStale();
   console.log(`booting vite in ${path.relative(PKG, PROJECT)} on :${PORT}`);
   const child = await boot();
   try {

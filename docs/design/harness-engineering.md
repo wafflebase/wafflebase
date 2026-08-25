@@ -499,7 +499,8 @@ is how `verify:entropy` normally gets selected, cannot see an inert package. Wit
 only `design-editor:check` claiming the tag, dead code added under
 `packages/design-editor/` would pass its PR and first fail on `main`'s push run.
 That cost the four engine builds in entropy's `needs`; a design-editor change
-selects a handful of lanes and still skips both heavy jobs.
+selects 8 of 32 lanes and still skips both heavy jobs — checkable against the
+lane graph, which is the point of stating it as a number.
 
 `design-editor:build` is a claimant of the same tag for a different reason, and
 the reason runs the OTHER way: since #966 the package's `exports["."]` names its

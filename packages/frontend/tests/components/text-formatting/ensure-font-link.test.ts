@@ -156,6 +156,49 @@ describe('ensurePreviewFontLink', () => {
     ).toBeTruthy();
   });
 
+  /*
+   * WHY THE SUBSET IS DROPPED, and only once the full face has arrived.
+   *
+   * A `&text=` response carries no `unicode-range`, so while its face is
+   * connected it is a face `document.fonts.check()`/`load()` matches for this
+   * family — which is how the slides PDF export could rasterise a whole deck
+   * with only the glyphs a picker row painted. Removing it on the full link's
+   * `load` (not on inject) leaves exactly one authoritative face without the
+   * previewed row flashing back to a fallback in between.
+   */
+  test('the subset link is dropped once the full stylesheet loads', async () => {
+    ensurePreviewFontLink(FAKE_A, 'Wafflebase Fake One');
+    const settled = ensureFontLink(FAKE_A);
+    // Still there while the full stylesheet is in flight: the row keeps its
+    // glyphs until there is something better to paint them with.
+    expect(previewLinks()).toHaveLength(1);
+    fontLinks()[0].dispatchEvent(new Event('load'));
+    await settled;
+    expect(previewLinks()).toHaveLength(0);
+    expect(fontLinks()).toHaveLength(1);
+  });
+
+  // A stylesheet that fails still settles: the caller is waiting to ask the
+  // Font Loading API, and "this family will never load" is an answer.
+  test('a failed full stylesheet settles rather than hanging', async () => {
+    ensurePreviewFontLink(FAKE_A, 'One');
+    const settled = ensureFontLink(FAKE_A);
+    fontLinks()[0].dispatchEvent(new Event('error'));
+    await settled;
+    expect(previewLinks()).toHaveLength(0);
+  });
+
+  // Two callers for one family (hover, then export) must await the SAME
+  // request — a second link would double the fetch and, being later in the
+  // head, race the first for the cascade.
+  test('a second call for the same family awaits the first request', async () => {
+    const first = ensureFontLink(FAKE_A);
+    const second = ensureFontLink(FAKE_A);
+    expect(fontLinks()).toHaveLength(1);
+    fontLinks()[0].dispatchEvent(new Event('load'));
+    await Promise.all([first, second]);
+  });
+
   // Hover-prefetching a row and then scrolling it back into view must not
   // append a subset link: being later in the head it would win the
   // cascade and shrink a face that already had every glyph.
