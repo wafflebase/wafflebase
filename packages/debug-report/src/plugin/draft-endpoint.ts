@@ -2,9 +2,10 @@
  * The drafting call: a batch of one-line reports in, issue text and a proposed
  * PR grouping out.
  *
- * **TOOL-FREE BY CONSTRUCTION.** There is no `tools` parameter on this request,
- * so there is nothing to widen and nothing to audit — the session cannot read a
- * file, cannot reach the repository, cannot open a pull request. That is what
+ * **NO TOOLS, AND NO PROJECT CONFIG.** `allowedTools: []` with
+ * `settingSources: []` — the session cannot read a file, cannot reach the
+ * repository, cannot open a pull request, and inherits none of this project's
+ * skills, hooks or MCP servers that would hand it any of those back. That is what
  * makes it acceptable for the credential to live with the app rather than with
  * the repository: the worst case is a wasted token budget and a draft the
  * reporter rejects, and a prompt injection has no privileged action to reach.
@@ -28,13 +29,9 @@
 // dependency only a drafting request needs. Measured: it pushed a 5-second
 // boundary test over. `scripts/agent/ask.mjs` defers its SDK for the same
 // reason.
-import type Anthropic from "@anthropic-ai/sdk";
 
 /** The model. Opus 5 because a bad draft costs the reporter's trust, not just a retry. */
 const MODEL = "claude-opus-5";
-
-/** Non-streaming, so this stays under the SDK's HTTP timeout. */
-const MAX_TOKENS = 16_000;
 
 const SYSTEM_PROMPT = [
   "You turn a person's one-line observation about a running web app into the issue text a maintainer can act on.",
@@ -155,129 +152,186 @@ export type DraftOutcome =
   | { ok: true; result: Record<string, unknown> }
   | ({ ok: false } & DraftFailure);
 
-/** Just the part of the SDK this module uses, so a test needs no network. */
-export type DraftClient = {
-  messages: {
-    create: (params: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>;
+/**
+ * The credential pool, by environment-variable name.
+ *
+ * `CLAUDE_CODE_OAUTH_TOKEN` plus `_1` … `_8` — the shape wafflebase's own agent
+ * scripts already use, so one secret configures every model call in the
+ * repository. It is read here rather than imported from `scripts/agent/` because
+ * that directory is a separate npm island outside this workspace, and because
+ * "which variables hold a credential" is not repository-specific once the base
+ * name is a constant.
+ *
+ * A pool exists for one reason: a drained credential answers 429, and drafting
+ * runs while somebody waits at a preview panel. Without failover that 429 is the
+ * end of the batch.
+ */
+export const TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN";
+const POOL_SLOTS = 8;
+
+export type Slot = { name: string; token: string };
+
+/** Named, de-duplicated, empties dropped. The NAME travels so a diagnostic can
+ *  say which secret is bad without printing it. */
+export function readPoolSlots(env: Record<string, string | undefined>): Slot[] {
+  const names = [TOKEN_ENV, ...Array.from({ length: POOL_SLOTS }, (_, i) => `${TOKEN_ENV}_${i + 1}`)];
+  const seen = new Set<string>();
+  const slots: Slot[] = [];
+  for (const name of names) {
+    const token = env[name]?.trim();
+    if (!token || seen.has(token)) continue;
+    seen.add(token);
+    slots.push({ name, token });
+  }
+  return slots;
+}
+
+/**
+ * Whether this failure means "this credential is out", as opposed to "the request
+ * was wrong". Only the first is worth another slot — a malformed schema fails
+ * identically on all nine.
+ */
+export function isExhausted(text: string): boolean {
+  return /\b(?:session|usage|weekly|daily|monthly)\s+limit\b|\b429\b|rate.?limit|quota/i.test(text);
+}
+
+/** Whether this failure means "no usable credential at all". */
+export function isNotConfigured(text: string): boolean {
+  return /\b401\b|unauthoriz|authentication|invalid.{0,12}(?:api.?key|token)|could not resolve/i.test(
+    text,
+  );
+}
+
+/** The parts of the Agent SDK this module uses, so a test needs no network. */
+export type AgentQuery = (input: {
+  prompt: string;
+  options: Record<string, unknown>;
+}) => AsyncIterable<{
+  type: string;
+  subtype?: string;
+  result?: string;
+  structured_output?: Record<string, unknown>;
+}>;
+
+/**
+ * One session's options — exported so the empty tool grant is a tested claim
+ * rather than a comment.
+ *
+ * `allowedTools: []` is the whole security argument, and `settingSources: []` is
+ * what keeps it true: without it the session would inherit this project's skills,
+ * hooks and MCP servers, and the grant above would describe nothing.
+ *
+ * `Options.env` REPLACES the subprocess environment rather than merging it, so
+ * the spread is load-bearing — without it the CLI loses `PATH` and never starts.
+ */
+export function sessionOptions(input: {
+  schema: JsonSchema;
+  token?: string;
+  env: Record<string, string | undefined>;
+}): Record<string, unknown> {
+  return {
+    model: MODEL,
+    systemPrompt: SYSTEM_PROMPT,
+    allowedTools: [],
+    permissionMode: "dontAsk",
+    settingSources: [],
+    maxTurns: 1,
+    outputFormat: { type: "json_schema", schema: input.schema },
+    ...(input.token ? { env: { ...input.env, [TOKEN_ENV]: input.token } } : {}),
   };
-};
+}
 
-type Sdk = typeof import("@anthropic-ai/sdk");
-
-let cached: DraftClient | undefined;
+type Sdk = { query: AgentQuery };
 let sdk: Sdk | undefined;
 
 /**
- * The client, built once, from a lazily loaded SDK.
+ * Ask for drafts, trying each pooled credential until one answers.
  *
- * `@anthropic-ai/sdk` IS AN OPTIONAL PEER DEPENDENCY, so a consumer that
- * installs this package without it is a supported state, not a broken one: the
- * import rejects, the catch below turns that into `not-configured`, and the
- * panel degrades to the reporter's own sentences with one PR per item. The
- * import is also lazy because `vite.config.ts` reaches this module — a static
- * one loaded the SDK in every process that read a Vite config, tests included.
- *
- * An unset `ANTHROPIC_API_KEY` does NOT mean there is no credential — the SDK
- * also resolves `ANTHROPIC_AUTH_TOKEN` and an `ant auth login` profile — so
- * construction is attempted and the AUTHENTICATION ERROR is what reports
- * "not configured". Guessing from environment variables would tell a developer
- * who is logged in that they are not.
- */
-async function defaultClient(): Promise<DraftClient> {
-  sdk ??= await import("@anthropic-ai/sdk");
-  cached ??= new sdk.default();
-  return cached;
-}
-
-/**
- * Whether this failure means "no usable credential".
- *
- * Checked against the loaded SDK's class where it is available, and against the
- * HTTP status where it is not — an injected client in a test never loads the SDK,
- * and a 401 means the same thing either way.
- */
-function isAuthFailure(err: unknown): boolean {
-  if (sdk && err instanceof sdk.AuthenticationError) return true;
-  return typeof err === "object" && err !== null && (err as { status?: unknown }).status === 401;
-}
-
-/**
- * Ask for drafts. Returns a typed failure rather than throwing: drafting being
- * unavailable is a state the panel renders (the reporter's own sentences, one PR
- * per item), not an exception for the dev server to log and swallow.
+ * Returns a typed failure rather than throwing: drafting being unavailable is a
+ * state the panel renders (the reporter's own sentences, one PR per item), not an
+ * exception for the dev server to log and swallow.
  */
 export async function draftBundle(
   bundle: DraftBundle,
-  options: { client?: DraftClient; schema: JsonSchema },
+  options: { query?: AgentQuery; schema: JsonSchema; env?: Record<string, string | undefined> },
 ): Promise<DraftOutcome> {
   if (bundle.items.length === 0) {
     return { ok: false, reason: "empty", detail: "the bundle has no items" };
   }
+  const env = options.env ?? process.env;
 
-  let client: DraftClient;
-  try {
-    client = options.client ?? (await defaultClient());
-  } catch (err) {
-    return {
-      ok: false,
-      reason: "not-configured",
-      detail: err instanceof Error ? err.message : String(err),
-    };
-  }
-
-  try {
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: renderPrompt(bundle) }],
-      // Adaptive thinking: deciding how a batch splits into homogeneous PRs is
-      // the part worth thinking about.
-      thinking: { type: "adaptive" },
-      output_config: { format: { type: "json_schema", schema: options.schema } },
-      // NO `tools` KEY. See the file docblock — this absence is the security
-      // argument, not a default that could be overridden later.
-    });
-
-    if (response.stop_reason === "refusal") {
-      return {
-        ok: false,
-        reason: "failed",
-        detail: `the model declined (${response.stop_details?.category ?? "unspecified"})`,
-      };
-    }
-
-    const text = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("");
-    if (text.trim().length === 0) {
-      return { ok: false, reason: "empty", detail: "the model returned no text" };
-    }
+  let query = options.query;
+  if (!query) {
     try {
-      return { ok: true, result: JSON.parse(text) as Record<string, unknown> };
-    } catch {
-      // The schema is enforced server-side, so this is a surprise worth
-      // reporting rather than repairing — and the client validates the shape
-      // again anyway before the panel renders any of it.
-      return { ok: false, reason: "failed", detail: "the response was not JSON" };
-    }
-  } catch (err) {
-    if (isAuthFailure(err)) {
+      sdk ??= (await import("@anthropic-ai/claude-agent-sdk")) as unknown as Sdk;
+      query = sdk.query;
+    } catch (err) {
+      // An OPTIONAL peer dependency, so this is a supported state rather than a
+      // broken one — and the lazy import is also why `vite.config.ts` reaching
+      // this module does not load the SDK in every process that reads a config.
       return {
         ok: false,
         reason: "not-configured",
-        detail:
-          "no usable model credential in the dev-server environment " +
-          "(ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or `ant auth login`)",
+        detail: `the Agent SDK is not installed (${err instanceof Error ? err.message : String(err)})`,
       };
     }
-    return {
-      ok: false,
-      reason: "failed",
-      detail: err instanceof Error ? err.message : String(err),
-    };
   }
+
+  const slots = readPoolSlots(env);
+  // An empty pool tries once with the ambient environment, so a developer who
+  // authenticated some other way gets the same answer they always did.
+  const attempts: Array<{ token?: string }> = slots.length ? slots : [{}];
+
+  let last: DraftOutcome = { ok: false, reason: "failed", detail: "no attempt was made" };
+  for (const slot of attempts) {
+    const outcome = await askOnce(query, bundle, { ...options, env }, slot.token);
+    if (outcome.ok) return outcome;
+    last = outcome;
+    // Only a drained credential is worth the next slot.
+    if (!isExhausted(outcome.detail)) return outcome;
+  }
+  // Every slot was drained. Reported as `failed`, not `not-configured`: the
+  // panel's copy for the latter tells the reporter to set a credential they
+  // already have, and the problem is the window rather than the secret.
+  return { ...last, ok: false, reason: "failed" };
 }
 
-export const __testables = { SYSTEM_PROMPT, MODEL, MAX_TOKENS };
+async function askOnce(
+  query: AgentQuery,
+  bundle: DraftBundle,
+  options: { schema: JsonSchema; env: Record<string, string | undefined> },
+  token?: string,
+): Promise<DraftOutcome> {
+  let structured: Record<string, unknown> | undefined;
+  let subtype = "(no result message)";
+  try {
+    for await (const message of query({
+      prompt: renderPrompt(bundle),
+      options: sessionOptions({ schema: options.schema, token, env: options.env }),
+    })) {
+      if (message.type !== "result") continue;
+      subtype = message.subtype ?? subtype;
+      if (message.subtype === "success") structured = message.structured_output;
+      else if (message.result) subtype = `${subtype}: ${message.result}`;
+    }
+  } catch (err) {
+    return classify(err instanceof Error ? err.message : String(err));
+  }
+  if (structured) return { ok: true, result: structured };
+  // A success with no structured output is a schema the model could not satisfy.
+  // `parseDraftResult` would refuse it anyway; saying so here is clearer.
+  return classify(subtype);
+}
+
+function classify(detail: string): DraftOutcome {
+  if (isNotConfigured(detail) && !isExhausted(detail)) {
+    return {
+      ok: false,
+      reason: "not-configured",
+      detail: `no usable model credential in the dev-server environment (${TOKEN_ENV})`,
+    };
+  }
+  return { ok: false, reason: "failed", detail };
+}
+
+export const __testables = { SYSTEM_PROMPT, MODEL };

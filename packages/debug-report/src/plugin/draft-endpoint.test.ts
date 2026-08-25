@@ -1,7 +1,17 @@
 import { strict as assert } from 'node:assert';
-import { describe, expect, it, vi } from 'vitest';
-import type Anthropic from '@anthropic-ai/sdk';
-import { draftBundle, renderItem, renderPrompt, __testables } from './draft-endpoint';
+import { describe, expect, it } from 'vitest';
+import {
+  draftBundle,
+  isExhausted,
+  isNotConfigured,
+  readPoolSlots,
+  renderItem,
+  renderPrompt,
+  sessionOptions,
+  TOKEN_ENV,
+  __testables,
+  type AgentQuery,
+} from './draft-endpoint';
 import type { DraftRequest } from '../types';
 
 /** The real schema, imported the way a test may (vitest resolves the alias). */
@@ -55,11 +65,6 @@ const bundle: DraftRequest = {
   },
 };
 
-const message = (text: string): Anthropic.Message =>
-  ({
-    content: [{ type: 'text', text }],
-    stop_reason: 'end_turn',
-  }) as unknown as Anthropic.Message;
 
 describe('what the model is shown', () => {
   it('describes a DOM target by selector, test id and text', () => {
@@ -93,115 +98,198 @@ describe('what the model is shown', () => {
   });
 });
 
-describe('draftBundle', () => {
-  const client = (impl: () => Promise<Anthropic.Message>) => {
-    const create =
-      vi.fn<(params: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>>(
-        impl,
-      );
-    return { messages: { create } };
+describe('the session the drafting call opens', () => {
+  it('grants NO tools and inherits no project config', () => {
+    // The whole credential argument. `allowedTools: []` alone would not hold:
+    // without `settingSources: []` the session inherits this project's skills,
+    // hooks and MCP servers, and the empty grant would describe nothing.
+    const options = sessionOptions({ schema, env: {} });
+    expect(options.allowedTools).toEqual([]);
+    expect(options.settingSources).toEqual([]);
+    expect(options.permissionMode).toBe('dontAsk');
+  });
+
+  it('holds the answer to the schema it was given', () => {
+    expect(sessionOptions({ schema, env: {} }).outputFormat).toEqual({
+      type: 'json_schema',
+      schema,
+    });
+  });
+
+  it('REPLACES the environment with a spread, or the CLI loses PATH', () => {
+    // `Options.env` replaces rather than merges. Without the spread the
+    // subprocess starts without `PATH` and never runs at all.
+    const options = sessionOptions({ schema, token: 'oat-2', env: { PATH: '/usr/bin', X: '1' } });
+    expect(options.env).toEqual({ PATH: '/usr/bin', X: '1', [TOKEN_ENV]: 'oat-2' });
+  });
+
+  it('passes no env at all when there is no token, so the ambient one stands', () => {
+    expect(sessionOptions({ schema, env: { PATH: '/usr/bin' } }).env).toBeUndefined();
+  });
+});
+
+describe('the credential pool', () => {
+  it('reads the base name and its eight slots, in order', () => {
+    const slots = readPoolSlots({
+      [TOKEN_ENV]: 'a',
+      [`${TOKEN_ENV}_1`]: 'b',
+      [`${TOKEN_ENV}_8`]: 'c',
+    });
+    expect(slots.map((s) => s.token)).toEqual(['a', 'b', 'c']);
+    expect(slots.map((s) => s.name)).toEqual([TOKEN_ENV, `${TOKEN_ENV}_1`, `${TOKEN_ENV}_8`]);
+  });
+
+  it('drops empties and duplicates, so a position is not a slot number', () => {
+    // The NAME is what an operator can act on; deduping means the index is not
+    // the suffix, so a diagnostic must never say "slot 3".
+    const slots = readPoolSlots({
+      [TOKEN_ENV]: '  ',
+      [`${TOKEN_ENV}_1`]: 'dupe',
+      [`${TOKEN_ENV}_2`]: 'dupe',
+      [`${TOKEN_ENV}_3`]: 'other',
+    });
+    expect(slots.map((s) => [s.name, s.token])).toEqual([
+      [`${TOKEN_ENV}_1`, 'dupe'],
+      [`${TOKEN_ENV}_3`, 'other'],
+    ]);
+  });
+});
+
+describe('what a failure is taken to mean', () => {
+  it('treats a closed window as this credential being out', () => {
+    for (const text of ['429 Too Many Requests', 'weekly limit reached', 'rate limit', 'quota']) {
+      expect(isExhausted(text)).toBe(true);
+    }
+  });
+
+  it('treats a rejected or absent secret as not-configured', () => {
+    for (const text of ['401 Unauthorized', 'authentication failed', 'invalid api key']) {
+      expect(isNotConfigured(text)).toBe(true);
+    }
+  });
+
+  it('treats an unrelated failure as neither', () => {
+    expect(isExhausted('ECONNRESET')).toBe(false);
+    expect(isNotConfigured('ECONNRESET')).toBe(false);
+  });
+});
+
+/** One session, scripted. `structured` present means the model answered. */
+const querying = (
+  script: Array<{ subtype: string; structured?: Record<string, unknown>; result?: string }>,
+): { query: AgentQuery; calls: Array<Record<string, unknown>> } => {
+  const calls: Array<Record<string, unknown>> = [];
+  let n = 0;
+  const query: AgentQuery = ({ options }) => {
+    calls.push(options);
+    const step = script[Math.min(n++, script.length - 1)];
+    return (async function* () {
+      yield { type: 'system' as const };
+      yield {
+        type: 'result' as const,
+        subtype: step.subtype,
+        ...(step.structured ? { structured_output: step.structured } : {}),
+        ...(step.result ? { result: step.result } : {}),
+      };
+    })();
   };
+  return { query, calls };
+};
 
-  it('sends NO tools, which is the whole credential argument', async () => {
-    const c = client(async () => message('{"drafts":[],"proposedGroups":[]}'));
-    await draftBundle(bundle, { client: c, schema });
-    const params = c.messages.create.mock.calls[0]![0] as unknown as Record<string, unknown>;
-    expect('tools' in params).toBe(false);
-    expect(params.model).toBe('claude-opus-5');
-    expect(params.output_config).toEqual({
-      format: { type: 'json_schema', schema: expect.any(Object) },
+describe('draftBundle', () => {
+  const drafts = { drafts: [{ itemId: 'i1' }], proposedGroups: [] };
+
+  it('returns the session’s structured output', async () => {
+    const { query } = querying([{ subtype: 'success', structured: drafts }]);
+    await expect(draftBundle(bundle, { query, schema, env: {} })).resolves.toEqual({
+      ok: true,
+      result: drafts,
     });
   });
 
-  it('returns the parsed answer', async () => {
-    const c = client(async () => message('{"drafts":[{"itemId":"i1"}],"proposedGroups":[]}'));
-    const outcome = await draftBundle(bundle, { client: c, schema });
-    expect(outcome.ok).toBe(true);
-    if (outcome.ok) expect(outcome.result).toEqual({ drafts: [{ itemId: 'i1' }], proposedGroups: [] });
-  });
-
-  it('reports an empty bundle without calling the model', async () => {
-    const c = client(async () => message('{}'));
-    const outcome = await draftBundle({ ...bundle, items: [] }, { client: c, schema });
+  it('reports an empty bundle without opening a session', async () => {
+    const { query, calls } = querying([{ subtype: 'success', structured: drafts }]);
+    const outcome = await draftBundle({ ...bundle, items: [] }, { query, schema, env: {} });
     expect(outcome).toMatchObject({ ok: false, reason: 'empty' });
-    expect(c.messages.create).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
   });
 
-  it('reports a refusal as a failure, with its category', async () => {
-    const c = client(async () =>
-      ({
-        content: [],
-        stop_reason: 'refusal',
-        stop_details: { category: 'cyber' },
-      }) as unknown as Anthropic.Message,
-    );
-    const outcome = await draftBundle(bundle, { client: c, schema });
+  it('moves to the next credential when one is drained, and no further', async () => {
+    // The reason a pool exists: a drained credential answers 429, and drafting
+    // runs while somebody waits at a preview panel.
+    const { query, calls } = querying([
+      { subtype: 'error', result: '429 rate limit' },
+      { subtype: 'success', structured: drafts },
+    ]);
+    const env = { [TOKEN_ENV]: 'one', [`${TOKEN_ENV}_1`]: 'two' };
+    await expect(draftBundle(bundle, { query, schema, env })).resolves.toEqual({
+      ok: true,
+      result: drafts,
+    });
+    expect(calls.map((c) => (c.env as Record<string, string>)[TOKEN_ENV])).toEqual(['one', 'two']);
+  });
+
+  it('does NOT retry a failure another credential cannot fix', async () => {
+    // A malformed schema fails identically on all nine, so trying them costs
+    // nine times to learn nothing.
+    const { query, calls } = querying([{ subtype: 'error', result: 'ECONNRESET' }]);
+    const env = { [TOKEN_ENV]: 'one', [`${TOKEN_ENV}_1`]: 'two' };
+    const outcome = await draftBundle(bundle, { query, schema, env });
     expect(outcome).toMatchObject({ ok: false, reason: 'failed' });
-    if (!outcome.ok) expect(outcome.detail).toContain('cyber');
+    expect(calls).toHaveLength(1);
   });
 
-  it('reports a non-JSON answer rather than repairing it', async () => {
-    const c = client(async () => message('I think the toolbar is fine'));
-    expect(await draftBundle(bundle, { client: c, schema })).toMatchObject({
+  it('reports a drained POOL as failed, not as a missing credential', async () => {
+    // `not-configured` copy tells the reporter to set a secret they already
+    // have. The window is the problem, not the secret.
+    const { query } = querying([{ subtype: 'error', result: '429 rate limit' }]);
+    const env = { [TOKEN_ENV]: 'one', [`${TOKEN_ENV}_1`]: 'two' };
+    await expect(draftBundle(bundle, { query, schema, env })).resolves.toMatchObject({
       ok: false,
       reason: 'failed',
-      detail: 'the response was not JSON',
     });
   });
 
-  it('reports an empty answer', async () => {
-    const c = client(async () => message('   '));
-    expect(await draftBundle(bundle, { client: c, schema })).toMatchObject({ ok: false, reason: 'empty' });
+  it('names the variable when there is no usable credential', async () => {
+    const { query } = querying([{ subtype: 'error', result: '401 Unauthorized' }]);
+    const outcome = await draftBundle(bundle, { query, schema, env: {} });
+    expect(outcome).toMatchObject({ ok: false, reason: 'not-configured' });
+    if (!outcome.ok) expect(outcome.detail).toContain(TOKEN_ENV);
   });
 
-  it('turns a transport failure into a typed outcome, not an exception', async () => {
-    const c = client(async () => {
-      throw new Error('socket hang up');
-    });
-    expect(await draftBundle(bundle, { client: c, schema })).toMatchObject({
+  it('treats a success with no structured output as a failure, not a draft', async () => {
+    // `parseDraftResult` would refuse it anyway; saying so here is clearer than
+    // handing the panel an empty answer.
+    const { query } = querying([{ subtype: 'success' }]);
+    await expect(draftBundle(bundle, { query, schema, env: {} })).resolves.toMatchObject({
       ok: false,
-      reason: 'failed',
-      detail: 'socket hang up',
     });
+  });
+
+  it('tries once with the ambient environment when no slot is set', async () => {
+    const { query, calls } = querying([{ subtype: 'success', structured: drafts }]);
+    await draftBundle(bundle, { query, schema, env: {} });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].env).toBeUndefined();
   });
 });
 
 describe('the SDK is not loaded until a draft is actually asked for', () => {
   it('is imported lazily, because vite.config reaches this module', async () => {
     // A CONSUMER's `vite.config.ts` mounts this plugin, and every vitest worker
-    // in that consumer loads the config — so a static
-    // `import Anthropic from "@anthropic-ai/sdk"` costs ~500 ms per worker for a
-    // dependency only a drafting request needs. Measured in this repository
-    // before the move, where it pushed a 5-second boundary test over; now that
-    // the plugin ships in a package the cost lands on every consumer instead,
-    // which makes the guard matter more rather than less.
+    // in that consumer loads the config — so a static import costs real time per
+    // worker for a dependency only a drafting request needs. Measured in this
+    // repository before the move, where it pushed a 5-second boundary test over.
     //
     // Read by path rather than by `import.meta.url`: under vitest the module id
     // is not a `file:` URL.
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
-    const source = readFileSync(
-      join(process.cwd(), 'src', 'plugin', 'draft-endpoint.ts'),
-      'utf8',
+    const source = readFileSync(join(process.cwd(), 'src', 'plugin', 'draft-endpoint.ts'), 'utf8');
+    assert(!/^import .*@anthropic-ai/m.test(source), 'the SDK must not load at module scope');
+    assert(
+      /await import\("@anthropic-ai\/claude-agent-sdk"\)/.test(source),
+      'loaded where it is used',
     );
-    assert(!/^import Anthropic from/m.test(source), 'the SDK must not load at module scope');
-    assert(/^import type Anthropic from/m.test(source), 'types are erased, so they are free');
-    assert(/await import\("@anthropic-ai\/sdk"\)/.test(source), 'loaded where it is used');
-  });
-
-  it('recognises a missing credential without the SDK loaded', async () => {
-    // An injected client never loads the SDK, so `instanceof` cannot be the only
-    // test — a 401 means the same thing either way.
-    const outcome = await draftBundle(bundle, {
-      schema,
-      client: {
-        messages: {
-          create: async () => {
-            throw Object.assign(new Error('missing key'), { status: 401 });
-          },
-        },
-      } as never,
-    });
-    expect(outcome).toMatchObject({ ok: false, reason: 'not-configured' });
   });
 });
