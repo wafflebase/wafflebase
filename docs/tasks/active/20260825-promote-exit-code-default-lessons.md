@@ -20,6 +20,31 @@
   the absence of the pipe, because the pipe form is the natural thing to
   reach for when you want the log visible in the step too.
 
+- **A blocked half does not ship as a `.patch` file, and a knowingly-red
+  test never ships at all.** The App cannot push workflow files, so the run
+  parked the workflow hunk as an unapplied blob under `docs/tasks/active/`
+  and left the cross-file test failing "on purpose". Both moves are worse
+  than they look: the blob is pinned to blob hashes and line offsets of a
+  2400-line file other work edits, nothing verifies it, and the task tooling
+  cannot see it; and the red test sits in `verify:self`'s `agent:tests`
+  lane, which reds CI on every branch cut from main, which makes
+  `mark-ready.mjs`'s gate 1 unsatisfiable — bricking promotion for every
+  future PR. **A change that cannot land whole should land as the part that
+  is complete on its own** (here: the two mutant-killing tests), with the
+  blocked part left in the issue. Deferring to "a maintainer will apply it"
+  buys nothing that a smaller PR would not.
+
+- **Assert what a workflow DOES, not how it is typed.** The first pass
+  pinned exact echo text and indentation (`0) echo "ready=true" >> …  ;;`)
+  inside a fixed 2600-character window only ~700 characters larger than the
+  block it bounded. Both fail on a reflow that changes no behavior, and the
+  window silently starts reading the *next* step once the block grows.
+  Parsing the `case` into its branches and asserting per-branch semantics —
+  which codes have a branch, which branches exit and with what, that the
+  gates-said-no path does not exit — kills the same eight mutants while
+  surviving formatting. Bound a window at the next structural boundary
+  (`- name:`), never at a character count.
+
 - **Mutation-test the tests, not just the code.** The two mutants the issue
   named (`name === "CI"` filter, `GH_MUTATION_TOKEN` override) both left
   12/12 green — each is a security-relevant line whose deletion changes no

@@ -25,22 +25,22 @@ is dropped from the invocation.
 
 ## Plan
 
-- [ ] Replace the `if` chain with a `case` that has a `*)` default which
+- [x] Replace the `if` chain with a `case` that has a `*)` default which
       fails the job (exit 2).
-- [ ] Capture the script's output to `$RUNNER_TEMP/mark-ready.log` with a
+- [x] Capture the script's output to `$RUNNER_TEMP/mark-ready.log` with a
       **redirect, not a pipe**, so `$?` is the script's own status; `cat` it
       back so the log still appears in the step.
-- [ ] Make the code-1 branch require the script's own verdict line
+- [x] Make the code-1 branch require the script's own verdict line
       (`Not promoting: one or more gates are not satisfied`) on stdout — a
       bare exit 1 with no verdict is a crash, so exit 2 and page.
-- [ ] Update `mark-ready.test.mjs`'s four `-eq N` workflow assertions to the
-      `case` form, plus anchored checks for the `-eq 1` branch body, the
-      `--promote` flag, the non-pipe redirect and the `*)` default.
-- [ ] Pin the verdict string as a **cross-file contract**: the workflow's
+- [x] Update `mark-ready.test.mjs`'s four `-eq N` workflow assertions to the
+      `case` form, plus checks for the `1)` branch body, the `--promote` flag,
+      the non-pipe redirect and the `*)` default.
+- [x] Pin the verdict string as a **cross-file contract**: the workflow's
       `grep -qF` needle must be a literal the script actually prints.
-- [ ] Harden the exit-code census so a non-literal `process.exit(c)` fails
+- [x] Harden the exit-code census so a non-literal `process.exit(c)` fails
       instead of surviving.
-- [ ] Kill the two surviving mutants #929's suite left green:
+- [x] Kill the two surviving mutants #929's suite left green:
       - deleting the `name === "CI"` workflow-run filter (`mark-ready.mjs`),
       - removing `ghMutate`'s `GH_MUTATION_TOKEN` env override.
 
@@ -52,15 +52,11 @@ is dropped from the invocation.
 - No new paging channel. Exit 2 already reds the job, which the `stalled`
   safety net covers.
 
-## Blocker: this branch cannot carry the workflow file
-
-The workflow half of this change is written, verified, and **not on this
-branch**. It lives in
-`20260825-promote-exit-code-default-workflow.patch` next to this file.
+## How the workflow half got here
 
 The autonomous run authenticates as the `yorkie-agent[bot]` GitHub App, and
-that installation is not granted GitHub's `workflows` permission, so the push
-is refused at the server:
+that installation is not granted GitHub's `workflows` permission, so its push
+was refused at the server:
 
 ```
 ! [remote rejected] agent/937-promote-exit-code-default (refusing to allow a
@@ -73,28 +69,34 @@ exists only on a GitHub App installation or a PAT — so `agent-implement.yml`
 cannot grant it to itself. **Every** harness change that touches a workflow
 file hits this, not just this issue.
 
-To land it, a maintainer (or a credential with `Workflows: write`) runs:
+The run's workaround was to park the hunk as an unapplied
+`…-workflow.patch` next to this file and leave the cross-file test red on
+purpose. That is not a landable shape: the suite runs in `verify:self`'s
+`agent:tests` lane, a red `verify:self` reds CI on every branch cut from
+main, and `mark-ready.mjs`'s gate 1 requires a green CI run — so merging it
+would have made **no** agent PR promotable again, the permanent version of
+the stall this change exists to prevent. The same anti-pattern is already on
+record as a panel finding in `scripts/agent/rounds.test.mjs`.
 
-```sh
-git apply docs/tasks/active/20260825-promote-exit-code-default-workflow.patch
-git rm docs/tasks/active/20260825-promote-exit-code-default-workflow.patch
-```
-
-Until that hunk lands, `mark-ready.test.mjs`'s
-`agent-review-panel.yml handles every mark-ready code, defaults the rest`
-**fails on purpose** — it is the cross-file contract reporting that the
-consumer half is missing. The other 13 tests pass.
+A maintainer applied the hunk to the real workflow and deleted the `.patch`
+file, so both halves land together and the suite is green. **The follow-up
+that matters is the permission itself** — grant the App `Workflows: write`,
+or make "the agent does not edit workflow files" an explicit policy. The
+patch-file detour has now been reached for twice; it will be reached for
+again.
 
 ## Verification
 
-- `node --test scripts/agent/mark-ready.test.mjs` — 14/14 with the patch
-  applied, 13/14 without it (the workflow-shape test, as above).
+- `node --test scripts/agent/mark-ready.test.mjs` — 14/14, both halves on
+  the branch.
 - The `case` block was extracted and simulated against stub scripts for all
   six statuses — 0, 1-with-verdict, 1-as-crash (bad import), 2, 3, and a
   missing script — and produced job rc 0 / 0 / 2 / 2 / 3 / 2 with
   `ready=true` emitted only for 0.
-- Five mutants, each killed by exactly one test: dropping the `name === "CI"`
-  filter, dropping `ghMutate`'s `GH_MUTATION_TOKEN` override, reverting the
-  workflow to the old `if` chain, dropping `--promote` from the invocation,
-  and changing the `grep -qF` needle to a string mark-ready never prints.
+- Eight mutants, each killed: reverting the workflow to the old `if` chain,
+  dropping `--promote`, changing the `grep -qF` needle to a string
+  mark-ready never prints, deleting the `*)` default, turning the redirect
+  into a `| tee` pipe, making the `1)` branch `exit 1`, dropping the
+  `name === "CI"` filter, and dropping `ghMutate`'s `GH_MUTATION_TOKEN`
+  override.
 - CI (`verify:self`) on the PR.

@@ -333,9 +333,12 @@ test("agent-review-panel.yml handles every mark-ready code, defaults the rest", 
   // all and the failure would surface as confusing regex misses instead.
   const at = yml.indexOf("node ./scripts/agent/mark-ready.mjs");
   assert.notEqual(at, -1, "the promote job must still invoke mark-ready.mjs");
-  // The whole `case` sits immediately below the invocation; bounding the window
-  // keeps an unrelated `esac` elsewhere in the file out of the match.
-  const window = yml.slice(at, at + 2600);
+  // Bound the window at the step that FOLLOWS, not at a character count. The
+  // block is allowed to grow; a count only a little larger than it would keep
+  // passing while quietly reading the next step's script instead.
+  const nextStep = yml.slice(at).search(/\n {6}- name:/);
+  assert.notEqual(nextStep, -1, "the promote step must still be followed by another step");
+  const window = yml.slice(at, at + nextStep);
 
   // The invocation. `--promote` is what makes this a promotion at all — without
   // it mark-ready is a dry run that exits 0 on a satisfied gate and flips
@@ -360,31 +363,44 @@ test("agent-review-panel.yml handles every mark-ready code, defaults the rest", 
   assert.ok(!invocation.includes("|"), "the capture must not be a pipe, or $? is not mark-ready's");
 
   // The chain itself: a `case` with a default, not bare `if`s that fall through.
-  assert.match(window, /case "\$code" in/, "branch with `case`, so an unhandled status has somewhere to land");
-  assert.match(window, /^\s*0\) echo "ready=true" >> "\$GITHUB_OUTPUT" ;;/m, "0 → promoted");
-  assert.match(window, /^\s*2\) echo "mark-ready tooling error" >&2; exit 2 ;;/m, "2 → tooling error, fail the job");
-  assert.match(window, /^\s*3\) echo .* >&2; exit 3 ;;/m, "3 → promotion failed, page a human");
-  assert.match(
-    window,
-    /^\s*\*\) echo "mark-ready returned unhandled status \$code" >&2; exit 2 ;;/m,
+  const caseBlock = window.match(/case "\$code" in\n([\s\S]*?)\n\s*esac\b/);
+  assert.ok(caseBlock, "branch with a closed `case`, so an unhandled status has somewhere to land");
+  // A branch label is a line whose first non-space character starts the pattern,
+  // which no comment line can be, running to that branch's `;;`.
+  const branches = new Map([...caseBlock[1].matchAll(/^\s*([0-3]|\*)\)([\s\S]*?);;/gm)].map((m) => [m[1], m[2]]));
+  assert.deepEqual(
+    [...branches.keys()].sort(),
+    ["*", "0", "1", "2", "3"],
+    "each code mark-ready emits needs a branch, and everything else needs `*)`",
+  );
+
+  // What each branch has to DO. Asserted as behavior rather than as the exact
+  // echo text, so reflowing a message — or reindenting the block — cannot fail
+  // a test that is about exit-code handling.
+  //
+  // `exit` in command position, with quoted text blanked first: a message that
+  // says "exit 1" is prose, not a branch that exits.
+  const exits = (branch) =>
+    [...branch.replace(/"[^"]*"/g, '""').matchAll(/(?:^|[;{&|(]\s*)exit\s+(\d+)/gm)].map((m) => Number(m[1]));
+
+  assert.match(branches.get("0"), /ready=true.*>>\s*"\$GITHUB_OUTPUT"/, "0 → promoted");
+  assert.deepEqual(exits(branches.get("0")), [], "0 → promoted, so the job succeeds");
+  assert.deepEqual(exits(branches.get("2")), [2], "2 → tooling error, fail the job");
+  assert.deepEqual(exits(branches.get("3")), [3], "3 → promotion failed, page a human");
+  assert.deepEqual(
+    exits(branches.get("*")),
+    [2],
     "an unenumerated status (127, 128+signal) must fail the job, not fall through it",
   );
-  assert.match(window, /^\s*esac$/m, "the case must be closed");
 
-  // The `1` branch, in full: it is the one branch that lets the job SUCCEED, so
-  // its body is the load-bearing part. It must corroborate the code against the
-  // script's own verdict (1 is also node's crash code) and must not exit.
-  const oneBranch = window.match(/\n\s*1\)[\s\S]*?;;/);
-  assert.ok(oneBranch, "the case must still have a `1)` branch");
-  const one = oneBranch[0];
+  // The `1` branch is the one branch that lets the job SUCCEED, so its body is
+  // the load-bearing part. 1 is also node's own crash code, so it must
+  // corroborate against the script's verdict, and the gates-said-no path — the
+  // one that reaches the end of the branch — must not exit at all.
+  const one = branches.get("1");
   assert.match(one, /grep -qF "([^"]+)" "\$RUNNER_TEMP\/mark-ready\.log"/, "a bare exit 1 must not be believed");
-  assert.match(one, /exit 2; \}/, "an exit 1 with no verdict line is a crash → fail the job");
-  assert.match(one, /echo "Not all ready-gates satisfied; leaving as draft\." ;;$/, "1 → draft, job succeeds");
-  // In command position only — the crash message legitimately says "exit 1".
-  assert.ok(
-    !/(^|[;{&|(]\s*)exit\s+[013]\b/m.test(one.replace(/"[^"]*"/g, '""')),
-    "the gates-said-no branch must let the job succeed",
-  );
+  assert.match(one, /\|\|\s*\{[^}]*exit 2;\s*\}/, "an exit 1 with no verdict line is a crash → fail the job");
+  assert.deepEqual(exits(one), [2], "the crash guard is the branch's only exit; a real verdict leaves it a draft");
 
   // CROSS-FILE CONTRACT: the string the workflow greps for has to be a string
   // mark-ready actually prints, or every exit 1 reads as a crash and every
