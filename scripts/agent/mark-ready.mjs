@@ -34,7 +34,7 @@
 // Requires the `gh` CLI authenticated via GH_TOKEN / GITHUB_TOKEN.
 
 import { execFileSync } from "node:child_process";
-import { allRequiredPassed, DEFAULT_REVIEW_CHECKS, latestCiRun } from "./checks.mjs";
+import { allRequiredPassed, ciConclusion, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 import { computeLabelSet } from "./set-state.mjs";
 import { disclosesAiAuthorship, HANDOFF_MARKER } from "./disclosure.mjs";
 
@@ -133,8 +133,7 @@ function ciPassed(sha) {
   // Matched by workflow PATH, not by the run's display name: `name` is just a
   // `name:` key, so a second workflow file claiming `name: CI` would forge the
   // one gate that means "the tests passed". See CI_WORKFLOW_PATH.
-  const run = latestCiRun(data.workflow_runs);
-  return run?.conclusion === "success";
+  return ciConclusion(data.workflow_runs) === "success";
 }
 
 const ciGate = ciPassed(pr.headRefOid);

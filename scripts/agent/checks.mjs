@@ -57,17 +57,35 @@ export const DEFAULT_REVIEW_CHECKS = [
  */
 export const CI_WORKFLOW_PATH = ".github/workflows/ci.yml";
 
+/** Every run of the CI workflow for a SHA. Called workflows report `path` with an `@ref` suffix. */
+export function ciRunsFor(workflowRuns) {
+  return (workflowRuns || []).filter((r) => String(r?.path ?? "").split("@")[0] === CI_WORKFLOW_PATH);
+}
+
 /**
- * The authoritative CI run for a SHA, or null.
+ * CI's verdict for a SHA: `"success"`, `"failure"`, or `null` for "not known
+ * yet" — no run, or one still in flight.
  *
- * Newest-first, so a re-run outranks the run it replaced. Called workflows
- * report `path` with an `@ref` suffix, so compare only the part before it.
+ * EVERY run must have concluded success, rather than the newest one winning.
+ * A re-run does not create a second run — GitHub adds a `run_attempt` to the
+ * existing one — so "newest wins" was never what made re-runs work; the run's
+ * own `conclusion` already reflects its latest attempt. What "newest wins"
+ * DOES do is fail open the moment a SHA has two CI runs, which happens as soon
+ * as CI gains a second trigger that fires for the same commit: a red run is
+ * then ignored whenever a later-created one is green, and gate 1 is the gate
+ * that means "the tests passed". Requiring all of them is fail-closed under
+ * any trigger set, and drops the dependence on `created_at` ordering — which
+ * was itself unspecified when a stamp was missing or unparseable
+ * (`new Date("nonsense")` is NaN, and a NaN comparator does not order).
+ *
+ * `conclusion` is null while a run is in flight, so an unfinished run reports
+ * `null` here and the caller waits rather than reading a stale verdict.
  */
-export function latestCiRun(workflowRuns) {
-  const runs = (workflowRuns || []).filter((r) => String(r?.path ?? "").split("@")[0] === CI_WORKFLOW_PATH);
+export function ciConclusion(workflowRuns) {
+  const runs = ciRunsFor(workflowRuns);
   if (runs.length === 0) return null;
-  runs.sort((a, b) => new Date(b.created_at ?? 0) - new Date(a.created_at ?? 0));
-  return runs[0];
+  if (runs.some((r) => r.conclusion == null)) return null;
+  return runs.every((r) => r.conclusion === "success") ? "success" : "failure";
 }
 
 /** Latest run of `name` concluded success? Missing → false. */

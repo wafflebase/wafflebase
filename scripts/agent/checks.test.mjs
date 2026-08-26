@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkPassed, allRequiredPassed, ciRunDecision, latestCiRun, CI_WORKFLOW_PATH, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunsFor, CI_WORKFLOW_PATH, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 
 // `DEFAULT_REVIEW_CHECKS` is the ONE lens list in the repo that does not derive
 // itself from lenses.json, so it is the one that silently rots when a lens is
@@ -425,7 +425,7 @@ test("CI_WORKFLOW_PATH names a workflow file that actually exists", () => {
   // The gate matches CI runs on this path instead of on the run's display name,
   // which is what makes gate 1 unforgeable — a second file cannot claim the
   // path. The cost is that a typo, or renaming ci.yml, silently makes the gate
-  // unsatisfiable for every PR: `latestCiRun` would find nothing and read as
+  // unsatisfiable for every PR: `ciRunsFor` would find nothing and read as
   // "CI has not run". Assert the file is there, and that it is the one whose
   // runs are named "CI".
   const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -434,23 +434,39 @@ test("CI_WORKFLOW_PATH names a workflow file that actually exists", () => {
   assert.match(src, /^name:\s*CI\s*$/m, "ci.yml must still be the workflow whose runs are named CI");
 });
 
-test("latestCiRun: newest by path, tolerant of an @ref suffix, null when absent", () => {
-  const at = (t) => `2026-08-22T0${t}:00:00Z`;
-  const real = (conclusion, t) => ({ name: "CI", path: CI_WORKFLOW_PATH, conclusion, created_at: at(t) });
+test("ciConclusion: EVERY CI run must be green, and an unfinished one is 'not yet'", () => {
+  const real = (conclusion) => ({ name: "CI", path: CI_WORKFLOW_PATH, conclusion });
 
-  assert.equal(latestCiRun([]), null, "no runs at all");
-  assert.equal(latestCiRun(undefined), null, "a missing list is not a crash");
-  assert.equal(latestCiRun([{ name: "CI", path: ".github/workflows/pwn.yml", conclusion: "success" }]), null,
-    "a second file calling itself CI is not the CI workflow");
-  assert.equal(latestCiRun([{ name: "CI" }]), null, "a run with no path cannot be matched to the file");
+  assert.equal(ciConclusion([]), null, "no runs at all");
+  assert.equal(ciConclusion(undefined), null, "a missing list is not a crash");
+  assert.equal(
+    ciConclusion([{ name: "CI", path: ".github/workflows/pwn.yml", conclusion: "success" }]),
+    null,
+    "a second file calling itself CI is not the CI workflow",
+  );
+  assert.equal(ciConclusion([{ name: "CI" }]), null, "a run with no path cannot be matched to the file");
 
-  // Newest wins regardless of input order.
-  assert.equal(latestCiRun([real("success", 1), real("failure", 9)]).conclusion, "failure");
-  assert.equal(latestCiRun([real("failure", 9), real("success", 1)]).conclusion, "failure");
+  assert.equal(ciConclusion([real("success")]), "success");
+  assert.equal(ciConclusion([real("failure")]), "failure");
+
+  // The point of the rule. A re-run does not create a second run — GitHub adds
+  // a run_attempt to the existing one — so two runs for a SHA means CI was
+  // TRIGGERED twice, and a green one must not excuse a red one. "Newest wins"
+  // failed open here, in whichever order the API happened to return them.
+  assert.equal(ciConclusion([real("success"), real("failure")]), "failure");
+  assert.equal(ciConclusion([real("failure"), real("success")]), "failure");
+
+  // Still running → not known yet, so the caller waits rather than reading a
+  // verdict off whichever runs have finished. No timestamps are consulted at
+  // all, so a missing or unparseable `created_at` cannot reorder anything.
+  assert.equal(ciConclusion([real("success"), real(null)]), null);
+  assert.equal(ciConclusion([real(null)]), null);
+  assert.equal(ciConclusion([real("failure"), real(null)]), null);
 
   // A called workflow reports `<path>@<ref>` and is still the CI file.
   assert.equal(
-    latestCiRun([{ name: "CI", path: `${CI_WORKFLOW_PATH}@refs/heads/main`, conclusion: "success" }]).conclusion,
+    ciConclusion([{ name: "CI", path: `${CI_WORKFLOW_PATH}@refs/heads/main`, conclusion: "success" }]),
     "success",
   );
+  assert.equal(ciRunsFor([real("success"), { name: "x", path: ".github/workflows/x.yml" }]).length, 1);
 });

@@ -1909,12 +1909,24 @@ Components:
     The agent App cannot push `.github/workflows/**` (the boundary the panel's
     `workflow_run` trigger rests on), but an `agent:managed` human PR is on the
     same promote path and is not restricted. `CI_WORKFLOW_PATH` and
-    `latestCiRun()` in `checks.mjs` are the single source for both readers
-    (`mark-ready.mjs`, `set-state.mjs`); `latestCiRun` also picks the **newest**
-    run so a re-run outranks the run it replaced, and tolerates the `@ref`
-    suffix a called workflow reports. `checks.test.mjs` asserts the path names a
-    file that exists and whose runs are still named `CI` — a rename that broke
-    the match would otherwise make the gate silently unsatisfiable for every PR.
+    `ciConclusion()` in `checks.mjs` are the single source for both readers
+    (`mark-ready.mjs`, `set-state.mjs`), and tolerate the `@ref` suffix a called
+    workflow reports. `checks.test.mjs` asserts the path names a file that
+    exists and whose runs are still named `CI` — a rename that broke the match
+    would otherwise make the gate silently unsatisfiable for every PR.
+
+    **Every CI run for the SHA must be green, not just the newest.** A re-run
+    does not create a second run — GitHub adds a `run_attempt` to the existing
+    one, whose `conclusion` already reflects the latest attempt — so "newest
+    wins" never was what made re-runs work. What it did do is fail open as soon
+    as a SHA has two CI runs, which is one added trigger away: a red run is
+    ignored whenever a later-created one is green. Today `ci.yml` fires on
+    `pull_request` (plus `push` restricted to `main`, and `merge_group`, neither
+    of which shares a PR head SHA), so a PR head has exactly one run — the rule
+    is about not depending on that. Requiring all of them also removes any
+    reliance on `created_at` ordering, which was unspecified when a stamp was
+    missing or unparseable. An unfinished run reports `null` (not a verdict), so
+    the gate waits rather than reading the runs that happen to have finished.
 
     **Exit-code contract with the `promote` job.** mark-ready reports its whole
     outcome through its status: `0` promoted · `1` a gate said no (job succeeds,

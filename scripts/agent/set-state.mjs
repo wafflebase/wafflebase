@@ -31,7 +31,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { emitBestEffortWarning } from "./guard-verdict.mjs";
-import { latestCiRun } from "./checks.mjs";
+import { ciConclusion } from "./checks.mjs";
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
@@ -225,8 +225,7 @@ function gatherSignals(pr) {
     try {
       const runs = ghJson(["api", `repos/{owner}/{repo}/actions/runs?head_sha=${sha}&per_page=100`]).workflow_runs || [];
       // By workflow PATH, not display name — same reason as mark-ready's gate 1.
-      const ci = latestCiRun(runs);
-      sig.ciConclusion = ci ? ci.conclusion : null; // genuinely null while in progress
+      sig.ciConclusion = ciConclusion(runs); // genuinely null while in progress or absent
     } catch {
       complete = false; // do NOT coerce a failed fetch to null (would read as "pending")
     }
