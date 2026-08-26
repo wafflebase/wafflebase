@@ -152,20 +152,71 @@ if (distStale) {
   ok('editor build up to date');
 }
 
-// --- 4. the server -----------------------------------------------------------
+// --- 4. @wafflebase/core's build output ---------------------------------------
+//
+// The fourth stale-artifact trap, and the only one that had nobody watching it. The
+// scenes reach `@wafflebase/core` through its exports map, which points at `dist/` —
+// and `dist/` is gitignored with no `prepare` script, so a FRESH CLONE has none of
+// it. `packages/frontend/src/index.css` imports `@wafflebase/core/tokens.css` on its
+// third line, and the sandbox deliberately does not alias the package, so there is no
+// source fallback: every scene fails to resolve it, and `loadFailureKind` reports
+// anything that is not a transform/parse error as a MOUNT failure. What the person
+// sees is "mount error" on a clean clone, which reads as a broken editor rather than
+// as a build that never ran.
+//
+// This is also why "123 s from a clone to a working editor" was optimistic: that
+// measurement stopped at `/metadata`, which answers perfectly well without core.
+const CORE_SRC = path.join(ROOT, 'packages', 'core', 'src');
+const CORE_DIST = path.join(ROOT, 'packages', 'core', 'dist', 'tokens.css');
+const coreStale = !existsSync(CORE_DIST) || newestMtime(CORE_SRC) > statSync(CORE_DIST).mtimeMs;
+if (coreStale) {
+  step('building @wafflebase/core…');
+  const r = spawnSync(PNPM, ['--filter', '@wafflebase/core', 'build'], {
+    cwd: ROOT,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
+  if (r.status !== 0) stop('@wafflebase/core failed to build.', 'Scroll up for the reason, then run this again.');
+  ok('@wafflebase/core built');
+} else {
+  ok('@wafflebase/core up to date');
+}
+
+// --- 5. the server -----------------------------------------------------------
 //
 // Vite's own printed URL is the source of truth for the port: `--port` is a
 // preference, and Vite silently takes the next free one when it is busy. Guessing
 // would open a browser at a server that is not ours — or at nothing.
 const args = ['exec', 'vite'];
 if (value('port')) args.push('--port', value('port'));
-step('starting the editor…');
-const server = spawn(PNPM, args, { cwd: SANDBOX, shell: process.platform === 'win32' });
+/**
+ * A MISSING DEPENDENCY IS RECOVERABLE, and step 2 cannot see it coming.
+ *
+ * That step tests for the PRESENCE of `node_modules`, deliberately — see its own
+ * comment. The cost of that choice is this case: check out a branch that added a
+ * workspace dependency and the tree is present but incomplete, so Vite fails to load
+ * the consumer config and the person is left holding an `ERR_MODULE_NOT_FOUND` stack
+ * trace that names a package they have never heard of. Measured on the commit that
+ * made `packages/design-sandbox/vite.config.ts` import `@wafflebase/debug-report`:
+ * step 2 printed "dependencies present" and the server died anyway.
+ *
+ * So install once and start again, rather than telling them to. Gated three ways,
+ * because a retry that fires on the wrong failure is worse than no retry: only when
+ * the process EXITED non-zero, only when it never reached a URL (a module that goes
+ * missing under an already-serving editor is a different problem, and reinstalling
+ * would not fix it), and only once.
+ */
+const MISSING_DEP = /ERR_MODULE_NOT_FOUND|Cannot find package|Cannot find module/;
 
+let server;
 let opened = false;
+let retried = false;
+let sawMissingDep = false;
+
 const onChunk = (buf) => {
   const text = buf.toString();
   process.stdout.write(text);
+  if (MISSING_DEP.test(text)) sawMissingDep = true;
   if (opened) return;
   const url = text.match(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?/)?.[0];
   if (!url) return;
@@ -183,9 +234,35 @@ const onChunk = (buf) => {
   say('  Nothing leaves this machine until you do.\n');
   if (!flag('no-open')) openBrowser(editor);
 };
-server.stdout.on('data', onChunk);
-server.stderr.on('data', (b) => process.stderr.write(b.toString()));
-server.on('exit', (code) => process.exit(code ?? 0));
+function start() {
+  step('starting the editor…');
+  server = spawn(PNPM, args, { cwd: SANDBOX, shell: process.platform === 'win32' });
+  server.stdout.on('data', onChunk);
+  // Vite reports a config-load failure on stderr, which is where the recoverable
+  // case shows up — so this stream is read for the signature too, not just relayed.
+  server.stderr.on('data', (b) => {
+    const text = b.toString();
+    process.stderr.write(text);
+    if (MISSING_DEP.test(text)) sawMissingDep = true;
+  });
+  server.on('exit', (code) => {
+    if (code && !opened && sawMissingDep && !retried) {
+      retried = true;
+      sawMissingDep = false;
+      say('');
+      step('a dependency is missing — installing, then starting again…');
+      const r = spawnSync(PNPM, ['install'], { cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32' });
+      if (r.status !== 0) {
+        stop('Dependency install failed.', 'Scroll up for the reason, then run this again.');
+      }
+      ok('dependencies installed');
+      start();
+      return;
+    }
+    process.exit(code ?? 0);
+  });
+}
+start();
 
 /** Best effort, and deliberately silent on failure — the URL is printed above. */
 function openBrowser(url) {

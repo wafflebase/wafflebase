@@ -23,9 +23,9 @@ One command:
 pnpm design
 ```
 
-It checks Node, prepares pnpm, installs and rebuilds the shell only when they are
-missing or stale, starts the server and opens the browser at the URL Vite actually
-printed. `pnpm design-pr` then turns what you changed into a pull request. Both are
+It checks Node, prepares pnpm, and builds only what is missing or stale — the
+dependencies, the editor shell, and `@wafflebase/core`'s `dist` — then starts the
+server and opens the browser at the URL Vite actually printed. `pnpm design-pr` then turns what you changed into a pull request. Both are
 documented for the person *using* the editor in
 [the user guide](../../../packages/documentation/developers/design-editor.md); this
 document is for the person maintaining it.
@@ -68,9 +68,16 @@ halves separately, when you want to control them:
 
 ```bash
 pnpm install                                        # once
+pnpm core build                                     # NOT optional on a fresh clone
 pnpm --filter @wafflebase/design-editor build       # NOT optional — see below
 pnpm --filter @wafflebase/design-sandbox dev
 ```
+
+`pnpm core build` is the one people miss, because nothing fails until a scene tries
+to mount. `packages/core/dist` is gitignored and the package has no `prepare`
+script, so a fresh clone has none of it — and `packages/frontend/src/index.css`
+imports `@wafflebase/core/tokens.css` on its third line, with the sandbox
+deliberately not aliasing the package, so there is no source fallback.
 
 The server prints the line worth reading before the Vite banner:
 
@@ -202,7 +209,8 @@ capture store is opened. The flag is read once per frame load.
 | Symptom | Cause |
 | --- | --- |
 | Shell loads, frame says `no scene "<id>" in the scene manifest` | The scene is `deferred`, or its id is not in `scenes.config.json`. |
-| Every scene fails with `does not provide an export named …` | Stale `packages/core/dist`. Run `pnpm core build` (or just `verify:scenes`, which now does it). |
+| Every scene fails with `does not provide an export named …` | Stale `packages/core/dist`. Run `pnpm core build` (`pnpm design` and `verify:scenes` both do it now). |
+| Every scene fails with a **mount error** on a fresh clone | `packages/core/dist` was never built. `pnpm design` builds it; the raw `design-sandbox dev` command does not. A resolve failure is not a transform or parse error, so `loadFailureKind` reports it as `mount` — which reads as a broken editor rather than a missing build. |
 | A scene renders but is not clickable | Its file is not declared in the manifest's `components`, so the click has no source anchor. The outline marks which rows the frame can reach. |
 | `unmocked request` in the console | The scene reached for data with no fixture. Requests are never allowed to leave the frame — add the fixture rather than letting it out. |
 | Scene shows `Loading…` forever | The engine mounted but its document never resolved; check the offline Yorkie shim. |
