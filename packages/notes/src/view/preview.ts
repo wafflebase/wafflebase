@@ -9,6 +9,7 @@ import hljs from 'highlight.js/lib/common';
 import taskLists from 'markdown-it-task-lists';
 import katexPlugin from '@vscode/markdown-it-katex';
 import { detailsPlugin } from './details-plugin.js';
+import { imgPlugin } from './img-plugin.js';
 import { listEmptyBulletPlugin } from './list-empty-bullet-plugin.js';
 import {
   mermaidFenceHtml,
@@ -74,6 +75,12 @@ md.use(katexPlugin);
 // just these two disclosure tags — keeps the preview's `html: false` posture
 // (no arbitrary raw HTML) while supporting GitHub/MDN-style foldouts.
 md.use(detailsPlugin);
+
+// Sized images (`<img src="…" width="200">`). Markdown itself has no image
+// sizing syntax, so this is the snippet people paste from GitHub; the same
+// narrow-allowlist trick as `detailsPlugin` accepts it without opening the
+// preview to raw HTML (issue #973).
+md.use(imgPlugin);
 
 // A lone empty bullet under a list item should nest as an empty child, not turn
 // the line above it into a setext `<h2>` (issue #517).
