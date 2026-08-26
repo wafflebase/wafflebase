@@ -14,18 +14,14 @@ import { WorkspaceScopeGuard } from './workspace-scope.guard';
 import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { DocumentService } from '../../document/document.service';
-import { detachYorkieValue } from '../../yorkie/yorkie-json';
-import {
-  parseFilter,
-  parsePivot,
-} from '../../yorkie/worksheet-filter-pivot';
+import { unwrapJson } from '../../yorkie/yorkie-json';
+import { parseFilter, parsePivot } from '../../yorkie/worksheet-filter-pivot';
 
 /**
  * Worksheet-level filter and pivot for a spreadsheet tab. Each is a single
  * object field (`filter` / `pivotTable`); a PUT validates and replaces it (or
- * clears it with `null`), and a GET returns it as plain JSON via
- * `detachYorkieValue` (a nested Yorkie value's toJSON would serialize as a
- * string otherwise).
+ * clears it with `null`), and a GET returns it as plain JSON via `unwrapJson`
+ * (a nested Yorkie value's toJSON would serialize as a string otherwise).
  */
 @Controller('api/v1/workspaces/:workspaceId/documents/:documentId/tabs/:tabId')
 @UseGuards(CombinedAuthGuard, WorkspaceScopeGuard, ApiKeyWriteScopeGuard)
@@ -70,7 +66,13 @@ export class ApiV1WorksheetFilterPivotController {
         const ws = doc.getRoot().sheets?.[tabId] as
           | { filter?: unknown }
           | undefined;
-        return { filter: ws?.filter ? detachYorkieValue(ws.filter) : null };
+        // `unwrapJson`, not `detachYorkieValue`: the object proxy's own
+        // `toJSON` walks the CRDT and detaches every nested value, arrays
+        // included. `detachYorkieValue` branches on `Array.isArray`, which is
+        // false for a Yorkie array proxy, so nested arrays (e.g. a column's
+        // hidden-value list) come back as `{createdAt, movedAt}` CRDT
+        // metadata. Same reasoning as `readSlidesRoot` in `slides-tree.ts`.
+        return { filter: unwrapJson(ws?.filter) ?? null };
       },
       { syncMode: 'readonly' },
     );
@@ -112,9 +114,11 @@ export class ApiV1WorksheetFilterPivotController {
         const ws = doc.getRoot().sheets?.[tabId] as
           | { pivotTable?: unknown }
           | undefined;
-        return {
-          pivot: ws?.pivotTable ? detachYorkieValue(ws.pivotTable) : null,
-        };
+        // `unwrapJson`, not `detachYorkieValue` — see `getFilter`. Here it is
+        // the four field arrays (`rowFields` / `columnFields` / `valueFields`
+        // / `filterFields`) that a proxy walk would flatten into CRDT
+        // metadata objects instead of arrays.
+        return { pivot: unwrapJson(ws?.pivotTable) ?? null };
       },
       { syncMode: 'readonly' },
     );

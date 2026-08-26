@@ -16,6 +16,7 @@ import { ApiKeyWriteScopeGuard } from './api-key-write-scope.guard';
 import { YorkieService } from '../../yorkie/yorkie.service';
 import { DocumentService } from '../../document/document.service';
 import { parseCharts } from '../../yorkie/worksheet-charts';
+import { unwrapJson } from '../../yorkie/yorkie-json';
 
 /**
  * Chart collection for a spreadsheet tab. A chart is a `SheetChart` (type,
@@ -57,10 +58,18 @@ export class ApiV1WorksheetChartsController {
   private readCharts(source: unknown): SheetChart[] {
     const out: SheetChart[] = [];
     if (source && typeof source === 'object') {
-      for (const value of Object.values(source as object)) {
-        if (value && typeof value === 'object') {
-          out.push({ ...(value as SheetChart) });
-        }
+      for (const value of Object.values(source)) {
+        // `unwrapJson`, never a spread and never `detachYorkieValue`. A chart
+        // is a Yorkie object proxy: its own `toJSON` walks the CRDT and hands
+        // back fully-detached nested JSON, while `{ ...proxy }` copies the
+        // nested `seriesColumns` *array proxy* straight into the response,
+        // where `res.json()` dies on `value.toJSON is not a function`.
+        // `detachYorkieValue` does not save it either — it branches on
+        // `Array.isArray`, which is false for an array proxy, so the array
+        // comes back as `{createdAt, movedAt}` CRDT metadata. Same reasoning
+        // as `readSlidesRoot` in `yorkie/slides-tree.ts`.
+        const chart = unwrapJson<SheetChart>(value);
+        if (chart && typeof chart === 'object') out.push(chart);
       }
     }
     return out;

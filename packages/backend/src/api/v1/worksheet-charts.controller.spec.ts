@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
+import yorkie, { Document as YorkieDocument } from '@yorkie-js/sdk';
 import { createSpreadsheetDocument } from '@wafflebase/sheets';
-import type { SpreadsheetDocument } from '@wafflebase/sheets';
+import type { SheetChart, SpreadsheetDocument } from '@wafflebase/sheets';
 import { ApiV1WorksheetChartsController } from './worksheet-charts.controller';
 
 const WS = 'ws-1';
@@ -82,5 +83,62 @@ describe('ApiV1WorksheetChartsController', () => {
     await expect(controller.getCharts(WS, DOC, 'tab-1')).rejects.toBeInstanceOf(
       BadRequestException,
     );
+  });
+});
+
+/**
+ * The suite above drives a plain `createSpreadsheetDocument()` object, which is
+ * never a Yorkie proxy — so it cannot see the serialisation this controller
+ * actually has to survive in production. A real (offline) `yorkie.Document`
+ * can: `doc.update` alone builds the CRDT and hands back proxies, no server
+ * needed. A shallow spread of a chart proxy leaves `seriesColumns` as an array
+ * proxy whose `CRDTArray.toJSON()` throws inside `res.json()`.
+ */
+describe('ApiV1WorksheetChartsController over a real Yorkie document', () => {
+  let controller: ApiV1WorksheetChartsController;
+  let doc: YorkieDocument<SpreadsheetDocument>;
+
+  beforeEach(() => {
+    doc = new yorkie.Document<SpreadsheetDocument>(
+      `sheet-charts-test-${Date.now()}-${Math.random()}`,
+    );
+    doc.update((root) => {
+      const initial = createSpreadsheetDocument();
+      root.tabs = initial.tabs;
+      root.tabOrder = initial.tabOrder;
+      root.sheets = initial.sheets;
+    });
+    const withDocument = jest.fn(
+      (_id: string, cb: (d: typeof doc) => unknown) => Promise.resolve(cb(doc)),
+    );
+    controller = new ApiV1WorksheetChartsController(
+      { withDocument } as never,
+      {
+        getDocumentOrThrow: jest
+          .fn()
+          .mockResolvedValue({ id: DOC, workspaceId: WS, type: 'sheet' }),
+      } as never,
+    );
+  });
+
+  it('returns a nested seriesColumns as a real array that JSON.stringify survives', async () => {
+    await controller.setCharts(WS, DOC, 'tab-1', {
+      charts: [{ ...CHART, seriesColumns: ['B', 'C'] }],
+    });
+
+    const res = await controller.getCharts(WS, DOC, 'tab-1');
+
+    expect(res.charts).toHaveLength(1);
+    expect(Array.isArray(res.charts[0].seriesColumns)).toBe(true);
+    expect(res.charts[0].seriesColumns).toEqual(['B', 'C']);
+    // The production failure: `res.json()` serialises the response, and a
+    // leaked array proxy throws "value.toJSON is not a function" here.
+    const serialized = JSON.parse(JSON.stringify(res)) as {
+      charts: SheetChart[];
+    };
+    expect(serialized.charts[0]).toMatchObject({
+      ...CHART,
+      seriesColumns: ['B', 'C'],
+    });
   });
 });
