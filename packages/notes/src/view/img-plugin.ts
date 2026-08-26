@@ -60,8 +60,12 @@ type StateInline = InstanceType<MarkdownIt['inline']['State']>;
  * freezes everyone else's preview. Consequently the optional self-closing
  * slash is matched *by the region* rather than by a tail of its own; see
  * `SELF_CLOSE_RE`.
+ *
+ * Sticky (`y`) rather than anchored (`^`) so it can be aimed at an offset of
+ * `state.src` directly, with no per-candidate substring to match against (see
+ * `imgRule`). Sticky means it carries `lastIndex`, so every use must set it.
  */
-const IMG_TAG_RE = /^<img(\s[^<>]*)?>/i;
+const IMG_TAG_RE = /<img(\s[^<>]*)?>/iy;
 
 /**
  * The self-closing `/` (and any trailing whitespace) at the end of the
@@ -131,10 +135,10 @@ function parseAttrs(md: MarkdownIt, region: string): Attrs | null {
 /**
  * Whether `<img` (in any case) starts at `pos`.
  *
- * This runs for every `<` in every note, and the regex below needs a
- * substring to match against — slicing the rest of the chunk each time would
- * be quadratic in a long note. `| 0x20` lowercases an ASCII letter, and
- * `charCodeAt` past the end is `NaN`, which fails every comparison.
+ * This runs for every `<` in every note, so it reads four character codes
+ * rather than handing the regex engine a candidate it will reject anyway.
+ * `| 0x20` lowercases an ASCII letter, and `charCodeAt` past the end is `NaN`,
+ * which fails every comparison.
  */
 function startsImgTag(src: string, pos: number): boolean {
   return (
@@ -148,8 +152,23 @@ function startsImgTag(src: string, pos: number): boolean {
 function imgRule(state: StateInline, silent: boolean): boolean {
   if (!startsImgTag(state.src, state.pos)) return false;
 
-  const match = IMG_TAG_RE.exec(state.src.slice(state.pos, state.posMax));
+  // Matched against `state.src` in place, one allocation per candidate fewer
+  // than slicing out `[pos, posMax)` first. Measured, that slice was *not* the
+  // quadratic hazard it looks like — V8 returns an O(1) `SlicedString` and
+  // runs the RegExp over it without copying, so both forms scale linearly on a
+  // note of nothing but `<img` openers. Matching in place is still the right
+  // shape: it drops the garbage, and it stops the cost of this rule from
+  // resting on that engine detail.
+  //
+  // The trade is that `posMax` is no longer implicit in the input, so it is
+  // enforced afterwards. That is exact rather than approximate: the region
+  // cannot span `<` or `>`, so the match always ends at the first `>` after
+  // the opener and no shorter alternative exists for a truncated input to have
+  // found instead — an overrun means the sliced form would have found nothing.
+  IMG_TAG_RE.lastIndex = state.pos;
+  const match = IMG_TAG_RE.exec(state.src);
   if (!match) return false;
+  if (state.pos + match[0].length > state.posMax) return false;
 
   // `IMG_TAG_RE` leaves a self-closing `/` inside the region on purpose (see
   // its comment), so take it off before the region is read as attributes.

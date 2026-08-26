@@ -155,6 +155,37 @@ describe('imgPlugin', () => {
     expect(elapsed).toBeLessThan(1_000);
   });
 
+  it('matches each tag independently of the ones before it', () => {
+    // The tag regex is sticky, so it carries a `lastIndex` between calls and
+    // the rule has to aim it at `state.pos` every time. Several tags at
+    // different offsets — interleaved with openers that decline — is what
+    // catches a stale `lastIndex`: the second tag would match at the wrong
+    // place, or not at all.
+    const html = render(
+      '<img src="a.png" width="1"> <img nope> text <img src="b.png" width="2">',
+    );
+
+    expect(html).toContain('src="a.png"');
+    expect(html).toContain('width="1"');
+    expect(html).toContain('src="b.png"');
+    expect(html).toContain('width="2"');
+    expect(html).toContain('&lt;img nope&gt;');
+  });
+
+  it('handles a note that is nothing but `<img` prefixes', () => {
+    // `startsImgTag` keeps most positions away from the regex, but every
+    // `<img` clears it, so this drives the regex 40k times in one render.
+    // Asserting output rather than wall-clock on purpose: measured against
+    // this input, the previous per-candidate `state.src.slice(...)` was also
+    // linear (V8 hands a RegExp a `SlicedString` without copying it), so a
+    // timing threshold here would be a test that cannot fail. What the rule
+    // must still do is decline every one of them.
+    const html = render(`<img `.repeat(40_000));
+
+    expect(html).not.toContain('<img ');
+    expect(html).toContain('&lt;img');
+  });
+
   it('does not swallow the rest of the line on a malformed tag', () => {
     // The attribute region cannot span `<`/`>`, so a tag that never closes is
     // just text and the words after it survive.
