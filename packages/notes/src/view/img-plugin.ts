@@ -49,8 +49,27 @@ type StateInline = InstanceType<MarkdownIt['inline']['State']>;
  * The whole tag. `[^<>]` for the attribute region keeps the match from
  * running past a malformed tag into the rest of the line — an attribute value
  * containing a raw `<` or `>` is not something we need to support.
+ *
+ * The region is one greedy class with nothing quantified after it, so every
+ * input has exactly one candidate split and the match is linear in the run of
+ * non-`<>` text. That shape is load-bearing: an earlier
+ * `(\s[^<>]*?)?\s*\/?>` put two whitespace-matching quantifiers side by side,
+ * and an unterminated `<img` followed by a long whitespace run made the engine
+ * try every split of that run against a greedy `\s*` — quadratic backtracking
+ * inside a synchronous `render()`, i.e. a note one collaborator saves that
+ * freezes everyone else's preview. Consequently the optional self-closing
+ * slash is matched *by the region* rather than by a tail of its own; see
+ * `SELF_CLOSE_RE`.
  */
-const IMG_TAG_RE = /^<img(\s[^<>]*?)?\s*\/?>/i;
+const IMG_TAG_RE = /^<img(\s[^<>]*)?>/i;
+
+/**
+ * The self-closing `/` (and any trailing whitespace) at the end of the
+ * attribute region, which `IMG_TAG_RE` cannot separate out itself. Every start
+ * position needs a literal `/`, and a `/` not followed by whitespace-to-end
+ * fails at once, so this stays linear on the whitespace runs above.
+ */
+const SELF_CLOSE_RE = /\/\s*$/;
 
 /**
  * One `name` or `name=value` pair. The unquoted-value form excludes the
@@ -132,7 +151,10 @@ function imgRule(state: StateInline, silent: boolean): boolean {
   const match = IMG_TAG_RE.exec(state.src.slice(state.pos, state.posMax));
   if (!match) return false;
 
-  const attrs = parseAttrs(state.md, match[1] ?? '');
+  // `IMG_TAG_RE` leaves a self-closing `/` inside the region on purpose (see
+  // its comment), so take it off before the region is read as attributes.
+  const region = (match[1] ?? '').replace(SELF_CLOSE_RE, '');
+  const attrs = parseAttrs(state.md, region);
   if (!attrs) return false;
 
   const { src, alt = '', width, height } = attrs;

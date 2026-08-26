@@ -131,6 +131,30 @@ describe('imgPlugin', () => {
     });
   });
 
+  it('matches a tag whose attributes are followed by `/ >`', () => {
+    // The self-closing slash is matched as part of the attribute region and
+    // stripped, so whitespace either side of it is tolerated.
+    expect(render('<img src="a.png" width="8" / >')).toContain('width="8"');
+  });
+
+  it('stays linear on an unterminated tag with a long whitespace run', () => {
+    // Regression: the tag regex used to end in `[^<>]*?` followed by `\s*`,
+    // two adjacent whitespace-matching quantifiers. An input that opens `<img`
+    // and never closes made the engine try every split of the whitespace run
+    // between them, so cost grew quadratically and a note one collaborator
+    // saved froze every other collaborator's synchronous `render()`. This run
+    // took around eleven seconds then, and is a single linear scan now — the
+    // whole render lands in single-digit milliseconds.
+    const source = `<img${' '.repeat(100_000)}`;
+
+    const started = performance.now();
+    const html = render(source);
+    const elapsed = performance.now() - started;
+
+    expect(html).not.toContain('<img');
+    expect(elapsed).toBeLessThan(1_000);
+  });
+
   it('does not swallow the rest of the line on a malformed tag', () => {
     // The attribute region cannot span `<`/`>`, so a tag that never closes is
     // just text and the words after it survive.
