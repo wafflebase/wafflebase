@@ -61,8 +61,10 @@ Also required, and each justified by a scene rather than by taste:
   break with "Invalid hook call" from a tree that visibly has a Router.
 - `define` for whatever the app's own config defines (`process.env`, `__APP_VERSION__`,
   the API base URL). An undefined global is a mount error, not a degraded render.
-- `optimizeDeps.include` for the app libraries, or the first scene load re-optimises
-  mid-mount and the frame reloads under you.
+- `optimizeDeps.include` for **the app libraries**, or the first scene load re-optimises
+  mid-mount and the frame reloads under you. The frame's own `react` and
+  `react-dom/client` are not your problem — the plugin adds them itself, because the
+  frame entry is served by absolute path and so is invisible to Vite's dependency scan.
 - Point the API base at a deliberately unresolvable origin (`http://scene.invalid/api`)
   so nothing can reach a real backend from the frame.
 
@@ -172,6 +174,9 @@ Each row: the symptom you will actually see, then the cause.
 | Many primitives say "needs app context this preview does not mount" | Expected for a composite's parts — a menu item outside its menu really does throw. Write a `previews.tsx` recipe whose `render` mounts the parent (`<DropdownMenu open modal={false}>…`) with the component in its place. Force overlays `open` and non-modal: a modal one takes the pointer for the whole frame, including the editor's pan and zoom. |
 | `X is a void element tag and must neither have children` | The generic mount passes the component's name as children. Set `children: false` in the recipe for anything rendering `<input>`, `<hr>`, `<img>`. |
 | A slider/progress/input renders as a 0px line | No width. Give the recipe a `frame: { width: 260 }`. |
+| `GET /metadata` answers `files: []` with no error anywhere | TypeScript **7** was installed. The extractor is written against the TS 5 API, and in 7 `(await import('typescript')).default.ScriptTarget` is `undefined`, so `ts.ScriptTarget.Latest` throws inside a lazily-imported module and the failure never reaches a log. The package pins `typescript: ^5`; if you override that peer, this is what you get — an editor that boots, serves, and analyses nothing. |
+| The shell loads but every scene dies on `does not provide an export named 'createRoot'` | The frame's dependencies were served unoptimised as raw CJS. Only reachable if the plugin's `config()` hook lost its `optimizeDeps.include`; see the bullet above for why the scan cannot find them. |
+| `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` on the plugin import | The package's main entry resolved to TypeScript. A Vite plugin is imported by the consumer's `vite.config`, which Vite bundles while leaving bare specifiers **external** — so **Node** loads it, and Node refuses to strip types under `node_modules`. The published entry is built JavaScript for this reason; a workspace link hides the problem, because the real path is then the source tree. |
 | A component preview loses its state on every keystroke | `React.lazy(...)` called during render mints a new type each time. Memoise it, keyed on the content of its object-valued inputs. |
 | Clicks inside a component preview do nothing | The frame's picker defaults to `picking = true` and swallows clicks. The host must send `wb:set-picking {enabled:false}` for a preview, where there is no page to navigate away from. |
 | A list shows one composite as 15 peer rows | Those are its anatomy, not 15 subjects, and most cannot mount alone. Fold them behind the module's root — detected structurally, as the shortest export that prefixes all the others — and give the root an assembled recipe. Folding without the recipe is worse than not folding: the root mounts bare and renders nothing. |

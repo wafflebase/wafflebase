@@ -101,3 +101,32 @@ test("importing the script opens no pull request", async () => {
   );
   assert.match(src, /process\.argv\[1\] === fileURLToPath\(import\.meta\.url\)/);
 });
+
+test("a git failure is reported, never thrown at the person", async () => {
+  // `git()` wraps `execFileSync`, which THROWS on a non-zero exit. Nothing caught
+  // it, so a git that merely had nothing configured answered with a serialised
+  // argv and a Node stack trace — found by driving rung 1 on a machine with no
+  // global identity, which is the state of every fresh clone here.
+  const src = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../design-pr.mjs", import.meta.url), "utf8"),
+  );
+  const body = src.slice(src.indexOf("const git = (args"), src.indexOf("export const parsePorcelain"));
+  assert.match(body, /try \{/);
+  assert.match(body, /stop\(/);
+});
+
+test("the identity check runs after --dry-run exits and before the branch exists", async () => {
+  // ORDER IS THE WHOLE POINT, so it is asserted rather than the presence of the
+  // check. Before the DRY exit it would break `--dry-run`'s "change nothing"
+  // contract by refusing to print a plan; after the checkout it would leave a
+  // branch behind on the way out.
+  const src = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../design-pr.mjs", import.meta.url), "utf8"),
+  );
+  const dryExit = src.indexOf("Dry run — nothing was changed.");
+  const identity = src.indexOf("missingIdentity");
+  const creates = src.indexOf("creating ${branch}");
+  assert.ok(dryExit > 0 && identity > 0 && creates > 0, "all three anchors present");
+  assert.ok(dryExit < identity, "the identity check must not block a dry run");
+  assert.ok(identity < creates, "the identity check must run before the branch is created");
+});
