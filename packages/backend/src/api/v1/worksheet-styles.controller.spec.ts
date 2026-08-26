@@ -5,7 +5,13 @@ import { ApiV1WorksheetStylesController } from './worksheet-styles.controller';
 
 const WS = 'ws-1';
 const DOC = 'doc-1';
-const PATCH = { range: [{ r: 0, c: 0 }, { r: 2, c: 2 }], style: { b: true } };
+const PATCH = {
+  range: [
+    { r: 0, c: 0 },
+    { r: 2, c: 2 },
+  ],
+  style: { b: true },
+};
 
 describe('ApiV1WorksheetStylesController', () => {
   let controller: ApiV1WorksheetStylesController;
@@ -56,6 +62,22 @@ describe('ApiV1WorksheetStylesController', () => {
       controller.setSheetStyle(WS, DOC, 'tab-1', { style: { bogus: 1 } }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(withDocument).not.toHaveBeenCalled();
+  });
+
+  it('keeps the stored sheet style when the body omits "style"', async () => {
+    await controller.setSheetStyle(WS, DOC, 'tab-1', { style: { b: true } });
+    withDocument.mockClear();
+
+    // An omitted key, a misspelled one and a body-less PUT (Express hands
+    // Nest `{}`) must all be 400s that leave the stored style untouched --
+    // clearing it here would be silent data loss behind a 200.
+    for (const body of [{}, { styls: { i: true } }, { style: undefined }]) {
+      await expect(
+        controller.setSheetStyle(WS, DOC, 'tab-1', body),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    }
+    expect(withDocument).not.toHaveBeenCalled();
+    expect(ws().sheetStyle).toMatchObject({ b: true });
   });
 
   it('rejects worksheet styles on a non-sheet document', async () => {

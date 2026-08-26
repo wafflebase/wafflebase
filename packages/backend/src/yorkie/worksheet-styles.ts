@@ -11,7 +11,9 @@ import { parseCellStyle } from './cell-style';
  */
 export function parseRangeStyles(body: unknown): RangeStylePatch[] {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    throw new BadRequestException('body must be an object { rangeStyles: [...] }');
+    throw new BadRequestException(
+      'body must be an object { rangeStyles: [...] }',
+    );
   }
   const patches = (body as Record<string, unknown>).rangeStyles;
   if (!Array.isArray(patches)) {
@@ -37,13 +39,23 @@ export function parseRangeStyles(body: unknown): RangeStylePatch[] {
 
 /**
  * Validate a `{ style: CellStyle | null }` body for the whole-sheet style.
- * `null` clears it; an object is validated with `parseCellStyle`.
+ * `null` clears it; an object is validated with `parseCellStyle`. An omitted
+ * `style` is a 400 rather than a clear: the write merges onto the stored style,
+ * so treating a missing (or misspelled) key as "clear" would silently delete
+ * the sheet's formatting behind a 200.
  */
 export function parseSheetStyle(body: unknown): CellStyle | null {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-    throw new BadRequestException('body must be an object { style: {...} | null }');
+    throw new BadRequestException(
+      'body must be an object { style: {...} | null }',
+    );
   }
   const style = (body as Record<string, unknown>).style;
-  if (style === null || style === undefined) return null;
+  if (style === undefined) {
+    throw new BadRequestException(
+      "'style' must be an object or null (null clears the sheet style)",
+    );
+  }
+  if (style === null) return null;
   return parseCellStyle(style);
 }

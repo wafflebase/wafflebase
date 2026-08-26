@@ -1,7 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
 import { parseRangeStyles, parseSheetStyle } from './worksheet-styles';
 
-const PATCH = { range: [{ r: 0, c: 0 }, { r: 2, c: 2 }], style: { b: true } };
+const PATCH = {
+  range: [
+    { r: 0, c: 0 },
+    { r: 2, c: 2 },
+  ],
+  style: { b: true },
+};
 
 describe('worksheet-styles validators', () => {
   describe('parseRangeStyles', () => {
@@ -20,11 +26,22 @@ describe('worksheet-styles validators', () => {
 
   describe('parseSheetStyle', () => {
     it('accepts a style and null (clear)', () => {
-      expect(parseSheetStyle({ style: { b: true } })).toMatchObject({ b: true });
+      expect(parseSheetStyle({ style: { b: true } })).toMatchObject({
+        b: true,
+      });
       expect(parseSheetStyle({ style: null })).toBeNull();
     });
     it('rejects an unknown style field', () => {
       expect(() => parseSheetStyle({ style: { bogus: 1 } })).toThrow(
+        BadRequestException,
+      );
+    });
+    it('rejects an omitted or undefined style rather than clearing', () => {
+      expect(() => parseSheetStyle({})).toThrow(BadRequestException);
+      expect(() => parseSheetStyle({ styls: { b: true } })).toThrow(
+        BadRequestException,
+      );
+      expect(() => parseSheetStyle({ style: undefined })).toThrow(
         BadRequestException,
       );
     });
