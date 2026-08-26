@@ -45,6 +45,7 @@ browser:
 ```
 ✓ dependencies installed
 ✓ editor shell built
+✓ @wafflebase/core built
 ✓ the design editor is at http://localhost:5173/__design-editor/
 ```
 
@@ -209,6 +210,7 @@ These are guarantees, not conventions:
 |---|---|
 | `Node 22 or newer is required` | Install the LTS build from [nodejs.org](https://nodejs.org) and run the command again. |
 | `Nothing has changed` | The editor has written nothing yet. Make a change, press **Save to Code**, approve it, then try again. |
+| Every scene says **mount error** | Something the scenes need was not built. `pnpm design` builds it for you — if you started the server another way, run `pnpm design` instead. |
 | The page is blank, or a component says it needs app context | Some pieces of a design system cannot be shown on their own — a menu item needs its menu. Open the whole component instead of its part. |
 | A change previews but the page looks unchanged | The editor is showing a different scene from the one you are thinking of. Check the name above the centre pane. |
 | `git does not know who you are yet` | Git is missing `user.name`, `user.email`, or both — the message names which. Run the `git config --global` commands it prints for the ones it names, then try again. Nothing was changed. |
