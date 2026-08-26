@@ -41,8 +41,36 @@ is dropped from the invocation.
 - [x] Harden the exit-code census so a non-literal `process.exit(c)` fails
       instead of surviving.
 - [x] Kill the two surviving mutants #929's suite left green:
-      - deleting the `name === "CI"` workflow-run filter (`mark-ready.mjs`),
+      - deleting the CI workflow-run filter (`mark-ready.mjs`),
       - removing `ghMutate`'s `GH_MUTATION_TOKEN` env override.
+
+## Scope added after review (panel rounds 2–4)
+
+The branch's Non-Goal said "no change to `mark-ready.mjs`'s behavior". Pinning
+the gate with tests exposed two defects in what was being pinned, and the panel
+raised both as blocking across consecutive rounds — a gate whose own header
+calls itself UNFORGEABLE while not being so is worse than one that never
+claimed it.
+
+- [x] **Identify CI by workflow PATH, not by the run's display name.** `name` is
+      only a file's `name:` key; a second file claiming `name: CI` produced
+      indistinguishable runs. `CI_WORKFLOW_PATH` + `ciConclusion()` in
+      `checks.mjs` are now the single source for both readers
+      (`mark-ready.mjs`, `set-state.mjs`).
+- [x] **Require EVERY CI run for the SHA to be green.** A re-run does not create
+      a second run (GitHub adds a `run_attempt`), so "newest wins" never made
+      re-runs work — it only failed open once a SHA carried two runs. Also drops
+      the reliance on `created_at` ordering.
+- [x] **Guard the TRIGGER side too.** `workflow_run`'s `workflows:` filter can
+      only match a display name, so `agent-review-panel.yml`,
+      `agent-iterate-ci.yml` and `ci-report.yml` assert
+      `github.event.workflow_run.path` in their gating job. Without it a forged
+      `name: CI` run still drove the arms that push commits with
+      `contents: write`. `docker-publish.yml` / `publish-ghpage.yml` need no
+      clause: their `head_branch == 'main'` gate means a forgery would have to be
+      merged first.
+- [x] **Record the promote job's `outcome`** so the loop-status comment names
+      what happened instead of guessing from the absence of `ready`.
 
 ## Non-goals
 

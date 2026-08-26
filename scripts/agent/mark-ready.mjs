@@ -4,10 +4,12 @@
 // hand-off preconditions all hold. Gates 1 and 2 are UNFORGEABLE — they read
 // evidence a separate actor produced that the author agent cannot fabricate:
 //
-//   1. The "CI" workflow run for the PR head SHA concluded `success` (read via
-//      the Actions API — the author agent cannot create or forge a CI run; this
-//      replaces parsing the <!-- harness-verification --> comment, which the
-//      author's issues:write could post).
+//   1. EVERY run of `.github/workflows/ci.yml` for the PR head SHA concluded
+//      `success` (read via the Actions API — the author agent cannot create or
+//      forge a CI run; this replaces parsing the <!-- harness-verification -->
+//      comment, which the author's issues:write could post). Identified by the
+//      workflow's PATH, not by the run's display name, which any second file
+//      could claim — see CI_WORKFLOW_PATH in checks.mjs.
 //   2. The `agent-independent-review` check run on the PR head SHA concluded
 //      `success` — an INDEPENDENT reviewer approved it. Only the reviewer
 //      workflow (which has checks:write) can post that check, so the author

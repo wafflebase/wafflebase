@@ -1928,6 +1928,26 @@ Components:
     missing or unparseable. An unfinished run reports `null` (not a verdict), so
     the gate waits rather than reading the runs that happen to have finished.
 
+    **The trigger side needs the same guard, and cannot express it.** A
+    `workflow_run` trigger's `workflows:` filter matches display names only, so
+    a forged `name: CI` run still *reaches* every workflow that consumes CI.
+    Hardening only the reader would leave the arms that INVOKE the agent open:
+    the panel's `fix` job and `agent-iterate-ci.yml` both hold `contents: write`
+    and push to the PR branch, and CI's conclusion is the mutex between them.
+    `agent-review-panel.yml`, `agent-iterate-ci.yml` and `ci-report.yml`
+    therefore assert `github.event.workflow_run.path` in their gating job.
+    `docker-publish.yml` / `publish-ghpage.yml` need no clause — their
+    `head_branch == 'main'` gate means a forgery would have to be merged first.
+
+    The panel's **concurrency group must carry the same clause as its gate**,
+    which is easy to miss because the two are written far apart. `concurrency`
+    is claimed at run creation, before any `if:` is evaluated, so a run the gate
+    will refuse still takes the group — and with `cancel-in-progress: true` it
+    would kill a legitimate panel mid-review, then skip every job, recording no
+    verdicts and paging nobody (`stalled` is `!cancelled()`). `checks.test.mjs`
+    evaluates both expressions across every event/attempt/path combination and
+    fails if they disagree.
+
     **Exit-code contract with the `promote` job.** mark-ready reports its whole
     outcome through its status: `0` promoted · `1` a gate said no (job succeeds,
     PR stays a draft) · `2` tooling error · `3` gates passed but the flip failed.

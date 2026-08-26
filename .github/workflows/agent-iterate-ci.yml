@@ -41,8 +41,17 @@ jobs:
   # than the job-level `if:` — it keeps the turn-heavy iterate job skipped for
   # unmanaged PRs. Fork PRs are excluded (the fixer cannot push to a fork).
   gate:
+    # `path` is asserted because the trigger CANNOT be: `workflow_run`'s
+    # `workflows:` filter matches the run's DISPLAY NAME, which is only a
+    # workflow file's `name:` key and is not unique. A second file on the branch
+    # saying `name: CI` and concluding `failure` would otherwise drive this
+    # workflow's `contents: write` fixer — and, because CI's conclusion is the
+    # MUTEX between this arm and the panel's (see checks.mjs), do it while the
+    # real CI run is green or still in flight. Only one file can occupy
+    # `.github/workflows/ci.yml`.
     if: >-
       vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      github.event.workflow_run.path == '.github/workflows/ci.yml' &&
       github.event.workflow_run.conclusion == 'failure' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest

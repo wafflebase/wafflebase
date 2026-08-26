@@ -497,6 +497,31 @@ test("agent-review-panel.yml handles every mark-ready code, defaults the rest", 
   assert.match(one, /\|\|\s*\{[^}]*exit 2;\s*\}/, "an exit 1 with no verdict line is a crash → fail the job");
   assert.deepEqual(exits(one), [2], "the crash guard is the branch's only exit; a real verdict leaves it a draft");
 
+  // The `outcome` vocabulary is a contract BETWEEN TWO STEPS of the same file:
+  // the gate writes it, and the loop-status step branches on it to name why a
+  // PR was not promoted. A rename on either side degrades silently to the
+  // "cancelled, killed, or never ran" default — the exact mis-attribution the
+  // outcome output exists to remove — so assert both sides agree.
+  const written = new Set([...window.matchAll(/outcome=([a-z-]+)/g)].map((m) => m[1]));
+  assert.ok(written.has("promoted"), "the promoted branch must record its outcome too");
+  // `promoted` is the one outcome loop-status does NOT read off `$OUTCOME` — it
+  // takes the `ready=true` arm above the case. Every other one must be named.
+  const notPromoted = [...written].filter((o) => o !== "promoted");
+  assert.ok(notPromoted.length >= 4, `every non-promoting branch needs an outcome, saw ${notPromoted}`);
+
+  const status = yml.slice(yml.indexOf("- name: Update loop status (promotion)"));
+  const caseAt = status.indexOf('case "$OUTCOME" in');
+  assert.notEqual(caseAt, -1, "loop-status must branch on the gate's outcome");
+  const readCase = status.slice(caseAt, status.indexOf("esac", caseAt));
+  const read = new Set([...readCase.matchAll(/^\s+([a-z-]+)\)/gm)].map((m) => m[1]));
+  for (const outcome of notPromoted) {
+    assert.ok(read.has(outcome), `the gate writes outcome=${outcome}, which loop-status does not name`);
+  }
+  for (const outcome of read) {
+    assert.ok(written.has(outcome), `loop-status names ${outcome}, which no gate branch writes`);
+  }
+  assert.match(readCase, /^\s+\*\)/m, "an unrecorded outcome (cancelled, killed) needs its own note");
+
   // CROSS-FILE CONTRACT: the string the workflow greps for has to be a string
   // mark-ready actually prints, or every exit 1 reads as a crash and every
   // legitimately-unready PR reds the job.

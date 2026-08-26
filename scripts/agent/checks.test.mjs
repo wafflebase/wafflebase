@@ -178,25 +178,44 @@ test("the panel starts with CI, admits re-runs, and mirrors ciRunDecision", () =
        .replace(/github\.event\.workflow_run\.head_repository\.full_name/g, "'r'")
        .replace(/github\.repository/g, "'r'")
        .replace(/github\.event\.workflow_run\.head_branch/g, "'b'")
+       .replace(/github\.event\.workflow_run\.path/g, "PATH")
        .replace(/vars\.AGENT_PIPELINE_ENABLED/g, "'true'");
-    const admits = new Function("ACTION", "ATTEMPT", `return (${toJs(gateIf)});`);
+    const admits = new Function("ACTION", "ATTEMPT", "PATH", `return (${toJs(gateIf)});`);
     const suffix = (group.match(/\$\{\{ ([^}]*'noop'[^}]*) \}\}\s*$/) || [])[1];
     assert.ok(suffix, "the group must carry a noop/active partition suffix");
-    const partition = new Function("ACTION", "ATTEMPT", `return (${toJs(suffix)});`);
+    const partition = new Function("ACTION", "ATTEMPT", "PATH", `return (${toJs(suffix)});`);
 
-    for (const [action, attempt] of [["requested", 1], ["requested", 2], ["completed", 1], ["completed", 2]]) {
-      const works = Boolean(admits(action, attempt));
-      const lane = partition(action, attempt);
-      assert.equal(
-        lane,
-        works ? "active" : "noop",
-        `${action}/attempt ${attempt}: gate ${works ? "admits" : "refuses"} but the group says ${lane}`,
-      );
+    // A run produced by a DIFFERENT file that merely calls itself "CI" is in the
+    // matrix too: the trigger's `workflows:` filter matches display names, so
+    // such a run reaches this workflow and — because `concurrency` is claimed at
+    // run creation, before any `if:` — could otherwise take the `active` group
+    // and cancel a legitimate panel mid-review while its own gate refuses it.
+    const paths = [CI_WORKFLOW_PATH, ".github/workflows/pwn.yml"];
+    for (const wfPath of paths) {
+      for (const [action, attempt] of [["requested", 1], ["requested", 2], ["completed", 1], ["completed", 2]]) {
+        const works = Boolean(admits(action, attempt, wfPath));
+        const lane = partition(action, attempt, wfPath);
+        assert.equal(
+          lane,
+          works ? "active" : "noop",
+          `${wfPath} ${action}/attempt ${attempt}: gate ${works ? "admits" : "refuses"} but the group says ${lane}`,
+        );
+      }
     }
+    // ...and the path clause must actually be doing something in both places.
+    assert.ok(
+      !admits("requested", 1, ".github/workflows/pwn.yml"),
+      "the gate must refuse a run from any file other than the CI workflow",
+    );
+    assert.equal(
+      partition("requested", 1, ".github/workflows/pwn.yml"),
+      "noop",
+      "a forged run must not share the concurrency group that real panels cancel each other in",
+    );
     // And prove the partition is not degenerate — a group that always says "active"
     // would pass a same-answer check while restoring the cancellation bug.
-    assert.equal(partition("requested", 1), "active");
-    assert.equal(partition("completed", 1), "noop");
+    assert.equal(partition("requested", 1, CI_WORKFLOW_PATH), "active");
+    assert.equal(partition("completed", 1, CI_WORKFLOW_PATH), "noop");
   }
 
   // The inline copy of the rule. A `github-script` step has no checkout and

@@ -114,7 +114,7 @@ on:
 # event/attempt combinations and fails if they disagree.
 concurrency:
   group: >-
-    agent-review-panel-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}-${{ (github.event.action == 'completed' && github.event.workflow_run.run_attempt == 1) && 'noop' || 'active' }}
+    agent-review-panel-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}-${{ (github.event.workflow_run.path != '.github/workflows/ci.yml' || (github.event.action == 'completed' && github.event.workflow_run.run_attempt == 1)) && 'noop' || 'active' }}
   cancel-in-progress: true
 
 permissions: {}
@@ -153,8 +153,17 @@ jobs:
     # (attempt 1) — the first starts the panel, the second is refused here. A RE-RUN
     # emits only `completed`, with `run_attempt > 1`, which is the one case that
     # needs admitting and the reason `@claude rerun` re-engages the loop at all.
+    # `path` is asserted because the trigger above CANNOT be: `workflow_run`'s
+    # `workflows:` filter matches the run's DISPLAY NAME, which is only a
+    # workflow file's `name:` key and is not unique. A second file on the branch
+    # saying `name: CI` produces runs this trigger accepts — and the `fix` job
+    # downstream holds `contents: write` and pushes to the PR branch. mark-ready
+    # re-derives its own gate from the path (see checks.mjs CI_WORKFLOW_PATH), so
+    # promotion was never at risk; this closes the arm that INVOKES the agent.
+    # Only one file can occupy `.github/workflows/ci.yml`.
     if: >-
       vars.AGENT_PIPELINE_ENABLED == 'true' &&
+      github.event.workflow_run.path == '.github/workflows/ci.yml' &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
       (github.event.action == 'requested' ||
        github.event.workflow_run.run_attempt > 1)
@@ -1500,7 +1509,11 @@ jobs:
             > "$RUNNER_TEMP/mark-ready.log" 2>&1
           code=$?
           set -e
-          cat "$RUNNER_TEMP/mark-ready.log"
+          # `|| true`: under the restored `set -e`, a `cat` of a log the redirect
+          # never created would abort the step BEFORE the `case` records an
+          # outcome — reporting a real tooling failure as "cancelled, killed, or
+          # never ran". Echoing the report must never outrank branching on it.
+          cat "$RUNNER_TEMP/mark-ready.log" || true
           # `case` with a `*)` default, NOT a chain of `if [ -eq N ]`. The chain
           # had no else, so a status the script never emits — 127 from a missing
           # binary, 128+signal from a kill — fell through every branch and the
