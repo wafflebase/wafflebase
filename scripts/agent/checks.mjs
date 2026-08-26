@@ -106,17 +106,17 @@ export function ciConclusion(workflowRuns) {
  * `workflowRuns` is expected to be already scoped to the CI workflow file by
  * the caller's `workflow_id: 'ci.yml'`, so this does not re-filter by path.
  *
- * NOT YET WIRED, and deliberately so. Both call sites are github-script steps
- * in `.github/workflows/agent-rerun.yml` and `.github/workflows/agent-loop.yml`
- * — which still ask for `per_page: 1` and re-run `workflow_runs[0]` — and the
- * agent App cannot push `.github/workflows/**`. That is the security boundary
- * `agent-review-panel.yml`'s `workflow_run` trigger and `mark-ready.mjs`'s
- * "unforgeable" gates rest on, not a missing grant, so the mirror is a
- * MAINTAINER edit: replace that list call with `github.paginate(...,
- * { per_page: 100 })` and re-run every run this returns. Landing the rule with
- * its test is the half that is complete on its own; parking the workflow hunk
- * as a patch blob, or shipping a cross-file assertion that is red until someone
- * applies it, are both worse (see the lessons file for this task).
+ * MIRRORED INLINE at both call sites, because neither can import this file:
+ * they are github-script steps in `.github/workflows/agent-rerun.yml` and
+ * `.github/workflows/agent-loop.yml` that run before any checkout — the same
+ * constraint that makes `agent-review-panel.yml` mirror `ciRunDecision` inline.
+ * `checks.test.mjs` pins the two copies against each other so the rule cannot
+ * drift into two rules. Editing this function means editing both mirrors.
+ *
+ * The mirror had to be a maintainer edit: the agent App cannot push
+ * `.github/workflows/**`, which is the security boundary the panel's
+ * `workflow_run` trigger and mark-ready's "unforgeable" gates rest on, not a
+ * missing grant.
  */
 export function ciRunsToRerun(workflowRuns) {
   const completed = (workflowRuns || []).filter((r) => r?.status === "completed");

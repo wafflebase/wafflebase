@@ -82,9 +82,22 @@
   "can promote or fix this PR". When you narrow what counts as passing, grep
   for whoever was trying to *make* it pass.
 
-  The repair lives in two workflow files, which the App cannot push — so this
-  branch lands the rule (`ciRunsToRerun` + its test) and leaves the two
-  four-line mirrors to a maintainer, exactly as the two lessons above
-  prescribe: no parked `.patch` blob, and no cross-file assertion that is red
-  until someone applies it. **Check who can push the files a finding's fix
-  lives in before you write it**, not after the push is rejected.
+  The repair lives in two workflow files, which the App cannot push — so the
+  autonomous run landed the rule (`ciRunsToRerun` + its test) and left the two
+  mirrors to a maintainer, exactly as the two lessons above prescribe: no
+  parked `.patch` blob, and no cross-file assertion that is red until someone
+  applies it. **Check who can push the files a finding's fix lives in before
+  you write it**, not after the push is rejected. A maintainer then wired both
+  mirrors, and `checks.test.mjs` pins them against the exported rule.
+
+- **Two actors can fix one finding at once, and the merge is not "pick a
+  side".** The autonomous fixer and a maintainer session both answered this
+  finding within minutes, and the push collision is how anyone found out. The
+  maintainer's version wired the two call sites (which only a maintainer can);
+  the agent's version had the better *rule* — it skipped in-flight runs, which
+  the API refuses to re-run with a 422, and it kept re-running exactly one run
+  when they are all already green, without which the verb turns into a no-op
+  and the panel never re-engages. Both of those were bugs in the maintainer's
+  copy. **Read the other version before resolving**, and take the union: the
+  agent's rule, the maintainer's wiring, and a test tying the copies together.
+  Force-pushing over `claude[bot]` would have silently reintroduced both.

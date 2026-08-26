@@ -139,11 +139,28 @@ jobs:
             // if there's nothing to re-run, the label still engages the next CI run.
             let reran = false;
             try {
-              const runs = await github.rest.actions.listWorkflowRuns({
-                owner, repo, workflow_id: 'ci.yml', head_sha: pr.head.sha, per_page: 1,
+              // Mirrors `ciRunsToRerun` in scripts/agent/checks.mjs, where the rule
+              // is unit-tested — this step runs before any checkout and cannot
+              // import it, the same constraint that makes agent-review-panel.yml
+              // mirror `ciRunDecision` inline. checks.test.mjs pins both copies.
+              //
+              // EVERY red run, not just the newest: gate 1 now requires all of a
+              // SHA's CI runs to be green, so re-running `workflow_runs[0]` alone
+              // left an older red run red and the gate unclearable — while this
+              // step still reported that the panel could promote. When they are
+              // all already green there is nothing to turn green, but one re-run
+              // is still what emits the `workflow_run` event (run_attempt > 1)
+              // the panel re-engages on. Only COMPLETED runs are re-runnable —
+              // the API answers 422 for one in flight, which emits its own event.
+              const all = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner, repo, workflow_id: 'ci.yml', head_sha: pr.head.sha, per_page: 100,
               });
-              const run = runs.data.workflow_runs[0];
-              if (run) { await github.rest.actions.reRunWorkflow({ owner, repo, run_id: run.id }); reran = true; }
+              const completed = all.filter((r) => r.status === 'completed');
+              const red = completed.filter((r) => r.conclusion !== 'success');
+              for (const run of (red.length ? red : completed.slice(0, 1))) {
+                await github.rest.actions.reRunWorkflow({ owner, repo, run_id: run.id });
+                reran = true;
+              }
             } catch (e) {
               core.warning(`Could not re-run CI (${e.message}); the loop will engage on the next CI run.`);
             }

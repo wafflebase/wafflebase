@@ -519,3 +519,56 @@ test("ciRunsToRerun: every red run, or one green one just to fire the event", ()
   assert.deepEqual(ciRunsToRerun([run(2, "in_progress", null), run(1, "completed", "success")]).map((r) => r.id), [1]);
   assert.deepEqual(ciRunsToRerun([run(2, "queued", null)]), [], "nothing completed yet");
 });
+
+test("agent-rerun / agent-loop mirror ciRunsToRerun inline, and the copies agree", () => {
+  // Both re-run steps run BEFORE any checkout (agent-rerun's is at :246, and
+  // agent-loop's `loop` job has none), so they cannot import checks.mjs — the
+  // same constraint that makes agent-review-panel.yml mirror `ciRunDecision`
+  // inline. The rule therefore exists twice, and pinning the copy is what keeps
+  // it ONE rule: the previous version asked for `per_page: 1` and re-ran only
+  // `workflow_runs[0]`, which cannot clear a gate that wants every run green.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  for (const file of ["agent-rerun.yml", "agent-loop.yml"]) {
+    const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", file), "utf8");
+    const at = yml.indexOf("workflow_id: 'ci.yml'");
+    assert.notEqual(at, -1, `${file} must still re-run CI by workflow id`);
+    const block = yml.slice(at - 200, at + 900);
+
+    assert.ok(!/per_page: 1,/.test(block), `${file}: one run cannot clear a SHA whose older CI run is red`);
+    assert.match(block, /github\.paginate\(/, `${file} must read every run for the SHA, not one page's first entry`);
+    assert.match(block, /r\.status === 'completed'/, `${file}: an in-flight run is not re-runnable (422)`);
+    assert.match(block, /r\.conclusion !== 'success'/, `${file} must select the runs that are not green`);
+    // The all-green fallback: zero re-runs would emit no `workflow_run` event,
+    // so the panel — which admits `completed` only for run_attempt > 1 — would
+    // never re-engage, and the verb's own comment would be wrong again.
+    assert.match(
+      block,
+      /red\.length \? red : completed\.slice\(0, 1\)/,
+      `${file}: all-green must still re-run exactly one, or the panel never re-engages`,
+    );
+    assert.match(block, /for \(const run of/, `${file} must re-run every selected run`);
+  }
+
+  // And the inline rule must agree with the exported one on the cases that
+  // distinguish it, so a future edit to either copy is caught here.
+  const run = (id, status, conclusion) => ({ id, status, conclusion });
+  const inline = (runs) => {
+    const completed = runs.filter((r) => r.status === "completed");
+    const red = completed.filter((r) => r.conclusion !== "success");
+    return red.length ? red : completed.slice(0, 1);
+  };
+  for (const fixture of [
+    [],
+    [run(1, "completed", "success")],
+    [run(2, "completed", "failure"), run(1, "completed", "success")],
+    [run(3, "completed", "success"), run(2, "completed", "cancelled")],
+    [run(2, "in_progress", null), run(1, "completed", "success")],
+    [run(1, "queued", null)],
+  ]) {
+    assert.deepEqual(
+      ciRunsToRerun(fixture).map((r) => r.id),
+      inline(fixture).map((r) => r.id),
+      `the inline mirror disagrees with ciRunsToRerun on ${JSON.stringify(fixture)}`,
+    );
+  }
+});
