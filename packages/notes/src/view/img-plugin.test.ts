@@ -36,6 +36,14 @@ describe('imgPlugin', () => {
     expect(html).toContain('height="20"');
   });
 
+  it('matches the tag and attribute names case-insensitively', () => {
+    const html = render('<IMG SRC="a.png" ALT="x" WIDTH="7">');
+
+    expect(html).toContain('src="a.png"');
+    expect(html).toContain('alt="x"');
+    expect(html).toContain('width="7"');
+  });
+
   it('renders an image with no dimensions at all', () => {
     const html = render('<img src="a.png" alt="a">');
 
@@ -100,6 +108,7 @@ describe('imgPlugin', () => {
       ['a valueless src', '<img src width="200">'],
       ['a javascript: url', '<img src="javascript:alert(1)" width="20">'],
       ['a repeated attribute', '<img src="a.png" src="b.png">'],
+      ['a bare tag with no attributes', '<img>'],
       ['another tag entirely', '<video src="a.mp4">'],
       ['a stray closing tag', '</img>'],
     ] as const;

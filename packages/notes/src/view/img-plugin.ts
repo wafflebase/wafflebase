@@ -109,9 +109,25 @@ function parseAttrs(md: MarkdownIt, region: string): Attrs | null {
   return attrs;
 }
 
+/**
+ * Whether `<img` (in any case) starts at `pos`.
+ *
+ * This runs for every `<` in every note, and the regex below needs a
+ * substring to match against — slicing the rest of the chunk each time would
+ * be quadratic in a long note. `| 0x20` lowercases an ASCII letter, and
+ * `charCodeAt` past the end is `NaN`, which fails every comparison.
+ */
+function startsImgTag(src: string, pos: number): boolean {
+  return (
+    src.charCodeAt(pos) === 0x3c /* < */ &&
+    (src.charCodeAt(pos + 1) | 0x20) === 0x69 /* i */ &&
+    (src.charCodeAt(pos + 2) | 0x20) === 0x6d /* m */ &&
+    (src.charCodeAt(pos + 3) | 0x20) === 0x67 /* g */
+  );
+}
+
 function imgRule(state: StateInline, silent: boolean): boolean {
-  // Cheap bail before the regex: every match starts `<i`.
-  if (state.src.charCodeAt(state.pos) !== 0x3c /* < */) return false;
+  if (!startsImgTag(state.src, state.pos)) return false;
 
   const match = IMG_TAG_RE.exec(state.src.slice(state.pos, state.posMax));
   if (!match) return false;
