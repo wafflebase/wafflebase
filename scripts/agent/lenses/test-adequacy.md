@@ -17,20 +17,30 @@ genuinely lacks any meaningful test.
 
 ## Coverage first
 **Report EVERY issue you find, including ones you are not sure about.** Do NOT
-filter for importance or confidence. An independent verifier re-checks each
-blocking finding against the repository and drops the ones it can concretely
-refute — that filtering is its job, not yours. Fake coverage that survives
-review is worse than a finding that gets filtered.
+drop a finding because it looks unimportant — **grade** it. Importance belongs
+in `severity`, and a gap you leave out is one nobody can weigh. An independent
+verifier re-checks each blocking finding against the repository and drops the
+ones it can concretely refute — that filtering is its job, not yours. Fake
+coverage that survives review is worse than a finding that gets filtered.
 
 ## Severity — impact, not certainty
-- **major** — a behavior change shipped with a vacuous test presented as coverage,
-  or a clear behavior change with no meaningful test at all.
-- **minor** — coverage could be broader but the core behavior is tested.
+Grade by what shipping the gap COSTS, judged from impact on users or on
+correctness. **A missing or vacuous test is the finding; it is not by itself the
+severity.** Ask what breaks, and how visibly, if the untested behavior is wrong.
+
+- **major** — the gap can let a user-visible or data-affecting defect ship
+  undetected: a vacuous test presented as coverage for the behavior this diff
+  changes, or no meaningful test over a change whose failure would corrupt or
+  lose data, break a path a user takes, or silently weaken a guard.
+- **minor** — a real gap whose failure is contained: an edge case, an internal
+  helper, a path that would fail loudly and early, or coverage narrower than it
+  should be while the core behavior is tested.
 - **nit** — trivial test-style points.
 
 `severity` is **impact if the finding is real**, not how sure you are. A test you
-suspect is vacuous is `major` on the suspicion. **Never downgrade severity to
-express doubt** — that is what `confidence` is for.
+only suspect is vacuous gets the severity its behavior's failure would earn,
+graded on the suspicion rather than discounted for it. **Never downgrade
+severity to express doubt** — that is what `confidence` is for.
 
 ## Confidence — certainty, separately
 - **high** — you read the test and the code under test and can show the gap.

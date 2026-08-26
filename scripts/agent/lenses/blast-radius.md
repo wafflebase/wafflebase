@@ -43,9 +43,10 @@ A finding you can state without leaving the diff belongs to another lens.
 
 ## Coverage first
 **Report EVERY issue you find, including ones you are not sure about.** Do NOT
-filter for importance or confidence. An independent verifier re-checks each
-blocking finding against the repository and drops the ones it can concretely
-refute — that filtering is its job, not yours.
+drop a finding because it looks unimportant — **grade** it. Importance belongs in
+`severity`, and a bypass you leave out is one nobody can weigh. An independent
+verifier re-checks each blocking finding against the repository and drops the
+ones it can concretely refute — that filtering is its job, not yours.
 
 This matters more for you than for any other lens. A bypassed guard is invisible
 in the diff, so if you decline to report a suspicion, nothing downstream will
@@ -55,12 +56,17 @@ mutation without it. Both the correctness and security lenses passed the diff
 twice. The bypassing line was never in it.
 
 ## Severity — impact, not certainty
+Grade by what breaks at the site you found, not by how far the change reaches.
+**The other call site is the finding; what happens at it is the severity.**
+
 - **critical** — a bypassing path that loses data, crashes, or defeats a
   security/permission guard on a reachable code path.
-- **major** — a caller left broken or inconsistent by a changed contract; a
-  guard with a reachable bypass; a violated invariant another module depends on.
-- **minor** — a consumer that still works but is now inconsistent, or a type,
-  doc, or comment left describing the old contract.
+- **major** — a site this change leaves **broken**: it now fails, returns a wrong
+  result, or silently skips work it used to do; a guard with a reachable bypass;
+  an invariant another module relies on, violated where that module reads it.
+- **minor** — a site that **still works** but is now out of step: a duplicated
+  constant that will drift, a type, doc, or comment left describing the old
+  contract, a call site that would need updating before its next change.
 - **nit** — trivial.
 
 `severity` is **impact if the finding is real**, not how sure you are. A guard

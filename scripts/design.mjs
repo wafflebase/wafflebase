@@ -28,8 +28,19 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 const SANDBOX = path.join(ROOT, 'packages', 'design-sandbox');
 const EDITOR = path.join(ROOT, 'packages', 'design-editor');
-const SHELL_DIST = path.join(EDITOR, 'dist', 'shell', 'index.html');
-const SHELL_SRC = path.join(EDITOR, 'src', 'shell');
+/**
+ * BOTH built artefacts, because both are loaded and both come out of `src/`.
+ *
+ * `dist/shell` is the chrome the mount point serves. `dist/plugin` is what NODE loads:
+ * since #966 the package's `exports["."]` names `dist/plugin/index.js`, and
+ * `packages/design-sandbox/vite.config.ts` imports the package by name. Watching only
+ * `src/shell` meant an edit under `src/plugin/**` ran against a stale compiled plugin.
+ */
+const EDITOR_DIST = [
+  path.join(EDITOR, 'dist', 'shell', 'index.html'),
+  path.join(EDITOR, 'dist', 'plugin', 'index.js'),
+];
+const EDITOR_SRC = path.join(EDITOR, 'src');
 const BASE = '/__design-editor';
 /**
  * Where the detected URL is left for `design-pr.mjs`.
@@ -108,12 +119,15 @@ if (!existsSync(path.join(SANDBOX, 'node_modules')) || !existsSync(path.join(ROO
   ok('dependencies present');
 }
 
-// --- 3. the editor shell -----------------------------------------------------
+// --- 3. the editor build -----------------------------------------------------
 //
 // A PREBUILT BUNDLE, and the third of the stale-artifact traps this project keeps
-// hitting: the shell is served from `dist/`, so editing its source changes nothing
-// until it is rebuilt. Rebuilt only when a source file is newer than the bundle,
-// because the build is ~20s and most runs do not need it.
+// hitting: the shell is served from `dist/` and the plugin is LOADED from `dist/`,
+// so editing either one's source changes nothing until it is rebuilt. Rebuilt only
+// when a source file is newer than an artefact, because the build is ~20s and most
+// runs do not need it. Compared against the whole of `src/`: the two artefacts are
+// built from overlapping subtrees, and `pnpm … build` produces both anyway, so
+// narrowing the watch per artefact would only reintroduce the trap it just left.
 function newestMtime(dir) {
   let newest = 0;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -123,18 +137,19 @@ function newestMtime(dir) {
   }
   return newest;
 }
-const shellStale = !existsSync(SHELL_DIST) || newestMtime(SHELL_SRC) > statSync(SHELL_DIST).mtimeMs;
-if (shellStale) {
-  step('building the editor shell…');
+const newestSrc = newestMtime(EDITOR_SRC);
+const distStale = EDITOR_DIST.some((f) => !existsSync(f) || newestSrc > statSync(f).mtimeMs);
+if (distStale) {
+  step('building the editor (shell + plugin)…');
   const r = spawnSync(PNPM, ['--filter', '@wafflebase/design-editor', 'build'], {
     cwd: ROOT,
     stdio: 'inherit',
     shell: process.platform === 'win32',
   });
-  if (r.status !== 0) stop('The editor shell failed to build.', 'Scroll up for the reason, then run this again.');
-  ok('editor shell built');
+  if (r.status !== 0) stop('The editor failed to build.', 'Scroll up for the reason, then run this again.');
+  ok('editor built');
 } else {
-  ok('editor shell up to date');
+  ok('editor build up to date');
 }
 
 // --- 4. the server -----------------------------------------------------------

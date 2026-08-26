@@ -161,8 +161,16 @@ superseded by the generated ~105-entry `font-catalog.data.ts` (which adds
 for every entry and extends `SERIF_FONTS` with the new serif faces. Only
 the small `eager` subset of web fonts is requested in the bootstrap
 Google Fonts CSS `<link>`; the long tail lazy-loads its CSS via
-`ensureFontLink(family, weights)` the first time a family is picked,
-hovered, or previewed. Actual font binaries are still fetched lazily by
+`ensureFontLink(family, weights)` the first time a family is picked or
+hovered. *Previewing* a picker row takes the cheaper path —
+`ensurePreviewFontLink(family, text, weights)`, which requests only the
+glyphs that row paints (css2 `&text=`) at a single weight, and no-ops for
+a family some stylesheet already loads in full. A subset face carries no
+`unicode-range`, so it is that family's face for the whole document while
+connected — the preview surfaces therefore call `releasePreviewFontLinks()`
+when their list goes away and before applying a pick. See
+[slides-fonts.md](../slides/slides-fonts.md) for the full loading model.
+Actual font binaries are still fetched lazily by
 `FontRegistry.ensureFont()` on first paint of a run that requests them.
 
 ### Font size control
