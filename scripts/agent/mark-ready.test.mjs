@@ -255,52 +255,39 @@ test("gate 1 tolerates the @ref suffix a called workflow reports on its path", (
   assert.ok(promoted(called.calls));
 });
 
-test("gate 1 requires EVERY CI run for the SHA — one green run does not excuse a red one", () => {
-  // A re-run does not create a second run (GitHub adds a `run_attempt` to the
-  // existing one), so two CI runs for a SHA means CI was TRIGGERED twice. The
-  // gate used to read only the newest, which silently ignored a red run
-  // whenever a later-created one was green — a fail-open in the gate that
-  // means "the tests passed". Order is irrelevant now, and so are timestamps.
-  for (const conclusions of [
-    ["success", "failure"],
-    ["failure", "success"],
-  ]) {
-    const mixed = run(
-      ["7", "--promote"],
-      okConfig({
-        workflowRuns: conclusions.map((conclusion) => ({ name: "CI", path: CI_PATH, conclusion, created_at: AT })),
-      }),
-    );
-    assert.equal(mixed.code, 1, `CI runs ${conclusions.join("+")} must not promote`);
-    assert.ok(!promoted(mixed.calls), "the PR must stay a draft");
-  }
+test("gate 1 reads the NEWEST CI run for the SHA", () => {
+  // `ciConclusion` reads the newest run by id. That is safe because a PR head
+  // SHA carries exactly one CI run — `push` is restricted to main and a
+  // merge_group run carries the speculative merge commit, an invariant
+  // checks.test.mjs pins — and a re-run mutates that run in place rather than
+  // adding a second. These fixtures cover the shape anyway, so the rule is
+  // asserted rather than merely implied by a one-run fixture.
+  const older = { name: "CI", path: CI_PATH, conclusion: "success", created_at: AT, id: 1 };
+  const newerRed = { name: "CI", path: CI_PATH, conclusion: "failure", created_at: AT, id: 9 };
 
-  // A CI run still in flight is "not known yet", not a verdict — the gate waits
-  // instead of promoting on the runs that happen to have finished.
-  const inFlight = run(
+  const red = run(["7", "--promote"], okConfig({ workflowRuns: [older, newerRed] }));
+  assert.equal(red.code, 1, "the newest CI run is red, so an older green one must not promote");
+  assert.ok(!promoted(red.calls), "the PR must stay a draft");
+
+  const green = run(
     ["7", "--promote"],
     okConfig({
       workflowRuns: [
-        { name: "CI", path: CI_PATH, conclusion: "success", created_at: AT },
-        { name: "CI", path: CI_PATH, conclusion: null, created_at: AT },
+        { name: "CI", path: CI_PATH, conclusion: "failure", created_at: AT, id: 1 },
+        { name: "CI", path: CI_PATH, conclusion: "success", created_at: AT, id: 9 },
       ],
     }),
+  );
+  assert.equal(green.code, 0, "a newer green run supersedes the red one it replaced");
+  assert.ok(promoted(green.calls));
+
+  // The newest still running is "not known yet", not a pass.
+  const inFlight = run(
+    ["7", "--promote"],
+    okConfig({ workflowRuns: [older, { name: "CI", path: CI_PATH, conclusion: null, created_at: AT, id: 9 }] }),
   );
   assert.equal(inFlight.code, 1, "an unfinished CI run must not be read as a pass");
   assert.ok(!promoted(inFlight.calls));
-
-  // ...and the rule must not simply refuse whenever a SHA has two runs.
-  const allGreen = run(
-    ["7", "--promote"],
-    okConfig({
-      workflowRuns: [
-        { name: "CI", path: CI_PATH, conclusion: "success", created_at: AT },
-        { name: "CI", path: CI_PATH, conclusion: "success", created_at: AT },
-      ],
-    }),
-  );
-  assert.equal(allGreen.code, 0, "two CI runs, both green, is a pass");
-  assert.ok(promoted(allGreen.calls));
 });
 
 test("exit 1: a missing review check or a missing disclosure is also code 1", () => {

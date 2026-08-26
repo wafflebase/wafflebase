@@ -64,44 +64,54 @@ export function ciRunsFor(workflowRuns) {
 
 /**
  * CI's verdict for a SHA: `"success"`, `"failure"`, or `null` for "not known
- * yet" — no run, or one still in flight.
+ * yet" — no run, or the newest one still in flight.
  *
- * EVERY run must have concluded success, rather than the newest one winning.
- * A re-run does not create a second run — GitHub adds a `run_attempt` to the
- * existing one — so "newest wins" was never what made re-runs work; the run's
- * own `conclusion` already reflects its latest attempt. What "newest wins"
- * DOES do is fail open the moment a SHA has two CI runs, which happens as soon
- * as CI gains a second trigger that fires for the same commit: a red run is
- * then ignored whenever a later-created one is green, and gate 1 is the gate
- * that means "the tests passed". Requiring all of them is fail-closed under
- * any trigger set, and drops the dependence on `created_at` ordering — which
- * was itself unspecified when a stamp was missing or unparseable
- * (`new Date("nonsense")` is NaN, and a NaN comparator does not order).
+ * THE NEWEST RUN WINS, and `ci.yml`'s triggers are what make that safe: `push`
+ * is restricted to `main`, and a `merge_group` run carries the speculative
+ * merge commit rather than the PR head, so a PR head SHA gets exactly one CI
+ * run (from `pull_request`) and a re-run mutates that same run in place rather
+ * than adding a second. `ciTriggersKeepOneRunPerHeadSha` in `checks.test.mjs`
+ * pins that, so adding a trigger that fires on a PR head fails loudly here
+ * instead of quietly turning this into a rule that reads one of several runs.
  *
- * `conclusion` is null while a run is in flight, so an unfinished run reports
- * `null` here and the caller waits rather than reading a stale verdict.
+ * An earlier revision required EVERY run to be green, on the theory that
+ * newest-wins would fail open if a SHA ever carried two runs. It closed nothing
+ * reachable — the invariant above already held — and cost three real defects:
+ * `@claude rerun` could no longer clear the gate (it re-ran one run), then
+ * re-running all of them eroded agent-iterate-ci's append-only attempt bound
+ * (a re-run REPLACES a run's `failure` conclusion) and fanned out into
+ * `workflow_run` completions that cancelled the fixer mid-push. Fail-closed on
+ * a hole that is not open is not free.
+ *
+ * Ordered by `id`, not `created_at`: ids are assigned in creation order, are
+ * always present, and are integers — `new Date("nonsense")` is NaN, and a NaN
+ * comparator does not order at all.
  */
 export function ciConclusion(workflowRuns) {
-  const runs = ciRunsFor(workflowRuns);
-  if (runs.length === 0) return null;
-  if (runs.some((r) => r.conclusion == null)) return null;
-  return runs.every((r) => r.conclusion === "success") ? "success" : "failure";
+  const run = newestRun(ciRunsFor(workflowRuns));
+  if (!run || run.conclusion == null) return null;
+  return run.conclusion === "success" ? "success" : "failure";
+}
+
+/** Newest by run id (creation order), or null. */
+function newestRun(runs) {
+  if (!runs.length) return null;
+  return runs.reduce((newest, r) => ((r.id ?? 0) > (newest.id ?? 0) ? r : newest));
 }
 
 /**
- * Which CI runs `@claude rerun` / `@claude loop` must re-run for a head SHA.
+ * The run `@claude rerun` / `@claude loop` must re-run for a head SHA, or null.
  *
- * EVERY red run, not just the newest. `ciConclusion` above requires all of a
- * SHA's CI runs to be green, so re-running the newest one alone leaves an older
- * red run red and gate 1 unclearable — the panel would re-run every time and
- * promote would refuse every time, while both verbs report that the panel "can
- * promote or fix this PR". When they are all already green there is nothing to
- * turn green, and one re-run is enough to emit the `workflow_run` event the
- * panel re-engages on (a re-run bumps `run_attempt`, which is the only thing
- * agent-review-panel.yml's gate admits a `completed` event for).
+ * Exactly one — the newest COMPLETED run — for the reason `ciConclusion` reads
+ * only the newest: that is the run whose conclusion gate 1 will read, and a
+ * re-run bumps its `run_attempt`, which is the only thing agent-review-panel's
+ * gate admits a `completed` event for. Re-running more would erode
+ * agent-iterate-ci's attempt bound (which counts current `failure` conclusions,
+ * and a re-run replaces one) and emit a completion per run into a
+ * `cancel-in-progress` group, cancelling the fixer mid-push.
  *
- * Only COMPLETED runs are re-runnable — the API answers 422 for one still in
- * flight, and an in-flight run emits its own completion event anyway.
+ * COMPLETED because the API answers 422 for a run still in flight — and an
+ * in-flight run emits its own completion event, so there is nothing to trigger.
  *
  * `workflowRuns` is expected to be already scoped to the CI workflow file by
  * the caller's `workflow_id: 'ci.yml'`, so this does not re-filter by path.
@@ -110,18 +120,11 @@ export function ciConclusion(workflowRuns) {
  * they are github-script steps in `.github/workflows/agent-rerun.yml` and
  * `.github/workflows/agent-loop.yml` that run before any checkout — the same
  * constraint that makes `agent-review-panel.yml` mirror `ciRunDecision` inline.
- * `checks.test.mjs` pins the two copies against each other so the rule cannot
- * drift into two rules. Editing this function means editing both mirrors.
- *
- * The mirror had to be a maintainer edit: the agent App cannot push
- * `.github/workflows/**`, which is the security boundary the panel's
- * `workflow_run` trigger and mark-ready's "unforgeable" gates rest on, not a
- * missing grant.
+ * `checks.test.mjs` pins the copies against each other. Editing this function
+ * means editing both mirrors, which only a maintainer can push.
  */
-export function ciRunsToRerun(workflowRuns) {
-  const completed = (workflowRuns || []).filter((r) => r?.status === "completed");
-  const red = completed.filter((r) => r.conclusion !== "success");
-  return red.length ? red : completed.slice(0, 1);
+export function ciRunToRerun(workflowRuns) {
+  return newestRun((workflowRuns || []).filter((r) => r?.status === "completed"));
 }
 
 /** Latest run of `name` concluded success? Missing → false. */

@@ -90,6 +90,35 @@
   you write it**, not after the push is rejected. A maintainer then wired both
   mirrors, and `checks.test.mjs` pins them against the exported rule.
 
+- **Fixing a hole that is not open is not free, and the bill arrives as more
+  findings.** Gate 1 read the newest CI run. A lens argued that fails open once
+  a SHA carries two runs, so the rule became "EVERY run must be green". The
+  premise was checked and was already false — `ci.yml`'s `push` is `main`-only
+  and a `merge_group` run carries the speculative merge commit, so a PR head
+  has exactly one run — and the change was made anyway, to "not depend on
+  that". It then produced three real defects across two review rounds:
+  `@claude rerun` could no longer clear the gate (it re-ran one run); re-running
+  all of them eroded `agent-iterate-ci`'s attempt bound, which counts current
+  `failure` conclusions while a re-run REPLACES one; and the fan-out emitted a
+  `workflow_run` completion per run into a `cancel-in-progress` group,
+  cancelling the fixer mid-push.
+
+  The resolution was to revert to newest-wins and spend the effort on a
+  **tripwire for the invariant instead** — a test asserting `ci.yml`'s trigger
+  set still yields one run per PR head. It is three lines, it fails loudly the
+  day someone widens `push`, and it costs nothing in between. **When a finding's
+  premise is not reachable today, harden the thing that keeps it unreachable,
+  not the code downstream of it.**
+
+- **Three rounds of "my fix caused the next finding" is a signal to look
+  upstream, not to keep patching.** Rounds 4, 5 and 6 each opened with a defect
+  introduced by the previous round's fix. Each individual fix was correct for
+  the finding in front of it; the chain was still wrong, because all of it hung
+  off one avoidable decision. Reverting that decision deleted the whole subtree
+  — three findings, two workflow edits and a helper — in one commit. Count how
+  many consecutive rounds trace back to a single change of yours; at two, stop
+  and re-examine that change rather than its consequences.
+
 - **Two actors can fix one finding at once, and the merge is not "pick a
   side".** The autonomous fixer and a maintainer session both answered this
   finding within minutes, and the push collision is how anyone found out. The

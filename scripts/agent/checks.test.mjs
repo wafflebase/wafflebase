@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunsFor, ciRunsToRerun, CI_WORKFLOW_PATH, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunsFor, ciRunToRerun, CI_WORKFLOW_PATH, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 
 // `DEFAULT_REVIEW_CHECKS` is the ONE lens list in the repo that does not derive
 // itself from lenses.json, so it is the one that silently rots when a lens is
@@ -453,122 +453,135 @@ test("CI_WORKFLOW_PATH names a workflow file that actually exists", () => {
   assert.match(src, /^name:\s*CI\s*$/m, "ci.yml must still be the workflow whose runs are named CI");
 });
 
-test("ciConclusion: EVERY CI run must be green, and an unfinished one is 'not yet'", () => {
-  const real = (conclusion) => ({ name: "CI", path: CI_WORKFLOW_PATH, conclusion });
+
+
+
+test("ci.yml's triggers keep exactly one CI run per PR head SHA", () => {
+  // THE INVARIANT `ciConclusion` RESTS ON. It reads the newest CI run for the
+  // head SHA, which is only safe while a PR head has one: `push` restricted to
+  // `main` never fires for a PR branch, and a `merge_group` run carries the
+  // speculative merge commit, not the PR head. Add a trigger that fires on a PR
+  // head — `push` on all branches, a `workflow_dispatch`, a second
+  // `pull_request` — and newest-wins silently becomes "read one of several
+  // runs", where a red one is ignored whenever a later-created one is green.
+  //
+  // This test is the tripwire for that, and it is deliberately the cheap half
+  // of the trade: requiring EVERY run green instead closes the same hole and
+  // cost three defects (see ciConclusion's comment). Fail here, and the choice
+  // is a conscious one rather than a silent regression.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const yml = readFileSync(path.join(HERE, "..", "..", CI_WORKFLOW_PATH), "utf8");
+  const on = yml.slice(yml.indexOf("\non:"), yml.indexOf("\npermissions:"));
+  const code = on.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+
+  const events = [...code.matchAll(/^ {2}([a-z_]+):/gm)].map((m) => m[1]);
+  assert.deepEqual(
+    events.sort(),
+    ["merge_group", "pull_request", "push"],
+    "a new CI trigger may fire for a PR head SHA — see ciConclusion before adding one",
+  );
+  // `push` must stay off PR branches, or every agent branch push produces a
+  // SECOND run for the same SHA that `pull_request` already covered.
+  assert.match(
+    code.slice(code.indexOf("push:"), code.indexOf("pull_request:")),
+    /branches: \["main"\]/,
+    "push must stay restricted to main",
+  );
+});
+
+test("ciConclusion: the newest CI run wins, and an unfinished one is 'not yet'", () => {
+  const real = (id, conclusion) => ({ id, name: "CI", path: CI_WORKFLOW_PATH, conclusion });
 
   assert.equal(ciConclusion([]), null, "no runs at all");
   assert.equal(ciConclusion(undefined), null, "a missing list is not a crash");
   assert.equal(
-    ciConclusion([{ name: "CI", path: ".github/workflows/pwn.yml", conclusion: "success" }]),
+    ciConclusion([{ id: 1, name: "CI", path: ".github/workflows/pwn.yml", conclusion: "success" }]),
     null,
     "a second file calling itself CI is not the CI workflow",
   );
-  assert.equal(ciConclusion([{ name: "CI" }]), null, "a run with no path cannot be matched to the file");
+  assert.equal(ciConclusion([{ id: 1, name: "CI" }]), null, "a run with no path cannot be matched to the file");
 
-  assert.equal(ciConclusion([real("success")]), "success");
-  assert.equal(ciConclusion([real("failure")]), "failure");
+  assert.equal(ciConclusion([real(1, "success")]), "success");
+  assert.equal(ciConclusion([real(1, "failure")]), "failure");
+  assert.equal(ciConclusion([real(1, "cancelled")]), "failure", "only success is success");
 
-  // The point of the rule. A re-run does not create a second run — GitHub adds
-  // a run_attempt to the existing one — so two runs for a SHA means CI was
-  // TRIGGERED twice, and a green one must not excuse a red one. "Newest wins"
-  // failed open here, in whichever order the API happened to return them.
-  assert.equal(ciConclusion([real("success"), real("failure")]), "failure");
-  assert.equal(ciConclusion([real("failure"), real("success")]), "failure");
+  // Newest by id, in either input order — ids are assigned in creation order,
+  // so this needs no date parsing and cannot be reordered by a bad timestamp.
+  assert.equal(ciConclusion([real(1, "success"), real(9, "failure")]), "failure");
+  assert.equal(ciConclusion([real(9, "failure"), real(1, "success")]), "failure");
+  assert.equal(ciConclusion([real(9, "success"), real(1, "failure")]), "success");
 
-  // Still running → not known yet, so the caller waits rather than reading a
-  // verdict off whichever runs have finished. No timestamps are consulted at
-  // all, so a missing or unparseable `created_at` cannot reorder anything.
-  assert.equal(ciConclusion([real("success"), real(null)]), null);
-  assert.equal(ciConclusion([real(null)]), null);
-  assert.equal(ciConclusion([real("failure"), real(null)]), null);
+  // The newest still running → not known yet, whatever the older ones say.
+  assert.equal(ciConclusion([real(1, "success"), real(9, null)]), null);
+  assert.equal(ciConclusion([real(9, null)]), null);
 
-  // A called workflow reports `<path>@<ref>` and is still the CI file.
   assert.equal(
-    ciConclusion([{ name: "CI", path: `${CI_WORKFLOW_PATH}@refs/heads/main`, conclusion: "success" }]),
+    ciConclusion([{ id: 1, name: "CI", path: `${CI_WORKFLOW_PATH}@refs/heads/main`, conclusion: "success" }]),
     "success",
   );
-  assert.equal(ciRunsFor([real("success"), { name: "x", path: ".github/workflows/x.yml" }]).length, 1);
+  assert.equal(ciRunsFor([real(1, "success"), { id: 2, path: ".github/workflows/x.yml" }]).length, 1);
 });
 
-test("ciRunsToRerun: every red run, or one green one just to fire the event", () => {
+test("ciRunToRerun: the newest COMPLETED run, and only that one", () => {
   const run = (id, status, conclusion) => ({ id, status, conclusion });
 
-  assert.deepEqual(ciRunsToRerun([]), [], "nothing to re-run");
-  assert.deepEqual(ciRunsToRerun(undefined), [], "a missing list is not a crash");
+  assert.equal(ciRunToRerun([]), null, "nothing to re-run");
+  assert.equal(ciRunToRerun(undefined), null, "a missing list is not a crash");
 
-  // THE RULE THIS EXISTS FOR. `ciConclusion` requires EVERY run for the SHA to
-  // be green, so re-running only the newest can never clear gate 1 while an
-  // older run for the same SHA is red — `@claude rerun` would re-run CI, the
-  // panel would review again, and promote would refuse forever while the verb
-  // reported that the panel "can promote or fix this PR".
-  assert.deepEqual(
-    ciRunsToRerun([run(3, "completed", "success"), run(2, "completed", "failure"), run(1, "completed", "cancelled")]).map((r) => r.id),
-    [2, 1],
-    "both non-success runs must be re-run, not just the newest run",
+  // Exactly one, even when several are red. Re-running the others would erode
+  // agent-iterate-ci's attempt bound — it counts current `failure` conclusions,
+  // and a re-run REPLACES one — and emit a `workflow_run` completion per run
+  // into a cancel-in-progress group, cancelling the fixer mid-push.
+  assert.equal(
+    ciRunToRerun([run(1, "completed", "failure"), run(3, "completed", "failure"), run(2, "completed", "success")]).id,
+    3,
+    "the newest completed run, regardless of how many are red",
   );
 
-  // All green: nothing needs turning green, but the re-run is still what emits
-  // the `workflow_run` event (run_attempt > 1) the panel re-engages on — so
-  // exactly one, not zero and not all of them.
-  assert.deepEqual(
-    ciRunsToRerun([run(3, "completed", "success"), run(2, "completed", "success")]).map((r) => r.id),
-    [3],
-  );
-
-  // An in-flight run cannot be re-run (422) and emits its own completion event.
-  assert.deepEqual(ciRunsToRerun([run(2, "in_progress", null), run(1, "completed", "success")]).map((r) => r.id), [1]);
-  assert.deepEqual(ciRunsToRerun([run(2, "queued", null)]), [], "nothing completed yet");
+  // An in-flight run cannot be re-run (422) and emits its own completion event,
+  // so the newest COMPLETED one is the target even when a newer one is running.
+  assert.equal(ciRunToRerun([run(9, "in_progress", null), run(4, "completed", "success")]).id, 4);
+  assert.equal(ciRunToRerun([run(9, "queued", null)]), null, "nothing completed yet");
 });
 
-test("agent-rerun / agent-loop mirror ciRunsToRerun inline, and the copies agree", () => {
-  // Both re-run steps run BEFORE any checkout (agent-rerun's is at :246, and
-  // agent-loop's `loop` job has none), so they cannot import checks.mjs — the
-  // same constraint that makes agent-review-panel.yml mirror `ciRunDecision`
-  // inline. The rule therefore exists twice, and pinning the copy is what keeps
-  // it ONE rule: the previous version asked for `per_page: 1` and re-ran only
-  // `workflow_runs[0]`, which cannot clear a gate that wants every run green.
+test("agent-rerun / agent-loop mirror ciRunToRerun inline, and the copies agree", () => {
+  // Both re-run steps run BEFORE any checkout, so they cannot import checks.mjs
+  // — the same constraint that makes agent-review-panel.yml mirror
+  // `ciRunDecision` inline. The rule therefore exists twice; pinning the copy is
+  // what keeps it ONE rule.
   const HERE = path.dirname(fileURLToPath(import.meta.url));
   for (const file of ["agent-rerun.yml", "agent-loop.yml"]) {
     const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", file), "utf8");
     const at = yml.indexOf("workflow_id: 'ci.yml'");
     assert.notEqual(at, -1, `${file} must still re-run CI by workflow id`);
-    const block = yml.slice(at - 200, at + 900);
+    const block = yml.slice(at - 200, at + 700);
 
-    assert.ok(!/per_page: 1,/.test(block), `${file}: one run cannot clear a SHA whose older CI run is red`);
-    assert.match(block, /github\.paginate\(/, `${file} must read every run for the SHA, not one page's first entry`);
     assert.match(block, /r\.status === 'completed'/, `${file}: an in-flight run is not re-runnable (422)`);
-    assert.match(block, /r\.conclusion !== 'success'/, `${file} must select the runs that are not green`);
-    // The all-green fallback: zero re-runs would emit no `workflow_run` event,
-    // so the panel — which admits `completed` only for run_attempt > 1 — would
-    // never re-engage, and the verb's own comment would be wrong again.
-    assert.match(
-      block,
-      /red\.length \? red : completed\.slice\(0, 1\)/,
-      `${file}: all-green must still re-run exactly one, or the panel never re-engages`,
-    );
-    assert.match(block, /for \(const run of/, `${file} must re-run every selected run`);
+    assert.match(block, /r\.id > n\.id/, `${file} must pick the newest by run id`);
+    // Exactly one reRunWorkflow call, not a loop over a selection.
+    assert.ok(!/for \(const run of/.test(block), `${file}: fanning out cancels the fixer and erodes the attempt bound`);
+    assert.match(block, /if \(run\) \{ await github\.rest\.actions\.reRunWorkflow/, `${file} re-runs exactly one run`);
   }
 
   // And the inline rule must agree with the exported one on the cases that
-  // distinguish it, so a future edit to either copy is caught here.
+  // distinguish it, so an edit to either copy is caught here.
   const run = (id, status, conclusion) => ({ id, status, conclusion });
   const inline = (runs) => {
     const completed = runs.filter((r) => r.status === "completed");
-    const red = completed.filter((r) => r.conclusion !== "success");
-    return red.length ? red : completed.slice(0, 1);
+    return completed.reduce((n, r) => (n === null || r.id > n.id ? r : n), null);
   };
   for (const fixture of [
     [],
     [run(1, "completed", "success")],
     [run(2, "completed", "failure"), run(1, "completed", "success")],
     [run(3, "completed", "success"), run(2, "completed", "cancelled")],
-    [run(2, "in_progress", null), run(1, "completed", "success")],
+    [run(9, "in_progress", null), run(1, "completed", "success")],
     [run(1, "queued", null)],
   ]) {
     assert.deepEqual(
-      ciRunsToRerun(fixture).map((r) => r.id),
-      inline(fixture).map((r) => r.id),
-      `the inline mirror disagrees with ciRunsToRerun on ${JSON.stringify(fixture)}`,
+      ciRunToRerun(fixture)?.id ?? null,
+      inline(fixture)?.id ?? null,
+      `the inline mirror disagrees with ciRunToRerun on ${JSON.stringify(fixture)}`,
     );
   }
 });

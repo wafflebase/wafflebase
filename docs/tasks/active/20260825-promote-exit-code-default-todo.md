@@ -44,7 +44,7 @@ is dropped from the invocation.
       - deleting the CI workflow-run filter (`mark-ready.mjs`),
       - removing `ghMutate`'s `GH_MUTATION_TOKEN` env override.
 
-## Scope added after review (panel rounds 2–4)
+## Scope added after review (panel rounds 2–6)
 
 The branch's Non-Goal said "no change to `mark-ready.mjs`'s behavior". Pinning
 the gate with tests exposed two defects in what was being pinned, and the panel
@@ -57,10 +57,12 @@ claimed it.
       indistinguishable runs. `CI_WORKFLOW_PATH` + `ciConclusion()` in
       `checks.mjs` are now the single source for both readers
       (`mark-ready.mjs`, `set-state.mjs`).
-- [x] **Require EVERY CI run for the SHA to be green.** A re-run does not create
-      a second run (GitHub adds a `run_attempt`), so "newest wins" never made
-      re-runs work — it only failed open once a SHA carried two runs. Also drops
-      the reliance on `created_at` ordering.
+- [x] **Keep newest-wins, and pin the invariant that makes it safe.** A brief
+      revision required EVERY run for the SHA to be green; it closed nothing
+      reachable and cost three defects (see the lessons file). Reverted, with a
+      test asserting `ci.yml`'s triggers still yield one CI run per PR head
+      SHA, and ordering moved from `created_at` to run `id` so an absent or
+      unparseable timestamp cannot reorder anything.
 - [x] **Guard the TRIGGER side too.** `workflow_run`'s `workflows:` filter can
       only match a display name, so `agent-review-panel.yml`,
       `agent-iterate-ci.yml` and `ci-report.yml` assert
@@ -135,16 +137,25 @@ inventing a `.patch` blob after the push is refused.
 
 ## Verification
 
-- `node --test scripts/agent/mark-ready.test.mjs` — 14/14, both halves on
-  the branch.
+- `node --test scripts/agent/*.test.mjs` — 1736 pass / 0 fail;
+  `node --test scripts/test/*.test.mjs` — 225 / 0.
 - The `case` block was extracted and simulated against stub scripts for all
   six statuses — 0, 1-with-verdict, 1-as-crash (bad import), 2, 3, and a
   missing script — and produced job rc 0 / 0 / 2 / 2 / 3 / 2 with
   `ready=true` emitted only for 0.
-- Eight mutants, each killed: reverting the workflow to the old `if` chain,
-  dropping `--promote`, changing the `grep -qF` needle to a string
-  mark-ready never prints, deleting the `*)` default, turning the redirect
-  into a `| tee` pipe, making the `1)` branch `exit 1`, dropping the
-  `name === "CI"` filter, and dropping `ghMutate`'s `GH_MUTATION_TOKEN`
-  override.
+- Thirty-two mutants across the branch, each killed:
+  - **the consumer** — the old `if` chain; a dropped `--promote`; a `grep -qF`
+    needle mark-ready never prints; a deleted `*)` default; a `| tee` pipe in
+    place of the redirect; a `1)` branch that exits; a gate branch that records
+    no `outcome`; a loop-status label typo; a loop-status without a default arm;
+  - **gate 1** — display-name matching; a dropped `@ref` tolerance; an inverted
+    newest-by-id; a dropped in-flight guard; a `CI_WORKFLOW_PATH` typo; a
+    dropped `name === "CI"` filter; a dropped `GH_MUTATION_TOKEN` override; a
+    non-literal `process.exit`;
+  - **the triggers** — a dropped `path` guard on the gate; the same clause
+    dropped from the concurrency group (which would have let a forged run
+    cancel a live panel);
+  - **the invariant** — widening `ci.yml`'s `push` to every branch, which is
+    what newest-wins depends on; a re-run that fans out again; a re-run that
+    ignores `status: completed`.
 - CI (`verify:self`) on the PR.

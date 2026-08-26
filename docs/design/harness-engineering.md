@@ -1915,18 +1915,29 @@ Components:
     exists and whose runs are still named `CI` — a rename that broke the match
     would otherwise make the gate silently unsatisfiable for every PR.
 
-    **Every CI run for the SHA must be green, not just the newest.** A re-run
-    does not create a second run — GitHub adds a `run_attempt` to the existing
-    one, whose `conclusion` already reflects the latest attempt — so "newest
-    wins" never was what made re-runs work. What it did do is fail open as soon
-    as a SHA has two CI runs, which is one added trigger away: a red run is
-    ignored whenever a later-created one is green. Today `ci.yml` fires on
-    `pull_request` (plus `push` restricted to `main`, and `merge_group`, neither
-    of which shares a PR head SHA), so a PR head has exactly one run — the rule
-    is about not depending on that. Requiring all of them also removes any
-    reliance on `created_at` ordering, which was unspecified when a stamp was
-    missing or unparseable. An unfinished run reports `null` (not a verdict), so
-    the gate waits rather than reading the runs that happen to have finished.
+    **The newest CI run wins, and one invariant is what makes that safe.**
+    `ci.yml` fires on `pull_request`, on `push` restricted to `main`, and on
+    `merge_group` — and neither of the latter two shares a PR head SHA (a
+    merge-queue run carries the speculative merge commit), so a PR head gets
+    exactly one CI run. A re-run mutates that run in place, adding a
+    `run_attempt` rather than a second run. `checks.test.mjs`'s
+    "ci.yml's triggers keep exactly one CI run per PR head SHA" is the tripwire:
+    adding a trigger that fires on a PR head fails there rather than silently
+    turning this into "read one of several runs". Ordering is by run `id`, not
+    `created_at` — ids are assigned in creation order and are integers, while
+    `new Date("nonsense")` is NaN and a NaN comparator does not order at all.
+
+    A revision of this doc briefly specified the stricter rule — EVERY run for
+    the SHA must be green — on the theory that newest-wins would fail open if a
+    SHA ever carried two. It is recorded here because the reasoning looks
+    correct and the outcome was not: it closed nothing reachable, and it cost
+    three real defects. `@claude rerun` could no longer clear the gate, since it
+    re-ran one run; re-running all of them then eroded `agent-iterate-ci`'s
+    attempt bound, which counts current `failure` conclusions and a re-run
+    REPLACES one; and the resulting fan-out emitted a `workflow_run` completion
+    per run into a `cancel-in-progress` group, cancelling the fixer mid-push.
+    Failing closed on a hole that is not open is not free — prefer a tripwire on
+    the invariant to a rule that does not need it.
 
     **The trigger side needs the same guard, and cannot express it.** A
     `workflow_run` trigger's `workflows:` filter matches display names only, so
