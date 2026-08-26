@@ -6,12 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 553
+Total archived tasks: 555
 
-## 2026/08 (123 tasks)
+## 2026/08 (125 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| design editor open loop (2026-08-25) | [20260825-design-editor-open-loop-todo.md](./2026/08/20260825-design-editor-open-loop-todo.md) | [20260825-design-editor-open-loop-lessons.md](./2026/08/20260825-design-editor-open-loop-lessons.md) |
+| frontend vite config node floor (2026-08-25) | [20260825-frontend-vite-config-node-floor-todo.md](./2026/08/20260825-frontend-vite-config-node-floor-todo.md) | [20260825-frontend-vite-config-node-floor-lessons.md](./2026/08/20260825-frontend-vite-config-node-floor-lessons.md) |
 | panel pool exhaustion infra (2026-08-24) | [20260824-panel-pool-exhaustion-infra-todo.md](./2026/08/20260824-panel-pool-exhaustion-infra-todo.md) | - |
 | docs large paste perf (2026-08-23) | [20260823-docs-large-paste-perf-todo.md](./2026/08/20260823-docs-large-paste-perf-todo.md) | [20260823-docs-large-paste-perf-lessons.md](./2026/08/20260823-docs-large-paste-perf-lessons.md) |
 | caret line affinity (2026-08-22) | [20260822-caret-line-affinity-todo.md](./2026/08/20260822-caret-line-affinity-todo.md) | [20260822-caret-line-affinity-lessons.md](./2026/08/20260822-caret-line-affinity-lessons.md) |

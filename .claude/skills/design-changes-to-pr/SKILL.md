@@ -79,6 +79,12 @@ the plan and touches nothing.
 The script then descends its own ladder — push rights, a fork, or a compare URL
 when `gh` is not set up — and reports which rung it landed on.
 
+**If it stops on a missing git identity, relay what it printed and stop.** Do not
+run `git config` on the person's behalf, and do not pick a name or address from
+the repository's history: the commit would be attributed to someone who did not
+choose to be. Nothing was changed at that point, so running the command again
+after they set it costs nothing.
+
 ## Refuse to guess
 
 - Write log unreachable **and** `git status` empty → there is nothing to ship. Say

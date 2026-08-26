@@ -151,6 +151,14 @@ to: the scenes resolve `@wafflebase/core/*` to built output, and a stale `dist` 
 scene with `does not provide an export named …`, which reads as broken scenes rather than a
 stale artefact.
 
+**None of the three sees an installed copy.** All of them resolve the package through the
+workspace, where pnpm links it and its real path is `src/` — which is exactly the condition
+that hides a packaging defect. `verify:consumer` is the closest and still misses it: its
+premise is a project that is not wafflebase, not a project that ran `npm install`. The
+fourth gate is manual, five commands, and is written out in
+[`design-editor-packaging.md`](design-editor-packaging.md) §1. Run it before believing the
+package works anywhere but here.
+
 ### 5. When something is wrong
 
 | Symptom | Cause |

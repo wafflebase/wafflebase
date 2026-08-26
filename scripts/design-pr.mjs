@@ -57,8 +57,22 @@ function stop(problem, instruction) {
   process.exit(1);
 }
 
-const git = (args, opts = {}) =>
-  execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', ...opts }).trim();
+/**
+ * Every git call this script makes is fatal if it fails, so a failure is REPORTED
+ * rather than thrown. `execFileSync` throws an Error whose message is a serialised
+ * argv and whose `stderr` holds the part a person needs, and nothing caught it —
+ * so a git that merely had nothing configured answered with a Node stack trace.
+ * Found by driving rung 1 on a machine with no global identity.
+ */
+const git = (args, opts = {}) => {
+  try {
+    return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', ...opts }).trim();
+  } catch (error) {
+    const reason = String(error?.stderr ?? '').trim();
+    stop(`\`git ${args[0]}\` failed.`, reason || 'Scroll up for the reason.');
+    return '';
+  }
+};
 /**
  * The changed paths, from `git status --porcelain=v1 -z`.
  *
@@ -287,6 +301,28 @@ if (!remote) {
   stop(
     'This clone has no `origin` remote, so there is nowhere to push.',
     'Add one with `git remote add origin <url>`, then run this again.',
+  );
+}
+
+/*
+ * WHO THE COMMIT WILL BE FROM, checked before anything is created.
+ *
+ * git refuses to commit without `user.name` and `user.email`, and on a machine
+ * that has never had them set globally that is the state of every fresh clone —
+ * which is exactly the person this ladder is for. Asked here, after the plan has
+ * printed and before the branch exists, so a stop leaves the tree untouched.
+ *
+ * Never filled in with a guess: a commit attributed to someone who did not choose
+ * the name is worse than one that did not happen.
+ */
+const missingIdentity = ['user.name', 'user.email'].filter((k) => !gitTry(['config', '--get', k]));
+if (missingIdentity.length) {
+  stop(
+    `git does not know who you are yet (no ${missingIdentity.join(' or ')}), so it cannot commit.`,
+    'Run these once, with your own name and address:\n' +
+      '\n    git config --global user.name "Your Name"' +
+      '\n    git config --global user.email "you@example.com"\n' +
+      '\n  Then run this again.',
   );
 }
 

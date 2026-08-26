@@ -53,14 +53,19 @@ an issue."*
       `/__design-editor/`, prints one line saying what is on screen.
       Idempotent: someone who already has the environment runs the same command
       and it skips straight to the server.
-      - [ ] **Not measured — full workspace install shipped.** `pnpm install` at the
-            root is what the script runs. The filtered alternative
-            (`--filter @wafflebase/design-sandbox...`) has to bring the frontend's
-            dependencies too, because the sandbox aliases into
-            `packages/frontend/node_modules`, so the saving is unknown rather than
-            obviously large. Measure a cold clone both ways before changing it;
-            until then the honest cost is "a few minutes the first time", which is
-            what the script says.
+      - [x] **Measured: 123 s from a clone with no `node_modules` to a serving
+            editor**, of which the shell build reported 16.61 s. `/health` answered
+            with the clone's own root and `/metadata` returned its token vocabulary,
+            so the number covers a working editor rather than a printed line.
+            That settles the filtered-install question by making it not worth
+            asking: the whole cost is two minutes, and
+            `--filter @wafflebase/design-sandbox...` would still have to bring the
+            frontend's dependencies, because the sandbox aliases into
+            `packages/frontend/node_modules`.
+            The script says "a few minutes the first time", which is honest and
+            slightly pessimistic — left as is.
+            **Not included:** the git fetch (a `--local` clone) and a cold pnpm
+            store. A first-ever install on a new machine downloads more.
 - [x] **2. `scripts/design-pr.mjs`** — the ladder below, deterministic, no model.
 - [x] **3. `.claude/skills/design-changes-to-pr/`** — for a person who already has
       Claude Code. Reads `GET /transactions` (intents, not a text diff), reads
@@ -130,9 +135,45 @@ This writes to someone else's repository and pushes. Non-negotiable:
       including a file actually named `untracked -> weird.ts`.
 - [x] Rung 3 end to end — this task's own pull request was opened with
       `pnpm design-pr`.
-- [ ] Rung 1 forced (`PATH` without `gh`) — compare URL opens, branch is pushed.
-- [ ] Rung 2 forced against a repo with no write access.
-- [ ] `pnpm design` from a cold clone in a temp directory, timed.
+- [x] Rung 1 forced (`PATH` without `gh`) — driven in a throwaway clone whose
+      `origin` is a fork. The branch was pushed and the compare URL printed and
+      correct; no `gh` was on the path. **It found a real defect first** — see
+      below. The throwaway branch was deleted afterwards.
+- [x] Rung 2 forced. `viewerPermission: READ` selects the fork branch, the `fork`
+      remote is used for the push, and `gh pr create` is called with
+      `--base main --repo wafflebase/wafflebase` — the upstream, not the fork.
+      Asserted on the recorded argv.
+      **Partly simulated, deliberately.** Rung 2 ends in a pull request against a
+      repository the runner cannot write to, and there is no such repository that
+      can be used without forking a stranger's project and opening a pull request
+      on it. So `repo view`, `repo fork` and `pr create` were answered by a shim
+      and everything else was real, including the push. What that leaves
+      unexercised is one `gh repo fork` invocation.
+- [x] `pnpm design` from a cold clone in a temp directory, timed — see the
+      measurement under item 1.
+
+### What driving rung 1 found
+
+**The script answered with a Node stack trace when git had no identity.** A fresh
+clone on a machine that has never set `user.name`/`user.email` globally cannot
+commit — and wafflebase's own identity is repository-local, so this is the state
+of every clone here, not an exotic one. `git()` wrapped `execFileSync`, which
+throws, and nothing caught it: the person saw a serialised argv and a stack.
+
+That is precisely the reader this ladder exists for, so it is fixed twice over:
+
+- `git()` now reports through `stop()`, so no git failure can print a stack again.
+- An identity check runs after the plan prints and **before the branch is
+  created**, so a stop leaves the tree untouched. It names the missing keys and
+  prints the two `git config --global` commands. It never fills in a guess —
+  a commit attributed to a name the person did not choose is worse than one that
+  did not happen.
+
+`--dry-run` still works without an identity: the check sits after its exit, so
+"print the plan, change nothing" keeps its contract.
+
+Documented in `packages/documentation/developers/design-editor.md` as a
+prerequisite row and a troubleshooting row.
 
 ---
 

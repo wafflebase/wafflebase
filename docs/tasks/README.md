@@ -19,7 +19,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 | Task | Todo | Lessons |
 |---|---|---|
 | deferred findings channel (2026-08-25) | [20260825-deferred-findings-channel-todo.md](./active/20260825-deferred-findings-channel-todo.md) | - |
-| frontend vite config node floor (2026-08-25) | [20260825-frontend-vite-config-node-floor-todo.md](./active/20260825-frontend-vite-config-node-floor-todo.md) | - |
 | release v0.6.6 (2026-08-24) | [20260824-release-v0.6.6-todo.md](./active/20260824-release-v0.6.6-todo.md) | [20260824-release-v0.6.6-lessons.md](./active/20260824-release-v0.6.6-lessons.md) |
 | shared image access (2026-08-24) | [20260824-shared-image-access-todo.md](./active/20260824-shared-image-access-todo.md) | - |
 | debug report (2026-08-21) | [20260821-debug-report-todo.md](./active/20260821-debug-report-todo.md) | - |
@@ -43,7 +42,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 553
+- Archived task count: 555
 - Archive index: [archive/README.md](./archive/README.md)
 
 Latest active task: deferred findings channel (2026-08-25)

@@ -51,8 +51,8 @@ app** off the floor.
 - [x] Confirm on the real floor: Node v22.14.0 runs the full frontend suite
       (183 files / 1602 tests) and `vite build` (16.02s). Both were impossible
       before.
-- [ ] `pnpm verify:fast` green.
-- [ ] Commit, push, open the PR.
+- [x] `pnpm verify:fast` green.
+- [x] Commit, push, open the PR — merged as #959 (`47a9b0ab5`).
 
 ## Non-goals
 

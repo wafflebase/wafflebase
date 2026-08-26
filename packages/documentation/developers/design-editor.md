@@ -21,6 +21,7 @@ the GitHub credentials already on your machine.
 |---|---|---|
 | **Node 22 or newer** | `node --version` | Install the LTS build from [nodejs.org](https://nodejs.org) |
 | **Git** | `git --version` | Install from [git-scm.com](https://git-scm.com) |
+| **A name AND an address on your commits** | `git config --get user.name && git config --get user.email` — it must print two lines | `git config --global user.name "Your Name"` and `git config --global user.email "you@example.com"`. Git needs **both**; one without the other still cannot commit. |
 | A copy of the repository | — | `git clone https://github.com/wafflebase/wafflebase.git` |
 
 Nothing else. You do **not** need pnpm, Docker, a database, or the GitHub CLI —
@@ -36,8 +37,10 @@ pnpm design
 If you do not have pnpm yet, run `node scripts/design.mjs` instead. It is the same
 thing, and it prepares pnpm for you.
 
-The first run installs dependencies and takes a few minutes. It prints what it is
-doing and then opens your browser:
+The first run installs dependencies. Measured on a clone with nothing installed:
+**about two minutes** to a working editor — longer on a slow connection, and
+seconds on every run after that. It prints what it is doing and then opens your
+browser:
 
 ```
 ✓ dependencies installed
@@ -208,6 +211,7 @@ These are guarantees, not conventions:
 | `Nothing has changed` | The editor has written nothing yet. Make a change, press **Save to Code**, approve it, then try again. |
 | The page is blank, or a component says it needs app context | Some pieces of a design system cannot be shown on their own — a menu item needs its menu. Open the whole component instead of its part. |
 | A change previews but the page looks unchanged | The editor is showing a different scene from the one you are thinking of. Check the name above the centre pane. |
+| `git does not know who you are yet` | Git is missing `user.name`, `user.email`, or both — the message names which. Run the `git config --global` commands it prints for the ones it names, then try again. Nothing was changed. |
 | `The push was refused` | You do not have write access and the GitHub CLI is not available to make you a fork. Install the [GitHub CLI](https://cli.github.com), or fork the repository on GitHub first and clone your fork. |
 | You saved, but `git diff` shows nothing | You are almost certainly looking at a different copy of the repository. Press ⓘ in the editor's header and read `Editing` — that is the folder it writes to. |
 
@@ -218,3 +222,10 @@ repository is one example of a consumer. Standing it up on another project is a
 developer task — see
 [`design-sandbox-bringup`](https://github.com/wafflebase/wafflebase/blob/main/.claude/skills/design-sandbox-bringup/SKILL.md)
 for what it takes.
+
+It has been installed into a project outside this repository and run there, so
+the claim is measured rather than intended. What that took, and the three defects
+it found, are in
+[`design-editor-packaging.md`](https://github.com/wafflebase/wafflebase/blob/main/docs/design/design-editor/design-editor-packaging.md).
+The package is **not published to npm** — a consumer installs it from a tarball
+(`npm pack`) or a workspace.
