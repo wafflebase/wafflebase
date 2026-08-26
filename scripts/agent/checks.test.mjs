@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkPassed, allRequiredPassed, ciRunDecision, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { checkPassed, allRequiredPassed, ciRunDecision, latestCiRun, CI_WORKFLOW_PATH, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 
 // `DEFAULT_REVIEW_CHECKS` is the ONE lens list in the repo that does not derive
 // itself from lenses.json, so it is the one that silently rots when a lens is
@@ -419,4 +419,38 @@ test("agent-fix always answers the commenter, even when the gate step itself fai
   const refusal = wf.slice(wf.indexOf("- name: Explain the refusal"));
   assert.match(refusal.slice(0, 200), /if: always\(\) && steps\.eligible\.outputs\.eligible != 'true'/);
   assert.match(refusal.slice(0, 2000), /eligibility check could not complete/, "an empty reason must still say something");
+});
+
+test("CI_WORKFLOW_PATH names a workflow file that actually exists", () => {
+  // The gate matches CI runs on this path instead of on the run's display name,
+  // which is what makes gate 1 unforgeable — a second file cannot claim the
+  // path. The cost is that a typo, or renaming ci.yml, silently makes the gate
+  // unsatisfiable for every PR: `latestCiRun` would find nothing and read as
+  // "CI has not run". Assert the file is there, and that it is the one whose
+  // runs are named "CI".
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const abs = path.join(HERE, "..", "..", CI_WORKFLOW_PATH);
+  const src = readFileSync(abs, "utf8"); // throws if the path is wrong
+  assert.match(src, /^name:\s*CI\s*$/m, "ci.yml must still be the workflow whose runs are named CI");
+});
+
+test("latestCiRun: newest by path, tolerant of an @ref suffix, null when absent", () => {
+  const at = (t) => `2026-08-22T0${t}:00:00Z`;
+  const real = (conclusion, t) => ({ name: "CI", path: CI_WORKFLOW_PATH, conclusion, created_at: at(t) });
+
+  assert.equal(latestCiRun([]), null, "no runs at all");
+  assert.equal(latestCiRun(undefined), null, "a missing list is not a crash");
+  assert.equal(latestCiRun([{ name: "CI", path: ".github/workflows/pwn.yml", conclusion: "success" }]), null,
+    "a second file calling itself CI is not the CI workflow");
+  assert.equal(latestCiRun([{ name: "CI" }]), null, "a run with no path cannot be matched to the file");
+
+  // Newest wins regardless of input order.
+  assert.equal(latestCiRun([real("success", 1), real("failure", 9)]).conclusion, "failure");
+  assert.equal(latestCiRun([real("failure", 9), real("success", 1)]).conclusion, "failure");
+
+  // A called workflow reports `<path>@<ref>` and is still the CI file.
+  assert.equal(
+    latestCiRun([{ name: "CI", path: `${CI_WORKFLOW_PATH}@refs/heads/main`, conclusion: "success" }]).conclusion,
+    "success",
+  );
 });

@@ -1505,8 +1505,16 @@ jobs:
           # had no else, so a status the script never emits — 127 from a missing
           # binary, 128+signal from a kill — fell through every branch and the
           # step SUCCEEDED with no output at all.
+          # Each branch also records WHY, because the loop-status step below runs
+          # under `if: always()` and can only see `ready`. Without this it named
+          # "a gate was unsatisfied or the flip failed" for every non-promotion,
+          # including the two outcomes this block just added (a crash, an
+          # unenumerated status) — mis-attribution in the one place a human
+          # reads, which is what the comment above exists to prevent. Written
+          # BEFORE each `exit`, or the exiting branches would record nothing.
           case "$code" in
-            0) echo "ready=true" >> "$GITHUB_OUTPUT" ;;
+            0) echo "ready=true" >> "$GITHUB_OUTPUT"
+               echo "outcome=promoted" >> "$GITHUB_OUTPUT" ;;
             # exit 1 = a gate said no; the job succeeds and the PR stays a draft.
             # But 1 is ALSO node's own crash code: a SyntaxError, a failed import
             # of checks/set-state/disclosure, an unhandled rejection. Believing a
@@ -1516,13 +1524,16 @@ jobs:
             # require the script's OWN verdict on stdout before trusting the 1;
             # `mark-ready.test.mjs` pins that string on both sides of this file.
             1) grep -qF "Not promoting: one or more gates are not satisfied" "$RUNNER_TEMP/mark-ready.log" \
-                 || { echo "mark-ready CRASHED (exit 1, no verdict line)" >&2; exit 2; }
+                 || { echo "outcome=crashed" >> "$GITHUB_OUTPUT"; echo "mark-ready CRASHED (exit 1, no verdict line)" >&2; exit 2; }
+               echo "outcome=gates-unsatisfied" >> "$GITHUB_OUTPUT"
                echo "Not all ready-gates satisfied; leaving as draft." ;;
-            2) echo "mark-ready tooling error" >&2; exit 2 ;;
+            2) echo "outcome=tooling-error" >> "$GITHUB_OUTPUT"; echo "mark-ready tooling error" >&2; exit 2 ;;
             # exit 3 = gates passed but the flip-to-ready FAILED (permission/tooling).
             # Fail the job loudly so the stalled net pages a human — never silent.
-            3) echo "Promotion failed after gates passed (see log)." >&2; exit 3 ;;
-            *) echo "mark-ready returned unhandled status $code" >&2; exit 2 ;;
+            3) echo "outcome=flip-failed" >> "$GITHUB_OUTPUT"
+               echo "Promotion failed after gates passed (see log)." >&2; exit 3 ;;
+            *) echo "outcome=unhandled-status" >> "$GITHUB_OUTPUT"
+               echo "mark-ready returned unhandled status $code" >&2; exit 2 ;;
           esac
 
       # OBSERVABILITY (Phase 1): reflect the promotion decision in the sticky
@@ -1536,15 +1547,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ needs.review-panel.outputs.pr }}
           READY: ${{ steps.gate.outputs.ready }}
+          OUTCOME: ${{ steps.gate.outputs.outcome }}
           MAX_ROUNDS: ${{ env.MAX_REVIEW_ROUNDS }}
         run: |
           [ -f ./scripts/agent/loop-status.mjs ] || { echo "loop-status.mjs not on main yet; skipping"; exit 0; }
+          SEE="See the 'Run ready gate' step in the run."
           if [ "$READY" = "true" ]; then
             EVENT=promoted
             NOTE="All lens checks and CI green — PR promoted to ready for human review."
           else
             EVENT=not-promoted
-            NOTE="Panel approved, but the ready gate did not promote — a gate was unsatisfied or the flip failed; see the 'Run ready gate' step in the run."
+            # Name the outcome the gate actually recorded. The empty case is real
+            # — the step can be cancelled or killed before any branch runs — and
+            # must not be reported as one of the branches that did.
+            case "$OUTCOME" in
+              gates-unsatisfied) NOTE="Panel approved, but a ready gate was not satisfied — the PR stays a draft. $SEE" ;;
+              flip-failed)       NOTE="Every ready gate passed, but flipping the PR to ready FAILED (permission or tooling). $SEE" ;;
+              crashed)           NOTE="The ready gate CRASHED — it exited 1 without reporting a verdict, so whether the gates hold is unknown. $SEE" ;;
+              tooling-error)     NOTE="The ready gate could not run to a decision (tooling error). $SEE" ;;
+              unhandled-status)  NOTE="The ready gate returned a status the promote job does not enumerate. $SEE" ;;
+              *)                 NOTE="The ready gate did not reach a decision — it was cancelled, killed, or never ran. $SEE" ;;
+            esac
           fi
           node ./scripts/agent/loop-status.mjs update "$PR" --event "$EVENT" --note "$NOTE" \
             --max-rounds "$MAX_ROUNDS" \

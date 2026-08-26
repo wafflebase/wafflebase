@@ -1886,7 +1886,7 @@ Components:
     fix) and does **not** count it toward `MAX_REVIEW_ROUNDS`. This keeps a credential
     outage from masquerading as a code review finding (the #547/#548 test failures).
 - **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the review-panel
-  workflow on all-pass: promotes draft → ready only when the **"CI" workflow run**
+  workflow on all-pass: promotes draft → ready only when the **CI workflow run**
   for the head SHA concluded `success` (read via the Actions API, not the
   author-writable verification comment), **every** required `agent-review-<lens>`
   check concluded `success` (`--require-checks`), and AI authorship is disclosed.
@@ -1900,6 +1900,47 @@ Components:
   the pipeline's *own* files, so it additionally requires an owner's review for
   changes to the harness itself, but the repo-wide agent-PR gate is the
   branch-protection approval, not CODEOWNERS.
+
+    **Gate 1 identifies CI by workflow PATH, not by the run's display name.**
+    A run's `name` is only the workflow file's `name:` key and nothing makes it
+    unique, so a second file saying `name: CI` would produce runs
+    indistinguishable from the real ones — and anyone able to push a branch to
+    the base repo could then hand gate 1 a green run for their own head SHA.
+    The agent App cannot push `.github/workflows/**` (the boundary the panel's
+    `workflow_run` trigger rests on), but an `agent:managed` human PR is on the
+    same promote path and is not restricted. `CI_WORKFLOW_PATH` and
+    `latestCiRun()` in `checks.mjs` are the single source for both readers
+    (`mark-ready.mjs`, `set-state.mjs`); `latestCiRun` also picks the **newest**
+    run so a re-run outranks the run it replaced, and tolerates the `@ref`
+    suffix a called workflow reports. `checks.test.mjs` asserts the path names a
+    file that exists and whose runs are still named `CI` — a rename that broke
+    the match would otherwise make the gate silently unsatisfiable for every PR.
+
+    **Exit-code contract with the `promote` job.** mark-ready reports its whole
+    outcome through its status: `0` promoted · `1` a gate said no (job succeeds,
+    PR stays a draft) · `2` tooling error · `3` gates passed but the flip failed.
+    The consumer branches with a `case` that has a `*)` default failing the job,
+    because a bare `if [ -eq N ]` chain let an unenumerated status (127 from a
+    missing binary, 128+signal from a kill) fall through and **succeed silently**.
+    Two consequences worth knowing before editing either side:
+
+    - **`1` is also node's own crash code**, so it is not believed on its own.
+      The job greps the captured log for mark-ready's literal verdict line
+      (`Not promoting: one or more gates are not satisfied`) and treats a `1`
+      without it as a crash → exit 2. That sentence is therefore a **load-bearing
+      cross-file contract**, in the same category as `HANDOFF_MARKER`, and
+      reflowing it breaks promotion; `mark-ready.test.mjs` pins it from both
+      sides — it reads the needle out of the workflow and asserts a real exit-1
+      run prints it.
+    - **The capture is a redirect, never a pipe.** `cmd | tee log` makes `$?` the
+      status of the last pipeline element, discarding the only thing the block
+      branches on. The log is `cat`ed afterwards so the report still reaches the
+      step log.
+
+    Each branch also records an `outcome` output (`promoted` /
+    `gates-unsatisfied` / `flip-failed` / `crashed` / `tooling-error` /
+    `unhandled-status`) so the sticky loop-status comment names what actually
+    happened rather than guessing from the absence of `ready`.
 - **Agent state (advisory single-value label)** — `scripts/agent/set-state.mjs`
   keeps **exactly one** `agent:<state>` label on the PR at a time
   (`implementing → awaiting-ci → reviewing → fixing → ready | blocked`), replacing

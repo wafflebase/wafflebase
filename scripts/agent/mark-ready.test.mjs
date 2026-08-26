@@ -26,8 +26,10 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { CI_WORKFLOW_PATH, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 import { HANDOFF_MARKER } from "./disclosure.mjs";
+
+const CI_PATH = CI_WORKFLOW_PATH;
 
 const CLI = fileURLToPath(new URL("./mark-ready.mjs", import.meta.url));
 const SOURCE = readFileSync(CLI, "utf8");
@@ -86,7 +88,7 @@ function okConfig(over = {}) {
       headRefOid: "cafe7",
       url: "https://github.com/o/r/pull/7",
     },
-    workflowRuns: [{ name: "CI", conclusion: "success", created_at: AT }],
+    workflowRuns: [{ name: "CI", path: CI_PATH, conclusion: "success", created_at: AT }],
     checkRuns: DEFAULT_REVIEW_CHECKS.map((name) => ({ name, conclusion: "success", started_at: AT })),
     fail: [],
     ...over,
@@ -171,8 +173,8 @@ test("exit 2: failing to read the PR is a tooling error, not a gate failure", ()
 test("exit 1, not 0: CI not green leaves the PR a draft without promoting", () => {
   for (const workflowRuns of [
     [], // no CI run for this SHA yet
-    [{ name: "CI", conclusion: "failure", created_at: AT }],
-    [{ name: "CI", conclusion: null, created_at: AT }], // still running
+    [{ name: "CI", path: CI_PATH, conclusion: "failure", created_at: AT }],
+    [{ name: "CI", path: CI_PATH, conclusion: null, created_at: AT }], // still running
   ]) {
     const { code, stdout, calls } = run(["7", "--promote"], okConfig({ workflowRuns }));
     assert.equal(code, 1, `CI runs ${JSON.stringify(workflowRuns)} must exit 1, never 0`);
@@ -181,16 +183,21 @@ test("exit 1, not 0: CI not green leaves the PR a draft without promoting", () =
   }
 });
 
-test("gate 1 reads the run NAMED 'CI' — another green workflow is not evidence", () => {
+test("gate 1 reads the CI WORKFLOW FILE — another green workflow is not evidence", () => {
   // Every workflow on the repo reports a run for the same head SHA, and the
-  // panel's own runs go green routinely. Without the `name === "CI"` filter the
-  // newest of them wins the sort, so `agent-review-panel` concluding success
-  // would satisfy the one gate that is supposed to mean "the tests passed".
-  const other = { name: "agent-review-panel", conclusion: "success", created_at: "2026-08-22T09:00:00Z" };
+  // panel's own runs go green routinely. With no filter at all the newest of
+  // them wins the sort, so `agent-review-panel` concluding success would
+  // satisfy the one gate that is supposed to mean "the tests passed".
+  const other = {
+    name: "agent-review-panel",
+    path: ".github/workflows/agent-review-panel.yml",
+    conclusion: "success",
+    created_at: "2026-08-22T09:00:00Z",
+  };
 
   const ciRed = run(
     ["7", "--promote"],
-    okConfig({ workflowRuns: [{ name: "CI", conclusion: "failure", created_at: AT }, other] }),
+    okConfig({ workflowRuns: [{ name: "CI", path: CI_PATH, conclusion: "failure", created_at: AT }, other] }),
   );
   assert.equal(ciRed.code, 1, "a green non-CI run must not stand in for a red CI run");
   assert.ok(!promoted(ciRed.calls));
@@ -202,10 +209,50 @@ test("gate 1 reads the run NAMED 'CI' — another green workflow is not evidence
   // ...and the filter must not go the other way: CI green among the noise promotes.
   const ciGreen = run(
     ["7", "--promote"],
-    okConfig({ workflowRuns: [other, { name: "CI", conclusion: "success", created_at: AT }] }),
+    okConfig({ workflowRuns: [other, { name: "CI", path: CI_PATH, conclusion: "success", created_at: AT }] }),
   );
   assert.equal(ciGreen.code, 0);
   assert.ok(promoted(ciGreen.calls));
+});
+
+test("gate 1 is not forgeable by a SECOND workflow file that calls itself 'CI'", () => {
+  // The gate's whole claim is that it reads evidence the author cannot
+  // fabricate. A run's `name` is only the workflow file's `name:` key and
+  // nothing makes it unique — anyone who can push a branch to the base repo
+  // could add `.github/workflows/pwn.yml` with `name: CI` on `push` and get a
+  // green run for their own head SHA. Matching on `path` is what closes that:
+  // only one file can occupy `.github/workflows/ci.yml`.
+  const forged = {
+    name: "CI",
+    path: ".github/workflows/pwn.yml",
+    conclusion: "success",
+    created_at: "2026-08-22T09:00:00Z", // newest, so it wins any sort
+  };
+
+  const realRed = run(
+    ["7", "--promote"],
+    okConfig({ workflowRuns: [{ name: "CI", path: CI_PATH, conclusion: "failure", created_at: AT }, forged] }),
+  );
+  assert.equal(realRed.code, 1, "a run named CI from another file must not override the real red CI run");
+  assert.ok(!promoted(realRed.calls), "the PR must stay a draft");
+
+  const onlyForged = run(["7", "--promote"], okConfig({ workflowRuns: [forged] }));
+  assert.equal(onlyForged.code, 1, "a run named CI from another file is not evidence that CI ran at all");
+  assert.ok(!promoted(onlyForged.calls));
+});
+
+test("gate 1 tolerates the @ref suffix a called workflow reports on its path", () => {
+  // A reusable/called workflow reports `path` as `<file>@<ref>`. That is still
+  // the CI file, so it must count — otherwise hardening the filter would make
+  // the gate unsatisfiable the day CI is invoked as a called workflow.
+  const called = run(
+    ["7", "--promote"],
+    okConfig({
+      workflowRuns: [{ name: "CI", path: `${CI_PATH}@refs/heads/main`, conclusion: "success", created_at: AT }],
+    }),
+  );
+  assert.equal(called.code, 0);
+  assert.ok(promoted(called.calls));
 });
 
 test("gate 1 reads the NEWEST CI run — a stale green one does not outrank a fresh red one", () => {
@@ -222,8 +269,8 @@ test("gate 1 reads the NEWEST CI run — a stale green one does not outrank a fr
     ["7", "--promote"],
     okConfig({
       workflowRuns: [
-        { name: "CI", conclusion: "success", created_at: older },
-        { name: "CI", conclusion: "failure", created_at: newer },
+        { name: "CI", path: CI_PATH, conclusion: "success", created_at: older },
+        { name: "CI", path: CI_PATH, conclusion: "failure", created_at: newer },
       ],
     }),
   );
@@ -237,8 +284,8 @@ test("gate 1 reads the NEWEST CI run — a stale green one does not outrank a fr
     ["7", "--promote"],
     okConfig({
       workflowRuns: [
-        { name: "CI", conclusion: "failure", created_at: older },
-        { name: "CI", conclusion: "success", created_at: newer },
+        { name: "CI", path: CI_PATH, conclusion: "failure", created_at: older },
+        { name: "CI", path: CI_PATH, conclusion: "success", created_at: newer },
       ],
     }),
   );

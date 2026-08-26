@@ -37,6 +37,39 @@ export const DEFAULT_REVIEW_CHECKS = [
   "agent-review-security",
 ];
 
+/**
+ * The CI workflow's identity, as the Actions API reports it on a run.
+ *
+ * A run's `name` is only the workflow file's `name:` key, and NOTHING makes it
+ * unique — a second file saying `name: CI` produces runs indistinguishable from
+ * the real ones. That matters because `mark-ready.mjs` calls gate 1
+ * "unforgeable": anyone able to push a branch to the base repo could otherwise
+ * add `.github/workflows/anything.yml` with `name: CI` on `push`, get a green
+ * run recorded against their own head SHA, and satisfy the one gate that is
+ * supposed to mean "the tests passed". (The agent App cannot push workflow
+ * files — that is the boundary agent-review-panel.yml's `workflow_run` trigger
+ * rests on — but an `agent:managed` human PR is on the same promote path and
+ * is not restricted.)
+ *
+ * `path` cannot be spoofed the same way: only one file can occupy it, so a
+ * run's path names the file that produced it. Keep this in step with the
+ * filename on disk — `checks.test.mjs` asserts the file exists.
+ */
+export const CI_WORKFLOW_PATH = ".github/workflows/ci.yml";
+
+/**
+ * The authoritative CI run for a SHA, or null.
+ *
+ * Newest-first, so a re-run outranks the run it replaced. Called workflows
+ * report `path` with an `@ref` suffix, so compare only the part before it.
+ */
+export function latestCiRun(workflowRuns) {
+  const runs = (workflowRuns || []).filter((r) => String(r?.path ?? "").split("@")[0] === CI_WORKFLOW_PATH);
+  if (runs.length === 0) return null;
+  runs.sort((a, b) => new Date(b.created_at ?? 0) - new Date(a.created_at ?? 0));
+  return runs[0];
+}
+
 /** Latest run of `name` concluded success? Missing → false. */
 export function checkPassed(checkRuns, name) {
   const runs = (checkRuns || []).filter((r) => r.name === name);
