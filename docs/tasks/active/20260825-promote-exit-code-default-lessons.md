@@ -34,6 +34,25 @@
   blocked part left in the issue. Deferring to "a maintainer will apply it"
   buys nothing that a smaller PR would not.
 
+- **A permission the agent lacks may be the security model, not a gap.** The
+  obvious reading of "the App cannot push workflow files" is that someone
+  forgot to grant it, and this task's first draft recommended granting it.
+  It is the reverse: `agent-review-panel.yml` picks `workflow_run` precisely
+  *because* the App cannot, and `mark-ready.mjs` calls gates 1 and 2
+  "unforgeable" for the same reason. Granting it would let an agent branch
+  add a workflow named `CI` that passes gate 1 and one with `checks:write`
+  that posts its own `agent-review-*` runs for gate 2. **Before proposing to
+  widen a permission, grep for what currently depends on its absence** — the
+  reason is often written down a few lines from the thing you are editing.
+
+- **A one-run fixture cannot test a sort.** `ciPassed` sorts the SHA's CI
+  runs newest-first so a re-run outranks the run it replaced, but every
+  fixture in the suite had exactly one CI run — so inverting the comparator,
+  or deleting it outright, kept all 14 tests green while a stale green run
+  promoted a PR whose current CI was red. A "pick the newest" rule needs at
+  least two candidates *and* both orderings, or it is only asserted by
+  reading.
+
 - **Assert what a workflow DOES, not how it is typed.** The first pass
   pinned exact echo text and indentation (`0) echo "ready=true" >> …  ;;`)
   inside a fixed 2600-character window only ~700 characters larger than the

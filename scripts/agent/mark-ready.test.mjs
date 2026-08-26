@@ -208,6 +208,44 @@ test("gate 1 reads the run NAMED 'CI' — another green workflow is not evidence
   assert.ok(promoted(ciGreen.calls));
 });
 
+test("gate 1 reads the NEWEST CI run — a stale green one does not outrank a fresh red one", () => {
+  // `ciPassed` sorts the SHA's CI runs newest-first and reads only `runs[0]`,
+  // which is what makes a re-run authoritative over the run it replaced. Every
+  // other fixture in this suite has exactly one CI run, so the comparator was
+  // free to be inverted — or deleted outright — with the whole suite still
+  // green, while a PR whose current CI is RED got promoted on the strength of
+  // an older green run. Two runs, same SHA, different `created_at`.
+  const older = "2026-08-22T00:00:00Z";
+  const newer = "2026-08-22T09:00:00Z";
+
+  const wentRed = run(
+    ["7", "--promote"],
+    okConfig({
+      workflowRuns: [
+        { name: "CI", conclusion: "success", created_at: older },
+        { name: "CI", conclusion: "failure", created_at: newer },
+      ],
+    }),
+  );
+  assert.equal(wentRed.code, 1, "the newest CI run is red, so a stale green one must not promote");
+  assert.ok(!promoted(wentRed.calls));
+
+  // ...and the converse, so the assertion above cannot be satisfied by simply
+  // refusing whenever more than one CI run exists: a red run that a re-run
+  // has since superseded must not block.
+  const wentGreen = run(
+    ["7", "--promote"],
+    okConfig({
+      workflowRuns: [
+        { name: "CI", conclusion: "failure", created_at: older },
+        { name: "CI", conclusion: "success", created_at: newer },
+      ],
+    }),
+  );
+  assert.equal(wentGreen.code, 0, "a re-run that went green supersedes the red run it replaced");
+  assert.ok(promoted(wentGreen.calls));
+});
+
 test("exit 1: a missing review check or a missing disclosure is also code 1", () => {
   const noReview = run(["7", "--promote"], okConfig({ checkRuns: [] }));
   assert.equal(noReview.code, 1);

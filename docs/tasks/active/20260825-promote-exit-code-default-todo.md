@@ -79,11 +79,31 @@ the stall this change exists to prevent. The same anti-pattern is already on
 record as a panel finding in `scripts/agent/rounds.test.mjs`.
 
 A maintainer applied the hunk to the real workflow and deleted the `.patch`
-file, so both halves land together and the suite is green. **The follow-up
-that matters is the permission itself** — grant the App `Workflows: write`,
-or make "the agent does not edit workflow files" an explicit policy. The
-patch-file detour has now been reached for twice; it will be reached for
-again.
+file, so both halves land together and the suite is green.
+
+**The App must NOT be granted `Workflows: write` to fix this.** That was this
+doc's first recommendation and it is wrong: the missing permission is not an
+oversight, it is the load-bearing part of the loop's trust model. Both
+"unforgeable" ready gates rest on it —
+
+- `agent-review-panel.yml` uses `workflow_run` *because* it always executes
+  the default-branch definition, and says so in as many words: "The agent App
+  cannot push `.github/workflows/**` … Do not swap this trigger for `push` or
+  `pull_request`."
+- `mark-ready.mjs`'s header calls gates 1 and 2 UNFORGEABLE because "the
+  author agent cannot create or forge a CI run" and only the reviewer
+  workflow holds `checks:write`.
+
+Grant the App workflow-write and an agent branch can add a `push`-triggered
+workflow named `CI` that concludes `success` on its own head SHA (gate 1,
+which matches on the run's display name), and another with
+`permissions: checks: write` posting its own `agent-review-*` check runs
+(gate 2). Both gates then read green on evidence the author produced.
+
+The right follow-up is the opposite: make "the agent does not edit workflow
+files" an explicit policy that the implement step checks **before** it starts
+writing one, so the run hands off with the hunk in the issue instead of
+inventing a `.patch` blob after the push is refused.
 
 ## Verification
 
