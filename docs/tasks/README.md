@@ -18,7 +18,11 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| v1 worksheet review fix (2026-08-27) | [20260827-v1-worksheet-review-fix-todo.md](./active/20260827-v1-worksheet-review-fix-todo.md) | [20260827-v1-worksheet-review-fix-lessons.md](./active/20260827-v1-worksheet-review-fix-lessons.md) |
+| notes img size (2026-08-26) | [20260826-notes-img-size-todo.md](./active/20260826-notes-img-size-todo.md) | [20260826-notes-img-size-lessons.md](./active/20260826-notes-img-size-lessons.md) |
 | deferred findings channel (2026-08-25) | [20260825-deferred-findings-channel-todo.md](./active/20260825-deferred-findings-channel-todo.md) | - |
+| font preview subset (2026-08-25) | [20260825-font-preview-subset-todo.md](./active/20260825-font-preview-subset-todo.md) | [20260825-font-preview-subset-lessons.md](./active/20260825-font-preview-subset-lessons.md) |
+| sync status indicator (2026-08-25) | [20260825-sync-status-indicator-todo.md](./active/20260825-sync-status-indicator-todo.md) | - |
 | release v0.6.6 (2026-08-24) | [20260824-release-v0.6.6-todo.md](./active/20260824-release-v0.6.6-todo.md) | [20260824-release-v0.6.6-lessons.md](./active/20260824-release-v0.6.6-lessons.md) |
 | shared image access (2026-08-24) | [20260824-shared-image-access-todo.md](./active/20260824-shared-image-access-todo.md) | - |
 | debug report (2026-08-21) | [20260821-debug-report-todo.md](./active/20260821-debug-report-todo.md) | - |
@@ -45,4 +49,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 555
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: deferred findings channel (2026-08-25)
+Latest active task: v1 worksheet review fix (2026-08-27)

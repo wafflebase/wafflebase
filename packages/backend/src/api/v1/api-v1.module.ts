@@ -3,6 +3,12 @@ import { ApiV1DocumentsController } from './documents.controller';
 import { ApiV1TabsController } from './tabs.controller';
 import { ApiV1CellsController } from './cells.controller';
 import { ApiV1WorksheetController } from './worksheet.controller';
+import { ApiV1WorksheetRulesController } from './worksheet-rules.controller';
+import { ApiV1WorksheetFilterPivotController } from './worksheet-filter-pivot.controller';
+import { ApiV1WorksheetStylesController } from './worksheet-styles.controller';
+import { ApiV1WorksheetDimensionsController } from './worksheet-dimensions.controller';
+import { ApiV1WorksheetChartsController } from './worksheet-charts.controller';
+import { ApiV1WorksheetStructureController } from './worksheet-structure.controller';
 import { ApiV1DocsContentController } from './docs-content.controller';
 import { ApiV1ImagesController } from './images.controller';
 import { ApiV1ImageReadController } from './image-read.controller';
@@ -36,6 +42,12 @@ import { OptionalCombinedAuthGuard } from '../../api-key/optional-combined-auth.
     ApiV1TabsController,
     ApiV1CellsController,
     ApiV1WorksheetController,
+    ApiV1WorksheetRulesController,
+    ApiV1WorksheetFilterPivotController,
+    ApiV1WorksheetStylesController,
+    ApiV1WorksheetDimensionsController,
+    ApiV1WorksheetChartsController,
+    ApiV1WorksheetStructureController,
     ApiV1DocsContentController,
     ApiV1ImagesController,
     ApiV1ImageReadController,
