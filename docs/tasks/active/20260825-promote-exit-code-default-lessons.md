@@ -71,3 +71,20 @@
   fixtures that are *only* distinguishable by that line: a same-SHA non-CI
   workflow run that concluded `success`, and a `gh` stub that fails unless it
   sees the App token.
+
+- **Tightening a read gate breaks the write that was sized for the loose
+  one.** Making gate 1 mean "EVERY CI run for the SHA is green" is strictly
+  fail-closed on the read side — but `@claude rerun` / `@claude loop` had
+  been re-running the *newest* run only (`per_page: 1`), which was exactly
+  enough under "newest wins" and cannot clear the new rule at all: an older
+  red run for the same SHA stays red, so the verbs re-run CI, the panel
+  reviews again, and promote refuses forever while the comment says the panel
+  "can promote or fix this PR". When you narrow what counts as passing, grep
+  for whoever was trying to *make* it pass.
+
+  The repair lives in two workflow files, which the App cannot push — so this
+  branch lands the rule (`ciRunsToRerun` + its test) and leaves the two
+  four-line mirrors to a maintainer, exactly as the two lessons above
+  prescribe: no parked `.patch` blob, and no cross-file assertion that is red
+  until someone applies it. **Check who can push the files a finding's fix
+  lives in before you write it**, not after the push is rejected.

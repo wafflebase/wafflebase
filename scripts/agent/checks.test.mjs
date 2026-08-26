@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunsFor, CI_WORKFLOW_PATH, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunsFor, ciRunsToRerun, CI_WORKFLOW_PATH, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 
 // `DEFAULT_REVIEW_CHECKS` is the ONE lens list in the repo that does not derive
 // itself from lenses.json, so it is the one that silently rots when a lens is
@@ -488,4 +488,34 @@ test("ciConclusion: EVERY CI run must be green, and an unfinished one is 'not ye
     "success",
   );
   assert.equal(ciRunsFor([real("success"), { name: "x", path: ".github/workflows/x.yml" }]).length, 1);
+});
+
+test("ciRunsToRerun: every red run, or one green one just to fire the event", () => {
+  const run = (id, status, conclusion) => ({ id, status, conclusion });
+
+  assert.deepEqual(ciRunsToRerun([]), [], "nothing to re-run");
+  assert.deepEqual(ciRunsToRerun(undefined), [], "a missing list is not a crash");
+
+  // THE RULE THIS EXISTS FOR. `ciConclusion` requires EVERY run for the SHA to
+  // be green, so re-running only the newest can never clear gate 1 while an
+  // older run for the same SHA is red — `@claude rerun` would re-run CI, the
+  // panel would review again, and promote would refuse forever while the verb
+  // reported that the panel "can promote or fix this PR".
+  assert.deepEqual(
+    ciRunsToRerun([run(3, "completed", "success"), run(2, "completed", "failure"), run(1, "completed", "cancelled")]).map((r) => r.id),
+    [2, 1],
+    "both non-success runs must be re-run, not just the newest run",
+  );
+
+  // All green: nothing needs turning green, but the re-run is still what emits
+  // the `workflow_run` event (run_attempt > 1) the panel re-engages on — so
+  // exactly one, not zero and not all of them.
+  assert.deepEqual(
+    ciRunsToRerun([run(3, "completed", "success"), run(2, "completed", "success")]).map((r) => r.id),
+    [3],
+  );
+
+  // An in-flight run cannot be re-run (422) and emits its own completion event.
+  assert.deepEqual(ciRunsToRerun([run(2, "in_progress", null), run(1, "completed", "success")]).map((r) => r.id), [1]);
+  assert.deepEqual(ciRunsToRerun([run(2, "queued", null)]), [], "nothing completed yet");
 });

@@ -88,6 +88,42 @@ export function ciConclusion(workflowRuns) {
   return runs.every((r) => r.conclusion === "success") ? "success" : "failure";
 }
 
+/**
+ * Which CI runs `@claude rerun` / `@claude loop` must re-run for a head SHA.
+ *
+ * EVERY red run, not just the newest. `ciConclusion` above requires all of a
+ * SHA's CI runs to be green, so re-running the newest one alone leaves an older
+ * red run red and gate 1 unclearable — the panel would re-run every time and
+ * promote would refuse every time, while both verbs report that the panel "can
+ * promote or fix this PR". When they are all already green there is nothing to
+ * turn green, and one re-run is enough to emit the `workflow_run` event the
+ * panel re-engages on (a re-run bumps `run_attempt`, which is the only thing
+ * agent-review-panel.yml's gate admits a `completed` event for).
+ *
+ * Only COMPLETED runs are re-runnable — the API answers 422 for one still in
+ * flight, and an in-flight run emits its own completion event anyway.
+ *
+ * `workflowRuns` is expected to be already scoped to the CI workflow file by
+ * the caller's `workflow_id: 'ci.yml'`, so this does not re-filter by path.
+ *
+ * NOT YET WIRED, and deliberately so. Both call sites are github-script steps
+ * in `.github/workflows/agent-rerun.yml` and `.github/workflows/agent-loop.yml`
+ * — which still ask for `per_page: 1` and re-run `workflow_runs[0]` — and the
+ * agent App cannot push `.github/workflows/**`. That is the security boundary
+ * `agent-review-panel.yml`'s `workflow_run` trigger and `mark-ready.mjs`'s
+ * "unforgeable" gates rest on, not a missing grant, so the mirror is a
+ * MAINTAINER edit: replace that list call with `github.paginate(...,
+ * { per_page: 100 })` and re-run every run this returns. Landing the rule with
+ * its test is the half that is complete on its own; parking the workflow hunk
+ * as a patch blob, or shipping a cross-file assertion that is red until someone
+ * applies it, are both worse (see the lessons file for this task).
+ */
+export function ciRunsToRerun(workflowRuns) {
+  const completed = (workflowRuns || []).filter((r) => r?.status === "completed");
+  const red = completed.filter((r) => r.conclusion !== "success");
+  return red.length ? red : completed.slice(0, 1);
+}
+
 /** Latest run of `name` concluded success? Missing → false. */
 export function checkPassed(checkRuns, name) {
   const runs = (checkRuns || []).filter((r) => r.name === name);
