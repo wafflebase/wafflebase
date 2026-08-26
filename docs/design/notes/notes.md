@@ -421,6 +421,55 @@ than `padding-left` because typography's rules come through `:where()` and
 carry no specificity — a padding override would replace a nested list's
 `padding-inline-start`.
 
+#### Sized images (`<img width>`) — shipped (issue #973)
+
+Markdown has no image-sizing syntax — CommonMark's image is only
+`![alt](src "title")` and GFM adds nothing — so a pasted Retina screenshot
+filled the preview pane and a 32px icon stayed tiny, with no escape hatch.
+What people actually write (and what GitHub renders) is raw HTML:
+`<img src="drawing.jpg" alt="drawing" width="200" />`, which the preview's
+`html: false` posture escaped to literal text.
+
+`packages/notes/src/view/img-plugin.ts` applies the same narrow-allowlist
+trick as the disclosure plugin above, one tag instead of two: an **inline**
+markdown-it rule (registered before `html_inline`, the rule that would
+otherwise own a tag-opening `<` and is inert under `html: false`) recognizes
+`<img …>` and accepts only four attributes — `src` (required), `alt`,
+`width`, `height`. Dimensions must match `^\d+%?$`, so nothing that could
+carry CSS gets through, and `src` goes through markdown-it's own
+`normalizeLink` + `validateLink`, the same gate the `![]()` path uses.
+Attribute order, `"`/`'`/unquoted values, and `>` vs `/>` all parse.
+
+Two decisions worth keeping:
+
+- **It pushes a normal `image` token, not a bespoke one.** markdown-it then
+  escapes the attribute values it emits, and `preview.ts`'s existing image
+  rule (`loading="lazy"` / `decoding="async"`) applies to HTML-written images
+  for free. The renderer writes the rendered children into the `alt` slot, so
+  the token must always carry an `alt` attribute (a missing one indexes
+  `attrs[-1]` and throws) and must carry the alt text as a child `text` token
+  — the attribute's value is literal text, not markdown.
+- **Anything outside the allowlist makes the rule decline** rather than drop
+  the offending attribute: the tag falls through to the `html: false`
+  pipeline and is escaped as text, which is today's behavior and tells the
+  author the shape is unsupported. Silently ignoring `style="width:200px"`
+  would render at intrinsic size with no hint why. Dropping it would be
+  equally safe — the plugin only ever emits its own four attributes — so this
+  is a legibility call, not a security one.
+
+One CSS caveat: Tailwind preflight ships `img { max-width: 100%; height:
+auto }`, and an author-CSS declaration outranks the presentational hint an
+HTML dimension attribute produces. `width` is unaffected (preflight sets no
+`width`) and `max-width` still keeps an oversized value inside the column, so
+the issue's case works; a lone `height` contributes the intrinsic aspect ratio
+next to `width` but does not force a hard height. GitHub's markdown CSS
+deliberately declares no `height` for this reason. Overriding preflight for
+preview images was left alone as a separate call.
+
+An editor-side resize handle, and the markdown-syntax alternatives
+(`=200x` / `{width=200}` / `![alt|200]`), remain unimplemented; the HTML form
+is the one users paste.
+
 #### Mermaid diagrams — shipped (issue #625)
 
 A ` ```mermaid ` fence renders as a diagram rather than a code block, matching

@@ -418,6 +418,32 @@ describe('NotePreview', () => {
     expect(preview.el.textContent).toContain('<script>alert(1)</script>');
   });
 
+  // Issue #973: markdown has no image-sizing syntax, so a sized image is the
+  // `<img width>` snippet people paste from GitHub. `img-plugin.ts` owns the
+  // parsing rules; this checks the preview is actually wired to it and that
+  // the lazy-loading image rule still applies to what it emits.
+  it('renders a sized <img> and keeps the lazy-loading attributes', () => {
+    const preview = new NotePreview();
+    preview.render('<img src="drawing.jpg" alt="drawing" width="200" />');
+
+    const img = preview.el.querySelector('img');
+    expect(img?.getAttribute('src')).toBe('drawing.jpg');
+    expect(img?.getAttribute('alt')).toBe('drawing');
+    expect(img?.getAttribute('width')).toBe('200');
+    expect(img?.getAttribute('loading')).toBe('lazy');
+    expect(img?.getAttribute('decoding')).toBe('async');
+  });
+
+  it('escapes an <img> carrying anything outside the allowlist', () => {
+    const preview = new NotePreview();
+    preview.render('<img src="a.png" onerror="alert(1)" width="10">');
+
+    // The whole tag is refused rather than sanitized attribute-by-attribute,
+    // so nothing is rendered and the source stays visible as text.
+    expect(preview.el.querySelector('img')).toBeNull();
+    expect(preview.el.textContent).toContain('onerror');
+  });
+
   // Issue #517: a list item followed by an empty nested bullet used to render
   // the parent's text as a setext `<h2>` (the lone `-` was read as an underline).
   it('nests an empty bullet instead of turning the parent into an <h2>', () => {
