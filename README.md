@@ -174,6 +174,11 @@ conventions, and how AI coding agents fit in.
 - [MAINTAINING.md](MAINTAINING.md) — release and maintenance procedures
 - [CLAUDE.md](CLAUDE.md) — agent instructions for AI-assisted development (also exposed as `AGENTS.md` via symlink)
 
+## Going further
+
+The repository also runs an agent development loop — how work enters, how it is
+reviewed, and what runs each part: [docs/design/agentic-dev-loop.md](docs/design/agentic-dev-loop.md).
+
 ## License
 
 [Apache License 2.0](LICENSE)

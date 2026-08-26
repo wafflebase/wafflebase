@@ -1,0 +1,743 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; }
+    img, svg, video { display: block; max-width: 100%; }
+    button, input, select, textarea { font: inherit; color: inherit; }
+</style>
+<script>
+  (function () {
+    var t = "light";
+    try { t = localStorage.getItem("wb-talk-theme") || "light"; } catch (e) {}
+    document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
+  })();
+</script>
+<title>Design-to-Code 도구 개발</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap">
+
+<style>
+  :root {
+    --bg: #F4F3F0;
+    --surface: #FFFFFF;
+    --surface-2: #EAE8E3;
+    --ink: #17150F;
+    --ink-2: #46413A;
+    --muted: #7C756A;
+    --rule: #D9D5CC;
+    --rule-strong: #B9B3A7;
+    --de: #A85B14;
+    --dr: #1F6A69;
+    --de-wash: rgba(168, 91, 20, 0.10);
+    --dr-wash: rgba(31, 106, 105, 0.10);
+    --shadow: 0 1px 2px rgba(23, 21, 15, 0.05), 0 8px 24px rgba(23, 21, 15, 0.05);
+
+    --f-display: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    --f-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121110;
+      --surface: #1A1917;
+      --surface-2: #23211D;
+      --ink: #EEEAE2;
+      --ink-2: #C2BBB0;
+      --muted: #8D867B;
+      --rule: #2D2A25;
+      --rule-strong: #423E37;
+      --de: #E0913F;
+      --dr: #6DB5B0;
+      --de-wash: rgba(224, 145, 63, 0.12);
+      --dr-wash: rgba(109, 181, 176, 0.12);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #121110;
+    --surface: #1A1917;
+    --surface-2: #23211D;
+    --ink: #EEEAE2;
+    --ink-2: #C2BBB0;
+    --muted: #8D867B;
+    --rule: #2D2A25;
+    --rule-strong: #423E37;
+    --de: #E0913F;
+    --dr: #6DB5B0;
+    --de-wash: rgba(224, 145, 63, 0.12);
+    --dr-wash: rgba(109, 181, 176, 0.12);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- progress + counter chrome ---------- */
+  .progress {
+    position: fixed; inset: 0 0 auto 0; height: 2px; z-index: 40;
+    background: var(--rule);
+  }
+  .progress > i { display: block; height: 100%; width: 0; background: var(--de); transition: width .2s linear; }
+
+  .counter {
+    position: fixed; right: 18px; bottom: 16px; z-index: 40;
+    font-family: var(--f-mono); font-size: 12px; letter-spacing: .06em;
+    color: var(--muted); background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 999px;
+    padding: 5px 12px; font-variant-numeric: tabular-nums;
+    box-shadow: var(--shadow);
+  }
+  .hint {
+    position: fixed; left: 18px; bottom: 16px; z-index: 40;
+    font-family: var(--f-mono); font-size: 11px; color: var(--muted);
+    opacity: .75;
+  }
+  @media (max-width: 860px) { .hint { display: none; } }
+
+  /* ---------- slide frame ---------- */
+  .deck { scroll-snap-type: y proximity; }
+
+  .slide {
+    scroll-snap-align: start;
+    min-height: 100svh;
+    display: grid;
+    grid-template-columns: 132px minmax(0, 1fr);
+    gap: 0 34px;
+    align-content: center;
+    padding: 72px 48px 84px;
+    max-width: 1180px;
+    margin: 0 auto;
+    border-top: 1px solid var(--rule);
+  }
+  .slide:first-of-type { border-top: 0; }
+
+  .rail {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex; flex-direction: column; gap: 10px;
+    padding-top: 8px;
+    border-right: 1px solid var(--rule);
+    margin-right: -18px;
+    padding-right: 18px;
+    align-self: start;
+  }
+  .rail b { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+  .rail .tag { color: var(--de); }
+  .slide[data-track="dr"] .rail .tag { color: var(--dr); }
+  .slide[data-track="dr"] .progress { }
+
+  .body { min-width: 0; display: flex; flex-direction: column; gap: 22px; }
+
+  @media (max-width: 860px) {
+    .slide { grid-template-columns: 1fr; padding: 56px 22px 72px; gap: 20px; min-height: auto; }
+    .rail { flex-direction: row; align-items: baseline; gap: 12px; border-right: 0; border-bottom: 1px solid var(--rule); margin: 0; padding: 0 0 10px; }
+  }
+
+  /* ---------- type ---------- */
+  h1 {
+    font-family: var(--f-display);
+    font-size: 48px;
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h2 {
+    font-family: var(--f-display);
+    font-size: 32px;
+    line-height: 1.2;
+    letter-spacing: -0.025em;
+    font-weight: 600;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h3 {
+    font-size: 20px; font-weight: 600; margin: 0;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0; color: var(--ink-2); }
+  .lede { font-size: clamp(19px, 2.1vw, 23px); line-height: 1.55; color: var(--ink); font-weight: 400; }
+  .big {
+    font-family: var(--f-display);
+    font-size: clamp(26px, 3.4vw, 39px);
+    line-height: 1.32; letter-spacing: -0.025em; font-weight: 600;
+    color: var(--ink); margin: 0; text-wrap: balance;
+  }
+  .big em { font-style: normal; color: var(--de); }
+  .slide[data-track="dr"] .big em { color: var(--dr); }
+  .sub { color: var(--muted); font-size: 15px; }
+  strong { font-weight: 600; color: var(--ink); }
+  code, .mono { font-family: var(--f-mono); font-size: .88em; }
+  code {
+    background: var(--surface-2); border-radius: 4px; padding: 1px 5px;
+    color: var(--ink); white-space: nowrap;
+  }
+
+  .kicker {
+    font-family: var(--f-mono); font-size: 12px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted);
+  }
+
+  /* ---------- blocks ---------- */
+  .cols { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .cols.two { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 18px 20px;
+    display: flex; flex-direction: column; gap: 9px;
+  }
+  .card p { font-size: 15px; line-height: 1.6; }
+  .card.de { border-top: 2px solid var(--de); }
+  .card.dr { border-top: 2px solid var(--dr); }
+  .card .num {
+    font-family: var(--f-mono); font-size: 12px; color: var(--muted); letter-spacing: .1em;
+  }
+
+  ul.list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 11px; }
+  ul.list > li {
+    padding-left: 18px; position: relative; color: var(--ink-2);
+    font-size: 16px; line-height: 1.58;
+  }
+  ul.list > li::before {
+    content: ""; position: absolute; left: 0; top: .68em;
+    width: 7px; height: 1px; background: var(--rule-strong);
+  }
+
+  .note {
+    border-left: 2px solid var(--de);
+    padding: 2px 0 2px 16px;
+    color: var(--ink-2); font-size: 15.5px;
+  }
+  .slide[data-track="dr"] .note { border-left-color: var(--dr); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface); }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-family: var(--f-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); font-weight: 500; background: var(--surface-2);
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.k { font-family: var(--f-mono); white-space: nowrap; color: var(--ink); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-family: var(--f-mono); font-size: 12px; letter-spacing: .02em;
+    border: 1px solid var(--rule); background: var(--surface);
+    border-radius: 999px; padding: 4px 11px; color: var(--ink-2);
+  }
+  .chip.on { border-color: transparent; background: var(--de-wash); color: var(--de); }
+  .slide[data-track="dr"] .chip.on { background: var(--dr-wash); color: var(--dr); }
+
+  figure { margin: 0; }
+  figure img {
+    width: 100%; display: block; border: 1px solid var(--rule); border-radius: 3px;
+    box-shadow: var(--shadow);
+  }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 10px; font-family: var(--f-mono); line-height: 1.5; }
+
+  /* ---------- architecture diagram ---------- */
+  .arch { display: grid; gap: 10px; font-family: var(--f-mono); font-size: 12.5px; }
+  .arch .row { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .box {
+    border: 1px solid var(--rule); background: var(--surface); border-radius: 3px;
+    padding: 11px 13px; display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  }
+  .box .t { color: var(--ink); font-weight: 500; }
+  .box .d { color: var(--muted); font-size: 11.5px; line-height: 1.5; font-family: var(--f-body); }
+  .box.accent { border-color: var(--de); background: var(--de-wash); }
+  .box.alt { border-color: var(--dr); background: var(--dr-wash); }
+  .box.ghost { background: transparent; border-style: dashed; }
+  .arrow {
+    text-align: center; color: var(--muted); font-size: 12px; letter-spacing: .1em;
+    padding: 1px 0;
+  }
+
+  /* ---------- metrics ---------- */
+  .metrics { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 3px; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); overflow: hidden; }
+  .metric { background: var(--surface); padding: 16px 18px; display: flex; flex-direction: column; gap: 3px; }
+  .metric .v {
+    font-family: var(--f-mono); font-size: 27px; font-weight: 500; color: var(--ink);
+    font-variant-numeric: tabular-nums; letter-spacing: -0.02em; line-height: 1.15;
+  }
+  .metric .l { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+
+  .ladder { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--rule); border-radius: 3px; overflow: hidden; }
+  .rung { display: grid; grid-template-columns: 92px 1fr; gap: 16px; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--rule); }
+  .rung:last-child { border-bottom: 0; }
+  .rung .n { font-family: var(--f-mono); font-size: 12px; color: var(--de); letter-spacing: .04em; }
+  .rung .d { font-size: 14.5px; color: var(--ink-2); }
+  .rung.dim .n { color: var(--muted); }
+
+  a { color: var(--de); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--de); outline-offset: 3px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; transition: none !important; }
+  }
+  html { scroll-behavior: smooth; }
+
+  /* ---------- goal statement + triangle diagram ---------- */
+  .thesis { display: flex; flex-direction: column; gap: 14px; border-left: 2px solid var(--de); padding-left: 24px; }
+  .thesis .en {
+    font-family: var(--f-display); font-size: 26px; line-height: 1.42;
+    letter-spacing: -0.018em; font-weight: 500; color: var(--ink); margin: 0;
+  }
+  .thesis .en em { font-style: normal; color: var(--de); }
+  .thesis .ko { font-size: 16px; color: var(--muted); line-height: 1.65; margin: 0; }
+
+  .goal-dia { width: 100%; max-width: 760px; height: auto; display: block; margin: 0 auto; }
+  .goal-dia .bx { fill: var(--surface); stroke: var(--rule); stroke-width: 1; }
+  .goal-dia .bx.code { fill: var(--de-wash); stroke: var(--de); }
+  .goal-dia .t { fill: var(--ink); font-family: var(--f-body); font-size: 20px; font-weight: 600; letter-spacing: .03em; }
+  .goal-dia .t.on { fill: var(--de); }
+  .goal-dia .s { fill: var(--muted); font-family: var(--f-body); font-size: 13px; }
+  .goal-dia .ln { fill: none; stroke-width: 1.6; }
+  .goal-dia .ln.hi { stroke: var(--de); }
+  .goal-dia .hd.hi { fill: var(--de); }
+  .goal-dia .ln.dim { stroke: var(--rule-strong); }
+  .goal-dia .hd.dim { fill: var(--rule-strong); }
+
+  /* ---------- demo embeds ---------- */
+  .demos { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .demo { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+  .demo .frame {
+    position: relative; aspect-ratio: 16 / 9; overflow: hidden;
+    background: var(--surface-2); border: 1px solid var(--rule); border-radius: 3px;
+  }
+  .demo .frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .demo .cap { font-family: var(--f-mono); font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .demo .cap b { color: var(--ink); font-weight: 500; }
+  .demo .cap a { color: var(--de); text-decoration: none; }
+  .demo .cap a:hover { text-decoration: underline; }
+</style>
+<style>
+  .sitenav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+    display: flex; gap: 2px; align-items: center;
+    padding: 6px 14px; font-family: var(--f-mono); font-size: 12px;
+    background: var(--surface); border-bottom: 1px solid var(--rule);
+  }
+  .sitenav a { color: var(--muted); text-decoration: none; padding: 4px 11px; border-radius: 3px; }
+  .sitenav a:hover { color: var(--ink); background: var(--surface-2); }
+  .sitenav a.here { color: var(--de); background: var(--de-wash); }
+  .sitenav .mark { color: var(--ink); padding: 4px 11px 4px 0; border-right: 1px solid var(--rule); margin-right: 8px; letter-spacing: .04em; }
+  body { padding-top: 34px; }
+  .progress { top: 34px !important; }
+  .counter { }
+  nav.toc { top: 60px !important; }
+  .slide { min-height: calc(100svh - 34px); }
+  .sitenav .sp { flex: 1; }
+  .sitenav button.theme {
+    font-family: var(--f-mono); font-size: 12px; cursor: pointer;
+    background: transparent; border: 1px solid var(--rule); border-radius: 3px;
+    padding: 3px 10px; color: var(--muted); line-height: 1.6;
+  }
+  .sitenav button.theme:hover { color: var(--ink); border-color: var(--rule-strong); }
+  .sitenav button.theme:focus-visible { outline: 2px solid var(--de); outline-offset: 2px; }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  @media print { .sitenav { display: none; } body { padding-top: 0; } }
+</style>
+</head>
+<body>
+<div class="sitenav">
+  <span class="mark">wafflebase</span>
+  <a href="index.html">개요</a>
+  <a href="deck.html" class="here">발표 자료</a>
+  <a href="tutorial.html">실행 방법</a>
+  <span class="sp"></span>
+  <button type="button" class="theme" id="themeToggle">☾ 다크</button>
+</div>
+
+
+<div class="progress"><i id="bar"></i></div>
+<div class="counter" id="counter">01 / 14</div>
+<div class="hint">← → 또는 Space 로 이동</div>
+
+<main class="deck" id="deck">
+
+  <!-- 01 -->
+  <section class="slide" data-track="de">
+    <div class="rail"><span class="tag">표지</span><b>01</b></div>
+    <div class="body">
+      <span class="kicker">2026 NAVER 하계 인턴십 · 2026.07.20 → 08.28 · 6주</span>
+      <h1>Design-to-Code 도구 개발</h1>
+      <p class="lede">UI 유지 · 보수 워크플로우에서 코드를 유일한 진실 원천(SSOT)로 설정하고,<br/>사용자가 화면에서 가리킨 것이 실제 소스 코드에 도달하기까지의 거리를 줄이는 파이프라인 설계.</p>
+      <div class="chips">
+        <span class="chip on">Design Editor</span>
+        <span class="chip on">Design Sandbox</span>
+        <span class="chip on">Debug Report</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <!-- goal -->
+  <section class="slide" data-track="de">
+    <div class="rail"><span class="tag">목표</span><b>02</b></div>
+    <div class="body">
+      <h2>프로젝트 목표</h2>
+      <div class="thesis">
+        <p class="en">Building an <em>agent-based pipeline</em><br>that replaces Figma with <em>code as the Single Source of Truth</em><br>and allows humans to <em>visually correct</em> AI-rendered UI in a sandbox</p>
+        <p class="ko">Figma를 대체하여 코드를 유일한 진실 원천(SSOT)으로 삼고,<br>AI가 렌더링한 UI를 사람이 샌드박스에서 시각적으로 교정하는 에이전트 기반 파이프라인 구축</p>
+      </div>
+
+      <svg class="goal-dia" viewBox="0 0 760 296" role="img" aria-label="CODE와 SPEC, CODE와 DESIGN이 각각 양방향으로 오가는 구조">
+        <line class="ln dim" x1="531.5" y1="198" x2="466.5" y2="98" />
+        <polygon class="hd dim" points="460,88 471.1,95.1 461.9,101.1" />
+        <polygon class="hd dim" points="538,208 526.9,200.9 536.1,194.9" />
+        <line class="ln hi" x1="295" y1="96" x2="208" y2="202" />
+        <polygon class="hd hi" points="200,210 203.3,197.2 211.8,204.2" />
+        <polygon class="hd hi" points="302,86 290.1,91.8 298.6,98.8" />
+
+        <rect class="bx code" x="290" y="18" width="180" height="66" rx="3" />
+        <text class="t on" x="380" y="46" text-anchor="middle">CODE</text>
+        <text class="s" x="380" y="68" text-anchor="middle">개발자 / 마크업 · FE</text>
+
+        <rect class="bx" x="16" y="212" width="210" height="66" rx="3" />
+        <text class="t" x="121" y="240" text-anchor="middle">DESIGN</text>
+        <text class="s" x="121" y="262" text-anchor="middle">디자이너 · Live Editor</text>
+
+        <rect class="bx" x="534" y="212" width="210" height="66" rx="3" />
+        <text class="t" x="639" y="240" text-anchor="middle">SPEC</text>
+        <text class="s" x="639" y="262" text-anchor="middle">기획자 · 위키 / 상세설계서</text>
+      </svg>
+
+    </div>
+  </section>
+
+  <section class="slide" data-track="de">
+    <div class="rail"><span class="tag">문제</span><b>03</b></div>
+    <div class="body">
+      <h2>같은 병목이 두 곳에 있었다</h2>
+      <div class="cols two">
+        <div class="card de">
+          <span class="num">A · 디자인 변경</span>
+          <h3>값 하나를 바꾸는 데 필요한 것</h3>
+          <p>스크린샷, 티켓, 개발자의 일정, PR. <strong>관찰한 사람과 고치는 사람이 다르다.</strong> 디자이너가 호버 상태를 고쳐놓아도 그걸 넘길 방법이 없다.</p>
+        </div>
+        <div class="card dr">
+          <span class="num">B · 화면에서 본 것</span>
+          <h3>이슈 트래커는 보고자에게 번역을 요구한다</h3>
+          <p>재현 절차, 파일 위치, 라벨. <strong>번역 비용이 관찰 비용보다 크다.</strong> 그래서 대부분의 관찰은 아예 보고되지 않고, 보고된 것은 맥락이 사라진 뒤에 도착한다.</p>
+        </div>
+      </div>
+      <p class="note">두 경우 모두, 막혀 있는 것은 도구가 아니라 <strong>관찰과 코드 사이의 번역</strong>이다.</p>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section class="slide" data-track="de">
+    <div class="rail"><span class="tag">정리</span><b>04</b></div>
+    <div class="body">
+      <p class="big">사람은 <em>좌표와 판단</em>을 제공하고,<br>도구와 에이전트가 <em>번역·검증·조립</em>을 맡는다.</p>
+      <div class="cols">
+        <div class="card"><span class="num">좌표</span><p>어디를 말하는가. 클릭 한 번, 드래그 한 번.</p></div>
+        <div class="card"><span class="num">판단</span><p>이게 맞나. 보낼 것인가. 사람이 승인하지 않은 것은 나가지 않는다.</p></div>
+        <div class="card"><span class="num">번역</span><p>파일 경로, AST 노드, 커밋, PR. 사람이 쓰지 않는 부분 전부.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section class="slide" data-track="de">
+    <div class="rail"><span class="tag">Design Editor</span><b>05</b></div>
+    <div class="body">
+      <h2>디자인 에디터 — 실제 화면을 열어 실제 소스를 고친다</h2>
+      <div class="cols two" style="align-items:start">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <ul class="list">
+            <li>앱의 <strong>실제 라우트</strong>를 실제 컴포넌트 소스로 렌더링한다. 목업이 아니라, 커밋된 코드가 하는 일을 본다.</li>
+            <li>클릭한 노드는 <strong>그 파일의 그 JSX 노드</strong>다. 클래스·간격·토큰을 바꾸면 미리보기가 즉시 따라온다.</li>
+            <li>저장하면 <strong>내 워킹 트리의 <code>.tsx</code>와 토큰 소스</strong>에 쓴다. 리뷰 화면은 <code>git diff</code>다.</li>
+          </ul>
+          <div class="chips">
+            <span class="chip on">dev 전용</span>
+            <span class="chip">Vite 플러그인</span>
+            <span class="chip">React 19 · Tailwind v4 · CVA</span>
+            <span class="chip">백엔드·DB 불필요</span>
+          </div>
+        </div>
+        <figure>
+          <img src="../design-editor/images/foreign-install.png" alt="디자인 에디터 3-pane 화면: 왼쪽 씬 목록, 가운데 렌더된 페이지, 오른쪽 Layout/Tokens 패널">
+          <figcaption>wafflebase와 아무 관계 없는 프로젝트에서, tarball로 설치해 띄운 화면. 자기 <code>dashboard.tsx</code>의 노드 트리와 자기 토큰 어휘를 읽고 있다.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <!-- prototype -->
+  <section class="slide" data-track="de">
+    <div class="rail"><span class="tag">프로토타입</span><b>06</b></div>
+    <div class="body">
+      <h2>그 전에 — 프로토타입이 먼저 답을 냈다</h2>
+      <p class="sub">시작은 <code>feat/design-system</code> 브랜치의 프로토타입이었다. <strong>테스트는 0개</strong>였고, 목적도 하나뿐이었다 — <em>이게 되기는 하나?</em> 아래 두 데모가 그 답이다.</p>
+      <div class="demos">
+        <div class="demo">
+          <div class="frame">
+            <iframe src="https://www.youtube.com/embed/UGAsmT8ST4I?rel=0" title="컴포넌트 에디터 데모" loading="lazy" allow="fullscreen; picture-in-picture" allowfullscreen></iframe>
+          </div>
+          <p class="cap"><b>컴포넌트 에디터</b> — 컴포넌트 하나를 격리해 두고 변형과 상태를 바꿔가며 토큰을 편집한다.<br><a href="https://youtu.be/UGAsmT8ST4I" target="_blank" rel="noreferrer">youtu.be/UGAsmT8ST4I</a></p>
+        </div>
+        <div class="demo">
+          <div class="frame">
+            <iframe src="https://www.youtube.com/embed/wp8xlzO-klA?rel=0" title="씬 에디터 데모" loading="lazy" allow="fullscreen; picture-in-picture" allowfullscreen></iframe>
+          </div>
+          <p class="cap"><b>씬 에디터</b> — 실제 라우트 한 장을 통째로 띄우고, 클릭한 노드를 소스의 노드로 되짚는다.<br><a href="https://youtu.be/wp8xlzO-klA" target="_blank" rel="noreferrer">youtu.be/wp8xlzO-klA</a></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide" data-track="de">
+    <div class="rail"><span class="tag">구조</span><b>07</b></div>
+    <div class="body">
+      <h2>구조 — 브리지 하나, 뮤테이터 하나, 문서 두 개</h2>
+      <div class="arch">
+        <div class="row">
+          <div class="box accent"><span class="t">셸 (index.html)</span><span class="d">3-pane 에디터 UI. 프리빌드되어 미들웨어가 서빙 — 소비자의 Tailwind가 패널을 다시 칠하지 못하게.</span></div>
+          <div class="box ghost"><span class="t">프레임 (scene.html)</span><span class="d">별도 JS 렐름. 소비자의 실제 컴포넌트를 소비자의 Vite로 변환해 렌더 + <code>?wbFrame=</code> 스탬핑.</span></div>
+        </div>
+        <div class="arrow">▼ &nbsp; HTTP · /__design-editor/api/* &nbsp; ▼</div>
+        <div class="row">
+          <div class="box"><span class="t">plugin/</span><span class="d">designEditor() · 경로 가드 · 트랜잭션(undo/redo) · 씬 레지스트리</span></div>
+          <div class="box"><span class="t">server/</span><span class="d">jsx-nodes · extract · inject · stamp — 소스를 읽고 쓰는 AST 뮤테이터</span></div>
+          <div class="box alt"><span class="t">TokenAdapter</span><span class="d">프로젝트의 토큰 파이프라인이 꽂히는 자리 (교체 가능)</span></div>
+        </div>
+        <div class="arrow">▼ &nbsp; 파일 쓰기 (root 밖은 거부) &nbsp; ▼</div>
+        <div class="row"><div class="box"><span class="t">소비자의 워킹 트리</span><span class="d">백업은 <code>node_modules/.cache/</code>로. 소스 옆에는 아무것도 남기지 않는다.</span></div></div>
+      </div>
+      <p class="sub">셸과 프레임을 서로 다른 문서로 나눈 것이 이 구조의 중심압나다.<br/>패널은 우리 CSS로, 심사 대상은 그들의 CSS로 그려져야 하기 때문입니다.</p>
+    </div>
+  </section>
+
+  <!-- 06 -->
+  <section class="slide" data-track="de">
+    <div class="rail"><span class="tag">선택 ①</span><b>08</b></div>
+    <div class="body">
+      <h2>호스팅을 버렸다</h2>
+      <div class="cols two">
+        <div class="card">
+          <span class="num">처음 설계</span>
+          <h3>레포 URL을 올리면 우리가 띄운다</h3>
+          <p>우리 인프라가 dev 서버를 돌리고, 에이전트가 고치고, 우리가 PR을 연다.</p>
+        </div>
+        <div class="card de">
+          <span class="num">지금</span>
+          <h3>개발자 자기 머신의 dev 전용 Vite 플러그인</h3>
+          <p>편집은 자기 워킹 트리에 떨어진다. <code>git diff</code>가 리뷰 화면이고, 최후의 undo다.</p>
+        </div>
+      </div>
+      <ul class="list">
+        <li>엔진의 모든 핵심 장치가 <strong>소스 트리가 dev 서버와 같은 파일시스템에 있다는 것</strong>을 전제한다 — 소스를 읽고 쓰는 미들웨어, 파일 경로 기반 모듈 id, 쓰기 후 HMR 푸시, 두 번째 HTML 진입점.</li>
+        <li>그걸 남의 레포에 대해 돌리려면 <strong>남의 코드를 체크아웃하고 install해서 실행</strong>해야 한다 — 임의 코드 실행, 멀티테넌트, 콜드 스타트, npm 공급망 노출. 그건 별도의 제품이지 기능이 아니다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 07 -->
+  <section class="slide" data-track="de">
+    <div class="rail"><span class="tag">선택 ②</span><b>09</b></div>
+    <div class="body">
+      <h2>패키지를 둘로 쪼갰다</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>패키지</th><th>배포</th><th>내용</th></tr></thead>
+          <tbody>
+            <tr><td class="k">@wafflebase/design-editor</td><td>공개</td><td>Vite 플러그인, AST 뮤테이터, 브리지 프로토콜, 에디터 셸</td></tr>
+            <tr><td class="k">packages/design-sandbox</td><td>private</td><td>wafflebase 전용: 씬 매니페스트, providers, fixtures, 캔버스 씬, 우리 토큰 어댑터</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">양쪽이 한 패키지 안에 있는 한, <strong>“남의 레포에서 되나?”는 눈으로 훑어야만 답할 수 있다.</strong> 그리고 실제로 결합 목록을 다시 검증했을 때 2건은 엉뚱한 곳을 가리키고 있었고 5건은 아예 빠져 있었다.</p>
+      <ul class="list">
+        <li><strong>기계적 테스트:</strong> 배포되는 패키지는 <code>@wafflebase/*</code> 의존성이 0이다. 방향이 뒤집히면 소비자의 <code>pnpm install</code>이 깨진다 — 리뷰어의 판단이 필요 없다.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 09 -->
+  <section class="slide" data-track="dr">
+    <div class="rail"><span class="tag">Debug Report</span><b>10</b></div>
+    <div class="body">
+      <h2>디버그 리포터 — 한 단축키, 한 번의 조준, 한 문장</h2>
+      <div class="arch">
+        <div class="row">
+          <div class="box alt"><span class="t">1 · 켠다</span><span class="d">Mod+Shift+Y. 아웃라인이 포인터를 따라다닌다.</span></div>
+          <div class="box alt"><span class="t">2 · 잡는다</span><span class="d"><code>c</code> 캡처 / <code>r</code> 리전 → 한 문장. 여러 개 모은다.</span></div>
+          <div class="box alt"><span class="t">3 · 넘긴다</span><span class="d"><code>v</code> 리뷰 패널 → 한 번에 넘김.</span></div>
+        </div>
+        <div class="arrow">▼</div>
+        <div class="row">
+          <div class="box"><span class="t">4 · 에이전트가 초안</span><span class="d">이슈 문안 + 이 배치가 어떻게 PR로 쪼개지는지에 대한 제안</span></div>
+          <div class="box"><span class="t">5 · 사람이 확정</span><span class="d">문장 편집, 항목 제외, 그룹 조정. <strong>확정 전에는 아무것도 나가지 않는다.</strong></span></div>
+        </div>
+        <div class="arrow">▼</div>
+        <div class="row">
+          <div class="box"><span class="t">6 · 검증 → 착지</span><span class="d">재현 가능한 것은 리플레이, 외형 리포트는 시각 레인. PR / 이슈 / 기존 이슈에 코멘트.</span></div>
+          <div class="box ghost"><span class="t">7 · 결과가 돌아온다</span><span class="d">파이프라인이 승인된 모양과 달라진 부분까지 같은 패널로.</span></div>
+        </div>
+      </div>
+      <p class="note">보고자는 파일 경로도, 재현 절차도, 라벨도 쓰지 않는다. <strong>문장이 곧 명세</strong>이고, 그 문장은 나중에 커밋 메시지의 “왜”로 그대로 들어간다.</p>
+      <p class="sub"><strong>버그만 다루지 않는다.</strong> 항목의 종류는 간격·색·토큰·문구·접근성·작은 어포던스·구조·로직 여덟 가지이고, 명백한 버그는 그중 하나다. “뭔가 이상한데”가 전부 같은 입구로 들어오는 것이 이 도구의 요점이다 — <em>이건 버그는 아닌데</em> 하고 손을 내리는 지점이 없어야 하니까.</p>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section class="slide" data-track="de">
+    <div class="rail"><span class="tag">사용</span><b>11</b></div>
+    <div class="body">
+      <h2>써보는 법 — 두 명령과 한 단축키</h2>
+      <div class="cols two">
+        <div class="card de">
+          <span class="num">디자인 에디터</span>
+          <p class="mono" style="font-size:14px;line-height:2;color:var(--ink)">
+            pnpm design<br>
+            → localhost:5173/__design-editor/<br>
+            → 편집 → <strong>Save to Code</strong><br>
+            pnpm design-pr
+          </p>
+          <p>필요한 것: Node 22+, git, 커밋에 쓸 이름과 주소. <strong>pnpm·Docker·DB·백엔드 전부 불필요</strong> — 씬이 fixture로 자기 데이터를 답하기 때문에, wafflebase에서 단독 실행되는 유일한 부분이다.</p>
+        </div>
+        <div class="card dr">
+          <span class="num">디버그 리포터</span>
+          <p class="mono" style="font-size:14px;line-height:2;color:var(--ink)">
+            pnpm --filter @wafflebase/frontend dev<br>
+            → /harness/hunt?surface=sheet<br>
+            → <strong>Mod+Shift+Y</strong> → c → 한 문장<br>
+            → v → Hand over
+          </p>
+          <p>드래프팅 키가 없으면 초안 없이 <strong>내 문장 그대로</strong> 넘어간다 — 항목당 PR 1개. 기능이 멈추지 않는다.</p>
+        </div>
+      </div>
+      <p class="note">이어지는 실습 세션에서 이 두 흐름을 각자 환경에서 끝까지 한 번씩 돌려본다. 별도의 튜토리얼 문서를 따라가면 된다.</p>
+    </div>
+  </section>
+
+  <!-- 12 -->
+  <section class="slide" data-track="de">
+    <div class="rail"><span class="tag">마무리</span><b>12</b></div>
+    <div class="body">
+      <h2>기대하는 결과, 그리고 남은 것</h2>
+      <div class="cols two">
+        <div class="card de">
+          <h3>기대</h3>
+          <ul class="list" style="gap:8px">
+            <li>디자인 변경의 왕복이 <strong>티켓 → 일정 → PR</strong>에서 <strong>클릭 → 저장 → PR</strong>로.</li>
+            <li>관찰이 싸지면 보고 수가 늘고, 늘어난 보고가 회귀 레인을 채운다.</li>
+            <li>둘 다 wafflebase 전용이 아니다 — <strong>플러그인 하나, 패키지 하나.</strong> 다른 프로젝트에서 실제로 돌려봤다.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>정직하게, 남은 것</h3>
+          <ul class="list" style="gap:8px">
+            <li>npm 미배포 — tarball이나 workspace로 설치한다.</li>
+            <li>에이전트 편집 루프는 미구현. 그 자리를 디버그 리포터가 대신하고 있다.</li>
+            <li>포크 PR은 자동 수정 루프에 못 들어간다 — 외부 기여자는 이슈에서 끝난다. 결정이 필요한 실제 구멍이다.</li>
+            <li>배포 환경 리포팅(SP2)은 <strong>의도적으로 미일정</strong>. 스크린샷에 남의 문서가 담기는 순간 리스크 프로필이 달라진다.</li>
+            <li><strong>설정 절벽</strong>: 씬 매니페스트 + providers + fixtures 저작. 낯선 앱에서 1시간이 넘으면 설정 표면을 재설계한다는 것이 기준선이다.</li>
+            <li><strong>이름이 아직 안 맞는다.</strong> <code>debug-report</code>는 대부분의 제품에서 “진단 덤프”로 읽히고, <code>bug-report</code>는 위의 여덟 종류 중 일곱을 이름 밖으로 민다. 의견 받습니다.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="sub">설계 문서: <code>docs/design/design-editor/</code> (시작점은 <code>design-editor-local-plugin.md</code>) · <code>docs/design/debug-report.md</code> · 운영자 가이드 <code>design-editor-running.md</code></p>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  (function () {
+    var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+    var bar = document.getElementById("bar");
+    var counter = document.getElementById("counter");
+    var current = 0;
+
+    function pad(n) { return n < 10 ? "0" + n : String(n); }
+
+    function render() {
+      counter.textContent = pad(current + 1) + " / " + pad(slides.length);
+      bar.style.width = ((current + 1) / slides.length * 100) + "%";
+      var track = slides[current].getAttribute("data-track");
+      bar.style.background = track === "dr"
+        ? "var(--dr)"
+        : "var(--de)";
+    }
+
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        var i = slides.indexOf(e.target);
+        if (i >= 0 && i !== current) { current = i; render(); }
+      });
+    }, { threshold: 0.5 });
+    slides.forEach(function (s) { io.observe(s); });
+
+    function go(delta) {
+      var next = Math.min(slides.length - 1, Math.max(0, current + delta));
+      if (next === current) return;
+      current = next;
+      slides[current].scrollIntoView({ behavior: "smooth", block: "start" });
+      render();
+    }
+
+    document.addEventListener("keydown", function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      var t = e.target;
+      if (t && t.closest && t.closest("input, textarea, [contenteditable='true']")) return;
+      if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") { e.preventDefault(); go(1); }
+      else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); go(-1); }
+      else if (e.key === "Home") { e.preventDefault(); go(-slides.length); }
+      else if (e.key === "End") { e.preventDefault(); go(slides.length); }
+    });
+
+    render();
+  })();
+</script>
+
+<script>
+  (function () {
+    var btn = document.getElementById("themeToggle");
+    if (!btn) return;
+    function paint() {
+      var dark = document.documentElement.getAttribute("data-theme") === "dark";
+      btn.textContent = dark ? "☀ 라이트" : "☾ 다크";
+      btn.setAttribute("aria-label", dark ? "라이트 테마로 전환" : "다크 테마로 전환");
+    }
+    btn.addEventListener("click", function () {
+      var dark = document.documentElement.getAttribute("data-theme") === "dark";
+      var next = dark ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("wb-talk-theme", next); } catch (e) {}
+      paint();
+    });
+    paint();
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>디자인 에디터 · 디버그 리포터</title>
+<script>
+  (function () {
+    var t = "light";
+    try { t = localStorage.getItem("wb-talk-theme") || "light"; } catch (e) {}
+    document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&display=swap">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; }
+  img, svg { display: block; max-width: 100%; }
+
+  :root {
+    --bg: #F4F3F0; --surface: #FFFFFF; --surface-2: #EAE8E3;
+    --ink: #17150F; --ink-2: #46413A; --muted: #7C756A;
+    --rule: #D9D5CC; --rule-strong: #B9B3A7;
+    --de: #A85B14; --dr: #1F6A69;
+    --de-wash: rgba(168,91,20,.10); --dr-wash: rgba(31,106,105,.10);
+    --term-bg: #1E1C18; --term-ink: #E6E1D7; --term-dim: #98907F;
+    --f-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121110; --surface: #1A1917; --surface-2: #23211D;
+      --ink: #EEEAE2; --ink-2: #C2BBB0; --muted: #8D867B;
+      --rule: #2D2A25; --rule-strong: #423E37;
+      --de: #E0913F; --dr: #6DB5B0;
+      --de-wash: rgba(224,145,63,.12); --dr-wash: rgba(109,181,176,.12);
+      --term-bg: #0D0C0B; --term-ink: #E6E1D7; --term-dim: #8B8375;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121110; --surface: #1A1917; --surface-2: #23211D;
+    --ink: #EEEAE2; --ink-2: #C2BBB0; --muted: #8D867B;
+    --rule: #2D2A25; --rule-strong: #423E37;
+    --de: #E0913F; --dr: #6DB5B0;
+    --de-wash: rgba(224,145,63,.12); --dr-wash: rgba(109,181,176,.12);
+    --term-bg: #0D0C0B; --term-ink: #E6E1D7; --term-dim: #8B8375;
+  }
+
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--f-body); font-size: 16px; line-height: 1.7;
+    -webkit-font-smoothing: antialiased; padding-top: 34px;
+  }
+  .sitenav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+    display: flex; gap: 2px; align-items: center;
+    padding: 6px 14px; font-family: var(--f-mono); font-size: 12px;
+    background: var(--surface); border-bottom: 1px solid var(--rule);
+  }
+  .sitenav a { color: var(--muted); text-decoration: none; padding: 4px 11px; border-radius: 3px; }
+  .sitenav a:hover { color: var(--ink); background: var(--surface-2); }
+  .sitenav a.here { color: var(--de); background: var(--de-wash); }
+  .sitenav .sp { flex: 1; }
+  .sitenav button.theme {
+    font-family: var(--f-mono); font-size: 12px; cursor: pointer;
+    background: transparent; border: 1px solid var(--rule); border-radius: 3px;
+    padding: 3px 10px; color: var(--muted); line-height: 1.6;
+  }
+  .sitenav button.theme:hover { color: var(--ink); border-color: var(--rule-strong); }
+  .sitenav button.theme:focus-visible { outline: 2px solid var(--de); outline-offset: 2px; }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  .sitenav .mark { color: var(--ink); padding: 4px 11px 4px 0; border-right: 1px solid var(--rule); margin-right: 8px; letter-spacing: .04em; }
+
+  .wrap { max-width: 900px; margin: 0 auto; padding: 62px 26px 110px; display: flex; flex-direction: column; gap: 46px; }
+  .kicker { font-family: var(--f-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: clamp(34px, 5vw, 54px); line-height: 1.08; letter-spacing: -0.032em; font-weight: 700; margin: 12px 0 16px; text-wrap: balance; }
+  h2 { font-size: 22px; letter-spacing: -0.022em; font-weight: 600; margin: 0 0 4px; }
+  h3 { font-size: 15px; font-weight: 600; margin: 0; }
+  p { margin: 0; color: var(--ink-2); max-width: 66ch; }
+  .lede { font-size: 19px; color: var(--ink); max-width: 52ch; }
+  strong { font-weight: 600; color: var(--ink); }
+  code { font-family: var(--f-mono); font-size: .87em; background: var(--surface-2); border-radius: 4px; padding: 1.5px 5px; }
+
+  .doors { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  a.door {
+    display: flex; flex-direction: column; gap: 10px; text-decoration: none;
+    background: var(--surface); border: 1px solid var(--rule); border-top: 2px solid var(--de);
+    border-radius: 3px; padding: 22px 24px; color: inherit;
+    transition: border-color .12s ease, transform .12s ease;
+  }
+  a.door:hover { border-color: var(--rule-strong); border-top-color: var(--de); transform: translateY(-1px); }
+  a.door.b { border-top-color: var(--dr); }
+  a.door .num { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  a.door .t { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
+  a.door p { font-size: 14.5px; line-height: 1.6; }
+  a.door .go { font-family: var(--f-mono); font-size: 12px; color: var(--de); margin-top: 4px; }
+  a.door.b .go { color: var(--dr); }
+
+  .sect { display: flex; flex-direction: column; gap: 14px; }
+  hr { border: 0; border-top: 1px solid var(--rule); margin: 0; }
+
+  pre {
+    margin: 0; background: var(--term-bg); color: var(--term-ink);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 15px 17px;
+    overflow-x: auto; font-family: var(--f-mono); font-size: 13.5px; line-height: 1.75;
+  }
+  pre .c { color: var(--term-dim); }
+  pre b { color: #FFF; font-weight: 500; }
+
+  ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  ul > li { padding-left: 17px; position: relative; color: var(--ink-2); max-width: 68ch; }
+  ul > li::before { content: ""; position: absolute; left: 0; top: .72em; width: 7px; height: 1px; background: var(--rule-strong); }
+
+  .why { border-left: 2px solid var(--rule-strong); padding: 2px 0 2px 15px; font-size: 14.5px; color: var(--muted); max-width: 66ch; }
+  footer { font-family: var(--f-mono); font-size: 12px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 20px; }
+  kbd {
+    font-family: var(--f-mono); font-size: .82em; font-weight: 500;
+    background: var(--surface); border: 1px solid var(--rule-strong);
+    border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; color: var(--ink);
+    white-space: nowrap;
+  }
+  a { color: var(--de); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--de); outline-offset: 3px; }
+</style>
+</head>
+<body>
+
+<div class="sitenav">
+  <span class="mark">wafflebase</span>
+  <a href="index.html" class="here">개요</a>
+  <a href="deck.html">발표 자료</a>
+  <a href="tutorial.html">실행 방법</a>
+  <span class="sp"></span>
+  <button type="button" class="theme" id="themeToggle">☾ 다크</button>
+</div>
+
+<div class="wrap">
+
+  <header>
+    <span class="kicker">2026 NAVER 하계 인턴십 · 2026.07.20 → 08.28 · 6주</span>
+    <h1>디자인 에디터 ·디버그 리포터</h1>
+    <p class="lede">화면에서 가리킨 것이 실제 소스 코드에 도달하기까지의 거리를 줄이는 두 도구. 발표 자료와 실습 안내서.</p>
+  </header>
+
+  <div class="doors">
+    <a class="door" href="deck.html">
+      <span class="t">발표 자료</span>
+      <p>왜 만들었는지, 어떤 구조인지, 그리고 중요한 선택들 — 호스팅을 버린 이유, 패키지 경계, TokenAdapter seam, PR 래더, 자격증명 분리 — 과 그 근거.</p>
+      <span class="go">열기 →</span>
+    </a>
+    <a class="door b" href="tutorial.html">
+      <span class="t">도구 실행 방법</span>
+      <p>두 도구를 처음부터 끝까지 한 번씩. 화면에서 바꿔 PR까지, 화면에서 발견해 리포트 번들까지. 단계마다 무엇이 보여야 정상인지 함께.</p>
+      <span class="go">열기 →</span>
+    </a>
+  </div>
+
+  <hr>
+
+  <div class="sect">
+    <h2>발표할 때</h2>
+    <ul>
+      <li>덱은 <strong><kbd>←</kbd> <kbd>→</kbd> 또는 Space</strong>로 넘어갑니다. 그냥 스크롤해서 읽어도 됩니다.</li>
+      <li>브라우저 전체화면(<code>F11</code>)이면 슬라이드처럼 보입니다. 우측 하단에 현재 장 번호가 있습니다.</li>
+    </ul>
+  </div>
+
+  <div class="sect">
+    <h2>페이지 서빙</h2>
+    <pre><span class="c"># 저장소 루트에서 — 나만 볼 때</span>
+<b>python3 -m http.server 8080</b>
+<span class="c">→ http://localhost:8080/docs/design/agentic-dev-loop/</span>
+
+<span class="c"># 세션 참석자들이 같은 네트워크에서 열어야 할 때</span>
+<b>python3 -m http.server 8080 --bind 0.0.0.0</b>
+<span class="c">→ http://&lt;내 IP&gt;:8080/docs/design/agentic-dev-loop/   (hostname -I 로 IP 확인)</span></pre>
+    <p class="why">파일을 그냥 더블클릭해 <code>file://</code>로 열어도 동작합니다.<br/>다만 링크 공유와 폰트 캐시 때문에 서버로 띄우는 쪽이 편합니다.</p>
+  </div>
+
+  <div class="sect">
+    <h2>실습 전에 참석자에게 미리 안내할 것</h2>
+    <ul>
+      <li><strong>Node 22 이상</strong>과 <strong>git</strong>, 그리고 <code>git config user.name</code> / <code>user.email</code> (커밋을 하기 위함)</li>
+      <li>저장소를 <strong>클론</strong>(복사가 아니라)해 둘 것 — <code>origin</code>이 없으면 PR 단계에서 멈춥니다.</li>
+      <li><strong><code>pnpm design</code>을 세션 전에 한 번 실행</strong>해 볼 것.<br/>첫 설치 약 2분, WSL2에서는 첫 씬 로드가 1분 가까이 걸립니다.<br/>미리 해 오면 세션에서 기다릴 일이 없습니다.</li>
+      <li>pnpm · Docker · 데이터베이스 · GitHub CLI는 <strong>필요 없습니다.</strong></li>
+    </ul>
+  </div>
+
+  <footer>
+    wafflebase · design-editor + debug-report · 2026-08<br>
+    설계 문서: docs/design/design-editor/ · docs/design/debug-report.md
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var btn = document.getElementById("themeToggle");
+    if (!btn) return;
+    function paint() {
+      var dark = document.documentElement.getAttribute("data-theme") === "dark";
+      btn.textContent = dark ? "☀ 라이트" : "☾ 다크";
+      btn.setAttribute("aria-label", dark ? "라이트 테마로 전환" : "다크 테마로 전환");
+    }
+    btn.addEventListener("click", function () {
+      var dark = document.documentElement.getAttribute("data-theme") === "dark";
+      var next = dark ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("wb-talk-theme", next); } catch (e) {}
+      paint();
+    });
+    paint();
+  })();
+</script>
+</body>
+</html>
