@@ -198,8 +198,9 @@ nothing on its own, so reading its plan is a step, not a formality.
 **The eval / benchmark rig.** `scripts/agent/eval/` replays a frozen corpus of past
 pull requests through the real review panel K times and scores the result — volume
 and mix, complementarity against a second reviewer, reliability across replicates,
-segmentation, validity, cost and latency. `eval-replay` is the only workflow in the
-repository that spends model budget on demand, which is why it is dispatch-only and
+segmentation, validity, cost and latency. `eval-replay` is the one workflow whose whole
+purpose is to spend model budget — every other model call in the loop is a side
+effect of reviewing or implementing something — which is why it is dispatch-only and
 takes a required cost cap.
 
 It has no document under `docs/design/` and no row in [`README.md`](README.md). Its
@@ -215,8 +216,10 @@ writes edits back into the `.tsx` and design-token files they came from. It is t
 one part of wafflebase that runs standalone: its scenes answer their own data requests
 from fixtures, so it needs no database, no Yorkie and no `docker compose`.
 
-On a fresh clone it installs and builds whatever is missing, then prints the URL to
-open:
+On a fresh clone it prepares pnpm, installs dependencies, and builds both the editor
+and `@wafflebase/core`, then prints the URL to open. Every step is skipped when it is
+already done, and a start that dies on a missing package installs once and tries
+again:
 
 ```bash
 pnpm design

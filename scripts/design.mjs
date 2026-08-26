@@ -208,6 +208,23 @@ if (value('port')) args.push('--port', value('port'));
  */
 const MISSING_DEP = /ERR_MODULE_NOT_FOUND|Cannot find package|Cannot find module/;
 
+/**
+ * The signature is matched against the previous chunk's TAIL as well as the chunk.
+ *
+ * A pipe splits wherever it likes, so `Cannot find package` can arrive in two writes
+ * — and then a per-chunk test leaves `sawMissingDep` false, the retry never fires,
+ * and the person is back to reading the stack trace this exists to spare them. Per
+ * stream, because stdout and stderr interleave and a tail from one says nothing about
+ * the other. 200 characters against a 20-character longest signature is slack, not a
+ * measurement.
+ */
+const CARRY = 200;
+let carry = { out: '', err: '' };
+const scanFor = (stream, text) => {
+  if (MISSING_DEP.test(carry[stream] + text)) sawMissingDep = true;
+  carry[stream] = text.slice(-CARRY);
+};
+
 let server;
 let opened = false;
 let retried = false;
@@ -216,7 +233,7 @@ let sawMissingDep = false;
 const onChunk = (buf) => {
   const text = buf.toString();
   process.stdout.write(text);
-  if (MISSING_DEP.test(text)) sawMissingDep = true;
+  scanFor('out', text);
   if (opened) return;
   const url = text.match(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/?/)?.[0];
   if (!url) return;
@@ -243,12 +260,13 @@ function start() {
   server.stderr.on('data', (b) => {
     const text = b.toString();
     process.stderr.write(text);
-    if (MISSING_DEP.test(text)) sawMissingDep = true;
+    scanFor('err', text);
   });
   server.on('exit', (code) => {
     if (code && !opened && sawMissingDep && !retried) {
       retried = true;
       sawMissingDep = false;
+      carry = { out: '', err: '' };
       say('');
       step('a dependency is missing — installing, then starting again…');
       const r = spawnSync(PNPM, ['install'], { cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32' });
