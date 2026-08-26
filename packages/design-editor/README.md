@@ -85,8 +85,18 @@ the layout half needs only React, Vite and JSX.
 
 The scene frame can host `@wafflebase/debug-report` — press `Mod+Shift+Y` inside a
 scene, point at what is wrong, say it in one sentence. Add both halves to arm it:
-`debugReportPlugin({ repoRoot })` in the same `vite.config.ts`, and
+the plugin in the same `vite.config.ts` — `pnpm add -D @wafflebase/debug-report`
+first, since it is an optional peer rather than a dependency of this package — and
 `VITE_WB_DEBUG_REPORT=1` in the environment the dev server starts in.
+
+```ts
+// consumer's vite.config.ts
+import { debugReportPlugin } from '@wafflebase/debug-report/plugin';
+
+export default defineConfig({
+  plugins: [react(), designEditor({ /* … */ }), debugReportPlugin({ repoRoot: process.cwd() })],
+});
+```
 
 Neither is required. `@wafflebase/debug-report` is an **optional** peer, and
 `src/scenes/debug-report.tsx` reaches the mount through `React.lazy`, so a frame

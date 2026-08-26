@@ -23,12 +23,22 @@
  * gate plus never shipping the image further than it has to go.
  */
 
-// TYPE-ONLY, so nothing is loaded at module scope. The SDK costs ~500 ms to
-// import, and this module is reachable from `vite.config.ts` — which every
-// vitest worker loads — so a static import taxed the entire test suite for a
-// dependency only a drafting request needs. Measured: it pushed a 5-second
-// boundary test over. `scripts/agent/ask.mjs` defers its SDK for the same
-// reason.
+/**
+ * The SDK's contract, TYPE-ONLY.
+ *
+ * A static VALUE import loads the SDK at module scope, which costs ~500 ms, and
+ * this module is reachable from `vite.config.ts` — which every vitest worker
+ * loads — so it taxed the entire test suite for a dependency only a drafting
+ * request needs. Measured: it pushed a 5-second boundary test over.
+ * `scripts/agent/ask.mjs` defers its SDK for the same reason.
+ *
+ * `import type` is erased outright, by tsc and by Node's own type stripping
+ * alike — and type stripping is what loads this file when a consumer's config
+ * reaches it — so naming the SDK's types here loads nothing.
+ * `draft-endpoint.test.ts` pins that distinction rather than banning the
+ * specifier outright.
+ */
+import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 /** The model. Opus 5 because a bad draft costs the reporter's trust, not just a retry. */
 const MODEL = "claude-opus-5";
@@ -202,16 +212,21 @@ export function isNotConfigured(text: string): boolean {
   );
 }
 
-/** The parts of the Agent SDK this module uses, so a test needs no network. */
+/**
+ * The SDK's `query`, narrowed to the one call this module makes.
+ *
+ * NARROWED, not `typeof query`: the real return is a `Query`, whose control
+ * channel (`interrupt`, `setPermissionMode`, …) exists only for streaming input
+ * and nothing here calls it — demanding it would mean every test double had to
+ * implement it. The options and the messages are the SDK's own types, so a
+ * signature change lands as a typecheck failure rather than as a wrong field
+ * read at the first drafting request. That the real `query` still satisfies this
+ * is checked by the assignment in `draftBundle`.
+ */
 export type AgentQuery = (input: {
   prompt: string;
-  options: Record<string, unknown>;
-}) => AsyncIterable<{
-  type: string;
-  subtype?: string;
-  result?: string;
-  structured_output?: Record<string, unknown>;
-}>;
+  options: Options;
+}) => AsyncIterable<SDKMessage>;
 
 /**
  * One session's options — exported so the empty tool grant is a tested claim
@@ -228,7 +243,7 @@ export function sessionOptions(input: {
   schema: JsonSchema;
   token?: string;
   env: Record<string, string | undefined>;
-}): Record<string, unknown> {
+}): Options {
   return {
     model: MODEL,
     systemPrompt: SYSTEM_PROMPT,
@@ -241,8 +256,7 @@ export function sessionOptions(input: {
   };
 }
 
-type Sdk = { query: AgentQuery };
-let sdk: Sdk | undefined;
+let sdk: { query: AgentQuery } | undefined;
 
 /**
  * Ask for drafts, trying each pooled credential until one answers.
@@ -263,7 +277,10 @@ export async function draftBundle(
   let query = options.query;
   if (!query) {
     try {
-      sdk ??= (await import("@anthropic-ai/claude-agent-sdk")) as unknown as Sdk;
+      // The assignment IS the boundary check: the SDK's own `query` has to
+      // satisfy `AgentQuery`, so the `unknown` cast this line used to carry is
+      // gone and a moved signature fails at typecheck.
+      sdk ??= await import("@anthropic-ai/claude-agent-sdk");
       query = sdk.query;
     } catch (err) {
       // An OPTIONAL peer dependency, so this is a supported state rather than a
@@ -303,16 +320,31 @@ async function askOnce(
   token?: string,
 ): Promise<DraftOutcome> {
   let structured: Record<string, unknown> | undefined;
-  let subtype = "(no result message)";
+  let detail = "(no result message)";
   try {
     for await (const message of query({
       prompt: renderPrompt(bundle),
       options: sessionOptions({ schema: options.schema, token, env: options.env }),
     })) {
       if (message.type !== "result") continue;
-      subtype = message.subtype ?? subtype;
-      if (message.subtype === "success") structured = message.structured_output;
-      else if (message.result) subtype = `${subtype}: ${message.result}`;
+      detail = message.subtype;
+      if (message.subtype === "success") {
+        // `structured_output` is `unknown` in the SDK's types: the schema is the
+        // server's promise, not TypeScript's. Anything that is not an object is
+        // no answer, which is the conclusion `parseDraftResult` would reach.
+        const out = message.structured_output;
+        structured =
+          out && typeof out === "object" && !Array.isArray(out)
+            ? (out as Record<string, unknown>)
+            : undefined;
+      } else if (message.errors.length > 0) {
+        // `errors`, NOT `result`. A failed result carries no `result` field —
+        // the bundled CLI builds every `error_during_execution` with
+        // `errors: [...]` — so the field this used to read was always
+        // undefined, the 429 text never reached `isExhausted`, and the pool
+        // never failed over on a result message.
+        detail = `${message.subtype}: ${message.errors.join("; ")}`;
+      }
     }
   } catch (err) {
     return classify(err instanceof Error ? err.message : String(err));
@@ -320,7 +352,7 @@ async function askOnce(
   if (structured) return { ok: true, result: structured };
   // A success with no structured output is a schema the model could not satisfy.
   // `parseDraftResult` would refuse it anyway; saying so here is clearer.
-  return classify(subtype);
+  return classify(detail);
 }
 
 function classify(detail: string): DraftOutcome {

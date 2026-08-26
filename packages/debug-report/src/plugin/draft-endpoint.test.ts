@@ -13,6 +13,7 @@ import {
   type AgentQuery,
 } from './draft-endpoint';
 import type { DraftRequest } from '../types';
+import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
 /** The real schema, imported the way a test may (vitest resolves the alias). */
 const schema = { type: 'object' } as Record<string, unknown>;
@@ -174,23 +175,31 @@ describe('what a failure is taken to mean', () => {
   });
 });
 
-/** One session, scripted. `structured` present means the model answered. */
+/**
+ * One session, scripted.
+ *
+ * The messages are cast to `SDKMessage`: a real `SDKResultSuccess` carries
+ * fourteen more fields of cost, usage and session accounting that nothing under
+ * test reads, and spelling them out would describe the SDK rather than this
+ * module. The cast is the double's, not the endpoint's — the endpoint now holds
+ * the SDK's own types with no cast at all.
+ */
 const querying = (
-  script: Array<{ subtype: string; structured?: Record<string, unknown>; result?: string }>,
-): { query: AgentQuery; calls: Array<Record<string, unknown>> } => {
-  const calls: Array<Record<string, unknown>> = [];
+  script: Array<{ subtype: string; structured?: unknown; errors?: string[] }>,
+): { query: AgentQuery; calls: Options[] } => {
+  const calls: Options[] = [];
   let n = 0;
   const query: AgentQuery = ({ options }) => {
     calls.push(options);
     const step = script[Math.min(n++, script.length - 1)];
     return (async function* () {
-      yield { type: 'system' as const };
+      yield { type: 'system', subtype: 'init' } as unknown as SDKMessage;
       yield {
-        type: 'result' as const,
+        type: 'result',
         subtype: step.subtype,
-        ...(step.structured ? { structured_output: step.structured } : {}),
-        ...(step.result ? { result: step.result } : {}),
-      };
+        ...(step.structured !== undefined ? { structured_output: step.structured } : {}),
+        errors: step.errors ?? [],
+      } as unknown as SDKMessage;
     })();
   };
   return { query, calls };
@@ -218,7 +227,7 @@ describe('draftBundle', () => {
     // The reason a pool exists: a drained credential answers 429, and drafting
     // runs while somebody waits at a preview panel.
     const { query, calls } = querying([
-      { subtype: 'error', result: '429 rate limit' },
+      { subtype: 'error_during_execution', errors: ['429 rate limit'] },
       { subtype: 'success', structured: drafts },
     ]);
     const env = { [TOKEN_ENV]: 'one', [`${TOKEN_ENV}_1`]: 'two' };
@@ -226,13 +235,13 @@ describe('draftBundle', () => {
       ok: true,
       result: drafts,
     });
-    expect(calls.map((c) => (c.env as Record<string, string>)[TOKEN_ENV])).toEqual(['one', 'two']);
+    expect(calls.map((c) => c.env?.[TOKEN_ENV])).toEqual(['one', 'two']);
   });
 
   it('does NOT retry a failure another credential cannot fix', async () => {
     // A malformed schema fails identically on all nine, so trying them costs
     // nine times to learn nothing.
-    const { query, calls } = querying([{ subtype: 'error', result: 'ECONNRESET' }]);
+    const { query, calls } = querying([{ subtype: 'error_during_execution', errors: ['ECONNRESET'] }]);
     const env = { [TOKEN_ENV]: 'one', [`${TOKEN_ENV}_1`]: 'two' };
     const outcome = await draftBundle(bundle, { query, schema, env });
     expect(outcome).toMatchObject({ ok: false, reason: 'failed' });
@@ -242,7 +251,7 @@ describe('draftBundle', () => {
   it('reports a drained POOL as failed, not as a missing credential', async () => {
     // `not-configured` copy tells the reporter to set a secret they already
     // have. The window is the problem, not the secret.
-    const { query } = querying([{ subtype: 'error', result: '429 rate limit' }]);
+    const { query } = querying([{ subtype: 'error_during_execution', errors: ['429 rate limit'] }]);
     const env = { [TOKEN_ENV]: 'one', [`${TOKEN_ENV}_1`]: 'two' };
     await expect(draftBundle(bundle, { query, schema, env })).resolves.toMatchObject({
       ok: false,
@@ -251,10 +260,31 @@ describe('draftBundle', () => {
   });
 
   it('names the variable when there is no usable credential', async () => {
-    const { query } = querying([{ subtype: 'error', result: '401 Unauthorized' }]);
+    const { query } = querying([{ subtype: 'error_during_execution', errors: ['401 Unauthorized'] }]);
     const outcome = await draftBundle(bundle, { query, schema, env: {} });
     expect(outcome).toMatchObject({ ok: false, reason: 'not-configured' });
     if (!outcome.ok) expect(outcome.detail).toContain(TOKEN_ENV);
+  });
+
+  it('reads a failure’s text from `errors`, where the CLI puts it', async () => {
+    // A failed result carries NO `result` field — the bundled CLI builds every
+    // `error_during_execution` with `errors: [...]` — so reading `result` left
+    // the detail as the bare subtype, `isExhausted` saw no 429, and the pool
+    // never failed over on a result message.
+    const { query } = querying([{ subtype: 'error_during_execution', errors: ['429 rate limit'] }]);
+    const outcome = await draftBundle(bundle, { query, schema, env: {} });
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.detail).toContain('429 rate limit');
+  });
+
+  it('refuses a structured output that is not an object', async () => {
+    // `SDKResultSuccess.structured_output` is `unknown`: the schema is the
+    // server's promise, not TypeScript's. A bare string is truthy, so typing it
+    // as an object handed the panel a "draft" of the wrong shape.
+    const { query } = querying([{ subtype: 'success', structured: 'not an object' }]);
+    await expect(draftBundle(bundle, { query, schema, env: {} })).resolves.toMatchObject({
+      ok: false,
+    });
   });
 
   it('treats a success with no structured output as a failure, not a draft', async () => {
@@ -286,7 +316,13 @@ describe('the SDK is not loaded until a draft is actually asked for', () => {
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
     const source = readFileSync(join(process.cwd(), 'src', 'plugin', 'draft-endpoint.ts'), 'utf8');
-    assert(!/^import .*@anthropic-ai/m.test(source), 'the SDK must not load at module scope');
+    // `import type` is EXEMPT, and deliberately so: it is erased by tsc and by
+    // Node's type stripping alike, so the module's SDK type contract loads
+    // nothing. What must stay lazy is the value import.
+    assert(
+      !/^import (?!type )[^\n]*@anthropic-ai/m.test(source),
+      'the SDK must not load at module scope',
+    );
     assert(
       /await import\("@anthropic-ai\/claude-agent-sdk"\)/.test(source),
       'loaded where it is used',
