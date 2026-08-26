@@ -201,6 +201,75 @@ export function nextLayoutEdit(
   };
 }
 
+/**
+ * The bug reporter's bindings, which belong to the SCENE and not to this shell.
+ *
+ * `Mod+Shift+Y` toggles it; the rest are single keys the overlay reads while it
+ * is live. Listed here rather than imported from
+ * `packages/debug-report/src/hotkey.ts` because this file is the shell's bundle
+ * and the reporter is an OPTIONAL peer of this package — importing it here would
+ * make it mandatory for every consumer. `test/shell/reporter-keys.test.ts` pins
+ * this set against `DEFAULT_BINDINGS`, so the duplication cannot drift.
+ *
+ * It already did once: `p` was in this list, and by then the package had dropped
+ * that binding — so the shell swallowed a key nothing would answer, taking it
+ * from the scene's own app while hovering.
+ */
+export const REPORTER_SINGLE_KEYS = ['c', 'r', 'v', 'escape'] as const;
+
+export function isReporterKey(e: KeyboardEvent): boolean {
+  const k = e.key.toLowerCase();
+  if (e.altKey) return false;
+  if (e.metaKey || e.ctrlKey) return k === 'y' && e.shiftKey === true;
+  return !e.shiftKey && (REPORTER_SINGLE_KEYS as readonly string[]).includes(k);
+}
+
+/**
+ * Hand one keystroke to the scene frame the pointer is over.
+ *
+ * **THE WHOLE SET IS FORWARDED, NOT ONLY THE TOGGLE**, and that is not
+ * belt-and-braces. `contentWindow.focus()` moves the PARENT's `activeElement` to
+ * the `<iframe>`, but whether the frame's document then owns the keyboard is the
+ * browser's decision, and where it does not, arming the reporter produced an
+ * overlay no further key could drive — `c`, `p`, `r`, `v` all dead. Forwarding
+ * the whole set makes the feature independent of that decision.
+ *
+ * It cannot double-handle: the shell only receives a key when focus is in the
+ * shell, so either the frame got the key directly (and this never runs) or it
+ * did not (and this is the only path). Exactly one overlay acts either way.
+ *
+ * SAME-ORIGIN BY CONSTRUCTION: the frame is served by the same dev server as
+ * this shell, which is what makes `contentDocument` reachable at all. A frame
+ * from anywhere else fails that access and falls through to
+ * `contentWindow.focus()`, which is still the useful half.
+ *
+ * Nothing happens when the pointer is not over a scene — no `preventDefault`,
+ * no guess at which frame was meant. Arming a reporter over a scene the person
+ * is not looking at is worse than the key appearing not to work.
+ */
+function forwardToSceneFrame(e: KeyboardEvent, frame: HTMLIFrameElement | null): void {
+  if (!frame) return;
+
+  e.preventDefault();
+  // Still called, because it makes the frame the natural target for everything
+  // that follows where the browser honours it.
+  frame.contentWindow?.focus();
+  const doc = frame.contentDocument;
+  if (!doc) return;
+  doc.dispatchEvent(
+    new KeyboardEvent('keydown', {
+      key: e.key,
+      code: e.code,
+      ctrlKey: e.ctrlKey,
+      metaKey: e.metaKey,
+      shiftKey: e.shiftKey,
+      altKey: e.altKey,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
 export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) {
   const [health, setHealth] = useState<HealthResult | null>(null);
   const [meta, setMeta] = useState<MetadataResult | null>(null);
@@ -1124,13 +1193,49 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
   };
 
   // --- Keyboard: the editor conventions the frame analogy implies. ---
+  //
+  // Which scene frame the pointer is over, for the one binding that belongs to
+  // what is UNDER the cursor rather than to what has focus. A ref, because
+  // nothing renders from it.
+  //
+  // TRACKED BY `mouseover` ON THE FRAME ELEMENT, NOT BY COORDINATES, and that is
+  // the whole subtlety: **this document stops receiving `mousemove` the moment
+  // the pointer crosses into an iframe** — measured, zero events — so a
+  // last-known-position ref holds a point over the shell's own chrome and
+  // `elementFromPoint` never resolves to the frame the person is looking at.
+  // `mouseover` fires on the `<iframe>` element itself as the pointer enters,
+  // and bubbles, so one delegated listener records entering AND leaving: any
+  // later move within the shell fires `mouseover` on some other element and
+  // clears this, while a pointer resting inside the frame simply produces no
+  // further events, which is exactly the state we want to hold.
+  const hoveredFrame = useRef<HTMLIFrameElement | null>(null);
+  useEffect(() => {
+    const onOver = (e: MouseEvent) => {
+      const el = e.target as Element | null;
+      hoveredFrame.current =
+        (el?.closest?.('iframe[data-wb-scene-frame]') as HTMLIFrameElement | null) ?? null;
+    };
+    window.addEventListener('mouseover', onOver, { passive: true });
+    return () => window.removeEventListener('mouseover', onOver);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      const k = e.key.toLowerCase();
       const el = e.target as HTMLElement | null;
       const inText =
         !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable === true);
+
+      // The reporter's keys, first and unconditionally — they are the scene's.
+      // `inText` keeps them out of the shell's own inputs, and an already-handled
+      // Escape (a dialog or popover closing, both of which listen at capture on
+      // `document` and so have already run) is left alone.
+      if (!inText && isReporterKey(e) && !e.defaultPrevented) {
+        forwardToSceneFrame(e, hoveredFrame.current);
+        if (e.defaultPrevented) return;
+      }
+
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const k = e.key.toLowerCase();
       if (k === 's') {
         e.preventDefault(); // never let the browser's Save Page dialog win
         save();
@@ -1138,7 +1243,13 @@ export function App({ bridge = defaultBridge }: { bridge?: BridgeClient } = {}) 
         e.preventDefault();
         if (e.shiftKey) history.redo();
         else history.undo();
-      } else if (k === 'y' && !inText) {
+      } else if (k === 'y' && !e.shiftKey && !inText) {
+        // `!e.shiftKey` IS LOAD-BEARING. This branch tested only `y`, so
+        // `Mod+Shift+Y` over the shell silently REDID a design edit instead of
+        // reaching the reporter — worse than doing nothing, because it mutated
+        // the write history and said so nowhere. `Mod+Shift+Y` is not a redo
+        // binding anywhere; `Mod+Y` and `Mod+Shift+Z` are, and both still are.
+        //
         e.preventDefault();
         history.redo();
       }

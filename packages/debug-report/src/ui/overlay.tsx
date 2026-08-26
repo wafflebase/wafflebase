@@ -40,7 +40,17 @@ import {
   type PendingReport,
 } from "./capture-item";
 import { locatePoint, type LocateOptions } from "./locate";
-import { ACCENT, describeItem, FORM_MAX_H, OVERLAY_Z, PANEL_Z } from "./appearance";
+import {
+  ACCENT,
+  describeItem,
+  EDGE_GUTTER,
+  FORM_MAX_H,
+  FORM_W,
+  NOTE_MAX_H,
+  OVERLAY_Z,
+  PANEL_Z,
+  responsiveWidth,
+} from "./appearance";
 import { DebugPanel } from "./panel";
 import { useDebugSession } from "./use-debug-session";
 
@@ -93,7 +103,7 @@ export function DebugOverlay({
   const cursor = useRef({ x: 0, y: 0 });
   const dragFrom = useRef<DragState>(null);
   const formRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const live = mode !== "off";
   const locateOptions = useMemo<LocateOptions>(
@@ -417,9 +427,13 @@ export function DebugOverlay({
           data-wb-debug=""
           style={{
             position: "fixed",
+            // CLAMPED AGAINST THE BOX'S ACTUAL WIDTH, which is now a ceiling
+            // rather than a constant: on a viewport narrower than the ceiling the
+            // old arithmetic reserved 436px that did not exist, pinned `left` to
+            // the gutter, and let a 420-wide box hang off the right edge.
             left: Math.min(
-              Math.max(8, pending.target.rect.x),
-              Math.max(8, window.innerWidth - 436),
+              Math.max(EDGE_GUTTER, pending.target.rect.x),
+              Math.max(EDGE_GUTTER, window.innerWidth - FORM_W - EDGE_GUTTER * 2),
             ),
             // Clamped to the viewport on BOTH sides. The old form reserved a
             // fixed 120px below the target and clamped only the top, so a form
@@ -437,8 +451,9 @@ export function DebugOverlay({
               Math.max(8, window.innerHeight - FORM_MAX_H - 8),
             ),
             zIndex: PANEL_Z,
-            width: 420,
+            width: responsiveWidth(FORM_W),
             padding: 12,
+            boxSizing: "border-box",
             borderRadius: 8,
             background: "#111",
             color: "#fff",
@@ -449,9 +464,25 @@ export function DebugOverlay({
           <div style={{ marginBottom: 6, opacity: 0.7, fontSize: 11 }}>
             {describeItem(pending)}
           </div>
-          <input
+          {/*
+           * A TEXTAREA THAT GROWS, not an input.
+           *
+           * The note is one sentence, and an `<input>` kept it on one unscrolled
+           * line — so past about forty characters the reporter was editing text
+           * they could not see, which is a poor thing to ask of someone
+           * confirming what will be filed under their name. It soft-wraps and
+           * grows to fit instead, capped so the form still fits its own
+           * `FORM_MAX_H` reserve; beyond that it scrolls.
+           *
+           * ENTER STILL COMMITS, so there is no way to type a hard newline. That
+           * is deliberate rather than an oversight: the field is for one
+           * sentence, and wrapping is about SEEING it, not about writing
+           * paragraphs.
+           */}
+          <textarea
             ref={inputRef}
             value={draft}
+            rows={1}
             aria-label="What is wrong?"
             placeholder="무엇이 문제인가요?"
             onChange={(e) => setDraft(e.target.value)}
@@ -459,11 +490,15 @@ export function DebugOverlay({
               // Stopped here so the app underneath never sees the typing — the
               // sheet would otherwise start editing a cell.
               e.stopPropagation();
-              if (e.key === "Enter") commit();
-              else if (e.key === "Escape") discard();
+              if (e.key === "Enter") {
+                // Before `commit()`, or the newline lands in the value first.
+                e.preventDefault();
+                commit();
+              } else if (e.key === "Escape") discard();
             }}
             style={{
               width: "100%",
+              boxSizing: "border-box",
               padding: "6px 8px",
               borderRadius: 4,
               border: "1px solid #444",
@@ -471,6 +506,15 @@ export function DebugOverlay({
               color: "#fff",
               font: "inherit",
               outline: "none",
+              // Grows with the text. `field-sizing` is the one-line native
+              // answer where it exists; the `rows`/`maxHeight` pair below is
+              // what every other browser falls back to, and neither needs a
+              // resize observer or a scrollHeight write-back.
+              fieldSizing: "content",
+              resize: "none",
+              maxHeight: NOTE_MAX_H,
+              overflowY: "auto",
+              lineHeight: 1.5,
             }}
           />
           {notice && (
@@ -533,7 +577,7 @@ export function DebugOverlay({
             bottom: 56,
             left: 16,
             zIndex: PANEL_Z,
-            maxWidth: 420,
+            maxWidth: responsiveWidth(FORM_W),
             padding: "8px 12px",
             borderRadius: 8,
             background: "#3a1d1d",
@@ -580,7 +624,7 @@ function DebugBadge({
         color: "#fff",
         font: "12px/1.5 ui-monospace, monospace",
         pointerEvents: "none",
-        maxWidth: 420,
+        maxWidth: responsiveWidth(FORM_W),
       }}
     >
       debug-report · <b>{mode}</b> · {count} item{count === 1 ? "" : "s"}

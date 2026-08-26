@@ -264,6 +264,76 @@ describe('the frame element', () => {
 });
 
 /**
+ * Arming the frame's bug reporter turns picking off, because picking suppresses the
+ * product's own click handlers — including the ones the reporter's note form needs.
+ * The mode has to stay off for as long as the report is being aimed, not only at the
+ * moment it armed.
+ */
+describe('a live bug report and the Pick/Use toggle', () => {
+  const pickButton = (host: HTMLElement) =>
+    [...host.querySelectorAll('button')].find((b) =>
+      /Picking O|bug report is being aimed/.test(b.getAttribute('title') ?? ''),
+    )!;
+  const click = (el: HTMLElement) =>
+    act(() => el.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  const report = (win: Window, live: boolean) =>
+    fromFrame(win, { type: 'wb:debug-report', live });
+  const lastPicking = (posted: HostMessage[]) =>
+    posted.filter((m) => m.type === 'wb:set-picking').at(-1);
+
+  it('turns picking off and takes the toggle away for the whole report', () => {
+    const { host, win, posted } = mount();
+    ready(win);
+    report(win, true);
+    expect(lastPicking(posted)).toEqual({ type: 'wb:set-picking', enabled: false });
+
+    const btn = pickButton(host);
+    expect(btn.disabled, 'the toggle must be unavailable while a report is live').toBe(true);
+    posted.length = 0;
+    click(btn);
+    // React delivers no `onClick` to a disabled button, which is the whole point:
+    // tracked only in a ref, the toggle re-enabled picking mid-report and the frame's
+    // picker then took the clicks the reporter was aiming.
+    expect(posted, 'nothing may re-enable picking mid-report').toEqual([]);
+  });
+
+  it('restores the pre-report mode, and the toggle, when the report ends', () => {
+    const { host, win, posted } = mount();
+    ready(win);
+    report(win, true);
+    posted.length = 0;
+    report(win, false);
+    expect(lastPicking(posted)).toEqual({ type: 'wb:set-picking', enabled: true });
+    expect(pickButton(host).disabled).toBe(false);
+  });
+
+  it('restores USE mode too, which is why the value is remembered', () => {
+    // On the way out `picking` is false either way, so deriving it would put Pick
+    // mode back on for someone who had deliberately left it.
+    const { host, win, posted } = mount();
+    ready(win);
+    click(pickButton(host));
+    report(win, true);
+    posted.length = 0;
+    report(win, false);
+    expect(lastPicking(posted)).toBeUndefined();
+    expect(pickButton(host).getAttribute('title')).toContain('Picking OFF');
+  });
+
+  it('releases the toggle when the frame is replaced mid-report', () => {
+    // The new frame has no report, and the `live: false` that would have released
+    // the toggle is never sent — so the button would stay disabled for the session.
+    const { host, win, rerender } = mount();
+    ready(win);
+    report(win, true);
+    rerender({ sceneId: 'other' });
+    const btn = pickButton(host);
+    expect(btn.disabled).toBe(false);
+    expect(btn.getAttribute('title')).toContain('Picking ON');
+  });
+});
+
+/**
  * The resize handle drags ACROSS the iframe, and the frame's document consumes the
  * pointer events the window is listening for. All three tests here describe the same
  * failure: listeners that outlive the drag and let a later stray move resize the frame.

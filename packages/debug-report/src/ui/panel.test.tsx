@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   createSession,
@@ -265,12 +265,40 @@ describe('DebugPanel', () => {
       expect(screen.getByText(/merged on the repository side/i)).toBeTruthy();
     });
 
-    it('cannot hand over an empty batch', () => {
+    it('offers no hand-over at all when there is nothing to send', () => {
+      // A DISABLED BUTTON WAS THE OLD ANSWER AND IT WAS WORSE. It still read
+      // "Hand over 0 report(s)" directly under "Nothing collected yet" — an
+      // action and a count that describe nothing. An empty batch is not a
+      // blocked action; there is no action.
       renderPanel({ notes: [] });
-      expect(screen.getByRole('button', { name: /hand over 0 report/i })).toHaveProperty(
-        'disabled',
-        true,
-      );
+      expect(screen.queryByRole('button', { name: /hand over/i })).toBeNull();
+      expect(screen.getByText(/press esc to go back to aiming/i)).toBeTruthy();
+    });
+
+    it('says which way out when every report is dropped', () => {
+      const { session } = renderPanel({ notes: ['toolbar is cramped'] });
+      act(() => {
+        for (const item of session.items()) {
+          session.update(item.id, { disposition: 'discard' });
+        }
+      });
+      expect(screen.queryByRole('button', { name: /hand over/i })).toBeNull();
+      expect(screen.getByText(/every report is dropped/i)).toBeTruthy();
+    });
+
+    it('drops the drafting banner once the batch has gone', () => {
+      // `draftState` describes the items the panel opened on. Left standing
+      // after a successful send it reported a drafting failure for reports that
+      // had already left — alongside "Nothing collected yet".
+      renderPanel({
+        notes: [],
+        host: host({
+          draft: async () => {
+            throw new Error('no credential');
+          },
+        }),
+      });
+      expect(screen.queryByTestId('debug-draft-note')).toBeNull();
     });
   });
 

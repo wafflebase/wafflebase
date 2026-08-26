@@ -10,8 +10,10 @@ specific to *this* repository, kept here so the plugin can hold none of it.
 The dependency runs one way only — `design-sandbox` → `design-editor`, never the
 reverse — and nothing under `packages/frontend` imports either. That direction is
 the boundary's mechanical test: the published package declares no
-`@wafflebase/*` dependency, so a reversal fails `pnpm install` in a consumer
-project rather than having to be caught in review.
+`@wafflebase/*` *dependency*, so a reversal fails `pnpm install` in a consumer
+project rather than having to be caught in review. Its one `@wafflebase/*` peer,
+`@wafflebase/debug-report`, is declared optional and is loaded only when
+`VITE_WB_DEBUG_REPORT` arms the scene frame's bug reporter.
 
 ## What is here
 
@@ -20,7 +22,7 @@ project rather than having to be caught in review.
 | `src/tokens/core-adapter.ts` | `wafflebaseCore()` — the `TokenAdapter` for the four-file `@wafflebase/core` pipeline |
 | `src/tokens/preview-worker.ts` | The warm `tsx` child that renders the variable map from patched token sources |
 | `scenes.config.json` | Which of wafflebase's routes are editable, and what each needs mocked |
-| `vite.config.ts` | The consumer config: `designEditor({ root, scenes, opaqueRoots, tokens })` |
+| `vite.config.ts` | The consumer config: `designEditor({ root, scenes, opaqueRoots, tokens })`, plus `debugReportPlugin({ repoRoot })` — the receiving half of the scene frame's bug reporter, writing into the monorepo's `.wb-reports/` |
 | `scripts/verify-tokens.mjs` | The token pipeline against a live dev server |
 
 `wafflebaseCore()` is the reason the `TokenAdapter` seam exists at all. Its

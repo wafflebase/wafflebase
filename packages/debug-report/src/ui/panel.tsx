@@ -38,7 +38,14 @@ import {
   type HostAdapter,
   type ProposedGroup,
 } from "../index";
-import { ACCENT, describeTarget, PANEL_Z } from "./appearance";
+import {
+  ACCENT,
+  describeTarget,
+  NOTE_MAX_H,
+  PANEL_W,
+  PANEL_Z,
+  responsiveWidth,
+} from "./appearance";
 import {
   handOver,
   handoverReport,
@@ -205,7 +212,11 @@ export function DebugPanel({
         top: 16,
         right: 16,
         bottom: 16,
-        width: 520,
+        // A CEILING, not a size. Fixed at 520 the panel ran 161px off the LEFT
+        // edge of a 375-wide frame, taking Hand over with it — measured in the
+        // design editor's mobile viewport.
+        width: responsiveWidth(PANEL_W, 16),
+        boxSizing: "border-box",
         zIndex: PANEL_Z,
         display: "flex",
         flexDirection: "column",
@@ -234,7 +245,14 @@ export function DebugPanel({
         </button>
       </header>
 
-      <DraftBanner state={draftState} />
+      {/*
+        * HIDDEN ONCE THE BATCH IS GONE. `draftState` describes the items that
+        * were on screen when the panel opened, so after a successful hand over
+        * it was still reporting on reports that had left — measured: the panel
+        * read "0 reports · 0 PRs", "Nothing collected yet", and a drafting
+        * failure, all at once, none of them about the same thing.
+        */}
+      {items.length > 0 && <DraftBanner state={draftState} />}
 
       <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
         {items.length === 0 && (
@@ -297,22 +315,35 @@ export function DebugPanel({
       )}
 
       <footer style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <button
-          type="button"
-          onClick={() => void send()}
-          // NOT disabled while drafting: waiting on the model would make it a
-          // dependency, which is the one thing this design says it is not. A
-          // batch sent before the draft lands simply carries the reporter's own
-          // sentences.
-          disabled={sending || live.length === 0 || blank.length > 0}
-          style={{
-            ...primaryButton,
-            background:
-              sending || live.length === 0 || blank.length > 0 ? "#3a3a3a" : ACCENT,
-          }}
-        >
-          {sending ? "Sending…" : `Hand over ${live.length} report(s)`}
-        </button>
+        {/*
+          * NO BUTTON WITH NOTHING TO SEND. Disabled was not enough: it still read
+          * "Hand over 0 report(s)", which names an action and a count that mean
+          * nothing, directly under "Nothing collected yet". An empty batch is not
+          * a blocked action — there is no action.
+          */}
+        {live.length === 0 ? (
+          <span style={{ fontSize: 11, opacity: 0.6 }}>
+            {items.length === 0
+              ? "Press Esc to go back to aiming."
+              : "Every report is dropped — undrop one, or press Esc."}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void send()}
+            // NOT disabled while drafting: waiting on the model would make it a
+            // dependency, which is the one thing this design says it is not. A
+            // batch sent before the draft lands simply carries the reporter's own
+            // sentences.
+            disabled={sending || blank.length > 0}
+            style={{
+              ...primaryButton,
+              background: sending || blank.length > 0 ? "#3a3a3a" : ACCENT,
+            }}
+          >
+            {sending ? "Sending…" : `Hand over ${live.length} report(s)`}
+          </button>
+        )}
         {blank.length > 0 && (
           <span data-testid="debug-blank-note" style={{ fontSize: 11, color: "#ffd08a" }}>
             {blank.length} report(s) have an empty sentence or title — fill them in or
@@ -342,7 +373,11 @@ function DraftBanner({ state }: { state: DraftState }) {
   return (
     <p data-testid="debug-draft-note" style={{ ...noteText, color: "#ffd08a" }}>
       {state.reason === "not-configured"
-        ? "No model credential in the dev server, so there are no drafts — your own sentences are the issue text and each report becomes its own PR."
+        ? // NAMES THE VARIABLE. "No model credential" sent a developer who had
+          // followed the hunter docs — and so had a working token — looking for a
+          // bug, because nothing said which name was read or that the dev
+          // server's own environment is where it has to be.
+          "No model credential in the dev server, so there are no drafts — your own sentences are the issue text and each report becomes its own PR. Restart the dev server with CLAUDE_CODE_OAUTH_TOKEN exported in its shell."
         : `Drafting did not answer (${state.reason}: ${state.detail}). Your sentences are the issue text and each report becomes its own PR.`}
     </p>
   );
@@ -421,12 +456,20 @@ function ItemCard({
           <label style={srOnly} htmlFor={`note-${item.id}`}>
             What is wrong?
           </label>
-          <input
+          {/*
+            * WRAPS, like the capture form's field. Both hold the same one
+            * sentence, and an `<input>` kept it on a single unscrolled line —
+            * so reviewing a note longer than the column meant reading it
+            * through a slot. This is the field where the sentence is CONFIRMED;
+            * seeing all of it is the point of the step.
+            */}
+          <textarea
             id={`note-${item.id}`}
             value={item.note}
+            rows={1}
             onChange={(e) => onNote(e.target.value)}
             onKeyDown={(e) => e.stopPropagation()}
-            style={inputStyle}
+            style={growingField}
           />
           <div style={{ fontSize: 11, opacity: 0.55, marginTop: 4 }}>
             {describeTarget(item.target)}
@@ -439,12 +482,13 @@ function ItemCard({
           <label style={srOnly} htmlFor={`title-${item.id}`}>
             Issue title
           </label>
-          <input
+          <textarea
             id={`title-${item.id}`}
             value={draft.title}
+            rows={1}
             onChange={(e) => onDraft({ title: e.target.value })}
             onKeyDown={(e) => e.stopPropagation()}
-            style={{ ...inputStyle, fontWeight: 600 }}
+            style={{ ...growingField, fontWeight: 600 }}
           />
           <label style={srOnly} htmlFor={`body-${item.id}`}>
             Issue body
@@ -455,7 +499,7 @@ function ItemCard({
             rows={3}
             onChange={(e) => onDraft({ body: e.target.value })}
             onKeyDown={(e) => e.stopPropagation()}
-            style={{ ...inputStyle, marginTop: 4, resize: "vertical" }}
+            style={{ ...growingField, marginTop: 4, resize: "vertical" }}
           />
           <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>
             {draft.severity} · {draft.kind}
@@ -541,9 +585,16 @@ function GroupCard({
         marginBottom: 8,
       }}
     >
-      <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-        <strong style={{ fontSize: 12 }}>{group.prTitle}</strong>
-        <span style={{ fontSize: 11, opacity: 0.55 }}>
+      {/*
+        * WRAPS RATHER THAN OVERFLOWS. A flex item defaults to `min-width: auto`,
+        * so a long PR title refused to shrink, pushed the kind/count out of the
+        * row, and ran off the card into the panel's `overflow: hidden`.
+        */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "baseline" }}>
+        <strong style={{ fontSize: 12, minWidth: 0, overflowWrap: "anywhere" }}>
+          {group.prTitle}
+        </strong>
+        <span style={{ fontSize: 11, opacity: 0.55, whiteSpace: "nowrap" }}>
           {group.kind} · {members.length} item(s)
         </span>
       </div>
@@ -553,7 +604,14 @@ function GroupCard({
             key={itemId}
             style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}
           >
-            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {/*
+              * NO ELLIPSIS. This list is where the reporter checks which report
+              * ended up in which PR, and the title is the only thing
+              * distinguishing them — truncating it hid exactly the text the
+              * section exists to show. It wraps instead; a tall row is cheaper
+              * than an unreadable one.
+              */}
+            <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
               {titleOf(itemId)}
             </span>
             {members.length > 1 && (
@@ -587,6 +645,25 @@ const inputStyle: React.CSSProperties = {
   color: "#fff",
   font: "inherit",
   outline: "none",
+};
+
+/**
+ * A field that grows with its text instead of scrolling one line sideways.
+ *
+ * `field-sizing` is the native one-liner where it exists; `rows={1}` plus this
+ * `maxHeight` is the fallback everywhere else, and neither needs a resize
+ * observer or a `scrollHeight` write-back. `boxSizing` is here because a
+ * `<textarea>` does not inherit the `<input>` default these styles were written
+ * against, and without it every field overflowed its column by the padding.
+ */
+const growingField: React.CSSProperties = {
+  ...inputStyle,
+  boxSizing: "border-box",
+  fieldSizing: "content",
+  resize: "none",
+  maxHeight: NOTE_MAX_H,
+  overflowY: "auto",
+  lineHeight: 1.5,
 };
 
 const ghostButton: React.CSSProperties = {

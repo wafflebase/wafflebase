@@ -274,6 +274,33 @@ export function SceneHost({
    * the clicks in a session do the wrong thing.
    */
   const [picking, setPicking] = useState(true);
+  /**
+   * What `picking` was before the frame's bug reporter armed, or `null` when no
+   * report is being aimed. See the `wb:debug-report` case below.
+   */
+  const pickingBeforeReport = useRef<boolean | null>(null);
+  /**
+   * Whether the frame's bug reporter is currently aiming a report.
+   *
+   * RENDER STATE, and the ref above is not a substitute. Turning picking off when
+   * the reporter armed left the Pick/Use button live, so one click put picking
+   * back on mid-report and the frame's picker took the clicks the reporter's own
+   * note form needed — the exact failure arming was supposed to prevent. A ref
+   * cannot disable a button; this can.
+   */
+  const [reportLive, setReportLive] = useState(false);
+  /**
+   * `picking`, readable from the frame-message listener.
+   *
+   * THROUGH A REF, NOT A DEPENDENCY. That listener's dependency array is
+   * deliberately made of stable callbacks — adding `picking` would re-subscribe
+   * the whole channel every time the mode is toggled. Read out of the closure
+   * instead, the value would be whatever it was when the effect last ran, so
+   * toggling to Use and then arming the reporter would have remembered `true`
+   * and put Pick mode back on the way out.
+   */
+  const pickingRef = useRef(picking);
+  pickingRef.current = picking;
 
   /** One place that knows the frame's origin rule. */
   const post = useCallback((msg: HostMessage) => {
@@ -356,6 +383,14 @@ export function SceneHost({
     setReady(false);
     setError(null);
     setStreams([]);
+    // A frame replaced mid-report takes the report with it, and the `live: false`
+    // that would have released the toggle is never sent — so without this the
+    // Pick button stays disabled for the rest of the session.
+    setReportLive(false);
+    if (pickingBeforeReport.current !== null) {
+      setPicking(pickingBeforeReport.current);
+      pickingBeforeReport.current = null;
+    }
   }, [sceneId, side]);
 
   useEffect(() => {
@@ -417,6 +452,36 @@ export function SceneHost({
           break;
         case 'wb:deselect':
           onDeselect?.();
+          break;
+        case 'wb:debug-report':
+          /*
+           * PICKING OFF WHILE A REPORT IS BEING AIMED, AND BACK AFTERWARDS.
+           *
+           * Picking suppresses the product's own click handlers so a click
+           * selects a node — the exact opposite of what someone reporting on the
+           * running interface needs, and it also takes the clicks the reporter's
+           * own note form wants. So the reporter arming implies Use mode.
+           *
+           * RESTORED, not left off: whoever was in Pick mode was mid-task there,
+           * and a tool that quietly changes the mode you were working in and
+           * walks away is worse than one that never touched it. The pre-report
+           * value is remembered in a ref rather than derived on the way out,
+           * because by then `picking` is false either way and there would be
+           * nothing left to tell the two cases apart.
+           */
+          if (msg.live) {
+            if (pickingBeforeReport.current === null) {
+              pickingBeforeReport.current = pickingRef.current;
+            }
+            setReportLive(true);
+            setPicking(false);
+          } else {
+            setReportLive(false);
+            if (pickingBeforeReport.current !== null) {
+              setPicking(pickingBeforeReport.current);
+              pickingBeforeReport.current = null;
+            }
+          }
           break;
         case 'wb:view': {
           if (msg.kind === 'pan') {
@@ -765,14 +830,20 @@ export function SceneHost({
         {!preview && (
           <button
             onClick={() => setPicking((p) => !p)}
+            // Unavailable for the WHOLE report, not only at the moment it armed —
+            // see `reportLive`.
+            disabled={reportLive}
             title={
-              picking
-                ? 'Picking ON — a click selects a node. Turn it off to use the scene.'
-                : 'Picking OFF — clicks reach the scene. Turn it on to select nodes.'
+              reportLive
+                ? 'A bug report is being aimed — picking stays off until it is handed over or cancelled.'
+                : picking
+                  ? 'Picking ON — a click selects a node. Turn it off to use the scene.'
+                  : 'Picking OFF — clicks reach the scene. Turn it on to select nodes.'
             }
             className={cn(
               'ml-2 inline-flex items-center gap-1 rounded-md border border-wb-border px-1.5 py-1 text-[10px] transition-colors',
               picking ? 'bg-wb-accent/12 text-wb-accent' : 'text-wb-muted hover:text-wb-fg',
+              reportLive && 'cursor-not-allowed opacity-40',
             )}
           >
             <MousePointerSquareDashed className="size-3.5" />
@@ -971,6 +1042,14 @@ export function SceneHost({
               ref={frameRef}
               src={src}
               title={preview ? `Component: ${preview.component}` : `Scene: ${sceneId}`}
+              /*
+               * How the shell finds a scene frame from a bare DOM node. The bug
+               * reporter's hotkey is pressed while LOOKING at a frame, and the
+               * shell has to hand it to the one under the pointer — see
+               * `App.tsx`'s key handler. Matching on `src` would couple that
+               * handler to the frame URL's shape.
+               */
+              data-wb-scene-frame={side}
               /*
                * A SCENE gets white: a page renders against its own background and a
                * transparent frame would show the panel through the gaps. A COMPONENT

@@ -55,6 +55,29 @@ import { BASE } from '../base.ts';
  */
 const VITE_DEV_PATH_RE = /(?:^|\/)__open-in-editor$/;
 
+/**
+ * The bug reporter's two dev-server endpoints
+ * (`packages/debug-report/src/plugin/report-endpoint.ts`).
+ *
+ * The reporter runs INSIDE the frame — it has to, because only there can it name
+ * an element in the scene — so its handover and its drafting call are `fetch`es
+ * from this document, and this guard refused them as unmocked. What the reporter
+ * saw was a scene fetch error; what it means is that the one request the frame
+ * makes on the REPORTER's behalf rather than the SCENE's was being judged by the
+ * scene's rules.
+ *
+ * A regex rather than importing `REPORT_ENDPOINT` / `DRAFT_ENDPOINT`: this module
+ * is in every frame's graph, and importing the package here would make it a hard
+ * dependency of frames that never asked for a reporter — the thing
+ * `scenes/debug-report.tsx`'s lazy gate exists to prevent.
+ * `test/scenes/debug-report.test.tsx` pins this pattern against those constants,
+ * so the duplication cannot drift silently.
+ *
+ * Matched exactly, not as a `__wb_` prefix, for the reason the Vite rule above
+ * gives: a loose prefix is a passthrough for paths only a consumer could own.
+ */
+const DEBUG_REPORT_PATH_RE = /(?:^|\/)__wb_debug_(?:report|draft)$/;
+
 /** A fixture answer: JSON body, or a full `Response` for the odd status test. */
 export type FixtureValue = unknown | Response;
 
@@ -75,15 +98,38 @@ export interface FetchGuardOptions {
   onMiss: (url: string, method: string) => void;
 }
 
-/** `http://scene.invalid/api/documents?x=1` → `/api/documents?x=1`. */
-function keyOf(input: RequestInfo | URL): { path: string; full: string } {
+/**
+ * `http://scene.invalid/api/documents?x=1` → `/api/documents?x=1`.
+ *
+ * `sameOrigin` travels with the path because every passthrough below matches on
+ * the PATH, and stripping the origin is what makes that unsafe on its own:
+ * `https://external.example/__wb_debug_report` reduces to the reporter's own
+ * endpoint path and left the frame — as would `//external.example/@vite/client`
+ * or any absolute URL wearing one of the other prefixes. The whole guard exists
+ * to promise that requests never leave the frame, and a passthrough keyed on a
+ * path an attacker can choose is not a promise.
+ *
+ * A URL that will not parse is `sameOrigin: false`: the passthroughs are all for
+ * traffic the frame itself originates, which is always parseable and always
+ * local, so the unparseable case belongs on the fixture path where a miss throws
+ * by name.
+ */
+function keyOf(input: RequestInfo | URL): {
+  path: string;
+  full: string;
+  sameOrigin: boolean;
+} {
   const raw =
     typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
   try {
     const u = new URL(raw, window.location.origin);
-    return { path: u.pathname, full: `${u.pathname}${u.search}` };
+    return {
+      path: u.pathname,
+      full: `${u.pathname}${u.search}`,
+      sameOrigin: u.origin === window.location.origin,
+    };
   } catch {
-    return { path: raw, full: raw };
+    return { path: raw, full: raw, sameOrigin: false };
   }
 }
 
@@ -165,7 +211,7 @@ export function installFetchGuard(opts: FetchGuardOptions): void {
   const real = window.fetch.bind(window);
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const { path, full } = keyOf(input);
+    const { path, full, sameOrigin } = keyOf(input);
     const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
 
     // Vite's own dev traffic (module fetches, the overlay's open-in-editor) and the
@@ -179,12 +225,20 @@ export function installFetchGuard(opts: FetchGuardOptions): void {
     //
     // `BASE` itself, not only `${BASE}/…` — the shell serves the mount point, and a
     // trailing-slash-less request to it is the same route.
+    //
+    // SAME-ORIGIN GATES THE WHOLE SET, not just one entry of it. Every line below
+    // matches a PATH, and `keyOf` strips the origin, so an absolute cross-origin
+    // URL wearing any of these prefixes reached `real()` and left the frame.
+    // Every one of them names traffic this frame originates against its own dev
+    // server, so nothing legitimate is cross-origin here.
     if (
-      path.startsWith('/@') ||
-      path === BASE ||
-      path.startsWith(`${BASE}/`) ||
-      path.startsWith('/node_modules/') ||
-      VITE_DEV_PATH_RE.test(path)
+      sameOrigin &&
+      (path.startsWith('/@') ||
+        path === BASE ||
+        path.startsWith(`${BASE}/`) ||
+        path.startsWith('/node_modules/') ||
+        VITE_DEV_PATH_RE.test(path) ||
+        DEBUG_REPORT_PATH_RE.test(path))
     ) {
       return real(input as RequestInfo, init);
     }

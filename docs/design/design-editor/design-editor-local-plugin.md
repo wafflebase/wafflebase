@@ -173,8 +173,20 @@ chunk budget. Under the split the rule becomes directional rather than absolute:
 
 > `design-sandbox` → `design-editor`, never the reverse. Nothing under
 > `packages/frontend` imports either. The published package declares no
-> `@wafflebase/*` dependency, so a reversal fails `pnpm install` in a consumer
+> `@wafflebase/*` **dependency**, so a reversal fails `pnpm install` in a consumer
 > project rather than being caught in review.
+
+⚠ **One `@wafflebase/*` peer, declared optional.** The scene frame hosts the bug
+reporter (`docs/design/debug-report.md`), so `src/scenes/debug-report-host.tsx`
+imports `@wafflebase/debug-report/react`. It is a **peer** rather than a
+dependency because `src/scenes` is served BY PATH and resolved from the
+*consumer's* `node_modules` — the rule `test/plugin/peer-contract.test.ts`
+enforces for React and now for this. It is **optional** because nothing loads it
+unless the consumer sets `VITE_WB_DEBUG_REPORT`: `src/scenes/debug-report.tsx`
+holds the gate and reaches the mount through `React.lazy`, so an unarmed frame
+never resolves the specifier at all. Without that laziness "optional" would be a
+label on a hard requirement — a 500 at frame load for any project that did not
+install the reporter.
 
 ### 3. Support matrix
 

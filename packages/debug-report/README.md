@@ -16,15 +16,25 @@ Phase 32.
 
 ## What is here
 
-| Module | Contents |
-|--------|----------|
-| `src/types.ts` | `DebugItem` / `Target` / `Capture` / `Bundle`, and `parseBundle` — fail-closed, because a bundle crosses into a pipeline that can create commits |
-| `src/session.ts` | The session singleton: mode, items, subscriptions. No framework state, so collecting survives anything the app underneath does to its render tree |
-| `src/store.ts` | Blobs in IndexedDB, metadata in `localStorage`, a budget guard that evicts the oldest capture and reports what it dropped. An item outlives its capture |
-| `src/host.ts` | The `HostAdapter` interface — route, build SHA, theme, locator, `draft`, `send`. The only path to the environment |
-| `src/ui/` (`./react`) | The overlay, the preview panel, capture assembly, point→target resolution, and `createDevHost`. React is an OPTIONAL peer dependency: a host that imports only `.` never loads it |
-| `src/plugin/` (`./plugin`) | `debugReportPlugin` — the two dev-server endpoints, as a Vite plugin. `apply: "serve"`, so they cannot exist in a build |
-| `src/testing/` (`./testing`) | Helpers for a host testing its own wiring |
+Four entry points, split by what each one is allowed to reach.
+
+| Entry | Contents |
+|-------|----------|
+| `.` | `DebugItem` / `Target` / `Capture` / `Bundle` + `parseBundle` (`src/types.ts`, fail-closed, because a bundle crosses into a pipeline that can create commits); the session singleton (`src/session.ts` — no framework state, so collecting survives anything the app does to its render tree); the store (`src/store.ts` — blobs in IndexedDB, metadata in `localStorage`, a budget guard that evicts the oldest capture and names what it dropped, so an item outlives its capture); and the `HostAdapter` interface (`src/host.ts`) |
+| `./react` | The overlay a person aims with, the preview panel they confirm in, and `createDevHost` — the adapter that talks to the plugin below. React is a peer dependency of this entry alone |
+| `./plugin` | `debugReportPlugin({ repoRoot })`: the two dev-server endpoints, as a Vite plugin. `apply: "serve"`, so they cannot exist in a build, and it runs in Node — the model credential never reaches the browser |
+| `./testing` | Helpers for a host testing its own wiring |
+
+## Hosts
+
+A host supplies a route, and optionally a canvas locator and a theme. Nothing
+else. There are two, which is what makes the `HostAdapter` seam more than an
+intention:
+
+| Host | Mount | Route | Canvas locator | Theme |
+|------|-------|-------|----------------|-------|
+| The wafflebase app | `packages/frontend/src/debug/mount.tsx` | the anonymised URL path | sheet + doc locators | the document's |
+| The design editor's scene frame | `packages/design-editor/src/scenes/debug-report-host.tsx` | `scene:<id>/<side>` | none — a scene is DOM, so a canvas becomes a region | the frame's `?theme=` |
 
 ## What is not here
 
@@ -32,25 +42,24 @@ Phase 32.
   so `locateOnCanvas` is an argument this package takes, never an import it
   makes. A host with no Canvas omits it and every canvas point becomes a region
   — the honest answer for a surface nothing can interrogate.
-- **No React in the core.** `.` is framework-free; the overlay lives behind
-  `./react` with React as an optional peer dependency, so a non-React host can
-  use the session, the store and the parsers and draw its own UI.
+- **No React in the core.** `.` is free of it, so a host with its own UI — or
+  none — can implement `HostAdapter` against the core and load none of the
+  overlay. What the core never holds is the parts only an application knows: the
+  route rules and the engine locators, which arrive as arguments.
 - **No `dist`.** The package exports `./src/index.ts` and reaches consumers as
   source, the way `@wafflebase/design-editor` does, so it is not registered in
   `scripts/verify-dts-entries.mjs` (that gate checks the declaration graph of
   packages that publish a build).
 - **No model key in the browser.** Drafting is a dev-server endpoint precisely
   so the credential is read in that process and never shipped to a page. The
-  call is tool-free by construction — there is no `tools` parameter on the
-  request — and `@anthropic-ai/sdk` is an optional peer: without it, drafting
-  reports `not-configured` and the panel falls back to the reporter's own
-  sentences with one PR per item.
-
-## Hosts
-
-| Host | Mount | Supplies |
-|------|-------|----------|
-| `packages/frontend/src/debug/` | `mount.tsx` | route anonymisation, sheet + doc canvas locators via a surface registry |
+  session is granted no tools and no project config (`allowedTools: []` with
+  `settingSources: []`), because its input carries DOM excerpts from whatever was
+  on screen — so the worst case of a prompt injection is a draft the reporter
+  rejects. `@anthropic-ai/claude-agent-sdk` is an optional peer: without it,
+  drafting reports `not-configured` and the panel falls back to the reporter's
+  own sentences with one PR per item. The credential is
+  `CLAUDE_CODE_OAUTH_TOKEN`, pooled across `_1` … `_8` so a drained one fails
+  over instead of ending the batch.
 
 ```bash
 pnpm --filter @wafflebase/debug-report test

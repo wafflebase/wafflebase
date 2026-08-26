@@ -110,6 +110,43 @@ describe('installFetchGuard', () => {
     expect(passthrough).not.toHaveBeenCalled();
   });
 
+  it('lets the reporter reach its own two endpoints, same-origin', async () => {
+    // The reporter runs INSIDE the frame — only there can it name an element in
+    // the scene — so its handover and its drafting call are `fetch`es from this
+    // document, and the guard refused them as unmocked.
+    for (const url of ['/__wb_debug_report', `${window.location.origin}/__wb_debug_draft`]) {
+      await window.fetch(url, { method: 'POST' });
+    }
+    expect(passthrough).toHaveBeenCalledTimes(2);
+    expect(misses).toEqual([]);
+  });
+
+  it('refuses a CROSS-ORIGIN url wearing any passthrough path', async () => {
+    /*
+     * Every passthrough matches a PATH, and `keyOf` strips the origin — so
+     * `https://external.example/__wb_debug_report` reduced to the reporter's own
+     * endpoint, reached the real `fetch` and left the frame. That is the one
+     * thing this guard promises cannot happen, and the hole was identical in each
+     * of the other prefixes, so same-origin gates the whole set.
+     *
+     * The protocol-relative form is here because it is the one that does not look
+     * absolute: `//external.example/…` resolves against the frame's own scheme.
+     */
+    for (const url of [
+      'https://external.example/__wb_debug_report',
+      'https://external.example/__wb_debug_draft',
+      '//external.example/__wb_debug_report',
+      'https://external.example/@vite/client',
+      'https://external.example/node_modules/.vite/deps/react.js',
+      `https://external.example${BASE}`,
+      `https://external.example${BASE}/api/health`,
+      'https://external.example/__open-in-editor?file=x',
+    ]) {
+      await expect(window.fetch(url), url).rejects.toThrow(/unmocked request/);
+    }
+    expect(passthrough).not.toHaveBeenCalled();
+  });
+
   it('passes the editor’s mount through with or without a trailing slash', async () => {
     // The shell serves the mount point itself, and `startsWith(`${BASE}/`)` alone
     // missed the un-slashed form and sent it to the miss path.

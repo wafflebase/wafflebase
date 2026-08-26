@@ -87,16 +87,27 @@ credentials this feature needs.
 @wafflebase/debug-report/testing    helpers for a host testing its own wiring
 packages/frontend/src/debug/        wafflebase only: sheet + doc locators, the
                                    surface registry, route rules, the mount
+packages/design-editor/src/scenes/  the second host: `debug-report.tsx` is the
+                                   opt-in gate + lazy boundary,
+                                   `debug-report-host.tsx` the adapter + mount
 scripts/agent/report-*.mjs          intake, verification, PR assembly, round-trip
 packages/backend/src/debug-report/  SP2 only: mailbox + re-hosted draft endpoint
 ```
 
-**Everything a host must supply is an argument, not an import.** There are two:
-the route it reports, and `locateOnCanvas` — point to semantic address, which
-only the mounted engine can answer. `locate.ts` used to import the sheet and doc
-locators directly, and that single line was what tied the overlay to this
-repository. A host that omits the locator gets a region for every canvas point,
-which is the correct answer for a surface nothing outside it can interrogate.
+**Everything a host must supply is an argument, not an import.** There are
+three: the route it reports; `locateOnCanvas` — point to semantic address, which
+only the mounted engine can answer; and, optionally, `theme`. `locate.ts` used to
+import the sheet and doc locators directly, and that single line was what tied
+the overlay to this repository. A host that omits the locator gets a region for
+every canvas point, which is the correct answer for a surface nothing outside it
+can interrogate.
+
+`theme` exists because the second host needed it: `createDevHost` reads the theme
+off `document.documentElement`, which is right for an app, where the painted
+theme IS the document's. The design editor themes the scene frame from `?theme=`
+on its URL and so knows better than the document does — and a report about
+contrast has to name the theme that was actually on screen. Omitted, the document
+is still the answer.
 
 React is a peer dependency of `/react` alone. A host with its own UI, or none,
 implements `HostAdapter` against the core and loads none of it. `/plugin` is
@@ -394,8 +405,32 @@ the developer visits can reach and answering it spends tokens, so
 `parseDraftRequest` caps the item count (`MAX_DRAFT_ITEMS`, refused rather than
 truncated) before the credential is touched.
 In SP2 the backend re-hosts the same two calls. Because both sit behind this
-interface, SP1 → SP2 is a substitution rather than a rewrite, and the design
-editor can host the loop by implementing it too.
+interface, SP1 → SP2 is a substitution rather than a rewrite.
+
+**The design editor is the second host, and that is what makes the seam
+demonstrated rather than asserted.** It supplies a route and a theme and omits
+the canvas locator; the overlay, the panel, the capture and the transport are the
+package's. Two facts came out of building it that the first host could not have
+surfaced:
+
+- **The overlay mounts in the FRAME, not the shell.** `elementFromPoint` in the
+  shell returns the `<iframe>`, so a shell-side overlay could name nothing inside
+  the scene — a picture with no selector, which is the failure the promotion
+  rules exist to prevent.
+- **The mount has to be opt-in, because an idle overlay is not free.** With the
+  mode `off` it renders nothing and takes no pointer event, but `useDebugSession`
+  still opens the capture store: an IndexedDB connection, a `localStorage` read,
+  and a write back under one fixed key. One document per tab absorbs that; a
+  frame the editor reloads on every theme / scene / mock-data flip, and can serve
+  twice over on one origin (`before` and `after`), does not. So the scene frame
+  reads `VITE_WB_DEBUG_REPORT` and pulls the reporter in through `React.lazy`
+  only when it is set — which is also what keeps `@wafflebase/debug-report` an
+  *optional* peer of `@wafflebase/design-editor` rather than a requirement of
+  every consumer of it.
+
+Both hosts write into the SAME `.wb-reports/` at the repository root: intake is
+one repository-wide runner, and a per-package report directory would mean reports
+written and never read.
 
 ### Drafting and PR grouping happen together
 
@@ -534,16 +569,33 @@ developer's key **in the dev-server process only** — it never reaches the
 browser, per the rule already stated in
 [design-editor-local-plugin.md](design-editor/design-editor-local-plugin.md).
 
-It is a plain Messages API request from that process, NOT a call through
-`scripts/agent/ask.mjs`. That wrapper requires a grant of at least one built-in
-read tool — "an agent that can act but not read cannot cite evidence" — which is
-right for the verifier and explorer sessions it exists for and wrong for a call
-whose entire security argument is that it holds no tools; its package is also a
-separate npm install outside this workspace. Widening a shared security module to
-fit an output-only call would have been the more expensive mistake.
+It runs on `@anthropic-ai/claude-agent-sdk` with the pooled
+`CLAUDE_CODE_OAUTH_TOKEN` — **one credential currency for every model call in this
+repository**. It began on `@anthropic-ai/sdk` instead, which was a mistake with two
+costs a developer paid directly: a second credential name, so someone holding the
+working token that every agent script here reads was told there was none; and no
+failover, so the 429 a drained credential answers ended the batch. The pool is read
+in the package (`CLAUDE_CODE_OAUTH_TOKEN` plus `_1` … `_8`) rather than imported
+from `scripts/agent/`, which is an npm island outside this workspace — and "which
+variables hold a credential" is not repository-specific once the base name is a
+constant.
+
+It is NOT a call through `scripts/agent/ask.mjs`. That wrapper requires a grant of
+at least one built-in read tool — "an agent that can act but not read cannot cite
+evidence" — which is right for the verifier and explorer sessions it exists for and
+refuses the one thing wanted here. `auth-smoke.mjs` set the precedent: call the SDK
+directly with `allowedTools: []` while still reading the pool. Widening a shared
+security module to fit an output-only call would have been the more expensive
+mistake.
+
+**`settingSources: []` is what makes the empty grant mean anything.** Without it
+the session inherits this project's skills, hooks and MCP servers, and would hold
+exactly the reach the grant denies.
 
 Without a key the panel shows the original sentences, drafting and grouping are
-skipped, and the pipeline still runs — one item per PR.
+skipped, and the pipeline still runs — one item per PR. A drained POOL is reported
+as a failure rather than as a missing credential: the copy for the latter tells the
+reporter to set a secret they already have.
 
 **The pipeline credential stays with the repository.** Verification, locating
 code and opening PRs need a checkout and the `verify:*` lanes, and the deployed
@@ -598,7 +650,7 @@ lens.
 | SP0 | Throwaway spike — does reporting feel natural in the hand | 0 (done) |
 | SP1 | 1: core package + capture + locators · 2: preview + drafting + grouping · 3: intake → verify → PR | 3 |
 | SP1.5 | Auto-detection (console errors, failed fetches, key warnings) | 1 |
-| Optional | Design-editor host adapter | 1 |
+| Optional | Design-editor host adapter — **shipped**: scene-frame mount behind `VITE_WB_DEBUG_REPORT` | 1 |
 
 The prototype exists at the end of PR 2: the half a person touches works end to
 end and **nothing is filed**, which is exactly the safe state to evaluate from.
