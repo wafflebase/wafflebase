@@ -36,15 +36,15 @@ describe('parseCharts', () => {
   });
 
   it('rejects an unknown chart type', () => {
-    expect(() => parseCharts({ charts: [{ ...CHART, type: 'radar' }] })).toThrow(
-      BadRequestException,
-    );
+    expect(() =>
+      parseCharts({ charts: [{ ...CHART, type: 'radar' }] }),
+    ).toThrow(BadRequestException);
   });
 
   it('rejects a malformed anchor', () => {
-    expect(() => parseCharts({ charts: [{ ...CHART, anchor: '123' }] })).toThrow(
-      BadRequestException,
-    );
+    expect(() =>
+      parseCharts({ charts: [{ ...CHART, anchor: '123' }] }),
+    ).toThrow(BadRequestException);
   });
 
   it('rejects a non-positive size', () => {

@@ -7,7 +7,12 @@ const WS = 'ws-1';
 const DOC = 'doc-1';
 const CF = {
   id: 'r1',
-  ranges: [[{ r: 0, c: 0 }, { r: 0, c: 0 }]],
+  ranges: [
+    [
+      { r: 0, c: 0 },
+      { r: 0, c: 0 },
+    ],
+  ],
   op: 'isEmpty',
   style: { b: true },
 };

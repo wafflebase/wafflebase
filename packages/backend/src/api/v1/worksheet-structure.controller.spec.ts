@@ -44,7 +44,9 @@ describe('ApiV1WorksheetStructureController', () => {
     writeWorksheetCell(ws(), parseRef('B2'), { v: '2' });
     writeWorksheetCell(ws(), parseRef('C3'), { v: '3' }); // outside A1:B2
 
-    const res = await controller.clearRange(WS, DOC, 'tab-1', { range: 'A1:B2' });
+    const res = await controller.clearRange(WS, DOC, 'tab-1', {
+      range: 'A1:B2',
+    });
     expect(res.cleared).toBe(2);
     expect(getWorksheetCell(ws(), parseRef('A1'))).toBeUndefined();
     expect(getWorksheetCell(ws(), parseRef('B2'))).toBeUndefined();
@@ -52,7 +54,9 @@ describe('ApiV1WorksheetStructureController', () => {
   });
 
   it('reports zero when the range holds no cells', async () => {
-    const res = await controller.clearRange(WS, DOC, 'tab-1', { range: 'Z10:Z20' });
+    const res = await controller.clearRange(WS, DOC, 'tab-1', {
+      range: 'Z10:Z20',
+    });
     expect(res.cleared).toBe(0);
   });
 

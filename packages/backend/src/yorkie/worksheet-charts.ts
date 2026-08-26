@@ -71,7 +71,9 @@ function parseChart(raw: unknown, index: number): SheetChart {
         c.legendPosition as (typeof LEGEND_POSITIONS)[number],
       )
     ) {
-      reject(`chart 'legendPosition' must be one of ${LEGEND_POSITIONS.join(', ')}`);
+      reject(
+        `chart 'legendPosition' must be one of ${LEGEND_POSITIONS.join(', ')}`,
+      );
     }
     legendPosition = c.legendPosition as SheetChart['legendPosition'];
   }
@@ -101,7 +103,7 @@ function parseChart(raw: unknown, index: number): SheetChart {
   if (seriesColumns !== undefined) chart.seriesColumns = seriesColumns;
   if (legendPosition !== undefined) chart.legendPosition = legendPosition;
   if (c.showGridlines !== undefined) {
-    chart.showGridlines = c.showGridlines as boolean;
+    chart.showGridlines = c.showGridlines;
   }
 
   return chart;

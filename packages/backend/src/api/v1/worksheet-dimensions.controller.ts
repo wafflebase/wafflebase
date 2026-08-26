@@ -66,7 +66,7 @@ export class ApiV1WorksheetDimensionsController {
   private readStyleMap(source: unknown): IndexStyleMap {
     const out: IndexStyleMap = {};
     if (source && typeof source === 'object') {
-      for (const [key, value] of Object.entries(source as object)) {
+      for (const [key, value] of Object.entries(source)) {
         if (value && typeof value === 'object') {
           out[key] = { ...(value as CellStyle) };
         }
@@ -78,7 +78,7 @@ export class ApiV1WorksheetDimensionsController {
   private readSizeMap(source: unknown): IndexSizeMap {
     const out: IndexSizeMap = {};
     if (source && typeof source === 'object') {
-      for (const [key, value] of Object.entries(source as object)) {
+      for (const [key, value] of Object.entries(source)) {
         if (typeof value === 'number') out[key] = value;
       }
     }

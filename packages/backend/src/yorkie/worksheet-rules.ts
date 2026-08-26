@@ -25,7 +25,9 @@ function extractRules(body: unknown): unknown[] {
  * validator the editor uses), which returns `undefined` for an invalid rule;
  * those are rejected with a 400. The normalized (plain) rules are returned.
  */
-export function parseConditionalFormats(body: unknown): ConditionalFormatRule[] {
+export function parseConditionalFormats(
+  body: unknown,
+): ConditionalFormatRule[] {
   return extractRules(body).map((raw, i) => {
     const normalized = normalizeConditionalFormatRule(
       raw as ConditionalFormatRule,

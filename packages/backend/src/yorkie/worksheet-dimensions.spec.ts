@@ -26,10 +26,16 @@ describe('worksheet-dimensions validators', () => {
 
     it('rejects a non-integer / non-positive index key', () => {
       expect(() =>
-        parseIndexKeyedStyles({ columnStyles: { '0': { b: true } } }, 'columnStyles'),
+        parseIndexKeyedStyles(
+          { columnStyles: { '0': { b: true } } },
+          'columnStyles',
+        ),
       ).toThrow(BadRequestException);
       expect(() =>
-        parseIndexKeyedStyles({ columnStyles: { A: { b: true } } }, 'columnStyles'),
+        parseIndexKeyedStyles(
+          { columnStyles: { A: { b: true } } },
+          'columnStyles',
+        ),
       ).toThrow(BadRequestException);
     });
 

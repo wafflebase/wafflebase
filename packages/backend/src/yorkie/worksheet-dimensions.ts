@@ -12,7 +12,10 @@ import { parseCellStyle } from './cell-style';
 export type StyleEntries = Map<string, CellStyle | null>;
 export type SizeEntries = Map<string, number | null>;
 
-function assertObjectBody(body: unknown, field: string): Record<string, unknown> {
+function assertObjectBody(
+  body: unknown,
+  field: string,
+): Record<string, unknown> {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new BadRequestException(`body must be an object { ${field}: {...} }`);
   }
@@ -36,7 +39,10 @@ function assertIndexKey(key: string, field: string): void {
  * row styles. Each style is validated with `parseCellStyle`; `null` marks the
  * index for deletion.
  */
-export function parseIndexKeyedStyles(body: unknown, field: string): StyleEntries {
+export function parseIndexKeyedStyles(
+  body: unknown,
+  field: string,
+): StyleEntries {
   const map = assertObjectBody(body, field);
   const entries: StyleEntries = new Map();
   for (const [key, value] of Object.entries(map)) {
@@ -51,7 +57,10 @@ export function parseIndexKeyedStyles(body: unknown, field: string): StyleEntrie
  * or row heights. Each size must be a positive finite number; `null` clears the
  * index (reverting it to the default dimension).
  */
-export function parseIndexKeyedSizes(body: unknown, field: string): SizeEntries {
+export function parseIndexKeyedSizes(
+  body: unknown,
+  field: string,
+): SizeEntries {
   const map = assertObjectBody(body, field);
   const entries: SizeEntries = new Map();
   for (const [key, value] of Object.entries(map)) {
