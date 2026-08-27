@@ -61,6 +61,17 @@ describe('NotePreview', () => {
     expect(checkboxes[1].hasAttribute('checked')).toBe(false);
   });
 
+  it('names each checkbox after its own item text', () => {
+    // Without a name a screen reader announces bare "checkbox"; the nested
+    // child must not be folded into the parent's name.
+    const preview = new NotePreview();
+    preview.render('- [ ] buy milk\n  - [x] semi-skimmed');
+
+    const boxes = preview.el.querySelectorAll('input.task-list-item-checkbox');
+    expect(boxes[0].getAttribute('aria-label')).toBe('buy milk');
+    expect(boxes[1].getAttribute('aria-label')).toBe('semi-skimmed');
+  });
+
   it('renders enabled checkboxes when a toggle callback is supplied', () => {
     const preview = new NotePreview({ onToggleTask: () => {} });
     preview.render('- [ ] todo');
@@ -95,6 +106,19 @@ describe('NotePreview', () => {
       [2, true],
       [3, false],
     ]);
+  });
+
+  it('toggles a task item inside a blockquote', () => {
+    const toggles: Array<[number, boolean]> = [];
+    const preview = new NotePreview({
+      onToggleTask: (line, checked) => toggles.push([line, checked]),
+    });
+    preview.render('> - [ ] quoted todo');
+
+    preview.el
+      .querySelector('li.task-list-item')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(toggles).toEqual([[0, true]]);
   });
 
   it('leaves a link inside a task item to the link', () => {
@@ -1337,7 +1361,9 @@ describe('NotePreview mermaid fences', () => {
     // every pass stays cached instead of aging out by insertion order and
     // flashing back to its source.
     for (let i = 1; i <= 60; i++) {
-      preview.render(`${DIAGRAM}\n\n\`\`\`mermaid\nflowchart TD\n  ${'A'.repeat(i)}\n\`\`\``);
+      preview.render(
+        `${DIAGRAM}\n\n\`\`\`mermaid\nflowchart TD\n  ${'A'.repeat(i)}\n\`\`\``,
+      );
       await flush();
       expect(preview.el.querySelector('.note-mermaid svg')).toBeTruthy();
     }
