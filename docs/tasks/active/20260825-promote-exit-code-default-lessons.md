@@ -171,3 +171,50 @@
   that list means "this file is planned and will exist", and a forgery example
   is the opposite claim. Suppressing it would also have downgraded a real
   reference later if the name were ever reused.
+
+## Round 4
+
+- **A gate's refusal surface should be derived from a list the repo already
+  maintains, not hand-written next to it.** Gate 1b shipped refusing
+  `.github/workflows/**` and `.github/actions/**` while claiming the run had
+  executed main's CI definition. `ci.yml` holds almost no test logic — it runs
+  `pnpm verify:self`, resolved through the merge ref's root `package.json` into
+  `scripts/verify-*.mjs`, whose lane selection reads `harness.config.json` — and
+  every one of those is a path the agent App CAN push. The repository already had
+  the right list, in `harness.config.json`'s `ci.ciConfig`, maintained for the
+  same reason and CODEOWNER-ed. **Before writing a list of paths that mean
+  something, grep for one the repo already keeps**; a test asserting the mirror is
+  a superset costs nine lines and removes the whole drift class.
+- **"Fail closed" is not a property of the check, it is a property of the
+  check's evidence.** Gate 1b read `pulls/N/files`, which answers for the PR's
+  CURRENT base (author-mutable — retarget it and a workflow edit vanishes from
+  the diff) and for whatever the head is NOW, while gate 1's evidence was a CI
+  run pinned to the SHA read at the top of the script. Two reads, two different
+  comparisons, one conclusion. The fix is cheap once seen: refuse a PR not based
+  on the default branch, and re-read the head AFTER the enumeration. **When two
+  gates corroborate each other, check they are talking about the same commit.**
+- **The same forgery class travels between siblings.** This branch rewrote gate
+  1 to stop identifying a workflow run by display name — and in the same header
+  re-asserted that gate 2 is unforgeable, while `checkPassed` still matched
+  `agent-review-*` check runs by NAME with no `app.slug` producer check. Six
+  other readers in `scripts/agent/` already had that filter, one with a comment
+  spelling out the attack. **After fixing an identity check, grep for every
+  other reader of the same evidence** — the fix's own reasoning is the search
+  query.
+- **A test that re-types the rule it is pinning cannot fail.**
+  "agent-rerun / agent-loop mirror `ciRunToRerun` inline, and the copies agree"
+  compared `checks.mjs` against a hand copy declared inside the test file, so
+  nothing in either YAML could break it. The repair is to EXTRACT the mirrored
+  lines out of the workflow with a regex and run them through `new Function` —
+  plus one assertion that the extracted code actually selects something, so a
+  failed extraction cannot pass as vacuous agreement. **If a test exists because
+  a rule lives in two places, one of those places has to be the input.**
+- **Do not route workflow content through a committed `.patch`.** The App's
+  inability to push `.github/workflows/**` is not an obstacle to work around: it
+  is the boundary `agent-review-panel.yml`'s `workflow_run` trigger and gate 2's
+  `checks: write` claim both rest on. An apply-ready blob under
+  `docs/tasks/active/` moves that boundary onto whether the reviewer read the
+  diff. The right hand-off is prose in the todo describing what a maintainer
+  should author, plus whatever the pipeline CAN pin from its own side — here,
+  a test that extracts and evaluates all three `path` clauses, so deleting one
+  reds CI even though the payload field's own disappearance still would not.

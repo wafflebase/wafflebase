@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunToRerun, CI_WORKFLOW_PATH, CI_WORKFLOW_FILE, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunToRerun, definesCi, CHECK_PRODUCER_APP_SLUG, CI_DEFINING_PATHS, CI_WORKFLOW_PATH, CI_WORKFLOW_FILE, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 
 // `DEFAULT_REVIEW_CHECKS` is the ONE lens list in the repo that does not derive
 // itself from lenses.json, so it is the one that silently rots when a lens is
@@ -47,8 +47,41 @@ test("DEFAULT_REVIEW_CHECKS covers every ALWAYS-APPLICABLE blocking lens", () =>
   }
 });
 
-const succ = (name, t = "2026-07-21T10:00:00Z") => ({ name, conclusion: "success", started_at: t });
-const fail = (name, t = "2026-07-21T10:00:00Z") => ({ name, conclusion: "failure", started_at: t });
+// The `app` block is part of the fixture, not decoration: `checkPassed` refuses
+// a run whose producer is not GitHub Actions, so a fixture without it asserts
+// nothing about the gate it is aimed at.
+const APP = { slug: CHECK_PRODUCER_APP_SLUG };
+const succ = (name, t = "2026-07-21T10:00:00Z") => ({ name, conclusion: "success", started_at: t, app: APP });
+const fail = (name, t = "2026-07-21T10:00:00Z") => ({ name, conclusion: "failure", started_at: t, app: APP });
+
+test("checkPassed: a check run from ANOTHER App is not evidence", () => {
+  // THE FORGERY THIS CLOSES. A check-run NAME is not reserved: any integration
+  // installed on the repo may create `agent-review-security` and conclude it
+  // `success`, so gate 2 — "an independent reviewer approved this" — was
+  // satisfiable by anything holding a Checks API token. `app.slug` is set by
+  // GitHub from the installation and cannot be chosen by the app reporting it.
+  const forged = (name, t) => ({ name, conclusion: "success", started_at: t, app: { slug: "some-other-app" } });
+
+  assert.equal(checkPassed([forged("a", "2026-07-21T10:00:00Z")], "a"), false, "a green run from another App is not a pass");
+  // ...and it must be dropped BEFORE the newest-wins sort, or a forged run with
+  // a later timestamp shadows the real verdict.
+  assert.equal(
+    checkPassed([succ("a", "2026-07-21T10:00:00Z"), forged("a", "2026-07-21T23:00:00Z")], "a"),
+    true,
+    "the real (older) run still speaks for the lens",
+  );
+  assert.equal(
+    checkPassed([fail("a", "2026-07-21T10:00:00Z"), forged("a", "2026-07-21T23:00:00Z")], "a"),
+    false,
+    "a forged run must not overturn a real failure",
+  );
+  // A run with no `app` at all is not evidence either — fail closed on a
+  // response shape the reader does not recognise.
+  assert.equal(checkPassed([{ name: "a", conclusion: "success", started_at: "2026-07-21T10:00:00Z" }], "a"), false);
+  assert.equal(checkPassed([{ name: "a", conclusion: "success", app: {} }], "a"), false);
+  // And the same through the aggregate the ready gate actually calls.
+  assert.equal(allRequiredPassed([forged("x", "2026-07-21T10:00:00Z")], ["x"]).allPassed, false);
+});
 
 test("checkPassed: missing check → false; latest run wins", () => {
   assert.equal(checkPassed([], "a"), false);
@@ -456,6 +489,121 @@ test("CI_WORKFLOW_PATH names a workflow file that actually exists", () => {
 
 
 
+test("CI_DEFINING_PATHS mirrors harness.config.json's own gating surface", () => {
+  // Gate 1b refuses a PR that supplies any part of the CI definition. The
+  // repository ALREADY maintains that list — `ci.ciConfig`, which forces a full
+  // CI run for the same reason ("a PR can never use the filter to grade its own
+  // homework") and is CODEOWNER-ed. Two hand-maintained lists of the same thing
+  // is how the gate ended up covering only `.github/workflows|actions/**` while
+  // `verify-self.mjs` and the root `package.json` — which is where `ci.yml`
+  // actually resolves every test it runs — were free to change.
+  //
+  // The mirror must be a SUPERSET: gate 1b may refuse more than `ciConfig`
+  // shrinks CI for (composite actions, per-package manifests), never less.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const cfg = JSON.parse(readFileSync(path.join(HERE, "..", "..", "harness.config.json"), "utf8"));
+  const ciConfig = cfg.ci?.ciConfig;
+  assert.ok(Array.isArray(ciConfig) && ciConfig.length > 0, "harness.config.json must still declare ci.ciConfig");
+  for (const glob of ciConfig) {
+    assert.ok(
+      CI_DEFINING_PATHS.includes(glob),
+      `harness.config.json calls '${glob}' part of the CI gating surface, and CI_DEFINING_PATHS omits it`,
+    );
+  }
+
+  // ...and the matcher must actually classify the surface it lists. Each of
+  // these is a path CI's behaviour is read from at run time.
+  for (const p of [
+    ".github/workflows/ci.yml",
+    ".github/workflows/nested/whatever.yml",
+    ".github/actions/setup/action.yml",
+    ".github/CODEOWNERS",
+    "harness.config.json",
+    "knip.json",
+    "package.json",
+    "packages/sheets/package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "scripts/changed-areas.mjs",
+    "scripts/verify-self.mjs",
+    "scripts/verify-integration.mjs",
+  ]) {
+    assert.equal(definesCi(p), true, `${p} defines what CI does`);
+  }
+
+  // ...and must NOT swallow ordinary code, or gate 1b refuses every PR and the
+  // whole promote path quietly stops working — a fail-closed that is also a
+  // total outage.
+  for (const p of [
+    "packages/sheets/src/index.ts",
+    "packages/sheets/src/package.json.ts",
+    "docs/design/harness-engineering.md",
+    "scripts/agent/checks.mjs",
+    "scripts/verify-self.md",
+    "packages/frontend/src/nested/package.json", // `*` does not cross a separator
+    "not-package.json",
+    "",
+  ]) {
+    assert.equal(definesCi(p), false, `${p} must not be treated as a CI definition`);
+  }
+  // Junk from an API response is not a match (and not a crash).
+  for (const junk of [null, undefined, 7, {}, []]) assert.equal(definesCi(junk), false);
+});
+
+test("every workflow_run consumer CI can drive gates on the CI workflow's PATH", () => {
+  // `workflow_run`'s `workflows:` filter matches a run's DISPLAY NAME, which is
+  // only a `name:` key and is not unique — so a second file saying `name: CI`
+  // reaches every one of these workflows. Each therefore has to check the file
+  // that produced the run, and each does it in a job `if:` that gates by
+  // SKIPPING, which is invisible when it breaks.
+  //
+  // ONE test over all three, because the clause is one decision: the panel's
+  // (whose `fix` job pushes to the PR branch), agent-iterate-ci's (whose fixer
+  // holds contents: write and is driven by CI concluding `failure`), and
+  // ci-report's (which comments on the PR). Only the panel's was pinned before,
+  // so the other two could be deleted with every test still green.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  // Every non-path expression is substituted with a value that SATISFIES the
+  // clause, so `path` is the only free variable left and the assertions below
+  // are about it alone.
+  const toJs = (s) =>
+    s
+      .replace(/github\.event\.workflow_run\.path/g, "PATH")
+      .replace(/github\.event\.workflow_run\.head_repository\.full_name/g, "'r'")
+      .replace(/github\.repository/g, "'r'")
+      .replace(/github\.event\.workflow_run\.conclusion/g, "'failure'")
+      .replace(/github\.event\.workflow_run\.event/g, "'pull_request'")
+      .replace(/github\.event\.workflow_run\.run_attempt/g, "1")
+      .replace(/github\.event\.action/g, "'requested'")
+      .replace(/vars\.AGENT_PIPELINE_ENABLED/g, "'true'");
+
+  for (const [file, job] of [
+    ["agent-review-panel.yml", "gate"],
+    ["agent-iterate-ci.yml", "gate"],
+    ["ci-report.yml", "report"],
+  ]) {
+    const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", file), "utf8");
+    // The trigger has to be the display-name one, or this assertion is aimed at
+    // the wrong thing.
+    assert.match(yml, /workflows: \["CI"\]/, `${file} must still consume CI by display name`);
+    const expr = (yml.match(new RegExp(`^ {2}${job}:\\n(?:.*\\n)*? {4}if: >-\\n((?: {6}.*\\n)+)`, "m")) || [])[1];
+    assert.ok(expr, `could not extract ${file}'s ${job} job if: expression`);
+    const admits = new Function("PATH", `return (${toJs(expr)});`);
+
+    assert.ok(admits(CI_WORKFLOW_PATH), `${file} must still admit a real CI run`);
+    assert.ok(
+      !admits(".github/workflows/pwn.yml"),
+      `${file} admits a run from another file that merely calls itself 'CI'`,
+    );
+    // An absent field must not read as a match either — `undefined == ''` is
+    // false in JS but `${{ }}` renders a missing field as the empty string, and
+    // both spellings have to refuse.
+    for (const absent of ["", undefined, null]) {
+      assert.ok(!admits(absent), `${file} must refuse a payload with no workflow_run.path (${absent})`);
+    }
+  }
+});
+
 test("no two ci.yml triggers can race for the same PR head SHA", () => {
   // THE INVARIANT `ciConclusion` RESTS ON — stated precisely, because an earlier
   // revision of this test overclaimed it as "exactly one run per head SHA".
@@ -580,38 +728,56 @@ test("agent-rerun / agent-loop mirror ciRunToRerun inline, and the copies agree"
   // `ciRunDecision` inline. The rule therefore exists twice; pinning the copy is
   // what keeps it ONE rule.
   const HERE = path.dirname(fileURLToPath(import.meta.url));
-  for (const file of ["agent-rerun.yml", "agent-loop.yml"]) {
-    const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", file), "utf8");
-    const at = yml.indexOf("workflow_id: 'ci.yml'");
-    assert.notEqual(at, -1, `${file} must still re-run CI by workflow id`);
-    const block = yml.slice(at - 200, at + 700);
-
-    assert.match(block, /r\.status === 'completed'/, `${file}: an in-flight run is not re-runnable (422)`);
-    assert.match(block, /r\.id > n\.id/, `${file} must pick the newest by run id`);
-    // Exactly one reRunWorkflow call, not a loop over a selection.
-    assert.ok(!/for \(const run of/.test(block), `${file}: fanning out cancels the fixer and erodes the attempt bound`);
-    assert.match(block, /if \(run\) \{ await github\.rest\.actions\.reRunWorkflow/, `${file} re-runs exactly one run`);
-  }
-
-  // And the inline rule must agree with the exported one on the cases that
-  // distinguish it, so an edit to either copy is caught here.
   const run = (id, status, conclusion) => ({ id, status, conclusion });
-  const inline = (runs) => {
-    const completed = runs.filter((r) => r.status === "completed");
-    return completed.reduce((n, r) => (n === null || r.id > n.id ? r : n), null);
-  };
-  for (const fixture of [
+  const fixtures = [
     [],
     [run(1, "completed", "success")],
     [run(2, "completed", "failure"), run(1, "completed", "success")],
     [run(3, "completed", "success"), run(2, "completed", "cancelled")],
     [run(9, "in_progress", null), run(1, "completed", "success")],
     [run(1, "queued", null)],
-  ]) {
-    assert.deepEqual(
-      ciRunToRerun(fixture)?.id ?? null,
-      inline(fixture)?.id ?? null,
-      `the inline mirror disagrees with ciRunToRerun on ${JSON.stringify(fixture)}`,
-    );
+    // The page-2 case: 101 runs is impossible to reach through `per_page: 1`, so
+    // this fixture is what distinguishes a paginated listing from a truncated one
+    // once the selection is EXTRACTED from the YAML below rather than re-typed.
+    [...Array.from({ length: 100 }, (_, i) => run(i + 1, "completed", "failure")), run(500, "completed", "success")],
+  ];
+
+  for (const file of ["agent-rerun.yml", "agent-loop.yml"]) {
+    const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", file), "utf8");
+    const at = yml.indexOf("workflow_id: 'ci.yml'");
+    assert.notEqual(at, -1, `${file} must still re-run CI by workflow id`);
+    const block = yml.slice(at - 400, at + 700);
+
+    // Exactly one reRunWorkflow call, not a loop over a selection.
+    assert.ok(!/for \(const run of/.test(block), `${file}: fanning out cancels the fixer and erodes the attempt bound`);
+    assert.match(block, /if \(run\) \{ await github\.rest\.actions\.reRunWorkflow/, `${file} re-runs exactly one run`);
+    // The LISTING has to be able to see past the first run. `per_page: 1` — what
+    // this step did before — hands the selection a one-element list, so "the
+    // newest completed run" silently degrades to "the newest run, if it happens
+    // to be finished" and `@claude rerun` does nothing while a run is in flight.
+    // Not covered by extracting the selection below: the selection is correct on
+    // whatever list it is given, and the bug is in the list.
+    assert.match(block, /github\.paginate\(github\.rest\.actions\.listWorkflowRuns/, `${file} must paginate the listing`);
+    assert.match(block, /per_page: 100/, `${file} must request full pages`);
+    assert.ok(!/per_page: 1[,\s}]/.test(block), `${file}: per_page: 1 cannot see the newest COMPLETED run`);
+
+    // THE COPY, EXTRACTED FROM THE YAML AND RUN — not re-typed here. A hand copy
+    // of the rule inside this test can only ever prove checks.mjs agrees with the
+    // test file: it cannot fail because of anything in agent-loop.yml or
+    // agent-rerun.yml, which is the one thing this test exists to check.
+    const src = block.match(/const completed = [\s\S]*?const run = completed\.reduce\(.*?\);/);
+    assert.ok(src, `${file}: could not extract the inline run-selection from the workflow`);
+    const mirror = new Function("all", `${src[0]}\nreturn run;`);
+
+    for (const fixture of fixtures) {
+      assert.deepEqual(
+        mirror(fixture)?.id ?? null,
+        ciRunToRerun(fixture)?.id ?? null,
+        `${file}'s inline mirror disagrees with ciRunToRerun on ${JSON.stringify(fixture).slice(0, 120)}`,
+      );
+    }
+    // And prove the extracted code is not a constant-null stub that trivially
+    // agrees on nothing — at least one fixture must select a run.
+    assert.equal(mirror(fixtures[1])?.id, 1, `${file}'s extracted mirror must actually select a run`);
   }
 });

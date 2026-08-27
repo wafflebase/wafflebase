@@ -62,8 +62,22 @@ if ((cfg.fail || []).some((p) => joined.startsWith(p))) {
 
 if (argv[0] === "pr" && argv[1] === "view") {
   // The label re-read just before the PUT asks for labels alone.
-  const only = joined.endsWith("--json labels");
-  process.stdout.write(JSON.stringify(only ? { labels: cfg.pr.labels || [] } : cfg.pr));
+  if (joined.endsWith("--json labels")) {
+    process.stdout.write(JSON.stringify({ labels: cfg.pr.labels || [] }));
+  } else if (joined.endsWith("--json headRefOid")) {
+    // Gate 1b's SECOND read of the head. \`headAfter\` is how a test expresses a
+    // push that landed while the gate was reading; unset means the head held
+    // still, which is the ordinary case.
+    process.stdout.write(JSON.stringify({ headRefOid: cfg.headAfter || cfg.pr.headRefOid }));
+  } else {
+    process.stdout.write(JSON.stringify(cfg.pr));
+  }
+} else if (argv[0] === "api" && /^repos\\/\\{owner\\}\\/\\{repo\\}$/.test(argv[1] || "")) {
+  // Repository metadata — gate 1b reads \`default_branch\` from it to check the
+  // PR is based on the branch whose CI definition it claims to have run.
+  // \`repo\` overrides the whole body, which is how a test expresses a response
+  // that carries no \`default_branch\` at all.
+  process.stdout.write(JSON.stringify(cfg.repo || { default_branch: cfg.defaultBranch || "main" }));
 } else if (argv[0] === "api" && joined.includes("actions/workflows/ci.yml/runs?head_sha=")) {
   // The SCOPED listing: GitHub resolved \`ci.yml\` to one workflow file, so only
   // that file's runs come back.
@@ -77,10 +91,15 @@ if (argv[0] === "pr" && argv[1] === "view") {
     JSON.stringify({ workflow_runs: [...(cfg.otherRuns || []), ...(cfg.workflowRuns || [])] }),
   );
 } else if (argv[0] === "api" && /pulls\\/\\d+\\/files/.test(joined)) {
-  // Page 1 answers from the config; every later page is empty, which is how the
-  // CLI's pagination loop terminates.
+  // PER-PAGE, as the real endpoint is. \`filePages\` is an array of pages, so a
+  // test can put a workflow edit on page 2 — the case a reader that only ever
+  // looks at page 1 passes. \`files\` is the single-page shorthand. Any page past
+  // the supplied ones is EMPTY, which is how the CLI's loop terminates. A page
+  // of the literal string "junk" serves a malformed (non-array) response.
   const page = Number((joined.match(/[?&]page=(\\d+)/) || [])[1] || 1);
-  process.stdout.write(JSON.stringify(page === 1 ? cfg.files || [] : []));
+  const pages = cfg.filePages || [cfg.files || []];
+  const body = page <= pages.length ? pages[page - 1] : [];
+  process.stdout.write(JSON.stringify(body === "junk" ? { message: "not an array" } : body));
 } else if (argv[0] === "api" && joined.includes("check-runs")) {
   process.stdout.write(JSON.stringify({ check_runs: cfg.checkRuns || [] }));
 } else {
@@ -99,17 +118,30 @@ function okConfig(over = {}) {
       body: DISCLOSED,
       isDraft: true,
       labels: [{ name: "agent:reviewing" }, { name: "enhancement" }],
+      baseRefName: "main",
       headRefName: "agent/852-x",
       headRefOid: "cafe7",
       url: "https://github.com/o/r/pull/7",
     },
+    // Gate 1b measures the diff against the DEFAULT BRANCH, so which branch that
+    // is has to be part of the world the stub describes.
+    defaultBranch: "main",
     // `workflowRuns` are the runs of the CI WORKFLOW FILE; `otherRuns` are the
     // rest of the repo's runs for the same SHA, which only the unscoped
     // endpoint returns. A test that puts a green run in `otherRuns` is asking
     // "would this promote if the reader stopped scoping its query?".
     workflowRuns: [{ name: "CI", path: CI_PATH, conclusion: "success", created_at: AT }],
     otherRuns: [],
-    checkRuns: DEFAULT_REVIEW_CHECKS.map((name) => ({ name, conclusion: "success", started_at: AT })),
+    // `app.slug` is part of the fixture because `checkPassed` requires it: a
+    // check-run name is not reserved, so gate 2 only believes runs GitHub
+    // Actions produced. A fixture without it would make every gate-2 test read
+    // as "no review evidence" rather than as the case it names.
+    checkRuns: DEFAULT_REVIEW_CHECKS.map((name) => ({
+      name,
+      conclusion: "success",
+      started_at: AT,
+      app: { slug: "github-actions" },
+    })),
     files: [{ filename: "packages/sheets/src/index.ts" }],
     fail: [],
     ...over,
@@ -289,13 +321,165 @@ test("gate 1b: a branch that edits the CI definition is not promoted by its own 
   // An unreadable file list cannot rule a workflow edit out, so it fails CLOSED.
   const unreadable = run(["7", "--promote"], okConfig({ fail: ["api repos/{owner}/{repo}/pulls/7/files"] }));
   assert.equal(unreadable.code, 1, "not knowing what the branch changed is not a pass");
-  assert.match(unreadable.stderr, /Could not read PR #7's changed files/);
+  assert.match(unreadable.stderr, /Could not establish PR #7's CI definition/);
   assert.ok(!promoted(unreadable.calls));
 
   // ...and an ordinary code-only PR is unaffected.
   const ordinary = run(["7", "--promote"], okConfig({ files: [{ filename: "packages/docs/src/a.ts" }] }));
   assert.equal(ordinary.code, 0);
   assert.ok(promoted(ordinary.calls));
+});
+
+test("gate 1b covers the WHOLE CI-defining surface, not just .github/**", () => {
+  // `ci.yml` contains almost no test logic: it runs `pnpm verify:self` and
+  // `pnpm verify:integration`, both resolved from the MERGE REF's root
+  // `package.json` into `scripts/verify-*.mjs`, whose lane selection reads
+  // `harness.config.json`. A gate that refused only `.github/workflows|actions/**`
+  // let a branch gut CI through any of those and still auto-promote — while the
+  // hand-off comment told the human reviewer the run had executed main's CI
+  // definition. Every path here is one the agent App CAN push.
+  for (const filename of [
+    "package.json",
+    "packages/sheets/package.json",
+    "scripts/verify-self.mjs",
+    "scripts/verify-integration.mjs",
+    "scripts/changed-areas.mjs",
+    "harness.config.json",
+    "knip.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    ".github/CODEOWNERS",
+  ]) {
+    const { code, stdout, stderr, calls } = run(["7", "--promote"], okConfig({ files: [{ filename }] }));
+    assert.equal(code, 1, `${filename} decides what CI does, so its green run is not evidence about main's CI`);
+    assert.match(stdout, /Not promoting: one or more gates are not satisfied/);
+    assert.match(stderr, new RegExp(filename.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), "the refusal must name the path");
+    assert.ok(!promoted(calls));
+  }
+});
+
+test("gate 1b enumerates EVERY page of the file list, and refuses an unreadable one", () => {
+  // The loop pages up to 10 × 100. A reader that stopped at page 1 — which the
+  // previous stub could not even express, since it served one page — passes every
+  // other test in this file while a workflow edit sits on page 2 of a big PR.
+  const filler = (n, prefix) => Array.from({ length: n }, (_, i) => ({ filename: `${prefix}/f${i}.ts` }));
+
+  const hiddenOnPage2 = run(
+    ["7", "--promote"],
+    okConfig({ filePages: [filler(100, "packages/sheets/src"), [{ filename: ".github/workflows/ci.yml" }]] }),
+  );
+  assert.equal(hiddenOnPage2.code, 1, "a CI-definition edit on page 2 must be found");
+  assert.match(hiddenOnPage2.stderr, /\.github\/workflows\/ci\.yml/);
+  assert.ok(!promoted(hiddenOnPage2.calls));
+
+  // ...and a genuinely large, genuinely innocuous PR still promotes — so the
+  // assertion above is about finding the edit, not about refusing big PRs.
+  const bigButClean = run(
+    ["7", "--promote"],
+    okConfig({ filePages: [filler(100, "packages/sheets/src"), filler(3, "packages/docs/src")] }),
+  );
+  assert.equal(bigButClean.code, 0, "paging must continue, not refuse");
+  assert.ok(promoted(bigButClean.calls));
+  // Page 3 must actually have been asked for (the loop stops on a short page).
+  const pagesAsked = bigButClean.calls.filter((c) => c.includes("pulls/7/files")).length;
+  assert.equal(pagesAsked, 2, "one request per page until a short page ends the walk");
+
+  // Past the bound, the list is not enumerable and the gate cannot rule an edit
+  // out — a REFUSAL, not a pass. Exactly 1000 files is fine; 10 full pages is
+  // what the bound allows, and an off-by-one here would refuse a legal PR.
+  const tenFullPages = Array.from({ length: 10 }, () => filler(100, "packages/sheets/src"));
+  const atTheBound = run(["7", "--promote"], okConfig({ filePages: tenFullPages }));
+  assert.equal(atTheBound.code, 1, "a PR whose 10th page is still full may hide an 11th");
+  assert.match(atTheBound.stderr, /more than 1000 changed files/);
+  assert.ok(!promoted(atTheBound.calls));
+
+  // A malformed page is not an empty page. `[]` would terminate the walk and
+  // read as "nothing else changed"; anything that is not an array is a refusal.
+  const malformed = run(["7", "--promote"], okConfig({ filePages: ["junk"] }));
+  assert.equal(malformed.code, 1, "a non-array response must not read as an empty file list");
+  assert.match(malformed.stderr, /unexpected response from the PR files endpoint/);
+  assert.ok(!promoted(malformed.calls));
+});
+
+test("gate 1b's evidence is pinned to the default branch and to gate 1's SHA", () => {
+  // `pulls/N/files` answers for the PR's CURRENT base — a mutable,
+  // author-controlled field — and for whatever the head is NOW, while gate 1's
+  // evidence is a CI run pinned to the SHA read at the top of the run. Both ends
+  // have to be pinned or the file list describes a different comparison than the
+  // one the gate reports on.
+
+  // BASE RETARGETING: branch `x` carries a gutted `ci.yml` and a green CI run;
+  // open the PR against a branch that already has that edit and the diff no
+  // longer shows it. Refuse rather than measure.
+  const stacked = run(
+    ["7", "--promote"],
+    okConfig({ pr: { ...okConfig().pr, baseRefName: "agent/stacked-base" } }),
+  );
+  assert.equal(stacked.code, 1, "a PR based anywhere but the default branch has no comparison to make");
+  assert.match(stacked.stderr, /not the default branch 'main'/);
+  assert.ok(!promoted(stacked.calls));
+
+  // ...including when the repo's default branch is not called `main`, so the
+  // check is against the repository's answer rather than a hard-coded name.
+  const renamedDefault = run(["7", "--promote"], okConfig({ defaultBranch: "trunk" }));
+  assert.equal(renamedDefault.code, 1);
+  assert.match(renamedDefault.stderr, /not the default branch 'trunk'/);
+  const onTrunk = run(
+    ["7", "--promote"],
+    okConfig({ defaultBranch: "trunk", pr: { ...okConfig().pr, baseRefName: "trunk" } }),
+  );
+  assert.equal(onTrunk.code, 0, "the gate must follow the repository's default branch, not the string 'main'");
+  assert.ok(promoted(onTrunk.calls));
+
+  // A repository response with no `default_branch` leaves the base unknown, so
+  // there is nothing to compare the file list against — fail closed.
+  const noRepo = run(["7", "--promote"], okConfig({ repo: {} }));
+  assert.equal(noRepo.code, 1);
+  assert.match(noRepo.stderr, /could not read the repository's default branch/);
+  assert.ok(!promoted(noRepo.calls));
+
+  // HEAD MOVING MID-GATE: gate 1 read a green CI run for `cafe7` (which gutted
+  // CI); a push then lands `beef8`, which restores `ci.yml`, so the live file
+  // list is clean. Pairing the two would promote on evidence from neither commit.
+  const moved = run(["7", "--promote"], okConfig({ headAfter: "beef8" }));
+  assert.equal(moved.code, 1, "a head that moved mid-gate makes the two reads incomparable");
+  assert.match(moved.stderr, /the head moved from cafe7 to beef8/);
+  assert.ok(!promoted(moved.calls));
+});
+
+test("gate 2 requires the check run's PRODUCER, not just its name", () => {
+  // THE FORGERY. A check-run name is not reserved: any App on the installation
+  // may create `agent-review-correctness` and conclude it `success`. Gate 2 is
+  // the gate that means "an independent reviewer approved this", so identifying
+  // it by name alone is the same class of hole gate 1 closes by scoping its
+  // query to a workflow FILE. `app.slug` is set by GitHub from the installation.
+  const forged = DEFAULT_REVIEW_CHECKS.map((name) => ({
+    name,
+    conclusion: "success",
+    started_at: AT,
+    app: { slug: "some-other-app" },
+  }));
+  const { code, stdout, calls } = run(["7", "--promote"], okConfig({ checkRuns: forged }));
+  assert.equal(code, 1, "a green lens check from another App must not satisfy the review gate");
+  assert.match(stdout, /Not promoting: one or more gates are not satisfied/);
+  for (const name of DEFAULT_REVIEW_CHECKS) {
+    assert.match(stdout, new RegExp(`❌ ${name}`), `${name} must be reported as not passed`);
+  }
+  assert.ok(!promoted(calls), "the PR must stay a draft");
+
+  // ...and a forged run must not shadow a real one either, in either direction.
+  const real = (conclusion, t) => DEFAULT_REVIEW_CHECKS.map((name) => ({
+    name,
+    conclusion,
+    started_at: t,
+    app: { slug: "github-actions" },
+  }));
+  const shadowed = run(
+    ["7", "--promote"],
+    okConfig({ checkRuns: [...real("failure", AT), ...forged.map((c) => ({ ...c, started_at: "2026-08-23T00:00:00Z" }))] }),
+  );
+  assert.equal(shadowed.code, 1, "a newer forged success must not overturn the real failure");
+  assert.ok(!promoted(shadowed.calls));
 });
 
 test("gate 1 reads the NEWEST CI run for the SHA", () => {

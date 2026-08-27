@@ -159,3 +159,51 @@ inventing a `.patch` blob after the push is refused.
     what newest-wins depends on; a re-run that fans out again; a re-run that
     ignores `status: completed`.
 - CI (`verify:self`) on the PR.
+
+## Round 4: needs a maintainer (workflow files)
+
+Three review findings land in `.github/workflows/**`, which the agent App may
+not push. They are NOT staged as an apply-ready `.patch` this time — the panel
+was right that a `git apply` blob makes reviewer diligence the boundary the
+whole trust model rests on. So they are written out here as work for a human,
+and the branch carries only what it can honestly carry:
+
+1. **`capture-collect.yml` has no producer guard** (blast-radius + security).
+   It consumes `workflow_run` by DISPLAY NAME (`workflows: ["Agent Review
+   Panel", "Agent Review On-Demand"]`) with no `path`, branch or
+   head-repository clause, and its `collect` job checks out
+   `dlgpdmsly2/wafflebase-agent-eval` with `secrets.EVAL_STORE_TOKEN` and
+   pushes. The fix is one clause on that job's `if:`, matched against the two
+   producer FILES rather than their names, e.g.
+
+       github.event_name != 'workflow_run' ||
+       (github.event.workflow_run.conclusion != 'skipped' &&
+        contains(fromJSON('[".github/workflows/agent-review-panel.yml",
+                            ".github/workflows/agent-review-on-demand.yml"]'),
+                 github.event.workflow_run.path))
+
+   Keep the `event_name` half: `schedule` and `workflow_dispatch` carry no
+   `workflow_run` object at all. Extend `checks.test.mjs`'s
+   "every workflow_run consumer" test to cover it once it lands — that test is
+   already written to take a (file, job) pair.
+
+2. **`agent-implement.yml` and `agent-iterate-ci.yml` mint an UNSCOPED App
+   token from a movable tag** (security). Both call
+   `actions/create-github-app-token@v1` with no `permission-*` inputs, so the
+   token carries every permission the installation holds and is then handed to
+   a job that executes model-directed code with the branch checked out. Every
+   other consumer in the repo pins the action to
+   `d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0` and scopes the token
+   (see `agent-review-panel.yml`'s fix job). What each needs:
+   - `agent-implement.yml` — `contents: write` (push the branch),
+     `pull-requests: write` (open the PR), `issues: write` (comment),
+     plus whatever the "Require branch protection on main" step reads
+     (`administration: read`) — verify against that step before narrowing.
+   - `agent-iterate-ci.yml` — `contents: write`, `pull-requests: write`,
+     `issues: write`.
+   `agent-review-reply.yml` uses the same unpinned `@v1` and should move with
+   them.
+
+Until (2) lands, the gate-2 producer filter added in this round narrows the
+forgery to "any workflow in this repository holding `checks: write`" rather
+than "anything the installation token can reach".

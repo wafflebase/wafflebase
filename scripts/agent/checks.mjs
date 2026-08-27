@@ -82,6 +82,83 @@ export const CI_WORKFLOW_PATH = ".github/workflows/ci.yml";
 export const CI_WORKFLOW_FILE = "ci.yml";
 
 /**
+ * Paths whose CONTENTS decide what a CI run does — gate 1b's refusal surface.
+ *
+ * A `pull_request` run executes the merge ref's copy of everything CI reaches,
+ * so a branch that edits any of these hands gate 1 a green run that proves
+ * nothing about main's CI. `.github/workflows/ci.yml` is the obvious one and is
+ * nowhere near sufficient: `ci.yml` contains almost no test logic. It runs
+ * `pnpm verify:self` and `pnpm verify:integration`, both resolved from the merge
+ * ref's root `package.json` into `scripts/verify-*.mjs`, whose lane selection
+ * reads `harness.config.json`. Listing only the two `.github` prefixes — which an
+ * earlier revision of this gate did — meant a branch could gut CI through
+ * `package.json` and still auto-promote, while the hand-off comment told the
+ * human reviewer the run had executed main's CI definition.
+ *
+ * This list MIRRORS `harness.config.json`'s `ci.ciConfig` — the repository's own,
+ * CODEOWNER-ed definition of "files that decide how much CI runs" — plus two
+ * entries that list does not need and this gate does:
+ *   - `.github/actions/**` — a composite action is workflow content that happens
+ *     to live elsewhere; `ciConfig` omits it only because no such action exists
+ *     yet.
+ *   - a per-package `package.json` (one wildcard segment under `packages/`) — a
+ *     package's own `test`/`typecheck` script is what `verify:self` invokes for
+ *     that package, so editing it edits a lane. Spelled in prose because the
+ *     glob's middle wildcard followed by a slash would close this comment.
+ * `checks.test.mjs` asserts the mirror covers `ciConfig` entry for entry, so the
+ * two cannot drift silently.
+ *
+ * Hard-coded here rather than read from `harness.config.json` at runtime for a
+ * provenance reason: the promote job checks out the DEFAULT BRANCH, so this
+ * module is main's copy, whereas a file read would be whatever tree the caller
+ * happens to be standing in. The drift test is what keeps the duplication honest.
+ *
+ * WHAT THIS STILL DOES NOT COVER, stated because the hand-off comment must not
+ * overclaim it: a branch can always edit its own test files, and CI dutifully
+ * runs the weakened tests. That residue is a REVIEW property (test-adequacy reads
+ * the diff), not a gate property. Gate 1b's claim is therefore "the branch
+ * supplied no part of the CI/harness definition", never "every assertion CI ran
+ * came from main".
+ */
+export const CI_DEFINING_PATHS = [
+  ".github/workflows/**",
+  ".github/actions/**",
+  ".github/CODEOWNERS",
+  "harness.config.json",
+  "knip.json",
+  "package.json",
+  "packages/*/package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/changed-areas.mjs",
+  "scripts/verify-*.mjs",
+];
+
+// `**` spans separators, `*` does not, everything else is literal. Deliberately
+// tiny and deliberately anchored at both ends: this is a REFUSAL surface, so a
+// pattern that accidentally matched less is a fail-open.
+const CI_DEFINING_RE = CI_DEFINING_PATHS.map(
+  (glob) =>
+    new RegExp(
+      `^${glob
+        .split("**")
+        .map((span) =>
+          span
+            .split("*")
+            .map((lit) => lit.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+            .join("[^/]*"),
+        )
+        .join(".*")}$`,
+    ),
+);
+
+/** Does this changed path define what CI does? Non-strings → false. */
+export function definesCi(name) {
+  if (typeof name !== "string" || name === "") return false;
+  return CI_DEFINING_RE.some((re) => re.test(name));
+}
+
+/**
  * CI's verdict for a SHA: `"success"`, `"failure"`, or `null` for "not known
  * yet" — no run, or the newest one still in flight.
  *
@@ -155,9 +232,40 @@ export function ciRunToRerun(workflowRuns) {
   return newestRun((workflowRuns || []).filter((r) => r?.status === "completed"));
 }
 
-/** Latest run of `name` concluded success? Missing → false. */
+/**
+ * The App slug every check run this repo's gates will believe must carry.
+ *
+ * A check run's NAME is not a secret and is not reserved: ANY integration
+ * installed on the repository may create a check run called
+ * `agent-review-security` and conclude it `success`. Without a producer check,
+ * gate 2 — the one that means "an independent reviewer approved this" — is
+ * satisfiable by anything that can talk to the Checks API, which is the exact
+ * forgery class gate 1 closes by scoping its query to a workflow FILE. `app.slug`
+ * is set by GitHub from the installation, not by the payload the app sends, so it
+ * cannot be chosen by the app that reports it.
+ *
+ * `github-actions` is the slug of a run created by a workflow in this repository
+ * via `GITHUB_TOKEN`. It is NOT per-workflow identity: any workflow here that
+ * declared `checks: write` could post under the same slug. Today only the review
+ * panels do, and no author workflow can gain it — a branch cannot edit
+ * `.github/workflows/**`, because the agent App has no `workflows` scope. So this
+ * filter narrows the producer set from "every App on the installation" to
+ * "workflows in this repository", and review maintains the rest. That is the same
+ * posture `fix-eligible.mjs`, `fix-brief.mjs` and `review-state.mjs` already take;
+ * gate 2 was the one reader that did not.
+ */
+export const CHECK_PRODUCER_APP_SLUG = "github-actions";
+
+/**
+ * Latest run of `name` from the trusted producer concluded success? Missing →
+ * false. A run of the right name from ANOTHER App is not evidence and is not
+ * even considered — dropping it before the sort matters, because a forged run
+ * with a newer `started_at` would otherwise shadow the real verdict.
+ */
 export function checkPassed(checkRuns, name) {
-  const runs = (checkRuns || []).filter((r) => r.name === name);
+  const runs = (checkRuns || []).filter(
+    (r) => r?.name === name && r?.app?.slug === CHECK_PRODUCER_APP_SLUG,
+  );
   if (runs.length === 0) return false;
   runs.sort((a, b) => new Date(b.started_at ?? 0) - new Date(a.started_at ?? 0));
   return runs[0].conclusion === "success";

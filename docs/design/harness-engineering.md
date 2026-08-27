@@ -1891,7 +1891,17 @@ Components:
   author-writable verification comment), **every** required `agent-review-<lens>`
   check concluded `success` (`--require-checks`), and AI authorship is disclosed.
   Gates 1 and 2 read evidence a separate actor produced; gate 1b (below) is what
-  makes gate 1's evidence mean what it says. Gate 3
+  makes gate 1's evidence mean what it says. **Gate 2 identifies its evidence by
+  producer as well as by name**: `checkPassed` requires
+  `app.slug === "github-actions"` (`CHECK_PRODUCER_APP_SLUG`), because a check-run
+  name is not reserved — any App on the installation may create
+  `agent-review-security` and conclude it `success`, which is the same forgery
+  class gate 1 closes by scoping its query to a workflow file. It is not
+  per-workflow identity (any workflow here with `checks: write` shares the slug),
+  so it narrows the producer set from "every App installed" to "workflows in this
+  repository" and review maintains the rest — the posture `fix-eligible.mjs`,
+  `fix-brief.mjs` and `review-state.mjs` already took, and which gate 2 was the
+  last reader to adopt. Gate 3
   (disclosure) is a required self-attestation (belt-and-suspenders with the
   commit-trailer hook). The gate only flips draft → ready; it has no merge
   authority. The `agent-review-<lens>` checks must **never** be configured as
@@ -1909,11 +1919,48 @@ Components:
     it. The agent App cannot push `.github/workflows/**` (the boundary the
     panel's `workflow_run` trigger rests on), but an `agent:managed` human PR is
     on the same promote path and is not restricted. So `mark-ready.mjs` reads the
-    PR's own file list and refuses to promote any branch that touches
-    `.github/workflows/**` or `.github/actions/**` (renames counted on both
-    names; an unreadable or unenumerable list fails closed). Such a PR is not
-    blocked, only un-automated — a human reviews the workflow change and flips it
-    to ready, which is where that decision belongs. Do NOT restore an `@ref`
+    PR's own file list and refuses to promote a branch that supplies any part of
+    the CI definition (renames counted on both names; an unreadable, malformed or
+    unenumerable list fails closed). Such a PR is not blocked, only un-automated
+    — a human reviews the change and flips it to ready, which is where that
+    decision belongs.
+
+    **The surface is `CI_DEFINING_PATHS`, mirrored from `ci.ciConfig`.** The
+    first version of this gate listed only `.github/workflows/**` and
+    `.github/actions/**`, and that is nowhere near the CI-defining surface:
+    `ci.yml` holds almost no test logic. It runs `pnpm verify:self` and
+    `pnpm verify:integration`, both resolved from the MERGE REF's root
+    `package.json` into `scripts/verify-*.mjs`, whose lane selection reads
+    `harness.config.json` — every one of them a path the agent App *can* push. So
+    a branch could gut CI through `package.json` and still auto-promote, while the
+    hand-off comment told the reviewer the run had executed main's CI definition.
+    The list now mirrors `harness.config.json`'s `ci.ciConfig` — the repository's
+    own CODEOWNER-ed answer to "which files decide how much CI runs", maintained
+    for the same reason ("a PR can never use the filter to grade its own
+    homework") — plus two entries `ciConfig` does not need: `.github/actions/**`
+    and a per-package `package.json`, whose `test` script *is* a `verify:self`
+    lane. `checks.test.mjs` asserts the mirror is a superset entry for entry, so
+    the duplication cannot drift; it is hard-coded in `checks.mjs` rather than
+    read at runtime because the promote job checks out the DEFAULT BRANCH, so that
+    module is main's copy while a file read would be whatever tree the caller
+    stands in. What gate 1b still does NOT cover is a branch weakening its own
+    tests — CI runs them faithfully. That residue is a review property
+    (test-adequacy reads the diff), which is why the gate's claim is "the branch
+    supplied no part of the CI definition" and never "every assertion CI ran came
+    from main".
+
+    **Both ends of its evidence are pinned**, because a file list means nothing
+    without a base and a head and both are mutable. `pulls/N/files` answers for
+    the PR's CURRENT base — an author-controlled field — so a branch carrying a
+    gutted `ci.yml` could be retargeted onto (or stacked on) a base that already
+    has that edit and the diff would come back clean; the gate refuses any PR not
+    based on the repository's default branch rather than measuring it. And the
+    file list is for whatever the head is NOW, while gate 1's evidence is a CI run
+    pinned to the SHA read at the start of the run: the head is re-read after the
+    enumeration and a move refuses, or a green run for the gutted commit could be
+    paired with a clean file list for the commit that repaired it.
+
+    Do NOT restore an `@ref`
     tolerance or any other JS-side path matching here: an earlier revision
     stripped `@…` from a run's `path`, so a run whose path was "ci.yml", an
     at-sign, then an attacker's own `.yml` file went through as the real one.
@@ -1938,14 +1985,18 @@ Components:
     `workflow_run` trigger has nothing to scope server-side. Those gates refuse
     by SKIPPING, and a skipped job is a green job — so if that payload field ever
     stops being populated, the panel, the fixer and the CI report all go quiet at
-    once with nothing to notice. The canary for exactly that is a `trigger-shape`
-    job in `agent-review-panel.yml`: it fires on the payloads the gate refuses on
-    path grounds (empty, or another file) and FAILS, so the silence becomes a red
-    run. One canary covers all three files, because they would all break together.
-    It is STAGED, NOT LANDED —
-    `docs/tasks/active/20260825-promote-exit-code-default-trigger-shape.patch`
-    holds the job and its `checks.test.mjs` pin, because the agent App cannot
-    push `.github/workflows/**` and a maintainer has to apply it.
+    once with nothing to notice. A `trigger-shape` canary job in
+    `agent-review-panel.yml` — firing on exactly the payloads the gate refuses on
+    path grounds, and FAILING so the silence becomes a red run — was designed for
+    that and is NOT implemented. It was briefly shipped as an apply-ready `.patch`
+    file under `docs/tasks/active/`, and that was withdrawn: routing workflow
+    content past the `workflows` permission boundary as a `git apply` blob makes
+    reviewer diligence the boundary, when the whole trust model of the review
+    panel rests on that boundary being mechanical. Workflow content is a
+    maintainer's to author. What the pipeline can pin from its own side, it now
+    does: `checks.test.mjs` evaluates all three `if:` expressions against an
+    empty, a foreign, and the real path, so a clause that is deleted or inverted
+    fails a test even though the field's own disappearance would not.
 
     **The newest run wins**, ordered by run `id` (assigned in creation order,
     always present, integer) rather than `created_at`, where a missing or
@@ -1985,9 +2036,27 @@ Components:
     the panel's `fix` job and `agent-iterate-ci.yml` both hold `contents: write`
     and push to the PR branch, and CI's conclusion is the mutex between them.
     `agent-review-panel.yml`, `agent-iterate-ci.yml` and `ci-report.yml`
-    therefore assert `github.event.workflow_run.path` in their gating job.
-    `docker-publish.yml` / `publish-ghpage.yml` need no clause — their
+    therefore assert `github.event.workflow_run.path` in their gating job, and
+    `checks.test.mjs` extracts and evaluates all three `if:` expressions — a
+    clause that gates by skipping is otherwise deletable with every test still
+    green. `docker-publish.yml` / `publish-ghpage.yml` need no clause — their
     `head_branch == 'main'` gate means a forgery would have to be merged first.
+
+    **`capture-collect.yml` is the same class and is NOT yet guarded** — an open
+    gap, recorded here rather than implied away. It consumes `workflow_run` by
+    display name (`workflows: ["Agent Review Panel", "Agent Review On-Demand"]`)
+    with no `path`, branch or head-repository clause, and it holds
+    `secrets.EVAL_STORE_TOKEN`, a PAT with `Contents: write` on the separate eval
+    repository. So a second file calling itself `Agent Review Panel` reaches a job
+    that pushes to another repository. The blast radius is bounded by design (the
+    workflow's own `permissions:` block is read-only, the token is scoped to one
+    public data repo, and write-once keys mean a forged run cannot overwrite a
+    real capture — it can only add junk under `captures/`), which is why this is a
+    gap and not an incident. Closing it needs the same one-line
+    `github.event.workflow_run.path` clause on that job's `if:`, matched against
+    the two producer files instead of `ci.yml`, and it needs a MAINTAINER: the
+    agent App has no `workflows` scope, so an agent-authored branch cannot carry
+    it.
 
     The panel's **concurrency group must carry the same clause as its gate**,
     which is easy to miss because the two are written far apart. `concurrency`
