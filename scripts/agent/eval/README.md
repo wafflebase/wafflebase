@@ -26,7 +26,6 @@ else is `gh`, `git` and the filesystem, and costs nothing.
 | `adapters/coderabbit.mjs` | **the other arm's mapping** — CodeRabbit's inline comments and review bodies → the same records. Owns the `window` vocabulary: which snapshot of a pull request a finding is about | no (reads `gh`) |
 | `replay-plan.mjs` | the CI lane's **preflight** — validates one dispatch, computes what it can spend, and resolves the pull refs a runner has to fetch before any item will materialise | no |
 | `volume-mix.mjs` | **the first scorer** (of six) — volume, severity mix, nit ratio, localisation, scope discipline and restatement, per item and per arm, from finding records. Owns the `localization`, `scope` and `restatement` vocabularies, and the rule that a rate with no denominator prints `n/a` rather than 0 | no |
-
 | `complementarity.mjs` | cross-arm overlap over **defect classes**, with a band rather than a point: an overlap is a lower bound while any cross-arm pair is undecided | no (reads `gh`) |
 | `reliability.mjs` | does the same reviewer, re-run, say the same thing. Stratified, because one number averages a gate verdict against a nit | no |
 | `cost-latency.mjs` | spend and wall clock per arm, in two blocks with **no shared axis** — cost per review across arms is permanently not measurable | no |
@@ -37,7 +36,12 @@ else is `gh`, `git` and the filesystem, and costs nothing.
 | `report.mjs` | renders the scores into one comparison document per `(config_hash, panel_digest, corpus)` | no |
 | `score-all.mjs` | **the driver** — runs every scorer, files each score, renders the report. This is what CI's free lane executes, and it is runnable locally with the same arguments | no |
 
-Every scorer reads items through `EvalStore` and nothing else.
+**Two inputs, and only two.** Every scorer reads corpus items and run envelopes through
+`EvalStore` and nothing else — no scorer reaches for a working tree or a commit sha. The rows
+marked `reads gh` add exactly one more source, and only for the *other* arm: CodeRabbit's
+review is a set of pull-request comments, so GitHub is where it lives and there is nowhere
+else to read it from. That is why `score-all.mjs` refuses without `GH_REPO` — and why it
+still spawns no model and costs nothing.
 
 **Two CI lanes, opposite in every cost dimension.** `eval-replay.yml` spends model budget to
 produce envelopes: `workflow_dispatch`-only, a required cost cap, a panel timeout, sharded by

@@ -203,9 +203,10 @@ purpose is to spend model budget — every other model call in the loop is a sid
 effect of reviewing or implementing something — which is why it is dispatch-only and
 takes a required cost cap.
 
-It has no document under `docs/design/` and no row in [`README.md`](README.md). Its
-real documentation is `scripts/agent/eval/README.md`, and the spec its scorers cite
-by section number lives in a separate repository, not in this tree.
+It has no *design* document. [`eval-harness-usage.md`](eval-harness-usage.md) is an
+operator's guide — what to type, what it costs, how to read the report — not a record
+of intent. The reasoning still lives in `scripts/agent/eval/README.md`, and the spec
+its scorers cite by section number lives in a separate repository, not in this tree.
 
 ---
 
