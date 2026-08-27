@@ -341,9 +341,16 @@ function MobileOverflowMenu({
  * Thin notes toolbar: a markdown-formatting group (bold / italic /
  * strikethrough toggles, link toggle, quote / code / foldout / table inserts)
  * on the left when editing,
- * and a view-mode dropdown (Editor / Split / Preview) pinned to the far right
- * — following the Slides toolbar's right-aligned dropdown pattern. Uses the
- * same Toggle + tooltip + tabler-icon look as the docs/sheets toolbars.
+ * and a view-mode dropdown pinned to the far right — following the Slides
+ * toolbar's right-aligned dropdown pattern. Uses the same Toggle + tooltip +
+ * tabler-icon look as the docs/sheets toolbars.
+ *
+ * Two layouts. Above the mobile breakpoint the formatting group is the full
+ * inline row above and the view-mode dropdown offers Editor / Split /
+ * Preview. Below it, only undo/redo and the inline text formats stay on the
+ * strip — the rest moves into `MobileOverflowMenu`, and Split is dropped from
+ * the dropdown because it is a fixed 50/50 pane split. See the comments at
+ * `visibleModes` and at the `isMobile` branch for why each is the way it is.
  */
 export function NotesToolbar({
   mode,
@@ -448,7 +455,7 @@ export function NotesToolbar({
           )}
 
           {isMobile ? (
-            // Nineteen controls do not fit a phone. The strip is
+            // Eighteen controls do not fit a phone. The strip is
             // `overflow-x-auto`, so the overflow was never clipped — it
             // scrolled sideways, taking the right-pinned view-mode and
             // keymap dropdowns off screen with it. Keeping only undo/redo
@@ -591,7 +598,15 @@ export function NotesToolbar({
                 key={m}
                 checked={mode === m}
                 // Ignore the toggled-off case: a mode is always selected.
-                onCheckedChange={() => onModeChange(m)}
+                // This has to be an actual guard, not just an intent. Radix
+                // fires `onCheckedChange` when the already-checked item is
+                // picked too, and `mode` is the *effective* mode — on a phone
+                // a stored `both` shows up here as `edit`. Reporting that back
+                // would persist the demotion and quietly destroy the user's
+                // desktop Split preference on a tap that changed nothing.
+                onCheckedChange={() => {
+                  if (m !== mode) onModeChange(m);
+                }}
                 className="gap-2"
               >
                 <Icon size={16} />

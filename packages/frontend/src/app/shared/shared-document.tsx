@@ -316,7 +316,6 @@ function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
 
 function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
   const readOnly = resolved.role === "viewer";
-  const isMobile = useIsMobile();
 
   useEffect(() => {
     document.title = resolved.title
@@ -342,14 +341,15 @@ function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
           chunk well past the chunk-size gate.
         */}
         {/*
-          The editable case avoids `both` on a phone: it is a fixed 50/50
-          split (~187px per pane at 375px) and this surface has no view menu
-          at all, so there would be no way out of it.
+          `both` on a phone is a fixed 50/50 split, so ~187px per pane — bad,
+          and deliberately kept. This surface mounts no toolbar, so the split
+          is the only thing that renders a preview at all here; demoting it to
+          `edit` on narrow screens would trade a cramped preview for no
+          preview, with nothing to switch back with. Fixing it properly means
+          giving this route its own mode control, which is more than a layout
+          change. See docs/design/notes/notes.md.
         */}
-        <NotesView
-          readOnly={readOnly}
-          viewMode={readOnly ? "view" : isMobile ? "edit" : "both"}
-        />
+        <NotesView readOnly={readOnly} viewMode={readOnly ? "view" : "both"} />
       </div>
     </div>
   );

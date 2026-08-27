@@ -230,10 +230,16 @@ are frontend-only — the `@wafflebase/notes` engine has no viewport branch.
 - **No Split.** `both` is a fixed 50/50 pane layout
   (`packages/notes/src/view/editor.ts`), so it is two ~187px panes on a
   375px screen. The view menu drops the mode, and `notes-detail` demotes a
-  stored `both` to `edit` — without writing it back, so the per-user desktop
-  preference survives and widening the window restores the split.
-  `SharedNotesLayout` applies the same demotion to its editable mount, which
-  hardcodes the mode and carries no view menu to escape with.
+  stored `both` to `edit` for the render only — never written back, so the
+  per-user desktop preference survives and a wider window gets split again.
+  A mode picked *on* a phone is session-local for the same reason: persisting
+  it would destroy a stored `both` the phone could not have offered.
+
+`SharedNotesLayout` is deliberately **not** demoted, though it is the same
+cramped split. That route mounts no toolbar, so the split is the only thing
+that renders a preview there at all — demoting it would trade a cramped
+preview for none, with no control to switch back. Making it good needs a
+mode control on that surface, which is a feature rather than a layout fix.
 
 ### Risks and Mitigation
 

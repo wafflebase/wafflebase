@@ -39,6 +39,35 @@ one neighbour already compensates for, find out what it is compensating
 for before assuming the move is free — and fix it once at the container
 (`onCloseAutoFocus`) rather than per item.
 
+## "No escape hatch" can point either way — check which
+
+The reasoning that justified demoting the share-link mount was: that route
+has no view menu, so a bad layout there is inescapable. True, and exactly
+backwards. With no view menu, the split *is* the only thing that renders a
+preview — so the demotion didn't rescue a trapped user, it removed the
+feature and left them trapped without it.
+
+The tell was available before writing the line: the value was hardcoded,
+and hardcoded values usually encode a constraint. `git log -S` on that line
+would have surfaced the commit that chose it. **When a change makes one
+surface behave like another, check what the first surface has that the
+second doesn't** — here, a toolbar. A guard copied across a boundary
+without its context stops being a guard.
+
+## A comment describing intent is not the same as code enforcing it
+
+`onCheckedChange={() => onModeChange(m)}` carried the comment "Ignore the
+toggled-off case: a mode is always selected." It ignored nothing — Radix
+fires for the checked item too, and the handler reported unconditionally.
+That was harmless only while the displayed mode always equalled the stored
+one. Introducing a demotion split those two apart and turned a documented
+no-op into silent data loss.
+
+Two lessons. Adding an indirection (effective vs. stored value) means
+auditing every reader of the old value for the assumption that they were
+the same thing. And a comment claiming a behaviour is a place to check
+whether the code does it, not evidence that it does.
+
 ## Verify the harness before believing the harness
 
 Four separate red runs on this branch were all environment, not code:

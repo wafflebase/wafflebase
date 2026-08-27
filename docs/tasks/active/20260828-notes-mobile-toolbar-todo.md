@@ -56,8 +56,9 @@ at all.
       `NotesView`. Do **not** write the demoted value back to
       localStorage — the desktop preference has to survive, and widening
       the window should return to split.
-- [x] `shared-document.tsx:343` →
-      `readOnly ? "view" : isMobile ? "edit" : "both"`.
+- [x] ~~`shared-document.tsx:343` →
+      `readOnly ? "view" : isMobile ? "edit" : "both"`.~~ **Dropped in
+      review** — see below. Left at `both`, with a comment explaining why.
 - [x] Tests — new `notes-toolbar.test.tsx` (matchMedia + `innerWidth`
       stubs, following `slides/toolbar/index.test.tsx`): desktop keeps
       the list/insert buttons inline; mobile removes them from the strip
@@ -110,13 +111,58 @@ out in two of three full-suite runs here and passed alone every time.
 Raised to 20s with a comment; the assertion is that the module resolves,
 never that it resolves quickly.
 
+### Review round
+
+Five parallel reviewers over the branch diff (CLAUDE.md compliance, bug
+scan, git history, prior PR comments, code-comment compliance). Three
+findings were real and are fixed; the rest were checked and rejected.
+
+**The shared-document change was wrong and is reverted.** The history
+reviewer traced `viewMode={readOnly ? "view" : "both"}` back to `af8e6fc69`
+and found the reason it was written that way: that route mounts no toolbar,
+so the split is the only thing that renders a preview there at all.
+Demoting it to `edit` on a phone traded a cramped preview for **no**
+preview, with no control to switch back — removing a capability with no
+replacement. The original framing of this as "the worse case, fix it too"
+had the argument backwards. Reverted to `both` with a comment recording
+why, and the design doc now says the surface is deliberately not demoted.
+Doing it properly means giving that route its own mode control, which is a
+feature, not a layout fix.
+
+**The view-mode menu destroyed the stored `both`.** Two reviewers found it
+independently. `mode` reaching the toolbar is the *effective* mode, so on a
+phone a stored `both` shows as `edit` — and Radix fires `onCheckedChange`
+for the already-checked item too, so a tap that changed nothing reported
+`edit` upward and persisted it. The comment there already claimed to
+"ignore the toggled-off case"; it just never did. Now guarded for real, and
+`handleViewModeChange` additionally skips `writeViewMode` on mobile: a
+phone cannot offer Split, so a choice made on a phone must not overwrite a
+preference only a desktop could have set. Without that second half the
+guarantee held only until the user picked Preview once. Two tests added.
+
+**"Nineteen controls" was 18** — miscounted in the original todo and
+carried into a source comment and a test docstring. Corrected. The
+`NotesToolbar` docblock still described only the desktop layout, and now
+describes both.
+
+Rejected after checking: a claimed first-paint flash of the split layout
+from `useIsMobile()` returning `false` on the first render. `NotesView`
+creates the editor inside an effect gated on a `didMount` state flag, so
+`initialize()` never runs on the first commit — by the render that does
+create it, the hook's own effect has already reported the real width. The
+container renders as an empty `div` until then, so there is nothing to
+flash.
+
 ### Not covered
 
-- No test pins the `notes-detail` / `shared-document` demotion itself —
-  both are a ternary over `useIsMobile()` inside route components that
-  need a Yorkie `DocumentProvider` to render. Verified in the browser
-  instead (above). The toolbar's half of the guard — no Split offered
-  below the breakpoint — is unit-tested.
+- No test pins `notes-detail`'s demotion or its mobile write-skip — both
+  live in a route component that needs a Yorkie `DocumentProvider` to
+  render. Verified in the browser instead (above). The toolbar's half —
+  no Split offered, and no upward report when the active mode is
+  re-picked — is unit-tested.
+- An editable share link on a phone still gets the ~187px split. That is
+  now a deliberate known limitation rather than an oversight; the fix
+  needs a mode control on that route.
 - The breakpoint is the shared 768px `useIsMobile`, so a portrait tablet
   gets the phone toolbar. That matches docs and slides; no reason found to
   diverge here.

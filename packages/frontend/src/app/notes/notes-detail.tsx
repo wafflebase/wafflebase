@@ -52,9 +52,9 @@ function NotesLayout({ documentId }: { documentId: string }) {
   // 375px phone it is two ~187px panes. The toolbar stops offering it below
   // the mobile breakpoint; this demotes a *stored* `both` — set on a desktop,
   // where the preference is per-user rather than per-document — so a phone
-  // never opens into a layout its view menu cannot leave. Deliberately not
-  // written back through `writeViewMode`: the desktop preference has to
-  // survive, and widening the window returns to split.
+  // never opens into a layout its view menu cannot leave. Render-only: the
+  // demotion is never written back through `writeViewMode`, so the stored
+  // desktop preference survives untouched and a wider window gets split again.
   const effectiveViewMode: NoteViewMode =
     isMobile && viewMode === "both" ? "edit" : viewMode;
 
@@ -63,10 +63,19 @@ function NotesLayout({ documentId }: { documentId: string }) {
     writeShowAuthors(next);
   }, []);
 
-  const handleViewModeChange = useCallback((next: NoteViewMode) => {
-    setViewMode(next);
-    writeViewMode(next);
-  }, []);
+  const handleViewModeChange = useCallback(
+    (next: NoteViewMode) => {
+      setViewMode(next);
+      // A mode picked on a phone is session-local. Persisting it would
+      // overwrite a stored `both` that the phone was never able to offer in
+      // the first place — Split is filtered out of the menu down here — so
+      // "let me check the preview on my phone" would silently cost the user
+      // their desktop Split preference. Without this the render-only demotion
+      // above is only true until the user touches the view menu once.
+      if (!isMobile) writeViewMode(next);
+    },
+    [isMobile],
+  );
 
   const handleKeymapChange = useCallback((next: NoteKeymap) => {
     setKeymap(next);

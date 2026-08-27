@@ -1,7 +1,7 @@
 /**
  * `NotesToolbar` mobile layout.
  *
- * The toolbar renders 19 controls and its `Toolbar` root is `overflow-x-auto`,
+ * The toolbar renders 18 controls and its `Toolbar` root is `overflow-x-auto`,
  * so on a phone nothing was clipped — the strip scrolled sideways instead, and
  * the `ml-auto` view-mode / keymap group was pushed past the right edge. These
  * tests pin the fix: below the mobile breakpoint the list and insert controls
@@ -241,6 +241,32 @@ describe("NotesToolbar on a phone viewport", () => {
     await user.click(screen.getByRole("menuitem", { name: "Table (3×3)" }));
 
     expect(editor.insertTable).toHaveBeenCalledWith(3, 3);
+  });
+
+  it("does not report a mode change when the active mode is re-picked", async () => {
+    // `mode` here is the *effective* mode, so on a phone a stored `both`
+    // arrives as `edit`. Reporting `edit` back would persist the demotion and
+    // destroy the user's desktop Split preference on a tap that changed
+    // nothing — Radix fires onCheckedChange for the checked item too.
+    const user = userEvent.setup();
+    const onModeChange = vi.fn();
+    renderToolbar(stubEditor(), onModeChange);
+
+    await user.click(screen.getByRole("button", { name: /^View mode:/ }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Editor" }));
+
+    expect(onModeChange).not.toHaveBeenCalled();
+  });
+
+  it("reports a real mode change", async () => {
+    const user = userEvent.setup();
+    const onModeChange = vi.fn();
+    renderToolbar(stubEditor(), onModeChange);
+
+    await user.click(screen.getByRole("button", { name: /^View mode:/ }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: "Preview" }));
+
+    expect(onModeChange).toHaveBeenCalledWith("view");
   });
 
   it("does not offer Split in the view-mode menu", async () => {
