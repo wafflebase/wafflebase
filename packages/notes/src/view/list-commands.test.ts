@@ -55,6 +55,16 @@ describe('list toggles', () => {
     view.destroy();
   });
 
+  it('restarts ordered numbering inside a blockquote', () => {
+    // The quoted list is a list of its own; continuing the outer one would
+    // number it 2. even though it renders as a separate first item.
+    const view = mount('a\n> b\n> c');
+    selectLines(view, 1, 3);
+    toggleOrderedList(view);
+    expect(view.state.doc.toString()).toBe('1. a\n> 1. b\n> 2. c');
+    view.destroy();
+  });
+
   it('reads a quoted task as a task and converts it in place', () => {
     const view = mount('> - [x] a', 9);
     expect(computeListState(view.state).kind).toBe('task');

@@ -773,10 +773,10 @@ transaction, so sync, undo, and presence apply unchanged:
 
 - `packages/notes/src/view/checkbox-input.ts` — an `inputHandler` that inserts
   the missing `- ` when the user types the space after a line-leading `[ ]` /
-  `[x]` (line-leading including after a blockquote prefix, where the `- ` goes
-  inside the quote). Normalizing the *source* (rather than teaching the preview to render
-  bare boxes) keeps the note canonical GFM, so it stays a checklist wherever
-  else it is read.
+  `[x]` — line-leading including after a blockquote prefix, where the `- ` goes
+  inside the quote. Normalizing the *source* (rather than teaching the preview
+  to render bare boxes) keeps the note canonical GFM, so it stays a checklist
+  wherever else it is read.
 - `packages/notes/src/view/list-commands.ts` — the toolbar's bullet / numbered
   / checkbox toggles, indent, outdent, and the `computeListState()` reader that
   drives their pressed and disabled states. Every command applies to all lines
@@ -795,8 +795,8 @@ transaction, so sync, undo, and presence apply unchanged:
   line is in, not how it is marked up inside it), and outdenting bottoms out at
   the quote instead of eating it. The one addition is that the neighbour walks
   (`itemAbove` / `parentOf`) stop at a change of quote depth — a different depth
-  is a different block container, not a parent.
-
+  is a different block container, not a parent, and ordered numbering restarts
+  across it.
 - `preview.ts` — task checkboxes render enabled and each task `<li>` carries
   its source line (`data-source-line`, from the markdown-it token map); a
   delegated click anywhere on the item flips that line. The preview never

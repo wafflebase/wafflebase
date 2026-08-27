@@ -256,12 +256,14 @@ function replacePrefixes(
  * Toggle `kind` over the selected lines: when every line is already of that
  * kind the whole block turns back into plain paragraphs, otherwise every line
  * is converted (an ordered list becomes bullets, a bullet becomes a task, …).
- * Ordered lists are numbered per indent level within the selection.
+ * Ordered lists are numbered per indent level within the selection — and per
+ * quote depth, since a list inside a blockquote is a list of its own and
+ * starts at 1 again rather than continuing the one outside it.
  */
 function toggleKind(view: EditorView, kind: NoteListKind): void {
   const lines = selectedTargets(view.state);
   const all = lines.every((p) => kindOf(p) === kind);
-  const counters = new Map<number, number>();
+  const counters = new Map<string, number>();
   replacePrefixes(view, lines, (p) => {
     // Turning a list off drops the indent with the marker. Keeping it would
     // leave a nested item's content indented under the item above, which
@@ -274,8 +276,9 @@ function toggleKind(view: EditorView, kind: NoteListKind): void {
     // line out of the blockquote the user put it in.
     if (all) return p.quote;
     if (kind === 'ordered') {
-      const n = (counters.get(p.indent.length) ?? 0) + 1;
-      counters.set(p.indent.length, n);
+      const level = `${p.quote} ${p.indent.length}`;
+      const n = (counters.get(level) ?? 0) + 1;
+      counters.set(level, n);
       return prefixOf({ ...p, marker: `${n}.`, gap: ' ', check: null });
     }
     return prefixOf({

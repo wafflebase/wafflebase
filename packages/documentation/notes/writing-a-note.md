@@ -113,7 +113,7 @@ The preview supports **GitHub-Flavored Markdown** plus a few extras:
   you. In the preview, clicking anywhere on a task — the box or the text
   beside it — ticks and unticks it, and the change is written back into the
   Markdown source. A read-only view (a share link without edit rights) shows
-  the boxes but leaves them fixed
+  the boxes but leaves them fixed.
 - **Code blocks** — fenced ``` blocks get syntax highlighting and a **Copy**
   button in the corner
 - **Math** — inline `$…$` and block `$$…$$` render with KaTeX
