@@ -25,11 +25,35 @@ else is `gh`, `git` and the filesystem, and costs nothing.
 | `adapters/panel.mjs` | **our arm's mapping** — a stored run envelope → finding records, lane preserved. A library plus a CLI that prints; it stores nothing | no |
 | `adapters/coderabbit.mjs` | **the other arm's mapping** — CodeRabbit's inline comments and review bodies → the same records. Owns the `window` vocabulary: which snapshot of a pull request a finding is about | no (reads `gh`) |
 | `replay-plan.mjs` | the CI lane's **preflight** — validates one dispatch, computes what it can spend, and resolves the pull refs a runner has to fetch before any item will materialise | no |
-| `volume-mix.mjs` | **the first scorer** — volume, severity mix, nit ratio, localisation, scope discipline and restatement, per item and per arm, from finding records. Owns the `localization`, `scope` and `restatement` vocabularies, and the rule that a rate with no denominator prints `n/a` rather than 0 | no |
+| `volume-mix.mjs` | **the first scorer** (of six) — volume, severity mix, nit ratio, localisation, scope discipline and restatement, per item and per arm, from finding records. Owns the `localization`, `scope` and `restatement` vocabularies, and the rule that a rate with no denominator prints `n/a` rather than 0 | no |
+| `complementarity.mjs` | cross-arm overlap over **defect classes**, with a band rather than a point: an overlap is a lower bound while any cross-arm pair is undecided | no (reads `gh`) |
+| `reliability.mjs` | does the same reviewer, re-run, say the same thing. Stratified, because one number averages a gate verdict against a nit | no |
+| `cost-latency.mjs` | spend and wall clock per arm, in two blocks with **no shared axis** — cost per review across arms is permanently not measurable | no |
+| `segmentation.mjs` | where each arm wins, cut by severity, file class, diff size, provenance and novelty, with a min-n floor | no (reads `gh`) |
+| `validity.mjs` | precision from adjudicated labels. Exits non-zero when its own verdict is `partial`, which on an unadjudicated store is its correct answer | no (reads `gh`) |
+| `labels.mjs`, `pair-labels.mjs`, `adjudicate.mjs` | the label store and the blind adjudication CLI — severity, verifier outcome and gate decision are withheld from the screen | `adjudicate.mjs` only |
+| `panel-identity.mjs` | `panel_digest` — the fingerprint of the panel's own code, so a reviewer is identified by what it *is* rather than by a commit sha | no |
+| `report.mjs` | renders the scores into one comparison document per `(config_hash, panel_digest, corpus)` | no |
+| `score-all.mjs` | **the driver** — runs every scorer, files each score, renders the report. This is what CI's free lane executes, and it is runnable locally with the same arguments | no |
 
-The cross-arm matcher and the remaining scorers — complementarity, reliability,
-cost and latency — are not built yet. When they arrive they read items through
-`EvalStore` and nothing else.
+**Two inputs, and only two.** Every scorer reads corpus items and run envelopes through
+`EvalStore` and nothing else — no scorer reaches for a working tree or a commit sha. The rows
+marked `reads gh` add exactly one more source, and only for the *other* arm: CodeRabbit's
+review is a set of pull-request comments, so GitHub is where it lives and there is nowhere
+else to read it from. That is why `score-all.mjs` refuses without `GH_REPO` — and why it
+still spawns no model and costs nothing.
+
+**Two CI lanes, opposite in every cost dimension.** `eval-replay.yml` spends model budget to
+produce envelopes: `workflow_dispatch`-only, a required cost cap, a panel timeout, sharded by
+replicate. `eval-score.yml` derives numbers from envelopes that already exist: no model, no
+worktree, no write scope in this repository, and safe on a schedule.
+
+🔴 **Neither lane can gate a pull request**, and both assert it — one to stop a paid job firing
+itself, the other to stop a free job becoming a gate.
+
+**An operator's guide — prerequisites, the end-to-end path, what a run costs, and how to read
+the report — is [`docs/design/eval-harness-usage.md`](../../../docs/design/eval-harness-usage.md).**
+This file is the machinery and the reasoning; that one is what to type.
 
 ## One record, two arms
 
