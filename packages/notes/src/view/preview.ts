@@ -50,7 +50,9 @@ const md: MarkdownIt = new MarkdownIt({
 //
 // No `<label>` wrapper around the item text: the whole item is already a click
 // target (`onTaskClick`), and a label would also forward its click to the
-// checkbox inside it — the same tick reported twice.
+// checkbox inside it — the same tick reported twice. The accessible name a
+// label would have given comes from an `aria-label` written in `render`
+// instead, so a screen reader announces the item's own text either way.
 md.use(taskLists, { enabled: true });
 
 // Tag every task item with the source line its `- [ ]` sits on, so a click in
@@ -178,6 +180,24 @@ function selectionTouches(item: Element): boolean {
     if (item.contains(container) || container.contains(item)) return true;
   }
   return false;
+}
+
+/**
+ * The text of the task item `checkbox` belongs to, for its accessible name.
+ *
+ * Only the item's own text counts: a task with a nested list under it would
+ * otherwise be announced together with every one of its children, so the walk
+ * stops at the first nested list.
+ */
+function taskItemText(checkbox: Element): string {
+  const item = checkbox.closest(`.${TASK_ITEM_CLASS}`);
+  if (!item) return '';
+  let text = '';
+  for (const node of item.childNodes) {
+    if (node instanceof Element && /^(UL|OL)$/.test(node.tagName)) break;
+    text += node.textContent ?? '';
+  }
+  return text.trim();
 }
 
 /**
@@ -344,12 +364,15 @@ export class NotePreview {
 
   render(markdown: string): void {
     this.el.innerHTML = md.render(markdown);
-    // Without a way to write the change back (a read-only mount), the
-    // checkboxes are display only — disabled rather than clickable-looking.
-    if (!this.onToggleTask) {
-      for (const box of this.el.querySelectorAll(TASK_CHECKBOX_SELECTOR)) {
-        box.setAttribute('disabled', '');
-      }
+    for (const box of this.el.querySelectorAll(TASK_CHECKBOX_SELECTOR)) {
+      // Without a way to write the change back (a read-only mount), the
+      // checkboxes are display only — disabled rather than clickable-looking.
+      if (!this.onToggleTask) box.setAttribute('disabled', '');
+      // An unlabelled checkbox is announced as just "checkbox", which tells a
+      // screen-reader user nothing about which task it is — and a read-only
+      // viewer, who cannot tick anything, has only the name to go on.
+      const name = taskItemText(box);
+      if (name) box.setAttribute('aria-label', name);
     }
     // Mermaid diagrams render asynchronously (the engine is lazily imported);
     // cached ones land inside this call, the rest arrive shortly after.

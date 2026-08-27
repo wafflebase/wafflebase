@@ -17,7 +17,15 @@ export interface NoteListState {
 /** A markdown line split into its list parts. */
 interface ParsedLine {
   line: Line;
-  /** Leading whitespace of the line. */
+  /**
+   * The blockquote prefix the line opens with (`'> '`, `'> > '`, …), or `''`.
+   * It is peeled off before the list marker is parsed and written back by
+   * `prefixOf`, so every column below — `indent` above all — is measured
+   * *inside* the quote. That is what lets one item nest under another within a
+   * blockquote, and what stops an outdent from eating the `> ` itself.
+   */
+  quote: string;
+  /** Leading whitespace after the quote prefix. */
   indent: string;
   /** List marker without its trailing space (`-`, `*`, `1.`), or `''`. */
   marker: string;
@@ -27,42 +35,41 @@ interface ParsedLine {
   check: string | null;
   /** Everything after the marker and checkbox. */
   content: string;
-  /**
-   * The line sits inside a blockquote. `LIST_RE` does not admit a `>` prefix,
-   * so such a line parses as an ordinary paragraph whose "content" is the
-   * whole line, `> ` included — writing a marker in front of that would
-   * produce `- > - x`. The list commands leave these lines alone until
-   * blockquoted lists are supported properly.
-   */
-  quoted: boolean;
 }
 
-const QUOTED_RE = /^\s*>/;
+/**
+ * A run of blockquote markers, each optionally followed by one space (`> `,
+ * `>> `, `> > `). Only the space directly after a `>` belongs to the prefix —
+ * anything further is the quoted line's own indent.
+ */
+const QUOTE_RE = /^ {0,3}(?:> ?)+/;
 
 const LIST_RE = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)(?:\[([ xX])\]\s)?([\s\S]*)$/;
 
 function parseLine(line: Line): ParsedLine {
-  const m = LIST_RE.exec(line.text);
+  const quote = QUOTE_RE.exec(line.text)?.[0] ?? '';
+  const rest = line.text.slice(quote.length);
+  const m = LIST_RE.exec(rest);
   if (!m) {
-    const indent = /^\s*/.exec(line.text)![0];
+    const indent = /^\s*/.exec(rest)![0];
     return {
       line,
+      quote,
       indent,
       marker: '',
       gap: '',
       check: null,
-      content: line.text.slice(indent.length),
-      quoted: QUOTED_RE.test(line.text),
+      content: rest.slice(indent.length),
     };
   }
   return {
     line,
+    quote,
     indent: m[1],
     marker: m[2],
     gap: m[3],
     check: m[4] === undefined ? null : m[4].toLowerCase(),
     content: m[5],
-    quoted: QUOTED_RE.test(line.text),
   };
 }
 
@@ -78,14 +85,14 @@ function contentColumn(p: ParsedLine): number {
 }
 
 /**
- * The markers in front of the line's content: indent, list marker and
- * checkbox. Only this part is ever rewritten, so a caret sitting in the
- * content keeps its place across a toolbar action.
+ * The markers in front of the line's content: quote prefix, indent, list
+ * marker and checkbox. Only this part is ever rewritten, so a caret sitting in
+ * the content keeps its place across a toolbar action.
  */
 function prefixOf(p: ParsedLine): string {
-  if (!p.marker) return p.indent;
+  if (!p.marker) return p.quote + p.indent;
   const box = p.check === null ? '' : `[${p.check}] `;
-  return p.indent + p.marker + p.gap + box;
+  return p.quote + p.indent + p.marker + p.gap + box;
 }
 
 /** Whether the line has nothing but whitespace on it. */
@@ -131,10 +138,15 @@ function selectedTargets(state: EditorState): ParsedLine[] {
  * The list item directly above `p` that a nesting step would make it a child
  * of: the nearest preceding list line, skipping blank lines (a loose list
  * keeps blank lines between its items) but stopping at any other text.
+ *
+ * A line at a different quote depth is a different block container, so it ends
+ * the walk instead of being read as a sibling — `> - a` is no relation of a
+ * `- b` on the line below it.
  */
 function itemAbove(state: EditorState, p: ParsedLine): ParsedLine | null {
   for (let n = p.line.number - 1; n >= 1; n--) {
     const prev = parseLine(state.doc.line(n));
+    if (prev.quote !== p.quote) return null;
     if (prev.marker) return prev;
     if (!isBlank(prev)) return null;
   }
@@ -143,11 +155,12 @@ function itemAbove(state: EditorState, p: ParsedLine): ParsedLine | null {
 
 /**
  * The nearest preceding list item shallower than `p` — the parent whose level
- * an outdent step returns to.
+ * an outdent step returns to. Bounded by the quote depth, as `itemAbove` is.
  */
 function parentOf(state: EditorState, p: ParsedLine): ParsedLine | null {
   for (let n = p.line.number - 1; n >= 1; n--) {
     const prev = parseLine(state.doc.line(n));
+    if (prev.quote !== p.quote) return null;
     if (prev.marker && prev.indent.length < p.indent.length) return prev;
     if (!prev.marker && !isBlank(prev)) return null;
   }
@@ -176,7 +189,13 @@ function indentStep(state: EditorState, lines: ParsedLine[]): number {
   return target > top.indent.length ? target - top.indent.length : 0;
 }
 
-/** How far one outdent step moves the selected block (negative), or `0`. */
+/**
+ * How far one outdent step moves the selected block (negative), or `0`.
+ *
+ * `indent` is measured inside the quote prefix, so a top-level item in a
+ * blockquote reports `0` here: the `> ` is the floor, and outdenting can never
+ * strip it.
+ */
 function outdentStep(state: EditorState, lines: ParsedLine[]): number {
   const top = lines.find((p) => p.marker);
   if (!top || top.indent.length === 0) return 0;
@@ -209,9 +228,6 @@ function replacePrefixes(
 ): void {
   const changes = [];
   for (const p of lines) {
-    // Rewriting a blockquoted line's prefix would corrupt it, so it is left
-    // untouched rather than mangled — see `ParsedLine.quoted`.
-    if (p.quoted) continue;
     const from = p.line.from;
     const to = p.line.to - p.content.length;
     const insert = next(p);
@@ -252,7 +268,11 @@ function toggleKind(view: EditorView, kind: NoteListKind): void {
     // markdown reads as that item's lazy continuation (or, at four spaces
     // outside a list, as a code block) — the line visually disappears into
     // its former parent instead of becoming the paragraph it now is.
-    if (all) return '';
+    //
+    // The quote prefix stays, though: it says which block the line lives in,
+    // not how it is marked up inside it. Dropping it would silently lift the
+    // line out of the blockquote the user put it in.
+    if (all) return p.quote;
     if (kind === 'ordered') {
       const n = (counters.get(p.indent.length) ?? 0) + 1;
       counters.set(p.indent.length, n);

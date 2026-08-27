@@ -44,7 +44,14 @@ Your choice is remembered per browser, so the note opens the same way next time.
 ## Formatting Toolbar
 
 When the editor is visible, a toolbar gives you one-click Markdown for the most
-common styles. Select some text first, then click a button to wrap it:
+common styles — you never have to remember the syntax.
+
+**Undo / Redo** step through your own edits, and are greyed out when there is
+nothing left to undo or redo.
+
+### Text
+
+Select some text first, then click a button to wrap it:
 
 | Button | Inserts | Result |
 |--------|---------|--------|
@@ -52,11 +59,48 @@ common styles. Select some text first, then click a button to wrap it:
 | *I* | `*text*` | *Italic* |
 | ~~S~~ | `~~text~~` | ~~Strikethrough~~ |
 | Link | `[text](url)` | A hyperlink |
-| Table | A GFM table skeleton | A Markdown table |
+
+Bold, italic, strikethrough and link are **toggles**: they light up when the
+caret sits in text that already has that style, and clicking again removes it.
+
+### Lists
+
+| Button | Inserts | Result |
+|--------|---------|--------|
+| Bullet list | `- item` | An unordered list |
+| Numbered list | `1. item` | An ordered list |
+| Checkbox | `- [ ] item` | A task-list item |
+| Indent | Adds a level of nesting | A nested item |
+| Outdent | Removes a level of nesting | A less nested item |
+
+The three list buttons are toggles — clicking the one that is already lit turns
+the lines back into plain paragraphs, and clicking a different one converts
+between kinds (a numbered list becomes a checklist, and so on). **Indent** and
+**Outdent** are greyed out when the item cannot nest any further in that
+direction: the first item of a list has no sibling to nest under, and a
+top-level item has nothing to come out of.
+
+::: tip
+Select several lines and any of these five buttons applies to all of them at
+once, as a single undo step. They work inside a blockquote too, marking the
+lines up within the quote rather than pulling them out of it.
+:::
+
+### Blocks
+
+| Button | Inserts |
+|--------|---------|
+| Quote | `> ` in front of every selected line |
+| Code block | A ``` fence around the selection |
+| Foldout | A `<details>` / `<summary>` collapsible section |
+| Table | A GFM table skeleton |
+| Image | Uploads a picture and links it |
 
 ::: tip
 The **Insert table** button shows a small grid — hover to choose the number of
-rows and columns, then click to drop in a ready-to-fill table.
+rows and columns, then click to drop in a ready-to-fill table. You can also
+paste or drag an image straight into the editor instead of using the **Insert
+image** button.
 :::
 
 ## What the Preview Renders
@@ -64,7 +108,12 @@ rows and columns, then click to drop in a ready-to-fill table.
 The preview supports **GitHub-Flavored Markdown** plus a few extras:
 
 - **Tables** — standard `| col | col |` GFM tables
-- **Task lists** — `- [ ]` and `- [x]` render as checkboxes
+- **Task lists** — `- [ ]` and `- [x]` render as checkboxes. Typing just
+  `[ ]` (or `[x]`) at the start of a line and pressing space adds the `- ` for
+  you. In the preview, clicking anywhere on a task — the box or the text
+  beside it — ticks and unticks it, and the change is written back into the
+  Markdown source. A read-only view (a share link without edit rights) shows
+  the boxes but leaves them fixed
 - **Code blocks** — fenced ``` blocks get syntax highlighting and a **Copy**
   button in the corner
 - **Math** — inline `$…$` and block `$$…$$` render with KaTeX

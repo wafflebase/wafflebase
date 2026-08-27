@@ -37,14 +37,29 @@ describe('list toggles', () => {
     view.destroy();
   });
 
-  it('leaves a blockquoted line alone instead of corrupting it', () => {
-    // `LIST_RE` has no `>` alternative, so a quoted line parses as a plain
-    // paragraph whose content is the whole line — writing a marker in front
-    // of that produced `- > - quoted item`. Blockquoted lists are not
-    // supported yet; not touching them is the floor.
-    const view = mount('> - quoted item', 8);
+  it('marks up inside a blockquote instead of in front of it', () => {
+    // The marker goes after the `> `; writing it in front produced
+    // `- > quoted item`, a bullet containing a quote.
+    const view = mount('> quoted item', 8);
     toggleBulletList(view);
     expect(view.state.doc.toString()).toBe('> - quoted item');
+    view.destroy();
+  });
+
+  it('keeps the quote when a quoted item is turned back into text', () => {
+    // The quote says which block the line is in, not how it is marked up
+    // inside it — unlisting must not lift the line out of the blockquote.
+    const view = mount('> - quoted item', 10);
+    toggleBulletList(view);
+    expect(view.state.doc.toString()).toBe('> quoted item');
+    view.destroy();
+  });
+
+  it('reads a quoted task as a task and converts it in place', () => {
+    const view = mount('> - [x] a', 9);
+    expect(computeListState(view.state).kind).toBe('task');
+    toggleOrderedList(view);
+    expect(view.state.doc.toString()).toBe('> 1. a');
     view.destroy();
   });
 
@@ -205,6 +220,30 @@ describe('indent and outdent', () => {
     view.destroy();
   });
 
+  it('nests inside a blockquote without stripping the quote', () => {
+    const view = mount('> - a\n> - b', 10);
+    expect(computeListState(view.state).canIndent).toBe(true);
+    indentList(view);
+    expect(view.state.doc.toString()).toBe('> - a\n>   - b');
+    // The `> ` is the floor: one outdent returns to the quote's own column,
+    // and there is nothing left to outdent after it.
+    expect(computeListState(view.state).canOutdent).toBe(true);
+    outdentList(view);
+    expect(view.state.doc.toString()).toBe('> - a\n> - b');
+    expect(computeListState(view.state).canOutdent).toBe(false);
+    outdentList(view);
+    expect(view.state.doc.toString()).toBe('> - a\n> - b');
+    view.destroy();
+  });
+
+  it('does not nest a plain item under a quoted one', () => {
+    // Different quote depth, different block container — `- b` is no sibling
+    // of the quoted item above it.
+    const view = mount('> - a\n- b', 8);
+    expect(computeListState(view.state).canIndent).toBe(false);
+    view.destroy();
+  });
+
   it('does nothing when the block cannot move', () => {
     const view = mount('- a\n- b', 2);
     indentList(view);
@@ -221,6 +260,15 @@ describe('setTaskChecked', () => {
     expect(view.state.doc.toString()).toBe('- [x] a\n- [x] b');
     setTaskChecked(view, 2, false);
     expect(view.state.doc.toString()).toBe('- [x] a\n- [ ] b');
+    view.destroy();
+  });
+
+  it('flips a blockquoted box', () => {
+    // The preview renders a quoted task as a normal task item, so a click on
+    // it has to reach the source line the same way.
+    const view = mount('> - [ ] a');
+    setTaskChecked(view, 1, true);
+    expect(view.state.doc.toString()).toBe('> - [x] a');
     view.destroy();
   });
 
