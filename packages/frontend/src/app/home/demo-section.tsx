@@ -115,6 +115,7 @@ export function DemoSection() {
               onKeyDown={(e) => handleTabKey(e, "sheet")}
               icon={<SheetIcon />}
               label="Spreadsheet"
+              shortLabel="Sheet"
               tabId="demo-tab-sheet"
               panelId="demo-panel-sheet"
             />
@@ -124,6 +125,7 @@ export function DemoSection() {
               onKeyDown={(e) => handleTabKey(e, "doc")}
               icon={<DocIcon />}
               label="Word processor"
+              shortLabel="Doc"
               tabId="demo-tab-doc"
               panelId="demo-panel-doc"
             />
@@ -133,6 +135,7 @@ export function DemoSection() {
               onKeyDown={(e) => handleTabKey(e, "slides")}
               icon={<SlidesIcon />}
               label="Presentation"
+              shortLabel="Slides"
               tabId="demo-tab-slides"
               panelId="demo-panel-slides"
             />
@@ -280,6 +283,8 @@ type DemoTabProps = {
   onKeyDown: (e: React.KeyboardEvent) => void;
   icon: React.ReactNode;
   label: string;
+  /** Narrow-viewport label — the full one wraps to two lines on phones. */
+  shortLabel: string;
   tabId: string;
   panelId: string;
 };
@@ -290,6 +295,7 @@ function DemoTab({
   onKeyDown,
   icon,
   label,
+  shortLabel,
   tabId,
   panelId,
 }: DemoTabProps) {
@@ -304,14 +310,15 @@ function DemoTab({
       onClick={onClick}
       onKeyDown={onKeyDown}
       className={cn(
-        "inline-flex items-center gap-2 px-3.5 pt-2.5 pb-3 -mb-px font-body text-[13.5px] font-medium border-b-2 rounded-t-lg cursor-pointer transition-colors",
+        "inline-flex items-center gap-1.5 sm:gap-2 whitespace-nowrap px-2.5 sm:px-3.5 pt-2.5 pb-3 -mb-px font-body text-[13.5px] font-medium border-b-2 rounded-t-lg cursor-pointer transition-colors",
         active
           ? "text-[color:var(--wb-ink)] bg-[color:var(--wb-paper)] border-[color:var(--wb-syrup)]"
           : "text-[color:var(--wb-sub)] bg-transparent border-transparent hover:text-[color:var(--wb-ink)]",
       )}
     >
       {icon}
-      {label}
+      <span className="sm:hidden">{shortLabel}</span>
+      <span className="hidden sm:inline">{label}</span>
     </button>
   );
 }

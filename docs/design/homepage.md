@@ -129,9 +129,10 @@ focused on messaging instead of duplicating the demo.
 Section frame: `--wb-paper` rounded card (18px), syrup-deep drop shadow.
 
 - **Tab bar** — `Spreadsheet` / `Word processor` / `Presentation` icon + label
-  tabs. Active tab gets butter-tinted `--wb-paper` bg + `--wb-syrup` 2px
-  bottom border; inactive uses `--wb-sub` text. Default active tab is
-  `sheet`.
+  tabs, shortened to `Sheet` / `Doc` / `Slides` below `sm` so a phone-width
+  bar stays one line tall. Active tab gets butter-tinted `--wb-paper` bg +
+  `--wb-syrup` 2px bottom border; inactive uses `--wb-sub` text. Default
+  active tab is `sheet`.
 - **Sheet tab** — live iframe `/shared/{VITE_DEMO_SHARED_TOKEN}` (default
   `bed3dbe8-…`). Loaded eagerly on mount.
 - **Doc tab** — live iframe `/shared/{VITE_DEMO_DOC_SHARED_TOKEN}` (default
