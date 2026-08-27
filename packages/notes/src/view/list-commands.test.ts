@@ -246,6 +246,29 @@ describe('indent and outdent', () => {
     view.destroy();
   });
 
+  it('leaves a selected line in another blockquote where it is', () => {
+    // The step is measured against the top line's own neighbour above. A line
+    // in a different container has no such neighbour, so moving it by the same
+    // step would nest it under nothing — at four columns markdown reads that
+    // as a code block, and the item silently turns into a grey box.
+    const view = mount('- a\n- b\n>   - c');
+    selectLines(view, 2, 3);
+    indentList(view);
+    expect(view.state.doc.toString()).toBe('- a\n  - b\n>   - c');
+    view.destroy();
+  });
+
+  it('nests across the blank separator of a loose quoted list', () => {
+    // Pressing Enter twice in a quoted list leaves a bare `>` between the
+    // items — the same blockquote, written without its trailing space, so the
+    // container has to be compared by depth and not by prefix text.
+    const view = mount('> - a\n>\n> - b', 13);
+    expect(computeListState(view.state).canIndent).toBe(true);
+    indentList(view);
+    expect(view.state.doc.toString()).toBe('> - a\n>\n>   - b');
+    view.destroy();
+  });
+
   it('does not nest a plain item under a quoted one', () => {
     // Different quote depth, different block container — `- b` is no sibling
     // of the quoted item above it.

@@ -135,6 +135,16 @@ function selectedTargets(state: EditorState): ParsedLine[] {
 }
 
 /**
+ * How deeply the line is quoted — the block container it lives in. Two lines
+ * belong to the same container when this matches; the prefix *text* must not
+ * be compared instead, because `>` and `> ` are the same blockquote and the
+ * blank separator line of a loose quoted list is written as the former.
+ */
+function quoteDepth(p: ParsedLine): number {
+  return p.quote.length - p.quote.replace(/>/g, '').length;
+}
+
+/**
  * The list item directly above `p` that a nesting step would make it a child
  * of: the nearest preceding list line, skipping blank lines (a loose list
  * keeps blank lines between its items) but stopping at any other text.
@@ -146,7 +156,7 @@ function selectedTargets(state: EditorState): ParsedLine[] {
 function itemAbove(state: EditorState, p: ParsedLine): ParsedLine | null {
   for (let n = p.line.number - 1; n >= 1; n--) {
     const prev = parseLine(state.doc.line(n));
-    if (prev.quote !== p.quote) return null;
+    if (quoteDepth(prev) !== quoteDepth(p)) return null;
     if (prev.marker) return prev;
     if (!isBlank(prev)) return null;
   }
@@ -160,7 +170,7 @@ function itemAbove(state: EditorState, p: ParsedLine): ParsedLine | null {
 function parentOf(state: EditorState, p: ParsedLine): ParsedLine | null {
   for (let n = p.line.number - 1; n >= 1; n--) {
     const prev = parseLine(state.doc.line(n));
-    if (prev.quote !== p.quote) return null;
+    if (quoteDepth(prev) !== quoteDepth(p)) return null;
     if (prev.marker && prev.indent.length < p.indent.length) return prev;
     if (!prev.marker && !isBlank(prev)) return null;
   }
@@ -276,7 +286,7 @@ function toggleKind(view: EditorView, kind: NoteListKind): void {
     // line out of the blockquote the user put it in.
     if (all) return p.quote;
     if (kind === 'ordered') {
-      const level = `${p.quote} ${p.indent.length}`;
+      const level = `${quoteDepth(p)}:${p.indent.length}`;
       const n = (counters.get(level) ?? 0) + 1;
       counters.set(level, n);
       return prefixOf({ ...p, marker: `${n}.`, gap: ' ', check: null });
@@ -302,10 +312,22 @@ export function toggleTaskList(view: EditorView): void {
   toggleKind(view, 'task');
 }
 
-/** Shift every selected list line by `step` columns (clamped at column 0). */
+/**
+ * Shift the selected list lines by `step` columns (clamped at column 0).
+ *
+ * Only the lines in the same block container as the top list line move: `step`
+ * was measured against *its* neighbour above, and a selected line in another
+ * blockquote has no such neighbour — pushing it in by that much would nest it
+ * under nothing, which at four columns markdown reads as a code block.
+ */
 function shift(view: EditorView, step: number): void {
-  replacePrefixes(view, selectedTargets(view.state), (p) => {
-    if (!p.marker) return prefixOf(p);
+  const lines = selectedTargets(view.state);
+  // Both callers computed a non-zero step from a list line, so there is one.
+  const top = lines.find((p) => p.marker);
+  if (!top) return;
+  const depth = quoteDepth(top);
+  replacePrefixes(view, lines, (p) => {
+    if (!p.marker || quoteDepth(p) !== depth) return prefixOf(p);
     const width = Math.max(0, p.indent.length + step);
     return prefixOf({ ...p, indent: ' '.repeat(width) });
   });
