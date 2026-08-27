@@ -161,3 +161,13 @@
   copy. **Read the other version before resolving**, and take the union: the
   agent's rule, the maintainer's wiring, and a test tying the copies together.
   Force-pushing over `claude[bot]` would have silently reintroduced both.
+
+- **A security example that names a file that must never exist still trips the
+  doc-staleness gate.** Documenting the forged path as a single backticked
+  token, `ci.yml` + `@` + an attacker's own `.yml`, is exactly the shape
+  `extractFileRefs` reads as a file reference (its character class admits `@`),
+  so `verify:entropy` reported it as broken and failed the lane. The fix is to
+  spell such a name out in prose, not to add a `docStaleness.advisory` entry:
+  that list means "this file is planned and will exist", and a forgery example
+  is the opposite claim. Suppressing it would also have downgraded a real
+  reference later if the name were ever reused.

@@ -1915,7 +1915,11 @@ Components:
     blocked, only un-automated — a human reviews the workflow change and flips it
     to ready, which is where that decision belongs. Do NOT restore an `@ref`
     tolerance or any other JS-side path matching here: an earlier revision
-    stripped `@…` from a run's `path` and let `ci.yml@pwn.yml` through.
+    stripped `@…` from a run's `path`, so a run whose path was "ci.yml", an
+    at-sign, then an attacker's own `.yml` file went through as the real one.
+    (Spelling that forged name as one backticked token is what the
+    doc-staleness gate reads as a file reference — it is not one, and never
+    will be, so it is written out in prose instead of suppressed.)
     `checks.test.mjs` asserts `CI_WORKFLOW_PATH` names a file that exists and
     whose runs are still named `CI` — a rename that broke the match would
     otherwise make the gate silently unsatisfiable for every PR.
