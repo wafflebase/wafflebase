@@ -172,8 +172,20 @@ function ciPassed(sha) {
       "api",
       `repos/{owner}/{repo}/actions/workflows/${CI_WORKFLOW_FILE}/runs?head_sha=${sha}&per_page=100`,
     ]);
-  } catch {
-    return false;
+  } catch (err) {
+    // A TOOLING ERROR, not a red gate — the same distinction the promote job's
+    // exit-1 branch exists to make. Scoping the query to a workflow FILE added
+    // a 404 class the unscoped endpoint did not have: rename or delete
+    // `ci.yml` and this throws, and `return false` would report it as "CI is
+    // not green", leaving every PR a silent draft forever while the job
+    // SUCCEEDED. `checks.test.mjs` asserts the file exists, so this fires for a
+    // rename that lands between test and run — or for an API outage, where
+    // failing the job is also right: nothing was learned about CI.
+    console.error(
+      `Failed to read runs of ${CI_WORKFLOW_FILE} for ${sha}: ${err.message}\n` +
+        "This is a tooling error, not a gate refusal — the CI workflow may have been renamed.",
+    );
+    process.exit(2);
   }
   return ciConclusion(data.workflow_runs) === "success";
 }

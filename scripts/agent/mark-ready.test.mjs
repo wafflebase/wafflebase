@@ -221,6 +221,21 @@ test("exit 2: failing to read the PR is a tooling error, not a gate failure", ()
   assert.match(stderr, /Failed to read PR #7/);
 });
 
+test("exit 2: failing to read the CI workflow's runs is a tooling error, not a red gate", () => {
+  // Scoping gate 1's query to a workflow FILE added a 404 class the unscoped
+  // endpoint did not have — rename or delete ci.yml and the read throws. Read
+  // as "CI is not green" that would leave every PR a silent draft forever while
+  // the promote job SUCCEEDED: exactly the crash-reported-as-a-gate-refusal
+  // this whole change exists to stop, one level down from where it started.
+  const { code, stderr, calls } = run(
+    ["7", "--promote"],
+    okConfig({ fail: ["api repos/{owner}/{repo}/actions/workflows"] }),
+  );
+  assert.equal(code, 2, "an unreadable CI workflow must not be reported as 'gates not satisfied'");
+  assert.match(stderr, /tooling error, not a gate refusal/);
+  assert.ok(!promoted(calls), "and nothing may be promoted on evidence that could not be read");
+});
+
 // ---- exit 1: a gate said no (job still SUCCEEDS) --------------------------
 
 test("exit 1, not 0: CI not green leaves the PR a draft without promoting", () => {
