@@ -1,8 +1,12 @@
 import { EditorSelection, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 
-/** A line holding nothing but an indent and a `[ ]` / `[x]` box. */
-const BARE_BOX_RE = /^(\s*)\[([ xX])\]$/;
+/**
+ * A line holding nothing but an optional blockquote prefix, an indent and a
+ * `[ ]` / `[x]` box. The prefix is re-emitted verbatim, so the `- ` lands
+ * *inside* the quote (`> [ ] ` becomes `> - [ ] `) rather than in front of it.
+ */
+const BARE_BOX_RE = /^( {0,3}(?:> ?)*\s*)\[([ xX])\]$/;
 
 /**
  * Turn a line-leading `[ ]` (or `[x]`) into a task-list item as soon as the

@@ -59,6 +59,13 @@ describe('bare checkbox input', () => {
     view.destroy();
   });
 
+  it('inserts the hyphen inside a blockquote, not in front of it', () => {
+    const view = mount('> [ ]');
+    expect(type(view, ' ')).toBe(true);
+    expect(view.state.doc.toString()).toBe('> - [ ] ');
+    view.destroy();
+  });
+
   it('ignores a box that is not at the start of the line', () => {
     const view = mount('see [ ]');
     expect(type(view, ' ')).toBe(false);
