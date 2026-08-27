@@ -1890,7 +1890,8 @@ Components:
   for the head SHA concluded `success` (read via the Actions API, not the
   author-writable verification comment), **every** required `agent-review-<lens>`
   check concluded `success` (`--require-checks`), and AI authorship is disclosed.
-  Gates 1 and 2 are unforgeable — evidence a separate actor produced. Gate 3
+  Gates 1 and 2 read evidence a separate actor produced; gate 1b (below) is what
+  makes gate 1's evidence mean what it says. Gate 3
   (disclosure) is a required self-attestation (belt-and-suspenders with the
   commit-trailer hook). The gate only flips draft → ready; it has no merge
   authority. The `agent-review-<lens>` checks must **never** be configured as
@@ -1901,19 +1902,23 @@ Components:
   changes to the harness itself, but the repo-wide agent-PR gate is the
   branch-protection approval, not CODEOWNERS.
 
-    **Gate 1 identifies CI by workflow PATH, not by the run's display name.**
-    A run's `name` is only the workflow file's `name:` key and nothing makes it
-    unique, so a second file saying `name: CI` would produce runs
-    indistinguishable from the real ones — and anyone able to push a branch to
-    the base repo could then hand gate 1 a green run for their own head SHA.
-    The agent App cannot push `.github/workflows/**` (the boundary the panel's
-    `workflow_run` trigger rests on), but an `agent:managed` human PR is on the
-    same promote path and is not restricted. `CI_WORKFLOW_PATH` and
-    `ciConclusion()` in `checks.mjs` are the single source for both readers
-    (`mark-ready.mjs`, `set-state.mjs`), and tolerate the `@ref` suffix a called
-    workflow reports. `checks.test.mjs` asserts the path names a file that
-    exists and whose runs are still named `CI` — a rename that broke the match
-    would otherwise make the gate silently unsatisfiable for every PR.
+    **Gate 1b: WHICH file ran is not WHAT was in it.** A `pull_request` run
+    executes the merge ref's copy of `ci.yml`, so scoping the query by workflow
+    file — however unspoofably — still admits a branch that ships its own gutted
+    CI definition: a genuinely green run, at the genuine path, with no tests in
+    it. The agent App cannot push `.github/workflows/**` (the boundary the
+    panel's `workflow_run` trigger rests on), but an `agent:managed` human PR is
+    on the same promote path and is not restricted. So `mark-ready.mjs` reads the
+    PR's own file list and refuses to promote any branch that touches
+    `.github/workflows/**` or `.github/actions/**` (renames counted on both
+    names; an unreadable or unenumerable list fails closed). Such a PR is not
+    blocked, only un-automated — a human reviews the workflow change and flips it
+    to ready, which is where that decision belongs. Do NOT restore an `@ref`
+    tolerance or any other JS-side path matching here: an earlier revision
+    stripped `@…` from a run's `path` and let `ci.yml@pwn.yml` through.
+    `checks.test.mjs` asserts `CI_WORKFLOW_PATH` names a file that exists and
+    whose runs are still named `CI` — a rename that broke the match would
+    otherwise make the gate silently unsatisfiable for every PR.
 
     **Gate 1 identifies CI by asking the API for that workflow's runs**
     (`/actions/workflows/ci.yml/runs?head_sha=…`), not by fetching every run for
@@ -1926,7 +1931,17 @@ Components:
     also bounds the response to CI's own runs, so a flood cannot push the CI run
     past `per_page`. The `workflow_run` gates still compare
     `github.event.workflow_run.path` with exact equality, because a
-    `workflow_run` trigger has nothing to scope server-side.
+    `workflow_run` trigger has nothing to scope server-side. Those gates refuse
+    by SKIPPING, and a skipped job is a green job — so if that payload field ever
+    stops being populated, the panel, the fixer and the CI report all go quiet at
+    once with nothing to notice. The canary for exactly that is a `trigger-shape`
+    job in `agent-review-panel.yml`: it fires on the payloads the gate refuses on
+    path grounds (empty, or another file) and FAILS, so the silence becomes a red
+    run. One canary covers all three files, because they would all break together.
+    It is STAGED, NOT LANDED —
+    `docs/tasks/active/20260825-promote-exit-code-default-trigger-shape.patch`
+    holds the job and its `checks.test.mjs` pin, because the agent App cannot
+    push `.github/workflows/**` and a maintainer has to apply it.
 
     **The newest run wins**, ordered by run `id` (assigned in creation order,
     always present, integer) rather than `created_at`, where a missing or

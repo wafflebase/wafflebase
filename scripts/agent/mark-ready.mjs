@@ -13,16 +13,20 @@
 //      second workflow file could claim — and not by parsing a path in JS. See
 //      CI_WORKFLOW_FILE in checks.mjs for why that distinction is load-bearing.
 //
-//      WHAT THIS DOES NOT GUARANTEE: a `pull_request` run executes the PR
-//      BRANCH's own copy of `ci.yml`, so a branch that can edit that file can
-//      produce a genuinely green run at the genuine path with no tests in it.
-//      The agent App cannot — it may not push `.github/workflows/**`, which is
-//      the same boundary agent-review-panel.yml's `workflow_run` trigger rests
-//      on — but an `agent:managed` human PR is on this promote path and is not
-//      restricted. So gate 1 means "a separate actor reports CI green for this
-//      SHA", NOT "the tests in main's CI definition passed". Closing that gap
-//      needs the run's workflow content compared against the base branch, which
-//      is a change to this gate rather than a comment on it.
+//      Scoping by file proves WHICH file ran; it cannot prove WHAT was in it. A
+//      `pull_request` run executes the PR MERGE REF's copy of `ci.yml`, so a
+//      branch that can edit that file produces a genuinely green run at the
+//      genuine path with no tests in it. Gate 1b closes that:
+//   1b. The branch changes NO workflow definition (`.github/workflows/**`, and
+//      `.github/actions/**` for anything one could call). If it does, CI's
+//      verdict for this SHA is evidence about the BRANCH's CI definition rather
+//      than about main's, so it is not the evidence gate 1 claims to read and
+//      auto-promotion is refused. Such a PR is not blocked, only un-automated:
+//      a human reviews the workflow change and flips it to ready by hand, which
+//      is where "should this CI definition land" belongs anyway. The agent App
+//      cannot push those paths (the same boundary agent-review-panel.yml's
+//      `workflow_run` trigger rests on), but an `agent:managed` human PR is on
+//      this promote path and is not restricted — which is why the gate exists.
 //   2. The `agent-independent-review` check run on the PR head SHA concluded
 //      `success` — an INDEPENDENT reviewer approved it. Only the reviewer
 //      workflow (which has checks:write) can post that check, so the author
@@ -161,6 +165,50 @@ function ciPassed(sha) {
 
 const ciGate = ciPassed(pr.headRefOid);
 
+// --- gate 1b: the run executed MAIN's CI definition, not the branch's own ---
+
+// Paths whose contents DEFINE what a CI run does. A `pull_request` run executes
+// the merge ref's copy of them, so a branch that edits any of them can hand
+// gate 1 a green run with no tests in it — same file, same path, gutted body.
+// `.github/actions/**` is here because a composite action is workflow content
+// that happens to live elsewhere.
+const CI_DEFINING_PREFIXES = [".github/workflows/", ".github/actions/"];
+
+// Paginated explicitly rather than with `gh api --paginate`, which concatenates
+// one JSON array per page and does not parse. A PR too large to enumerate is a
+// REFUSAL, not a pass: the whole point is that an unreadable file list cannot
+// rule out a workflow edit.
+function branchEditsCiDefinition(number) {
+  for (let page = 1; page <= 10; page++) {
+    const files = ghJson(["api", `repos/{owner}/{repo}/pulls/${number}/files?per_page=100&page=${page}`]);
+    if (!Array.isArray(files)) throw new Error("unexpected response from the PR files endpoint");
+    for (const f of files) {
+      // `previous_filename` too: a rename INTO or OUT OF the workflow directory
+      // changes what CI runs while only one of the two names is a workflow path.
+      for (const name of [f?.filename, f?.previous_filename]) {
+        if (name && CI_DEFINING_PREFIXES.some((p) => String(name).startsWith(p))) return true;
+      }
+    }
+    if (files.length < 100) return false;
+  }
+  throw new Error("more than 1000 changed files — cannot rule out a workflow edit");
+}
+
+function ranBaseCiDefinition(number) {
+  try {
+    return !branchEditsCiDefinition(number);
+  } catch (err) {
+    // FAIL CLOSED, and say why: a gate that cannot read its evidence has not
+    // satisfied itself. Exit 1 (a gate said no) rather than 2, matching gate 1's
+    // own treatment of an unreadable Actions API — the PR stays a draft and a
+    // human can still promote it.
+    console.error(`Could not read PR #${number}'s changed files: ${err.message}`);
+    return false;
+  }
+}
+
+const ciDefinitionGate = ranBaseCiDefinition(prNumber);
+
 // --- gate 2: every required review-panel lens check passed -----------------
 
 // Evidence-based: read the per-lens `agent-review-<lens>` check runs on the PR
@@ -187,6 +235,7 @@ const disclosure = disclosesAiAuthorship(body);
 
 const gates = [
   { name: "CI verification (verify:self ✅ + verify:integration ✅/skip)", ok: ciGate },
+  { name: "CI ran main's definition (branch edits no .github/workflows|actions/**)", ok: ciDefinitionGate },
   { name: `Review panel approved (all lens checks ✅: ${REQUIRED_CHECKS.join(", ")})`, ok: reviewApproved },
   { name: "AI authorship disclosed in PR body", ok: disclosure },
 ];
@@ -268,7 +317,9 @@ const handoff = [
   "This PR was authored autonomously by Claude Code and has cleared the harness",
   "ready gate:",
   "",
-  "- ✅ CI verification (`verify:self` and `verify:integration`) is green.",
+  "- ✅ CI verification (`verify:self` and `verify:integration`) is green — and the",
+  "  branch changes no workflow definition, so that run executed the CI file on",
+  "  `main` rather than one the branch supplied.",
   `- ✅ The review panel approved with no blocking findings (${REQUIRED_CHECKS.join(", ")}).`,
   "- ✅ Autonomous authorship is disclosed in the PR body.",
   "",

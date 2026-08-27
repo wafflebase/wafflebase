@@ -64,8 +64,23 @@ if (argv[0] === "pr" && argv[1] === "view") {
   // The label re-read just before the PUT asks for labels alone.
   const only = joined.endsWith("--json labels");
   process.stdout.write(JSON.stringify(only ? { labels: cfg.pr.labels || [] } : cfg.pr));
-} else if (argv[0] === "api" && joined.includes("/runs?head_sha=")) {
+} else if (argv[0] === "api" && joined.includes("actions/workflows/ci.yml/runs?head_sha=")) {
+  // The SCOPED listing: GitHub resolved \`ci.yml\` to one workflow file, so only
+  // that file's runs come back.
   process.stdout.write(JSON.stringify({ workflow_runs: cfg.workflowRuns || [] }));
+} else if (argv[0] === "api" && joined.includes("actions/runs?head_sha=")) {
+  // The UNSCOPED listing, modelled as the real API serves it: EVERY workflow's
+  // runs for the SHA, forged and foreign ones included. This branch is what
+  // makes gate 1's identity property testable as behavior — a reader that
+  // regresses to this endpoint is handed the forgeries and promotes on them.
+  process.stdout.write(
+    JSON.stringify({ workflow_runs: [...(cfg.otherRuns || []), ...(cfg.workflowRuns || [])] }),
+  );
+} else if (argv[0] === "api" && /pulls\\/\\d+\\/files/.test(joined)) {
+  // Page 1 answers from the config; every later page is empty, which is how the
+  // CLI's pagination loop terminates.
+  const page = Number((joined.match(/[?&]page=(\\d+)/) || [])[1] || 1);
+  process.stdout.write(JSON.stringify(page === 1 ? cfg.files || [] : []));
 } else if (argv[0] === "api" && joined.includes("check-runs")) {
   process.stdout.write(JSON.stringify({ check_runs: cfg.checkRuns || [] }));
 } else {
@@ -88,8 +103,14 @@ function okConfig(over = {}) {
       headRefOid: "cafe7",
       url: "https://github.com/o/r/pull/7",
     },
+    // `workflowRuns` are the runs of the CI WORKFLOW FILE; `otherRuns` are the
+    // rest of the repo's runs for the same SHA, which only the unscoped
+    // endpoint returns. A test that puts a green run in `otherRuns` is asking
+    // "would this promote if the reader stopped scoping its query?".
     workflowRuns: [{ name: "CI", path: CI_PATH, conclusion: "success", created_at: AT }],
+    otherRuns: [],
     checkRuns: DEFAULT_REVIEW_CHECKS.map((name) => ({ name, conclusion: "success", started_at: AT })),
+    files: [{ filename: "packages/sheets/src/index.ts" }],
     fail: [],
     ...over,
   };
@@ -183,16 +204,108 @@ test("exit 1, not 0: CI not green leaves the PR a draft without promoting", () =
   }
 });
 
+test("gate 1 reads the CI WORKFLOW FILE's runs — another green workflow is not evidence", () => {
+  // THE IDENTITY PROPERTY, ASSERTED AS BEHAVIOR. Every workflow on the repo
+  // reports a run for the same head SHA, and the panel's own runs go green
+  // routinely; a run's `name` is only a `name:` key, so anyone able to add
+  // `.github/workflows/pwn.yml` with `name: CI` gets a green run of their own.
+  // Gate 1 is safe from both only because it asks the API for the runs OF ONE
+  // WORKFLOW FILE (`/actions/workflows/ci.yml/runs`) instead of for every run on
+  // the SHA.
+  //
+  // The stub serves both endpoints the way GitHub does, so this is not a check
+  // on a URL string: regress the reader to the unscoped endpoint and it is
+  // handed `forged` — newest, green — and promotes. The URL is asserted too,
+  // below, but the exit code is what fails first.
+  const forged = { name: "CI", path: ".github/workflows/pwn.yml", conclusion: "success", created_at: AT, id: 99 };
+  const foreign = {
+    name: "agent-review-panel",
+    path: ".github/workflows/agent-review-panel.yml",
+    conclusion: "success",
+    created_at: AT,
+    id: 98,
+  };
 
+  const ciRed = run(
+    ["7", "--promote"],
+    okConfig({
+      workflowRuns: [{ name: "CI", path: CI_PATH, conclusion: "failure", created_at: AT, id: 1 }],
+      otherRuns: [forged, foreign],
+    }),
+  );
+  assert.equal(ciRed.code, 1, "a green run from another FILE must not stand in for a red CI run");
+  assert.ok(!promoted(ciRed.calls), "the PR must stay a draft");
 
+  const ciAbsent = run(["7", "--promote"], okConfig({ workflowRuns: [], otherRuns: [forged, foreign] }));
+  assert.equal(ciAbsent.code, 1, "a green run from another file is not evidence that CI ran at all");
+  assert.ok(!promoted(ciAbsent.calls));
+
+  // The URL is the mechanism, so pin it: the scoped endpoint must be the one
+  // asked, and the unscoped one must not be asked at all.
+  const runQueries = ciRed.calls.filter((c) => c.startsWith("api ") && c.includes("head_sha="));
+  assert.ok(runQueries.length > 0, "gate 1 must still read workflow runs for the head SHA");
+  for (const q of runQueries) {
+    assert.match(
+      q,
+      /actions\/workflows\/ci\.yml\/runs\?head_sha=cafe7/,
+      "gate 1 must ask GitHub for the CI workflow's runs, not filter in JS",
+    );
+    assert.doesNotMatch(q, /actions\/runs\?/, "the unscoped listing returns forged runs and must not be used");
+  }
+
+  // ...and the scoping must not go the other way: CI green among the noise promotes.
+  const ciGreen = run(["7", "--promote"], okConfig({ otherRuns: [forged, foreign] }));
+  assert.equal(ciGreen.code, 0);
+  assert.ok(promoted(ciGreen.calls));
+});
+
+test("gate 1b: a branch that edits the CI definition is not promoted by its own CI run", () => {
+  // Scoping by workflow file proves WHICH file ran, never WHAT was in it: a
+  // `pull_request` run executes the merge ref's copy of `ci.yml`, so a branch
+  // able to edit that file gets a genuinely green run at the genuine path with
+  // no tests in it. An `agent:managed` human PR is on this promote path and is
+  // not restricted from pushing workflows, so the gate has to refuse it — every
+  // other gate here would be satisfied by a PR that deleted CI's jobs.
+  for (const filename of [
+    ".github/workflows/ci.yml",
+    ".github/workflows/some-other.yml",
+    ".github/actions/setup/action.yml", // composite action = workflow content elsewhere
+  ]) {
+    const { code, stdout, calls } = run(["7", "--promote"], okConfig({ files: [{ filename }] }));
+    assert.equal(code, 1, `${filename} changes what CI runs, so its green run is not evidence`);
+    assert.match(stdout, /Not promoting: one or more gates are not satisfied/);
+    assert.ok(!promoted(calls), "the PR must stay a draft for a human to review the workflow change");
+  }
+
+  // A RENAME out of the workflow directory only names the new path in
+  // `filename`; the workflow it removed is in `previous_filename`.
+  const renamed = run(
+    ["7", "--promote"],
+    okConfig({ files: [{ filename: "docs/old-ci.yml", previous_filename: ".github/workflows/ci.yml" }] }),
+  );
+  assert.equal(renamed.code, 1, "moving ci.yml away is an edit to what CI runs");
+  assert.ok(!promoted(renamed.calls));
+
+  // An unreadable file list cannot rule a workflow edit out, so it fails CLOSED.
+  const unreadable = run(["7", "--promote"], okConfig({ fail: ["api repos/{owner}/{repo}/pulls/7/files"] }));
+  assert.equal(unreadable.code, 1, "not knowing what the branch changed is not a pass");
+  assert.match(unreadable.stderr, /Could not read PR #7's changed files/);
+  assert.ok(!promoted(unreadable.calls));
+
+  // ...and an ordinary code-only PR is unaffected.
+  const ordinary = run(["7", "--promote"], okConfig({ files: [{ filename: "packages/docs/src/a.ts" }] }));
+  assert.equal(ordinary.code, 0);
+  assert.ok(promoted(ordinary.calls));
+});
 
 test("gate 1 reads the NEWEST CI run for the SHA", () => {
-  // `ciConclusion` reads the newest run by id. That is safe because a PR head
-  // SHA carries exactly one CI run — `push` is restricted to main and a
-  // merge_group run carries the speculative merge commit, an invariant
-  // checks.test.mjs pins — and a re-run mutates that run in place rather than
-  // adding a second. These fixtures cover the shape anyway, so the rule is
-  // asserted rather than merely implied by a one-run fixture.
+  // `ciConclusion` reads the newest run by id, and a SHA can legitimately carry
+  // more than one CI run — closing and reopening a PR files a second
+  // `pull_request` run for the same commit, and newest-wins is right there
+  // because the later run is a fresh execution of the same file at the same
+  // tree. What checks.test.mjs pins is the narrower invariant this rests on: no
+  // two DIFFERENT ci.yml triggers can fire for one PR head, so "newest"
+  // supersedes rather than picking arbitrarily among unrelated runs.
   const older = { name: "CI", path: CI_PATH, conclusion: "success", created_at: AT, id: 1 };
   const newerRed = { name: "CI", path: CI_PATH, conclusion: "failure", created_at: AT, id: 9 };
 
