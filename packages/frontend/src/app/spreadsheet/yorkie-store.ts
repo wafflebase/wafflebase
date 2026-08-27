@@ -683,6 +683,17 @@ export class YorkieStore implements Store {
   }
 
   ensureAxisOrder(minRows: number, minCols: number): void {
+    // Most calls need nothing new — every arrow key re-publishes the
+    // selection. Bail before `doc.update`, whose `new Set(rowOrder)` below
+    // would otherwise walk the whole axis on each keystroke.
+    const current = this.getSheet();
+    if (
+      (current?.rowOrder?.length ?? 0) >= minRows &&
+      (current?.colOrder?.length ?? 0) >= minCols
+    ) {
+      return;
+    }
+
     this.doc.update((root) => {
       const ws = root.sheets[this.tabId];
       if (!ws) return;

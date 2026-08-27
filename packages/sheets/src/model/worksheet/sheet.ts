@@ -144,6 +144,22 @@ import {
  * It represents cells from A1 to ZZZ1000000.
  */
 const Dimensions = { rows: 1000000, columns: 18278 };
+
+/**
+ * `MaxAxisCoverage` bounds how far axis-ID coverage is materialized for a
+ * selection. `Store.ensureAxisOrder` is dense — covering visual row N costs N
+ * CRDT array entries — so a selection out in empty space would otherwise
+ * materialize to the grid boundary: Shift+Arrow at row 1,000,000 measured
+ * ~7 minutes of Yorkie pushes, and left every later keystroke walking a
+ * 1M-entry array.
+ *
+ * A selection past this cap publishes no anchors at all and falls back to the
+ * legacy `activeCell` Sref presence field, the same degradation the design
+ * already specifies for an activeCell beyond coverage. Axis IDs exist so a
+ * selection survives a peer's row/column insert or delete, which only happens
+ * where the sheet has content — so nothing tracked is lost out in empty space.
+ */
+export const MaxAxisCoverage = 10000;
 const MaxBorderSelectionCells = 50000;
 // Cap for a range checkbox toggle (Space). Bounds the scan so a whole-column
 // checkbox rule cannot freeze the tab; beyond it the toggle is a no-op.
@@ -3002,15 +3018,29 @@ export class Sheet {
         maxCol = Math.max(maxCol, start.c, end.c);
       }
     }
+
+    // Beyond `MaxAxisCoverage` the selection is not anchored at all: covering
+    // visual row N costs N CRDT entries, so a far-out selection would freeze
+    // the tab materializing empty space. Publish the legacy Sref only, and
+    // drop the anchors so `resolveAnchorsToRefs` leaves the visual selection
+    // alone instead of snapping it back to the last anchored one.
+    if (maxRow > MaxAxisCoverage || maxCol > MaxAxisCoverage) {
+      this.activeCellAnchor = null;
+      this.rangeAnchors = [];
+      this.store.updateSelection(null, [], this.activeCell);
+      return;
+    }
+
     this.store.ensureAxisOrder(maxRow, maxCol);
 
     const rowOrder = this.store.getRowOrder();
     const colOrder = this.store.getColOrder();
 
-    const freshAnchor = refToAnchor(this.activeCell, rowOrder, colOrder);
-    if (freshAnchor) {
-      this.activeCellAnchor = freshAnchor;
-    }
+    // Same rule for the active cell: an anchor that no longer describes where
+    // the cursor is must not outlive it, or a later remote sync resolves the
+    // stale anchor and drags the cursor back.
+    this.activeCellAnchor = refToAnchor(this.activeCell, rowOrder, colOrder);
+    const freshAnchor = this.activeCellAnchor;
 
     const rangeAnchors = this.ranges.map((range) =>
       rangeToRangeAnchor(range, rowOrder, colOrder, this.selectionType),

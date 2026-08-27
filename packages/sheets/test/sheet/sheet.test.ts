@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MemStore } from '../../src/store/memory';
-import { Sheet } from '../../src/model/worksheet/sheet';
+import { MaxAxisCoverage, Sheet } from '../../src/model/worksheet/sheet';
 
 describe('Sheet.Data', () => {
   it('should correctly set and get data', async () => {
@@ -206,6 +206,118 @@ describe('Sheet.Selection', () => {
 
     const lastCall = calls[calls.length - 1];
     expect(lastCall.minCols).toBeGreaterThanOrEqual(5);
+  });
+
+  /**
+   * `MaterializingStore` mirrors the Yorkie store: `ensureAxisOrder` really
+   * grows the axis arrays, one entry per row/column. `MemStore` no-ops it, so
+   * anchor behavior beyond coverage is only observable through this store.
+   */
+  class MaterializingStore extends MemStore {
+    rowOrder: string[] = [];
+    colOrder: string[] = [];
+
+    override getRowOrder(): string[] {
+      return [...this.rowOrder];
+    }
+
+    override getColOrder(): string[] {
+      return [...this.colOrder];
+    }
+
+    override ensureAxisOrder(minRows: number, minCols: number): void {
+      while (this.rowOrder.length < minRows) {
+        this.rowOrder.push(`r${this.rowOrder.length}`);
+      }
+      while (this.colOrder.length < minCols) {
+        this.colOrder.push(`c${this.colOrder.length}`);
+      }
+    }
+  }
+
+  it('should not extend axis order on Shift+Arrow far out in empty space', () => {
+    // Regression: #180 stopped `activeCell` from extending the axis, but
+    // ranges still did. Shift+Arrow at row 1,000,000 asked for 1M axis IDs,
+    // which the Yorkie store materializes one CRDT push at a time.
+    const calls: Array<{ minRows: number; minCols: number }> = [];
+    class TrackingStore extends MemStore {
+      override ensureAxisOrder(minRows: number, minCols: number): void {
+        calls.push({ minRows, minCols });
+      }
+    }
+
+    const sheet = new Sheet(new TrackingStore());
+    sheet.setActiveCell({ r: 1_000_000, c: 1 });
+    sheet.resizeRange('up');
+    sheet.resizeRange('up');
+
+    for (const { minRows } of calls) {
+      expect(minRows).toBeLessThanOrEqual(MaxAxisCoverage);
+    }
+  });
+
+  it('should not extend axis order when selecting a far-out row header', () => {
+    // Same path via selectRow(): the range spans the whole row at r=1M.
+    const calls: Array<{ minRows: number; minCols: number }> = [];
+    class TrackingStore extends MemStore {
+      override ensureAxisOrder(minRows: number, minCols: number): void {
+        calls.push({ minRows, minCols });
+      }
+    }
+
+    const sheet = new Sheet(new TrackingStore());
+    sheet.selectRow(1_000_000);
+
+    for (const { minRows } of calls) {
+      expect(minRows).toBeLessThanOrEqual(MaxAxisCoverage);
+    }
+  });
+
+  it('should publish no anchors for a selection beyond axis coverage', () => {
+    // A range endpoint beyond coverage cannot be anchored, and a null
+    // endpoint id already means "entire row/column" to peers. So publish no
+    // `selection` at all and let the legacy activeCell Sref carry the cursor.
+    const calls: Array<{
+      activeCell: Parameters<MemStore['updateSelection']>[0];
+      ranges: Parameters<MemStore['updateSelection']>[1];
+      activeCellRef: Parameters<MemStore['updateSelection']>[2];
+    }> = [];
+    class TrackingStore extends MaterializingStore {
+      override updateSelection(
+        activeCell: Parameters<MemStore['updateSelection']>[0],
+        ranges: Parameters<MemStore['updateSelection']>[1],
+        activeCellRef: Parameters<MemStore['updateSelection']>[2],
+      ): void {
+        calls.push({ activeCell, ranges, activeCellRef });
+      }
+    }
+
+    const sheet = new Sheet(new TrackingStore());
+    sheet.setActiveCell({ r: 1_000_000, c: 1 });
+    sheet.resizeRange('up');
+
+    const last = calls[calls.length - 1];
+    expect(last.activeCell).toBeNull();
+    expect(last.ranges).toEqual([]);
+    expect(last.activeCellRef).toEqual({ r: 1_000_000, c: 1 });
+  });
+
+  it('should keep a beyond-coverage selection when anchors are re-resolved', () => {
+    // With no anchors published, a remote sync must leave the visual
+    // selection alone rather than clearing it or snapping it back to the
+    // stale anchors of the last within-coverage selection.
+    const sheet = new Sheet(new MaterializingStore());
+    sheet.setActiveCell({ r: 5, c: 1 });
+    sheet.resizeRange('down');
+
+    sheet.setActiveCell({ r: 1_000_000, c: 1 });
+    sheet.resizeRange('up');
+    const before = sheet.getRange();
+
+    sheet.resolveAnchorsToRefs();
+
+    expect(sheet.getActiveCell()).toEqual({ r: 1_000_000, c: 1 });
+    expect(sheet.getRange()).toEqual(before);
   });
 });
 
