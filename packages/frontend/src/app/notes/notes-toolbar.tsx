@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import type {
   NoteEditorAPI,
   NoteViewMode,
@@ -16,6 +22,8 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -24,6 +32,7 @@ import {
   ToolbarButton,
 } from "@/components/ui/toolbar";
 import { TableGridPicker } from "@/components/table-grid-picker";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   IconPencil,
   IconLayoutColumns,
@@ -47,6 +56,7 @@ import {
   IconListCheck,
   IconIndentIncrease,
   IconIndentDecrease,
+  IconDotsVertical,
 } from "@tabler/icons-react";
 
 const KEYMAPS: { key: NoteKeymap; label: string }[] = [
@@ -114,11 +124,7 @@ function TooltipButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <ToolbarButton
-          aria-label={label}
-          disabled={disabled}
-          onClick={onClick}
-        >
+        <ToolbarButton aria-label={label} disabled={disabled} onClick={onClick}>
           {children}
         </ToolbarButton>
       </TooltipTrigger>
@@ -173,30 +179,161 @@ function TableDropdown({ editor }: { editor: NoteEditorAPI }) {
  * pasting or dropping a file, which the editor handles on its own. The accept
  * list mirrors the upload endpoint's allowed types so the picker filters what
  * the server would reject anyway.
+ *
+ * The input is mounted separately from its trigger because there are two
+ * triggers: the toolbar button on desktop and the overflow-menu item on
+ * mobile. Both open this one input via the ref.
  */
-function ImageButton({ editor }: { editor: NoteEditorAPI }) {
-  const inputRef = useRef<HTMLInputElement>(null);
+function ImageFileInput({
+  inputRef,
+  editor,
+}: {
+  inputRef: RefObject<HTMLInputElement | null>;
+  editor: NoteEditorAPI;
+}) {
   return (
-    <>
-      <TooltipButton
-        label="Insert image"
-        onClick={() => inputRef.current?.click()}
-      >
-        <IconPhoto size={16} />
-      </TooltipButton>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          if (e.target.files?.length) editor.insertImageFiles(e.target.files);
-          // Clear the value so picking the same file again still fires change.
-          e.target.value = "";
+    <input
+      ref={inputRef}
+      type="file"
+      accept="image/png,image/jpeg,image/gif,image/webp"
+      multiple
+      className="hidden"
+      onChange={(e) => {
+        if (e.target.files?.length) editor.insertImageFiles(e.target.files);
+        // Clear the value so picking the same file again still fires change.
+        e.target.value = "";
+      }}
+    />
+  );
+}
+
+/**
+ * Everything the strip cannot hold on a phone, in one `⋮` menu — the same
+ * shape the docs toolbar uses (`docs-formatting-toolbar.tsx`): the inline text
+ * formats stay on the strip, the list and insert controls move here under
+ * labelled sections.
+ *
+ * Table is a fixed 3×3 insert rather than the desktop's `TableGridPicker`,
+ * which sizes the table by hovering across a grid and so has no touch
+ * equivalent. Docs' mobile menu settled on the same 3×3.
+ */
+function MobileOverflowMenu({
+  editor,
+  formats,
+  onPickImage,
+}: {
+  editor: NoteEditorAPI;
+  formats: NoteInlineFormats;
+  onPickImage: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <ToolbarButton aria-label="More formatting options">
+          <IconDotsVertical size={16} />
+        </ToolbarButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        // Radix returns focus to the trigger when the menu closes, which on a
+        // phone means the caret leaves the document and the soft keyboard
+        // drops — right after the user asked for a formatting change they
+        // want to keep typing into. Hand focus back to the editor instead.
+        // (`TableDropdown` calls `editor.focus()` inline for the same reason;
+        // doing it here covers every item at once.)
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          editor.focus();
         }}
-      />
-    </>
+      >
+        <DropdownMenuLabel>Lists</DropdownMenuLabel>
+        <DropdownMenuCheckboxItem
+          checked={formats.list === "bullet"}
+          onCheckedChange={() => editor.toggleBulletList()}
+          className="gap-2"
+        >
+          <IconList size={16} />
+          Bullet list
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={formats.list === "ordered"}
+          onCheckedChange={() => editor.toggleOrderedList()}
+          className="gap-2"
+        >
+          <IconListNumbers size={16} />
+          Numbered list
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={formats.list === "task"}
+          onCheckedChange={() => editor.toggleTaskList()}
+          className="gap-2"
+        >
+          <IconListCheck size={16} />
+          Checkbox
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuItem
+          disabled={!formats.canIndent}
+          onClick={() => editor.indentList()}
+          className="gap-2"
+        >
+          <IconIndentIncrease size={16} />
+          Indent
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!formats.canOutdent}
+          onClick={() => editor.outdentList()}
+          className="gap-2"
+        >
+          <IconIndentDecrease size={16} />
+          Outdent
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Insert</DropdownMenuLabel>
+        <DropdownMenuCheckboxItem
+          checked={formats.link}
+          onCheckedChange={() => editor.toggleLink()}
+          className="gap-2"
+        >
+          <IconLink size={16} />
+          Link
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuItem
+          onClick={() => editor.toggleQuote()}
+          className="gap-2"
+        >
+          <IconBlockquote size={16} />
+          Quote
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => editor.insertCodeBlock()}
+          className="gap-2"
+        >
+          <IconCode size={16} />
+          Code block
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => editor.insertFoldout()}
+          className="gap-2"
+        >
+          <IconFold size={16} />
+          Foldout
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => editor.insertTable(3, 3)}
+          className="gap-2"
+        >
+          <IconTable size={16} />
+          Table (3×3)
+        </DropdownMenuItem>
+        {editor.canInsertImage() && (
+          <DropdownMenuItem onClick={onPickImage} className="gap-2">
+            <IconPhoto size={16} />
+            Image
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -230,6 +367,8 @@ export function NotesToolbar({
 }) {
   const [formats, setFormats] = useState<NoteInlineFormats>(EMPTY_FORMATS);
   const [history, setHistory] = useState({ canUndo: false, canRedo: false });
+  const isMobile = useIsMobile();
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!editor) {
@@ -251,9 +390,18 @@ export function NotesToolbar({
 
   const canFormat = !readOnly && mode !== "view";
   const current = MODES.find((m) => m.mode === mode) ?? MODES[1];
+  // Split lays the two panes out at a fixed 50/50 (`packages/notes`
+  // `editor.ts`), which is ~187px each on a 375px screen. Below the mobile
+  // breakpoint the mode is not offered; `notes-detail` demotes a stored
+  // `both` to `edit` so nobody arrives in a layout they cannot leave.
+  const visibleModes = isMobile
+    ? MODES.filter((m) => m.mode !== "both")
+    : MODES;
 
   return (
-    <Toolbar aria-label="Note toolbar">
+    // `role` makes the label below reachable: `aria-label` on a generic
+    // container is not exposed to the accessibility tree.
+    <Toolbar role="toolbar" aria-label="Note toolbar">
       {canFormat && editor && (
         <>
           <TooltipButton
@@ -293,68 +441,99 @@ export function NotesToolbar({
             <IconStrikethrough size={16} />
           </TooltipToggle>
           <ToolbarSeparator />
-          {/* List group: the three kinds are toggles (pressed when every
+
+          {/* One hidden input for both triggers (button / overflow item). */}
+          {editor.canInsertImage() && (
+            <ImageFileInput inputRef={imageInputRef} editor={editor} />
+          )}
+
+          {isMobile ? (
+            // Nineteen controls do not fit a phone. The strip is
+            // `overflow-x-auto`, so the overflow was never clipped — it
+            // scrolled sideways, taking the right-pinned view-mode and
+            // keymap dropdowns off screen with it. Keeping only undo/redo
+            // and the inline formats inline puts those two back in view.
+            <MobileOverflowMenu
+              editor={editor}
+              formats={formats}
+              onPickImage={() => imageInputRef.current?.click()}
+            />
+          ) : (
+            <>
+              {/* List group: the three kinds are toggles (pressed when every
               selected line is of that kind), indent/outdent plain buttons that
               disable when the block cannot nest further in that direction.
               All five apply to every line the selection covers. */}
-          <TooltipToggle
-            label="Bullet list"
-            pressed={formats.list === "bullet"}
-            onToggle={() => editor.toggleBulletList()}
-          >
-            <IconList size={16} />
-          </TooltipToggle>
-          <TooltipToggle
-            label="Numbered list"
-            pressed={formats.list === "ordered"}
-            onToggle={() => editor.toggleOrderedList()}
-          >
-            <IconListNumbers size={16} />
-          </TooltipToggle>
-          <TooltipToggle
-            label="Checkbox"
-            pressed={formats.list === "task"}
-            onToggle={() => editor.toggleTaskList()}
-          >
-            <IconListCheck size={16} />
-          </TooltipToggle>
-          <TooltipButton
-            label="Indent"
-            disabled={!formats.canIndent}
-            onClick={() => editor.indentList()}
-          >
-            <IconIndentIncrease size={16} />
-          </TooltipButton>
-          <TooltipButton
-            label="Outdent"
-            disabled={!formats.canOutdent}
-            onClick={() => editor.outdentList()}
-          >
-            <IconIndentDecrease size={16} />
-          </TooltipButton>
-          <ToolbarSeparator />
-          <TooltipToggle
-            label="Link"
-            pressed={formats.link}
-            onToggle={() => editor.toggleLink()}
-          >
-            <IconLink size={16} />
-          </TooltipToggle>
-          <TooltipButton label="Quote" onClick={() => editor.toggleQuote()}>
-            <IconBlockquote size={16} />
-          </TooltipButton>
-          <TooltipButton
-            label="Code block"
-            onClick={() => editor.insertCodeBlock()}
-          >
-            <IconCode size={16} />
-          </TooltipButton>
-          {/* Foldout is a plain insert, not a toggle: foldouts nest. */}
-          <TooltipButton label="Foldout" onClick={() => editor.insertFoldout()}>
-            <IconFold size={16} />
-          </TooltipButton>
-          <TableDropdown editor={editor} />
-          {editor.canInsertImage() && <ImageButton editor={editor} />}
+              <TooltipToggle
+                label="Bullet list"
+                pressed={formats.list === "bullet"}
+                onToggle={() => editor.toggleBulletList()}
+              >
+                <IconList size={16} />
+              </TooltipToggle>
+              <TooltipToggle
+                label="Numbered list"
+                pressed={formats.list === "ordered"}
+                onToggle={() => editor.toggleOrderedList()}
+              >
+                <IconListNumbers size={16} />
+              </TooltipToggle>
+              <TooltipToggle
+                label="Checkbox"
+                pressed={formats.list === "task"}
+                onToggle={() => editor.toggleTaskList()}
+              >
+                <IconListCheck size={16} />
+              </TooltipToggle>
+              <TooltipButton
+                label="Indent"
+                disabled={!formats.canIndent}
+                onClick={() => editor.indentList()}
+              >
+                <IconIndentIncrease size={16} />
+              </TooltipButton>
+              <TooltipButton
+                label="Outdent"
+                disabled={!formats.canOutdent}
+                onClick={() => editor.outdentList()}
+              >
+                <IconIndentDecrease size={16} />
+              </TooltipButton>
+              <ToolbarSeparator />
+              <TooltipToggle
+                label="Link"
+                pressed={formats.link}
+                onToggle={() => editor.toggleLink()}
+              >
+                <IconLink size={16} />
+              </TooltipToggle>
+              <TooltipButton label="Quote" onClick={() => editor.toggleQuote()}>
+                <IconBlockquote size={16} />
+              </TooltipButton>
+              <TooltipButton
+                label="Code block"
+                onClick={() => editor.insertCodeBlock()}
+              >
+                <IconCode size={16} />
+              </TooltipButton>
+              {/* Foldout is a plain insert, not a toggle: foldouts nest. */}
+              <TooltipButton
+                label="Foldout"
+                onClick={() => editor.insertFoldout()}
+              >
+                <IconFold size={16} />
+              </TooltipButton>
+              <TableDropdown editor={editor} />
+              {editor.canInsertImage() && (
+                <TooltipButton
+                  label="Insert image"
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  <IconPhoto size={16} />
+                </TooltipButton>
+              )}
+            </>
+          )}
         </>
       )}
 
@@ -407,7 +586,7 @@ export function NotesToolbar({
             <TooltipContent>View mode</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end">
-            {MODES.map(({ mode: m, label, Icon }) => (
+            {visibleModes.map(({ mode: m, label, Icon }) => (
               <DropdownMenuCheckboxItem
                 key={m}
                 checked={mode === m}

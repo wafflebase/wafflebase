@@ -213,6 +213,28 @@ the prefix.
 - **Presence peer cursors** — Yorkie presence via `@yorkie-js/react`,
   `usePresenceUpdater`, `UserPresence`.
 
+### Mobile
+
+Below the shared 768px breakpoint (`useIsMobile`), two things change. Both
+are frontend-only — the `@wafflebase/notes` engine has no viewport branch.
+
+- **Toolbar.** The strip holds 19 controls and `Toolbar` is
+  `overflow-x-auto`, so on a phone nothing was clipped — it scrolled
+  sideways, carrying the right-pinned view-mode and keymap dropdowns off
+  screen. `NotesToolbar` now keeps undo / redo / bold / italic /
+  strikethrough inline and moves the list and insert controls into a `⋮`
+  overflow menu, the same split the docs toolbar uses
+  (`docs-formatting-toolbar.tsx`). Table is a fixed 3×3 insert there:
+  `TableGridPicker` sizes by hovering across a grid and has no touch
+  equivalent.
+- **No Split.** `both` is a fixed 50/50 pane layout
+  (`packages/notes/src/view/editor.ts`), so it is two ~187px panes on a
+  375px screen. The view menu drops the mode, and `notes-detail` demotes a
+  stored `both` to `edit` — without writing it back, so the per-user desktop
+  preference survives and widening the window restores the split.
+  `SharedNotesLayout` applies the same demotion to its editable mount, which
+  hardcodes the mode and carries no view menu to escape with.
+
 ### Risks and Mitigation
 
 - **Yorkie SDK version skew (resolved).** The ported binding only uses stable

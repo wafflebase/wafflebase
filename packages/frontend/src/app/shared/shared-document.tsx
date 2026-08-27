@@ -316,6 +316,7 @@ function SharedDocsLayout({ resolved }: { resolved: ResolvedShareLink }) {
 
 function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
   const readOnly = resolved.role === "viewer";
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     document.title = resolved.title
@@ -340,7 +341,15 @@ function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
           makes Rollup hoist it — and the notes engine with it — into a shared
           chunk well past the chunk-size gate.
         */}
-        <NotesView readOnly={readOnly} viewMode={readOnly ? "view" : "both"} />
+        {/*
+          The editable case avoids `both` on a phone: it is a fixed 50/50
+          split (~187px per pane at 375px) and this surface has no view menu
+          at all, so there would be no way out of it.
+        */}
+        <NotesView
+          readOnly={readOnly}
+          viewMode={readOnly ? "view" : isMobile ? "edit" : "both"}
+        />
       </div>
     </div>
   );
