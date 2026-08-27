@@ -236,6 +236,19 @@ test("exit 2: failing to read the CI workflow's runs is a tooling error, not a r
   assert.ok(!promoted(calls), "and nothing may be promoted on evidence that could not be read");
 });
 
+test("exit 2: failing to read the CHECK RUNS is a tooling error, not an unapproved review", () => {
+  // The same distinction, in the adjacent gate. Reporting an unreadable API as
+  // "the reviewer did not approve" leaves a PR the reviewer HAD approved sitting
+  // as a draft while the promote job succeeds and nothing re-runs the panel.
+  const { code, stderr, calls } = run(
+    ["7", "--promote"],
+    okConfig({ fail: ["api repos/{owner}/{repo}/commits"] }),
+  );
+  assert.equal(code, 2, "an unreadable check-runs API must not be reported as 'not approved'");
+  assert.match(stderr, /no review verdict was read/);
+  assert.ok(!promoted(calls));
+});
+
 // ---- exit 1: a gate said no (job still SUCCEEDS) --------------------------
 
 test("exit 1, not 0: CI not green leaves the PR a draft without promoting", () => {

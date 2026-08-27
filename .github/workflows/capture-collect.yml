@@ -126,7 +126,22 @@ jobs:
     # `github.event.workflow_run` does not exist at all. And if a re-run ever leaves
     # a skipped conclusion over an attempt that did upload, the nightly sweep
     # collects it within a day.
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'skipped' }}
+    #
+    # The `path` and `head_repository` halves are the same guard
+    # agent-review-panel.yml, agent-iterate-ci.yml and ci-report.yml carry, and
+    # this job needs it MORE than any of them: a `workflow_run` trigger's
+    # `workflows:` filter matches a run's DISPLAY NAME, which is only a `name:`
+    # key and is not unique — so any branch could add a file saying
+    # `name: Agent Review Panel` and drive this job, which holds
+    # `secrets.EVAL_STORE_TOKEN`, a write PAT for ANOTHER repository. Only one
+    # file can occupy each of these paths.
+    if: >-
+      ${{ github.event_name != 'workflow_run' || (
+        github.event.workflow_run.conclusion != 'skipped' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        (github.event.workflow_run.path == '.github/workflows/agent-review-panel.yml' ||
+         github.event.workflow_run.path == '.github/workflows/agent-review-on-demand.yml')
+      ) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

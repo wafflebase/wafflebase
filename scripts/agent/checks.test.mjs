@@ -602,6 +602,53 @@ test("every workflow_run consumer CI can drive gates on the CI workflow's PATH",
       assert.ok(!admits(absent), `${file} must refuse a payload with no workflow_run.path (${absent})`);
     }
   }
+
+  // capture-collect.yml consumes the PANEL by display name, not CI, and needs
+  // the guard MORE than the three above: its job holds `secrets.EVAL_STORE_TOKEN`,
+  // a write PAT for ANOTHER repository. Any branch could add a file saying
+  // `name: Agent Review Panel` and drive it.
+  const capture = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "capture-collect.yml"), "utf8");
+  assert.match(
+    capture,
+    /workflows: \["Agent Review Panel", "Agent Review On-Demand"\]/,
+    "capture-collect must still consume the panel by display name, or this is aimed at the wrong thing",
+  );
+  const capExpr = (capture.match(/^ {4}if: >-\n((?: {6}.*\n)+)/m) || [])[1];
+  assert.ok(capExpr, "could not extract capture-collect's job if: expression");
+  const capAdmits = new Function(
+    "PATH",
+    "EVENT",
+    "CONCLUSION",
+    "REPO",
+    `return (${capExpr
+      .replace(/github\.event\.workflow_run\.head_repository\.full_name/g, "REPO")
+      .replace(/github\.repository/g, "'o/r'")
+      .replace(/github\.event\.workflow_run\.conclusion/g, "CONCLUSION")
+      .replace(/github\.event\.workflow_run\.path/g, "PATH")
+      .replace(/github\.event_name/g, "EVENT")
+      .replace(/\$\{\{|\}\}/g, "")});`,
+  );
+  assert.ok(
+    capAdmits(".github/workflows/agent-review-panel.yml", "workflow_run", "success", "o/r"),
+    "a real panel run must still be collected",
+  );
+  assert.ok(
+    capAdmits(".github/workflows/agent-review-on-demand.yml", "workflow_run", "success", "o/r"),
+    "an on-demand panel run must still be collected",
+  );
+  assert.ok(
+    !capAdmits(".github/workflows/pwn.yml", "workflow_run", "success", "o/r"),
+    "a run from a file that merely calls itself 'Agent Review Panel' must not reach a cross-repo PAT",
+  );
+  assert.ok(
+    !capAdmits(".github/workflows/agent-review-panel.yml", "workflow_run", "success", "fork/r"),
+    "a fork's run must not reach a cross-repo PAT",
+  );
+  for (const absent of ["", undefined, null]) {
+    assert.ok(!capAdmits(absent, "workflow_run", "success", "o/r"), `capture-collect must refuse an absent path (${absent})`);
+  }
+  // The schedule/dispatch paths must still work — they carry no workflow_run.
+  assert.ok(capAdmits(undefined, "schedule", undefined, undefined), "the nightly sweep must still run");
 });
 
 test("no two ci.yml triggers can race for the same PR head SHA", () => {

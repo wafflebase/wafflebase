@@ -273,9 +273,13 @@ function ranBaseCiDefinition(number) {
     return true;
   } catch (err) {
     // FAIL CLOSED, and say why: a gate that cannot read its evidence has not
-    // satisfied itself. Exit 1 (a gate said no) rather than 2, matching gate 1's
-    // own treatment of an unreadable Actions API — the PR stays a draft and a
-    // human can still promote it.
+    // satisfied itself. Exit 1 (a gate said no) rather than 2 — deliberately
+    // UNLIKE gates 1 and 2, which now exit 2 when their API read fails. The
+    // difference is what a human has to do next. Gates 1 and 2 read evidence
+    // that must exist for any PR, so a failure there is a broken pipeline and
+    // should page. This gate answers a policy question — does the PR touch the
+    // CI definition — where "could not tell" and "yes it does" call for the
+    // same response: leave it a draft for a human to promote deliberately.
     console.error(`Could not establish PR #${number}'s CI definition: ${err.message}`);
     return false;
   }
@@ -293,8 +297,16 @@ function reviewChecks(sha) {
   let data;
   try {
     data = ghJson(["api", `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`]);
-  } catch {
-    return { allPassed: false, perCheck: Object.fromEntries(REQUIRED_CHECKS.map((c) => [c, false])) };
+  } catch (err) {
+    // A TOOLING ERROR, exactly as in gate 1 above. Reporting an unreadable API
+    // as "the reviewer did not approve" is the same silent-draft-forever bug:
+    // the promote job would succeed, nothing would re-run the panel, and a PR
+    // the reviewer HAD approved would sit as a draft on evidence nobody read.
+    console.error(
+      `Failed to read check runs for ${sha}: ${err.message}\n` +
+        "This is a tooling error, not a gate refusal — no review verdict was read.",
+    );
+    process.exit(2);
   }
   return allRequiredPassed(data.check_runs ?? [], REQUIRED_CHECKS);
 }
