@@ -251,6 +251,7 @@ describe('Sheet.Selection', () => {
     sheet.resizeRange('up');
     sheet.resizeRange('up');
 
+    expect(calls.length).toBeGreaterThan(0);
     for (const { minRows } of calls) {
       expect(minRows).toBeLessThanOrEqual(MaxAxisCoverage);
     }
@@ -268,9 +269,41 @@ describe('Sheet.Selection', () => {
     const sheet = new Sheet(new TrackingStore());
     sheet.selectRow(1_000_000);
 
+    expect(calls.length).toBeGreaterThan(0);
     for (const { minRows } of calls) {
       expect(minRows).toBeLessThanOrEqual(MaxAxisCoverage);
     }
+  });
+
+  it('should anchor a large selection that needs no new coverage', () => {
+    // The cap bounds how far coverage may be *extended*, not how far it may
+    // reach. Cell writes grow the axis to reach their ref, so a 50,000-row
+    // import leaves 50,000 row IDs — a selection over that data must still be
+    // anchored, or peers lose the highlight and the selection stops surviving
+    // a peer's row insert over real content.
+    const calls: Array<Parameters<MemStore['updateSelection']>> = [];
+    class TrackingStore extends MaterializingStore {
+      override updateSelection(
+        ...args: Parameters<MemStore['updateSelection']>
+      ): void {
+        calls.push(args);
+      }
+    }
+
+    const store = new TrackingStore();
+    store.ensureAxisOrder(50_000, 10);
+
+    const sheet = new Sheet(store);
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 20_000, c: 2 });
+
+    const [activeCell, ranges] = calls[calls.length - 1];
+    expect(activeCell).not.toBeNull();
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0].startRowId).not.toBeNull();
+    expect(ranges[0].endRowId).not.toBeNull();
+    // Extending was never needed, so nothing was materialized beyond the data.
+    expect(store.rowOrder).toHaveLength(50_000);
   });
 
   it('should publish no anchors for a selection beyond axis coverage', () => {

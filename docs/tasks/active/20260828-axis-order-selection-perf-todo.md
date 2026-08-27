@@ -100,15 +100,37 @@ beyond coverage, so `resolveAnchorsToRefs()` on the next remote sync resolved
 a stale anchor and pulled the cursor back (visible after Cmd+Down into empty
 space). The anchor is now cleared with the selection it no longer describes.
 
+### Review round (self-review before push)
+
+The reviewer caught a real regression in the first implementation: the cap was
+compared against the *requested* coordinate, so a selection spanning more than
+10,000 rows of already-materialized data (a 50,000-row import — cell writes
+grow the axis via `ensureWorksheetGrid`) lost its anchors even though no
+extension was needed. Fixed: `ensureAxisOrder` is now asked for nothing when
+the request exceeds the cap, and the degrade decision is made against the
+coverage that actually exists (`maxRow > rowOrder.length`). Test added.
+
+Also applied: an explicit no-anchor sentinel in `resolveAnchorsToRefs()` that
+still repairs ranges when only the active cell is unanchored; removal of 10
+now-dead `if (cellAnchor) this.activeCellAnchor = cellAnchor;` sites (each of
+which also copied both axis arrays); vacuous-pass guards on two tests; a
+column-only case for the store early-out; and the doc corrections below.
+
 ### Known limitations
 
-- A selection past 10,000 rows/columns is not anchored, so peers see the
-  cursor (legacy Sref) but not the range highlight, and that selection does not
-  shift under a peer's row insert/delete. Deliberate — see the design doc's
-  Coverage Bound section.
-- `YorkieStore.getRowOrder()` still copies the whole axis array per call, and
-  the sheet calls it several times per keystroke. Bounded to ~3 ms by the cap;
-  caching it needs invalidation on remote sync and is left out.
+- A selection that would extend coverage more than 10,000 past the data is not
+  anchored, so peers see the cursor (legacy Sref) but not the range highlight,
+  and that selection does not shift under a peer's row insert/delete.
+  Deliberate — see the design doc's Coverage Bound section.
+- **The axis is not globally bounded.** Writing a cell, inserting a row, or
+  opening the comment composer at row 1,000,000 all still materialize ~1M IDs;
+  the first is inherent to the ID-keyed cell model. Enumerated in the design
+  doc under "What this does not bound".
+- `YorkieStore.getRowOrder()` copies the whole axis array per call. This change
+  removes 10 such copies from the hot path, but on a sheet whose data really
+  does reach 100k rows the remaining calls still cost ~12 ms each. Caching it
+  needs invalidation on remote sync and is left out.
 - Manual browser smoke not run: no Postgres/Yorkie stack was up in this
   worktree, and port 8080 is answered by another checkout's stack, so a
-  browser session would have exercised different code.
+  browser session would have exercised different code. When run, it should
+  also type a value at row 1,000,000 — that path is still slow by design.

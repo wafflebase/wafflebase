@@ -109,3 +109,15 @@ test('ensureAxisOrder extends without renaming the IDs already published', () =>
   expect(rowOrder().slice(0, 4)).toEqual(before);
   expect(rowOrder()).toHaveLength(8);
 });
+
+test('ensureAxisOrder extends one axis while the other already suffices', () => {
+  const { store, rowOrder, colOrder } = createLocalStore();
+
+  store.ensureAxisOrder(10, 5);
+  store.ensureAxisOrder(10, 9);
+
+  // The early-out is a conjunction over both axes: a satisfied row axis must
+  // not swallow a column axis that still needs entries.
+  expect(rowOrder()).toHaveLength(10);
+  expect(colOrder()).toHaveLength(9);
+});

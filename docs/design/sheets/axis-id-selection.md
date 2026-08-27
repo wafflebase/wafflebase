@@ -158,7 +158,12 @@ so referencing row N requires N entries. `ensureAxisOrder` therefore costs one
 CRDT array insert per row, and coverage is only ever extended, never trimmed.
 
 `MaxAxisCoverage` (10,000, in `sheet.ts`) bounds how far
-`syncSelectionToPresence` will extend it. Beyond the bound the selection
+`syncSelectionToPresence` will **extend** it — not how far a selection may
+reach. Coverage that already exists is free to use: `writeWorksheetCell` grows
+both axes to reach the ref it writes, so a 50,000-row import leaves 50,000 row
+IDs and a selection over that data is anchored as before.
+
+Only a selection that would push coverage this far past the data degrades. It
 publishes **no anchors at all** — `updateSelection(null, [], activeCellRef)`,
 which the Yorkie store turns into `selection: undefined` plus the legacy
 `activeCell` Sref — and the local `activeCellAnchor` / `rangeAnchors` are
@@ -180,6 +185,27 @@ sparse the sheet is.
 `Store.ensureAxisOrder` implementations must also return without opening a
 document update when coverage already suffices: every arrow key re-publishes
 the selection and so calls it again.
+
+#### What this does not bound
+
+`MaxAxisCoverage` is a bound on one code path, not a global invariant. Three
+other callers still extend the axis straight from a visual coordinate, and all
+three reproduce the same freeze at row 1,000,000:
+
+- `worksheet-grid.ts` `ensureWorksheetGrid` — writing a cell grows both axes to
+  reach its ref. Inherent to the ID-keyed cell model: a cell at row 1,000,000
+  has to be addressable. This is the reason coverage may legitimately exceed
+  the cap, and the reason the cap governs extension rather than reach.
+- `yorkie-worksheet-axis.ts` `insertYorkieWorksheetAxis` / `moveYorkieWorksheetAxis`
+  — "Insert row above" at a far-out row materializes everything before it.
+- `sheet-view.tsx` `openCommentComposerForActiveCell` — seeds coverage from the
+  raw active cell so a comment can be anchored.
+
+Bounding those needs a sparse anchor (an ID plus an offset, rather than a
+position in a dense array), which would replace this scheme rather than tune
+it. Until then, a single chokepoint — one `Store` method that queries and
+extends coverage with the cap applied inside it — would at least keep new
+callers from routing around the bound.
 
 ### Sheet Engine Changes
 
