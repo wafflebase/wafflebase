@@ -46,6 +46,26 @@ describe('list toggles', () => {
     view.destroy();
   });
 
+  it('leaves a quote it could not peel off alone', () => {
+    // The quote prefix is only recognised within three spaces of the line
+    // start, so on these the `>` stays in the content. Marking them up would
+    // write the bullet in front of that `>` and turn the quote into text.
+    for (const doc of ['\t> quoted', '    > quoted', '>    > quoted']) {
+      const view = mount(doc, doc.length);
+      toggleBulletList(view);
+      expect(view.state.doc.toString()).toBe(doc);
+      view.destroy();
+    }
+  });
+
+  it('marks up the rest of a selection past a quote it cannot peel', () => {
+    const view = mount('a\n\t> quoted\nb');
+    selectLines(view, 1, 3);
+    toggleBulletList(view);
+    expect(view.state.doc.toString()).toBe('- a\n\t> quoted\n- b');
+    view.destroy();
+  });
+
   it('keeps the quote when a quoted item is turned back into text', () => {
     // The quote says which block the line is in, not how it is marked up
     // inside it — unlisting must not lift the line out of the blockquote.

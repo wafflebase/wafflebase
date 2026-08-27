@@ -101,6 +101,18 @@ function isBlank(p: ParsedLine): boolean {
 }
 
 /**
+ * Whether a blockquote marker survived the prefix `parseLine` peeled off.
+ * `QUOTE_RE` recognises a quote opened within three *spaces* of the line
+ * start, so the `>` of `\t> quote`, of `    > quote` (a blockquote nested in a
+ * list item) or of `>    > quote` stays behind in `content`. Rewriting the
+ * prefix of such a line would write the list marker in front of that `>`,
+ * turning the quote into literal text — so those lines are left alone.
+ */
+function hasUnpeeledQuote(p: ParsedLine): boolean {
+  return !p.marker && p.content.startsWith('>');
+}
+
+/**
  * The lines touched by the main selection, top to bottom. A selection ending
  * exactly at a line start does not include that line — the user dragged to the
  * beginning of it, not into it.
@@ -230,6 +242,9 @@ export function computeListState(state: EditorState): NoteListState {
  * Rewrite the marker prefix of each line with `next`, as one transaction so
  * the whole block is a single undo unit. CodeMirror maps the selection through
  * the changes, so the same lines stay selected.
+ *
+ * Lines whose blockquote marker did not fit the prefix are passed over rather
+ * than rewritten — see `hasUnpeeledQuote`.
  */
 function replacePrefixes(
   view: EditorView,
@@ -238,6 +253,7 @@ function replacePrefixes(
 ): void {
   const changes = [];
   for (const p of lines) {
+    if (hasUnpeeledQuote(p)) continue;
     const from = p.line.from;
     const to = p.line.to - p.content.length;
     const insert = next(p);
