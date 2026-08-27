@@ -1915,17 +1915,37 @@ Components:
     exists and whose runs are still named `CI` — a rename that broke the match
     would otherwise make the gate silently unsatisfiable for every PR.
 
-    **The newest CI run wins, and one invariant is what makes that safe.**
-    `ci.yml` fires on `pull_request`, on `push` restricted to `main`, and on
-    `merge_group` — and neither of the latter two shares a PR head SHA (a
-    merge-queue run carries the speculative merge commit), so a PR head gets
-    exactly one CI run. A re-run mutates that run in place, adding a
-    `run_attempt` rather than a second run. `checks.test.mjs`'s
-    "ci.yml's triggers keep exactly one CI run per PR head SHA" is the tripwire:
-    adding a trigger that fires on a PR head fails there rather than silently
-    turning this into "read one of several runs". Ordering is by run `id`, not
-    `created_at` — ids are assigned in creation order and are integers, while
-    `new Date("nonsense")` is NaN and a NaN comparator does not order at all.
+    **Gate 1 identifies CI by asking the API for that workflow's runs**
+    (`/actions/workflows/ci.yml/runs?head_sha=…`), not by fetching every run for
+    the SHA and matching in JS. That is the identity check, not a convenience:
+    matching a run's `path` in JS is parsing an attacker-influenced string, and
+    the first attempt stripped an `@ref` suffix, so a file named
+    "ci.yml", an at-sign, then anything ending in .yml — a legal filename, and
+    one Actions runs because of that extension
+    — matched the real workflow and re-opened the forgery. Server-side scoping
+    also bounds the response to CI's own runs, so a flood cannot push the CI run
+    past `per_page`. The `workflow_run` gates still compare
+    `github.event.workflow_run.path` with exact equality, because a
+    `workflow_run` trigger has nothing to scope server-side.
+
+    **The newest run wins**, ordered by run `id` (assigned in creation order,
+    always present, integer) rather than `created_at`, where a missing or
+    unparseable stamp yields NaN and a NaN comparator does not order. A SHA can
+    legitimately carry two runs — reopening a PR files a second `pull_request`
+    run for the same commit — and newest-wins is correct there, since the later
+    run is a fresh execution of the same file at the same tree. What must not
+    happen is two runs from DIFFERENT triggers racing for one PR head, where
+    "newest" is arbitrary rather than superseding; `checks.test.mjs` pins the
+    trigger set so adding such a trigger fails loudly.
+
+    **What gate 1 does NOT prove.** A `pull_request` run executes the PR
+    BRANCH's copy of `ci.yml`, so a branch able to edit that file can produce a
+    genuinely green run at the genuine path with no tests in it. The agent App
+    cannot (it may not push `.github/workflows/**`), but an `agent:managed`
+    human PR is on this promote path and is not restricted. Gate 1 therefore
+    means "a separate actor reports CI green for this SHA", not "main's CI
+    definition passed"; closing that needs the run's workflow content compared
+    against the base branch.
 
     A revision of this doc briefly specified the stricter rule — EVERY run for
     the SHA must be green — on the theory that newest-wins would fail open if a

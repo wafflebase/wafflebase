@@ -54,25 +54,51 @@ export const DEFAULT_REVIEW_CHECKS = [
  * `path` cannot be spoofed the same way: only one file can occupy it, so a
  * run's path names the file that produced it. Keep this in step with the
  * filename on disk — `checks.test.mjs` asserts the file exists.
+ *
+ * This constant is for the WORKFLOW gates, which read
+ * `github.event.workflow_run.path` out of the event payload and compare it with
+ * exact equality (there is nothing to scope server-side in a `workflow_run`
+ * trigger — its `workflows:` filter matches display names only). JS readers use
+ * `CI_WORKFLOW_FILE` below instead and never parse a path.
  */
 export const CI_WORKFLOW_PATH = ".github/workflows/ci.yml";
 
-/** Every run of the CI workflow for a SHA. Called workflows report `path` with an `@ref` suffix. */
-export function ciRunsFor(workflowRuns) {
-  return (workflowRuns || []).filter((r) => String(r?.path ?? "").split("@")[0] === CI_WORKFLOW_PATH);
-}
+/**
+ * The CI workflow's file name, as the Actions API's `workflow_id` path
+ * parameter accepts it. Readers scope their query with this
+ * (`/actions/workflows/ci.yml/runs?head_sha=…`) rather than fetching every run
+ * for the SHA and matching `path` in JS.
+ *
+ * That is not a convenience — it is the identity check. Matching in JS means
+ * parsing an attacker-influenced string, and the first attempt at it was
+ * exploitable: it stripped an `@ref` suffix (for called workflows, a shape CI
+ * does not have) with `path.split("@")[0]`, so a file named
+ * `ci.yml@anything.yml` — a legal filename, and one Actions will run because it
+ * ends in `.yml` — matched the real CI workflow and re-opened the forgery the
+ * check exists to close. Server-side scoping cannot be spoofed by a filename,
+ * and it also bounds the response to CI's own runs, so a flood of unrelated
+ * runs cannot push the CI run off the page.
+ */
+export const CI_WORKFLOW_FILE = "ci.yml";
 
 /**
  * CI's verdict for a SHA: `"success"`, `"failure"`, or `null` for "not known
  * yet" — no run, or the newest one still in flight.
  *
- * THE NEWEST RUN WINS, and `ci.yml`'s triggers are what make that safe: `push`
- * is restricted to `main`, and a `merge_group` run carries the speculative
- * merge commit rather than the PR head, so a PR head SHA gets exactly one CI
- * run (from `pull_request`) and a re-run mutates that same run in place rather
- * than adding a second. `ciTriggersKeepOneRunPerHeadSha` in `checks.test.mjs`
- * pins that, so adding a trigger that fires on a PR head fails loudly here
- * instead of quietly turning this into a rule that reads one of several runs.
+ * THE NEWEST RUN WINS. A SHA *can* carry more than one CI run — closing and
+ * reopening a PR files a second `pull_request` run for the same commit — and
+ * newest-wins is the right answer there: the later run is a fresh execution of
+ * the same file at the same tree, so it supersedes the earlier one exactly as a
+ * re-run would. (A re-run does not even produce a second run; GitHub bumps
+ * `run_attempt` on the existing one.)
+ *
+ * What must NOT happen is two runs from DIFFERENT triggers racing for the same
+ * PR head, where "newest" is then arbitrary rather than superseding. Today none
+ * can: `push` is restricted to `main`, and a `merge_group` run carries the
+ * speculative merge commit rather than the PR head. `checks.test.mjs`'s
+ * trigger test pins that set, so adding a trigger that fires on a PR head fails
+ * loudly there instead of quietly turning this into "read one of several
+ * unrelated runs".
  *
  * An earlier revision required EVERY run to be green, on the theory that
  * newest-wins would fail open if a SHA ever carried two runs. It closed nothing
@@ -88,7 +114,7 @@ export function ciRunsFor(workflowRuns) {
  * comparator does not order at all.
  */
 export function ciConclusion(workflowRuns) {
-  const run = newestRun(ciRunsFor(workflowRuns));
+  const run = newestRun(workflowRuns || []);
   if (!run || run.conclusion == null) return null;
   return run.conclusion === "success" ? "success" : "failure";
 }
@@ -102,16 +128,18 @@ function newestRun(runs) {
 /**
  * The run `@claude rerun` / `@claude loop` must re-run for a head SHA, or null.
  *
- * Exactly one — the newest COMPLETED run — for the reason `ciConclusion` reads
- * only the newest: that is the run whose conclusion gate 1 will read, and a
- * re-run bumps its `run_attempt`, which is the only thing agent-review-panel's
- * gate admits a `completed` event for. Re-running more would erode
+ * Exactly one — the newest COMPLETED run. Re-running more would erode
  * agent-iterate-ci's attempt bound (which counts current `failure` conclusions,
  * and a re-run replaces one) and emit a completion per run into a
  * `cancel-in-progress` group, cancelling the fixer mid-push.
  *
- * COMPLETED because the API answers 422 for a run still in flight — and an
- * in-flight run emits its own completion event, so there is nothing to trigger.
+ * COMPLETED because the API answers 422 for a run still in flight. Note this is
+ * NOT always the run `ciConclusion` reads: with a newer run still in flight,
+ * gate 1 already answers `null` ("not known yet") and this returns the finished
+ * one underneath it. That is the right pair anyway — the in-flight run will
+ * emit its own completion, so re-running the finished one adds the
+ * `run_attempt > 1` event the panel re-engages on without waiting, and gate 1
+ * reads whichever ends up newest when it next runs.
  *
  * `workflowRuns` is expected to be already scoped to the CI workflow file by
  * the caller's `workflow_id: 'ci.yml'`, so this does not re-filter by path.

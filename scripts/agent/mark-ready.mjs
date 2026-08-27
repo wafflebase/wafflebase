@@ -1,15 +1,28 @@
 // Ready gate for the autonomous contribution loop.
 //
 // Promotes an agent-authored draft PR to "ready for human review" ONLY when the
-// hand-off preconditions all hold. Gates 1 and 2 are UNFORGEABLE — they read
-// evidence a separate actor produced that the author agent cannot fabricate:
+// hand-off preconditions all hold. Gates 1 and 2 read evidence a SEPARATE ACTOR
+// produced, rather than anything the author agent writes:
 //
-//   1. EVERY run of `.github/workflows/ci.yml` for the PR head SHA concluded
-//      `success` (read via the Actions API — the author agent cannot create or
-//      forge a CI run; this replaces parsing the <!-- harness-verification -->
-//      comment, which the author's issues:write could post). Identified by the
-//      workflow's PATH, not by the run's display name, which any second file
-//      could claim — see CI_WORKFLOW_PATH in checks.mjs.
+//   1. The newest run of the CI workflow for the PR head SHA concluded
+//      `success` (read via the Actions API — the author agent cannot create a
+//      CI run; this replaces parsing the <!-- harness-verification --> comment,
+//      which the author's issues:write could post). The runs are scoped to the
+//      CI workflow FILE by the API itself (`/actions/workflows/ci.yml/runs`),
+//      not matched on a run's display name — which is only a `name:` key any
+//      second workflow file could claim — and not by parsing a path in JS. See
+//      CI_WORKFLOW_FILE in checks.mjs for why that distinction is load-bearing.
+//
+//      WHAT THIS DOES NOT GUARANTEE: a `pull_request` run executes the PR
+//      BRANCH's own copy of `ci.yml`, so a branch that can edit that file can
+//      produce a genuinely green run at the genuine path with no tests in it.
+//      The agent App cannot — it may not push `.github/workflows/**`, which is
+//      the same boundary agent-review-panel.yml's `workflow_run` trigger rests
+//      on — but an `agent:managed` human PR is on this promote path and is not
+//      restricted. So gate 1 means "a separate actor reports CI green for this
+//      SHA", NOT "the tests in main's CI definition passed". Closing that gap
+//      needs the run's workflow content compared against the base branch, which
+//      is a change to this gate rather than a comment on it.
 //   2. The `agent-independent-review` check run on the PR head SHA concluded
 //      `success` — an INDEPENDENT reviewer approved it. Only the reviewer
 //      workflow (which has checks:write) can post that check, so the author
@@ -36,7 +49,7 @@
 // Requires the `gh` CLI authenticated via GH_TOKEN / GITHUB_TOKEN.
 
 import { execFileSync } from "node:child_process";
-import { allRequiredPassed, ciConclusion, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { allRequiredPassed, ciConclusion, CI_WORKFLOW_FILE, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 import { computeLabelSet } from "./set-state.mjs";
 import { disclosesAiAuthorship, HANDOFF_MARKER } from "./disclosure.mjs";
 
@@ -128,13 +141,21 @@ function ciPassed(sha) {
   if (!sha) return false;
   let data;
   try {
-    data = ghJson(["api", `repos/{owner}/{repo}/actions/runs?head_sha=${sha}&per_page=100`]);
+    // Scoped to the CI workflow FILE by the API itself, not filtered in JS
+    // afterwards. A run's `name` is only a `name:` key, so a second file
+    // claiming `name: CI` would forge the one gate that means "the tests
+    // passed" — and matching the run's `path` in JS is string parsing on an
+    // attacker-influenced value, which is how `ci.yml@pwn.yml` slipped through
+    // an earlier revision. GitHub resolves `ci.yml` here to the workflow that
+    // file defines. It also bounds the response to CI's own runs, so a flood of
+    // unrelated runs cannot push the CI run past `per_page`.
+    data = ghJson([
+      "api",
+      `repos/{owner}/{repo}/actions/workflows/${CI_WORKFLOW_FILE}/runs?head_sha=${sha}&per_page=100`,
+    ]);
   } catch {
     return false;
   }
-  // Matched by workflow PATH, not by the run's display name: `name` is just a
-  // `name:` key, so a second workflow file claiming `name: CI` would forge the
-  // one gate that means "the tests passed". See CI_WORKFLOW_PATH.
   return ciConclusion(data.workflow_runs) === "success";
 }
 

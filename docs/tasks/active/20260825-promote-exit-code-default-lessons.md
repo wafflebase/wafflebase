@@ -110,6 +110,37 @@
   premise is not reachable today, harden the thing that keeps it unreachable,
   not the code downstream of it.**
 
+- **Tolerance added for a shape the system does not have is an attack
+  surface.** The path match stripped an `@ref` suffix because *called*
+  workflows report one — a form CI is not invoked in. That tolerance made
+  "ci.yml" + at-sign + anything-ending-in-.yml match the real workflow, which
+  is a legal filename Actions will run, re-opening the very forgery the check
+  had just closed. It is the second time on this branch that hardening for an
+  unreachable case created a reachable defect (the first was requiring every
+  CI run green). **A defensive branch for a case that cannot occur is not
+  free: it is untested code on the trusted path.** If the shape ever appears,
+  the strict version fails closed and says so.
+
+- **Do not decide identity by parsing a string you did not issue.** The whole
+  `@`-suffix class disappeared by asking the API for the CI workflow's runs
+  (`/actions/workflows/ci.yml/runs`) instead of fetching every run and matching
+  `path` in JS. GitHub resolves the file; a filename cannot spoof it. It also
+  removed a second finding for free — a flood of unrelated runs could no longer
+  push the CI run past `per_page`, because only CI's runs come back. When a
+  service can scope a query for you, that is the identity check; re-deriving it
+  client-side is how the bug got in.
+
+- **A comment that overclaims is a defect, and this branch shipped three.**
+  The header said EVERY run must be green after the rule was reverted to
+  newest-wins; it called gates 1-2 UNFORGEABLE when a `pull_request` run
+  executes the PR branch's own `ci.yml`, so a branch that can edit that file
+  gets a genuinely green run at the genuine path; and a new test claimed
+  "exactly one CI run per PR head SHA" when reopening a PR files a second one.
+  The whole branch exists because a gate claimed a property it did not have —
+  and then reproduced the mistake three times while fixing it. **After changing
+  a rule, re-read every sentence that describes it**, including the ones you
+  wrote in the same session.
+
 - **Three rounds of "my fix caused the next finding" is a signal to look
   upstream, not to keep patching.** Rounds 4, 5 and 6 each opened with a defect
   introduced by the previous round's fix. Each individual fix was correct for

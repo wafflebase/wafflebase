@@ -64,7 +64,7 @@ if (argv[0] === "pr" && argv[1] === "view") {
   // The label re-read just before the PUT asks for labels alone.
   const only = joined.endsWith("--json labels");
   process.stdout.write(JSON.stringify(only ? { labels: cfg.pr.labels || [] } : cfg.pr));
-} else if (argv[0] === "api" && joined.includes("actions/runs")) {
+} else if (argv[0] === "api" && joined.includes("/runs?head_sha=")) {
   process.stdout.write(JSON.stringify({ workflow_runs: cfg.workflowRuns || [] }));
 } else if (argv[0] === "api" && joined.includes("check-runs")) {
   process.stdout.write(JSON.stringify({ check_runs: cfg.checkRuns || [] }));
@@ -183,77 +183,8 @@ test("exit 1, not 0: CI not green leaves the PR a draft without promoting", () =
   }
 });
 
-test("gate 1 reads the CI WORKFLOW FILE — another green workflow is not evidence", () => {
-  // Every workflow on the repo reports a run for the same head SHA, and the
-  // panel's own runs go green routinely. With no filter at all the newest of
-  // them wins the sort, so `agent-review-panel` concluding success would
-  // satisfy the one gate that is supposed to mean "the tests passed".
-  const other = {
-    name: "agent-review-panel",
-    path: ".github/workflows/agent-review-panel.yml",
-    conclusion: "success",
-    created_at: "2026-08-22T09:00:00Z",
-  };
 
-  const ciRed = run(
-    ["7", "--promote"],
-    okConfig({ workflowRuns: [{ name: "CI", path: CI_PATH, conclusion: "failure", created_at: AT }, other] }),
-  );
-  assert.equal(ciRed.code, 1, "a green non-CI run must not stand in for a red CI run");
-  assert.ok(!promoted(ciRed.calls));
 
-  const ciAbsent = run(["7", "--promote"], okConfig({ workflowRuns: [other] }));
-  assert.equal(ciAbsent.code, 1, "a green non-CI run must not stand in for a missing CI run");
-  assert.ok(!promoted(ciAbsent.calls));
-
-  // ...and the filter must not go the other way: CI green among the noise promotes.
-  const ciGreen = run(
-    ["7", "--promote"],
-    okConfig({ workflowRuns: [other, { name: "CI", path: CI_PATH, conclusion: "success", created_at: AT }] }),
-  );
-  assert.equal(ciGreen.code, 0);
-  assert.ok(promoted(ciGreen.calls));
-});
-
-test("gate 1 is not forgeable by a SECOND workflow file that calls itself 'CI'", () => {
-  // The gate's whole claim is that it reads evidence the author cannot
-  // fabricate. A run's `name` is only the workflow file's `name:` key and
-  // nothing makes it unique — anyone who can push a branch to the base repo
-  // could add `.github/workflows/pwn.yml` with `name: CI` on `push` and get a
-  // green run for their own head SHA. Matching on `path` is what closes that:
-  // only one file can occupy `.github/workflows/ci.yml`.
-  const forged = {
-    name: "CI",
-    path: ".github/workflows/pwn.yml",
-    conclusion: "success",
-    created_at: "2026-08-22T09:00:00Z", // newest, so it wins any sort
-  };
-
-  const realRed = run(
-    ["7", "--promote"],
-    okConfig({ workflowRuns: [{ name: "CI", path: CI_PATH, conclusion: "failure", created_at: AT }, forged] }),
-  );
-  assert.equal(realRed.code, 1, "a run named CI from another file must not override the real red CI run");
-  assert.ok(!promoted(realRed.calls), "the PR must stay a draft");
-
-  const onlyForged = run(["7", "--promote"], okConfig({ workflowRuns: [forged] }));
-  assert.equal(onlyForged.code, 1, "a run named CI from another file is not evidence that CI ran at all");
-  assert.ok(!promoted(onlyForged.calls));
-});
-
-test("gate 1 tolerates the @ref suffix a called workflow reports on its path", () => {
-  // A reusable/called workflow reports `path` as `<file>@<ref>`. That is still
-  // the CI file, so it must count — otherwise hardening the filter would make
-  // the gate unsatisfiable the day CI is invoked as a called workflow.
-  const called = run(
-    ["7", "--promote"],
-    okConfig({
-      workflowRuns: [{ name: "CI", path: `${CI_PATH}@refs/heads/main`, conclusion: "success", created_at: AT }],
-    }),
-  );
-  assert.equal(called.code, 0);
-  assert.ok(promoted(called.calls));
-});
 
 test("gate 1 reads the NEWEST CI run for the SHA", () => {
   // `ciConclusion` reads the newest run by id. That is safe because a PR head

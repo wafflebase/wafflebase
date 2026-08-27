@@ -31,7 +31,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { emitBestEffortWarning } from "./guard-verdict.mjs";
-import { ciConclusion } from "./checks.mjs";
+import { ciConclusion, CI_WORKFLOW_FILE } from "./checks.mjs";
 
 // --- pure helpers (exported for tests; no gh) ------------------------------
 
@@ -223,8 +223,14 @@ function gatherSignals(pr) {
     complete = false; // without the head SHA we can't read CI / lens checks
   } else {
     try {
-      const runs = ghJson(["api", `repos/{owner}/{repo}/actions/runs?head_sha=${sha}&per_page=100`]).workflow_runs || [];
-      // By workflow PATH, not display name — same reason as mark-ready's gate 1.
+      // Scoped to the CI workflow file by the API — same reason as mark-ready's
+      // gate 1: a run's display name is not unique, and matching its path in JS
+      // is parsing an attacker-influenced string.
+      const runs =
+        ghJson([
+          "api",
+          `repos/{owner}/{repo}/actions/workflows/${CI_WORKFLOW_FILE}/runs?head_sha=${sha}&per_page=100`,
+        ]).workflow_runs || [];
       sig.ciConclusion = ciConclusion(runs); // genuinely null while in progress or absent
     } catch {
       complete = false; // do NOT coerce a failed fetch to null (would read as "pending")

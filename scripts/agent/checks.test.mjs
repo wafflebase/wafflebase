@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunsFor, ciRunToRerun, CI_WORKFLOW_PATH, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunToRerun, CI_WORKFLOW_PATH, CI_WORKFLOW_FILE, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 
 // `DEFAULT_REVIEW_CHECKS` is the ONE lens list in the repo that does not derive
 // itself from lenses.json, so it is the one that silently rots when a lens is
@@ -444,7 +444,7 @@ test("CI_WORKFLOW_PATH names a workflow file that actually exists", () => {
   // The gate matches CI runs on this path instead of on the run's display name,
   // which is what makes gate 1 unforgeable — a second file cannot claim the
   // path. The cost is that a typo, or renaming ci.yml, silently makes the gate
-  // unsatisfiable for every PR: `ciRunsFor` would find nothing and read as
+  // unsatisfiable for every PR: the workflow-scoped query would find nothing and read as
   // "CI has not run". Assert the file is there, and that it is the one whose
   // runs are named "CI".
   const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -456,19 +456,19 @@ test("CI_WORKFLOW_PATH names a workflow file that actually exists", () => {
 
 
 
-test("ci.yml's triggers keep exactly one CI run per PR head SHA", () => {
-  // THE INVARIANT `ciConclusion` RESTS ON. It reads the newest CI run for the
-  // head SHA, which is only safe while a PR head has one: `push` restricted to
-  // `main` never fires for a PR branch, and a `merge_group` run carries the
-  // speculative merge commit, not the PR head. Add a trigger that fires on a PR
-  // head — `push` on all branches, a `workflow_dispatch`, a second
-  // `pull_request` — and newest-wins silently becomes "read one of several
-  // runs", where a red one is ignored whenever a later-created one is green.
+test("no two ci.yml triggers can race for the same PR head SHA", () => {
+  // THE INVARIANT `ciConclusion` RESTS ON — stated precisely, because an earlier
+  // revision of this test overclaimed it as "exactly one run per head SHA".
+  // That is false: closing and reopening a PR files a second `pull_request` run
+  // for the same commit. Newest-wins is CORRECT there, because the later run is
+  // a fresh execution of the same file at the same tree and supersedes the
+  // earlier one.
   //
-  // This test is the tripwire for that, and it is deliberately the cheap half
-  // of the trade: requiring EVERY run green instead closes the same hole and
-  // cost three defects (see ciConclusion's comment). Fail here, and the choice
-  // is a conscious one rather than a silent regression.
+  // What must not happen is two runs from DIFFERENT triggers for one PR head,
+  // where "newest" is arbitrary rather than superseding. `push` restricted to
+  // `main` never fires for a PR branch, and a `merge_group` run carries the
+  // speculative merge commit. Widen `push`, or add a trigger that fires on a PR
+  // head, and this fails — making the choice conscious instead of silent.
   const HERE = path.dirname(fileURLToPath(import.meta.url));
   const yml = readFileSync(path.join(HERE, "..", "..", CI_WORKFLOW_PATH), "utf8");
   const on = yml.slice(yml.indexOf("\non:"), yml.indexOf("\npermissions:"));
@@ -480,46 +480,76 @@ test("ci.yml's triggers keep exactly one CI run per PR head SHA", () => {
     ["merge_group", "pull_request", "push"],
     "a new CI trigger may fire for a PR head SHA — see ciConclusion before adding one",
   );
-  // `push` must stay off PR branches, or every agent branch push produces a
-  // SECOND run for the same SHA that `pull_request` already covered.
   assert.match(
     code.slice(code.indexOf("push:"), code.indexOf("pull_request:")),
     /branches: \["main"\]/,
-    "push must stay restricted to main",
+    "push must stay restricted to main, or every PR branch push races pull_request",
   );
 });
 
-test("ciConclusion: the newest CI run wins, and an unfinished one is 'not yet'", () => {
-  const real = (id, conclusion) => ({ id, name: "CI", path: CI_WORKFLOW_PATH, conclusion });
+test("ciConclusion: the newest run wins, and an unfinished one is 'not yet'", () => {
+  // Identity is NOT decided here any more — the caller scopes its query with
+  // `/actions/workflows/ci.yml/runs`, so GitHub resolves which workflow file
+  // produced these runs. An earlier revision filtered on `path` in JS and
+  // stripped an `@ref` suffix, which let `ci.yml@pwn.yml` through; the test for
+  // that lives with CI_WORKFLOW_FILE below.
+  const r = (id, conclusion) => ({ id, conclusion });
 
   assert.equal(ciConclusion([]), null, "no runs at all");
   assert.equal(ciConclusion(undefined), null, "a missing list is not a crash");
-  assert.equal(
-    ciConclusion([{ id: 1, name: "CI", path: ".github/workflows/pwn.yml", conclusion: "success" }]),
-    null,
-    "a second file calling itself CI is not the CI workflow",
-  );
-  assert.equal(ciConclusion([{ id: 1, name: "CI" }]), null, "a run with no path cannot be matched to the file");
 
-  assert.equal(ciConclusion([real(1, "success")]), "success");
-  assert.equal(ciConclusion([real(1, "failure")]), "failure");
-  assert.equal(ciConclusion([real(1, "cancelled")]), "failure", "only success is success");
+  assert.equal(ciConclusion([r(1, "success")]), "success");
+  assert.equal(ciConclusion([r(1, "failure")]), "failure");
+  assert.equal(ciConclusion([r(1, "cancelled")]), "failure", "only success is success");
 
   // Newest by id, in either input order — ids are assigned in creation order,
   // so this needs no date parsing and cannot be reordered by a bad timestamp.
-  assert.equal(ciConclusion([real(1, "success"), real(9, "failure")]), "failure");
-  assert.equal(ciConclusion([real(9, "failure"), real(1, "success")]), "failure");
-  assert.equal(ciConclusion([real(9, "success"), real(1, "failure")]), "success");
+  assert.equal(ciConclusion([r(1, "success"), r(9, "failure")]), "failure");
+  assert.equal(ciConclusion([r(9, "failure"), r(1, "success")]), "failure");
+  assert.equal(ciConclusion([r(9, "success"), r(1, "failure")]), "success");
+
+  // A SHA legitimately carries two runs after a close/reopen; the later one is
+  // a fresh execution of the same file and supersedes the earlier.
+  assert.equal(ciConclusion([r(1, "failure"), r(9, "success")]), "success");
 
   // The newest still running → not known yet, whatever the older ones say.
-  assert.equal(ciConclusion([real(1, "success"), real(9, null)]), null);
-  assert.equal(ciConclusion([real(9, null)]), null);
+  assert.equal(ciConclusion([r(1, "success"), r(9, null)]), null);
+  assert.equal(ciConclusion([r(9, null)]), null);
+});
 
-  assert.equal(
-    ciConclusion([{ id: 1, name: "CI", path: `${CI_WORKFLOW_PATH}@refs/heads/main`, conclusion: "success" }]),
-    "success",
-  );
-  assert.equal(ciRunsFor([real(1, "success"), { id: 2, path: ".github/workflows/x.yml" }]).length, 1);
+test("the CI readers scope by workflow FILE, never by parsing a run's path", () => {
+  // THE REGRESSION THIS EXISTS FOR. A revision matched `r.path` in JS and
+  // stripped an `@ref` suffix for called workflows — a shape CI does not have —
+  // with `path.split("@")[0]`. `.github/workflows/ci.yml@pwn.yml` is a legal
+  // filename that Actions runs (it ends in .yml), and it matched, re-opening the
+  // forgery the check exists to close. Server-side scoping cannot be spoofed by
+  // a filename.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  // CODE LINES ONLY. The comments explaining this regression quote the very
+  // expression they warn about, and a whole-file grep would read the warning as
+  // the thing it warns about — the same trap as the panel-trigger test above.
+  const codeOf = (file) =>
+    readFileSync(path.join(HERE, file), "utf8")
+      .split("\n")
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join("\n");
+
+  for (const file of ["mark-ready.mjs", "set-state.mjs"]) {
+    const src = codeOf(file);
+    assert.match(
+      src,
+      /actions\/workflows\/\$\{CI_WORKFLOW_FILE\}\/runs\?head_sha=/,
+      `${file} must ask the API for the CI workflow's runs, not for every run on the SHA`,
+    );
+    assert.ok(
+      !/actions\/runs\?head_sha=/.test(src),
+      `${file} must not fetch every workflow run for the SHA and filter in JS`,
+    );
+    assert.ok(!/split\("@"\)/.test(src), `${file} must not parse a run path`);
+  }
+  assert.ok(!/split\("@"\)/.test(codeOf("checks.mjs")), "checks.mjs must not parse a run path either");
+  assert.equal(CI_WORKFLOW_FILE, "ci.yml");
+  assert.ok(CI_WORKFLOW_PATH.endsWith("/" + CI_WORKFLOW_FILE), "the two constants must name the same file");
 });
 
 test("ciRunToRerun: the newest COMPLETED run, and only that one", () => {
