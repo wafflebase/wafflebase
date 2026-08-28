@@ -199,7 +199,7 @@ three reproduce the same freeze at row 1,000,000:
   reach its ref. Inherent to the ID-keyed cell model: a cell at row 1,000,000
   has to be addressable. This is the reason coverage may legitimately exceed
   the cap, and the reason the cap governs extension rather than reach.
-- `yorkie-worksheet-axis.ts` `insertYorkieWorksheetAxis` / `moveYorkieWorksheetAxis`
+- `worksheet-axis.ts` `insertWorksheetAxis` / `moveWorksheetAxis`
   — "Insert row above" at a far-out row materializes everything before it.
 - `sheet-view.tsx` `openCommentComposerForActiveCell` — seeds coverage from the
   raw active cell so a comment can be anchored.

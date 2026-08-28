@@ -139,14 +139,21 @@ the same stable key and survive merges cleanly.
 | --- | --- |
 | `@wafflebase/sheets` | `Store` interface, `Sheet` engine, formula helpers, pure remap helpers, canonical worksheet/document types, worksheet cell read/write helpers |
 | `packages/frontend/src/app/spreadsheet/yorkie-store.ts` | `Store` implementation for one tab, Yorkie `doc.update()` boundary, batch buffering, index invalidation, presence updates |
-| `packages/frontend/src/app/spreadsheet/yorkie-worksheet-axis.ts` | Yorkie-local row/column order mutations (`insert`, `delete`, `move`) |
-| `packages/frontend/src/app/spreadsheet/yorkie-worksheet-structure.ts` | Yorkie-local post-axis structure rewrites: formulas, indexed metadata, range styles, conditional formats, merges, chart anchors |
+| `packages/sheets/src/model/workbook/worksheet-axis.ts` | Row/column order mutations (`insert`, `delete`, `move`) |
+| `packages/sheets/src/model/workbook/worksheet-structure.ts` | Post-axis structure rewrites: formulas, indexed metadata, range styles, conditional formats, merges, chart anchors |
 
 Two important points follow from this split:
 
-1. The shared package does not export Yorkie-only axis mutation helpers.
-2. The frontend owns collaboration-specific orchestration because Yorkie
-   proxy mutation semantics are not a concern of the generic sheet engine.
+1. The two structure helpers live in the shared package, not the frontend.
+   They read and write a `Worksheet` through plain property access, which is
+   equally valid against a plain object and against a Yorkie proxy — nothing
+   in them is Yorkie-specific, and the frontend copy's only local import
+   re-exported `@wafflebase/sheets` anyway. Sharing them is what lets the
+   REST API apply the same structural edit as the editor rather than
+   reimplementing a rewrite that has to stay bug-for-bug identical.
+2. The frontend still owns collaboration-specific orchestration: opening the
+   `doc.update()` boundary, batch buffering, index invalidation, and presence
+   are the editor's concerns, not the engine's.
 
 ## Structural Edit Flow
 
@@ -156,8 +163,8 @@ For `shiftCells` / `moveCells`, the Yorkie-backed path works like this:
 sequenceDiagram
     participant Sheet as Sheet engine
     participant Store as YorkieStore
-    participant Axis as yorkie-worksheet-axis
-    participant Struct as yorkie-worksheet-structure
+    participant Axis as worksheet-axis
+    participant Struct as worksheet-structure
     participant Doc as Yorkie document
 
     Sheet->>Store: shiftCells / moveCells

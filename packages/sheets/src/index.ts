@@ -163,6 +163,7 @@ import {
   updateWorksheetCell,
   replaceWorksheetCells,
   resolveWorksheetCellStyle,
+  normalizeStoredCell,
 } from './model/workbook/worksheet-grid';
 import {
   safeWorksheetRecordKeys,
@@ -172,6 +173,18 @@ import {
   createWorksheetCellKey,
   parseWorksheetCellKey,
 } from './model/workbook/worksheet-record';
+import {
+  insertWorksheetAxis,
+  deleteWorksheetAxis,
+  moveWorksheetAxis,
+} from './model/workbook/worksheet-axis';
+import {
+  applyWorksheetShift,
+  applyWorksheetMove,
+  shiftCrossTabDataRanges,
+  moveCrossTabDataRanges,
+  deleteThreadsForAxis,
+} from './model/workbook/worksheet-structure';
 import {
   type CellAnchor,
   type RangeAnchor,
@@ -334,12 +347,21 @@ export {
   updateWorksheetCell,
   replaceWorksheetCells,
   resolveWorksheetCellStyle,
+  normalizeStoredCell,
   safeWorksheetRecordKeys,
   safeWorksheetRecordEntries,
   safeWorksheetRecordValues,
   createWorksheetAxisId,
   createWorksheetCellKey,
   parseWorksheetCellKey,
+  insertWorksheetAxis,
+  deleteWorksheetAxis,
+  moveWorksheetAxis,
+  applyWorksheetShift,
+  applyWorksheetMove,
+  shiftCrossTabDataRanges,
+  moveCrossTabDataRanges,
+  deleteThreadsForAxis,
   calculatePivot,
   materialize,
   parseSourceData,

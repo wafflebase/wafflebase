@@ -1,40 +1,41 @@
+import { parseRef, toSref } from '../core/coordinates';
 import {
-  getWorksheetEntries,
   moveConditionalFormatRules,
-  moveDataValidationRules,
-  moveDimensionMap,
-  moveFormula,
-  moveMergeMap,
-  moveRangeStylePatches,
-  moveRef,
-  parseRef,
   shiftConditionalFormatRules,
+} from '../worksheet/conditional-format';
+import {
+  moveDataValidationRules,
   shiftDataValidationRules,
-  shiftDimensionMap,
-  shiftFormula,
-  shiftMergeMap,
+} from '../worksheet/data-validation';
+import { moveMergeMap, shiftMergeMap } from '../worksheet/merging';
+import {
+  moveRangeStylePatches,
   shiftRangeStylePatches,
-  safeWorksheetRecordEntries,
-  safeWorksheetRecordKeys,
-  shiftA1Range,
-  shiftColumnLabel,
-  shiftSref,
+} from '../worksheet/range-styles';
+import {
   moveA1Range,
   moveColumnLabel,
-  toSref,
-  writeWorksheetCell,
-  type Axis,
-  type Cell,
-  type MergeSpan,
-  type SheetChart,
-  type Sref,
-  type Worksheet,
-} from "@wafflebase/sheets";
+  moveDimensionMap,
+  moveFormula,
+  moveRef,
+  shiftA1Range,
+  shiftColumnLabel,
+  shiftDimensionMap,
+  shiftFormula,
+  shiftSref,
+} from '../worksheet/shifting';
+import { getWorksheetEntries, writeWorksheetCell } from './worksheet-grid';
 import {
-  deleteYorkieWorksheetAxis,
-  insertYorkieWorksheetAxis,
-  moveYorkieWorksheetAxis,
-} from "./yorkie-worksheet-axis";
+  safeWorksheetRecordEntries,
+  safeWorksheetRecordKeys,
+} from './worksheet-record';
+import type { Axis, Cell, MergeSpan, Sref } from '../core/types';
+import type { SheetChart, Worksheet } from './worksheet-document';
+import {
+  deleteWorksheetAxis,
+  insertWorksheetAxis,
+  moveWorksheetAxis,
+} from './worksheet-axis';
 
 type NormalizeCell = (cell: Cell) => Cell | null;
 
@@ -44,8 +45,8 @@ type NormalizeCell = (cell: Cell) => Cell | null;
  * so undo restores both the deleted rows/columns and their threads together.
  */
 export function deleteThreadsForAxis(
-  ws: Worksheet,
-  axis: "row" | "col",
+  ws: Pick<Worksheet, 'comments'>,
+  axis: 'row' | 'col',
   deletedAxisIds: Set<string>,
 ): void {
   const comments = ws.comments;
@@ -269,7 +270,7 @@ function moveAnchors(
   }
 }
 
-export function applyYorkieWorksheetShift(options: {
+export function applyWorksheetShift(options: {
   ws: Worksheet;
   axis: Axis;
   index: number;
@@ -280,9 +281,9 @@ export function applyYorkieWorksheetShift(options: {
 
   let deletedAxisIds: Set<string> = new Set();
   if (count > 0) {
-    insertYorkieWorksheetAxis(ws, axis, index, count);
+    insertWorksheetAxis(ws, axis, index, count);
   } else if (count < 0) {
-    deletedAxisIds = deleteYorkieWorksheetAxis(ws, axis, index, Math.abs(count));
+    deletedAxisIds = deleteWorksheetAxis(ws, axis, index, Math.abs(count));
   }
 
   rewriteFormulaCells(ws, normalizeCell, (formula) =>
@@ -343,7 +344,7 @@ export function applyYorkieWorksheetShift(options: {
   }
 }
 
-export function applyYorkieWorksheetMove(options: {
+export function applyWorksheetMove(options: {
   ws: Worksheet;
   axis: Axis;
   srcIndex: number;
@@ -353,7 +354,7 @@ export function applyYorkieWorksheetMove(options: {
 }): void {
   const { ws, axis, srcIndex, count, dstIndex, normalizeCell } = options;
 
-  moveYorkieWorksheetAxis(ws, axis, srcIndex, count, dstIndex);
+  moveWorksheetAxis(ws, axis, srcIndex, count, dstIndex);
 
   rewriteFormulaCells(ws, normalizeCell, (formula) =>
     moveFormula(formula, axis, srcIndex, count, dstIndex),

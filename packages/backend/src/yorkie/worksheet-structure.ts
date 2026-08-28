@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { parseRange, parseRef } from '@wafflebase/sheets';
-import type { Range } from '@wafflebase/sheets';
+import type { Axis, Range } from '@wafflebase/sheets';
 
 /**
  * The engine's grid bounds (`Dimensions` in `sheets/model/worksheet/sheet.ts`),
@@ -90,4 +90,105 @@ export function parseClearRange(body: unknown): Range {
   }
 
   return [from, to];
+}
+
+/** A validated row/column insert, delete, or move request. */
+export type AxisShift = { axis: Axis; index: number; count: number };
+export type AxisMove = {
+  axis: Axis;
+  srcIndex: number;
+  count: number;
+  dstIndex: number;
+};
+
+function assertBody(body: unknown, shape: string): Record<string, unknown> {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new BadRequestException(`body must be an object ${shape}`);
+  }
+  return body as Record<string, unknown>;
+}
+
+function parseAxis(raw: unknown): Axis {
+  if (raw !== 'row' && raw !== 'column') {
+    throw new BadRequestException('\'axis\' must be "row" or "column"');
+  }
+  return raw;
+}
+
+/** The 1-based index bound for an axis: rows and columns differ. */
+function axisLimit(axis: Axis): number {
+  return axis === 'row' ? MaxRows : MaxColumns;
+}
+
+function parseIndex(raw: unknown, field: string, axis: Axis): number {
+  const limit = axisLimit(axis);
+  if (
+    typeof raw !== 'number' ||
+    !Number.isInteger(raw) ||
+    raw < 1 ||
+    raw > limit
+  ) {
+    throw new BadRequestException(
+      `'${field}' must be an integer in 1..${limit} for axis "${axis}"`,
+    );
+  }
+  return raw;
+}
+
+/**
+ * `count` is bounded by the axis length for the same reason `clear` bounds its
+ * area: the shift runs synchronously inside `doc.update`, and every inserted
+ * row rewrites the formulas and anchors below it.
+ */
+function parseCount(raw: unknown, axis: Axis): number {
+  const limit = axisLimit(axis);
+  if (
+    typeof raw !== 'number' ||
+    !Number.isInteger(raw) ||
+    raw < 1 ||
+    raw > limit
+  ) {
+    throw new BadRequestException(
+      `'count' must be an integer in 1..${limit} for axis "${axis}"`,
+    );
+  }
+  return raw;
+}
+
+/**
+ * Validate `{ axis, index, count }` for an insert or a delete. `count` is
+ * always positive here; the caller negates it for a delete, matching the
+ * engine's `applyWorksheetShift` convention (positive inserts, negative
+ * deletes).
+ */
+export function parseAxisShift(body: unknown): AxisShift {
+  const b = assertBody(body, '{ axis, index, count }');
+  const axis = parseAxis(b.axis);
+  return {
+    axis,
+    index: parseIndex(b.index, 'index', axis),
+    count: parseCount(b.count, axis),
+  };
+}
+
+/**
+ * Validate `{ axis, srcIndex, count, dstIndex }` for a move. A destination
+ * inside the moved block is rejected: the engine treats `dstIndex` as the
+ * position the block lands *before*, so a target within `[src, src+count)`
+ * describes moving a block into itself and has no meaningful result.
+ */
+export function parseAxisMove(body: unknown): AxisMove {
+  const b = assertBody(body, '{ axis, srcIndex, count, dstIndex }');
+  const axis = parseAxis(b.axis);
+  const srcIndex = parseIndex(b.srcIndex, 'srcIndex', axis);
+  const count = parseCount(b.count, axis);
+  const dstIndex = parseIndex(b.dstIndex, 'dstIndex', axis);
+
+  if (dstIndex > srcIndex && dstIndex < srcIndex + count) {
+    throw new BadRequestException(
+      `'dstIndex' (${dstIndex}) falls inside the moved block ` +
+        `[${srcIndex}, ${srcIndex + count - 1}]`,
+    );
+  }
+  return { axis, srcIndex, count, dstIndex };
 }

@@ -51,11 +51,12 @@ import type {
 import type { SpreadsheetDocument, Worksheet } from "@/types/worksheet";
 import type { UserPresence } from "@/types/users";
 import {
-  applyYorkieWorksheetMove,
-  applyYorkieWorksheetShift,
+  normalizeStoredCell,
+  applyWorksheetMove,
+  applyWorksheetShift,
   shiftCrossTabDataRanges,
   moveCrossTabDataRanges,
-} from "./yorkie-worksheet-structure";
+} from "@wafflebase/sheets";
 import {
   applyAddThread,
   applyAddReply,
@@ -205,52 +206,13 @@ export class YorkieStore implements Store {
   }
 
   /**
-   * Normalizes a cell before persistence.
-   * - Drops empty-string values (`v: ""`) as default.
-   * - Drops empty formulas/styles.
-   * - Returns null when the cell has no meaningful payload.
+   * Normalizes a cell before persistence: drops empty values, formulas and
+   * styles, and returns null when nothing meaningful is left. Delegates to
+   * the engine so this store and the structural edits that rewrite cells
+   * agree on what a stored cell looks like.
    */
   private normalizeCell(cell: Cell): Cell | null {
-    const normalized: Cell = {};
-
-    if (cell.v !== undefined && cell.v !== "") {
-      normalized.v = cell.v;
-    }
-
-    if (cell.f !== undefined && cell.f !== "") {
-      normalized.f = cell.f;
-    }
-
-    if (cell.s && Object.keys(cell.s).length > 0) {
-      normalized.s = cell.s;
-    }
-
-    if (cell.spillAnchor !== undefined) {
-      normalized.spillAnchor = cell.spillAnchor;
-    }
-    if (cell.spillRows !== undefined) {
-      normalized.spillRows = cell.spillRows;
-    }
-    if (cell.spillCols !== undefined) {
-      normalized.spillCols = cell.spillCols;
-    }
-    if (cell.spillBlocked !== undefined) {
-      normalized.spillBlocked = cell.spillBlocked;
-    }
-
-    if (
-      normalized.v === undefined &&
-      normalized.f === undefined &&
-      normalized.s === undefined &&
-      normalized.spillAnchor === undefined &&
-      normalized.spillRows === undefined &&
-      normalized.spillCols === undefined &&
-      normalized.spillBlocked === undefined
-    ) {
-      return null;
-    }
-
-    return normalized;
+    return normalizeStoredCell(cell);
   }
 
   /**
@@ -491,7 +453,7 @@ export class YorkieStore implements Store {
   async shiftCells(axis: Axis, index: number, count: number): Promise<void> {
     const tabId = this.tabId;
     const applyShift = (root: SpreadsheetDocument) => {
-      applyYorkieWorksheetShift({
+      applyWorksheetShift({
         ws: root.sheets[tabId],
         axis,
         index,
@@ -522,7 +484,7 @@ export class YorkieStore implements Store {
   ): Promise<void> {
     const tabId = this.tabId;
     const applyMove = (root: SpreadsheetDocument) => {
-      applyYorkieWorksheetMove({
+      applyWorksheetMove({
         ws: root.sheets[tabId],
         axis,
         srcIndex,
