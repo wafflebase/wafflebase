@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MemStore } from '../../src/store/memory';
-import { Sheet } from '../../src/model/worksheet/sheet';
+import { MaxAxisCoverage, Sheet } from '../../src/model/worksheet/sheet';
 
 describe('Sheet.Data', () => {
   it('should correctly set and get data', async () => {
@@ -206,6 +206,207 @@ describe('Sheet.Selection', () => {
 
     const lastCall = calls[calls.length - 1];
     expect(lastCall.minCols).toBeGreaterThanOrEqual(5);
+  });
+
+  /**
+   * `MaterializingStore` mirrors the Yorkie store: `ensureAxisOrder` really
+   * grows the axis arrays, one entry per row/column. `MemStore` no-ops it, so
+   * anchor behavior beyond coverage is only observable through this store.
+   */
+  class MaterializingStore extends MemStore {
+    rowOrder: string[] = [];
+    colOrder: string[] = [];
+
+    override getRowOrder(): string[] {
+      return [...this.rowOrder];
+    }
+
+    override getColOrder(): string[] {
+      return [...this.colOrder];
+    }
+
+    override getAxisCoverage(): { rows: number; cols: number } {
+      return { rows: this.rowOrder.length, cols: this.colOrder.length };
+    }
+
+    override ensureAxisOrder(minRows: number, minCols: number): void {
+      while (this.rowOrder.length < minRows) {
+        this.rowOrder.push(`r${this.rowOrder.length}`);
+      }
+      while (this.colOrder.length < minCols) {
+        this.colOrder.push(`c${this.colOrder.length}`);
+      }
+    }
+  }
+
+  it('should not extend axis order on Shift+Arrow far out in empty space', () => {
+    // Regression: #180 stopped `activeCell` from extending the axis, but
+    // ranges still did. Shift+Arrow at row 1,000,000 asked for 1M axis IDs,
+    // which the Yorkie store materializes one CRDT push at a time.
+    const calls: Array<{ minRows: number; minCols: number }> = [];
+    class TrackingStore extends MemStore {
+      override ensureAxisOrder(minRows: number, minCols: number): void {
+        calls.push({ minRows, minCols });
+      }
+    }
+
+    const sheet = new Sheet(new TrackingStore());
+    sheet.setActiveCell({ r: 1_000_000, c: 1 });
+    sheet.resizeRange('up');
+    sheet.resizeRange('up');
+
+    expect(calls.length).toBeGreaterThan(0);
+    for (const { minRows } of calls) {
+      expect(minRows).toBeLessThanOrEqual(MaxAxisCoverage);
+    }
+  });
+
+  it('should not extend axis order when selecting a far-out row header', () => {
+    // Same path via selectRow(): the range spans the whole row at r=1M.
+    const calls: Array<{ minRows: number; minCols: number }> = [];
+    class TrackingStore extends MemStore {
+      override ensureAxisOrder(minRows: number, minCols: number): void {
+        calls.push({ minRows, minCols });
+      }
+    }
+
+    const sheet = new Sheet(new TrackingStore());
+    sheet.selectRow(1_000_000);
+
+    expect(calls.length).toBeGreaterThan(0);
+    for (const { minRows } of calls) {
+      expect(minRows).toBeLessThanOrEqual(MaxAxisCoverage);
+    }
+  });
+
+  it('should anchor a large selection that needs no new coverage', () => {
+    // The cap bounds how far coverage may be *extended*, not how far it may
+    // reach. Cell writes grow the axis to reach their ref, so a 50,000-row
+    // import leaves 50,000 row IDs — a selection over that data must still be
+    // anchored, or peers lose the highlight and the selection stops surviving
+    // a peer's row insert over real content.
+    const calls: Array<Parameters<MemStore['updateSelection']>> = [];
+    class TrackingStore extends MaterializingStore {
+      override updateSelection(
+        ...args: Parameters<MemStore['updateSelection']>
+      ): void {
+        calls.push(args);
+      }
+    }
+
+    const store = new TrackingStore();
+    store.ensureAxisOrder(50_000, 10);
+
+    const sheet = new Sheet(store);
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 20_000, c: 2 });
+
+    const [activeCell, ranges] = calls[calls.length - 1];
+    expect(activeCell).not.toBeNull();
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0].startRowId).not.toBeNull();
+    expect(ranges[0].endRowId).not.toBeNull();
+    // Extending was never needed, so nothing was materialized beyond the data.
+    expect(store.rowOrder).toHaveLength(50_000);
+  });
+
+  it('should anchor a selection reaching just past existing coverage', () => {
+    // The budget is relative to what exists: dragging 5,000 rows past a
+    // 50,000-row import costs 5,000 new IDs, well inside the cap, so the
+    // selection must still be anchored rather than degraded.
+    const calls: Array<Parameters<MemStore['updateSelection']>> = [];
+    class TrackingStore extends MaterializingStore {
+      override updateSelection(
+        ...args: Parameters<MemStore['updateSelection']>
+      ): void {
+        calls.push(args);
+      }
+    }
+
+    const store = new TrackingStore();
+    store.ensureAxisOrder(50_000, 10);
+
+    const sheet = new Sheet(store);
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 55_000, c: 2 });
+
+    const [activeCell, ranges] = calls[calls.length - 1];
+    expect(activeCell).not.toBeNull();
+    expect(ranges[0].endRowId).not.toBeNull();
+    expect(store.rowOrder).toHaveLength(55_000);
+  });
+
+  it('should publish no anchors for a selection beyond axis coverage', () => {
+    // A range endpoint beyond coverage cannot be anchored, and a null
+    // endpoint id already means "entire row/column" to peers. So publish no
+    // `selection` at all and let the legacy activeCell Sref carry the cursor.
+    const calls: Array<{
+      activeCell: Parameters<MemStore['updateSelection']>[0];
+      ranges: Parameters<MemStore['updateSelection']>[1];
+      activeCellRef: Parameters<MemStore['updateSelection']>[2];
+    }> = [];
+    class TrackingStore extends MaterializingStore {
+      override updateSelection(
+        activeCell: Parameters<MemStore['updateSelection']>[0],
+        ranges: Parameters<MemStore['updateSelection']>[1],
+        activeCellRef: Parameters<MemStore['updateSelection']>[2],
+      ): void {
+        calls.push({ activeCell, ranges, activeCellRef });
+      }
+    }
+
+    const sheet = new Sheet(new TrackingStore());
+    sheet.setActiveCell({ r: 1_000_000, c: 1 });
+    sheet.resizeRange('up');
+
+    const last = calls[calls.length - 1];
+    expect(last.activeCell).toBeNull();
+    expect(last.ranges).toEqual([]);
+    expect(last.activeCellRef).toEqual({ r: 1_000_000, c: 1 });
+  });
+
+  it('should keep a beyond-coverage selection when anchors are re-resolved', () => {
+    // With no anchors published, a remote sync must leave the visual
+    // selection alone rather than clearing it or snapping it back to the
+    // stale anchors of the last within-coverage selection.
+    const sheet = new Sheet(new MaterializingStore());
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+
+    sheet.selectStart({ r: 999_998, c: 1 });
+    sheet.selectEnd({ r: 1_000_000, c: 2 });
+    const before = sheet.getRange();
+    expect(before).toEqual([
+      { r: 999_998, c: 1 },
+      { r: 1_000_000, c: 2 },
+    ]);
+
+    sheet.resolveAnchorsToRefs();
+
+    expect(sheet.getActiveCell()).toEqual({ r: 999_998, c: 1 });
+    expect(sheet.getRange()).toEqual(before);
+  });
+
+  it('should still repair ranges when only the active cell is unanchored', () => {
+    // The no-anchor sentinel must not swallow range repair: a range inside
+    // coverage still re-resolves when the cursor sits outside it.
+    const store = new MaterializingStore();
+    const sheet = new Sheet(store);
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    sheet.setActiveCell({ r: 900_000, c: 1 });
+
+    // A peer deletes the first row, taking the range's start ID with it. Per
+    // "Deleted Axis ID Handling", a deleted endpoint snaps to the surviving
+    // one — which is repair, and it must still happen here.
+    store.rowOrder.shift();
+    sheet.resolveAnchorsToRefs();
+
+    expect(sheet.getActiveCell()).toEqual({ r: 900_000, c: 1 });
+    expect(sheet.getRange()).toEqual([
+      { r: 2, c: 1 },
+      { r: 2, c: 2 },
+    ]);
   });
 });
 

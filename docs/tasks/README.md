@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| axis order selection perf (2026-08-28) | [20260828-axis-order-selection-perf-todo.md](./active/20260828-axis-order-selection-perf-todo.md) | [20260828-axis-order-selection-perf-lessons.md](./active/20260828-axis-order-selection-perf-lessons.md) |
 | notes mobile toolbar (2026-08-28) | [20260828-notes-mobile-toolbar-todo.md](./active/20260828-notes-mobile-toolbar-todo.md) | [20260828-notes-mobile-toolbar-lessons.md](./active/20260828-notes-mobile-toolbar-lessons.md) |
 | notes blockquote lists (2026-08-27) | [20260827-notes-blockquote-lists-todo.md](./active/20260827-notes-blockquote-lists-todo.md) | [20260827-notes-blockquote-lists-lessons.md](./active/20260827-notes-blockquote-lists-lessons.md) |
 | v1 worksheet review fix (2026-08-27) | [20260827-v1-worksheet-review-fix-todo.md](./active/20260827-v1-worksheet-review-fix-todo.md) | [20260827-v1-worksheet-review-fix-lessons.md](./active/20260827-v1-worksheet-review-fix-lessons.md) |
@@ -51,4 +52,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 555
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: notes mobile toolbar (2026-08-28)
+Latest active task: axis order selection perf (2026-08-28)

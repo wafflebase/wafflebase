@@ -151,6 +151,65 @@ For ranges, each endpoint is resolved independently. If one endpoint's axis ID
 is deleted, it snaps to the surviving endpoint. If both endpoints are deleted,
 the range is dropped from the selection.
 
+### Coverage Bound
+
+Axis-ID coverage is **dense**: `rowOrder[i]` is the ID of visual row `i + 1`,
+so referencing row N requires N entries. `ensureAxisOrder` therefore costs one
+CRDT array insert per row, and coverage is only ever extended, never trimmed.
+
+`MaxAxisCoverage` (10,000, in `sheet.ts`) bounds how far
+`syncSelectionToPresence` will **extend** it — not how far a selection may
+reach. Coverage that already exists is free to use: `writeWorksheetCell` grows
+both axes to reach the ref it writes, so a 50,000-row import leaves 50,000 row
+IDs and a selection over that data is anchored as before. The budget is
+relative — `Store.getAxisCoverage()` (O(1), unlike `getRowOrder()`, which
+copies) reports what exists, and a selection may reach `MaxAxisCoverage` rows
+past it, paying only for the entries it adds.
+
+Only a selection that would push coverage further than that degrades. It
+publishes **no anchors at all** — `updateSelection(null, [], activeCellRef)`,
+which the Yorkie store turns into `selection: undefined` plus the legacy
+`activeCell` Sref — and the local `activeCellAnchor` / `rangeAnchors` are
+cleared so `resolveAnchorsToRefs()` leaves the visual selection alone instead
+of resolving anchors that no longer describe it.
+
+Nothing meaningful is lost: axis IDs exist so a selection survives a peer's
+row/column insert or delete, which only happens where the sheet has content.
+Peers still see the cursor via the Sref fallback; they lose only the range
+highlight, out in empty space.
+
+An unbounded version of this is what made `Shift+Arrow` at row 1,000,000
+unusable — a single keypress asked for 1M axis IDs (measured ~7 minutes of
+Yorkie pushes in one `doc.update`, and ~300 ms per keystroke afterwards just
+to walk the array). Anchors must stay proportional to the data, not to the
+visual coordinate, because the grid is 1,000,000 × 18,278 regardless of how
+sparse the sheet is.
+
+`Store.ensureAxisOrder` implementations must also return without opening a
+document update when coverage already suffices: every arrow key re-publishes
+the selection and so calls it again.
+
+#### What this does not bound
+
+`MaxAxisCoverage` is a bound on one code path, not a global invariant. Three
+other callers still extend the axis straight from a visual coordinate, and all
+three reproduce the same freeze at row 1,000,000:
+
+- `worksheet-grid.ts` `ensureWorksheetGrid` — writing a cell grows both axes to
+  reach its ref. Inherent to the ID-keyed cell model: a cell at row 1,000,000
+  has to be addressable. This is the reason coverage may legitimately exceed
+  the cap, and the reason the cap governs extension rather than reach.
+- `yorkie-worksheet-axis.ts` `insertYorkieWorksheetAxis` / `moveYorkieWorksheetAxis`
+  — "Insert row above" at a far-out row materializes everything before it.
+- `sheet-view.tsx` `openCommentComposerForActiveCell` — seeds coverage from the
+  raw active cell so a comment can be anchored.
+
+Bounding those needs a sparse anchor (an ID plus an offset, rather than a
+position in a dense array), which would replace this scheme rather than tune
+it. Until then, a single chokepoint — one `Store` method that queries and
+extends coverage with the cap applied inside it — would at least keep new
+callers from routing around the bound.
+
 ### Sheet Engine Changes
 
 The Sheet class keeps `activeCell: Ref` and `ranges: Ranges` as-is. Changes:
@@ -196,7 +255,9 @@ interface Store {
   getRowOrder(): string[];
   getColOrder(): string[];
 
-  // Extend axis orders to cover selection range
+  // Extend axis orders to cover selection range, bounded by the caller
+  // against the coverage that already exists (see Coverage Bound)
+  getAxisCoverage(): { rows: number; cols: number };
   ensureAxisOrder(minRows: number, minCols: number): void;
 }
 ```
@@ -258,5 +319,6 @@ field is no longer just a migration tool.
 | Presence payload size with many ranges | Increased sync traffic | Cap `ranges` array to a reasonable limit (e.g. 32). Multi-select beyond that is rare. |
 | `indexOf` on `rowOrder` for every render | O(n) per lookup on large sheets | Build a `Map<string, number>` index from `rowOrder` on change, not on every render. Already done for cell lookups in `getWorksheetEntries`. |
 | `ensureAxisOrder` extending to dimension boundary on Cmd+Down/Right | Multi-second freeze from ~1M Yorkie pushes | Only ranges drive axis-order extension; activeCell never extends. activeCell beyond coverage falls back to legacy Sref via `overlay.ts` dual-format path. |
+| Ranges reaching the dimension boundary (Shift+Arrow / row header at row 1M) | ~7-minute freeze materializing 1M axis IDs, then ~300 ms per keystroke walking them | `MaxAxisCoverage` caps requested coverage; beyond it the selection publishes no anchors and falls back to the same legacy Sref path. See [Coverage Bound](#coverage-bound). |
 | Deleted axis ID detection requires previous state | Complexity in tracking deletions | Cache previous `rowOrder` snapshot on each remote sync. Diff is cheap (array comparison). |
 | Mixed old/new client presence during rollout | Rendering glitches | Dual-format presence parsing with fallback. |

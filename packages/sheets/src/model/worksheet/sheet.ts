@@ -144,6 +144,26 @@ import {
  * It represents cells from A1 to ZZZ1000000.
  */
 const Dimensions = { rows: 1000000, columns: 18278 };
+
+/**
+ * `MaxAxisCoverage` bounds how far a selection may *extend* axis-ID coverage.
+ * `Store.ensureAxisOrder` is dense — covering visual row N costs N CRDT array
+ * entries — so a selection out in empty space would otherwise materialize to
+ * the grid boundary: Shift+Arrow at row 1,000,000 measured ~7 minutes of
+ * Yorkie pushes, and left every later keystroke walking a 1M-entry array.
+ *
+ * It does not bound what a selection may *use*. Cell writes grow the axis to
+ * reach their ref, so a sheet with 50,000 rows of data already has 50,000 row
+ * IDs; a selection over them is anchored as before, and one reaching a little
+ * past them pays only for the rows it adds. Only a selection that would push
+ * coverage this far past what exists degrades: it publishes no anchors
+ * and falls back to the legacy `activeCell` Sref presence field, the same
+ * degradation the design specifies for an activeCell beyond coverage. Axis IDs
+ * exist so a selection survives a peer's row/column insert or delete, which
+ * only happens where the sheet has content — so nothing tracked is lost out in
+ * empty space.
+ */
+export const MaxAxisCoverage = 10000;
 const MaxBorderSelectionCells = 50000;
 // Cap for a range checkbox toggle (Space). Bounds the scan so a whole-column
 // checkbox rule cannot freeze the tab; beyond it the toggle is a no-op.
@@ -2279,8 +2299,6 @@ export class Sheet {
         { r: minR, c: minC },
         { r: maxR, c: maxC },
       ]];
-      const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
-      if (cellAnchor) this.activeCellAnchor = cellAnchor;
       this.syncSelectionToPresence();
     }
   }
@@ -2495,8 +2513,6 @@ export class Sheet {
     this.selectionType = 'cell';
     this.activeCell = destStart;
     this.ranges = [[destStart, destEnd]];
-    const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
-    if (cellAnchor) this.activeCellAnchor = cellAnchor;
     this.syncSelectionToPresence();
   }
 
@@ -3002,21 +3018,48 @@ export class Sheet {
         maxCol = Math.max(maxCol, start.c, end.c);
       }
     }
-    this.store.ensureAxisOrder(maxRow, maxCol);
+
+    // `MaxAxisCoverage` bounds how far the axis may be *extended*, not how far
+    // it may reach: covering visual row N costs N CRDT entries, so extending
+    // out to a selection in empty space would freeze the tab. Coverage that
+    // already exists — every cell write grows the axis to reach its ref — is
+    // free to use, so a selection over real content is anchored however large,
+    // and one just past it pays only for the rows it actually adds.
+    const coverage = this.store.getAxisCoverage();
+    this.store.ensureAxisOrder(
+      maxRow > coverage.rows + MaxAxisCoverage ? 0 : maxRow,
+      maxCol > coverage.cols + MaxAxisCoverage ? 0 : maxCol,
+    );
 
     const rowOrder = this.store.getRowOrder();
     const colOrder = this.store.getColOrder();
 
-    const freshAnchor = refToAnchor(this.activeCell, rowOrder, colOrder);
-    if (freshAnchor) {
-      this.activeCellAnchor = freshAnchor;
+    // Past the coverage the selection cannot be anchored, and a null endpoint
+    // id already means "entire row/column" to peers. So publish no anchors at
+    // all and let the legacy activeCell Sref carry the cursor, and drop the
+    // stored anchors so `resolveAnchorsToRefs` leaves the visual selection
+    // alone instead of resolving anchors that no longer describe it.
+    if (maxRow > rowOrder.length || maxCol > colOrder.length) {
+      this.activeCellAnchor = null;
+      this.rangeAnchors = [];
+      this.store.updateSelection(null, [], this.activeCell);
+      return;
     }
+
+    // Same rule for the active cell: an anchor that no longer describes where
+    // the cursor is must not outlive it, or a later remote sync resolves the
+    // stale anchor and drags the cursor back.
+    this.activeCellAnchor = refToAnchor(this.activeCell, rowOrder, colOrder);
 
     const rangeAnchors = this.ranges.map((range) =>
       rangeToRangeAnchor(range, rowOrder, colOrder, this.selectionType),
     );
     this.rangeAnchors = rangeAnchors;
-    this.store.updateSelection(freshAnchor, rangeAnchors, this.activeCell);
+    this.store.updateSelection(
+      this.activeCellAnchor,
+      rangeAnchors,
+      this.activeCell,
+    );
   }
 
   /**
@@ -3032,11 +3075,6 @@ export class Sheet {
   public setActiveCell(ref: Ref): void {
     const anchor = this.normalizeRefToAnchor(ref);
     this.activeCell = anchor;
-
-    const cellAnchor = refToAnchor(anchor, this.store.getRowOrder(), this.store.getColOrder());
-    if (cellAnchor) {
-      this.activeCellAnchor = cellAnchor;
-    }
 
     this.syncSelectionToPresence();
   }
@@ -3103,8 +3141,6 @@ export class Sheet {
       { r: row, c: 1 },
       { r: row, c: this.dimension.columns },
     ]];
-    const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
-    if (cellAnchor) this.activeCellAnchor = cellAnchor;
     this.syncSelectionToPresence();
   }
 
@@ -3118,8 +3154,6 @@ export class Sheet {
       { r: 1, c: col },
       { r: this.dimension.rows, c: col },
     ]];
-    const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
-    if (cellAnchor) this.activeCellAnchor = cellAnchor;
     this.syncSelectionToPresence();
   }
 
@@ -3158,8 +3192,6 @@ export class Sheet {
     this.selectionType = 'all';
     this.activeCell = { r: 1, c: 1 };
     this.ranges = [cloneRange(this.dimensionRange)];
-    const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
-    if (cellAnchor) this.activeCellAnchor = cellAnchor;
     this.syncSelectionToPresence();
   }
 
@@ -3561,8 +3593,6 @@ export class Sheet {
     this.selectionType = 'cell';
     const anchor = this.normalizeRefToAnchor(ref);
     this.activeCell = anchor;
-    const cellAnchor = refToAnchor(anchor, this.store.getRowOrder(), this.store.getColOrder());
-    if (cellAnchor) this.activeCellAnchor = cellAnchor;
     // Append the new collapsed range before syncing so peers see it
     this.ranges.push([anchor, anchor]);
     this.syncSelectionToPresence();
@@ -4410,8 +4440,6 @@ export class Sheet {
 
     this.selectionType = 'cell';
     this.activeCell = this.normalizeRefToAnchor(anchor);
-    const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
-    if (cellAnchor) this.activeCellAnchor = cellAnchor;
     this.ranges = [toMergeRange(anchor, span)];
     this.syncSelectionToPresence();
     return true;
@@ -4879,8 +4907,6 @@ export class Sheet {
         } else {
           this.ranges = [result.affectedRange];
         }
-        const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
-        if (cellAnchor) this.activeCellAnchor = cellAnchor;
         this.syncSelectionToPresence();
       }
 
@@ -4913,8 +4939,6 @@ export class Sheet {
         } else {
           this.ranges = [result.affectedRange];
         }
-        const cellAnchor = refToAnchor(this.activeCell, this.store.getRowOrder(), this.store.getColOrder());
-        if (cellAnchor) this.activeCellAnchor = cellAnchor;
         this.syncSelectionToPresence();
       }
 
@@ -5080,7 +5104,14 @@ export class Sheet {
   }
 
   public resolveAnchorsToRefs(): void {
-    if (!this.activeCellAnchor) return;
+    // No anchors means the selection is tracked in visual coordinates only
+    // (it sits past axis-ID coverage), so there is nothing to re-resolve and
+    // the visual selection must be left alone.
+    if (!this.activeCellAnchor && this.rangeAnchors.length === 0) return;
+    if (!this.activeCellAnchor) {
+      this.resolveRangeAnchorsToRanges();
+      return;
+    }
     const rowOrder = this.store.getRowOrder();
     const colOrder = this.store.getColOrder();
 
@@ -5097,6 +5128,22 @@ export class Sheet {
     }
 
     // Re-resolve ranges before syncing so peers get the repaired state
+    this.resolveRangeAnchorsToRanges();
+
+    // Republish repaired selection if activeCell was deleted
+    if (!newRef) {
+      this.syncSelectionToPresence();
+    }
+  }
+
+  /**
+   * `resolveRangeAnchorsToRanges` re-derives `ranges` from `rangeAnchors`,
+   * dropping any range whose endpoints were both deleted by a peer.
+   */
+  private resolveRangeAnchorsToRanges(): void {
+    const rowOrder = this.store.getRowOrder();
+    const colOrder = this.store.getColOrder();
+
     const newRanges: Range[] = [];
     for (const anchor of this.rangeAnchors) {
       const range = rangeAnchorToRange(anchor, rowOrder, colOrder, this.dimension);
@@ -5105,11 +5152,6 @@ export class Sheet {
       }
     }
     this.ranges = newRanges;
-
-    // Republish repaired selection if activeCell was deleted
-    if (!newRef) {
-      this.syncSelectionToPresence();
-    }
   }
 
   public getStore(): Store {

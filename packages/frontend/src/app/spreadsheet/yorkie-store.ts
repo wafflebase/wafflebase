@@ -682,7 +682,25 @@ export class YorkieStore implements Store {
     return ws.colOrder ? [...ws.colOrder] : [];
   }
 
+  getAxisCoverage(): { rows: number; cols: number } {
+    // `length` on a Yorkie array is O(1), unlike `getRowOrder`, which copies
+    // the whole axis. Callers use this to size their request.
+    const ws = this.getSheet();
+    return {
+      rows: ws?.rowOrder?.length ?? 0,
+      cols: ws?.colOrder?.length ?? 0,
+    };
+  }
+
   ensureAxisOrder(minRows: number, minCols: number): void {
+    // Most calls need nothing new — every arrow key re-publishes the
+    // selection. Bail before `doc.update`, whose `new Set(rowOrder)` below
+    // would otherwise walk the whole axis on each keystroke.
+    const current = this.getAxisCoverage();
+    if (current.rows >= minRows && current.cols >= minCols) {
+      return;
+    }
+
     this.doc.update((root) => {
       const ws = root.sheets[this.tabId];
       if (!ws) return;
