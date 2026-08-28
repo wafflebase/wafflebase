@@ -256,8 +256,17 @@ export interface Store {
   getColOrder(): string[];
 
   /**
+   * `getAxisCoverage` returns how many row/column axis IDs exist, without
+   * copying them. Callers use it to size a request to `ensureAxisOrder`,
+   * which is why it must stay cheap — `getRowOrder()` copies the whole axis.
+   */
+  getAxisCoverage(): { rows: number; cols: number };
+
+  /**
    * `ensureAxisOrder` ensures the row/col axis orders have at least the
-   * given number of entries, creating new axis IDs if needed.
+   * given number of entries, creating new axis IDs if needed. Coverage is
+   * dense — reaching row N costs N entries — so callers must bound how far
+   * past `getAxisCoverage()` they ask it to go.
    */
   ensureAxisOrder(minRows: number, minCols: number): void;
 

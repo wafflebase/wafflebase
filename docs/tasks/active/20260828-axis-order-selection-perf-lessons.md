@@ -13,7 +13,7 @@ data, or the coordinate space?".
 
 ## A fix aimed at one caller leaves the other one open
 
-#180 fixed exactly this freeze for `activeCell` and documented the mitigation as
+Issue #180 fixed exactly this freeze for `activeCell` and documented it as
 "only ranges drive axis-order extension". That sentence *is* the remaining bug:
 ranges reach the same boundary through `Shift+Arrow` and row-header clicks. When
 a mitigation is phrased as "only X does the dangerous thing", check what X does.

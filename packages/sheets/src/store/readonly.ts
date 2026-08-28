@@ -185,6 +185,10 @@ export class ReadOnlyStore implements Store {
     return [];
   }
 
+  getAxisCoverage(): { rows: number; cols: number } {
+    return { rows: 0, cols: 0 };
+  }
+
   ensureAxisOrder(_minRows: number, _minCols: number): void {
     // no-op
   }

@@ -161,9 +161,12 @@ CRDT array insert per row, and coverage is only ever extended, never trimmed.
 `syncSelectionToPresence` will **extend** it — not how far a selection may
 reach. Coverage that already exists is free to use: `writeWorksheetCell` grows
 both axes to reach the ref it writes, so a 50,000-row import leaves 50,000 row
-IDs and a selection over that data is anchored as before.
+IDs and a selection over that data is anchored as before. The budget is
+relative — `Store.getAxisCoverage()` (O(1), unlike `getRowOrder()`, which
+copies) reports what exists, and a selection may reach `MaxAxisCoverage` rows
+past it, paying only for the entries it adds.
 
-Only a selection that would push coverage this far past the data degrades. It
+Only a selection that would push coverage further than that degrades. It
 publishes **no anchors at all** — `updateSelection(null, [], activeCellRef)`,
 which the Yorkie store turns into `selection: undefined` plus the legacy
 `activeCell` Sref — and the local `activeCellAnchor` / `rangeAnchors` are
@@ -252,7 +255,9 @@ interface Store {
   getRowOrder(): string[];
   getColOrder(): string[];
 
-  // Extend axis orders to cover selection range
+  // Extend axis orders to cover selection range, bounded by the caller
+  // against the coverage that already exists (see Coverage Bound)
+  getAxisCoverage(): { rows: number; cols: number };
   ensureAxisOrder(minRows: number, minCols: number): void;
 }
 ```

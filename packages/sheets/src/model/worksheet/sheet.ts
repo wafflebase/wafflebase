@@ -154,8 +154,9 @@ const Dimensions = { rows: 1000000, columns: 18278 };
  *
  * It does not bound what a selection may *use*. Cell writes grow the axis to
  * reach their ref, so a sheet with 50,000 rows of data already has 50,000 row
- * IDs, and a selection over them is anchored as before. Only a selection that
- * would push coverage this far past the data degrades: it publishes no anchors
+ * IDs; a selection over them is anchored as before, and one reaching a little
+ * past them pays only for the rows it adds. Only a selection that would push
+ * coverage this far past what exists degrades: it publishes no anchors
  * and falls back to the legacy `activeCell` Sref presence field, the same
  * degradation the design specifies for an activeCell beyond coverage. Axis IDs
  * exist so a selection survives a peer's row/column insert or delete, which
@@ -3022,10 +3023,12 @@ export class Sheet {
     // it may reach: covering visual row N costs N CRDT entries, so extending
     // out to a selection in empty space would freeze the tab. Coverage that
     // already exists — every cell write grows the axis to reach its ref — is
-    // free to use, so a selection over real content is anchored however large.
+    // free to use, so a selection over real content is anchored however large,
+    // and one just past it pays only for the rows it actually adds.
+    const coverage = this.store.getAxisCoverage();
     this.store.ensureAxisOrder(
-      maxRow > MaxAxisCoverage ? 0 : maxRow,
-      maxCol > MaxAxisCoverage ? 0 : maxCol,
+      maxRow > coverage.rows + MaxAxisCoverage ? 0 : maxRow,
+      maxCol > coverage.cols + MaxAxisCoverage ? 0 : maxCol,
     );
 
     const rowOrder = this.store.getRowOrder();

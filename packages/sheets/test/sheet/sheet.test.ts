@@ -225,6 +225,10 @@ describe('Sheet.Selection', () => {
       return [...this.colOrder];
     }
 
+    override getAxisCoverage(): { rows: number; cols: number } {
+      return { rows: this.rowOrder.length, cols: this.colOrder.length };
+    }
+
     override ensureAxisOrder(minRows: number, minCols: number): void {
       while (this.rowOrder.length < minRows) {
         this.rowOrder.push(`r${this.rowOrder.length}`);
@@ -306,6 +310,32 @@ describe('Sheet.Selection', () => {
     expect(store.rowOrder).toHaveLength(50_000);
   });
 
+  it('should anchor a selection reaching just past existing coverage', () => {
+    // The budget is relative to what exists: dragging 5,000 rows past a
+    // 50,000-row import costs 5,000 new IDs, well inside the cap, so the
+    // selection must still be anchored rather than degraded.
+    const calls: Array<Parameters<MemStore['updateSelection']>> = [];
+    class TrackingStore extends MaterializingStore {
+      override updateSelection(
+        ...args: Parameters<MemStore['updateSelection']>
+      ): void {
+        calls.push(args);
+      }
+    }
+
+    const store = new TrackingStore();
+    store.ensureAxisOrder(50_000, 10);
+
+    const sheet = new Sheet(store);
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 55_000, c: 2 });
+
+    const [activeCell, ranges] = calls[calls.length - 1];
+    expect(activeCell).not.toBeNull();
+    expect(ranges[0].endRowId).not.toBeNull();
+    expect(store.rowOrder).toHaveLength(55_000);
+  });
+
   it('should publish no anchors for a selection beyond axis coverage', () => {
     // A range endpoint beyond coverage cannot be anchored, and a null
     // endpoint id already means "entire row/column" to peers. So publish no
@@ -340,17 +370,43 @@ describe('Sheet.Selection', () => {
     // selection alone rather than clearing it or snapping it back to the
     // stale anchors of the last within-coverage selection.
     const sheet = new Sheet(new MaterializingStore());
-    sheet.setActiveCell({ r: 5, c: 1 });
-    sheet.resizeRange('down');
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
 
-    sheet.setActiveCell({ r: 1_000_000, c: 1 });
-    sheet.resizeRange('up');
+    sheet.selectStart({ r: 999_998, c: 1 });
+    sheet.selectEnd({ r: 1_000_000, c: 2 });
     const before = sheet.getRange();
+    expect(before).toEqual([
+      { r: 999_998, c: 1 },
+      { r: 1_000_000, c: 2 },
+    ]);
 
     sheet.resolveAnchorsToRefs();
 
-    expect(sheet.getActiveCell()).toEqual({ r: 1_000_000, c: 1 });
+    expect(sheet.getActiveCell()).toEqual({ r: 999_998, c: 1 });
     expect(sheet.getRange()).toEqual(before);
+  });
+
+  it('should still repair ranges when only the active cell is unanchored', () => {
+    // The no-anchor sentinel must not swallow range repair: a range inside
+    // coverage still re-resolves when the cursor sits outside it.
+    const store = new MaterializingStore();
+    const sheet = new Sheet(store);
+    sheet.selectStart({ r: 1, c: 1 });
+    sheet.selectEnd({ r: 3, c: 2 });
+    sheet.setActiveCell({ r: 900_000, c: 1 });
+
+    // A peer deletes the first row, taking the range's start ID with it. Per
+    // "Deleted Axis ID Handling", a deleted endpoint snaps to the surviving
+    // one — which is repair, and it must still happen here.
+    store.rowOrder.shift();
+    sheet.resolveAnchorsToRefs();
+
+    expect(sheet.getActiveCell()).toEqual({ r: 900_000, c: 1 });
+    expect(sheet.getRange()).toEqual([
+      { r: 2, c: 1 },
+      { r: 2, c: 2 },
+    ]);
   });
 });
 

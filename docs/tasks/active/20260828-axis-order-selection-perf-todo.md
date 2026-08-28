@@ -116,12 +116,28 @@ now-dead `if (cellAnchor) this.activeCellAnchor = cellAnchor;` sites (each of
 which also copied both axis arrays); vacuous-pass guards on two tests; a
 column-only case for the store early-out; and the doc corrections below.
 
+### PR review round (CodeRabbit, 4 findings — all applied)
+
+- **Major, `sheet.ts`** — the budget was still absolute: a selection ending at
+  row 55,000 with 50,000 rows already covered needs only 5,000 new IDs, but was
+  refused because 55,000 > `MaxAxisCoverage`. The bound is on *work*, so it is
+  now measured against existing coverage via a new O(1)
+  `Store.getAxisCoverage()` (`getRowOrder()` copies, so it could not be used
+  before materializing). Regression test added for exactly that case.
+- **Minor, `sheet.test.ts`** — the re-resolution test built its "far-out" range
+  through `setActiveCell` + `resizeRange`, which resized the *previous* range
+  instead. Rebuilt with `selectStart`/`selectEnd`, and a second test now covers
+  ranges repairing while only the cursor is unanchored.
+- **Minor, docs ×2** — the cap described as a relative budget while the code
+  applied an absolute one (resolved by fixing the code, above), and a
+  markdownlint MD018 warning from a line starting with `#180`.
+
 ### Known limitations
 
-- A selection that would extend coverage more than 10,000 past the data is not
-  anchored, so peers see the cursor (legacy Sref) but not the range highlight,
-  and that selection does not shift under a peer's row insert/delete.
-  Deliberate — see the design doc's Coverage Bound section.
+- A selection reaching more than 10,000 rows/columns past existing coverage is
+  not anchored, so peers see the cursor (legacy Sref) but not the range
+  highlight, and that selection does not shift under a peer's row
+  insert/delete. Deliberate — see the design doc's Coverage Bound section.
 - **The axis is not globally bounded.** Writing a cell, inserting a row, or
   opening the comment composer at row 1,000,000 all still materialize ~1M IDs;
   the first is inherent to the ID-keyed cell model. Enumerated in the design
