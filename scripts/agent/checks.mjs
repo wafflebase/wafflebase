@@ -37,9 +37,235 @@ export const DEFAULT_REVIEW_CHECKS = [
   "agent-review-security",
 ];
 
-/** Latest run of `name` concluded success? Missing → false. */
+/**
+ * The CI workflow's identity, as the Actions API reports it on a run.
+ *
+ * A run's `name` is only the workflow file's `name:` key, and NOTHING makes it
+ * unique — a second file saying `name: CI` produces runs indistinguishable from
+ * the real ones. That matters because `mark-ready.mjs` calls gate 1
+ * "unforgeable": anyone able to push a branch to the base repo could otherwise
+ * add `.github/workflows/anything.yml` with `name: CI` on `push`, get a green
+ * run recorded against their own head SHA, and satisfy the one gate that is
+ * supposed to mean "the tests passed". (The agent App cannot push workflow
+ * files — that is the boundary agent-review-panel.yml's `workflow_run` trigger
+ * rests on — but an `agent:managed` human PR is on the same promote path and
+ * is not restricted.)
+ *
+ * `path` cannot be spoofed the same way: only one file can occupy it, so a
+ * run's path names the file that produced it. Keep this in step with the
+ * filename on disk — `checks.test.mjs` asserts the file exists.
+ *
+ * This constant is for the WORKFLOW gates, which read
+ * `github.event.workflow_run.path` out of the event payload and compare it with
+ * exact equality (there is nothing to scope server-side in a `workflow_run`
+ * trigger — its `workflows:` filter matches display names only). JS readers use
+ * `CI_WORKFLOW_FILE` below instead and never parse a path.
+ */
+export const CI_WORKFLOW_PATH = ".github/workflows/ci.yml";
+
+/**
+ * The CI workflow's file name, as the Actions API's `workflow_id` path
+ * parameter accepts it. Readers scope their query with this
+ * (`/actions/workflows/ci.yml/runs?head_sha=…`) rather than fetching every run
+ * for the SHA and matching `path` in JS.
+ *
+ * That is not a convenience — it is the identity check. Matching in JS means
+ * parsing an attacker-influenced string, and the first attempt at it was
+ * exploitable: it stripped an `@ref` suffix (for called workflows, a shape CI
+ * does not have) with `path.split("@")[0]`, so a file named
+ * `ci.yml@anything.yml` — a legal filename, and one Actions will run because it
+ * ends in `.yml` — matched the real CI workflow and re-opened the forgery the
+ * check exists to close. Server-side scoping cannot be spoofed by a filename,
+ * and it also bounds the response to CI's own runs, so a flood of unrelated
+ * runs cannot push the CI run off the page.
+ */
+export const CI_WORKFLOW_FILE = "ci.yml";
+
+/**
+ * Paths whose CONTENTS decide what a CI run does — gate 1b's refusal surface.
+ *
+ * A `pull_request` run executes the merge ref's copy of everything CI reaches,
+ * so a branch that edits any of these hands gate 1 a green run that proves
+ * nothing about main's CI. `.github/workflows/ci.yml` is the obvious one and is
+ * nowhere near sufficient: `ci.yml` contains almost no test logic. It runs
+ * `pnpm verify:self` and `pnpm verify:integration`, both resolved from the merge
+ * ref's root `package.json` into `scripts/verify-*.mjs`, whose lane selection
+ * reads `harness.config.json`. Listing only the two `.github` prefixes — which an
+ * earlier revision of this gate did — meant a branch could gut CI through
+ * `package.json` and still auto-promote, while the hand-off comment told the
+ * human reviewer the run had executed main's CI definition.
+ *
+ * This list MIRRORS `harness.config.json`'s `ci.ciConfig` — the repository's own,
+ * CODEOWNER-ed definition of "files that decide how much CI runs" — plus two
+ * entries that list does not need and this gate does:
+ *   - `.github/actions/**` — a composite action is workflow content that happens
+ *     to live elsewhere; `ciConfig` omits it only because no such action exists
+ *     yet.
+ *   - a per-package `package.json` (one wildcard segment under `packages/`) — a
+ *     package's own `test`/`typecheck` script is what `verify:self` invokes for
+ *     that package, so editing it edits a lane. Spelled in prose because the
+ *     glob's middle wildcard followed by a slash would close this comment.
+ * `checks.test.mjs` asserts the mirror covers `ciConfig` entry for entry, so the
+ * two cannot drift silently.
+ *
+ * Hard-coded here rather than read from `harness.config.json` at runtime for a
+ * provenance reason: the promote job checks out the DEFAULT BRANCH, so this
+ * module is main's copy, whereas a file read would be whatever tree the caller
+ * happens to be standing in. The drift test is what keeps the duplication honest.
+ *
+ * WHAT THIS STILL DOES NOT COVER, stated because the hand-off comment must not
+ * overclaim it: a branch can always edit its own test files, and CI dutifully
+ * runs the weakened tests. That residue is a REVIEW property (test-adequacy reads
+ * the diff), not a gate property. Gate 1b's claim is therefore "the branch
+ * supplied no part of the CI/harness definition", never "every assertion CI ran
+ * came from main".
+ */
+export const CI_DEFINING_PATHS = [
+  ".github/workflows/**",
+  ".github/actions/**",
+  ".github/CODEOWNERS",
+  "harness.config.json",
+  "knip.json",
+  "package.json",
+  "packages/*/package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "scripts/changed-areas.mjs",
+  "scripts/verify-*.mjs",
+];
+
+// `**` spans separators, `*` does not, everything else is literal. Deliberately
+// tiny and deliberately anchored at both ends: this is a REFUSAL surface, so a
+// pattern that accidentally matched less is a fail-open.
+const CI_DEFINING_RE = CI_DEFINING_PATHS.map(
+  (glob) =>
+    new RegExp(
+      `^${glob
+        .split("**")
+        .map((span) =>
+          span
+            .split("*")
+            .map((lit) => lit.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+            .join("[^/]*"),
+        )
+        .join(".*")}$`,
+    ),
+);
+
+/** Does this changed path define what CI does? Non-strings → false. */
+export function definesCi(name) {
+  if (typeof name !== "string" || name === "") return false;
+  return CI_DEFINING_RE.some((re) => re.test(name));
+}
+
+/**
+ * CI's verdict for a SHA: `"success"`, `"failure"`, or `null` for "not known
+ * yet" — no run, or the newest one still in flight.
+ *
+ * THE NEWEST RUN WINS. A SHA *can* carry more than one CI run — closing and
+ * reopening a PR files a second `pull_request` run for the same commit — and
+ * newest-wins is the right answer there: the later run is a fresh execution of
+ * the same file at the same tree, so it supersedes the earlier one exactly as a
+ * re-run would. (A re-run does not even produce a second run; GitHub bumps
+ * `run_attempt` on the existing one.)
+ *
+ * What must NOT happen is two runs from DIFFERENT triggers racing for the same
+ * PR head, where "newest" is then arbitrary rather than superseding. Today none
+ * can: `push` is restricted to `main`, and a `merge_group` run carries the
+ * speculative merge commit rather than the PR head. `checks.test.mjs`'s
+ * trigger test pins that set, so adding a trigger that fires on a PR head fails
+ * loudly there instead of quietly turning this into "read one of several
+ * unrelated runs".
+ *
+ * An earlier revision required EVERY run to be green, on the theory that
+ * newest-wins would fail open if a SHA ever carried two runs. It closed nothing
+ * reachable — the invariant above already held — and cost three real defects:
+ * `@claude rerun` could no longer clear the gate (it re-ran one run), then
+ * re-running all of them eroded agent-iterate-ci's append-only attempt bound
+ * (a re-run REPLACES a run's `failure` conclusion) and fanned out into
+ * `workflow_run` completions that cancelled the fixer mid-push. Fail-closed on
+ * a hole that is not open is not free.
+ *
+ * Ordered by `id`, not `created_at`: ids are assigned in creation order, are
+ * always present, and are integers — `new Date("nonsense")` is NaN, and a NaN
+ * comparator does not order at all.
+ */
+export function ciConclusion(workflowRuns) {
+  const run = newestRun(workflowRuns || []);
+  if (!run || run.conclusion == null) return null;
+  return run.conclusion === "success" ? "success" : "failure";
+}
+
+/** Newest by run id (creation order), or null. */
+function newestRun(runs) {
+  if (!runs.length) return null;
+  return runs.reduce((newest, r) => ((r.id ?? 0) > (newest.id ?? 0) ? r : newest));
+}
+
+/**
+ * The run `@claude rerun` / `@claude loop` must re-run for a head SHA, or null.
+ *
+ * Exactly one — the newest COMPLETED run. Re-running more would erode
+ * agent-iterate-ci's attempt bound (which counts current `failure` conclusions,
+ * and a re-run replaces one) and emit a completion per run into a
+ * `cancel-in-progress` group, cancelling the fixer mid-push.
+ *
+ * COMPLETED because the API answers 422 for a run still in flight. Note this is
+ * NOT always the run `ciConclusion` reads: with a newer run still in flight,
+ * gate 1 already answers `null` ("not known yet") and this returns the finished
+ * one underneath it. That is the right pair anyway — the in-flight run will
+ * emit its own completion, so re-running the finished one adds the
+ * `run_attempt > 1` event the panel re-engages on without waiting, and gate 1
+ * reads whichever ends up newest when it next runs.
+ *
+ * `workflowRuns` is expected to be already scoped to the CI workflow file by
+ * the caller's `workflow_id: 'ci.yml'`, so this does not re-filter by path.
+ *
+ * MIRRORED INLINE at both call sites, because neither can import this file:
+ * they are github-script steps in `.github/workflows/agent-rerun.yml` and
+ * `.github/workflows/agent-loop.yml` that run before any checkout — the same
+ * constraint that makes `agent-review-panel.yml` mirror `ciRunDecision` inline.
+ * `checks.test.mjs` pins the copies against each other. Editing this function
+ * means editing both mirrors, which only a maintainer can push.
+ */
+export function ciRunToRerun(workflowRuns) {
+  return newestRun((workflowRuns || []).filter((r) => r?.status === "completed"));
+}
+
+/**
+ * The App slug every check run this repo's gates will believe must carry.
+ *
+ * A check run's NAME is not a secret and is not reserved: ANY integration
+ * installed on the repository may create a check run called
+ * `agent-review-security` and conclude it `success`. Without a producer check,
+ * gate 2 — the one that means "an independent reviewer approved this" — is
+ * satisfiable by anything that can talk to the Checks API, which is the exact
+ * forgery class gate 1 closes by scoping its query to a workflow FILE. `app.slug`
+ * is set by GitHub from the installation, not by the payload the app sends, so it
+ * cannot be chosen by the app that reports it.
+ *
+ * `github-actions` is the slug of a run created by a workflow in this repository
+ * via `GITHUB_TOKEN`. It is NOT per-workflow identity: any workflow here that
+ * declared `checks: write` could post under the same slug. Today only the review
+ * panels do, and no author workflow can gain it — a branch cannot edit
+ * `.github/workflows/**`, because the agent App has no `workflows` scope. So this
+ * filter narrows the producer set from "every App on the installation" to
+ * "workflows in this repository", and review maintains the rest. That is the same
+ * posture `fix-eligible.mjs`, `fix-brief.mjs` and `review-state.mjs` already take;
+ * gate 2 was the one reader that did not.
+ */
+export const CHECK_PRODUCER_APP_SLUG = "github-actions";
+
+/**
+ * Latest run of `name` from the trusted producer concluded success? Missing →
+ * false. A run of the right name from ANOTHER App is not evidence and is not
+ * even considered — dropping it before the sort matters, because a forged run
+ * with a newer `started_at` would otherwise shadow the real verdict.
+ */
 export function checkPassed(checkRuns, name) {
-  const runs = (checkRuns || []).filter((r) => r.name === name);
+  const runs = (checkRuns || []).filter(
+    (r) => r?.name === name && r?.app?.slug === CHECK_PRODUCER_APP_SLUG,
+  );
   if (runs.length === 0) return false;
   runs.sort((a, b) => new Date(b.started_at ?? 0) - new Date(a.started_at ?? 0));
   return runs[0].conclusion === "success";

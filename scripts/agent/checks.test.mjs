@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkPassed, allRequiredPassed, ciRunDecision, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
+import { checkPassed, allRequiredPassed, ciRunDecision, ciConclusion, ciRunToRerun, definesCi, CHECK_PRODUCER_APP_SLUG, CI_DEFINING_PATHS, CI_WORKFLOW_PATH, CI_WORKFLOW_FILE, DEFAULT_REVIEW_CHECKS } from "./checks.mjs";
 
 // `DEFAULT_REVIEW_CHECKS` is the ONE lens list in the repo that does not derive
 // itself from lenses.json, so it is the one that silently rots when a lens is
@@ -47,8 +47,41 @@ test("DEFAULT_REVIEW_CHECKS covers every ALWAYS-APPLICABLE blocking lens", () =>
   }
 });
 
-const succ = (name, t = "2026-07-21T10:00:00Z") => ({ name, conclusion: "success", started_at: t });
-const fail = (name, t = "2026-07-21T10:00:00Z") => ({ name, conclusion: "failure", started_at: t });
+// The `app` block is part of the fixture, not decoration: `checkPassed` refuses
+// a run whose producer is not GitHub Actions, so a fixture without it asserts
+// nothing about the gate it is aimed at.
+const APP = { slug: CHECK_PRODUCER_APP_SLUG };
+const succ = (name, t = "2026-07-21T10:00:00Z") => ({ name, conclusion: "success", started_at: t, app: APP });
+const fail = (name, t = "2026-07-21T10:00:00Z") => ({ name, conclusion: "failure", started_at: t, app: APP });
+
+test("checkPassed: a check run from ANOTHER App is not evidence", () => {
+  // THE FORGERY THIS CLOSES. A check-run NAME is not reserved: any integration
+  // installed on the repo may create `agent-review-security` and conclude it
+  // `success`, so gate 2 — "an independent reviewer approved this" — was
+  // satisfiable by anything holding a Checks API token. `app.slug` is set by
+  // GitHub from the installation and cannot be chosen by the app reporting it.
+  const forged = (name, t) => ({ name, conclusion: "success", started_at: t, app: { slug: "some-other-app" } });
+
+  assert.equal(checkPassed([forged("a", "2026-07-21T10:00:00Z")], "a"), false, "a green run from another App is not a pass");
+  // ...and it must be dropped BEFORE the newest-wins sort, or a forged run with
+  // a later timestamp shadows the real verdict.
+  assert.equal(
+    checkPassed([succ("a", "2026-07-21T10:00:00Z"), forged("a", "2026-07-21T23:00:00Z")], "a"),
+    true,
+    "the real (older) run still speaks for the lens",
+  );
+  assert.equal(
+    checkPassed([fail("a", "2026-07-21T10:00:00Z"), forged("a", "2026-07-21T23:00:00Z")], "a"),
+    false,
+    "a forged run must not overturn a real failure",
+  );
+  // A run with no `app` at all is not evidence either — fail closed on a
+  // response shape the reader does not recognise.
+  assert.equal(checkPassed([{ name: "a", conclusion: "success", started_at: "2026-07-21T10:00:00Z" }], "a"), false);
+  assert.equal(checkPassed([{ name: "a", conclusion: "success", app: {} }], "a"), false);
+  // And the same through the aggregate the ready gate actually calls.
+  assert.equal(allRequiredPassed([forged("x", "2026-07-21T10:00:00Z")], ["x"]).allPassed, false);
+});
 
 test("checkPassed: missing check → false; latest run wins", () => {
   assert.equal(checkPassed([], "a"), false);
@@ -178,25 +211,44 @@ test("the panel starts with CI, admits re-runs, and mirrors ciRunDecision", () =
        .replace(/github\.event\.workflow_run\.head_repository\.full_name/g, "'r'")
        .replace(/github\.repository/g, "'r'")
        .replace(/github\.event\.workflow_run\.head_branch/g, "'b'")
+       .replace(/github\.event\.workflow_run\.path/g, "PATH")
        .replace(/vars\.AGENT_PIPELINE_ENABLED/g, "'true'");
-    const admits = new Function("ACTION", "ATTEMPT", `return (${toJs(gateIf)});`);
+    const admits = new Function("ACTION", "ATTEMPT", "PATH", `return (${toJs(gateIf)});`);
     const suffix = (group.match(/\$\{\{ ([^}]*'noop'[^}]*) \}\}\s*$/) || [])[1];
     assert.ok(suffix, "the group must carry a noop/active partition suffix");
-    const partition = new Function("ACTION", "ATTEMPT", `return (${toJs(suffix)});`);
+    const partition = new Function("ACTION", "ATTEMPT", "PATH", `return (${toJs(suffix)});`);
 
-    for (const [action, attempt] of [["requested", 1], ["requested", 2], ["completed", 1], ["completed", 2]]) {
-      const works = Boolean(admits(action, attempt));
-      const lane = partition(action, attempt);
-      assert.equal(
-        lane,
-        works ? "active" : "noop",
-        `${action}/attempt ${attempt}: gate ${works ? "admits" : "refuses"} but the group says ${lane}`,
-      );
+    // A run produced by a DIFFERENT file that merely calls itself "CI" is in the
+    // matrix too: the trigger's `workflows:` filter matches display names, so
+    // such a run reaches this workflow and — because `concurrency` is claimed at
+    // run creation, before any `if:` — could otherwise take the `active` group
+    // and cancel a legitimate panel mid-review while its own gate refuses it.
+    const paths = [CI_WORKFLOW_PATH, ".github/workflows/pwn.yml"];
+    for (const wfPath of paths) {
+      for (const [action, attempt] of [["requested", 1], ["requested", 2], ["completed", 1], ["completed", 2]]) {
+        const works = Boolean(admits(action, attempt, wfPath));
+        const lane = partition(action, attempt, wfPath);
+        assert.equal(
+          lane,
+          works ? "active" : "noop",
+          `${wfPath} ${action}/attempt ${attempt}: gate ${works ? "admits" : "refuses"} but the group says ${lane}`,
+        );
+      }
     }
+    // ...and the path clause must actually be doing something in both places.
+    assert.ok(
+      !admits("requested", 1, ".github/workflows/pwn.yml"),
+      "the gate must refuse a run from any file other than the CI workflow",
+    );
+    assert.equal(
+      partition("requested", 1, ".github/workflows/pwn.yml"),
+      "noop",
+      "a forged run must not share the concurrency group that real panels cancel each other in",
+    );
     // And prove the partition is not degenerate — a group that always says "active"
     // would pass a same-answer check while restoring the cancellation bug.
-    assert.equal(partition("requested", 1), "active");
-    assert.equal(partition("completed", 1), "noop");
+    assert.equal(partition("requested", 1, CI_WORKFLOW_PATH), "active");
+    assert.equal(partition("completed", 1, CI_WORKFLOW_PATH), "noop");
   }
 
   // The inline copy of the rule. A `github-script` step has no checkout and
@@ -419,4 +471,360 @@ test("agent-fix always answers the commenter, even when the gate step itself fai
   const refusal = wf.slice(wf.indexOf("- name: Explain the refusal"));
   assert.match(refusal.slice(0, 200), /if: always\(\) && steps\.eligible\.outputs\.eligible != 'true'/);
   assert.match(refusal.slice(0, 2000), /eligibility check could not complete/, "an empty reason must still say something");
+});
+
+test("CI_WORKFLOW_PATH names a workflow file that actually exists", () => {
+  // The gate matches CI runs on this path instead of on the run's display name,
+  // which is what makes gate 1 unforgeable — a second file cannot claim the
+  // path. The cost is that a typo, or renaming ci.yml, silently makes the gate
+  // unsatisfiable for every PR: the workflow-scoped query would find nothing and read as
+  // "CI has not run". Assert the file is there, and that it is the one whose
+  // runs are named "CI".
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const abs = path.join(HERE, "..", "..", CI_WORKFLOW_PATH);
+  const src = readFileSync(abs, "utf8"); // throws if the path is wrong
+  assert.match(src, /^name:\s*CI\s*$/m, "ci.yml must still be the workflow whose runs are named CI");
+});
+
+
+
+
+test("CI_DEFINING_PATHS mirrors harness.config.json's own gating surface", () => {
+  // Gate 1b refuses a PR that supplies any part of the CI definition. The
+  // repository ALREADY maintains that list — `ci.ciConfig`, which forces a full
+  // CI run for the same reason ("a PR can never use the filter to grade its own
+  // homework") and is CODEOWNER-ed. Two hand-maintained lists of the same thing
+  // is how the gate ended up covering only `.github/workflows|actions/**` while
+  // `verify-self.mjs` and the root `package.json` — which is where `ci.yml`
+  // actually resolves every test it runs — were free to change.
+  //
+  // The mirror must be a SUPERSET: gate 1b may refuse more than `ciConfig`
+  // shrinks CI for (composite actions, per-package manifests), never less.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const cfg = JSON.parse(readFileSync(path.join(HERE, "..", "..", "harness.config.json"), "utf8"));
+  const ciConfig = cfg.ci?.ciConfig;
+  assert.ok(Array.isArray(ciConfig) && ciConfig.length > 0, "harness.config.json must still declare ci.ciConfig");
+  for (const glob of ciConfig) {
+    assert.ok(
+      CI_DEFINING_PATHS.includes(glob),
+      `harness.config.json calls '${glob}' part of the CI gating surface, and CI_DEFINING_PATHS omits it`,
+    );
+  }
+
+  // ...and the matcher must actually classify the surface it lists. Each of
+  // these is a path CI's behaviour is read from at run time.
+  for (const p of [
+    ".github/workflows/ci.yml",
+    ".github/workflows/nested/whatever.yml",
+    ".github/actions/setup/action.yml",
+    ".github/CODEOWNERS",
+    "harness.config.json",
+    "knip.json",
+    "package.json",
+    "packages/sheets/package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "scripts/changed-areas.mjs",
+    "scripts/verify-self.mjs",
+    "scripts/verify-integration.mjs",
+  ]) {
+    assert.equal(definesCi(p), true, `${p} defines what CI does`);
+  }
+
+  // ...and must NOT swallow ordinary code, or gate 1b refuses every PR and the
+  // whole promote path quietly stops working — a fail-closed that is also a
+  // total outage.
+  for (const p of [
+    "packages/sheets/src/index.ts",
+    "packages/sheets/src/package.json.ts",
+    "docs/design/harness-engineering.md",
+    "scripts/agent/checks.mjs",
+    "scripts/verify-self.md",
+    "packages/frontend/src/nested/package.json", // `*` does not cross a separator
+    "not-package.json",
+    "",
+  ]) {
+    assert.equal(definesCi(p), false, `${p} must not be treated as a CI definition`);
+  }
+  // Junk from an API response is not a match (and not a crash).
+  for (const junk of [null, undefined, 7, {}, []]) assert.equal(definesCi(junk), false);
+});
+
+test("every workflow_run consumer CI can drive gates on the CI workflow's PATH", () => {
+  // `workflow_run`'s `workflows:` filter matches a run's DISPLAY NAME, which is
+  // only a `name:` key and is not unique — so a second file saying `name: CI`
+  // reaches every one of these workflows. Each therefore has to check the file
+  // that produced the run, and each does it in a job `if:` that gates by
+  // SKIPPING, which is invisible when it breaks.
+  //
+  // ONE test over all three, because the clause is one decision: the panel's
+  // (whose `fix` job pushes to the PR branch), agent-iterate-ci's (whose fixer
+  // holds contents: write and is driven by CI concluding `failure`), and
+  // ci-report's (which comments on the PR). Only the panel's was pinned before,
+  // so the other two could be deleted with every test still green.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  // Every non-path expression is substituted with a value that SATISFIES the
+  // clause, so `path` is the only free variable left and the assertions below
+  // are about it alone.
+  const toJs = (s) =>
+    s
+      .replace(/github\.event\.workflow_run\.path/g, "PATH")
+      .replace(/github\.event\.workflow_run\.head_repository\.full_name/g, "'r'")
+      .replace(/github\.repository/g, "'r'")
+      .replace(/github\.event\.workflow_run\.conclusion/g, "'failure'")
+      .replace(/github\.event\.workflow_run\.event/g, "'pull_request'")
+      .replace(/github\.event\.workflow_run\.run_attempt/g, "1")
+      .replace(/github\.event\.action/g, "'requested'")
+      .replace(/vars\.AGENT_PIPELINE_ENABLED/g, "'true'");
+
+  for (const [file, job] of [
+    ["agent-review-panel.yml", "gate"],
+    ["agent-iterate-ci.yml", "gate"],
+    ["ci-report.yml", "report"],
+  ]) {
+    const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", file), "utf8");
+    // The trigger has to be the display-name one, or this assertion is aimed at
+    // the wrong thing.
+    assert.match(yml, /workflows: \["CI"\]/, `${file} must still consume CI by display name`);
+    const expr = (yml.match(new RegExp(`^ {2}${job}:\\n(?:.*\\n)*? {4}if: >-\\n((?: {6}.*\\n)+)`, "m")) || [])[1];
+    assert.ok(expr, `could not extract ${file}'s ${job} job if: expression`);
+    const admits = new Function("PATH", `return (${toJs(expr)});`);
+
+    assert.ok(admits(CI_WORKFLOW_PATH), `${file} must still admit a real CI run`);
+    assert.ok(
+      !admits(".github/workflows/pwn.yml"),
+      `${file} admits a run from another file that merely calls itself 'CI'`,
+    );
+    // An absent field must not read as a match either — `undefined == ''` is
+    // false in JS but `${{ }}` renders a missing field as the empty string, and
+    // both spellings have to refuse.
+    for (const absent of ["", undefined, null]) {
+      assert.ok(!admits(absent), `${file} must refuse a payload with no workflow_run.path (${absent})`);
+    }
+  }
+
+  // capture-collect.yml consumes the PANEL by display name, not CI, and needs
+  // the guard MORE than the three above: its job holds `secrets.EVAL_STORE_TOKEN`,
+  // a write PAT for ANOTHER repository. Any branch could add a file saying
+  // `name: Agent Review Panel` and drive it.
+  const capture = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "capture-collect.yml"), "utf8");
+  assert.match(
+    capture,
+    /workflows: \["Agent Review Panel", "Agent Review On-Demand"\]/,
+    "capture-collect must still consume the panel by display name, or this is aimed at the wrong thing",
+  );
+  const capExpr = (capture.match(/^ {4}if: >-\n((?: {6}.*\n)+)/m) || [])[1];
+  assert.ok(capExpr, "could not extract capture-collect's job if: expression");
+  const capAdmits = new Function(
+    "PATH",
+    "EVENT",
+    "CONCLUSION",
+    "REPO",
+    `return (${capExpr
+      .replace(/github\.event\.workflow_run\.head_repository\.full_name/g, "REPO")
+      .replace(/github\.repository/g, "'o/r'")
+      .replace(/github\.event\.workflow_run\.conclusion/g, "CONCLUSION")
+      .replace(/github\.event\.workflow_run\.path/g, "PATH")
+      .replace(/github\.event_name/g, "EVENT")
+      .replace(/\$\{\{|\}\}/g, "")});`,
+  );
+  assert.ok(
+    capAdmits(".github/workflows/agent-review-panel.yml", "workflow_run", "success", "o/r"),
+    "a real panel run must still be collected",
+  );
+  assert.ok(
+    capAdmits(".github/workflows/agent-review-on-demand.yml", "workflow_run", "success", "o/r"),
+    "an on-demand panel run must still be collected",
+  );
+  assert.ok(
+    !capAdmits(".github/workflows/pwn.yml", "workflow_run", "success", "o/r"),
+    "a run from a file that merely calls itself 'Agent Review Panel' must not reach a cross-repo PAT",
+  );
+  assert.ok(
+    !capAdmits(".github/workflows/agent-review-panel.yml", "workflow_run", "success", "fork/r"),
+    "a fork's run must not reach a cross-repo PAT",
+  );
+  for (const absent of ["", undefined, null]) {
+    assert.ok(!capAdmits(absent, "workflow_run", "success", "o/r"), `capture-collect must refuse an absent path (${absent})`);
+  }
+  // The schedule/dispatch paths must still work — they carry no workflow_run.
+  assert.ok(capAdmits(undefined, "schedule", undefined, undefined), "the nightly sweep must still run");
+});
+
+test("no two ci.yml triggers can race for the same PR head SHA", () => {
+  // THE INVARIANT `ciConclusion` RESTS ON — stated precisely, because an earlier
+  // revision of this test overclaimed it as "exactly one run per head SHA".
+  // That is false: closing and reopening a PR files a second `pull_request` run
+  // for the same commit. Newest-wins is CORRECT there, because the later run is
+  // a fresh execution of the same file at the same tree and supersedes the
+  // earlier one.
+  //
+  // What must not happen is two runs from DIFFERENT triggers for one PR head,
+  // where "newest" is arbitrary rather than superseding. `push` restricted to
+  // `main` never fires for a PR branch, and a `merge_group` run carries the
+  // speculative merge commit. Widen `push`, or add a trigger that fires on a PR
+  // head, and this fails — making the choice conscious instead of silent.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const yml = readFileSync(path.join(HERE, "..", "..", CI_WORKFLOW_PATH), "utf8");
+  const on = yml.slice(yml.indexOf("\non:"), yml.indexOf("\npermissions:"));
+  const code = on.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+
+  const events = [...code.matchAll(/^ {2}([a-z_]+):/gm)].map((m) => m[1]);
+  assert.deepEqual(
+    events.sort(),
+    ["merge_group", "pull_request", "push"],
+    "a new CI trigger may fire for a PR head SHA — see ciConclusion before adding one",
+  );
+  assert.match(
+    code.slice(code.indexOf("push:"), code.indexOf("pull_request:")),
+    /branches: \["main"\]/,
+    "push must stay restricted to main, or every PR branch push races pull_request",
+  );
+});
+
+test("ciConclusion: the newest run wins, and an unfinished one is 'not yet'", () => {
+  // Identity is NOT decided here any more — the caller scopes its query with
+  // `/actions/workflows/ci.yml/runs`, so GitHub resolves which workflow file
+  // produced these runs. An earlier revision filtered on `path` in JS and
+  // stripped an `@ref` suffix, which let `ci.yml@pwn.yml` through; the test for
+  // that lives with CI_WORKFLOW_FILE below.
+  const r = (id, conclusion) => ({ id, conclusion });
+
+  assert.equal(ciConclusion([]), null, "no runs at all");
+  assert.equal(ciConclusion(undefined), null, "a missing list is not a crash");
+
+  assert.equal(ciConclusion([r(1, "success")]), "success");
+  assert.equal(ciConclusion([r(1, "failure")]), "failure");
+  assert.equal(ciConclusion([r(1, "cancelled")]), "failure", "only success is success");
+
+  // Newest by id, in either input order — ids are assigned in creation order,
+  // so this needs no date parsing and cannot be reordered by a bad timestamp.
+  assert.equal(ciConclusion([r(1, "success"), r(9, "failure")]), "failure");
+  assert.equal(ciConclusion([r(9, "failure"), r(1, "success")]), "failure");
+  assert.equal(ciConclusion([r(9, "success"), r(1, "failure")]), "success");
+
+  // A SHA legitimately carries two runs after a close/reopen; the later one is
+  // a fresh execution of the same file and supersedes the earlier.
+  assert.equal(ciConclusion([r(1, "failure"), r(9, "success")]), "success");
+
+  // The newest still running → not known yet, whatever the older ones say.
+  assert.equal(ciConclusion([r(1, "success"), r(9, null)]), null);
+  assert.equal(ciConclusion([r(9, null)]), null);
+});
+
+test("the CI readers scope by workflow FILE, never by parsing a run's path", () => {
+  // THE REGRESSION THIS EXISTS FOR. A revision matched `r.path` in JS and
+  // stripped an `@ref` suffix for called workflows — a shape CI does not have —
+  // with `path.split("@")[0]`. `.github/workflows/ci.yml@pwn.yml` is a legal
+  // filename that Actions runs (it ends in .yml), and it matched, re-opening the
+  // forgery the check exists to close. Server-side scoping cannot be spoofed by
+  // a filename.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  // CODE LINES ONLY. The comments explaining this regression quote the very
+  // expression they warn about, and a whole-file grep would read the warning as
+  // the thing it warns about — the same trap as the panel-trigger test above.
+  const codeOf = (file) =>
+    readFileSync(path.join(HERE, file), "utf8")
+      .split("\n")
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join("\n");
+
+  for (const file of ["mark-ready.mjs", "set-state.mjs"]) {
+    const src = codeOf(file);
+    assert.match(
+      src,
+      /actions\/workflows\/\$\{CI_WORKFLOW_FILE\}\/runs\?head_sha=/,
+      `${file} must ask the API for the CI workflow's runs, not for every run on the SHA`,
+    );
+    assert.ok(
+      !/actions\/runs\?head_sha=/.test(src),
+      `${file} must not fetch every workflow run for the SHA and filter in JS`,
+    );
+    assert.ok(!/split\("@"\)/.test(src), `${file} must not parse a run path`);
+  }
+  assert.ok(!/split\("@"\)/.test(codeOf("checks.mjs")), "checks.mjs must not parse a run path either");
+  assert.equal(CI_WORKFLOW_FILE, "ci.yml");
+  assert.ok(CI_WORKFLOW_PATH.endsWith("/" + CI_WORKFLOW_FILE), "the two constants must name the same file");
+});
+
+test("ciRunToRerun: the newest COMPLETED run, and only that one", () => {
+  const run = (id, status, conclusion) => ({ id, status, conclusion });
+
+  assert.equal(ciRunToRerun([]), null, "nothing to re-run");
+  assert.equal(ciRunToRerun(undefined), null, "a missing list is not a crash");
+
+  // Exactly one, even when several are red. Re-running the others would erode
+  // agent-iterate-ci's attempt bound — it counts current `failure` conclusions,
+  // and a re-run REPLACES one — and emit a `workflow_run` completion per run
+  // into a cancel-in-progress group, cancelling the fixer mid-push.
+  assert.equal(
+    ciRunToRerun([run(1, "completed", "failure"), run(3, "completed", "failure"), run(2, "completed", "success")]).id,
+    3,
+    "the newest completed run, regardless of how many are red",
+  );
+
+  // An in-flight run cannot be re-run (422) and emits its own completion event,
+  // so the newest COMPLETED one is the target even when a newer one is running.
+  assert.equal(ciRunToRerun([run(9, "in_progress", null), run(4, "completed", "success")]).id, 4);
+  assert.equal(ciRunToRerun([run(9, "queued", null)]), null, "nothing completed yet");
+});
+
+test("agent-rerun / agent-loop mirror ciRunToRerun inline, and the copies agree", () => {
+  // Both re-run steps run BEFORE any checkout, so they cannot import checks.mjs
+  // — the same constraint that makes agent-review-panel.yml mirror
+  // `ciRunDecision` inline. The rule therefore exists twice; pinning the copy is
+  // what keeps it ONE rule.
+  const HERE = path.dirname(fileURLToPath(import.meta.url));
+  const run = (id, status, conclusion) => ({ id, status, conclusion });
+  const fixtures = [
+    [],
+    [run(1, "completed", "success")],
+    [run(2, "completed", "failure"), run(1, "completed", "success")],
+    [run(3, "completed", "success"), run(2, "completed", "cancelled")],
+    [run(9, "in_progress", null), run(1, "completed", "success")],
+    [run(1, "queued", null)],
+    // The page-2 case: 101 runs is impossible to reach through `per_page: 1`, so
+    // this fixture is what distinguishes a paginated listing from a truncated one
+    // once the selection is EXTRACTED from the YAML below rather than re-typed.
+    [...Array.from({ length: 100 }, (_, i) => run(i + 1, "completed", "failure")), run(500, "completed", "success")],
+  ];
+
+  for (const file of ["agent-rerun.yml", "agent-loop.yml"]) {
+    const yml = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", file), "utf8");
+    const at = yml.indexOf("workflow_id: 'ci.yml'");
+    assert.notEqual(at, -1, `${file} must still re-run CI by workflow id`);
+    const block = yml.slice(at - 400, at + 700);
+
+    // Exactly one reRunWorkflow call, not a loop over a selection.
+    assert.ok(!/for \(const run of/.test(block), `${file}: fanning out cancels the fixer and erodes the attempt bound`);
+    assert.match(block, /if \(run\) \{ await github\.rest\.actions\.reRunWorkflow/, `${file} re-runs exactly one run`);
+    // The LISTING has to be able to see past the first run. `per_page: 1` — what
+    // this step did before — hands the selection a one-element list, so "the
+    // newest completed run" silently degrades to "the newest run, if it happens
+    // to be finished" and `@claude rerun` does nothing while a run is in flight.
+    // Not covered by extracting the selection below: the selection is correct on
+    // whatever list it is given, and the bug is in the list.
+    assert.match(block, /github\.paginate\(github\.rest\.actions\.listWorkflowRuns/, `${file} must paginate the listing`);
+    assert.match(block, /per_page: 100/, `${file} must request full pages`);
+    assert.ok(!/per_page: 1[,\s}]/.test(block), `${file}: per_page: 1 cannot see the newest COMPLETED run`);
+
+    // THE COPY, EXTRACTED FROM THE YAML AND RUN — not re-typed here. A hand copy
+    // of the rule inside this test can only ever prove checks.mjs agrees with the
+    // test file: it cannot fail because of anything in agent-loop.yml or
+    // agent-rerun.yml, which is the one thing this test exists to check.
+    const src = block.match(/const completed = [\s\S]*?const run = completed\.reduce\(.*?\);/);
+    assert.ok(src, `${file}: could not extract the inline run-selection from the workflow`);
+    const mirror = new Function("all", `${src[0]}\nreturn run;`);
+
+    for (const fixture of fixtures) {
+      assert.deepEqual(
+        mirror(fixture)?.id ?? null,
+        ciRunToRerun(fixture)?.id ?? null,
+        `${file}'s inline mirror disagrees with ciRunToRerun on ${JSON.stringify(fixture).slice(0, 120)}`,
+      );
+    }
+    // And prove the extracted code is not a constant-null stub that trivially
+    // agrees on nothing — at least one fixture must select a run.
+    assert.equal(mirror(fixtures[1])?.id, 1, `${file}'s extracted mirror must actually select a run`);
+  }
 });

@@ -1886,11 +1886,22 @@ Components:
     fix) and does **not** count it toward `MAX_REVIEW_ROUNDS`. This keeps a credential
     outage from masquerading as a code review finding (the #547/#548 test failures).
 - **Ready gate** — `scripts/agent/mark-ready.mjs`, invoked by the review-panel
-  workflow on all-pass: promotes draft → ready only when the **"CI" workflow run**
+  workflow on all-pass: promotes draft → ready only when the **CI workflow run**
   for the head SHA concluded `success` (read via the Actions API, not the
   author-writable verification comment), **every** required `agent-review-<lens>`
   check concluded `success` (`--require-checks`), and AI authorship is disclosed.
-  Gates 1 and 2 are unforgeable — evidence a separate actor produced. Gate 3
+  Gates 1 and 2 read evidence a separate actor produced; gate 1b (below) is what
+  makes gate 1's evidence mean what it says. **Gate 2 identifies its evidence by
+  producer as well as by name**: `checkPassed` requires
+  `app.slug === "github-actions"` (`CHECK_PRODUCER_APP_SLUG`), because a check-run
+  name is not reserved — any App on the installation may create
+  `agent-review-security` and conclude it `success`, which is the same forgery
+  class gate 1 closes by scoping its query to a workflow file. It is not
+  per-workflow identity (any workflow here with `checks: write` shares the slug),
+  so it narrows the producer set from "every App installed" to "workflows in this
+  repository" and review maintains the rest — the posture `fix-eligible.mjs`,
+  `fix-brief.mjs` and `review-state.mjs` already took, and which gate 2 was the
+  last reader to adopt. Gate 3
   (disclosure) is a required self-attestation (belt-and-suspenders with the
   commit-trailer hook). The gate only flips draft → ready; it has no merge
   authority. The `agent-review-<lens>` checks must **never** be configured as
@@ -1900,6 +1911,191 @@ Components:
   the pipeline's *own* files, so it additionally requires an owner's review for
   changes to the harness itself, but the repo-wide agent-PR gate is the
   branch-protection approval, not CODEOWNERS.
+
+    **Gate 1b: WHICH file ran is not WHAT was in it.** A `pull_request` run
+    executes the merge ref's copy of `ci.yml`, so scoping the query by workflow
+    file — however unspoofably — still admits a branch that ships its own gutted
+    CI definition: a genuinely green run, at the genuine path, with no tests in
+    it. The agent App cannot push `.github/workflows/**` (the boundary the
+    panel's `workflow_run` trigger rests on), but an `agent:managed` human PR is
+    on the same promote path and is not restricted. So `mark-ready.mjs` reads the
+    PR's own file list and refuses to promote a branch that supplies any part of
+    the CI definition (renames counted on both names; an unreadable, malformed or
+    unenumerable list fails closed). Such a PR is not blocked, only un-automated
+    — a human reviews the change and flips it to ready, which is where that
+    decision belongs.
+
+    **The surface is `CI_DEFINING_PATHS`, mirrored from `ci.ciConfig`.** The
+    first version of this gate listed only `.github/workflows/**` and
+    `.github/actions/**`, and that is nowhere near the CI-defining surface:
+    `ci.yml` holds almost no test logic. It runs `pnpm verify:self` and
+    `pnpm verify:integration`, both resolved from the MERGE REF's root
+    `package.json` into `scripts/verify-*.mjs`, whose lane selection reads
+    `harness.config.json` — every one of them a path the agent App *can* push. So
+    a branch could gut CI through `package.json` and still auto-promote, while the
+    hand-off comment told the reviewer the run had executed main's CI definition.
+    The list now mirrors `harness.config.json`'s `ci.ciConfig` — the repository's
+    own CODEOWNER-ed answer to "which files decide how much CI runs", maintained
+    for the same reason ("a PR can never use the filter to grade its own
+    homework") — plus two entries `ciConfig` does not need: `.github/actions/**`
+    and a per-package `package.json`, whose `test` script *is* a `verify:self`
+    lane. `checks.test.mjs` asserts the mirror is a superset entry for entry, so
+    the duplication cannot drift; it is hard-coded in `checks.mjs` rather than
+    read at runtime because the promote job checks out the DEFAULT BRANCH, so that
+    module is main's copy while a file read would be whatever tree the caller
+    stands in. What gate 1b still does NOT cover is a branch weakening its own
+    tests — CI runs them faithfully. That residue is a review property
+    (test-adequacy reads the diff), which is why the gate's claim is "the branch
+    supplied no part of the CI definition" and never "every assertion CI ran came
+    from main".
+
+    **Both ends of its evidence are pinned**, because a file list means nothing
+    without a base and a head and both are mutable. `pulls/N/files` answers for
+    the PR's CURRENT base — an author-controlled field — so a branch carrying a
+    gutted `ci.yml` could be retargeted onto (or stacked on) a base that already
+    has that edit and the diff would come back clean; the gate refuses any PR not
+    based on the repository's default branch rather than measuring it. And the
+    file list is for whatever the head is NOW, while gate 1's evidence is a CI run
+    pinned to the SHA read at the start of the run: the head is re-read after the
+    enumeration and a move refuses, or a green run for the gutted commit could be
+    paired with a clean file list for the commit that repaired it.
+
+    Do NOT restore an `@ref`
+    tolerance or any other JS-side path matching here: an earlier revision
+    stripped `@…` from a run's `path`, so a run whose path was "ci.yml", an
+    at-sign, then an attacker's own `.yml` file went through as the real one.
+    (Spelling that forged name as one backticked token is what the
+    doc-staleness gate reads as a file reference — it is not one, and never
+    will be, so it is written out in prose instead of suppressed.)
+    `checks.test.mjs` asserts `CI_WORKFLOW_PATH` names a file that exists and
+    whose runs are still named `CI` — a rename that broke the match would
+    otherwise make the gate silently unsatisfiable for every PR.
+
+    **Gate 1 identifies CI by asking the API for that workflow's runs**
+    (`/actions/workflows/ci.yml/runs?head_sha=…`), not by fetching every run for
+    the SHA and matching in JS. That is the identity check, not a convenience:
+    matching a run's `path` in JS is parsing an attacker-influenced string, and
+    the first attempt stripped an `@ref` suffix, so a file named
+    "ci.yml", an at-sign, then anything ending in .yml — a legal filename, and
+    one Actions runs because of that extension
+    — matched the real workflow and re-opened the forgery. Server-side scoping
+    also bounds the response to CI's own runs, so a flood cannot push the CI run
+    past `per_page`. The `workflow_run` gates still compare
+    `github.event.workflow_run.path` with exact equality, because a
+    `workflow_run` trigger has nothing to scope server-side. Those gates refuse
+    by SKIPPING, and a skipped job is a green job — so if that payload field ever
+    stops being populated, the panel, the fixer and the CI report all go quiet at
+    once with nothing to notice. A `trigger-shape` canary job in
+    `agent-review-panel.yml` — firing on exactly the payloads the gate refuses on
+    path grounds, and FAILING so the silence becomes a red run — was designed for
+    that and is NOT implemented. It was briefly shipped as an apply-ready `.patch`
+    file under `docs/tasks/active/`, and that was withdrawn: routing workflow
+    content past the `workflows` permission boundary as a `git apply` blob makes
+    reviewer diligence the boundary, when the whole trust model of the review
+    panel rests on that boundary being mechanical. Workflow content is a
+    maintainer's to author. What the pipeline can pin from its own side, it now
+    does: `checks.test.mjs` evaluates all three `if:` expressions against an
+    empty, a foreign, and the real path, so a clause that is deleted or inverted
+    fails a test even though the field's own disappearance would not.
+
+    **The newest run wins**, ordered by run `id` (assigned in creation order,
+    always present, integer) rather than `created_at`, where a missing or
+    unparseable stamp yields NaN and a NaN comparator does not order. A SHA can
+    legitimately carry two runs — reopening a PR files a second `pull_request`
+    run for the same commit — and newest-wins is correct there, since the later
+    run is a fresh execution of the same file at the same tree. What must not
+    happen is two runs from DIFFERENT triggers racing for one PR head, where
+    "newest" is arbitrary rather than superseding; `checks.test.mjs` pins the
+    trigger set so adding such a trigger fails loudly.
+
+    **What gate 1 does NOT prove.** A `pull_request` run executes the PR
+    BRANCH's copy of `ci.yml`, so a branch able to edit that file can produce a
+    genuinely green run at the genuine path with no tests in it. The agent App
+    cannot (it may not push `.github/workflows/**`), but an `agent:managed`
+    human PR is on this promote path and is not restricted. Gate 1 therefore
+    means "a separate actor reports CI green for this SHA", not "main's CI
+    definition passed"; closing that needs the run's workflow content compared
+    against the base branch.
+
+    A revision of this doc briefly specified the stricter rule — EVERY run for
+    the SHA must be green — on the theory that newest-wins would fail open if a
+    SHA ever carried two. It is recorded here because the reasoning looks
+    correct and the outcome was not: it closed nothing reachable, and it cost
+    three real defects. `@claude rerun` could no longer clear the gate, since it
+    re-ran one run; re-running all of them then eroded `agent-iterate-ci`'s
+    attempt bound, which counts current `failure` conclusions and a re-run
+    REPLACES one; and the resulting fan-out emitted a `workflow_run` completion
+    per run into a `cancel-in-progress` group, cancelling the fixer mid-push.
+    Failing closed on a hole that is not open is not free — prefer a tripwire on
+    the invariant to a rule that does not need it.
+
+    **The trigger side needs the same guard, and cannot express it.** A
+    `workflow_run` trigger's `workflows:` filter matches display names only, so
+    a forged `name: CI` run still *reaches* every workflow that consumes CI.
+    Hardening only the reader would leave the arms that INVOKE the agent open:
+    the panel's `fix` job and `agent-iterate-ci.yml` both hold `contents: write`
+    and push to the PR branch, and CI's conclusion is the mutex between them.
+    `agent-review-panel.yml`, `agent-iterate-ci.yml` and `ci-report.yml`
+    therefore assert `github.event.workflow_run.path` in their gating job, and
+    `checks.test.mjs` extracts and evaluates all three `if:` expressions — a
+    clause that gates by skipping is otherwise deletable with every test still
+    green. `docker-publish.yml` / `publish-ghpage.yml` need no clause — their
+    `head_branch == 'main'` gate means a forgery would have to be merged first.
+
+    **`capture-collect.yml` is the same class and is now guarded too.** It is
+    the consumer that needed it most and the one a search for CI's consumers
+    misses, because it consumes the PANEL rather than CI — by display name
+    (`workflows: ["Agent Review Panel", "Agent Review On-Demand"]`) — while
+    holding `secrets.EVAL_STORE_TOKEN`, a PAT with `Contents: write` on the
+    separate eval repository. A second file calling itself `Agent Review Panel`
+    therefore reached a job that pushes to another repository. Its `if:` now
+    asserts `github.event.workflow_run.path` is one of the two producer FILES
+    and that `head_repository` is this one; the `event_name` half is unchanged,
+    since `schedule` and `workflow_dispatch` carry no `workflow_run` object at
+    all. `collect-captures.test.mjs` evaluates the condition rather than pinning
+    its text — it used to compare against one exact string, which broke the day
+    the expression grew clauses that change WHICH PRODUCERS are trusted while
+    leaving WHICH CONCLUSIONS are collected exactly as asserted.
+
+    What that guard does not change: the blast radius was always bounded by
+    design — the workflow's own `permissions:` block is read-only, the token is
+    scoped to one public data repository, and write-once keys mean a forged run
+    could only add junk under `captures/`, never overwrite a real capture.
+
+    The panel's **concurrency group must carry the same clause as its gate**,
+    which is easy to miss because the two are written far apart. `concurrency`
+    is claimed at run creation, before any `if:` is evaluated, so a run the gate
+    will refuse still takes the group — and with `cancel-in-progress: true` it
+    would kill a legitimate panel mid-review, then skip every job, recording no
+    verdicts and paging nobody (`stalled` is `!cancelled()`). `checks.test.mjs`
+    evaluates both expressions across every event/attempt/path combination and
+    fails if they disagree.
+
+    **Exit-code contract with the `promote` job.** mark-ready reports its whole
+    outcome through its status: `0` promoted · `1` a gate said no (job succeeds,
+    PR stays a draft) · `2` tooling error · `3` gates passed but the flip failed.
+    The consumer branches with a `case` that has a `*)` default failing the job,
+    because a bare `if [ -eq N ]` chain let an unenumerated status (127 from a
+    missing binary, 128+signal from a kill) fall through and **succeed silently**.
+    Two consequences worth knowing before editing either side:
+
+    - **`1` is also node's own crash code**, so it is not believed on its own.
+      The job greps the captured log for mark-ready's literal verdict line
+      (`Not promoting: one or more gates are not satisfied`) and treats a `1`
+      without it as a crash → exit 2. That sentence is therefore a **load-bearing
+      cross-file contract**, in the same category as `HANDOFF_MARKER`, and
+      reflowing it breaks promotion; `mark-ready.test.mjs` pins it from both
+      sides — it reads the needle out of the workflow and asserts a real exit-1
+      run prints it.
+    - **The capture is a redirect, never a pipe.** `cmd | tee log` makes `$?` the
+      status of the last pipeline element, discarding the only thing the block
+      branches on. The log is `cat`ed afterwards so the report still reaches the
+      step log.
+
+    Each branch also records an `outcome` output (`promoted` /
+    `gates-unsatisfied` / `flip-failed` / `crashed` / `tooling-error` /
+    `unhandled-status`) so the sticky loop-status comment names what actually
+    happened rather than guessing from the absence of `ready`.
 - **Agent state (advisory single-value label)** — `scripts/agent/set-state.mjs`
   keeps **exactly one** `agent:<state>` label on the PR at a time
   (`implementing → awaiting-ci → reviewing → fixing → ready | blocked`), replacing
