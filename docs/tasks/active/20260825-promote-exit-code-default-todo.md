@@ -76,9 +76,16 @@ claimed it.
 
 ## Non-goals
 
-- No change to `mark-ready.mjs`'s behavior or its exit-code numbering. The
-  script's contract is already what #929 pinned; only the consumer and the
-  tests change.
+- No change to its exit-code NUMBERING. `mark-ready.mjs`'s four codes are
+  still what #929 pinned; the consumer learns to branch on all of them.
+
+  This section originally also said "no change to `mark-ready.mjs`'s
+  behavior", and that stopped being true at panel round 3. Pinning the gate
+  with tests exposed defects in what was being pinned, and the panel raised
+  them as blocking across consecutive rounds — see *Scope added after review*
+  above for each one and why it was taken. Gate 1's CI identity, its
+  CI-definition check, the default-branch and head-consistency requirements,
+  and the tooling-error exits in gates 1 and 2 are all behavior changes.
 - No new paging channel. Exit 2 already reds the job, which the `stalled`
   safety net covers.
 
@@ -168,24 +175,13 @@ was right that a `git apply` blob makes reviewer diligence the boundary the
 whole trust model rests on. So they are written out here as work for a human,
 and the branch carries only what it can honestly carry:
 
-1. **`capture-collect.yml` has no producer guard** (blast-radius + security).
-   It consumes `workflow_run` by DISPLAY NAME (`workflows: ["Agent Review
-   Panel", "Agent Review On-Demand"]`) with no `path`, branch or
-   head-repository clause, and its `collect` job checks out
-   `dlgpdmsly2/wafflebase-agent-eval` with `secrets.EVAL_STORE_TOKEN` and
-   pushes. The fix is one clause on that job's `if:`, matched against the two
-   producer FILES rather than their names, e.g.
-
-       github.event_name != 'workflow_run' ||
-       (github.event.workflow_run.conclusion != 'skipped' &&
-        contains(fromJSON('[".github/workflows/agent-review-panel.yml",
-                            ".github/workflows/agent-review-on-demand.yml"]'),
-                 github.event.workflow_run.path))
-
-   Keep the `event_name` half: `schedule` and `workflow_dispatch` carry no
-   `workflow_run` object at all. Extend `checks.test.mjs`'s
-   "every workflow_run consumer" test to cover it once it lands — that test is
-   already written to take a (file, job) pair.
+1. ~~**`capture-collect.yml` has no producer guard**~~ — **DONE.** A
+   maintainer landed it on this branch: the `collect` job's `if:` now asserts
+   `github.event.workflow_run.path` is one of the two producer files and that
+   `head_repository` is this repository, keeping the `event_name` half so the
+   `schedule` and `workflow_dispatch` sweeps still run. `checks.test.mjs`
+   covers the new clauses and `collect-captures.test.mjs` was rewritten to
+   evaluate the condition rather than pin its exact text.
 
 2. **`agent-implement.yml` and `agent-iterate-ci.yml` mint an UNSCOPED App
    token from a movable tag** (security). Both call

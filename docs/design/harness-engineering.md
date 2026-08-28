@@ -2042,21 +2042,25 @@ Components:
     green. `docker-publish.yml` / `publish-ghpage.yml` need no clause — their
     `head_branch == 'main'` gate means a forgery would have to be merged first.
 
-    **`capture-collect.yml` is the same class and is NOT yet guarded** — an open
-    gap, recorded here rather than implied away. It consumes `workflow_run` by
-    display name (`workflows: ["Agent Review Panel", "Agent Review On-Demand"]`)
-    with no `path`, branch or head-repository clause, and it holds
-    `secrets.EVAL_STORE_TOKEN`, a PAT with `Contents: write` on the separate eval
-    repository. So a second file calling itself `Agent Review Panel` reaches a job
-    that pushes to another repository. The blast radius is bounded by design (the
-    workflow's own `permissions:` block is read-only, the token is scoped to one
-    public data repo, and write-once keys mean a forged run cannot overwrite a
-    real capture — it can only add junk under `captures/`), which is why this is a
-    gap and not an incident. Closing it needs the same one-line
-    `github.event.workflow_run.path` clause on that job's `if:`, matched against
-    the two producer files instead of `ci.yml`, and it needs a MAINTAINER: the
-    agent App has no `workflows` scope, so an agent-authored branch cannot carry
-    it.
+    **`capture-collect.yml` is the same class and is now guarded too.** It is
+    the consumer that needed it most and the one a search for CI's consumers
+    misses, because it consumes the PANEL rather than CI — by display name
+    (`workflows: ["Agent Review Panel", "Agent Review On-Demand"]`) — while
+    holding `secrets.EVAL_STORE_TOKEN`, a PAT with `Contents: write` on the
+    separate eval repository. A second file calling itself `Agent Review Panel`
+    therefore reached a job that pushes to another repository. Its `if:` now
+    asserts `github.event.workflow_run.path` is one of the two producer FILES
+    and that `head_repository` is this one; the `event_name` half is unchanged,
+    since `schedule` and `workflow_dispatch` carry no `workflow_run` object at
+    all. `collect-captures.test.mjs` evaluates the condition rather than pinning
+    its text — it used to compare against one exact string, which broke the day
+    the expression grew clauses that change WHICH PRODUCERS are trusted while
+    leaving WHICH CONCLUSIONS are collected exactly as asserted.
+
+    What that guard does not change: the blast radius was always bounded by
+    design — the workflow's own `permissions:` block is read-only, the token is
+    scoped to one public data repository, and write-once keys mean a forged run
+    could only add junk under `captures/`, never overwrite a real capture.
 
     The panel's **concurrency group must carry the same clause as its gate**,
     which is easy to miss because the two are written far apart. `concurrency`
