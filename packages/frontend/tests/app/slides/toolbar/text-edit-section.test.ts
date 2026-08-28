@@ -217,9 +217,15 @@ test("text-edit state textEditor exposes formatting surface (structural check)",
   }
 });
 
+// 20s, not vitest's default 5s. This is a cold ESM import of the slides
+// toolbar's whole module graph, and it competes with every other worker for
+// the transform pipeline — so its wall time tracks how much else the suite is
+// doing, not anything about this module. On the default budget, adding an
+// unrelated test file elsewhere in the suite was enough to time it out. The
+// assertion is that the module resolves, never that it resolves quickly.
 test("TextEditSection module imports without error", async () => {
   // Smoke-test: confirms the module can be resolved and the named export exists.
   // Full JSX rendering is not available in the Node test runner.
   const mod = await import("../../../../src/app/slides/toolbar/text-edit-section.tsx");
   expect(typeof mod.TextEditSection).toBe("function");
-});
+}, 20_000);

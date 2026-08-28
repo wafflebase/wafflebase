@@ -213,6 +213,34 @@ the prefix.
 - **Presence peer cursors** — Yorkie presence via `@yorkie-js/react`,
   `usePresenceUpdater`, `UserPresence`.
 
+### Mobile
+
+Below the shared 768px breakpoint (`useIsMobile`), two things change. Both
+are frontend-only — the `@wafflebase/notes` engine has no viewport branch.
+
+- **Toolbar.** The strip holds 19 controls and `Toolbar` is
+  `overflow-x-auto`, so on a phone nothing was clipped — it scrolled
+  sideways, carrying the right-pinned view-mode and keymap dropdowns off
+  screen. `NotesToolbar` now keeps undo / redo / bold / italic /
+  strikethrough inline and moves the list and insert controls into a `⋮`
+  overflow menu, the same split the docs toolbar uses
+  (`docs-formatting-toolbar.tsx`). Table is a fixed 3×3 insert there:
+  `TableGridPicker` sizes by hovering across a grid and has no touch
+  equivalent.
+- **No Split.** `both` is a fixed 50/50 pane layout
+  (`packages/notes/src/view/editor.ts`), so it is two ~187px panes on a
+  375px screen. The view menu drops the mode, and `notes-detail` demotes a
+  stored `both` to `edit` for the render only — never written back, so the
+  per-user desktop preference survives and a wider window gets split again.
+  A mode picked *on* a phone is session-local for the same reason: persisting
+  it would destroy a stored `both` the phone could not have offered.
+
+`SharedNotesLayout` is deliberately **not** demoted, though it is the same
+cramped split. That route mounts no toolbar, so the split is the only thing
+that renders a preview there at all — demoting it would trade a cramped
+preview for none, with no control to switch back. Making it good needs a
+mode control on that surface, which is a feature rather than a layout fix.
+
 ### Risks and Mitigation
 
 - **Yorkie SDK version skew (resolved).** The ported binding only uses stable

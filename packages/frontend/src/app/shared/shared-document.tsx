@@ -340,6 +340,15 @@ function SharedNotesLayout({ resolved }: { resolved: ResolvedShareLink }) {
           makes Rollup hoist it — and the notes engine with it — into a shared
           chunk well past the chunk-size gate.
         */}
+        {/*
+          `both` on a phone is a fixed 50/50 split, so ~187px per pane — bad,
+          and deliberately kept. This surface mounts no toolbar, so the split
+          is the only thing that renders a preview at all here; demoting it to
+          `edit` on narrow screens would trade a cramped preview for no
+          preview, with nothing to switch back with. Fixing it properly means
+          giving this route its own mode control, which is more than a layout
+          change. See docs/design/notes/notes.md.
+        */}
         <NotesView readOnly={readOnly} viewMode={readOnly ? "view" : "both"} />
       </div>
     </div>

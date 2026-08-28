@@ -30,6 +30,7 @@ import { initialNotesRoot, noteUserColor } from "@/types/notes-document";
 import { uploadImageFile } from "@/app/spreadsheet/image-upload";
 import { NotesView } from "./notes-view";
 import { NotesToolbar } from "./notes-toolbar";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 /**
  * NotesLayout provides the sidebar + header chrome around the note editor,
@@ -45,16 +46,36 @@ function NotesLayout({ documentId }: { documentId: string }) {
   const [keymap, setKeymap] = useState<NoteKeymap>(readKeymap);
   // The blame gutter is opt-in and, like the other two, a per-user preference.
   const [showAuthors, setShowAuthors] = useState<boolean>(readShowAuthors);
+  const isMobile = useIsMobile();
+
+  // Split is a fixed 50/50 pane layout (`packages/notes` `editor.ts`), so on a
+  // 375px phone it is two ~187px panes. The toolbar stops offering it below
+  // the mobile breakpoint; this demotes a *stored* `both` — set on a desktop,
+  // where the preference is per-user rather than per-document — so a phone
+  // never opens into a layout its view menu cannot leave. Render-only: the
+  // demotion is never written back through `writeViewMode`, so the stored
+  // desktop preference survives untouched and a wider window gets split again.
+  const effectiveViewMode: NoteViewMode =
+    isMobile && viewMode === "both" ? "edit" : viewMode;
 
   const handleShowAuthorsChange = useCallback((next: boolean) => {
     setShowAuthors(next);
     writeShowAuthors(next);
   }, []);
 
-  const handleViewModeChange = useCallback((next: NoteViewMode) => {
-    setViewMode(next);
-    writeViewMode(next);
-  }, []);
+  const handleViewModeChange = useCallback(
+    (next: NoteViewMode) => {
+      setViewMode(next);
+      // A mode picked on a phone is session-local. Persisting it would
+      // overwrite a stored `both` that the phone was never able to offer in
+      // the first place — Split is filtered out of the menu down here — so
+      // "let me check the preview on my phone" would silently cost the user
+      // their desktop Split preference. Without this the render-only demotion
+      // above is only true until the user touches the view menu once.
+      if (!isMobile) writeViewMode(next);
+    },
+    [isMobile],
+  );
 
   const handleKeymapChange = useCallback((next: NoteKeymap) => {
     setKeymap(next);
@@ -197,7 +218,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           <NotesToolbar
-            mode={viewMode}
+            mode={effectiveViewMode}
             onModeChange={handleViewModeChange}
             keymap={keymap}
             onKeymapChange={handleKeymapChange}
@@ -206,7 +227,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
             editor={editor}
           />
           <NotesView
-            viewMode={viewMode}
+            viewMode={effectiveViewMode}
             keymap={keymap}
             showAuthors={showAuthors}
             onEditorReady={setEditor}
