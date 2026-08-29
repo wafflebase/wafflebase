@@ -304,6 +304,33 @@ describe('read-only docs editor (issue #482)', () => {
     editor.dispose();
   });
 
+  test('programmatic setPageSetup() does not change the page in read-only', () => {
+    const { editor } = setupEditor([para('b1', 'hello world')], true);
+    const before = editor.getPageSetup();
+    editor.setPageSetup({
+      ...before,
+      margins: { ...before.margins, top: before.margins.top + 48 },
+    });
+    expect(editor.getPageSetup()).toEqual(before);
+    editor.dispose();
+  });
+
+  test('programmatic pasteFormat() does not restyle in read-only', () => {
+    const { editor } = setupEditor([para('b1', 'hello world')], true);
+    editor._setSelectionForTest({
+      anchor: { blockId: 'b1', offset: 0 },
+      focus: { blockId: 'b1', offset: 5 },
+    });
+    editor.copyFormat();
+    // Returns `false`, not `undefined`: a neutered method must not report a
+    // write it did not make.
+    expect(editor.pasteFormat()).toBe(false);
+    expect(
+      editor.getDoc().document.blocks[0].inlines.every((i) => !i.style.bold),
+    ).toBe(true);
+    editor.dispose();
+  });
+
   test('programmatic insertLink() does not insert text in read-only', () => {
     const { editor } = setupEditor([para('b1', 'hello world')], true);
     editor.insertLink('https://example.com');

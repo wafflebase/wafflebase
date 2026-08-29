@@ -3836,7 +3836,7 @@ export function initialize(
       'insertTableRow', 'deleteTableRow', 'insertTableColumn',
       'deleteTableColumn', 'mergeTableCells', 'splitTableCell',
       'applyTableCellStyle', 'insertImage', 'updateSelectedImage',
-      'insertPageNumber',
+      'insertPageNumber', 'setPageSetup',
     ] as const;
     const noop = () => {};
     for (const name of MUTATING_METHODS) {
@@ -3844,6 +3844,10 @@ export function initialize(
       // void. A bare no-op satisfies both — callers only await or ignore.
       (api as unknown as Record<string, () => void>)[name] = noop;
     }
+    // `pasteFormat` is mutating too, but it reports whether it wrote. A bare
+    // no-op returns `undefined`, which a caller reads as "nothing applied"
+    // only by accident — be explicit so the neutered version cannot lie.
+    api.pasteFormat = () => false;
   }
 
   return api;

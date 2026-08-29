@@ -153,6 +153,23 @@ describe('DocsPageSetupDialog', () => {
     expect((apply() as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it.each([
+    ['an emptied field', ''],
+    ['whitespace only', '   '],
+    ['a hex literal', '0x60'],
+  ])('refuses %s rather than applying it as a margin', (_label, value) => {
+    // `Number("")` is 0 and `Number("0x60")` is 96 — both finite and
+    // non-negative, so a bare finiteness check would apply 0" and 96"
+    // margins respectively, with the Apply button never going disabled.
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    fireEvent.change(marginInput('Top'), { target: { value } });
+
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect((apply() as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('re-reads the document each time it opens, so it cannot go stale', () => {
     const editor = makeEditor(LETTER_DEFAULT);
     const onOpenChange = vi.fn();

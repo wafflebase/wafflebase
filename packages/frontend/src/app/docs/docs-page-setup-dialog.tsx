@@ -72,7 +72,12 @@ function draftFrom(setup: PageSetup): MarginDraft {
 }
 
 function parseInches(value: string): number | null {
-  const n = Number(value.trim());
+  const trimmed = value.trim();
+  // `Number("")` is 0, so an emptied field would sail through the finite
+  // check and silently apply a 0" margin. `Number("0x60")` is 96, which
+  // would apply as 96 inches. Require a plain decimal.
+  if (!/^\d*\.?\d+$/.test(trimmed)) return null;
+  const n = Number(trimmed);
   if (!Number.isFinite(n) || n < 0) return null;
   return Math.round(n * PX_PER_INCH);
 }
@@ -250,7 +255,14 @@ export function DocsPageSetupDialog({
                       type="number"
                       inputMode="decimal"
                       min={0}
-                      step={0.05}
+                      // `any`, not a fixed step: the ruler writes arbitrary
+                      // pixel margins, so a seeded value like 1.07" is
+                      // routine. A 0.05 step would make the browser's own
+                      // constraint validation veto submit for a value this
+                      // dialog considers valid — silently, since jsdom does
+                      // not run interactive validation and no test would see
+                      // it.
+                      step="any"
                       value={margins[key]}
                       onChange={(e) =>
                         setMargins((m) => ({ ...m, [key]: e.target.value }))
