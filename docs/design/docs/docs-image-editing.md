@@ -329,6 +329,18 @@ differs. Undo/redo matter because the keyboard path is safe by accident
 (`⌘Z` reaches `imageKeyHandler`'s catch-all) while the toolbar's Undo/Redo
 buttons call `EditorAPI.undo()/redo()` directly and never pass a keydown.
 
+`imageResizeDrag` holds the same kind of coordinate — a `(blockId, offset)`
+captured at mousedown — so the three direct-assignment paths drop the
+in-flight drag as well, through `abortImageResizeDrag()`. Nulling the field
+alone would not be enough: the drag's `mousemove`/`mouseup` listeners live on
+`document` and its cursor override on the canvas, so a bare assignment leaks
+both and lets the next `mouseup` anywhere run the commit path against a
+document that has moved on. The commit path (`handleImageResizeMouseUp`)
+shares that helper for its own teardown, and reads its captured block through
+`doc.findBlock` rather than the throwing `doc.getBlock` — a peer can delete
+the block mid-drag, and an exception from a document-level listener has
+nothing to catch it.
+
 One mutator lives **outside** `editor.ts` and so cannot be funnelled
 through the helper: `FindReplaceState.replaceActive` / `replaceAll` run
 straight against the `Doc` the find bar holds, deleting and inserting text

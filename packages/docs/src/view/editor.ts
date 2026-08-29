@@ -2102,6 +2102,10 @@ export function initialize(
       // `clearImageSelectionForMutation()` because this function renders once
       // at the end and an early render would paint the pre-undo document.
       selectedImage = null;
+      // An in-flight resize drag names the same moving offsets, so it has to
+      // go with the selection: left armed, its `mouseup` would commit a size
+      // onto whatever the undo put at that coordinate.
+      abortImageResizeDrag();
       pending.clear();
       docStore.undo();
       doc.refresh();
@@ -2137,6 +2141,7 @@ export function initialize(
       // Same reasoning as `undoFn`: the toolbar's Redo button never passes
       // through the keydown that would have cleared the image selection.
       selectedImage = null;
+      abortImageResizeDrag();
       pending.clear();
       docStore.redo();
       doc.refresh();
@@ -2518,11 +2523,9 @@ export function initialize(
     const { blockId, offset } = imageResizeDrag;
     // Tear down drag state before mutating so any synchronous render
     // during the mutation sees the committed selection rather than
-    // the preview rect.
-    document.removeEventListener('mousemove', handleImageResizeMouseMove);
-    document.removeEventListener('mouseup', handleImageResizeMouseUp);
-    imageResizeDrag = null;
-    canvas.style.cursor = '';
+    // the preview rect. Shared with the abort paths so a commit and an
+    // abort can never tear down different amounts of state.
+    abortImageResizeDrag();
 
     // The write below is the actual mutation, so it is gated here rather than
     // trusting that only the `!readOnly` branch in `handleImageMouseDown`
@@ -2535,7 +2538,13 @@ export function initialize(
 
     // Only commit if the drag actually changed the size. Avoids a
     // no-op undo step for a mousedown-up on a handle without movement.
-    const block = doc.getBlock(blockId);
+    //
+    // `findBlock`, not `getBlock`: `blockId` was captured at mousedown and is a
+    // coordinate that can outlive its block — a remote collaborator (or a
+    // toolbar mutation racing the drag) can delete it mid-drag, and `getBlock`
+    // throws on a missing id, which would escape this document-level `mouseup`
+    // listener with nothing to catch it.
+    const block = doc.findBlock(blockId);
     const current = block ? findImageAtOffset(block, offset) : null;
     if (!current) {
       render();
@@ -2557,6 +2566,28 @@ export function initialize(
     markDirty(blockId);
     invalidateLayout();
     render();
+  };
+
+  /**
+   * Drops an in-flight resize drag without committing it.
+   *
+   * `imageResizeDrag` holds the same kind of stale-able coordinate as
+   * `selectedImage` — a `(blockId, offset)` captured at mousedown — so every
+   * path that clears the image selection because the offsets moved under it
+   * has to drop the drag too, or the next `mouseup` commits the drag's size
+   * onto whatever inline now sits at that coordinate.
+   *
+   * Nulling the drag alone is not enough: the move/up listeners live on
+   * `document` and the cursor override lives on the canvas, both installed
+   * when the drag started. This tears down all three. It renders nothing —
+   * every caller already renders once at the end.
+   */
+  const abortImageResizeDrag = (): void => {
+    if (!imageResizeDrag) return;
+    document.removeEventListener('mousemove', handleImageResizeMouseMove);
+    document.removeEventListener('mouseup', handleImageResizeMouseUp);
+    imageResizeDrag = null;
+    canvas.style.cursor = '';
   };
 
   // Image hit test, installed in the capture phase so it runs before
@@ -3911,7 +3942,11 @@ export function initialize(
       // before `doc.refresh()` and the layout invalidation, so rendering here
       // would paint the new document through the old layout.
       selectedImage = null;
-      imageResizeDrag = null;
+      // Not a bare `imageResizeDrag = null`: that would leave the drag's
+      // document-level move/up listeners installed and the canvas stuck on the
+      // resize cursor, so the next `mouseup` anywhere would run the commit path
+      // against the replaced document.
+      abortImageResizeDrag();
       pending.clear();
       doc.refresh();
       textEditor?.setEditContext('body');
