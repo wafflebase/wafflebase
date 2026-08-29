@@ -76,3 +76,56 @@ open on a synthetic `.click()` in jsdom (documented in
 `line-spacing-picker.test.ts`). Radix `Dialog` and `RadioGroup` need neither
 dance; only the dropdown does. No `jest-dom` matchers are installed, so
 `toBeDisabled()` is a Chai error — read `.disabled` instead.
+
+## A safety gate must inspect the bytes it emits
+
+The `href` gate looked right and was not: `isSafeUrl` runs `new URL()`, whose
+first act is to strip every tab, LF and CR and trim leading/trailing
+C0-or-space. Validating the normalized form and then writing the *raw* one is
+a parser differential, and in a delimiter-based format like Markdown the
+stripped characters are exactly the ones that break out of the delimiter.
+
+Two ways to close it: emit the normalized string (validated == emitted by
+construction), or refuse the characters that differ. The second was chosen —
+normalizing percent-encodes every non-ASCII path, which would turn a readable
+Korean URL into `%ED%95%9C…` in every export, and refusing also catches a
+plain space, which `new URL()` percent-encodes rather than strips but which
+still terminates a CommonMark link destination.
+
+Generalization: whenever a validator parses and the writer does not, ask what
+the parser silently changed. That gap is the vulnerability.
+
+## A copy-semantics test that compares against the shared constant is vacuous
+
+`expect(editor.getPageSetup()).toEqual(DEFAULT_PAGE_SETUP)` after mutating the
+returned object passes *whether or not* the value is aliased — under aliasing
+the mutation lands on the constant too, so both sides move together. The test
+has to read a fresh value and compare it with literals, and separately assert
+the module constant is intact. Verified by mutating `getPageSetup` to return
+`doc.document.pageSetup ?? DEFAULT_PAGE_SETUP`: the old assertion survives it,
+the new one dies.
+
+## "One undo step" needs a floor beneath it
+
+Asserting that one `undo()` reverts the change cannot distinguish one snapshot
+from two — both capture the same pre-write state, so the first undo restores
+it either way. The test needs a *preceding, distinguishable* edit and a second
+`undo()` that must reach it. Mutation-checked by adding a second
+`saveSnapshot()` to `pasteFormat`.
+
+## Radix `Select` is testable in jsdom
+
+Unlike `DropdownMenu` (which needs the full `pointerdown → pointerup → click`
+sequence), `Select` opens on `fireEvent.keyDown(trigger, { key: 'ArrowDown' })`
+and commits on a plain `fireEvent.click` of the `option`. The closed trigger
+renders the selected item's label as its text content, so the seeded value is
+readable without opening anything. No extra jsdom shim beyond the
+`ResizeObserver` already in `tests/setup.ts`.
+
+## State an invariant on the write path, not once per caller
+
+The "margins must leave room for content" rule existed twice — in the ruler's
+drag handler (20 px of slack) and in the Page Setup dialog (`>= pageWidth`) —
+and nowhere on `writePageSetup`, the single function both go through. A public
+`EditorAPI.setPageSetup` bypassed both. Two callers respecting a rule is not
+the rule being enforced.

@@ -116,6 +116,15 @@ describe('DocsFormattingToolbar format painter', () => {
     expect(editor.pasteFormat).toHaveBeenCalledTimes(1);
     expect(editor.clearCopiedFormat).toHaveBeenCalledTimes(1);
     expect(button.getAttribute('aria-pressed')).toBe('false');
+
+    // Order is the whole behaviour, and both calls happen either way: a
+    // release-then-paste implementation would find an empty buffer and paint
+    // nothing, while still satisfying the two call counts above. Pin it from
+    // both sides — the paste ran first, and it ran with a format still held.
+    expect(editor.pasteFormat.mock.invocationCallOrder[0]).toBeLessThan(
+      editor.clearCopiedFormat.mock.invocationCallOrder[0],
+    );
+    expect(editor.pasteFormat).toHaveReturnedWith(true);
   });
 
   it('cancels the held format when the second press has nothing to paint', () => {

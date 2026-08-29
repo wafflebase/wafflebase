@@ -112,3 +112,30 @@ for the already-shipped `.pdf`/`.docx`), the `editor.focus()` / Radix
 focus-restore ordering, the two-press vs one-press painter semantics against
 slides, the mobile-width toolbar calculation, and an automated completeness
 check for the read-only `MUTATING_METHODS` allowlist.
+
+## Second review round
+
+- **URL gate was a parser differential.** `isSafeUrl` validates what WHATWG
+  `new URL()` makes of the string — and that parser *deletes* tab, LF and CR
+  before it reads the scheme — while the serializer wrote the raw string. A
+  newline in an `href` or an image `src` therefore passed the gate and then
+  closed the Markdown link destination, landing arbitrary Markdown or raw HTML
+  in the exported `.md`. `UNEMITTABLE_URL_CHARS` in
+  `packages/docs/src/serialize/markdown.ts` now refuses whitespace and C0/C1
+  controls before `isSafeUrl` runs, on both the `href` path and the image
+  path (including the `data:image/...` branch, which bypasses `isSafeUrl`).
+- **`import-export.md` claimed Markdown export preserves "code".** The Docs
+  model has no code block and no inline-code style, so nothing could. The
+  whole preserved/lossy pair was re-derived from `serializeMarkdown`.
+- **The aliasing test could not fail.** `editor-page-setup.test.ts` mutated the
+  returned setup and compared it with `DEFAULT_PAGE_SETUP`; under aliasing the
+  mutation hit both sides. It now reads a fresh `getPageSetup()` against
+  literal values and asserts the module constants are untouched.
+- **`writePageSetup` now validates.** Geometry that closes the content box (or
+  is negative / non-finite) throws a `RangeError` before anything is
+  snapshotted, measured against the effective page box. The rule was
+  previously stated only in the React dialog and, more strictly, in the ruler.
+- Coverage added: the paper-size `Select` and its `CUSTOM` sentinel; the
+  paste-before-clear ordering of the toolbar toggle; a two-undo assertion so
+  "one undo step" fails on a double snapshot; the failure toast the export
+  test's own file comment advertised.

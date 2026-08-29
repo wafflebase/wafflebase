@@ -55,6 +55,18 @@ const marginInput = (label: string) =>
 
 const apply = () => screen.getByRole('button', { name: 'Apply' });
 
+const paperTrigger = () => screen.getByLabelText('Paper size');
+
+/**
+ * Radix `Select` opens on ArrowDown (a synthetic `.click()` does nothing in
+ * jsdom, the same reason `docs-export-button.test.tsx` drives its menu by
+ * pointer events) and commits an option on click.
+ */
+function pickPaper(name: string) {
+  fireEvent.keyDown(paperTrigger(), { key: 'ArrowDown' });
+  fireEvent.click(screen.getByRole('option', { name }));
+}
+
 describe('DocsPageSetupDialog', () => {
   it('seeds the margins from the document, converted to inches', () => {
     mount(
@@ -144,6 +156,78 @@ describe('DocsPageSetupDialog', () => {
     fireEvent.click(apply());
 
     expect(editor.setPageSetup.mock.calls[0][0].margins.left).toBe(0);
+  });
+
+  it('seeds the paper size into the trigger, and switches it on Apply', () => {
+    // The dialog's headline control. Everything else is checked through the
+    // margins, which would still pass if the paper `Select` were inert.
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    expect(paperTrigger().textContent).toBe('Letter');
+
+    pickPaper('A4');
+
+    expect(paperTrigger().textContent).toBe('A4');
+    fireEvent.click(apply());
+    expect(editor.setPageSetup).toHaveBeenCalledWith(
+      expect.objectContaining({ paperSize: PAPER_SIZES.A4 }),
+    );
+  });
+
+  it('re-measures the margins against the paper size just picked', () => {
+    // 4.2 in + 4.2 in (806 px) fits across Letter (816 px) but not A4
+    // (794 px), so the room check has to follow the `Select`. Without this,
+    // a paper size that never reached the validation path would still pass
+    // every other test in this file.
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    fireEvent.change(marginInput('Left'), { target: { value: '4.2' } });
+    fireEvent.change(marginInput('Right'), { target: { value: '4.2' } });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect((apply() as HTMLButtonElement).disabled).toBe(false);
+
+    pickPaper('A4');
+
+    expect(screen.getByRole('alert').textContent).toMatch(/room for content/i);
+    expect((apply() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('labels a paper size that matches no preset instead of relabelling it', () => {
+    // An imported document can carry any page size. Showing "Letter" for a
+    // 700 × 1000 page would be a lie, and applying the dialog unchanged would
+    // then silently resize the document.
+    const custom = { name: 'B5', width: 700, height: 1000 };
+    const editor = makeEditor({ ...LETTER_DEFAULT, paperSize: custom });
+    mount(editor);
+
+    expect(paperTrigger().textContent).toBe('Custom (B5)');
+
+    fireEvent.change(marginInput('Top'), { target: { value: '2' } });
+    fireEvent.click(apply());
+
+    expect(editor.setPageSetup).toHaveBeenCalledWith(
+      expect.objectContaining({ paperSize: custom }),
+    );
+  });
+
+  it('leaves the custom size behind once a preset is picked', () => {
+    const custom = { name: 'B5', width: 700, height: 1000 };
+    const editor = makeEditor({ ...LETTER_DEFAULT, paperSize: custom });
+    mount(editor);
+
+    pickPaper('Legal');
+
+    // The sentinel entry is gone from the list — it exists only while the
+    // current size matches no preset.
+    expect(paperTrigger().textContent).toBe('Legal');
+    fireEvent.keyDown(paperTrigger(), { key: 'ArrowDown' });
+    expect(screen.queryAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Letter',
+      'A4',
+      'Legal',
+    ]);
   });
 
   it('switches orientation without touching the paper size', () => {

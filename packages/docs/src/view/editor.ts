@@ -941,6 +941,58 @@ export function computeHFSelectionRects(
 }
 
 /**
+ * Refuse a page setup no layout pass can consume.
+ *
+ * `paginateLayout` derives its content box as `page − margins` and every
+ * consumer downstream — the renderer, the ruler, the PDF exporter — assumes
+ * that box is positive; a closed or negative one is not a smaller document
+ * but a broken one, and it is written into the CRDT for every collaborator.
+ *
+ * The two callers that exist today already respect the invariant (the ruler
+ * refuses a drag that leaves less than 20 px, and the Page Setup dialog
+ * disables Apply), which is exactly why the check belongs here instead: they
+ * are two copies of a rule the write path never stated, and
+ * `EditorAPI.setPageSetup` is public — a CLI, a test or a future panel reaches
+ * it with whatever geometry it likes.
+ *
+ * Throws rather than clamping: silently substituting a different page size
+ * than the caller asked for is the kind of repair that gets noticed months
+ * later, and no legitimate caller has anything to clamp.
+ */
+function assertUsablePageSetup(setup: PageSetup): void {
+  const { width, height } = getEffectiveDimensions(setup);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new RangeError(
+      `Invalid page setup: paper size must be finite and positive (got ` +
+        `${setup.paperSize.width}×${setup.paperSize.height})`,
+    );
+  }
+
+  const { margins } = setup;
+  for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+    const value = margins[side];
+    if (!Number.isFinite(value) || value < 0) {
+      throw new RangeError(
+        `Invalid page setup: ${side} margin must be finite and >= 0 (got ${value})`,
+      );
+    }
+  }
+
+  // Measured against the *effective* box, so the check follows the
+  // orientation rather than the stored paper dimensions.
+  if (margins.left + margins.right >= width) {
+    throw new RangeError(
+      'Invalid page setup: left and right margins leave no room for content',
+    );
+  }
+  if (margins.top + margins.bottom >= height) {
+    throw new RangeError(
+      'Invalid page setup: top and bottom margins leave no room for content',
+    );
+  }
+}
+
+/**
  * Initialize the document editor.
  *
  * @param container - The DOM element to mount the editor in
@@ -2004,6 +2056,10 @@ export function initialize(
    * `EditorAPI.setPageSetup` (the Page Setup dialog).
    */
   const writePageSetup = (setup: PageSetup) => {
+    // Before anything is snapshotted or stored: a setup that closes the
+    // content box is not a smaller document, it is one no layout pass can
+    // consume, and it would be persisted into the CRDT for every collaborator.
+    assertUsablePageSetup(setup);
     docStore.snapshot();
     // Copy on the way in — the store keeps what it is handed, and a caller's
     // object must not stay aliased to document state.

@@ -221,7 +221,7 @@ function inlineToMarkdown(inline: Inline, opts: MarkdownOptions): string {
   // CRDT itself), and the produced `.md` is opened by a renderer that will
   // happily make `javascript:` or `data:text/html` clickable. An unsafe href
   // degrades to the plain text it wrapped rather than becoming a live link.
-  if (style.href && isSafeUrl(style.href)) {
+  if (style.href && isEmittableUrl(style.href)) {
     body = `[${body}](${escapeMarkdownHref(style.href)})`;
   }
   if (style.strikethrough) {
@@ -237,6 +237,40 @@ function inlineToMarkdown(inline: Inline, opts: MarkdownOptions): string {
 }
 
 /**
+ * Characters that disqualify a URL from being written into a Markdown link
+ * destination, checked against the **raw** string before anything parses it.
+ *
+ * Without this the gate is a parser differential. `isSafeUrl` validates what
+ * WHATWG `new URL()` makes of the input, and that parser silently *deletes*
+ * every tab, LF and CR (and trims leading/trailing C0-or-space) before it
+ * looks at the scheme — but the serializer writes the raw string. So
+ * `https://example.com/\n\n<img src=x onerror=…>` passes the protocol check
+ * and then closes the `(...)` destination, and everything after the newline
+ * lands in the exported `.md` as live Markdown or raw HTML. The value is
+ * attacker-influenceable: HTML paste, DOCX import, a collaborator's CRDT
+ * write.
+ *
+ * Refusing these characters — rather than emitting `new URL(href).href`, the
+ * other way to close the differential — keeps every accepted URL byte-for-byte
+ * as the author wrote it (normalizing would percent-encode every non-ASCII
+ * path, turning a readable link into `%ED%95%9C…`), and covers one case
+ * normalization does not: a space is not stripped but still terminates a
+ * CommonMark link destination.
+ *
+ * `\s` carries the Unicode spaces; the two ranges add the C0 and C1 controls
+ * (`\t`, `\n` and `\r` are in both).
+ */
+const UNEMITTABLE_URL_CHARS = /[\s\u0000-\u001F\u007F-\u009F]/;
+
+/**
+ * Is `url` both safe to link to *and* safe to write verbatim into a link
+ * destination? Every emitted `href`/`src` goes through here.
+ */
+function isEmittableUrl(url: string): boolean {
+  return !UNEMITTABLE_URL_CHARS.test(url) && isSafeUrl(url);
+}
+
+/**
  * `data:` URLs that are safe to emit as an image target: an image MIME type
  * and nothing else. `isSafeUrl` refuses every `data:` URL — right for a
  * hyperlink, too strict for `inlineImages`, whose whole purpose is to carry
@@ -248,6 +282,10 @@ const SAFE_IMAGE_DATA_URI =
 
 /** Is `src` something we are willing to write as an image target? */
 function isSafeImageSrc(src: string): boolean {
+  // The character gate first, so it also covers the `data:image` branch —
+  // which bypasses `isSafeUrl` entirely and is therefore the one path where
+  // no parser would ever look at the string.
+  if (UNEMITTABLE_URL_CHARS.test(src)) return false;
   return SAFE_IMAGE_DATA_URI.test(src) || isSafeUrl(src);
 }
 

@@ -117,10 +117,27 @@ describe('EditorAPI page setup', () => {
     const { editor } = setupEditor();
 
     const setup = editor.getPageSetup();
+    setup.orientation = 'landscape';
     setup.margins.top = 1;
     setup.paperSize.width = 1;
 
-    expect(editor.getPageSetup()).toEqual(DEFAULT_PAGE_SETUP);
+    // Read *fresh* values rather than comparing against `DEFAULT_PAGE_SETUP`:
+    // if `getPageSetup()` handed back that shared constant by reference, the
+    // mutations above would have landed on both sides of such a comparison
+    // and it would pass while aliased. These assertions carry the expected
+    // numbers literally, so nothing the mutation touched can move with them.
+    const fresh = editor.getPageSetup();
+    expect(fresh.orientation).toBe('portrait');
+    expect(fresh.margins.top).toBe(96);
+    expect(fresh.paperSize.width).toBe(816);
+
+    // The module constants are the other thing an alias would have damaged,
+    // and the damage would outlive this test — every later reader of
+    // `DEFAULT_PAGE_SETUP` / `PAPER_SIZES` in this process would see it.
+    expect(DEFAULT_PAGE_SETUP.orientation).toBe('portrait');
+    expect(DEFAULT_PAGE_SETUP.margins.top).toBe(96);
+    expect(DEFAULT_PAGE_SETUP.paperSize.width).toBe(816);
+    expect(PAPER_SIZES.LETTER.width).toBe(816);
     editor.dispose();
   });
 
@@ -150,6 +167,111 @@ describe('EditorAPI page setup', () => {
     editor.undo();
 
     expect(editor.getPageSetup()).toEqual(DEFAULT_PAGE_SETUP);
+    editor.dispose();
+  });
+});
+
+describe('EditorAPI page setup — bounds', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  /** Letter portrait: 816 × 1056 px. */
+  const withMargins = (margins: {
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+  }) => ({
+    paperSize: PAPER_SIZES.LETTER,
+    orientation: 'portrait' as const,
+    margins,
+  });
+
+  const SQUARE = { top: 96, bottom: 96, left: 96, right: 96 };
+
+  test.each([
+    ['margins that close the page horizontally', withMargins({ ...SQUARE, left: 408, right: 408 })],
+    ['margins that close the page vertically', withMargins({ ...SQUARE, top: 528, bottom: 528 })],
+    ['margins wider than the page', withMargins({ ...SQUARE, left: 900, right: 900 })],
+    ['a negative margin', withMargins({ ...SQUARE, top: -10 })],
+    ['a NaN margin', withMargins({ ...SQUARE, left: Number.NaN })],
+    ['an infinite margin', withMargins({ ...SQUARE, right: Number.POSITIVE_INFINITY })],
+    [
+      'a zero-width paper size',
+      {
+        paperSize: { name: 'Zero', width: 0, height: 1056 },
+        orientation: 'portrait' as const,
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      },
+    ],
+    [
+      'a negative paper size',
+      {
+        paperSize: { name: 'Negative', width: -816, height: -1056 },
+        orientation: 'portrait' as const,
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      },
+    ],
+    [
+      'a NaN paper size',
+      {
+        paperSize: { name: 'NaN', width: Number.NaN, height: 1056 },
+        orientation: 'portrait' as const,
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      },
+    ],
+  ])('refuses %s, and writes nothing', (_label, setup) => {
+    // Every consumer of a page setup — `paginateLayout`, the renderer, the
+    // ruler, the PDF exporter — assumes a positive content box. The ruler
+    // keeps 20 px in hand and the Page Setup dialog disables Apply, but
+    // `EditorAPI.setPageSetup` is public: the invariant belongs on the write.
+    const { editor, store } = setupEditor();
+
+    expect(() => editor.setPageSetup(setup)).toThrow(RangeError);
+
+    // Nothing reached the document, and nothing was pushed onto the undo
+    // stack on the way to the refusal.
+    expect(editor.getPageSetup()).toEqual(DEFAULT_PAGE_SETUP);
+    expect(store.getDocument().pageSetup).toBeUndefined();
+    editor.dispose();
+  });
+
+  test('accepts a setup that leaves only a sliver of content', () => {
+    // The guard rejects a *closed* box, not a small one — 816 px wide with
+    // 815 px of margin still has a column to lay out in, and the ruler is
+    // free to produce values this tight.
+    const { editor } = setupEditor();
+
+    editor.setPageSetup(withMargins({ top: 0, bottom: 0, left: 815, right: 0 }));
+
+    expect(editor.getPageSetup().margins.left).toBe(815);
+    editor.dispose();
+  });
+
+  test('measures the room against the effective, rotated page box', () => {
+    // Landscape swaps the page box: Letter is 816 × 1056 portrait and
+    // 1056 × 816 landscape. Vertical margins of 500 + 500 close the landscape
+    // box (1000 ≥ 816) while leaving 56 px in the portrait one, so a check
+    // written against the stored dimensions rather than the effective ones
+    // would let the unlayoutable case through.
+    const { editor } = setupEditor();
+
+    const landscape = {
+      paperSize: PAPER_SIZES.LETTER,
+      orientation: 'landscape' as const,
+      margins: { top: 500, bottom: 500, left: 96, right: 96 },
+    };
+    expect(() => editor.setPageSetup(landscape)).toThrow(RangeError);
+
+    // The same margins in portrait (1056 px tall) are fine.
+    editor.setPageSetup({ ...landscape, orientation: 'portrait' });
+    expect(editor.getPageSetup().margins.top).toBe(500);
     editor.dispose();
   });
 });

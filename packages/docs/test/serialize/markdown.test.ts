@@ -553,6 +553,66 @@ describe('serializeMarkdown — URL safety', () => {
   it('keeps an https image source', () => {
     expect(pictured('https://x/y.png')).toBe('![pic](https://x/y.png)');
   });
+
+  // ── The parser differential ───────────────────────────────────────────────
+  // `isSafeUrl` parses with WHATWG `new URL()`, which *deletes* every tab, LF
+  // and CR from its input before it looks at the scheme. A gate that
+  // validates the normalized form and then writes the raw string therefore
+  // passes characters that the validator never saw — and a newline or a space
+  // ends a CommonMark link destination, so everything after it lands in the
+  // exported `.md` as live Markdown or raw HTML.
+  const BREAKOUT_PAYLOADS: Array<[string, string]> = [
+    ['a tab', 'https://example.com/a\tb'],
+    ['a line feed', 'https://example.com/a\nb'],
+    ['a carriage return', 'https://example.com/a\rb'],
+    ['a CRLF', 'https://example.com/a\r\nb'],
+    ['a space', 'https://example.com/a b'],
+    // The payload as an attacker would actually spell it: close the
+    // destination, then open a raw HTML tag in the exported document.
+    [
+      'a newline that opens raw HTML',
+      'https://example.com/\n\n<img src=x onerror=alert(1)>',
+    ],
+    // Normalization strips the newline mid-scheme, so the *validated* string
+    // reads `javascript:` — but the raw one is written as-is.
+    ['a scheme split by a newline', 'java\nscript:alert(1)'],
+  ];
+
+  it.each(BREAKOUT_PAYLOADS)(
+    'refuses a link destination containing %s',
+    (_label, href) => {
+      const md = linked(href);
+      expect(md).toBe('click me');
+      // Belt and braces: whatever the fallback text is, nothing that came
+      // from the URL may survive into the output.
+      expect(md).not.toContain('example.com');
+      expect(md).not.toMatch(/[\t\n\r]/);
+    },
+  );
+
+  it.each(BREAKOUT_PAYLOADS)(
+    'refuses an image source containing %s',
+    (_label, src) => {
+      const md = pictured(src);
+      expect(md).toBe('[image]');
+      expect(md).not.toMatch(/[\t\n\r]/);
+    },
+  );
+
+  it('refuses a data:image source padded with whitespace', () => {
+    // The `data:image/...` allowance is the one path that bypasses
+    // `isSafeUrl` entirely, so it needs the same character gate.
+    expect(pictured('data:image/png;base64,AA\nAA')).toBe('[image]');
+    expect(pictured(' data:image/png;base64,AAAA')).toBe('[image]');
+  });
+
+  it('refuses a link destination wrapped in the whitespace URL() trims', () => {
+    // Leading/trailing C0-or-space is trimmed by `new URL()`, so the
+    // validated string differs from the raw one here too.
+    expect(linked('  https://example.com/a  ')).toBe('click me');
+    // …while the same URL without the padding still links.
+    expect(linked('https://example.com/a')).toBe('[click me](https://example.com/a)');
+  });
 });
 
 describe('serializeMarkdown — header / footer toggle', () => {

@@ -328,7 +328,13 @@ them; the model stores CSS px at 96 dpi, so the conversion is a factor of 96
 and rounds only for display. A setup whose margins would leave no room for
 content is refused before it is written, measured against the *effective*
 page box so the check follows the orientation being picked rather than the
-one already stored.
+one already stored — the dialog disables **Apply** and says why, and
+`writePageSetup` itself throws a `RangeError` rather than storing geometry
+`paginateLayout` cannot lay out. The engine-side check is the load-bearing
+one: it also covers the ruler drag and any programmatic caller, so the
+invariant is stated once on the write instead of once per UI that respects
+it. It refuses only a *closed* content box (and non-finite or negative
+values); the ruler keeps a stricter 20 px in hand while dragging.
 
 Two `EditorAPI` members carry it:
 

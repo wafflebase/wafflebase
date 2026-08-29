@@ -184,19 +184,41 @@ describe('EditorAPI format painter', () => {
     editor.dispose();
   });
 
-  test('a paste is one undo step', () => {
+  test('a paste is one undo step — no more, no fewer', () => {
     const editor = setupEditor(twoBlocks());
-    editor.copyFormat();
+    const targetStyle = () => editor.getDoc().document.blocks[1].inlines[0].style;
+    const selectTarget = () =>
+      editor._setSelectionForTest({
+        anchor: { blockId: 'target', offset: 0 },
+        focus: { blockId: 'target', offset: 5 },
+      });
+
+    // An earlier, distinguishable edit gives the undo stack a floor. Without
+    // one, a `pasteFormat` that took *two* snapshots would pass too: both
+    // would capture the same pre-paste state, so a single undo would still
+    // restore it and the second undo would be invisible.
+    selectTarget();
+    editor.applyStyle({ italic: true });
+    expect(targetStyle().italic).toBe(true);
+
     editor._setSelectionForTest({
-      anchor: { blockId: 'target', offset: 0 },
-      focus: { blockId: 'target', offset: 5 },
+      anchor: { blockId: 'source', offset: 0 },
+      focus: { blockId: 'source', offset: 6 },
     });
-    editor.pasteFormat();
-    expect(editor.getDoc().document.blocks[1].inlines[0].style.bold).toBe(true);
+    editor.copyFormat();
+    selectTarget();
+    expect(editor.pasteFormat()).toBe(true);
+    expect(targetStyle().bold).toBe(true);
 
+    // One undo reverts the whole paste and nothing more.
     editor.undo();
+    expect(targetStyle().bold).toBeUndefined();
+    expect(targetStyle().italic).toBe(true);
 
-    expect(editor.getDoc().document.blocks[1].inlines[0].style.bold).toBeUndefined();
+    // …and the next one reaches the edit that preceded it, which is what
+    // fails if the paste consumed two entries.
+    editor.undo();
+    expect(targetStyle().italic).toBeUndefined();
     editor.dispose();
   });
 

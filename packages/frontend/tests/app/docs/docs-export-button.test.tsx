@@ -9,8 +9,9 @@
  * needs the full pointerdown -> pointerup -> click sequence (the same dance
  * `tests/components/text-formatting/line-spacing-picker.test.ts` documents).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { toast } from 'sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { EditorAPI } from '@wafflebase/docs';
 
@@ -49,6 +50,7 @@ function openMenu() {
 
 describe('DocsExportButton', () => {
   beforeEach(() => downloadBlob.mockClear());
+  afterEach(() => vi.restoreAllMocks());
 
   it('offers Word, PDF, Markdown and plain text', async () => {
     render(
@@ -94,5 +96,37 @@ describe('DocsExportButton', () => {
     const [blob, name] = downloadBlob.mock.calls[0] as [Blob, string];
     expect(name).toBe('Report.txt');
     expect(blob.type).toBe('text/plain;charset=utf-8');
+  });
+
+  it('reports a failed export as a toast, and re-enables the menu', async () => {
+    // The claim this file opens with: every entry runs through `runExport`,
+    // whose `catch` turns a throw into a toast and whose `finally` clears
+    // `exporting`. Without the second half a single failure would leave the
+    // Export button disabled for the rest of the session.
+    const errorToast = vi.spyOn(toast, 'error').mockReturnValue('t');
+    // The component logs the failure before toasting; keep it out of the
+    // test output without hiding a genuine surprise elsewhere.
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    downloadBlob.mockImplementationOnce(() => {
+      throw new Error('disk on fire');
+    });
+
+    render(
+      <TooltipProvider>
+        <DocsExportButton editor={makeEditor()} title="Report" />
+      </TooltipProvider>,
+    );
+    openMenu();
+
+    fireEvent.click(await screen.findByText('Markdown (.md)'));
+
+    await waitFor(() => expect(errorToast).toHaveBeenCalled());
+    expect(String(errorToast.mock.calls[0][0])).toContain('disk on fire');
+    expect(logged).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('Export document') as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
   });
 });
