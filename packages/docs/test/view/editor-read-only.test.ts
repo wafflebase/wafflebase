@@ -323,9 +323,10 @@ describe('read-only docs editor (issue #482)', () => {
   });
 
   test('setPageSetup() through getStore() does not change the page in read-only', () => {
-    // Neutering `EditorAPI.setPageSetup` only closes one door: `getStore()`
-    // is public too, and the store it hands out has an unguarded
-    // `setPageSetup` a viewer could otherwise write the document through.
+    // Defence in depth over exactly one method, not a boundary: `getStore()`
+    // returns a store whose `setPageSetup` behaves like the neutered
+    // `EditorAPI.setPageSetup`, so the two doors to that single write agree.
+    // Every other mutator on the handle still writes — see the next test.
     const { editor } = setupEditor([para('b1', 'hello world')], true);
     const before = editor.getPageSetup();
     editor.getStore().setPageSetup({
@@ -334,6 +335,26 @@ describe('read-only docs editor (issue #482)', () => {
     });
     expect(editor.getPageSetup()).toEqual(before);
     expect(editor.getStore().getDocument().pageSetup).toBeUndefined();
+    editor.dispose();
+  });
+
+  /**
+   * Pins the *limit* of the wrapper above, so nothing here can be read as
+   * read-only enforcement on the store handle. `getStore()` replaces
+   * `setPageSetup` and nothing else: the other ~30 `DocStore` mutators forward
+   * untouched, and so does the `Doc` from `getDoc()`. That bypass predates the
+   * wrapper — on `main` neither accessor appears in `MUTATING_METHODS` — and
+   * is tracked as issue #989.
+   *
+   * When #989 lands this test must fail. Invert it then; do not delete it.
+   */
+  test('getStore() is not a read-only boundary — only setPageSetup is guarded (#989)', () => {
+    const { editor } = setupEditor([para('b1', 'hello world')], true);
+    editor.getStore().insertText('b1', 5, '!!');
+    // Read the store back, not `getDoc()`: the write lands in the store the
+    // handle wraps, which is exactly the reach #989 is about.
+    const stored = editor.getStore().getDocument().blocks[0];
+    expect(getBlockText(stored)).toBe('hello!! world');
     editor.dispose();
   });
 

@@ -332,6 +332,9 @@ describe('EditorAPI page setup — bounds', () => {
     // walk straight past the guard above and persist a closed content box
     // into the CRDT for every collaborator. The invariant belongs to the
     // editor, not to one method on it.
+    //
+    // Geometry is the whole reason the wrapper exists; it guards no other
+    // member of `DocStore` and is not an access-control boundary (issue #989).
     const { editor, store } = setupEditor();
 
     const closed = withMargins({ top: 0, bottom: 0, left: 816, right: 0 });

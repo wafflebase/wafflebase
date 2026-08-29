@@ -2861,42 +2861,56 @@ export function initialize(
     return hit ? { blockId: hit.blockId, offset: hit.offset } : undefined;
   };
   /**
-   * The store `EditorAPI.getStore()` hands out.
+   * The store `EditorAPI.getStore()` hands out: the real `DocStore` with
+   * `setPageSetup` — and only `setPageSetup` — replaced.
    *
-   * `getStore` exists for readers — the export button reads `getDocument()`,
-   * the find bar reads `snapshot()`, the hunt bridge reads `canUndo()` — but
-   * what it returns is the whole `DocStore`, and one of that store's writes
-   * is the only one the editor guards at the API boundary.
-   * `EditorAPI.setPageSetup` refuses geometry no layout pass can consume
-   * (`assertUsablePageSetup`) and is neutered in read-only;
-   * `DocStore.setPageSetup` does neither, so reaching it through `getStore()`
-   * walks around both and persists a closed content box into the CRDT for
-   * every collaborator.
+   * It exists for one reason. `EditorAPI.setPageSetup` refuses geometry no
+   * layout pass can consume (`assertUsablePageSetup`); `DocStore.setPageSetup`
+   * does not; and `getStore()` is public — the export button, the find bar and
+   * the hunt bridge already hold what it returns. Reaching `setPageSetup`
+   * through the store therefore walked around an invariant this editor owns
+   * and persisted a closed content box into the CRDT for every collaborator.
+   * Both doors to that one write now behave the same way.
    *
-   * A proxy rather than a hand-written delegate: `DocStore` is wide and still
-   * growing, and a delegate that has to be extended for every method added to
-   * the interface is a guard that silently stops covering the store it wraps.
-   * Members resolve off the real store and are bound to it, so no
-   * implementation ever observes the proxy as `this` — and they are memoized
-   * per underlying function so `store.canUndo === store.canUndo` still holds
-   * while a method replaced on the store (a test spy) is still picked up.
+   * It is NOT an access-control boundary, and nothing here should be read as
+   * one. Every other member of `DocStore` — some thirty mutators — forwards
+   * untouched, `getDoc()` hands out a `Doc` that writes straight to the
+   * unwrapped store, and neither is trapped. Read-only across the store handle
+   * is **issue #989**: it predates this wrapper (on `main` neither accessor
+   * was in `MUTATING_METHODS`) and is deliberately out of scope here. The
+   * `readOnly` drop below covers `setPageSetup` and nothing else — it is there
+   * so the two doors to that single write agree, not because the handle is
+   * guarded in general.
+   *
+   * Naming the one guarded method is also what removes any obligation to keep
+   * this in step with `DocStore` as the interface grows: a method added
+   * tomorrow is forwarded, never silently half-guarded. So the proxy earns its
+   * keep on the *forwarding* side, not the guarding side — a hand-written
+   * delegate would need a new line per interface method just to stay a working
+   * store, and a missed one is `undefined` at the call site. Members resolve
+   * off the real store and are bound to it, so no implementation ever observes
+   * the proxy as `this` — and they are memoized per underlying function so
+   * `store.canUndo === store.canUndo` still holds while a method replaced on
+   * the store (a test spy) is still picked up.
    */
   const boundStoreMembers = new Map<
     string | symbol,
     { raw: unknown; bound: unknown }
   >();
   const guardedSetPageSetup = (setup: PageSetup): void => {
-    // Both halves of what `EditorAPI.setPageSetup` promises: a view-only
-    // editor drops the write, and everything else has to be geometry a
-    // layout pass can consume. `resolvePageSetup` copies on the way in for
-    // the same reason `writePageSetup` does — the store keeps what it is
-    // handed. This is still a store-level write, so it deliberately does not
-    // snapshot or repaint; `getStore()`'s other writes do not either.
+    // Read-only first, so this behaves exactly like `EditorAPI.setPageSetup`
+    // for the one write both reach. Defence in depth over a single method, not
+    // a boundary: it does not make the handle read-only — see #989 above.
     if (readOnly) return;
+    // The reason the wrapper exists: geometry a layout pass can consume.
+    // `resolvePageSetup` copies on the way in for the same reason
+    // `writePageSetup` does — the store keeps what it is handed. This is still
+    // a store-level write, so it deliberately does not snapshot or repaint;
+    // `getStore()`'s other writes do not either.
     assertUsablePageSetup(setup);
     docStore.setPageSetup(resolvePageSetup(setup));
   };
-  const guardedStore: DocStore = new Proxy(docStore, {
+  const pageSetupGuardedStore: DocStore = new Proxy(docStore, {
     get(target, prop) {
       if (prop === 'setPageSetup') return guardedSetPageSetup;
       const raw = Reflect.get(target, prop) as unknown;
@@ -2908,7 +2922,7 @@ export function initialize(
       return bound;
     },
     set(target, prop, value) {
-      // Assigning over the guard would be a way around it.
+      // Assigning over the guard would restore the unvalidated write.
       if (prop === 'setPageSetup') return false;
       return Reflect.set(target, prop, value);
     },
@@ -2917,7 +2931,7 @@ export function initialize(
   const api: EditorAPI = {
     render,
     getDoc: () => doc,
-    getStore: () => guardedStore,
+    getStore: () => pageSetupGuardedStore,
     getSelectionStyle: (): Partial<InlineStyle> => {
       const base = getSelectionStyleImpl(true);
       if (pending.has() && !selection.hasSelection()) {
@@ -3956,6 +3970,11 @@ export function initialize(
   // gate it here too. Keep this allowlist in sync when adding mutating
   // methods. Read-only stays a client-side convenience — the store/server
   // remains the authoritative write boundary for viewer share tokens.
+  //
+  // The allowlist neuters members of `api` itself and nothing beyond them:
+  // `getStore()` and `getDoc()` hand out live handles whose own mutators keep
+  // writing (`getStore()` drops `setPageSetup` alone, as defence in depth over
+  // that one write). Closing those two accessors is issue #989.
   if (readOnly) {
     const MUTATING_METHODS = [
       'applyStyle', 'stepSelectionFontSize', 'clearInlineFormatting', 'applyBlockStyle',

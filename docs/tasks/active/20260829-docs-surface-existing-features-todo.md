@@ -139,3 +139,33 @@ check for the read-only `MUTATING_METHODS` allowlist.
   paste-before-clear ordering of the toolbar toggle; a two-undo assertion so
   "one undo step" fails on a double snapshot; the failure toast the export
   test's own file comment advertised.
+
+## Third review round
+
+- **`getStore()`'s guard claimed more than it delivers.** The proxy added last
+  round guarded `setPageSetup` two ways — geometry *and* a read-only drop —
+  and its comment read as though the store handle were guarded in general. It
+  is not: the proxy forwards ~30 other `DocStore` mutators untouched,
+  `getDoc()` hands out a `Doc` that writes straight to the unwrapped store,
+  and `getPrototypeOf` / `defineProperty` are not trapped.
+- **Scoped, not removed.** The read-only drop stays, because deleting working
+  protection to make a comment true is the wrong direction and it costs one
+  line to make the two doors to that single write behave identically. What
+  changed is the claim: `packages/docs/src/view/editor.ts` now names the
+  wrapper `pageSetupGuardedStore`, states that it is defence in depth over one
+  method and explicitly **not** an access-control boundary, and points at
+  **issue #989** — which owns read-only across `getStore()` / `getDoc()` and
+  predates this branch (on `main` neither accessor is in `MUTATING_METHODS`).
+  The `MUTATING_METHODS` comment carries the same pointer.
+- **The proxy stayed, for a different reason.** Its justification is now
+  forwarding totality, not guarding totality: exactly one member is replaced,
+  and a hand-written delegate would need a new line per interface method just
+  to remain a working store. That is also what answers "nothing keeps the
+  guard in sync as `DocStore` grows" — naming one method means a method added
+  tomorrow is forwarded, never silently half-guarded, so there is no sync
+  obligation to pin. Memoized bound members and the `set` trap are unchanged.
+- **The limit is now executable.** `editor-read-only.test.ts` gains a test
+  asserting that another store mutator (`insertText`) *does* write through
+  `getStore()` in read-only, tagged `#989`, so the wrapper cannot be misread
+  as read-only enforcement. It is written to fail — and be inverted, not
+  deleted — when #989 lands.

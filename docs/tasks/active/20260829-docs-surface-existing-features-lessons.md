@@ -308,3 +308,31 @@ consumers that reach it through the *built* package. A changed option default
 or a swapped serializer would pass every docs-package test and still change the
 bytes a user gets in a file. Where a rule crosses a package boundary, pin it
 again at the boundary — the second assertion is about the wiring, not the rule.
+
+## A partial guard has to say it is partial
+
+Wrapping `getStore()`'s `setPageSetup` in a read-only drop looked like a free
+win: one line, and a viewer could no longer repaginate the document through
+the store handle. It reads as an access-control boundary, and it is not one —
+the same proxy forwards ~30 other mutators untouched and `getDoc()` bypasses
+it entirely. The reviewer's objection was not the drop; it was that a reader
+of that code would conclude the handle is guarded and stop looking.
+
+Two repairs are available and only one of them is right by default. Deleting
+the protection makes the comment true at the cost of behaviour that was
+working. Keeping it and *narrowing the claim* — name the wrapper after the one
+member it guards, say "defence in depth over one method, explicitly not a
+boundary", and cross-reference the issue that owns the rest — costs nothing
+and leaves the code honest.
+
+The mechanism's justification has to move with the claim. A proxy was chosen
+because "`DocStore` is wide and still growing" — an argument for guarding
+everything, which is no longer what it does. It survived on a different
+argument: forwarding totality. That reframing is also the answer to "nothing
+keeps this in sync as the interface grows" — a guard scoped to one named
+method has no sync obligation, and saying so is a better outcome than a
+completeness test for a list that should never grow.
+
+Then make the limit executable. A test asserting the bypass still exists,
+tagged with the issue number and written to be *inverted* rather than deleted
+when that issue lands, stops the next reader from having to trust a comment.
