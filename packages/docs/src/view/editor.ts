@@ -948,7 +948,7 @@ export function initialize(
   spacer.style.pointerEvents = 'none';
   container.appendChild(spacer);
 
-  const docCanvas = new DocCanvas(canvas);
+  const docCanvas = new DocCanvas(canvas, readOnly);
   // The measurer is shared across recomputeLayout, header/footer layout, hit
   // testing, and cursor/selection rendering. It owns a private OffscreenCanvas
   // ctx so its `lastFont` cache stays valid across calls regardless of what
@@ -1256,6 +1256,26 @@ export function initialize(
     selection.setRange(null);
     selectedImage = { blockId, offset };
     textEditorRef?.focus();
+  };
+
+  /**
+   * Drop the image selection because the text under it is about to move.
+   *
+   * `selectedImage` is a `(blockId, offset)` coordinate, not a handle on the
+   * inline itself, so any edit that shifts offsets leaves it naming whichever
+   * inline slid into that slot — a different image, or an ordinary character.
+   * Every entry point that mutates text while an image selection can still be
+   * live routes through here first: cut's text path (via
+   * `TextEditor.imageSelectionClearer`), every paste (via
+   * `TextEditor.applyPastePlan`), and the programmatic
+   * `applySpellSuggestion` / `insertTable` / `insertImage` /
+   * `insertPageNumber` APIs, none of which go through a keydown that would
+   * have cleared it. Renders only when something was actually selected.
+   */
+  const clearImageSelectionForMutation = (): void => {
+    if (!selectedImage) return;
+    selectedImage = null;
+    render();
   };
 
   /**
@@ -2297,14 +2317,10 @@ export function initialize(
       return { blockId: selectedImage.blockId, offset: selectedImage.offset, image };
     };
     textEditor.imageDeleteHandler = deleteSelectedImageInline;
-    // Cut's text path calls this before it deletes; see the field's doc
-    // comment. The editor owns `selectedImage`, so the clear has to come back
-    // here rather than being done inside TextEditor.
-    textEditor.imageSelectionClearer = () => {
-      if (!selectedImage) return;
-      selectedImage = null;
-      render();
-    };
+    // Cut's text path and every paste call this before they mutate; see the
+    // field's doc comment. The editor owns `selectedImage`, so the clear has
+    // to come back here rather than being done inside TextEditor.
+    textEditor.imageSelectionClearer = clearImageSelectionForMutation;
 
     // Image selection key routing. Copy/cut are absorbed here so the image
     // selection survives into the browser's own clipboard event;
@@ -2325,6 +2341,20 @@ export function initialize(
       // the catch-all below, which clears the selection and reintroduces
       // issue #870.
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      // A modifier's *own* keydown arrives before the character it modifies:
+      // pressing Cmd+C fires `key === 'Meta'` first, then `key === 'c'`. Left
+      // to reach the catch-all below, that first event would clear the image
+      // selection a beat before the copy branch could ever read it, so the
+      // issue #870 fix would never fire on a real keyboard even though a test
+      // synthesizing only the combined keydown passes. Consume them and
+      // change nothing — a bare modifier means the user has not chosen yet.
+      if (
+        key === 'Meta' || key === 'Control' || key === 'Shift' ||
+        key === 'Alt' || key === 'AltGraph' || key === 'CapsLock' ||
+        key === 'OS' || key === 'Hyper' || key === 'Super'
+      ) {
+        return true;
+      }
       // Copy / cut must NOT fall through to the "clear and let the text path
       // see it" branch below: clearing here is what left the browser's
       // `copy` event with nothing to write (issue #870). Consume the key
@@ -2381,8 +2411,13 @@ export function initialize(
         return true;
       }
       // Other keys clear image selection and fall through so the text
-      // path sees them on the now-active caret.
+      // path sees them on the now-active caret. Render here rather than
+      // relying on the text path to do it: a key TextEditor ignores (F5, a
+      // dead key, a shortcut it does not implement) would otherwise leave
+      // the selection overlay painted around an image that is no longer
+      // selected.
       selectedImage = null;
+      render();
       return false;
     };
   }
@@ -2493,8 +2528,14 @@ export function initialize(
   // starts a resize drag; a click on an image's body selects it; a
   // click elsewhere clears the image selection and lets TextEditor
   // handle the click normally.
+  //
+  // Read-only runs this too, minus the resize-drag branch: selecting an
+  // image mutates nothing, and it is the only way a viewer can reach the
+  // image copy the shortcut and the context menu now offer (issue #870).
+  // The overlay drops its resize handles in read-only (`new DocCanvas`
+  // below), so the selection reads as a selection rather than an offer to
+  // resize something the viewer cannot resize.
   const handleImageMouseDown = (e: MouseEvent) => {
-    if (readOnly) return;
     if (!layout) return;
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -2513,8 +2554,9 @@ export function initialize(
 
     // 1) If an image is already selected, check for a handle hit first
     //    so the user can start a resize drag without having to click
-    //    the image body twice.
-    if (selectedImage) {
+    //    the image body twice. A resize writes to the document, so this
+    //    branch stays editable-only.
+    if (!readOnly && selectedImage) {
       const selRect = rects.get(`${selectedImage.blockId}:${selectedImage.offset}`);
       if (selRect) {
         const handle = hitTestImageHandle(selRect, docX, docY);
@@ -3359,6 +3401,10 @@ export function initialize(
     },
     applySpellSuggestion: (err: SpellError, replacement: string): void => {
       if (!spellSession || readOnly) return;
+      // The correction can be a different length than the word it replaces,
+      // so it shifts every offset after it — including a click-selected
+      // image's. No keydown precedes this call to have cleared it.
+      clearImageSelectionForMutation();
       // replace() snapshots (undo) then deletes+inserts the correction.
       spellSession.replace(doc, err, replacement);
       // Drop the replaced error synchronously before render() so that
@@ -3447,6 +3493,9 @@ export function initialize(
       render();
     },
     insertTable: (rows: number, cols: number) => {
+      // Splits the caret's block and inserts blocks around it; an image
+      // selection measured against the old offsets would survive as a lie.
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const pos = cursor.position;
       const cellInfo = layout.blockParentMap.get(pos.blockId);
@@ -3661,6 +3710,10 @@ export function initialize(
         ...(opts?.originalHeight !== undefined ? { originalHeight: opts.originalHeight } : {}),
       };
       pending.clear();
+      // Inserting an inline shifts every offset after it, so a prior image
+      // selection would name the wrong slot — and the newly inserted image
+      // is not selected either (matching the toolbar/DnD insert today).
+      clearImageSelectionForMutation();
       docStore.snapshot();
       // `insertImageInline` routes through the block-helpers path for both
       // top-level blocks and cells, so it works inside tables without
@@ -3685,11 +3738,7 @@ export function initialize(
       selectImageInline(blockId, offset);
       render();
     },
-    clearImageSelection: () => {
-      if (!selectedImage) return;
-      selectedImage = null;
-      render();
-    },
+    clearImageSelection: clearImageSelectionForMutation,
     getSelectedImage: () => {
       if (!selectedImage) return null;
       const block = doc.getBlock(selectedImage.blockId);
@@ -3743,6 +3792,9 @@ export function initialize(
       if (!textEditor) return;
       const ctx = textEditor.getEditContext();
       if (ctx !== 'header' && ctx !== 'footer') return;
+      // Inserts a character, shifting the offsets a body image selection is
+      // measured in. Toolbar-driven, so no keydown cleared it.
+      clearImageSelectionForMutation();
       docStore.snapshot();
       doc.insertText(cursor.position, '#');
       doc.applyInlineStyle(

@@ -941,4 +941,127 @@ describe('copy path integrity', () => {
       editor.dispose();
     });
   });
+
+  describe('the modifier key that precedes the shortcut', () => {
+    // A real keyboard delivers Cmd+C as TWO keydowns: `Meta` on its own,
+    // then `c` with `metaKey` set. Every other test here synthesizes only the
+    // second, so a handler that clears the image selection on the first stays
+    // green while the shortcut is dead in a browser.
+    for (const modifier of ['Meta', 'Control', 'Shift', 'Alt']) {
+      test(`a bare ${modifier} keydown keeps the image selection`, () => {
+        const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+        editor.selectImageAt('b1', 2);
+
+        pressKey(textarea, modifier);
+
+        expect(editor.getSelectedImage()).not.toBeNull();
+        editor.dispose();
+      });
+    }
+
+    test('the real two-keydown Cmd+C sequence still copies the image', () => {
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+
+      pressKey(textarea, 'Meta');
+      expect(pressCopyShortcut(textarea, 'c', { metaKey: true }).defaultPrevented)
+        .toBe(false);
+
+      expect(payloadBlocks(dispatchCopy(textarea))[0].inlines[0].style.image)
+        .toEqual(IMAGE);
+      editor.dispose();
+    });
+
+    test('a non-modifier key still drops the image selection', () => {
+      // The catch-all must keep working — typing over a selected image
+      // replaces it, matching Google Docs.
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+
+      pressKey(textarea, 'F5');
+
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+  });
+
+  describe('a read-only viewer selecting an image', () => {
+    test('a click elsewhere clears a read-only image selection', () => {
+      // `handleImageMouseDown` used to return at the top on `readOnly`, which
+      // made the whole read-only copy path unreachable: nothing could select
+      // an image, so the viewer had nothing to copy. A mousedown that reaches
+      // the handler at all — here one that misses every image and so takes
+      // the "clear and fall through" branch — is what proves the gate is gone.
+      const { editor } = setupEditor([blockWithImage('ab', 'cd')], true);
+      const container = document.body.firstElementChild as HTMLElement;
+      editor.selectImageAt('b1', 2);
+      expect(editor.getSelectedImage()).not.toBeNull();
+
+      container.dispatchEvent(new MouseEvent('mousedown', {
+        button: 0, clientX: 0, clientY: 0, bubbles: true, cancelable: true,
+      }));
+
+      expect(editor.getSelectedImage()).toBeNull();
+      // Still read-only: the click mutated nothing.
+      expect(bodyText(editor)).toBe('ab￼cd');
+      editor.dispose();
+    });
+  });
+
+  describe('mutations that shift the offsets under an image selection', () => {
+    // `selectedImage` is a (blockId, offset) coordinate, not a handle on the
+    // inline. `blockWithTwoImages` makes a stale one observable: deleting or
+    // inserting text slides IMAGE2 onto the offset IMAGE was selected at, so
+    // a selection left behind names the wrong picture rather than merely
+    // looking odd.
+    test('a paste clears it', () => {
+      const { editor, textarea } = setupEditor([blockWithTwoImages()]);
+      editor._setSelectionForTest({
+        anchor: { blockId: 'b1', offset: 0 },
+        focus: { blockId: 'b1', offset: 0 },
+      });
+      editor.selectImageAt('b1', 2);
+      expect(editor.getSelectedImage()!.data).toEqual(IMAGE);
+
+      const paste = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, 'clipboardData', {
+        value: {
+          types: ['text/plain'],
+          getData: (t: string) => (t === 'text/plain' ? 'XYZ' : ''),
+          items: [] as unknown[],
+        },
+      });
+      textarea.dispatchEvent(paste);
+
+      expect(bodyText(editor)).toBe('XYZab￼c￼d');
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+
+    test('insertTable clears it', () => {
+      const { editor } = setupEditor([blockWithTwoImages()]);
+      editor.selectImageAt('b1', 2);
+
+      editor.insertTable(2, 2);
+
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+
+    test('insertImage clears it', () => {
+      const { editor } = setupEditor([blockWithTwoImages()]);
+      editor._setSelectionForTest({
+        anchor: { blockId: 'b1', offset: 0 },
+        focus: { blockId: 'b1', offset: 0 },
+      });
+      editor.selectImageAt('b1', 2);
+
+      editor.insertImage(IMAGE2.src, IMAGE2.width, IMAGE2.height, {
+        position: { blockId: 'b1', offset: 0 },
+      });
+
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+  });
 });

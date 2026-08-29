@@ -242,6 +242,18 @@ the same way `handleKeyDown` does it: the browser reports the *modified*
 character, so Caps Lock turns Cmd+C into `'C'` and a raw comparison would
 fall through to the catch-all and reintroduce #870.
 
+A modifier's *own* keydown is consumed and changes nothing. `Meta` /
+`Control` / `Shift` / `Alt` (and friends) fire **before** the character they
+modify, so pressing Cmd+C delivers `key === 'Meta'` first; letting that
+reach the catch-all would clear the image selection a beat before the copy
+branch could read it, and #870 would survive on a real keyboard while a
+test synthesizing only the combined keydown passed.
+
+The catch-all — every other key clears the selection and falls through —
+re-renders before returning. A key `TextEditor` ignores would otherwise
+leave the selection overlay painted around an image that is no longer
+selected.
+
 The modifier is `e.metaKey || e.ctrlKey` — **either**, not the platform's.
 `navigator.platform` is an empty string in some browsers, so a
 platform-keyed choice picks the wrong modifier there and the shortcut lands
@@ -257,6 +269,30 @@ that call a clicked image on a read-only document receives neither the
 keydown nor the browser's `copy` event, so the context menu's read-only
 Copy entry would offer something that does nothing. Focus mutates nothing —
 every write still goes through a `readOnly`-gated path.
+
+### Read-only image selection
+
+`handleImageMouseDown` runs in read-only too. It used to return at the top,
+which made the read-only copy above unreachable: with no way to select an
+image, a viewer had nothing to copy. Only the resize-drag branch is
+editable-gated now — a resize writes to the document, a selection does not.
+The overlay follows: `DocCanvas` takes the mount's `readOnly` flag and
+passes `{ handles: false }` to `drawImageSelection`, so a viewer sees the
+selection rectangle without eight handles offering a drag the editor would
+refuse.
+
+### Clearing the selection when text moves under it
+
+`selectedImage` is a `(blockId, offset)` coordinate, not a handle on the
+inline, so any edit that shifts offsets leaves it naming whatever slid into
+that slot. One `clearImageSelectionForMutation()` helper in `editor.ts` owns
+the clear, and every entry point that can mutate text while an image
+selection is still live calls it: cut's text path and every paste (through
+`TextEditor.imageSelectionClearer`, wired into `handleCut` and
+`applyPastePlan` — the single funnel all paste paths reach), plus the
+programmatic `applySpellSuggestion` / `insertTable` / `insertImage` /
+`insertPageNumber` APIs, none of which are preceded by a keydown that would
+have cleared it.
 
 ## Floating Context Bar *(Planned — Milestone 5)*
 

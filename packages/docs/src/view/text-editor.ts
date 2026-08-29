@@ -287,8 +287,9 @@ export class TextEditor {
    * `handleCut`'s text path calls it: a text selection and a click-selected
    * image can both be live, and the text path — which wins — deletes text and
    * so shifts the offsets the image selection is expressed in. Left set, it
-   * would name whatever inline landed on that offset. `handleCopy` needs no
-   * such call; it mutates nothing.
+   * would name whatever inline landed on that offset. `applyPastePlan` calls
+   * it for the same reason, on behalf of every paste path. `handleCopy` needs
+   * no such call; it mutates nothing.
    */
   imageSelectionClearer: (() => void) | null = null;
 
@@ -1344,6 +1345,12 @@ export class TextEditor {
    * `DocStore`, which does not exist.
    */
   private applyPastePlan(plan: PastePlan): void {
+    // Every paste — the keyboard one, the programmatic `pasteContent` the
+    // context menu uses — lands here, and all of them shift the offsets a
+    // click-selected image is expressed in. The Cmd/Ctrl+V keydown clears the
+    // selection on the keyboard path, but nothing does on the programmatic
+    // one, so the clear belongs at the mutation instead.
+    this.imageSelectionClearer?.();
     this.saveSnapshot();
     this.deleteSelection();
     if (plan.kind === 'text') {
