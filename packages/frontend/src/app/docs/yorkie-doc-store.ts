@@ -579,8 +579,6 @@ export class YorkieDocStore implements DocStore {
    * to the batch's undo unit.
    */
   private activePresence: DocsPresenceProxy | null = null;
-  /** Depth of nested `batch()` calls; 0 outside a batch. */
-  private batchDepth = 0;
 
   /**
    * Optional callback invoked when a remote change is detected.
@@ -789,6 +787,15 @@ export class YorkieDocStore implements DocStore {
   // -----------------------------------------------------------------------
 
   setDocument(doc: Document): void {
+    // Guarded before the write, not after: `undoFloor` below reads the undo
+    // stack once the write has landed, which inside a batch is not until the
+    // batch's single `doc.update` closes. The floor would land one unit low
+    // and the whole loaded document would become undoable. No caller does
+    // this today, but the coupling is invisible from `batch()`, so it is
+    // enforced rather than documented.
+    if (this.activeRoot) {
+      throw new Error('setDocument() must not be called inside batch()');
+    }
     this.writeFullDocument(doc);
     // Cache the document we just wrote so the next getDocument() returns it
     // even if the Yorkie Tree read doesn't reflect changes immediately
@@ -798,13 +805,7 @@ export class YorkieDocStore implements DocStore {
     // Mark the undo stack depth so users cannot undo past the initial
     // document load. Yorkie's CRDT redo of writeFullDocument can
     // conflict with subsequent text insertions.
-    //
-    // Reads the stack *after* the write, so this must not run inside a
-    // `batch()`: the batch's change is not pushed until its single
-    // `doc.update` closes, and the floor would land one unit low — leaving
-    // the initial load undoable. Loading a document is not a batchable
-    // action, so no caller does this; noted because the coupling is not
-    // visible from `batch()`.
+    // Reads the stack *after* the write — see the batch guard at the top.
     this.undoFloor = this.doc.getUndoStackForTest().length;
   }
 
@@ -1224,6 +1225,7 @@ export class YorkieDocStore implements DocStore {
     selection: DocRange | null;
   }): void {
     if (!resolved.cursor && !resolved.selection) return;
+    if (this.skipNonHistoryPresence()) return;
     this.withUpdate((_, p) => {
       p.set({
         activeCursorPos: resolved.cursor ?? undefined,
@@ -2849,16 +2851,17 @@ export class YorkieDocStore implements DocStore {
     // Nested batch: we are already inside the ambient `doc.update`, so just
     // run the body. Opening a second update would split the work into two
     // undo units and break "one batch = one undo unit".
-    if (this.batchDepth > 0) {
-      this.batchDepth++;
-      try {
-        fn();
-      } finally {
-        this.batchDepth--;
-      }
+    //
+    // Keyed on `activeRoot` — the same sentinel `withUpdate` reads — so the
+    // two can never disagree. A separate depth counter would: it would still
+    // read "in a batch" during the SDK's post-updater work (change push and
+    // the synchronous `local-change` publish), which runs after the ambient
+    // root is gone, and a subscriber that re-entered `batch()` there would
+    // take this fast path with no root and get one undo unit per write.
+    if (this.activeRoot) {
+      fn();
       return;
     }
-    this.batchDepth++;
     let committed = false;
     try {
       // ONE doc.update for the whole batch → one Yorkie change → one
@@ -2876,7 +2879,6 @@ export class YorkieDocStore implements DocStore {
       });
       committed = true;
     } finally {
-      this.batchDepth--;
       // A throw rolls the whole update back (Yorkie discards the clone), so
       // the optimistic cache each write left behind describes state that
       // never landed. On the happy path the writes kept it current.
@@ -3146,12 +3148,35 @@ export class YorkieDocStore implements DocStore {
       ? this.anchorDocPosition(clampedPos, clampedPos.lineAffinity)
       : null;
     this.localSelectionAnchor = this.anchorDocRange(clampedSelection ?? null);
+    // The anchors above are view-local bookkeeping and always run; only the
+    // presence write is held back inside a batch.
+    if (this.skipNonHistoryPresence()) return;
     this.withUpdate((_, p) => {
       p.set({
         activeCursorPos: clampedPos ?? undefined,
         activeSelection: clampedSelection ?? undefined,
       });
     });
+  }
+
+  /**
+   * Whether a presence write made *without* `addToHistory` must be skipped
+   * because a batch is open.
+   *
+   * Yorkie's `ChangeContext.setReversePresence` **deletes** keys from the
+   * change's reverse presence when `addToHistory` is falsy. Across two
+   * separate `doc.update`s that is harmless — each has its own context. Fold
+   * both into one change, as a batch does, and a plain cursor publish erases
+   * the reverse presence an earlier `recordHistoryPresence` staged in the
+   * same batch, so undo restores the post-edit caret instead of the
+   * pre-edit one.
+   *
+   * Skipping loses nothing: presence is last-write-wins and the next cursor
+   * move republishes. `recordHistoryPresence` is unaffected — it passes
+   * `addToHistory` and is exactly what must stay inside the batch.
+   */
+  private skipNonHistoryPresence(): boolean {
+    return this.activeRoot !== null;
   }
 
   /**

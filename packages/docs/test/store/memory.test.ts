@@ -282,13 +282,44 @@ describe('MemDocStore', () => {
       expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
     });
 
-    it('runs the body even with no snapshot inside it', () => {
+    it('covers a body that never snapshots', () => {
+      // `YorkieDocStore`'s single `doc.update` covers the whole body whether
+      // or not it snapshots, so this store checkpoints up front to match.
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });
       store.batch(() => {
         store.insertText(block.id, 5, '!');
       });
       expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello!');
+
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+    });
+
+    it('covers writes made before the body snapshots', () => {
+      // Every editor operation snapshots partway through, so composing two of
+      // them puts a write ahead of the first `snapshot()`. Deferring the
+      // checkpoint to that call would strand the ' A' write permanently.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.batch(() => {
+        store.insertText(block.id, 5, ' A');
+        store.snapshot();
+        store.insertText(block.id, 7, ' B');
+      });
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello A B');
+
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+      expect(store.canUndo()).toBe(false);
+    });
+
+    it('a batch that writes nothing costs no undo unit', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.batch(() => {
+        store.snapshot();
+      });
       expect(store.canUndo()).toBe(false);
     });
 

@@ -730,7 +730,13 @@ describe('YorkieDocStore', () => {
       expect(doc.getUndoStackForTest().length).toBe(before);
     });
 
-    it('a presence write inside a batch adds no extra undo unit', () => {
+    it('holds back a non-history presence write inside a batch', () => {
+      // Yorkie's `setReversePresence` *deletes* reverse-presence keys when
+      // `addToHistory` is falsy. Across two `doc.update`s that is harmless;
+      // folded into one change it would erase whatever the batch's own
+      // `recordHistoryPresence` staged, so undo would restore the post-edit
+      // caret. The write is skipped rather than folded — presence is
+      // last-write-wins and the next cursor move republishes.
       const block = makeBlock('hello');
       store.setDocument({ blocks: [block] });
       const before = doc.getUndoStackForTest().length;
@@ -739,6 +745,27 @@ describe('YorkieDocStore', () => {
         store.applyStyle(block.id, 0, 5, { bold: true });
       });
       expect(doc.getUndoStackForTest().length).toBe(before + 1);
+      expect(store.getPresenceCursorPos()).toBeUndefined();
+    });
+
+    it('restores the pre-edit caret when a batch also publishes a cursor', () => {
+      // The failure the skip above prevents: with the presence write folded
+      // in, undo restored offset 2 (post-edit) instead of the staged 0.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      store.setCursorForHistory({ blockId: block.id, offset: 0 });
+      store.batch(() => {
+        store.applyStyle(block.id, 0, 5, { bold: true });
+        store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
+      });
+      store.undo();
+      expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 0 });
+    });
+
+    it('a non-history presence write outside a batch still publishes', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
       expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 2 });
     });
 

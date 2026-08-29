@@ -35,8 +35,6 @@ export class MemDocStore implements DocStore {
   private redoStack: Document[] = [];
   /** Depth of nested `batch()` calls; 0 outside a batch. */
   private batchDepth = 0;
-  /** Whether the open top-level batch has already taken its checkpoint. */
-  private batchSnapshotTaken = false;
 
   constructor(doc?: Document) {
     this.doc = doc ? cloneDocument(doc) : { blocks: [] };
@@ -167,15 +165,10 @@ export class MemDocStore implements DocStore {
   }
 
   snapshot(): void {
-    // Inside a batch only the first checkpoint counts: this store's undo
-    // unit is the snapshot, so letting every `snapshot()` inside a batch
-    // push would make one batch N undo units — the opposite of the
-    // contract. The state captured is the pre-batch state, which is what a
-    // single undo must restore.
-    if (this.batchDepth > 0) {
-      if (this.batchSnapshotTaken) return;
-      this.batchSnapshotTaken = true;
-    }
+    // Inside a batch the checkpoint has already been taken by `batch()`
+    // itself, and it captured the true pre-batch state. Pushing again here
+    // would make one batch N undo units — the opposite of the contract.
+    if (this.batchDepth > 0) return;
     this.pushUndo();
     this.redoStack = [];
   }
@@ -193,13 +186,30 @@ export class MemDocStore implements DocStore {
       }
       return;
     }
+    // Checkpoint up front rather than letting the body's first `snapshot()`
+    // do it. Deferring would mean a body that writes *before* it snapshots
+    // (every editor operation snapshots partway through, so composing two of
+    // them lands here) leaves those first writes permanently unundoable, and
+    // a body that never snapshots at all costs no undo unit — neither of
+    // which `YorkieDocStore` does, since its single `doc.update` covers the
+    // whole body regardless. Mirrors `MemSlidesStore.batch()`.
+    const before = cloneDocument(this.doc);
+    this.undoStack.push(before);
+    this.redoStack = [];
     this.batchDepth++;
-    this.batchSnapshotTaken = false;
     try {
       fn();
     } finally {
       this.batchDepth--;
-      this.batchSnapshotTaken = false;
+      // A batch that wrote nothing costs no undo unit. Compared rather than
+      // tracked with a flag so a body that writes and then reverts itself is
+      // also free. On a throw the partial writes stand (this store does not
+      // roll back), so the checkpoint is kept — that is what makes the mess
+      // undoable.
+      const wroteNothing =
+        this.undoStack[this.undoStack.length - 1] === before &&
+        JSON.stringify(before) === JSON.stringify(this.doc);
+      if (wroteNothing) this.undoStack.pop();
     }
   }
 
