@@ -1058,4 +1058,46 @@ describe('image inlines', () => {
     const cellBlock = doc.getBlock(cellBlockId);
     expect(cellBlock.inlines.some(i => i.style.image?.src === '/images/cell.png')).toBe(true);
   });
+
+  describe('batch', () => {
+    it('runs the body through the store batch', () => {
+      const doc = Doc.create();
+      const blockId = doc.document.blocks[0].id;
+      doc.batch(() => {
+        doc.insertText({ blockId, offset: 0 }, 'hello');
+      });
+      expect(getBlockText(doc.getBlock(blockId))).toBe('hello');
+    });
+
+    it('re-reads the cached document when the body throws', () => {
+      // A store that rolls the whole batch back leaves the cache describing
+      // writes that never committed. Simulated here with a store whose
+      // `batch()` discards everything `fn` wrote — exactly what
+      // `YorkieDocStore` does when its single `doc.update` throws.
+      const store = new MemDocStore();
+      store.setDocument({ blocks: [createEmptyBlock()] });
+      const blockId = store.getDocument().blocks[0].id;
+      const committed = store.getDocument();
+      store.batch = (fn: () => void): void => {
+        try {
+          fn();
+        } finally {
+          store.replaceDocument(committed);
+        }
+      };
+
+      const doc = new Doc(store);
+      expect(() =>
+        doc.batch(() => {
+          doc.insertText({ blockId, offset: 0 }, 'never lands');
+          throw new Error('boom');
+        }),
+      ).toThrow('boom');
+
+      // Without the refresh, `doc.document` still holds "never lands" — a
+      // block state the store does not have, which every later read answers
+      // from.
+      expect(getBlockText(doc.getBlock(blockId))).toBe('');
+    });
+  });
 });

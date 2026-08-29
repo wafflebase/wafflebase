@@ -721,6 +721,103 @@ describe('YorkieDocStore', () => {
         store.applyBlockStyle(block.id, { alignment: 'right' });
       });
       expect(doc.getUndoStackForTest().length).toBe(before + 1);
+
+      // The undo-unit count alone cannot tell "the nested write joined the
+      // outer unit" apart from "the nested write was dropped or misrouted
+      // into a discarded context": both read as +1. Assert the nested body's
+      // write actually landed, and through a FRESH store so the assertion
+      // sees the CRDT rather than the mutating store's optimistic cache.
+      const fromTree = new YorkieDocStore(doc).getBlock(block.id)!;
+      expect(fromTree.inlines[0].style.bold).toBe(true);
+      expect(fromTree.inlines[0].style.italic).toBe(true);
+      expect(fromTree.style.alignment).toBe('right');
+    });
+
+    it('every write in a batch reaches the CRDT, not just the cache', () => {
+      // The happy-path batch assertions above read back through the store's
+      // own optimistic cache, which each write updates independently of the
+      // Yorkie write. A batch whose writes never reached the Tree would pass
+      // them; it cannot pass this.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      store.batch(() => {
+        store.insertText(block.id, 5, ' world');
+        store.applyStyle(block.id, 0, 5, { bold: true });
+        store.applyBlockStyle(block.id, { alignment: 'center' });
+      });
+
+      const fromTree = new YorkieDocStore(doc).getBlock(block.id)!;
+      expect(fromTree.inlines.map((i) => i.text).join('')).toBe('hello world');
+      expect(fromTree.inlines[0].style.bold).toBe(true);
+      expect(fromTree.style.alignment).toBe('center');
+    });
+
+    // --- reads inside an open batch ---------------------------------------
+    //
+    // Writes route through the ambient root (`withUpdate`); reads route
+    // through `readRoot()`, which returns that same ambient root while the
+    // batch's single `doc.update` is open. These pin that a read taken
+    // mid-batch observes the batch's own earlier writes — the property the
+    // whole seam rests on, since `Doc.dropStaleStyleOffAll()` decides what to
+    // write from a `getDocument()` taken after the registry write in the same
+    // batch.
+
+    it('a read inside a batch observes the batch\'s own earlier writes', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      let seenText: string | undefined;
+      let seenBold: boolean | undefined;
+      let seenPaper: string | undefined;
+      store.batch(() => {
+        store.insertText(block.id, 5, ' world');
+        store.applyStyle(block.id, 0, 5, { bold: true });
+        store.setPageSetup({
+          paperSize: { name: 'A4', width: 794, height: 1123 },
+          orientation: 'portrait',
+          margins: { top: 72, bottom: 72, left: 72, right: 72 },
+        });
+        const mid = store.getBlock(block.id)!;
+        seenText = mid.inlines.map((i) => i.text).join('');
+        seenBold = mid.inlines[0].style.bold;
+        seenPaper = store.getPageSetup().paperSize.name;
+      });
+      expect(seenText).toBe('hello world');
+      expect(seenBold).toBe(true);
+      expect(seenPaper).toBe('A4');
+    });
+
+    it('a mid-batch read forced past the cache still sees the in-progress writes', () => {
+      // `getBlock` above can be served by the optimistic cache. Invalidate it
+      // inside the batch so the read is forced down to the Yorkie root, which
+      // is where the ambient-root routing actually matters.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      let seen: string | undefined;
+      store.batch(() => {
+        store.insertText(block.id, 5, ' world');
+        // Drop the cache the way a remote change would.
+        (store as unknown as { dirty: boolean; cachedDoc: unknown }).dirty = true;
+        (store as unknown as { dirty: boolean; cachedDoc: unknown }).cachedDoc = null;
+        seen = store.getBlock(block.id)!.inlines.map((i) => i.text).join('');
+      });
+      expect(seen).toBe('hello world');
+      // And the batch still committed as one unit.
+      expect(new YorkieDocStore(doc).getBlock(block.id)!.inlines.map((i) => i.text).join(''))
+        .toBe('hello world');
+    });
+
+    it('the store is readable again after a batch throws', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      expect(() =>
+        store.batch(() => {
+          store.insertText(block.id, 5, ' world');
+          throw new Error('boom');
+        }),
+      ).toThrow('boom');
+      // The rolled-back write must not be visible through the cache either —
+      // `batch()` drops it on the throw path.
+      expect(store.getBlock(block.id)!.inlines.map((i) => i.text).join('')).toBe('hello');
     });
 
     it('an empty batch pushes no undo unit', () => {

@@ -1076,9 +1076,15 @@ export function initialize(
    *
    * Only the store writes go inside the batch. Layout and paint read the
    * document and must run after the batch commits.
+   *
+   * Routed through `doc.batch` rather than `docStore.batch` so a throw
+   * inside the body re-reads `Doc`'s cached document: a store that rolls the
+   * whole batch back (`YorkieDocStore` discards its `doc.update`) would
+   * otherwise leave the cache describing writes that never committed — see
+   * `Doc.batch`.
    */
   function withNamedStyleChange(write: () => void): void {
-    docStore.batch(() => {
+    doc.batch(() => {
       docStore.snapshot();
       write();
       // `dropStaleStyleOffAll` re-reads the store before deciding (so it sees

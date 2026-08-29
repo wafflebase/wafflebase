@@ -608,11 +608,28 @@ export class YorkieDocStore implements DocStore {
   // Reads
   // -----------------------------------------------------------------------
 
+  /**
+   * The root every read in this class goes through — the counterpart of
+   * `withUpdate` for the read side.
+   *
+   * Inside a top-level `batch()` the batch's single `doc.update` is still
+   * open, and a read taken from `this.doc.getRoot()` there would be a
+   * *different* proxy over the clone the update is mutating. Yorkie builds
+   * that proxy over the same clone root, so in practice it observes the
+   * in-progress writes — but the whole batch's correctness would then rest
+   * on that SDK internal. Reading the ambient root directly removes the
+   * assumption: a batched read observes exactly what the batched writes
+   * just did, by construction.
+   */
+  private readRoot(): YorkieDocsRoot {
+    return this.activeRoot ?? this.doc.getRoot();
+  }
+
   getDocument(): Document {
     if (!this.dirty && this.cachedDoc) {
       return cloneDocument(this.cachedDoc);
     }
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const tree = root.content;
     if (!tree || typeof tree.getRootTreeNode !== 'function') {
       this.cachedDoc = { blocks: [] };
@@ -642,7 +659,7 @@ export class YorkieDocStore implements DocStore {
    * and the variable/`StoredColor` key shapes inside a style definition.
    */
   private readDocStyles(): DocStyles {
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const json = root.stylesJson;
     if (!json) return {};
     try {
@@ -682,7 +699,7 @@ export class YorkieDocStore implements DocStore {
   }
 
   getPageSetup(): PageSetup {
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     return resolvePageSetup(
       root.pageSetup ? readPageSetup(root.pageSetup) : undefined,
     );
@@ -707,7 +724,7 @@ export class YorkieDocStore implements DocStore {
     const hadHeader = !!doc.header;
 
     // If tree is not initialized yet, fall back to full document write.
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const tree = root.content;
     if (!tree || typeof tree.getRootTreeNode !== 'function') {
       doc.header = header;
@@ -746,7 +763,7 @@ export class YorkieDocStore implements DocStore {
     const hadFooter = !!doc.footer;
 
     // If tree is not initialized yet, fall back to full document write.
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const tree = root.content;
     if (!tree || typeof tree.getRootTreeNode !== 'function') {
       doc.footer = footer;
@@ -950,7 +967,7 @@ export class YorkieDocStore implements DocStore {
     pos: DocPosition,
     lineAffinity?: 'forward' | 'backward',
   ): AnchoredDocPosition | null {
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const tree = root.content;
     if (!tree || typeof tree.getRootTreeNode !== 'function') return null;
 
@@ -1083,7 +1100,7 @@ export class YorkieDocStore implements DocStore {
   }
 
   private resolveAnchoredDocPosition(anchor: AnchoredDocPosition): DocPosition {
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const tree = root.content;
     if (!tree || typeof tree.getRootTreeNode !== 'function') {
       return {
@@ -1277,7 +1294,7 @@ export class YorkieDocStore implements DocStore {
   /** Log the Yorkie Tree state at a given block path for debugging. */
   private logTreeState(op: string, blockPath: number[]): void {
     try {
-      const root = this.doc.getRoot();
+      const root = this.readRoot();
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       const treeRoot = tree.getRootTreeNode();
@@ -2832,10 +2849,10 @@ export class YorkieDocStore implements DocStore {
    * That is not a style preference: a `doc.update` nested inside another
    * one builds a second `ChangeContext` and pushes its change while the
    * outer one is still open, which splits the batch's undo unit and clears
-   * the SDK's `isUpdating` flag early. Reads (`this.doc.getRoot()`) are
-   * safe inside an open update — `getRoot()` builds its context over the
-   * same clone root the update is mutating, so they observe in-progress
-   * writes — but writes through a `getRoot()` proxy would be discarded.
+   * the SDK's `isUpdating` flag early. Reads have the mirror-image rule and
+   * their own seam, {@link readRoot}: inside a batch they read the ambient
+   * root too, so a batched read observes the batch's own writes without
+   * depending on how `getRoot()` happens to build its proxy.
    */
   private withUpdate(
     fn: (root: YorkieDocsRoot, p: DocsPresenceProxy) => void,

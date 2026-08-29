@@ -125,6 +125,34 @@ export class Doc {
   }
 
   /**
+   * Run `fn` as a single store undo unit (see `DocStore.batch`), keeping
+   * this cache consistent with what actually landed.
+   *
+   * The wrapper is not ceremony. `batch()` is the one place where a store
+   * write can be *un-done by the store itself*: `YorkieDocStore` runs the
+   * whole batch inside one `doc.update`, so a throw makes Yorkie discard the
+   * clone and nothing commits. The reads this class does during the batch —
+   * `dropStaleStyleOffAll` calls `refresh()` twice — would then leave
+   * `_document` holding never-committed state, and every later read
+   * (`getBlock`, layout, paint) would answer from it. Before the seam
+   * existed each write was its own `doc.update`, so partial writes really
+   * did land and the cache matched reality; now it would not.
+   *
+   * So on a throw, re-read before rethrowing. Callers that catch the error
+   * — and the editor's own error boundary, which does not — then see the
+   * document the store actually has. A store that keeps partial writes
+   * (`MemDocStore`) is served by the same refresh.
+   */
+  batch(fn: () => void): void {
+    try {
+      this.store.batch(fn);
+    } catch (err) {
+      this.refresh();
+      throw err;
+    }
+  }
+
+  /**
    * Get blocks for the current editing context (body, header, or footer).
    */
   getContextBlocks(): Block[] {
