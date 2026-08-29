@@ -130,3 +130,50 @@ Two blocking review findings were applied on top:
   runs inside the browser's `copy` listener before `preventDefault()`, so a
   block a remote peer had just deleted would throw out of the listener and let
   the default copy wipe the user's system clipboard.
+
+### Second review round (PR #984)
+
+Coverage-only, plus the design doc. No behaviour changed — every branch the
+review named already worked; what was missing was a test that would notice
+if it stopped. `packages/docs/test/view/copy-integrity.test.ts` grew from 8
+to 21 cases:
+
+- The whole **cut** path (payload parity with copy, the removal, the caret
+  landing where the image was, one undo unit, the Caps Lock `'X'` variant,
+  and the read-only refusal) — previously the only document-mutating branch
+  in the diff with no test at all.
+- **`deleteSelectedImageInline`**, including its read-only early return.
+  `imageKeyHandler` is consulted before `handleKeyDown`'s read-only guard,
+  so that early return is the only thing stopping Delete from mutating a
+  read-only document.
+- The **nested-table** cell resolution `resolveNestedTableLayout` exists for.
+  Every earlier table case used a top-level table, which `layout.blocks`
+  alone would have resolved.
+- `imageSelectionProvider`'s two null guards, driven the way production
+  does it: mutate the store as a peer would, then `getDoc().refresh()` —
+  the exact pair `docs-view.tsx`'s `store.onRemoteChange` performs.
+- `writeImageToClipboard`'s `text/plain` flavour, with and without alt text.
+- The precedence case named "an image selection is ignored when there is
+  also a text selection" **never selected an image**, so it asserted nothing
+  about precedence and would have passed under the inverted rule. It now
+  establishes both selections and asserts the text one wins.
+
+Every new assertion was mutation-checked: each guard was reverted in turn
+and the run confirmed to fail. That found one weak spot worth keeping — a
+DOM listener's exception never reaches the dispatcher, so restoring the
+throwing `doc.getBlock()` left all 21 tests "passing" with only an
+out-of-band unhandled error. `dispatchClipboard` now captures listener
+throws off the `window` `error` event and asserts on them.
+
+Not done, deliberately (argued in the PR thread): re-basing the cell
+traversal on `model/range-slices.ts` (doc-based and deliberately *not*
+nested-table-aware, unlike this layout-based path), image support in the
+context menu's Copy/Cut (a real gap, but a separate change), and
+refactoring the inlined mod-key detection (it matches the existing idiom
+at `text-editor.ts:858`).
+
+Docs: `docs/design/docs/docs-image-editing.md` now documents the copy/cut
+keys, the read-only ordering hazard, the key normalization, and the two
+`TextEditor` hooks. Its arrow-key rows claimed a 1px/8px resize nudge that
+has never been implemented — the shipped handler deselects and moves the
+caret — so they were corrected to match the code.

@@ -104,12 +104,54 @@ interface EditorAPI {
 
   /** Programmatically select the image at (blockId, offset). */
   selectImageAt(blockId: string, offset: number): void;
+
+  /** Drop the image selection without mutating the document. */
+  clearImageSelection(): void;
 }
 ```
 
 Image selection is a **new kind of selection** that coexists with text
 selection: when an image is selected, the text caret is hidden and the
 image handle overlay is shown. Clicking elsewhere returns to text mode.
+
+### Clipboard hooks on `TextEditor`
+
+`TextEditor` owns the `copy`/`cut` listeners but not the image selection,
+which is view-local state in `initialize()`. Two nullable hooks bridge the
+two (issue #870); `initialize()` assigns both:
+
+```ts
+class TextEditor {
+  /**
+   * Reads the parent editor's image selection. `handleCopy`/`handleCut`
+   * consult it only when there is *no* text selection, so a text selection
+   * always wins. Returns null when nothing is selected, when the block is
+   * gone (a peer deleted it), or when the offset no longer holds an image.
+   */
+  imageSelectionProvider:
+    (() => { blockId: string; offset: number; image: ImageData } | null) | null;
+
+  /** Removes whatever the provider reports, as one undo unit. Cut only. */
+  imageDeleteHandler: (() => void) | null;
+}
+```
+
+Two properties of the provider are load-bearing:
+
+- It resolves the block with the **non-throwing** `findBlock`. It runs
+  inside the browser's `copy` listener *before* `preventDefault()`, so a
+  throw would escape the listener and let the default copy wipe the user's
+  system clipboard.
+- It is a *read*. The removal is a separate hook because the parent editor
+  owns the selection state that has to be cleared alongside the deletion,
+  and that removal must refuse to run in a read-only editor — see
+  [Keyboard](#keyboard) below.
+
+`writeImageToClipboard` puts the image on the clipboard as a one-inline
+paragraph, the same shape an in-document image copy produces, so it pastes
+back through the ordinary `WAFFLEDOCS_MIME` path with no special case at
+the other end. The `text/plain` flavour carries `image.alt`, or an empty
+string when the image has no alt text.
 
 ## Selection & Handles
 
@@ -147,10 +189,33 @@ short-circuit the text hit-test and enter resize mode.
 
 | Key                | Action                        |
 |--------------------|-------------------------------|
-| ← → ↑ ↓           | 1px nudge (size, not position — inline has no position) |
-| Shift + arrow      | 8px nudge                     |
+| ← →                | Deselect and place the caret before / after the image |
+| ↑ ↓ , Shift + arrow | Deselect and fall through to normal text navigation / selection |
 | Delete / Backspace | Delete the image              |
+| Cmd/Ctrl + C       | Copy the image (see below)    |
+| Cmd/Ctrl + X       | Cut the image (see below)     |
 | Esc                | Deselect, return to text mode |
+
+`imageKeyHandler` is consulted at the top of `TextEditor.handleKeyDown`,
+**before** its read-only guard, so every mutating branch reachable from the
+table above carries its own read-only check. `deleteSelectedImageInline()`
+— shared by Delete/Backspace and by cut — returns early in a read-only
+editor for exactly that reason; without it a viewer could delete an image
+out of a document they cannot write.
+
+Copy and cut are the only two keys the handler consumes **without**
+`preventDefault()`. Clearing the image selection here is what left the
+browser's `copy` event with nothing to write (issue #870), so the handler
+returns `true` to stop the fall-through while letting the native clipboard
+event fire; `handleCopy` / `handleCut` then read the image back through
+`imageSelectionProvider`. Cut additionally calls `imageDeleteHandler`, so
+the write and the removal land as a single undo unit, leaving the caret
+where the image was.
+
+The key is normalized (`e.key.length === 1 ? e.key.toLowerCase() : e.key`)
+the same way `handleKeyDown` does it: the browser reports the *modified*
+character, so Caps Lock turns Cmd+C into `'C'` and a raw comparison would
+fall through to the catch-all and reintroduce #870.
 
 ## Floating Context Bar *(Planned — Milestone 5)*
 
