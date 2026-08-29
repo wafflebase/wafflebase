@@ -1203,4 +1203,197 @@ describe('copy path integrity', () => {
       editor.dispose();
     });
   });
+  /**
+   * Header and footer copy.
+   *
+   * `getSelectedBlocks()` / `getSelectedTableCells()` / `getSelectedText()`
+   * all resolved the selection against `getLayout()` — the *body* layout —
+   * while their siblings (`isInTable()`, `getVisualLineRange()`, …) use
+   * `getActiveLayout()`, which follows the edit context. A header or footer
+   * block is not in `layout.blocks` and not in the body's `blockParentMap`,
+   * so every id lookup missed and the copy wrote `{"blocks":[]}` with an
+   * empty `text/plain` — the whole clipboard, not just its styles.
+   *
+   * That made the issue #872 acceptance criterion ("copying a styled range
+   * inside a table cell carries inline styles") only true in the body, which
+   * is why these live here: the criterion is now unqualified and pinned.
+   */
+  describe('copying from a header or footer', () => {
+    /** A one-cell table whose cell holds bold text plus an image. */
+    function hfTableWithRichCell(cellBlockId: string): Block {
+      const table = createTableBlock(1, 1);
+      table.id = `hft-${cellBlockId}`;
+      table.tableData!.rows[0].cells[0].blocks = [{
+        id: cellBlockId,
+        type: 'paragraph',
+        inlines: [
+          { text: 'Bold', style: { bold: true } },
+          { text: '\uFFFC', style: { image: IMAGE } },
+        ],
+        style: EMPTY_BLOCK_STYLE,
+      }];
+      return table;
+    }
+
+    function richPara(id: string, text: string): Block {
+      return {
+        id,
+        type: 'paragraph',
+        inlines: [{ text, style: { bold: true, italic: true } }],
+        style: EMPTY_BLOCK_STYLE,
+      };
+    }
+
+    /** Mount an editor whose header and footer carry their own blocks. */
+    function setupHFEditor(opts: {
+      header?: Block[];
+      footer?: Block[];
+    }): { editor: EditorAPI; textarea: HTMLTextAreaElement } {
+      const store = new MemDocStore();
+      store.setDocument({
+        blocks: [richPara('body1', 'body text')],
+        ...(opts.header ? { header: { blocks: opts.header, marginFromEdge: 48 } } : {}),
+        ...(opts.footer ? { footer: { blocks: opts.footer, marginFromEdge: 48 } } : {}),
+      });
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const editor = initialize(container, store);
+      const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+      return { editor, textarea };
+    }
+
+    test('a styled range in a header table cell carries its styles', () => {
+      const { editor, textarea } = setupHFEditor({
+        header: [hfTableWithRichCell('hc1')],
+      });
+      editor._setEditContextForTest('header');
+      editor._setSelectionForTest({
+        anchor: { blockId: 'hc1', offset: 0 },
+        focus: { blockId: 'hc1', offset: 5 },
+      });
+
+      const written = dispatchCopy(textarea);
+      const blocks = payloadBlocks(written);
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0].inlines.map((i) => i.text).join('')).toBe('Bold\uFFFC');
+      expect(blocks[0].inlines[0].style.bold).toBe(true);
+      expect(blocks[0].inlines[1].style.image).toEqual(IMAGE);
+      expect(written.get('text/plain')).toBe('Bold\uFFFC');
+      editor.dispose();
+    });
+
+    test('a styled range in a footer table cell carries its styles', () => {
+      const { editor, textarea } = setupHFEditor({
+        footer: [hfTableWithRichCell('fc1')],
+      });
+      editor._setEditContextForTest('footer');
+      editor._setSelectionForTest({
+        anchor: { blockId: 'fc1', offset: 0 },
+        focus: { blockId: 'fc1', offset: 5 },
+      });
+
+      const blocks = payloadBlocks(dispatchCopy(textarea));
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0].inlines[0].style.bold).toBe(true);
+      expect(blocks[0].inlines[1].style.image).toEqual(IMAGE);
+      editor.dispose();
+    });
+
+    test('a plain header paragraph copies at all', () => {
+      // Not a table case: the body-layout lookup missed *every* header block,
+      // so a header selection wrote an empty clipboard even with no table in
+      // sight. Cut is worse still — `deleteSelection` has its own
+      // header/footer branch, so it deleted the text and wrote nothing.
+      const { editor, textarea } = setupHFEditor({
+        header: [richPara('hp1', 'header text')],
+      });
+      editor._setEditContextForTest('header');
+      editor._setSelectionForTest({
+        anchor: { blockId: 'hp1', offset: 0 },
+        focus: { blockId: 'hp1', offset: 6 },
+      });
+
+      const written = dispatchCopy(textarea);
+      const blocks = payloadBlocks(written);
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0].inlines.map((i) => i.text).join('')).toBe('header');
+      expect(blocks[0].inlines[0].style.bold).toBe(true);
+      expect(blocks[0].inlines[0].style.italic).toBe(true);
+      expect(written.get('text/plain')).toBe('header');
+      editor.dispose();
+    });
+
+    test('a whole-cell rectangle in a header carries the cells', () => {
+      // The other copy shape: a cell *rectangle* takes the
+      // `getSelectedTableCells()` branch, which resolved the table block
+      // through the body layout too. `blocks` is empty by design here; the
+      // payload rides in `tableCells`.
+      const table = createTableBlock(1, 2);
+      table.id = 'hft2';
+      table.tableData!.rows[0].cells[0].blocks = [{
+        id: 'hr0c0', type: 'paragraph',
+        inlines: [{ text: 'Left', style: { bold: true } }],
+        style: EMPTY_BLOCK_STYLE,
+      }];
+      table.tableData!.rows[0].cells[1].blocks = [{
+        id: 'hr0c1', type: 'paragraph',
+        inlines: [{ text: 'Right', style: {} }],
+        style: EMPTY_BLOCK_STYLE,
+      }];
+      const store = new MemDocStore();
+      store.setDocument({
+        blocks: [richPara('body1', 'body text')],
+        header: { blocks: [table], marginFromEdge: 48 },
+      });
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const editor = initialize(container, store);
+      const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+
+      editor._setEditContextForTest('header');
+      editor._setSelectionForTest({
+        anchor: { blockId: 'hr0c0', offset: 0 },
+        focus: { blockId: 'hr0c1', offset: 0 },
+        tableCellRange: {
+          blockId: 'hft2',
+          start: { rowIndex: 0, colIndex: 0 },
+          end: { rowIndex: 0, colIndex: 1 },
+        },
+      });
+
+      const written = dispatchCopy(textarea);
+      const payload = JSON.parse(written.get(WAFFLEDOCS_MIME)!);
+
+      expect(payload.tableCells).toHaveLength(1);
+      expect(payload.tableCells[0]).toHaveLength(2);
+      expect(payload.tableCells[0][0].blocks[0].inlines[0].text).toBe('Left');
+      expect(payload.tableCells[0][0].blocks[0].inlines[0].style.bold).toBe(true);
+      expect(payload.tableCells[0][1].blocks[0].inlines[0].text).toBe('Right');
+      expect(written.get('text/plain')).toBe('Left\tRight');
+      editor.dispose();
+    });
+
+    test('a body copy is unaffected while a header exists', () => {
+      // `getActiveLayout()` falls through to `getLayout()` in the body
+      // context, so the body path must be byte-for-byte what it was.
+      const { editor, textarea } = setupHFEditor({
+        header: [richPara('hp1', 'header text')],
+      });
+      editor._setSelectionForTest({
+        anchor: { blockId: 'body1', offset: 0 },
+        focus: { blockId: 'body1', offset: 4 },
+      });
+
+      const written = dispatchCopy(textarea);
+      const blocks = payloadBlocks(written);
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0].inlines.map((i) => i.text).join('')).toBe('body');
+      expect(written.get('text/plain')).toBe('body');
+      editor.dispose();
+    });
+  });
 });

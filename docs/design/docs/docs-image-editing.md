@@ -266,9 +266,18 @@ hidden textarea**. Nothing else does: the image mousedown handler
 `preventDefault()`s and stops propagation before `TextEditor.handleMouseDown`
 can focus, and a read-only editor never focuses on mount at all. Without
 that call a clicked image on a read-only document receives neither the
-keydown nor the browser's `copy` event, so the context menu's read-only
-Copy entry would offer something that does nothing. Focus mutates nothing —
-every write still goes through a `readOnly`-gated path.
+keydown nor the browser's `copy` event, so `Cmd/Ctrl+C` over a
+click-selected image would silently do nothing — on a read-only document
+that is the *only* way to copy the image. Focus mutates nothing — every
+write still goes through a `readOnly`-gated path.
+
+The **context menu is not** that other way, in either mode. Its Copy entry
+is gated on `hasSelection = !!editor.getActiveSelection()`, and
+`getActiveSelection()` returns `null` for a click-selected image — an image
+selection is view-local state, not a text range. So right-clicking an image
+offers no Copy at all. Teaching the menu about image selections is a real
+gap and a separate change; nothing here should be read as claiming it
+already works.
 
 ### Read-only image selection
 

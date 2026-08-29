@@ -1221,14 +1221,14 @@ export class TextEditor {
       const cloned = cloneTableCells(tableCells);
       const json = serializeClipboard({ blocks: [], tableCells: cloned });
       clipboard.setData(WAFFLEDOCS_MIME, json);
-      clipboard.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+      clipboard.setData('text/plain', this.selection.getSelectedText(this.getActiveLayout()));
       return;
     }
 
     const selectedBlocks = this.getSelectedBlocks();
     const json = serializeClipboard({ blocks: selectedBlocks });
     clipboard.setData(WAFFLEDOCS_MIME, json);
-    clipboard.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+    clipboard.setData('text/plain', this.selection.getSelectedText(this.getActiveLayout()));
   };
 
   private handleCut = (e: ClipboardEvent): void => {
@@ -1264,7 +1264,7 @@ export class TextEditor {
       const cloned = cloneTableCells(tableCells);
       const json = serializeClipboard({ blocks: [], tableCells: cloned });
       clipboard.setData(WAFFLEDOCS_MIME, json);
-      clipboard.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+      clipboard.setData('text/plain', this.selection.getSelectedText(this.getActiveLayout()));
       this.saveSnapshot();
       this.deleteSelection();
       this.requestRender();
@@ -1274,7 +1274,7 @@ export class TextEditor {
     const selectedBlocks = this.getSelectedBlocks();
     const json = serializeClipboard({ blocks: selectedBlocks });
     clipboard.setData(WAFFLEDOCS_MIME, json);
-    clipboard.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+    clipboard.setData('text/plain', this.selection.getSelectedText(this.getActiveLayout()));
     this.saveSnapshot();
     this.deleteSelection();
     this.requestRender();
@@ -3750,7 +3750,10 @@ export class TextEditor {
    * Extract selected table cells as a 2D array when a tableCellRange is active.
    */
   private getSelectedTableCells(): TableCell[][] | null {
-    const layout = this.getLayout();
+    // See `getSelectedBlocks()` — the cell-rectangle copy shape resolved its
+    // table block through the body layout too, so a rectangle drawn across a
+    // header table's cells wrote nothing.
+    const layout = this.getActiveLayout();
     const normalized = this.selection.getNormalizedRange(layout);
     if (!normalized?.tableCellRange) return null;
 
@@ -3778,7 +3781,14 @@ export class TextEditor {
    * block to the selection boundaries. Block IDs are regenerated.
    */
   private getSelectedBlocks(): Block[] {
-    const layout = this.getLayout();
+    // `getActiveLayout()`, not `getLayout()`: a header or footer block is not
+    // in the *body* layout's `blocks` or `blockParentMap`, so every id lookup
+    // below missed and a header selection copied an empty payload — a plain
+    // header paragraph, not just a header table cell. Its siblings
+    // (`isInTable()`, `getVisualLineRange()`, …) already follow the edit
+    // context; this path and `getSelectedTableCells()` were the two that did
+    // not, which is what confined the issue #872 fix to the body.
+    const layout = this.getActiveLayout();
     const normalized = this.selection.getNormalizedRange(layout);
     if (!normalized) return [];
 

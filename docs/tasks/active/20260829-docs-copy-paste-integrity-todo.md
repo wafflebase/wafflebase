@@ -50,7 +50,11 @@ followed from that:
 
 ## Acceptance criteria
 
-- [x] Copying a styled range inside a table cell carries inline styles
+- [x] Copying a styled range inside a table cell carries inline styles —
+      in the body **and** in a header or footer. The criterion was written
+      unqualified but held only in the body until the copy path was moved
+      from `getLayout()` to `getActiveLayout()` (review finding; see
+      `docs/design/docs/tables/docs-table-copy-paste.md`)
 - [x] Copying a range inside a table cell carries images
 - [x] A cell copy trims to the selection boundaries, like a body copy
 - [x] A cell copy spanning several blocks in one cell keeps each block's type
@@ -59,7 +63,11 @@ followed from that:
 - [x] That payload pastes back as a second image
 - [x] A text selection still wins over an image selection
 - [x] Caps Lock does not drop the image selection (review finding)
-- [x] Read-only Copy is offered in the context menu (it always worked)
+- [x] Read-only Copy is offered in the context menu **for a text
+      selection** — that always worked. It is *not* offered for a
+      click-selected image, in either mode: the entry is gated on
+      `getActiveSelection()`, which is null for one. Wiring it is a real
+      gap and a separate change
 
 ## Non-goals
 
@@ -226,10 +234,14 @@ red. Every one was caught.
 
 Still not done, unchanged from the last round: the `model/range-slices.ts`
 re-base (deliberately not nested-table-aware, so it would reintroduce #872
-one level deeper), and extending #872 to the header/footer edit context.
-`getSelectedImage` / `updateSelectedImage` still call the throwing
-`doc.getBlock()`; they are pre-existing siblings that finding 1's fix did not
-touch, and are left for a separate change.
+one level deeper).
+
+Two items listed here as deferred were closed in later rounds and no longer
+belong on this list — noted so the round history does not read as still open:
+extending #872 to the header/footer edit context (done in the final round,
+see the acceptance criterion above), and `getSelectedImage` /
+`updateSelectedImage` calling the throwing `doc.getBlock()` (both now use
+`findBlock`).
 
 ### Fourth review round (PR #984)
 
@@ -314,26 +326,47 @@ of the read-only opening as blocking. Four fixes:
 Covered by two new cases in `copy-integrity.test.ts` (`insertLink clears
 it`, and the exported `clearImageSelection` seam the find bar uses).
 
-### Known coverage gap
+### The read-only resize gates, now driven by a real drag
 
 Read-only image selection was opened up by removing `handleImageMouseDown`'s
-top-level `readOnly` return, which means the pointer *resize* path is now
-reachable in read-only up to the point where the handle branch declines it.
-Since round 5 that branch is no longer the only gate — the move and the
-commit both refuse on `readOnly` themselves — but none of the three is
-pinned by a test: the shipped suite exercises read-only selection through
-`selectImageAt`, not through a handle drag, so removing any one of them
-would not turn a test red.
+top-level `readOnly` return, which makes the pointer *resize* path reachable
+in read-only up to the point where the handle branch declines it. Three gates
+now stand between a viewer and that CRDT write: the arming branch
+(`!readOnly && selectedImage`), `handleImageResizeMouseMove`, and the commit
+in `handleImageResizeMouseUp`.
 
-Testing it needs the jsdom geometry the hit-test reads (layout width from
-`container.parentElement`, hit-test width from the canvas, both stubbed
-before `initialize` picks its zoom scale) — machinery this suite does not
-have. Worth adding; recorded here rather than claimed as covered. The same
-machinery is what the read-only hyperlinked-image click would need, so that
-too is asserted by construction rather than by test.
+Earlier rounds recorded all three as unpinned and blamed missing jsdom
+geometry. That blame was wrong, and the machinery turned out to be four
+lines: stub `Element.prototype.getBoundingClientRect` to the page's own
+816×1056 box and the editor picks scale 1, `collectImageRects` lays the page
+out at `x = 0`, and a client coordinate *is* a document coordinate. A handle
+drag then drives end-to-end. `read-only image resize drag` in
+`test/view/editor-read-only.test.ts` does exactly that.
 
-Deliberately not done: `getSelectedImage` / `updateSelectedImage` still call
-the throwing `doc.getBlock()` (a *remote* deletion still reaches them, so
-hardening them stays a separate change), and the context menu still offers
-Copy only for a text selection — wiring it would add a production caller of
-exactly that unhardened path.
+What that buys, stated precisely:
+
+- The **arming** gate is pinned individually — arming shows up as a resize
+  cursor on the canvas, so a viewer's handle press setting one is red.
+  Verified: deleting `!readOnly` from the branch fails
+  `read-only: pressing the se handle arms nothing` and nothing else.
+- The **move** and **commit** gates cannot be pinned individually **by any
+  test**, and this is an architecture fact rather than a harness gap: the
+  arming branch is the only assignment to `imageResizeDrag`, and `readOnly`
+  is fixed at `initialize()`, so a read-only editor can never enter either
+  handler with a drag in flight. Verified: with the arming gate intact,
+  deleting *both* of them leaves the whole 1469-test docs suite green.
+- What **is** pinned is the conjunction — "a viewer cannot resize an image".
+  Verified: deleting all three fails
+  `read-only: dragging the se handle does not resize the image`.
+
+Two editable control tests keep the above non-vacuous, which is the failure
+mode that matters here: without them a read-only assertion would pass just as
+happily if the pointer geometry had quietly stopped landing on a handle.
+
+Also now covered by the same geometry: a read-only click on an image really
+does select it (previously asserted only through `selectImageAt`).
+
+Deliberately not done: the context menu still offers Copy only for a text
+selection. `getActiveSelection()` is null for a click-selected image, so a
+right-click on one offers no Copy at all — in either mode. That is a real
+gap and a separate change; no doc or comment on this branch claims otherwise.

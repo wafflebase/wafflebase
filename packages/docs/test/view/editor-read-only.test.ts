@@ -361,3 +361,198 @@ describe('read-only docs editor (issue #482)', () => {
     editor.dispose();
   });
 });
+
+/**
+ * The image-resize drag, driven through real pointer events.
+ *
+ * The CRDT write at the end of `handleImageResizeMouseUp` is guarded three
+ * times over: `handleImageMouseDown` only arms the drag when editable,
+ * `handleImageResizeMouseMove` returns early on `readOnly`, and the commit
+ * itself returns early on `readOnly`. That redundancy is deliberate — the
+ * client flag is the effective write boundary for an anonymous share link
+ * whenever the Yorkie auth webhook is left in shadow mode — but it also means
+ * no single-gate deletion is observable on its own.
+ *
+ * What these tests can and cannot pin, precisely:
+ *
+ * - The **arming** gate (`!readOnly` in `handleImageMouseDown`) is pinned
+ *   individually: arming is visible in the canvas cursor, so a viewer's
+ *   handle press setting a resize cursor turns a test red.
+ * - The move and commit gates are **unreachable in read-only by
+ *   construction**, and so cannot be pinned individually by any test: the
+ *   arming branch is the only thing that ever assigns `imageResizeDrag`, and
+ *   `readOnly` is fixed at `initialize()`, so a read-only editor can never
+ *   enter either handler with a drag in flight. Deleting either one alone is
+ *   unobservable because the gate above it already refused. This is an
+ *   architecture fact, not a gap in the harness.
+ * - What *is* pinned is the conjunction — "a viewer cannot resize an image"
+ *   survives no matter which gates are removed together, since the size
+ *   assertion below only goes green while at least one still stands.
+ *
+ * The editable control test is what keeps all of that non-vacuous: it proves
+ * this exact gesture really does drive a resize, so a read-only assertion can
+ * never pass merely because the pointer geometry stopped landing on a handle.
+ */
+describe('read-only image resize drag', () => {
+  const IMAGE = { src: 'https://example.test/cat.png', width: 120, height: 80 };
+
+  let originalRect: typeof Element.prototype.getBoundingClientRect;
+
+  /**
+   * jsdom reports every box as 0×0, which collapses the document layout and
+   * leaves no image to hit. Give every element the page's own 816×1056 box:
+   * the editor then picks scale 1 and `collectImageRects` lays the page out at
+   * `x = 0`, so a client coordinate and a document coordinate are the same
+   * number and the handle positions below are readable.
+   */
+  function installGeometryShim(): void {
+    originalRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (): DOMRect {
+      return {
+        x: 0, y: 0, left: 0, top: 0, right: 816, bottom: 1056,
+        width: 816, height: 1056, toJSON: () => ({}),
+      } as DOMRect;
+    };
+  }
+
+  function restoreGeometryShim(): void {
+    Element.prototype.getBoundingClientRect = originalRect;
+  }
+
+  function imageBlock(): Block {
+    return {
+      id: 'b1',
+      type: 'paragraph',
+      // ORC — an image inline is exactly one character.
+      inlines: [{ text: '￼', style: { image: { ...IMAGE } } }],
+      style: EMPTY_BLOCK_STYLE,
+    };
+  }
+
+  /**
+   * Centre of the image's south-east resize handle, in client coordinates.
+   *
+   * Derived by scanning the mounted editor for every point that arms a drag:
+   * the armed region spans `x ∈ [104, 228]`, `y ∈ [126, 212]`, and a handle
+   * reaches `HANDLE_HALF + HANDLE_HIT_SLACK` = 8px in each direction, so the
+   * image rect is `x ∈ [112, 220]`, `y ∈ [134, 204]` and its bottom-right
+   * corner — where the `se` handle is centred — is (220, 204). The editable
+   * control test re-proves this lands on a handle on every run.
+   */
+  const SE_HANDLE = { x: 220, y: 204 };
+
+  /** Press the se handle, drag 40px down-right, release. */
+  function dragSouthEast(container: HTMLElement): void {
+    container.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, button: 0,
+      clientX: SE_HANDLE.x, clientY: SE_HANDLE.y,
+    }));
+    document.dispatchEvent(new MouseEvent('mousemove', {
+      bubbles: true, clientX: SE_HANDLE.x + 40, clientY: SE_HANDLE.y + 40,
+    }));
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  }
+
+  /** Press the se handle and hold, so arming is observable before teardown. */
+  function pressSouthEast(container: HTMLElement): void {
+    container.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, button: 0,
+      clientX: SE_HANDLE.x, clientY: SE_HANDLE.y,
+    }));
+  }
+
+  /**
+   * Arming is what puts a resize cursor on the canvas. The editor mounts more
+   * than one canvas, so ask whether *any* of them took one rather than
+   * depending on which.
+   */
+  function resizeCursorCount(container: HTMLElement): number {
+    return [...container.querySelectorAll('canvas')]
+      .filter((c) => (c as HTMLCanvasElement).style.cursor.endsWith('-resize'))
+      .length;
+  }
+
+  function imageWidth(editor: EditorAPI): number | undefined {
+    return editor.getSelectedImage()?.data.width;
+  }
+
+  beforeEach(() => {
+    installCanvasShim();
+    installGeometryShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    restoreGeometryShim();
+    document.body.innerHTML = '';
+  });
+
+  test('editable: dragging the se handle resizes the image', () => {
+    // The control. Everything below asserts that a viewer gets *nothing* from
+    // this gesture, which would also be true if the gesture had quietly
+    // stopped reaching a handle at all.
+    const { editor, container } = setupEditor([imageBlock()], false);
+    editor.selectImageAt('b1', 0);
+    expect(imageWidth(editor)).toBe(120);
+
+    dragSouthEast(container);
+
+    expect(imageWidth(editor)).toBeGreaterThan(120);
+    editor.dispose();
+  });
+
+  test('editable: pressing the se handle arms the drag', () => {
+    // The other half of the control: proves a resize cursor is an observable
+    // signal of arming, so the read-only assertion on it is not vacuous.
+    const { editor, container } = setupEditor([imageBlock()], false);
+    editor.selectImageAt('b1', 0);
+
+    pressSouthEast(container);
+
+    expect(resizeCursorCount(container)).toBeGreaterThan(0);
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    editor.dispose();
+  });
+
+  test('read-only: pressing the se handle arms nothing', () => {
+    // Pins the arming gate on its own: without `!readOnly` in
+    // `handleImageMouseDown` the drag arms here and the cursor changes, even
+    // though the two gates below it would still refuse the write.
+    const { editor, container } = setupEditor([imageBlock()], true);
+    editor.selectImageAt('b1', 0);
+
+    pressSouthEast(container);
+
+    expect(resizeCursorCount(container)).toBe(0);
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    editor.dispose();
+  });
+
+  test('read-only: dragging the se handle does not resize the image', () => {
+    // Pins the conjunction of all three gates: green only while at least one
+    // of them still refuses the write.
+    const { editor, container } = setupEditor([imageBlock()], true);
+    editor.selectImageAt('b1', 0);
+    expect(imageWidth(editor)).toBe(120);
+
+    dragSouthEast(container);
+
+    expect(imageWidth(editor)).toBe(120);
+    editor.dispose();
+  });
+
+  test('read-only: a viewer can still select an image by clicking it', () => {
+    // The opening this PR made, pinned with the same real geometry: the click
+    // that arms nothing must still select, or the read-only image copy has no
+    // way in.
+    const { editor, container } = setupEditor([imageBlock()], true);
+
+    container.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, button: 0, clientX: 160, clientY: 170,
+    }));
+
+    expect(editor.getSelectedImage()?.data.src).toBe(IMAGE.src);
+    expect(resizeCursorCount(container)).toBe(0);
+    editor.dispose();
+  });
+});

@@ -1248,9 +1248,11 @@ export function initialize(
    * textarea keyboard focus — and a read-only editor never focuses on mount
    * either (see `if (!readOnly) textEditor.focus()`). Without it a clicked
    * image receives neither the Cmd/Ctrl+C keydown nor the browser's `copy`
-   * event, and the issue #870 fix never runs on a read-only document — which
-   * is exactly where the context menu now offers Copy. Focus mutates nothing;
-   * every write still goes through a `readOnly`-gated path.
+   * event, and the issue #870 fix never runs — on a read-only document that
+   * shortcut is the *only* way to copy the image, since the context menu's
+   * Copy entry is gated on `getActiveSelection()`, which is null for an
+   * image selection. Focus mutates nothing; every write still goes through a
+   * `readOnly`-gated path.
    */
   const selectImageInline = (blockId: string, offset: number): void => {
     selection.setRange(null);
@@ -2598,7 +2600,9 @@ export function initialize(
   //
   // Read-only runs this too, minus the resize-drag branch: selecting an
   // image mutates nothing, and it is the only way a viewer can reach the
-  // image copy the shortcut and the context menu now offer (issue #870).
+  // image copy `Cmd/Ctrl+C` now offers (issue #870). Not the context menu —
+  // its Copy entry needs `getActiveSelection()`, which is null for an image
+  // selection, so the shortcut is the whole of it.
   // The overlay drops its resize handles in read-only (`new DocCanvas`
   // below), so the selection reads as a selection rather than an offer to
   // resize something the viewer cannot resize.

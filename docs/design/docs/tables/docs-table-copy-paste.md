@@ -180,6 +180,35 @@ against, so they share it and cannot drift apart.
 `sliceBlockRange()`), `test/view/copy-integrity.test.ts` (copy and cut, plain
 and nested cells).
 
+### …and in a header or footer
+
+The cell branch above resolves ids against whatever layout it is handed, and
+it was handed the wrong one. `getSelectedBlocks()`, `getSelectedTableCells()`
+and the `getSelectedText()` calls in `handleCopy` / `handleCut` all read
+`this.getLayout()` — the **body** layout — while their siblings
+(`isInTable()`, `getVisualLineRange()`, the table-border paths) read
+`this.getActiveLayout()`, which follows the edit context.
+
+A header or footer block is in neither the body layout's `blocks` nor its
+`blockParentMap`, so every id lookup missed. That confined the whole issue
+#872 fix to the body, and it was in fact broader than styles: a header
+selection wrote `{"blocks":[]}` **and an empty `text/plain`** — the entire
+clipboard — for a plain paragraph as much as for a table cell. Cut was worse
+still, because `deleteSelection()` has its own header/footer branch that
+never consulted a layout: it deleted the text correctly and put nothing on
+the clipboard.
+
+The fix is to read `getActiveLayout()` at those three call sites.
+`getActiveLayout()` falls through to `getLayout()` in the body context, so
+every body path is byte-for-byte unchanged; it was verified as a drop-in
+against the full docs suite.
+
+Pinned by `copying from a header or footer` in
+`test/view/copy-integrity.test.ts`: a styled range in a header table cell, the
+same in a footer, a whole-cell rectangle across a header table, a plain header
+paragraph, and a body copy as the no-regression control. Each of the three
+call sites was mutation-checked back to `getLayout()` and turns a test red.
+
 ## Risks and Mitigation
 
 | Risk | Mitigation |
