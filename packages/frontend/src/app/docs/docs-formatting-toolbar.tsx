@@ -49,10 +49,13 @@ import {
   IconDotsVertical,
   IconChevronDown,
   IconClearFormatting,
+  IconBrush,
+  IconFileSettings,
 } from "@tabler/icons-react";
 import { Toggle } from "@/components/ui/toggle";
 import { TableGridPicker } from "@/components/table-grid-picker";
 import { insertImageFromFile, insertImageFromUrl } from "./image-insert";
+import { DocsPageSetupDialog } from "./docs-page-setup-dialog";
 import {
   TextStyleGroup,
   TextFormatGroup,
@@ -71,6 +74,98 @@ import { toast } from "sonner";
 import { isMac, modKey } from "@/components/text-formatting/platform";
 
 // ─── Docs-specific sub-components ────────────────────────────────────────────
+
+/**
+ * Format painter — the button form of the `Mod+Shift+C` / `Mod+Alt+V` pair
+ * the docs engine has always had. It drives `EditorAPI.copyFormat()` /
+ * `pasteFormat()`; nothing about the behaviour lives here.
+ *
+ * Pressing it picks the caret's format up, and the toggle stays lit while a
+ * format is held. Pressing it again applies that format to the current
+ * selection and lets it go — a single-shot paint, the way Google Docs
+ * behaves. With nothing selected the second press just lets it go, which is
+ * how the painter is cancelled.
+ *
+ * The lit state is read back from the editor rather than tracked locally, so
+ * a format picked up with the keyboard lights the button too — and the
+ * keyboard flow keeps its own semantics (the shortcut pair is *sticky*: one
+ * pick-up can be pasted onto several selections).
+ */
+function FormatPainterToggle({ editor }: { editor: EditorAPI | null }) {
+  const [active, setActive] = useState(false);
+
+  useEffect(() => {
+    if (!editor) {
+      setActive(false);
+      return;
+    }
+    setActive(editor.hasCopiedFormat());
+    return editor.onCopiedFormatChange(() => setActive(editor.hasCopiedFormat()));
+  }, [editor]);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Toggle
+          size="sm"
+          className="h-7 w-7 cursor-pointer"
+          pressed={active}
+          disabled={!editor}
+          aria-label="Format painter"
+          // Keep the caret / selection in the canvas: the second press writes
+          // to whatever is selected, so a blur before the click would be the
+          // difference between painting and doing nothing. Same guard the
+          // shared B/I/U toggles use.
+          onMouseDown={(e) => e.preventDefault()}
+          onPressedChange={(pressed) => {
+            if (!editor) return;
+            if (pressed) {
+              editor.copyFormat();
+            } else {
+              // No selection → nothing is written and the press reads as
+              // "cancel", which is exactly what clearing it afterwards means.
+              editor.pasteFormat();
+              editor.clearCopiedFormat();
+            }
+            editor.focus();
+          }}
+        >
+          <IconBrush size={16} />
+        </Toggle>
+      </TooltipTrigger>
+      <TooltipContent>
+        {active
+          ? `Apply formatting to the selection (${modKey}+${isMac ? "⌥" : "Alt"}+V)`
+          : `Copy formatting (${modKey}+⇧C)`}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * Toolbar entry point for the Page Setup dialog (paper size / orientation /
+ * margins). The dialog itself is mounted once by the toolbar, because the
+ * mobile overflow menu opens it too and a dialog rendered inside a
+ * `DropdownMenuItem` unmounts with the menu.
+ */
+function PageSetupButton({
+  editor,
+  onOpen,
+}: {
+  editor: EditorAPI | null;
+  onOpen: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <ToolbarButton onClick={onOpen} disabled={!editor} aria-label="Page setup">
+          <IconFileSettings size={16} />
+        </ToolbarButton>
+      </TooltipTrigger>
+      <TooltipContent>Page setup</TooltipContent>
+    </Tooltip>
+  );
+}
 
 function TableDropdown({ editor }: { editor: EditorAPI | null }) {
   const [open, setOpen] = useState(false);
@@ -257,6 +352,9 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
   // auto-close them.
   const [slimTextColorOpen, setSlimTextColorOpen] = useState(false);
   const [slimHighlightOpen, setSlimHighlightOpen] = useState(false);
+  // Mounted once at the toolbar root — the desktop button and the mobile
+  // overflow menu both open it, and the menu unmounts its own children.
+  const [pageSetupOpen, setPageSetupOpen] = useState(false);
   // Defer the slim-toolbar alignment commit to onCloseAutoFocus (same pattern
   // as TextParagraphGroup) so `editor.focus()` runs after Radix's FocusScope
   // teardown and sticks, instead of the scope stealing focus back to the trigger.
@@ -629,6 +727,9 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
         </TooltipContent>
       </Tooltip>
 
+      {/* Google Docs puts Paint format immediately after Undo/Redo. */}
+      <FormatPainterToggle editor={editor} />
+
       <ToolbarSeparator />
 
       {/* ── Styles (desktop only) ── */}
@@ -687,6 +788,12 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
           <ToolbarSeparator />
 
           <LineSpacingPicker value={lineHeight} onChange={handleLineSpacing} />
+
+          <ToolbarSeparator />
+
+          {/* Document-level, not text formatting — so it sits at the end
+              rather than among the inline/paragraph controls. */}
+          <PageSetupButton editor={editor} onOpen={() => setPageSetupOpen(true)} />
         </>
       )}
 
@@ -810,11 +917,22 @@ export function DocsFormattingToolbar({ editor, editContext = 'body' }: DocsForm
                 <IconClearFormatting size={16} className="mr-2" />
                 Clear formatting
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Document</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => setPageSetupOpen(true)}>
+                <IconFileSettings size={16} className="mr-2" />
+                Page setup
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </>
       )}
 
+      <DocsPageSetupDialog
+        editor={editor}
+        open={pageSetupOpen}
+        onOpenChange={setPageSetupOpen}
+      />
     </Toolbar>
   );
 }

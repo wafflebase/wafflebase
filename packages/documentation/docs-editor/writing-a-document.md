@@ -50,6 +50,19 @@ Use the formatting toolbar at the top or keyboard shortcuts to style your text.
 
 To clear all formatting from selected text, press **⌘+\\** / **Ctrl+\\**.
 
+### Format Painter
+
+Copy the formatting of one piece of text onto another without retyping it.
+
+- Put the cursor in text whose formatting you want, then click the **brush**
+  button in the toolbar (or press **⌘+Shift+C** / **Ctrl+Shift+C**). The button
+  stays lit while the formatting is held.
+- Select the text to restyle and click the lit button again to apply it. With
+  nothing selected, clicking it again simply drops the copied formatting.
+- The keyboard pair is sticky rather than single-use: **⌘+Alt+V** /
+  **Ctrl+Alt+V** applies the held formatting and keeps it, so you can paint
+  several selections in a row.
+
 ### Paragraph Alignment
 
 Use the alignment dropdown in the toolbar to align paragraphs:
@@ -90,11 +103,23 @@ around the edges:
 
 ## Pagination
 
-Documents use a page-based layout similar to a printed document. Pages default to A4 with standard margins, and text flows across pages as you type.
+Documents use a page-based layout similar to a printed document. Pages default to Letter with 1-inch margins, and text flows across pages as you type.
 
 - Long paragraphs and tables break naturally at the page boundary — line splitting keeps headings, table headers, and partial rows in sync with the layout.
 - The editor renders one page per "sheet" so you can scroll through the deck of pages exactly as they will print or export.
 - Export to PDF preserves the same pagination — what you see on screen matches the exported document.
+
+### Page Setup
+
+Click **Page setup** in the toolbar (on a phone, it is in the **⋮** overflow
+menu) to change:
+
+- **Paper size** — Letter, A4, or Legal.
+- **Orientation** — portrait or landscape.
+- **Margins** — top, bottom, left, and right, in inches.
+
+The change applies to the whole document and is a single undo step. You can
+also drag the margin markers on the ruler to adjust margins directly.
 
 ## Headers & Footers
 

@@ -163,7 +163,9 @@ export class TextEditor {
    * browsers fire more than one).
    */
   private ignoreInputUntilNextTick = false;
+  /** Format painter — see `copyFormat()`. Never assign directly. */
   private styleBuffer: Partial<InlineStyle> | null = null;
+  private copiedFormatListeners: Array<() => void> = [];
 
   // Software Hangul assembler for browsers that don't fire composition events
   // (e.g., Mobile Safari with hidden textarea sends raw jamo as insertText).
@@ -367,6 +369,69 @@ export class TextEditor {
 
   onEditContextChange(cb: (context: EditContext) => void): void {
     this.editContextChangeCallback = cb;
+  }
+
+  // ─── Format painter ────────────────────────────────────────────────────────
+  // The buffer itself is driven from two places — the Cmd/Ctrl+Shift+C /
+  // Cmd/Ctrl+Alt+V key handlers and (through `EditorAPI`) a toolbar toggle —
+  // so the four operations live here rather than inline in `handleKeyDown`,
+  // and every mutation notifies listeners. A toolbar button that did not see
+  // the keyboard's writes would render an "off" state over a held format.
+
+  /**
+   * Pick up the inline format at the caret (Cmd/Ctrl+Shift+C). Replaces any
+   * previously held format.
+   */
+  copyFormat(): void {
+    this.styleBuffer = this.captureFormatAtCursor();
+    this.notifyCopiedFormatChange();
+  }
+
+  /**
+   * Apply the held format to the current selection (Cmd/Ctrl+Alt+V), as one
+   * undo step. Returns whether anything was written — nothing is held, or
+   * nothing is selected, is a silent no-op.
+   *
+   * The buffer deliberately survives the write: the keyboard flow lets one
+   * pick-up be pasted onto several selections in a row. Callers that want
+   * single-shot semantics call `clearCopiedFormat()` afterwards.
+   */
+  pasteFormat(): boolean {
+    if (!this.styleBuffer) return false;
+    if (!this.selection.hasSelection() || !this.selection.range) return false;
+    this.saveSnapshot();
+    // Through the shared write path so a cell rectangle restyles the
+    // selected cells, not the whole table.
+    this.applyStyleToSelection(this.selection.range, this.styleBuffer);
+    return true;
+  }
+
+  /** Discard the held format. No-op when nothing is held. */
+  clearCopiedFormat(): void {
+    if (this.styleBuffer === null) return;
+    this.styleBuffer = null;
+    this.notifyCopiedFormatChange();
+  }
+
+  /** Is a format currently held by the painter? */
+  hasCopiedFormat(): boolean {
+    return this.styleBuffer !== null;
+  }
+
+  /**
+   * Register a listener fired whenever the held format is picked up or
+   * discarded. Returns an unsubscribe function.
+   */
+  onCopiedFormatChange(cb: () => void): () => void {
+    this.copiedFormatListeners.push(cb);
+    return () => {
+      const i = this.copiedFormatListeners.indexOf(cb);
+      if (i !== -1) this.copiedFormatListeners.splice(i, 1);
+    };
+  }
+
+  private notifyCopiedFormatChange(): void {
+    for (const cb of [...this.copiedFormatListeners]) cb();
   }
 
   onCompositionStart(cb: (startPos: DocPosition) => void): void {
@@ -997,7 +1062,7 @@ export class TextEditor {
         // Cmd/Ctrl+Shift+C: copy formatting (format painter)
         if (mod && shiftKey) {
           e.preventDefault();
-          this.styleBuffer = this.captureFormatAtCursor();
+          this.copyFormat();
         }
         break;
       case 'b':
@@ -1137,12 +1202,7 @@ export class TextEditor {
         // Cmd/Ctrl+Alt+V: paste formatting (format painter apply)
         if (mod && altKey) {
           e.preventDefault();
-          if (this.styleBuffer && this.selection.hasSelection() && this.selection.range) {
-            this.saveSnapshot();
-            // Through the shared write path so a cell rectangle restyles the
-            // selected cells, not the whole table.
-            this.applyStyleToSelection(this.selection.range, this.styleBuffer);
-          }
+          this.pasteFormat();
           break;
         }
         // Cmd/Ctrl+Shift+V: paste as plain text (strip formatting)

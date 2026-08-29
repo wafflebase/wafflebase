@@ -30,7 +30,8 @@ minimal.
 
 ### Non-Goals
 
-- Page setup UI (modal dialog, side panel) — deferred to frontend integration.
+- Page setup UI (modal dialog, side panel) — was deferred to frontend
+  integration; it has since shipped, see [Page setup UI](#page-setup-ui).
 - Headers, footers, and page numbers — future extension.
 - Section breaks — future extension.
 - Horizontal scroll for narrow viewports.
@@ -313,6 +314,35 @@ setPageSetup(setup: PageSetup): void;
 
 `MemDocStore` implements these by reading/writing `document.pageSetup`.
 `setPageSetup` pushes to undo stack like other mutations.
+
+## Page setup UI
+
+Originally a non-goal here ("deferred to frontend integration"). It shipped
+as a modal dialog, `packages/frontend/src/app/docs/docs-page-setup-dialog.tsx`,
+opened from a toolbar button (desktop) and the mobile overflow menu.
+
+The dialog exposes exactly the three fields `PageSetup` carries — paper size
+(the `PAPER_SIZES` presets), orientation, and the four margins — and nothing
+else. Margins are entered in **inches**, which is how a word processor states
+them; the model stores CSS px at 96 dpi, so the conversion is a factor of 96
+and rounds only for display. A setup whose margins would leave no room for
+content is refused before it is written, measured against the *effective*
+page box so the check follows the orientation being picked rather than the
+one already stored.
+
+Two `EditorAPI` members carry it:
+
+```typescript
+getPageSetup(): PageSetup;          // resolved against the defaults; a copy
+setPageSetup(setup: PageSetup): void;
+```
+
+`setPageSetup` is not a thin pass-through to the store: a page-setup write
+also needs `docStore.snapshot()` (so the change is one undo step),
+`doc.refresh()`, layout invalidation and a repaint. That sequence already
+existed for the ruler's margin drag, and both now share the single
+`writePageSetup` path inside `initialize()` — there is no second way to write
+a page setup.
 
 ## File Change Summary
 

@@ -1,5 +1,5 @@
 import { Doc } from '../model/document.js';
-import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData } from '../model/types.js';
+import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData, PageSetup } from '../model/types.js';
 import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
@@ -98,6 +98,40 @@ export interface EditorAPI {
   clearInlineFormatting(): void;
   /** Apply block style to the block containing the cursor */
   applyBlockStyle(style: Partial<BlockStyle>): void;
+  /**
+   * Format painter — pick up the inline format at the caret. Same entry
+   * point as the `Mod+Shift+C` shortcut; replaces any format already held.
+   */
+  copyFormat(): void;
+  /**
+   * Format painter — apply the held format to the current selection as one
+   * undo step, and report whether anything was written. Same entry point as
+   * the `Mod+Alt+V` shortcut. Nothing held, or nothing selected, is a no-op.
+   * The held format survives the write; call `clearCopiedFormat()` for
+   * single-shot semantics.
+   */
+  pasteFormat(): boolean;
+  /** Format painter — discard the held format. */
+  clearCopiedFormat(): void;
+  /** Format painter — is a format currently held? */
+  hasCopiedFormat(): boolean;
+  /**
+   * Register a listener fired whenever the held format is picked up or
+   * discarded — including from the keyboard shortcuts, so a toolbar toggle
+   * cannot drift out of sync. Returns an unsubscribe function.
+   */
+  onCopiedFormatChange(cb: () => void): () => void;
+  /**
+   * The document's page setup (paper size, orientation, margins), resolved
+   * against the defaults so callers never see `undefined`. Returns a copy —
+   * mutating it does not touch the document.
+   */
+  getPageSetup(): PageSetup;
+  /**
+   * Replace the page setup, repaginate and repaint, as one undo step. Shares
+   * the write path with the ruler's margin drag.
+   */
+  setPageSetup(setup: PageSetup): void;
   /** Undo */
   undo(): void;
   /** Redo */
@@ -1963,15 +1997,27 @@ export function initialize(
   // known image dimensions, so no relayout is needed.
   docCanvas.setRequestRender(() => renderPaintOnly());
 
+  /**
+   * The one page-setup write path: snapshot for undo, store, re-read the
+   * document, drop the cached layout so `paginateLayout` runs against the new
+   * paper size / margins, repaint. Driven by both the ruler's margin drag and
+   * `EditorAPI.setPageSetup` (the Page Setup dialog).
+   */
+  const writePageSetup = (setup: PageSetup) => {
+    docStore.snapshot();
+    // Copy on the way in — the store keeps what it is handed, and a caller's
+    // object must not stay aliased to document state.
+    docStore.setPageSetup(resolvePageSetup(setup));
+    doc.refresh();
+    invalidateLayout();
+    render();
+  };
+
   // Wire ruler callbacks
   ruler.onMarginChange((margins) => {
-    docStore.snapshot();
     const setup = resolvePageSetup(doc.document.pageSetup);
     setup.margins = { ...margins };
-    docStore.setPageSetup(setup);
-    doc.refresh();
-    layoutCache = undefined;
-    render();
+    writePageSetup(setup);
   });
 
   ruler.onIndentChange((style) => {
@@ -2855,6 +2901,21 @@ export function initialize(
       render();
       notifyStyleApplied();
     },
+    copyFormat: () => textEditor?.copyFormat(),
+    pasteFormat: () => {
+      const applied = textEditor?.pasteFormat() ?? false;
+      // Same follow-up the toolbar's other style writes get: the pickers
+      // re-read their summaries off `onCursorMove` even though the caret
+      // has not moved.
+      if (applied) notifyStyleApplied();
+      return applied;
+    },
+    clearCopiedFormat: () => textEditor?.clearCopiedFormat(),
+    hasCopiedFormat: () => textEditor?.hasCopiedFormat() ?? false,
+    onCopiedFormatChange: (cb: () => void) =>
+      textEditor?.onCopiedFormatChange(cb) ?? (() => {}),
+    getPageSetup: () => resolvePageSetup(doc.document.pageSetup),
+    setPageSetup: writePageSetup,
     undo: undoFn,
     redo: redoFn,
     setTheme: (mode: ThemeMode) => {
