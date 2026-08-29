@@ -279,7 +279,26 @@ editable-gated now — a resize writes to the document, a selection does not.
 The overlay follows: `DocCanvas` takes the mount's `readOnly` flag and
 passes `{ handles: false }` to `drawImageSelection`, so a viewer sees the
 selection rectangle without eight handles offering a drag the editor would
-refuse.
+refuse. `handleImageHover` is gated the same way and returns `false` in
+read-only, so no resize cursor appears over handles that are neither
+painted nor actionable.
+
+The resize *commit* carries its own gate rather than inheriting the one on
+the branch that arms the drag: `handleImageResizeMouseMove` and
+`handleImageResizeMouseUp` both return early on `readOnly`, the latter
+after tearing its listeners down. That is defence in depth rather than a
+known hole — the client `readOnly` flag is the effective write boundary for
+an anonymous viewer whenever the Yorkie auth webhook is left in shadow mode
+(`YORKIE_AUTH_WEBHOOK_ENFORCE=false`), so the one CRDT write on this path
+should not depend on a single unrelated branch condition staying correct.
+
+Claiming the mousedown has one cost worth paying back explicitly: the
+capture-phase handler calls `stopImmediatePropagation()`, so
+`TextEditor.handleMouseDown` never runs and never records the link under
+the pointer that a read-only `mouseup` follows. The image branch therefore
+calls `TextEditor.recordReadOnlyLinkAtMouse(e)` itself (a no-op when
+editable), which keeps a plain click on a **hyperlinked image** opening its
+link for a viewer, as it did before image selection reached read-only.
 
 ### Clearing the selection when text moves under it
 
@@ -291,8 +310,19 @@ selection is still live calls it: cut's text path and every paste (through
 `TextEditor.imageSelectionClearer`, wired into `handleCut` and
 `applyPastePlan` — the single funnel all paste paths reach), plus the
 programmatic `applySpellSuggestion` / `insertTable` / `insertImage` /
-`insertPageNumber` APIs, none of which are preceded by a keydown that would
-have cleared it.
+`insertPageNumber` / `insertLink` APIs, none of which are preceded by a
+keydown that would have cleared it. (`insertLink`'s caret branch inserts
+the URL as literal text; its style-only branches shift nothing, but the
+clear is unconditional so the rule reads "this API mutates → it clears
+first" with no exceptions to remember.)
+
+One mutator lives **outside** `editor.ts` and so cannot be funnelled
+through the helper: `FindReplaceState.replaceActive` / `replaceAll` run
+straight against the `Doc` the find bar holds, deleting and inserting text
+of different lengths. `DocsFindBar` therefore calls the exported
+`EditorAPI.clearImageSelection()` — which *is* the same helper — before
+each replace. Any future consumer that drives `FindReplaceState`, or the
+`Doc` directly, owes the same call.
 
 ## Floating Context Bar *(Planned — Milestone 5)*
 

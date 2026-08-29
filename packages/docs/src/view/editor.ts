@@ -1269,8 +1269,15 @@ export function initialize(
    * `TextEditor.imageSelectionClearer`), every paste (via
    * `TextEditor.applyPastePlan`), and the programmatic
    * `applySpellSuggestion` / `insertTable` / `insertImage` /
-   * `insertPageNumber` APIs, none of which go through a keydown that would
-   * have cleared it. Renders only when something was actually selected.
+   * `insertPageNumber` / `insertLink` APIs, none of which go through a
+   * keydown that would have cleared it. Renders only when something was
+   * actually selected.
+   *
+   * One mutation path lives outside this module and so cannot be funnelled
+   * here: `FindReplaceState.replaceActive` / `replaceAll` run straight
+   * against the `Doc` the find bar holds. It calls the exported
+   * `clearImageSelection` (which is this function) before replacing — see
+   * `packages/frontend/src/app/docs/docs-find-bar.tsx`.
    */
   const clearImageSelectionForMutation = (): void => {
     if (!selectedImage) return;
@@ -2461,7 +2468,11 @@ export function initialize(
   };
 
   const handleImageResizeMouseMove = (e: MouseEvent) => {
-    if (!imageResizeDrag) return;
+    // Read-only carries its own gate rather than inheriting the one on the
+    // branch that starts the drag: a viewer can now select an image, so this
+    // handler is one branch condition away from a document a viewer must not
+    // be able to resize.
+    if (readOnly || !imageResizeDrag) return;
     const s = scaleFactor;
     const dx = (e.clientX - imageResizeDrag.startClientX) / s;
     const dy = (e.clientY - imageResizeDrag.startClientY) / s;
@@ -2496,6 +2507,15 @@ export function initialize(
     document.removeEventListener('mouseup', handleImageResizeMouseUp);
     imageResizeDrag = null;
     canvas.style.cursor = '';
+
+    // The write below is the actual mutation, so it is gated here rather than
+    // trusting that only the `!readOnly` branch in `handleImageMouseDown`
+    // could have armed the drag. The teardown above still runs so no listener
+    // or preview rect is left behind.
+    if (readOnly) {
+      render();
+      return;
+    }
 
     // Only commit if the drag actually changed the size. Avoids a
     // no-op undo step for a mousedown-up on a handle without movement.
@@ -2586,6 +2606,12 @@ export function initialize(
     const hit = findImageAtPoint(rects, docX, docY);
     if (hit) {
       e.preventDefault();
+      // Claiming the event here means `TextEditor.handleMouseDown` never runs,
+      // and with it the read-only bookkeeping that lets a plain click follow a
+      // hyperlinked image's link on mouseup. Arm it directly — otherwise
+      // opening the image click to viewers (below) would have silently taken
+      // link-following on images away from them. No-op when editable.
+      textEditorRef?.recordReadOnlyLinkAtMouse(e);
       e.stopPropagation();
       e.stopImmediatePropagation();
       pending.clear();
@@ -2735,6 +2761,11 @@ export function initialize(
   // immediately overwrite ours. Returning `true` tells TextEditor to
   // skip its default cursor reset for this pointer position.
   const handleImageHover = (e: MouseEvent): boolean => {
+    // A viewer can select an image now, but cannot resize one: the overlay
+    // draws no handles and both the drag start and its commit are
+    // `readOnly`-gated. Advertising a resize cursor over handles that are
+    // neither painted nor actionable would promise an edit that never lands.
+    if (readOnly) return false;
     // While dragging, the drag state owns the cursor — skip the
     // hover override so the corner cursor doesn't flip to ns/ew
     // mid-drag.
@@ -3159,6 +3190,11 @@ export function initialize(
       notifyStyleApplied();
     },
     insertLink: (url: string) => {
+      // The caret branch below inserts the URL as text, shifting every offset
+      // after it. Toolbar/⌘K-driven, so no keydown cleared the image
+      // selection; the style-only branches are harmless but clearing there
+      // too keeps the rule "this API mutates → it clears first" unconditional.
+      clearImageSelectionForMutation();
       if (selection.hasSelection() && selection.range) {
         docStore.snapshot();
         // Record the caret + selection so undo restores them. Mirrors

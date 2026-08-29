@@ -277,20 +277,60 @@ consequences of it that had been asserted rather than checked.
   the per-entry read-only table it was missing; the #872 half of this PR is
   now recorded in `tables/docs-table-copy-paste.md`, its canonical home.
 
+### Fifth review round (PR #984)
+
+The panel took the round-4 "known coverage gap" below and the blast radius
+of the read-only opening as blocking. Four fixes:
+
+- **The resize commit now gates itself.** `handleImageResizeMouseMove` and
+  `handleImageResizeMouseUp` return early on `readOnly` — the latter after
+  tearing its listeners down, so nothing is left armed. The single
+  `!readOnly` branch in `handleImageMouseDown` is no longer the only thing
+  between a viewer and a CRDT write, which matters because the server-side
+  Yorkie auth webhook runs in shadow mode unless
+  `YORKIE_AUTH_WEBHOOK_ENFORCE=true`, making the client flag the effective
+  write boundary for an anonymous share link.
+- **`handleImageHover` is gated too.** Round 4 claimed the hover cursor
+  "stays gated"; it never was — it predates read-only selection, when it
+  was unreachable. A viewer got resize cursors over handles the overlay
+  does not draw and a drag the editor refuses.
+- **A hyperlinked image is clickable again for viewers.** The capture-phase
+  image branch calls `stopImmediatePropagation()`, so
+  `TextEditor.handleMouseDown` — and the read-only link bookkeeping at its
+  line 1667 that `handleMouseUp` consumes — stopped running for image
+  clicks once read-only reached this handler. That silently removed
+  link-following on images for viewers. The branch now calls the new public
+  `TextEditor.recordReadOnlyLinkAtMouse(e)` itself (a no-op when editable).
+- **Two more offset-shifting mutators reach the clearing helper.**
+  `insertLink`'s caret branch inserts the URL as literal text, and
+  `FindReplaceState.replaceActive` / `replaceAll` — driven from
+  `DocsFindBar` straight against the `Doc` — delete and insert text of
+  different lengths. The first calls `clearImageSelectionForMutation()`
+  directly; the second cannot (it is outside `editor.ts`), so the find bar
+  calls the exported `EditorAPI.clearImageSelection()`, which is the same
+  function. Both are now stated in `docs-image-editing.md` as the rule for
+  any future out-of-module mutator.
+
+Covered by two new cases in `copy-integrity.test.ts` (`insertLink clears
+it`, and the exported `clearImageSelection` seam the find bar uses).
+
 ### Known coverage gap
 
 Read-only image selection was opened up by removing `handleImageMouseDown`'s
 top-level `readOnly` return, which means the pointer *resize* path is now
 reachable in read-only up to the point where the handle branch declines it.
-That gate is the only thing stopping a viewer from resizing — the resize
-commit carries no `readOnly` check of its own. The shipped suite exercises
-read-only selection through `selectImageAt`, not through a handle drag, so
-the gate itself is unpinned: removing it would not turn any test red.
+Since round 5 that branch is no longer the only gate — the move and the
+commit both refuse on `readOnly` themselves — but none of the three is
+pinned by a test: the shipped suite exercises read-only selection through
+`selectImageAt`, not through a handle drag, so removing any one of them
+would not turn a test red.
 
 Testing it needs the jsdom geometry the hit-test reads (layout width from
 `container.parentElement`, hit-test width from the canvas, both stubbed
 before `initialize` picks its zoom scale) — machinery this suite does not
-have. Worth adding; recorded here rather than claimed as covered.
+have. Worth adding; recorded here rather than claimed as covered. The same
+machinery is what the read-only hyperlinked-image click would need, so that
+too is asserted by construction rather than by test.
 
 Deliberately not done: `getSelectedImage` / `updateSelectedImage` still call
 the throwing `doc.getBlock()` (a *remote* deletion still reaches them, so

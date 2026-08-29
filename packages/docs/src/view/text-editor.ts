@@ -1623,6 +1623,22 @@ export class TextEditor {
     return null;
   }
 
+  /**
+   * Record the link under the pointer so `handleMouseUp` can follow it on a
+   * pure click. No-op outside read-only.
+   *
+   * Public because `handleMouseDown` is no longer the only press that has to
+   * arm it: the editor's capture-phase image hit test claims image clicks
+   * with `stopImmediatePropagation()` — in read-only too, since a viewer may
+   * select an image to copy it — so a click on a *hyperlinked* image never
+   * reaches the listener below. Without this call the viewer's click on such
+   * an image would do nothing, where before it opened the link.
+   */
+  recordReadOnlyLinkAtMouse(e: MouseEvent): void {
+    if (!this.readOnly) return;
+    this.readOnlyPendingLinkHref = this.getLinkHrefAtMouse(e) ?? null;
+  }
+
   private handleMouseDown = (e: MouseEvent): void => {
     // A large paste is mid-yield; moving the caret now would land the
     // pending write wherever the user clicked. See `pasting`.
@@ -1664,9 +1680,7 @@ export class TextEditor {
     // View-only mode: remember the link under the pointer so a pure click
     // (no drag) opens it on mouseup — Google-Docs viewer behavior, where a
     // plain click follows the link rather than placing an editing caret.
-    if (this.readOnly) {
-      this.readOnlyPendingLinkHref = this.getLinkHrefAtMouse(e) ?? null;
-    }
+    this.recordReadOnlyLinkAtMouse(e);
 
     e.preventDefault();
 

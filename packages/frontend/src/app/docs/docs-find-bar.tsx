@@ -112,9 +112,16 @@ export function DocsFindBar({
     syncHighlights();
   };
 
+  // A replace deletes and inserts text of a different length, shifting every
+  // offset after it — including the (blockId, offset) coordinate a
+  // click-selected image is expressed in, which would then name whichever
+  // inline slid into that slot. This bar drives `FindReplaceState` straight
+  // against the Doc, bypassing the editor's own mutation entry points, so it
+  // has to drop the image selection itself.
   const handleReplace = () => {
     const state = stateRef.current;
     if (!state || state.activeIndex < 0) return;
+    editor?.clearImageSelection();
     state.replaceActive(replacement);
     syncHighlights();
     editor?.render();
@@ -123,6 +130,7 @@ export function DocsFindBar({
   const handleReplaceAll = () => {
     const state = stateRef.current;
     if (!state || state.matches.length === 0) return;
+    editor?.clearImageSelection();
     state.replaceAll(replacement);
     syncHighlights();
     editor?.render();

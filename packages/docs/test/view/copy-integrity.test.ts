@@ -1063,5 +1063,38 @@ describe('copy path integrity', () => {
       expect(editor.getSelectedImage()).toBeNull();
       editor.dispose();
     });
+
+    test('insertLink clears it', () => {
+      // The caret branch inserts the URL as literal text, so every offset
+      // after it moves. Toolbar/⌘K-driven — no keydown ran to clear it.
+      const { editor } = setupEditor([blockWithTwoImages()]);
+      editor._setSelectionForTest({
+        anchor: { blockId: 'b1', offset: 0 },
+        focus: { blockId: 'b1', offset: 0 },
+      });
+      editor.selectImageAt('b1', 2);
+      expect(editor.getSelectedImage()!.data).toEqual(IMAGE);
+
+      editor.insertLink('https://example.com');
+
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+
+    test('the exported clearImageSelection drops it, for out-of-module mutators', () => {
+      // `FindReplaceState.replaceActive` / `replaceAll` run against the `Doc`
+      // directly from the find bar, so they cannot be funnelled through the
+      // editor's own mutation entry points. This is the seam they use
+      // instead (`docs-find-bar.tsx`); if it ever stops clearing, a replace
+      // leaves the selection naming whichever inline slid into the slot.
+      const { editor } = setupEditor([blockWithTwoImages()]);
+      editor.selectImageAt('b1', 2);
+      expect(editor.getSelectedImage()!.data).toEqual(IMAGE);
+
+      editor.clearImageSelection();
+
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
   });
 });
