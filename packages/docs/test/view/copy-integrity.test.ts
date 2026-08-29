@@ -70,18 +70,24 @@ function setupEditor(blocks: Block[]): {
   return { editor, textarea };
 }
 
-/** Dispatch a `copy` on the hidden textarea and return what was written. */
-function dispatchCopy(textarea: HTMLTextAreaElement): Map<string, string> {
+/** Dispatch a clipboard event on the hidden textarea; returns what was written. */
+function dispatchClipboard(
+  textarea: HTMLTextAreaElement,
+  type: 'copy' | 'cut',
+): Map<string, string> {
   const written = new Map<string, string>();
   const clipboardData = {
-    setData: (type: string, value: string) => written.set(type, value),
-    getData: (type: string) => written.get(type) ?? '',
+    setData: (t: string, value: string) => written.set(t, value),
+    getData: (t: string) => written.get(t) ?? '',
   };
-  const event = new Event('copy', { bubbles: true, cancelable: true });
+  const event = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperty(event, 'clipboardData', { value: clipboardData });
   textarea.dispatchEvent(event);
   return written;
 }
+
+const dispatchCopy = (textarea: HTMLTextAreaElement) => dispatchClipboard(textarea, 'copy');
+const dispatchCut = (textarea: HTMLTextAreaElement) => dispatchClipboard(textarea, 'cut');
 
 /** Press the copy shortcut. Both modifiers so the assertion is OS-agnostic. */
 function pressCopyShortcut(textarea: HTMLTextAreaElement, key = 'c'): void {
@@ -278,15 +284,91 @@ describe('copy path integrity', () => {
 
     test('an image selection is ignored when there is also a text selection', () => {
       const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      // Both selections live at once: `selectImageAt` clears the text range,
+      // so the text selection is set *after* it. The text path has to win —
+      // an inverted precedence would write the image and drop the text.
+      editor.selectImageAt('b1', 2);
       editor._setSelectionForTest({
         anchor: { blockId: 'b1', offset: 0 },
         focus: { blockId: 'b1', offset: 2 },
       });
+      expect(editor.getSelectedImage()).not.toBeNull();
 
       const written = dispatchCopy(textarea);
       expect(written.get('text/plain')).toBe('ab');
       const blocks = payloadBlocks(written);
+      expect(blocks[0].inlines.map((i) => i.text).join('')).toBe('ab');
       expect(blocks[0].inlines[0].style.image).toBeUndefined();
+      editor.dispose();
+    });
+  });
+
+  describe('cutting a click-selected image (issue #870)', () => {
+    test('the cut shortcut does not drop the image selection', () => {
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+
+      // Cmd/Ctrl+X is absorbed by `imageKeyHandler` without `preventDefault`,
+      // so the native `cut` event still fires with the selection intact.
+      pressCopyShortcut(textarea, 'x');
+
+      expect(editor.getSelectedImage()).not.toBeNull();
+      editor.dispose();
+    });
+
+    test('Caps Lock does not drop the image selection on cut either', () => {
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+
+      pressCopyShortcut(textarea, 'X');
+
+      expect(editor.getSelectedImage()).not.toBeNull();
+      editor.dispose();
+    });
+
+    test('writes the image to the clipboard and removes it from the doc', () => {
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+      pressCopyShortcut(textarea, 'x');
+
+      const blocks = payloadBlocks(dispatchCut(textarea));
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0].inlines).toHaveLength(1);
+      expect(blocks[0].inlines[0].style.image).toEqual(IMAGE);
+
+      // The image inline is gone and the selection returned to text mode.
+      const inlines = editor.getDoc().document.blocks[0].inlines;
+      expect(inlines.filter((i) => i.style.image)).toHaveLength(0);
+      expect(inlines.map((i) => i.text).join('')).toBe('abcd');
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+
+    test('a cut image round-trips back through paste', () => {
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+      pressCopyShortcut(textarea, 'x');
+      const payload = dispatchCut(textarea).get(WAFFLEDOCS_MIME)!;
+
+      editor._setSelectionForTest({
+        anchor: { blockId: 'b1', offset: 4 },
+        focus: { blockId: 'b1', offset: 4 },
+      });
+      const paste = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, 'clipboardData', {
+        value: {
+          types: [WAFFLEDOCS_MIME],
+          getData: (t: string) => (t === WAFFLEDOCS_MIME ? payload : ''),
+          items: [] as unknown[],
+        },
+      });
+      textarea.dispatchEvent(paste);
+
+      const images = editor.getDoc().document.blocks
+        .flatMap((b) => b.inlines)
+        .filter((i) => i.style.image);
+      expect(images).toHaveLength(1);
+      expect(images[0].style.image).toEqual(IMAGE);
       editor.dispose();
     });
   });
