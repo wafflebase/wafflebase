@@ -84,9 +84,9 @@ function dispatchCopy(textarea: HTMLTextAreaElement): Map<string, string> {
 }
 
 /** Press the copy shortcut. Both modifiers so the assertion is OS-agnostic. */
-function pressCopyShortcut(textarea: HTMLTextAreaElement): void {
+function pressCopyShortcut(textarea: HTMLTextAreaElement, key = 'c'): void {
   textarea.dispatchEvent(new KeyboardEvent('keydown', {
-    key: 'c', metaKey: true, ctrlKey: true, bubbles: true, cancelable: true,
+    key, metaKey: true, ctrlKey: true, bubbles: true, cancelable: true,
   }));
 }
 
@@ -216,6 +216,21 @@ describe('copy path integrity', () => {
       pressCopyShortcut(textarea);
 
       expect(editor.getSelectedImage()).not.toBeNull();
+      editor.dispose();
+    });
+
+    test('Caps Lock does not drop the image selection', () => {
+      // The browser reports the *modified* character, so Caps Lock makes
+      // Cmd/Ctrl+C arrive as `'C'`. A raw comparison misses it and the
+      // catch-all clears the selection, silently reintroducing #870.
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+
+      pressCopyShortcut(textarea, 'C');
+
+      expect(editor.getSelectedImage()).not.toBeNull();
+      const blocks = payloadBlocks(dispatchCopy(textarea));
+      expect(blocks[0].inlines[0].style.image).toEqual(IMAGE);
       editor.dispose();
     });
 

@@ -2255,7 +2255,11 @@ export function initialize(
     // from here, and hand the removal back (issue #870).
     textEditor.imageSelectionProvider = () => {
       if (!selectedImage) return null;
-      const block = doc.getBlock(selectedImage.blockId);
+      // `findBlock`, not `getBlock`: the latter throws. This runs inside the
+      // browser's `copy` listener *before* `preventDefault()`, so a block a
+      // remote peer just deleted would throw out of the listener and let the
+      // default copy wipe the user's system clipboard.
+      const block = doc.findBlock(selectedImage.blockId);
       if (!block) return null;
       const image = findImageAtOffset(block, selectedImage.offset);
       if (!image) return null;
@@ -2276,7 +2280,12 @@ export function initialize(
     // `const` declarations in the TDZ would throw on reference.
     textEditor.imageKeyHandler = (e: KeyboardEvent): boolean => {
       if (!selectedImage) return false;
-      const key = e.key;
+      // Normalized the same way `TextEditor.handleKeyDown` does: the browser
+      // reports the *modified* character, so Caps Lock turns Cmd+C into
+      // `'C'` and a raw comparison would miss it — dropping straight into
+      // the catch-all below, which clears the selection and reintroduces
+      // issue #870.
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       // Copy / cut must NOT fall through to the "clear and let the text path
       // see it" branch below: clearing here is what left the browser's
       // `copy` event with nothing to write (issue #870). Consume the key

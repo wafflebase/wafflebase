@@ -1,8 +1,8 @@
-# Docs copy/paste integrity (issues #872, #870, #478)
+# Docs copy integrity (issues #872, #870)
 
-Three independent defects on the docs clipboard path. Two are on the **copy**
-side (the payload the editor writes is empty or missing) and one is on the
-**paste** side (a markdown payload is not recognised).
+Two independent defects on the docs **copy** path: the payload the editor
+writes is empty or missing. A third issue (#478, markdown paste) was attempted
+here and deliberately withdrawn — see "Withdrawn: #478" below.
 
 ## Problem
 
@@ -30,13 +30,6 @@ followed from that:
    it did not recognise — including Cmd/Ctrl+C — so by the time the browser's
    `copy` event fired, even the view state was gone.
 
-### #478 — pasted Markdown is not parsed
-
-`parseMarkdownWithTables()` (`packages/docs/src/view/clipboard.ts`) only ever
-returned blocks when a `|`-table with a separator row was present, and turned
-every other line into an unstyled paragraph. Headings, lists, emphasis and
-links pasted as literal `#`/`-`/`**`/`[…](…)` source text.
-
 ## Plan
 
 1. **Cell-aware `getSelectedBlocks()`.** Look the start endpoint up in
@@ -54,11 +47,6 @@ links pasted as literal `#`/`-`/`**`/`[…](…)` source text.
    the ordinary payload path. `imageKeyHandler` consumes Cmd/Ctrl+C and
    Cmd/Ctrl+X **without** `preventDefault`, so the native clipboard event still
    fires while the image selection survives.
-3. **Markdown paste.** Extend `parseMarkdownWithTables` to recognise headings,
-   ordered/unordered lists, `**bold**` / `*italic*` / `` `code` `` and
-   `[text](url)` links, mapping onto the existing `BlockType` / `InlineStyle`.
-   Return `null` (fall through to plain text) only when the text contains no
-   markdown construct at all, so a plain-text paste is unchanged.
 
 ## Acceptance criteria
 
@@ -70,34 +58,75 @@ links pasted as literal `#`/`-`/`**`/`[…](…)` source text.
 - [x] Cmd/Ctrl+C over a click-selected image writes the image payload
 - [x] That payload pastes back as a second image
 - [x] A text selection still wins over an image selection
+- [x] Caps Lock does not drop the image selection (review finding)
 - [x] Read-only Copy is offered in the context menu (it always worked)
-- [x] Pasted markdown headings become `heading` blocks at the right level
-- [x] Pasted markdown lists become `list-item` blocks with the right kind/level
-- [x] `**bold**`, `*italic*`, `` `code` ``, `[text](url)` become inline styles
-- [x] Plain text with no markdown still falls through to the plain-text path
-- [x] Existing markdown-table behaviour is unchanged
 
 ## Non-goals
 
-- Code blocks (` ``` `) — `BlockType` has no `code-block`, so they stay plain
-  text rather than growing the model.
-- Thematic breaks (`---`), blockquotes, images (`![]()`), reference links,
-  escapes (`\*`), and `_underscore_` emphasis — see the lessons file for why
-  each was left out.
-- Markdown's "consecutive lines join into one paragraph" rule; the parser keeps
-  the pre-existing one-line-per-block shape.
 - Cross-cell copy (selecting text in two different cells). `normalizeRange`
   refuses that range today; a whole-cell rectangle already has its own path
   (`getSelectedTableCells`).
 
+## Withdrawn: #478 (markdown paste)
+
+A markdown-paste parser was implemented on this branch and **removed before
+the PR**. Code review reproduced two defects that a regex pass cannot close,
+so the work is refiled rather than half-landed. Findings, all reproduced
+against the implementation:
+
+1. **Text corruption in the modal use case.** The italic alternative
+   `\*(\S|\S[^*\n]*\S)\*` uses `\S`, which matches `*` itself, so it pairs a
+   `*` from one token with a `*` from the next and *deletes* both:
+
+   ```
+   # API                        heading   | API
+   def f(*args, **kwargs):  →   paragraph | def f(args, *kwargs):
+   return a*b*c                 paragraph | return abc
+   ```
+
+   The trigger is a single `# ` heading anywhere in the paste, so pasting a
+   README or an LLM answer containing a code snippet corrupts it. This was a
+   regression: before the change, no `|`-table meant `null` and the whole
+   paste took the plain-text path intact.
+
+2. **Quadratic backtracking.** The link alternative
+   `\[([^\]\n]+)\]\(([^()\s]+)\)` scans to the next `]` and backtracks per `[`.
+   Measured on this branch: `'['.repeat(n)` on one line costs 0.6 s at
+   n=16,000, 3.3 s at 32,000, 6.7 s at 64,000 — and returns `null`, so the
+   whole cost buys a plain-text paste. `LARGE_PASTE_WEIGHT_THRESHOLD` does not
+   help: it paints a toast and runs the same synchronous job, with no cancel.
+
+3. Any `<digits>. ` line start becomes an ordered list item and eats the
+   number, so a pasted bibliography (`2020. On things.`) loses its year *and*
+   drags the whole paste onto the markdown path.
+
+4. No backslash-escape handling, so this app's own markdown export does not
+   round-trip through its paste path.
+
+The root gap is structural, not regex-level: there is **no code-fence
+handling**, and there cannot be until `BlockType` gains `code-block`
+(roadmap 3.3, not started). Inline parsing must not run inside a fence. A
+redo should decide the fence question first, then follow CommonMark's
+delimiter-run rules for emphasis and its "ordered lists may only interrupt a
+paragraph at 1" rule, and bound or restructure the link scan.
+
 ## Review
 
-Landed in two commits on `agent/docs-copy-paste-integrity`:
+Landed as one commit on `agent/docs-copy-paste-integrity` —
+`packages/docs/src/view/text-editor.ts`, `packages/docs/src/view/editor.ts`,
+`packages/frontend/src/app/docs/docs-context-menu.tsx`; tests in
+`packages/docs/test/view/copy-integrity.test.ts` and
+`packages/frontend/tests/app/docs/docs-context-menu.test.tsx`.
 
-1. Copy path (#872 + #870) — `packages/docs/src/view/text-editor.ts`,
-   `packages/docs/src/view/editor.ts`,
-   `packages/frontend/src/app/docs/docs-context-menu.tsx`; tests in
-   `packages/docs/test/view/copy-integrity.test.ts` and
-   `packages/frontend/tests/app/docs/docs-context-menu.test.tsx`.
-2. Paste path (#478) — `packages/docs/src/view/clipboard.ts`; tests in
-   `packages/docs/test/view/markdown-paste.test.ts`.
+Two blocking review findings were applied on top:
+
+- `imageKeyHandler` compared the raw `e.key`, so **Caps Lock** made Cmd/Ctrl+C
+  arrive as `'C'`, miss the guard, and fall into the catch-all that clears the
+  selection — silently reintroducing #870. Normalized the same way
+  `TextEditor.handleKeyDown` does, and pinned with a test that fails without
+  the fix.
+- `imageSelectionProvider` called `doc.getBlock()`, which **throws** (the
+  non-throwing variant is `findBlock`), making the `if (!block)` line dead. It
+  runs inside the browser's `copy` listener before `preventDefault()`, so a
+  block a remote peer had just deleted would throw out of the listener and let
+  the default copy wipe the user's system clipboard.
