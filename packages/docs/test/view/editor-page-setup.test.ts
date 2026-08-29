@@ -325,4 +325,29 @@ describe('EditorAPI page setup — bounds', () => {
     expect(editor.getPageSetup().margins.top).toBe(500);
     editor.dispose();
   });
+
+  test('the store handed out by getStore() enforces the same geometry', () => {
+    // `getStore()` is public and already used from the frontend, so the store
+    // it returns is a second way to reach `setPageSetup` — one that would
+    // walk straight past the guard above and persist a closed content box
+    // into the CRDT for every collaborator. The invariant belongs to the
+    // editor, not to one method on it.
+    const { editor, store } = setupEditor();
+
+    const closed = withMargins({ top: 0, bottom: 0, left: 816, right: 0 });
+    expect(() => editor.getStore().setPageSetup(closed)).toThrow(RangeError);
+    expect(store.getDocument().pageSetup).toBeUndefined();
+
+    // Still a working store otherwise: geometry a layout pass can consume
+    // goes through, and every other member delegates to the real store.
+    const accepted = withMargins({ top: 48, bottom: 48, left: 72, right: 72 });
+    editor.getStore().setPageSetup(accepted);
+    expect(store.getDocument().pageSetup?.margins.left).toBe(72);
+    expect(editor.getStore().getDocument().blocks[0].id).toBe('b1');
+    // Bound members keep a stable identity across reads, so a caller that
+    // holds on to one is holding the same function the next read returns.
+    expect(editor.getStore().canUndo).toBe(editor.getStore().canUndo);
+
+    editor.dispose();
+  });
 });

@@ -2860,10 +2860,64 @@ export function initialize(
     });
     return hit ? { blockId: hit.blockId, offset: hit.offset } : undefined;
   };
+  /**
+   * The store `EditorAPI.getStore()` hands out.
+   *
+   * `getStore` exists for readers — the export button reads `getDocument()`,
+   * the find bar reads `snapshot()`, the hunt bridge reads `canUndo()` — but
+   * what it returns is the whole `DocStore`, and one of that store's writes
+   * is the only one the editor guards at the API boundary.
+   * `EditorAPI.setPageSetup` refuses geometry no layout pass can consume
+   * (`assertUsablePageSetup`) and is neutered in read-only;
+   * `DocStore.setPageSetup` does neither, so reaching it through `getStore()`
+   * walks around both and persists a closed content box into the CRDT for
+   * every collaborator.
+   *
+   * A proxy rather than a hand-written delegate: `DocStore` is wide and still
+   * growing, and a delegate that has to be extended for every method added to
+   * the interface is a guard that silently stops covering the store it wraps.
+   * Members resolve off the real store and are bound to it, so no
+   * implementation ever observes the proxy as `this` — and they are memoized
+   * per underlying function so `store.canUndo === store.canUndo` still holds
+   * while a method replaced on the store (a test spy) is still picked up.
+   */
+  const boundStoreMembers = new Map<
+    string | symbol,
+    { raw: unknown; bound: unknown }
+  >();
+  const guardedSetPageSetup = (setup: PageSetup): void => {
+    // Both halves of what `EditorAPI.setPageSetup` promises: a view-only
+    // editor drops the write, and everything else has to be geometry a
+    // layout pass can consume. `resolvePageSetup` copies on the way in for
+    // the same reason `writePageSetup` does — the store keeps what it is
+    // handed. This is still a store-level write, so it deliberately does not
+    // snapshot or repaint; `getStore()`'s other writes do not either.
+    if (readOnly) return;
+    assertUsablePageSetup(setup);
+    docStore.setPageSetup(resolvePageSetup(setup));
+  };
+  const guardedStore: DocStore = new Proxy(docStore, {
+    get(target, prop) {
+      if (prop === 'setPageSetup') return guardedSetPageSetup;
+      const raw = Reflect.get(target, prop) as unknown;
+      if (typeof raw !== 'function') return raw;
+      const cached = boundStoreMembers.get(prop);
+      if (cached && cached.raw === raw) return cached.bound;
+      const bound = (raw as (...args: unknown[]) => unknown).bind(target);
+      boundStoreMembers.set(prop, { raw, bound });
+      return bound;
+    },
+    set(target, prop, value) {
+      // Assigning over the guard would be a way around it.
+      if (prop === 'setPageSetup') return false;
+      return Reflect.set(target, prop, value);
+    },
+  });
+
   const api: EditorAPI = {
     render,
     getDoc: () => doc,
-    getStore: () => docStore,
+    getStore: () => guardedStore,
     getSelectionStyle: (): Partial<InlineStyle> => {
       const base = getSelectionStyleImpl(true);
       if (pending.has() && !selection.hasSelection()) {

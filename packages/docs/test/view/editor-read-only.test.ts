@@ -322,6 +322,21 @@ describe('read-only docs editor (issue #482)', () => {
     editor.dispose();
   });
 
+  test('setPageSetup() through getStore() does not change the page in read-only', () => {
+    // Neutering `EditorAPI.setPageSetup` only closes one door: `getStore()`
+    // is public too, and the store it hands out has an unguarded
+    // `setPageSetup` a viewer could otherwise write the document through.
+    const { editor } = setupEditor([para('b1', 'hello world')], true);
+    const before = editor.getPageSetup();
+    editor.getStore().setPageSetup({
+      ...before,
+      margins: { ...before.margins, top: before.margins.top + 48 },
+    });
+    expect(editor.getPageSetup()).toEqual(before);
+    expect(editor.getStore().getDocument().pageSetup).toBeUndefined();
+    editor.dispose();
+  });
+
   test('programmatic pasteFormat() does not restyle in read-only', () => {
     const { editor } = setupEditor([para('b1', 'hello world')], true);
     editor._setSelectionForTest({
