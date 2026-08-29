@@ -1,4 +1,4 @@
-import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
+import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, ImageData, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
 import { generateBlockId, getBlockText, getBlockTextLength, unlistedBlockType, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges, isStructuralInline } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
 import { cloneBlockWithFreshIds, mergeDropsHeadingMemory } from '../store/block-helpers.js';
@@ -265,6 +265,22 @@ export class TextEditor {
    * text editing.
    */
   imageKeyHandler: ((e: KeyboardEvent) => boolean) | null = null;
+
+  /**
+   * Reads the parent editor's image selection — an image the user clicked,
+   * which is view-local state the text `Selection` knows nothing about. The
+   * copy/cut handlers consult it when there is no text selection, so
+   * Cmd/Ctrl+C over a selected image writes the image instead of nothing
+   * (issue #870). Returns null when no image is selected.
+   */
+  imageSelectionProvider: (() => { blockId: string; offset: number; image: ImageData } | null) | null = null;
+
+  /**
+   * Removes whatever `imageSelectionProvider` reports, as one undo unit.
+   * Only `handleCut` calls it; the parent editor owns the deletion because it
+   * also owns the selection state that has to be cleared with it.
+   */
+  imageDeleteHandler: (() => void) | null = null;
 
   /**
    * Optional handler for image files pasted from the clipboard. When
@@ -1171,7 +1187,15 @@ export class TextEditor {
 
   private handleCopy = (e: ClipboardEvent): void => {
     this.pending?.clear();
-    if (!this.selection.hasSelection()) return;
+    if (!this.selection.hasSelection()) {
+      // An image selected by clicking it is view-local state, not a text
+      // selection, so the copy used to write nothing at all (issue #870).
+      const selected = this.imageSelectionProvider?.();
+      if (!selected) return;
+      e.preventDefault();
+      this.writeImageToClipboard(e, selected.image);
+      return;
+    }
     e.preventDefault();
 
     const tableCells = this.getSelectedTableCells();
@@ -1197,7 +1221,15 @@ export class TextEditor {
       return;
     }
     this.pending?.clear();
-    if (!this.selection.hasSelection()) return;
+    if (!this.selection.hasSelection()) {
+      // Mirror of the image branch in `handleCopy`, plus the removal.
+      const selected = this.imageSelectionProvider?.();
+      if (!selected) return;
+      e.preventDefault();
+      this.writeImageToClipboard(e, selected.image);
+      this.imageDeleteHandler?.();
+      return;
+    }
     e.preventDefault();
 
     const tableCells = this.getSelectedTableCells();
@@ -1220,6 +1252,24 @@ export class TextEditor {
     this.deleteSelection();
     this.requestRender();
   };
+
+  /**
+   * Put a single image on the clipboard as a one-inline paragraph — the same
+   * shape an in-document image copy produces, so it pastes back through the
+   * ordinary `WAFFLEDOCS_MIME` path with no special case at the other end.
+   */
+  private writeImageToClipboard(e: ClipboardEvent, image: ImageData): void {
+    const block: Block = {
+      id: generateBlockId(),
+      type: 'paragraph',
+      // ORC — an image inline is exactly one character (see `ImageData`).
+      inlines: [{ text: '￼', style: { image } }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    };
+    e.clipboardData?.setData(WAFFLEDOCS_MIME, serializeClipboard({ blocks: [block] }));
+    // Nothing readable to hand a plain-text consumer beyond the alt text.
+    e.clipboardData?.setData('text/plain', image.alt ?? '');
+  }
 
   /**
    * Decide what a clipboard payload should become, without writing anything.
@@ -3686,18 +3736,42 @@ export class TextEditor {
     if (!normalized) return [];
 
     const { start, end } = normalized;
-    const startBlockIdx = layout.blocks.findIndex(
-      (lb) => lb.block.id === start.blockId,
-    );
-    const endBlockIdx = layout.blocks.findIndex(
-      (lb) => lb.block.id === end.blockId,
-    );
+
+    // A selection inside a table cell names blocks that are *not* in
+    // `layout.blocks` — cell content is its own block list hanging off the
+    // table block (issue #872). Resolve those through `blockParentMap`, the
+    // same path `isInTable()` / `getSelectedText()` already walk, or the
+    // block lookup below fails and the clipboard loses every style and image.
+    // `normalizeRange` guarantees both endpoints share one cell whenever
+    // either of them is in one, so the start's cell is the whole range's.
+    const cellInfo = layout.blockParentMap.get(start.blockId);
+    if (cellInfo) {
+      // `resolveNestedTableLayout` (not `layout.blocks.find`) so a cell inside
+      // a nested table resolves too.
+      const resolved = resolveNestedTableLayout(cellInfo.tableBlockId, layout);
+      const cell = resolved?.dataBlock.tableData
+        ?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+      if (!cell) return [];
+      return this.sliceBlockRange(cell.blocks, start, end);
+    }
+
+    return this.sliceBlockRange(layout.blocks.map((lb) => lb.block), start, end);
+  }
+
+  /**
+   * Clone `blocks[start..end]`, trimming the first and last to the selection
+   * offsets. Shared by the body and table-cell copy paths — the two differ
+   * only in which block list the ids resolve against.
+   */
+  private sliceBlockRange(blocks: Block[], start: DocPosition, end: DocPosition): Block[] {
+    const startBlockIdx = blocks.findIndex((b) => b.id === start.blockId);
+    const endBlockIdx = blocks.findIndex((b) => b.id === end.blockId);
     if (startBlockIdx === -1 || endBlockIdx === -1) return [];
 
     const result: Block[] = [];
 
     for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
-      const block = layout.blocks[bi].block;
+      const block = blocks[bi];
       const blockLen = getBlockTextLength(block);
       const sliceStart = bi === startBlockIdx ? start.offset : 0;
       const sliceEnd = bi === endBlockIdx ? end.offset : blockLen;

@@ -2236,19 +2236,59 @@ export function initialize(
     // re-measuring the whole document (arrow keys, Home/End).
     textEditor.requestCursorRender = renderCursorMove;
 
-    // Image selection key routing. Delete/Backspace delete the selected
-    // image inline and return to text mode; Escape clears the image
-    // selection without mutating the doc; anything else (arrows, typing,
-    // modifier combos) returns false so TextEditor handles the key
-    // normally — we just clear the image selection first so typing
-    // while an image is selected naturally replaces the image's slot
-    // with a plain caret, matching Google Docs.
+    // Remove the selected image inline as one undo unit and return to text
+    // mode. Shared by the Delete/Backspace keys and by cut, which needs the
+    // same removal but writes the clipboard first.
+    const deleteSelectedImageInline = (): void => {
+      if (readOnly || !selectedImage) return;
+      const { blockId, offset } = selectedImage;
+      docStore.snapshot();
+      doc.deleteText({ blockId, offset }, 1);
+      selectedImage = null;
+      cursor.moveTo({ blockId, offset });
+      markDirty(blockId);
+      invalidateLayout();
+      render();
+    };
+
+    // The copy/cut handlers own no image state of their own — they read it
+    // from here, and hand the removal back (issue #870).
+    textEditor.imageSelectionProvider = () => {
+      if (!selectedImage) return null;
+      const block = doc.getBlock(selectedImage.blockId);
+      if (!block) return null;
+      const image = findImageAtOffset(block, selectedImage.offset);
+      if (!image) return null;
+      return { blockId: selectedImage.blockId, offset: selectedImage.offset, image };
+    };
+    textEditor.imageDeleteHandler = deleteSelectedImageInline;
+
+    // Image selection key routing. Copy/cut are absorbed here so the image
+    // selection survives into the browser's own clipboard event;
+    // Delete/Backspace delete the selected image inline and return to text
+    // mode; Escape clears the image selection without mutating the doc;
+    // anything else (arrows, typing, modifier combos) returns false so
+    // TextEditor handles the key normally — we just clear the image
+    // selection first so typing while an image is selected naturally
+    // replaces the image's slot with a plain caret, matching Google Docs.
     // `textEditor.imageHoverHandler` is assigned below, after
     // `handleImageHover` is declared — it can't be wired here because
     // `const` declarations in the TDZ would throw on reference.
     textEditor.imageKeyHandler = (e: KeyboardEvent): boolean => {
       if (!selectedImage) return false;
       const key = e.key;
+      // Copy / cut must NOT fall through to the "clear and let the text path
+      // see it" branch below: clearing here is what left the browser's
+      // `copy` event with nothing to write (issue #870). Consume the key
+      // *without* preventDefault so the native clipboard event still fires;
+      // `TextEditor.handleCopy` / `handleCut` then read the image back
+      // through `imageSelectionProvider`.
+      const mod = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
+        ? e.metaKey
+        : e.ctrlKey;
+      if (mod && !e.shiftKey && !e.altKey && (key === 'c' || key === 'x')) {
+        return true;
+      }
       if (key === 'Escape') {
         e.preventDefault();
         const restore = selectedImage;
@@ -2259,14 +2299,7 @@ export function initialize(
       }
       if (key === 'Delete' || key === 'Backspace') {
         e.preventDefault();
-        const { blockId, offset } = selectedImage;
-        docStore.snapshot();
-        doc.deleteText({ blockId, offset }, 1);
-        selectedImage = null;
-        cursor.moveTo({ blockId, offset });
-        markDirty(blockId);
-        invalidateLayout();
-        render();
+        deleteSelectedImageInline();
         return true;
       }
       // Arrow keys deselect the image and move the cursor, matching
