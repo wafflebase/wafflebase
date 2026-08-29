@@ -54,6 +54,12 @@ import type { DocsPresence } from '@/types/users';
  *  in `DocsPresence.activeSelection`. */
 type DocsSelection = NonNullable<DocsPresence['activeSelection']>;
 
+/** The presence channel `doc.update()` hands its callback. Narrowed to the
+ *  one method this store uses so a batch can park it in a field. */
+type DocsPresenceProxy = {
+  set(presence: Partial<DocsPresence>, option?: { addToHistory?: boolean }): void;
+};
+
 type DocRegion = 'body' | 'header' | 'footer';
 type TreePosRange = ReturnType<YorkieDocsRoot['content']['indexRangeToPosRange']>;
 
@@ -556,6 +562,25 @@ export class YorkieDocStore implements DocStore {
   private compositionStartAnchor: AnchoredDocPosition | null = null;
   /** Undo stack depth after setDocument — users cannot undo past this point. */
   private undoFloor = 0;
+  /**
+   * The live Yorkie root for the duration of a top-level `batch()`. Set
+   * while the batch's single `doc.update` is open; every write routes
+   * through `withUpdate`, which reuses this root instead of opening its own
+   * `doc.update`. That collapses a batch of N writes into ONE Yorkie change
+   * — hence one `doc.history` entry. Null outside a batch. Mirrors
+   * `YorkieSlidesStore` (docs/design/slides/slides-native-undo.md).
+   */
+  private activeRoot: YorkieDocsRoot | null = null;
+  /**
+   * The batch's ambient presence proxy, captured alongside `activeRoot`.
+   * Presence writes fold into this rather than opening a nested
+   * `doc.update`, which Yorkie does not support. Presence `set` without
+   * `addToHistory` is not part of the document change, so this never adds
+   * to the batch's undo unit.
+   */
+  private activePresence: DocsPresenceProxy | null = null;
+  /** Depth of nested `batch()` calls; 0 outside a batch. */
+  private batchDepth = 0;
 
   /**
    * Optional callback invoked when a remote change is detected.
@@ -694,7 +719,7 @@ export class YorkieDocStore implements DocStore {
       return;
     }
 
-    this.doc.update((root) => {
+    this.withUpdate((root) => {
       const tree = root.content;
 
       if (header) {
@@ -733,7 +758,7 @@ export class YorkieDocStore implements DocStore {
       return;
     }
 
-    this.doc.update((root) => {
+    this.withUpdate((root) => {
       const tree = root.content;
       const treeRoot = tree.getRootTreeNode() as ElementNode;
       const childCount = (treeRoot.children ?? []).length;
@@ -773,6 +798,13 @@ export class YorkieDocStore implements DocStore {
     // Mark the undo stack depth so users cannot undo past the initial
     // document load. Yorkie's CRDT redo of writeFullDocument can
     // conflict with subsequent text insertions.
+    //
+    // Reads the stack *after* the write, so this must not run inside a
+    // `batch()`: the batch's change is not pushed until its single
+    // `doc.update` closes, and the floor would land one unit low — leaving
+    // the initial load undoable. Loading a document is not a batchable
+    // action, so no caller does this; noted because the coupling is not
+    // visible from `batch()`.
     this.undoFloor = this.doc.getUndoStackForTest().length;
   }
 
@@ -1192,7 +1224,7 @@ export class YorkieDocStore implements DocStore {
     selection: DocRange | null;
   }): void {
     if (!resolved.cursor && !resolved.selection) return;
-    this.doc.update((_, p) => {
+    this.withUpdate((_, p) => {
       p.set({
         activeCursorPos: resolved.cursor ?? undefined,
         activeSelection: resolved.selection ?? undefined,
@@ -1420,7 +1452,7 @@ export class YorkieDocStore implements DocStore {
     endPath[endPath.length - 1] += 1;
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -1480,7 +1512,7 @@ export class YorkieDocStore implements DocStore {
     if (type !== 'list-item') toRemove.push('listKind', 'listLevel');
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -1547,7 +1579,7 @@ export class YorkieDocStore implements DocStore {
     const attrs = serializeBlockStyle(merged);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -1569,7 +1601,7 @@ export class YorkieDocStore implements DocStore {
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, { blockId, offset: offset + 1 });
       }
@@ -1646,7 +1678,7 @@ export class YorkieDocStore implements DocStore {
     const targetInline = block.inlines[cacheResolved.inlineIndex];
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, { blockId, offset: offset + text.length });
       }
@@ -1725,7 +1757,7 @@ export class YorkieDocStore implements DocStore {
     }
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, { blockId, offset });
       }
@@ -1782,7 +1814,7 @@ export class YorkieDocStore implements DocStore {
     const updated = applyInlineStyleHelper(block, fromOffset, toOffset, style);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -1825,7 +1857,7 @@ export class YorkieDocStore implements DocStore {
     });
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2001,7 +2033,7 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const off = this.bodyTreeOffset(currentDoc);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2024,7 +2056,7 @@ export class YorkieDocStore implements DocStore {
     insertPath[insertPath.length - 1] += 1;
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2068,7 +2100,7 @@ export class YorkieDocStore implements DocStore {
 
     const nodes = blocks.map((b) => buildBlockNode(b));
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2093,7 +2125,7 @@ export class YorkieDocStore implements DocStore {
     endPath[endPath.length - 1] += 1;
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2114,7 +2146,7 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const off = this.bodyTreeOffset(currentDoc);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2152,7 +2184,7 @@ export class YorkieDocStore implements DocStore {
     const movesHeadingMemory = splitMovesHeadingMemory(block, offset, newBlockType);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, { blockId: newBlockId, offset: 0 });
       }
@@ -2338,7 +2370,7 @@ export class YorkieDocStore implements DocStore {
     const dropHeadingMemory = mergeDropsHeadingMemory(firstBlock);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         const mergeOffset = firstBlock.inlines.reduce((sum, i) => sum + i.text.length, 0);
         this.recordHistoryPresence(p, { blockId, offset: mergeOffset });
@@ -2472,7 +2504,7 @@ export class YorkieDocStore implements DocStore {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const rowNode = buildRowNode(row);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2488,7 +2520,7 @@ export class YorkieDocStore implements DocStore {
   deleteTableRow(tableBlockId: string, rowIndex: number): void {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2504,7 +2536,7 @@ export class YorkieDocStore implements DocStore {
   insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2533,7 +2565,7 @@ export class YorkieDocStore implements DocStore {
     const block = this.resolveTableBlock(tablePath, currentDoc);
     const rowCount = block.tableData!.rows.length;
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2555,7 +2587,7 @@ export class YorkieDocStore implements DocStore {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const cellNode = buildCellNode(cell);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2598,7 +2630,7 @@ export class YorkieDocStore implements DocStore {
     const attrs = serializeCellStyle({ ...cell, style: merged });
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2652,7 +2684,7 @@ export class YorkieDocStore implements DocStore {
     }
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2694,7 +2726,7 @@ export class YorkieDocStore implements DocStore {
     const nodeAttrs = serializeTableAttrs(attrs.cols, attrs.rowHeights);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2708,7 +2740,7 @@ export class YorkieDocStore implements DocStore {
   }
 
   setPageSetup(setup: PageSetup): void {
-    this.doc.update((root) => {
+    this.withUpdate((root) => {
       root.pageSetup = {
         paperSize: { ...setup.paperSize },
         orientation: setup.orientation,
@@ -2773,7 +2805,7 @@ export class YorkieDocStore implements DocStore {
     if (currentDoc.header) collect(currentDoc.header.blocks);
     if (currentDoc.footer) collect(currentDoc.footer.blocks);
 
-    this.doc.update((root) => {
+    this.withUpdate((root) => {
       root.stylesJson = JSON.stringify(next);
       const tree = root.content;
       if (tree && typeof tree.getRootTreeNode === 'function') {
@@ -2787,11 +2819,77 @@ export class YorkieDocStore implements DocStore {
   }
 
   // -----------------------------------------------------------------------
-  // Undo / Redo (Yorkie-native via doc.history)
+  // Batch + Undo / Redo (Yorkie-native via doc.history)
   // -----------------------------------------------------------------------
 
+  /**
+   * Run `fn` against the batch's ambient root when a top-level `batch()` is
+   * open, otherwise open a standalone `doc.update`. **Every** write in this
+   * class goes through this instead of calling `this.doc.update` directly.
+   *
+   * That is not a style preference: a `doc.update` nested inside another
+   * one builds a second `ChangeContext` and pushes its change while the
+   * outer one is still open, which splits the batch's undo unit and clears
+   * the SDK's `isUpdating` flag early. Reads (`this.doc.getRoot()`) are
+   * safe inside an open update — `getRoot()` builds its context over the
+   * same clone root the update is mutating, so they observe in-progress
+   * writes — but writes through a `getRoot()` proxy would be discarded.
+   */
+  private withUpdate(
+    fn: (root: YorkieDocsRoot, p: DocsPresenceProxy) => void,
+  ): void {
+    if (this.activeRoot) {
+      fn(this.activeRoot, this.activePresence!);
+    } else {
+      this.doc.update((root, p) => fn(root, p));
+    }
+  }
+
+  batch(fn: () => void): void {
+    // Nested batch: we are already inside the ambient `doc.update`, so just
+    // run the body. Opening a second update would split the work into two
+    // undo units and break "one batch = one undo unit".
+    if (this.batchDepth > 0) {
+      this.batchDepth++;
+      try {
+        fn();
+      } finally {
+        this.batchDepth--;
+      }
+      return;
+    }
+    this.batchDepth++;
+    let committed = false;
+    try {
+      // ONE doc.update for the whole batch → one Yorkie change → one
+      // `doc.history` entry. Writes run against `activeRoot` via
+      // `withUpdate`; presence writes fold into `activePresence`.
+      this.doc.update((root, p) => {
+        this.activeRoot = root;
+        this.activePresence = p;
+        try {
+          fn();
+        } finally {
+          this.activeRoot = null;
+          this.activePresence = null;
+        }
+      });
+      committed = true;
+    } finally {
+      this.batchDepth--;
+      // A throw rolls the whole update back (Yorkie discards the clone), so
+      // the optimistic cache each write left behind describes state that
+      // never landed. On the happy path the writes kept it current.
+      if (!committed) {
+        this.dirty = true;
+        this.cachedDoc = null;
+      }
+    }
+  }
+
   snapshot(): void {
-    // Yorkie tracks undo units via doc.update() — no-op.
+    // Yorkie tracks undo units via doc.update() — no-op. Grouping several
+    // writes into one undo unit is `batch()`.
   }
 
   undo(): void {
@@ -2826,7 +2924,7 @@ export class YorkieDocStore implements DocStore {
    * This deletes all existing blocks and inserts new ones.
    */
   private writeFullDocument(document: Document): void {
-    this.doc.update((root) => {
+    this.withUpdate((root) => {
       const tree = root.content;
 
       // Build the full list of children: header?, block*, footer?
@@ -3048,7 +3146,7 @@ export class YorkieDocStore implements DocStore {
       ? this.anchorDocPosition(clampedPos, clampedPos.lineAffinity)
       : null;
     this.localSelectionAnchor = this.anchorDocRange(clampedSelection ?? null);
-    this.doc.update((_, p) => {
+    this.withUpdate((_, p) => {
       p.set({
         activeCursorPos: clampedPos ?? undefined,
         activeSelection: clampedSelection ?? undefined,

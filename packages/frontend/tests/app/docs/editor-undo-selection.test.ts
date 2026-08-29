@@ -216,3 +216,106 @@ describe('multi-block paste undo cost', () => {
     expect(small).toBeLessThanOrEqual(6);
   });
 });
+
+/**
+ * Redefining a named style is two store writes: the registry write itself
+ * (`updateStyleDefinition` → `writeStylesAndRematerialize`) and the
+ * stale-style-off sweep it triggers (`Doc.dropStaleStyleOffAll` →
+ * `store.applyStyles`). Each is one `doc.update()`, and `YorkieDocStore`
+ * takes its undo units from `doc.update()`, so before `DocStore.batch()`
+ * this cost **two** Cmd+Z — the first of which looked like it did nothing.
+ *
+ * The setup below is the exact case docs-font-controls.md describes: the
+ * built-in Heading 6 is italic, so `styleOffAsClear` legitimately keeps an
+ * `italic: false` on a Heading 6 run. "Update Heading 6 to match" a caret
+ * sitting in that run redefines Heading 6 as non-italic — which makes the
+ * run's stored `false` a dead flag, and fires the sweep.
+ */
+function heading6Block(text: string, style: Record<string, unknown>): Block {
+  return {
+    id: generateBlockId(),
+    type: 'heading',
+    headingLevel: 6,
+    inlines: [{ text, style }],
+    style: { ...DEFAULT_BLOCK_STYLE },
+  };
+}
+
+describe('named-style redefinition undo cost (DocStore.batch seam)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let doc: any;
+  let store: YorkieDocStore;
+  let editor: EditorAPI;
+  let container: HTMLDivElement;
+  let restoreCanvas: () => void;
+  let block: Block;
+
+  beforeEach(() => {
+    restoreCanvas = installCanvasShim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc.update((root: any) => {
+      root.content = new yorkie.Tree({ type: 'doc', children: [] });
+    });
+    store = new YorkieDocStore(doc);
+    block = heading6Block('Heading text', { italic: false });
+    store.setDocument({ blocks: [block] });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    editor = initialize(container, store);
+    editor._setSelectionForTest({
+      anchor: { blockId: block.id, offset: 0 },
+      focus: { blockId: block.id, offset: 0 },
+    });
+  });
+
+  afterEach(() => {
+    container.remove();
+    restoreCanvas();
+  });
+
+  const italicOf = () => store.getDocument().blocks[0].inlines[0].style.italic;
+
+  it('sanity: the fixture really does strand a style-off flag', () => {
+    expect(italicOf()).toBe(false);
+    editor.updateStyleToMatch('heading-6');
+    // The registry now says Heading 6 is not italic, so the run's stored
+    // `false` no longer overrides anything and the sweep drops it. If this
+    // ever stops holding, the undo-cost assertion below stops testing the
+    // two-write path it is named for.
+    expect(store.getDocStyles()['heading-6']?.inline.italic).toBe(false);
+    expect(italicOf()).toBeUndefined();
+  });
+
+  it('"Update to match" that strands a flag is a single undo unit', () => {
+    const before = doc.getUndoStackForTest().length;
+    editor.updateStyleToMatch('heading-6');
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+  });
+
+  it('one undo restores both the registry and the stranded flag', () => {
+    editor.updateStyleToMatch('heading-6');
+    expect(store.getDocStyles()['heading-6']).toBeDefined();
+
+    editor.undo();
+    expect(store.getDocStyles()['heading-6']).toBeUndefined();
+    expect(italicOf()).toBe(false);
+  });
+
+  it('resetAllNamedStyles is a single undo unit too', () => {
+    editor.updateStyleToMatch('heading-6');
+    const before = doc.getUndoStackForTest().length;
+    editor.resetAllNamedStyles();
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+  });
+
+  // Boundary: batching must fold one action's writes together, never two
+  // separate actions into each other.
+  it('two separate named-style actions stay two undo units', () => {
+    const before = doc.getUndoStackForTest().length;
+    editor.updateStyleToMatch('heading-6');
+    editor.resetNamedStyle('heading-6');
+    expect(doc.getUndoStackForTest().length).toBe(before + 2);
+  });
+});

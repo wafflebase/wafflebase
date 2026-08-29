@@ -33,6 +33,10 @@ export class MemDocStore implements DocStore {
   private doc: Document;
   private undoStack: Document[] = [];
   private redoStack: Document[] = [];
+  /** Depth of nested `batch()` calls; 0 outside a batch. */
+  private batchDepth = 0;
+  /** Whether the open top-level batch has already taken its checkpoint. */
+  private batchSnapshotTaken = false;
 
   constructor(doc?: Document) {
     this.doc = doc ? cloneDocument(doc) : { blocks: [] };
@@ -163,8 +167,40 @@ export class MemDocStore implements DocStore {
   }
 
   snapshot(): void {
+    // Inside a batch only the first checkpoint counts: this store's undo
+    // unit is the snapshot, so letting every `snapshot()` inside a batch
+    // push would make one batch N undo units — the opposite of the
+    // contract. The state captured is the pre-batch state, which is what a
+    // single undo must restore.
+    if (this.batchDepth > 0) {
+      if (this.batchSnapshotTaken) return;
+      this.batchSnapshotTaken = true;
+    }
     this.pushUndo();
     this.redoStack = [];
+  }
+
+  batch(fn: () => void): void {
+    // Nested batch: already covered by the outer one's checkpoint. Just run
+    // the body — opening a second would split one action into two undo
+    // units, exactly what the seam exists to prevent.
+    if (this.batchDepth > 0) {
+      this.batchDepth++;
+      try {
+        fn();
+      } finally {
+        this.batchDepth--;
+      }
+      return;
+    }
+    this.batchDepth++;
+    this.batchSnapshotTaken = false;
+    try {
+      fn();
+    } finally {
+      this.batchDepth--;
+      this.batchSnapshotTaken = false;
+    }
   }
 
   insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {

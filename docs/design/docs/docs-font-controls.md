@@ -361,17 +361,38 @@ it can go stale three ways, and each one sweeps:
   that branch sweeps too.
 
 Both sweeps write through `DocStore.applyStyles`, so however many runs
-one strands it costs a single write. That write is still separate from
-the action that caused it: `YorkieDocStore.snapshot()` is a no-op
-because Yorkie takes its undo units from `doc.update()`, so under the
-collaborative store a redefinition that strands a flag takes two Cmd+Z,
-the first of which looks like it did nothing. Folding them needs a
-`DocStore.batch()` seam that does not exist yet — the slides store has
-one ([slides-native-undo.md](../slides/slides-native-undo.md)). That
-cost is also why **block merge is not a fourth sweep site**: Backspace
-at the start of a Heading 6 does strand the flag, but paying two Cmd+Z
-on the hottest editing path is the worse trade, so `Doc.mergeBlocks`
-knowingly leaves it (pinned by a test) until the seam lands.
+one strands it costs a single write. That write is still a *second*
+one, separate from the action that caused it, and
+`YorkieDocStore.snapshot()` is a no-op because Yorkie takes its undo
+units from `doc.update()` — so a redefinition that stranded a flag used
+to take two Cmd+Z, the first of which looked like it did nothing.
+
+**Closed.** `DocStore.batch(fn)` now exists, modelled on the slides
+store ([slides-native-undo.md](../slides/slides-native-undo.md)): one
+top-level batch opens exactly one `doc.update` (ambient root, every
+write routed through `withUpdate`), so N writes commit as one Yorkie
+change and one `doc.history` entry; nested calls short-circuit on a
+depth counter. `MemDocStore` reaches the same contract by suppressing
+repeat `snapshot()` calls inside a batch. All four registry entry points
+run through one `withNamedStyleChange` helper in `view/editor.ts` that
+wraps `snapshot()` + the registry write + `dropStaleStyleOffAll` in a
+single `batch()`, so a redefinition is one Cmd+Z that restores both the
+registry and the flag. Pinned by
+`packages/frontend/tests/app/docs/editor-undo-selection.test.ts`
+("named-style redefinition undo cost").
+
+The seam is deliberately **opt-in**: nothing outside those four entry
+points calls it, so every other editing path keeps exactly the undo
+granularity it had. Two boundary tests pin that (unbatched consecutive
+writes stay separate units; two batches stay two units), standing in
+for the churn regression guard slides has.
+
+**Block merge is still not a fourth sweep site.** The reason it was
+deferred — Backspace at the start of a Heading 6 strands the flag, and
+paying two Cmd+Z on the hottest editing path is the worse trade — no
+longer holds now that `batch()` can fold the sweep into the merge, so
+`Doc.mergeBlocks` (and the split path) are unblocked. Both are separate
+follow-ups; the current behaviour is still what the tests pin.
 
 Exception 2 needs no sweep — its under-layer is the run's own `href`,
 which none of the three can remove.

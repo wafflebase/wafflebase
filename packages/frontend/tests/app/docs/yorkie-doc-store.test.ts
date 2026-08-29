@@ -676,6 +676,121 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  // `batch()` is the seam that lets one user action make several store
+  // writes and still cost one Cmd+Z. Yorkie takes its undo units from
+  // `doc.update()`, so the only way to group N writes is to run them inside
+  // one update — the ambient-root pattern `YorkieSlidesStore` already uses
+  // (docs/design/slides/slides-native-undo.md).
+  describe('batch()', () => {
+    it('collapses several writes into a single undo unit', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      store.batch(() => {
+        store.insertText(block.id, 5, ' world');
+        store.applyStyle(block.id, 0, 5, { bold: true });
+        store.applyBlockStyle(block.id, { alignment: 'center' });
+      });
+      expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    });
+
+    it('one undo reverts every write in the batch', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      store.batch(() => {
+        store.insertText(block.id, 5, ' world');
+        store.applyStyle(block.id, 0, 5, { bold: true });
+      });
+      expect(store.getBlock(block.id)!.inlines.map((i) => i.text).join('')).toBe('hello world');
+
+      store.undo();
+      const reverted = store.getBlock(block.id)!;
+      expect(reverted.inlines.map((i) => i.text).join('')).toBe('hello');
+      expect(reverted.inlines.every((i) => i.style.bold !== true)).toBe(true);
+    });
+
+    it('a nested batch does not open a second undo unit', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      store.batch(() => {
+        store.applyStyle(block.id, 0, 5, { bold: true });
+        store.batch(() => {
+          store.applyStyle(block.id, 0, 5, { italic: true });
+        });
+        store.applyBlockStyle(block.id, { alignment: 'right' });
+      });
+      expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    });
+
+    it('an empty batch pushes no undo unit', () => {
+      store.setDocument({ blocks: [makeBlock('hello')] });
+      const before = doc.getUndoStackForTest().length;
+      store.batch(() => {});
+      expect(doc.getUndoStackForTest().length).toBe(before);
+    });
+
+    it('a presence write inside a batch adds no extra undo unit', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      store.batch(() => {
+        store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
+        store.applyStyle(block.id, 0, 5, { bold: true });
+      });
+      expect(doc.getUndoStackForTest().length).toBe(before + 1);
+      expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 2 });
+    });
+
+    it('rethrows and does not leave the ambient root open', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      expect(() =>
+        store.batch(() => {
+          throw new Error('boom');
+        }),
+      ).toThrow('boom');
+      // The next write must still land — a leaked ambient root would send it
+      // into a discarded change context.
+      store.applyStyle(block.id, 0, 5, { bold: true });
+      expect(new YorkieDocStore(doc).getBlock(block.id)!.inlines[0].style.bold).toBe(true);
+    });
+
+    // --- boundary guards -------------------------------------------------
+    //
+    // The hazard `batch()` introduces is the mirror image of the one it
+    // fixes: collapsing genuinely separate user actions into one undo unit.
+    // Slides pins this with a churn test; these two pin the boundary
+    // directly. Nothing outside the named-style entry points calls `batch()`,
+    // so ordinary editing must keep exactly the granularity it had.
+
+    it('unbatched consecutive writes stay separate undo units', () => {
+      const block = makeBlock('');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      store.insertText(block.id, 0, 'a');
+      store.insertText(block.id, 1, 'b');
+      store.insertText(block.id, 2, 'c');
+      expect(doc.getUndoStackForTest().length).toBe(before + 3);
+    });
+
+    it('two typing bursts in two batches stay two undo units', () => {
+      const block = makeBlock('');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      store.batch(() => {
+        store.insertText(block.id, 0, 'first');
+      });
+      store.batch(() => {
+        store.insertText(block.id, 5, ' second');
+      });
+      expect(doc.getUndoStackForTest().length).toBe(before + 2);
+
+      store.undo();
+      expect(store.getBlock(block.id)!.inlines.map((i) => i.text).join('')).toBe('first');
+    });
+  });
+
   describe('applyStyle attribute removal', () => {
     // Re-read via a fresh store over the same doc to bypass the optimistic
     // cache and assert the CRDT Tree (source of truth) actually changed.

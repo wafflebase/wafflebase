@@ -230,6 +230,84 @@ describe('MemDocStore', () => {
     });
   });
 
+  // `batch()` is the shared `DocStore` seam: one batch = one undo unit.
+  // Mem's undo unit is anchored to `snapshot()`, not to the write, so a
+  // batch collapses the snapshots taken inside it into one checkpoint.
+  // `YorkieDocStore` reaches the same contract by opening one `doc.update`.
+  describe('batch()', () => {
+    it('collapses the snapshots inside it into one undo unit', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.batch(() => {
+        store.snapshot();
+        store.insertText(block.id, 5, ' World');
+        store.snapshot();
+        store.applyStyle(block.id, 0, 5, { bold: true });
+      });
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello World');
+
+      store.undo();
+      const reverted = store.getDocument().blocks[0];
+      expect(reverted.inlines.map((i) => i.text).join('')).toBe('Hello');
+      expect(store.canUndo()).toBe(false);
+    });
+
+    it('a nested batch does not add a second undo unit', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.batch(() => {
+        store.snapshot();
+        store.insertText(block.id, 5, '!');
+        store.batch(() => {
+          store.snapshot();
+          store.insertText(block.id, 6, '?');
+        });
+      });
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+      expect(store.canUndo()).toBe(false);
+    });
+
+    it('leaves unbatched snapshots as separate undo units', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.insertText(block.id, 5, ' a');
+      store.snapshot();
+      store.insertText(block.id, 7, ' b');
+
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello a');
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+    });
+
+    it('runs the body even with no snapshot inside it', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.batch(() => {
+        store.insertText(block.id, 5, '!');
+      });
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello!');
+      expect(store.canUndo()).toBe(false);
+    });
+
+    it('re-arms snapshotting after the batch ends, even on a throw', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      expect(() =>
+        store.batch(() => {
+          store.snapshot();
+          throw new Error('boom');
+        }),
+      ).toThrow('boom');
+      store.snapshot();
+      store.insertText(block.id, 5, '!');
+      store.undo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello');
+    });
+  });
+
   describe('fine-grained text editing', () => {
     it('insertText inserts at offset within block', () => {
       const block = makeBlock('Hello');

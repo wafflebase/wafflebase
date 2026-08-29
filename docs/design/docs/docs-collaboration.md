@@ -263,7 +263,26 @@ snapshot-based scheme.)
 
 The in-package dev store `MemDocStore` still keeps a local snapshot undo
 stack — fine for single-user local development, but the collaborative path is
-the `doc.history` one described above.
+the `doc.history` one described above. `DocStore.snapshot()` is therefore a
+no-op on `YorkieDocStore`: it exists for `MemDocStore`, and every call site
+that needs a checkpoint on both stores must keep calling it.
+
+Because Yorkie takes one undo unit per `doc.update()`, an action needing two
+store writes costs two Cmd+Z. `DocStore.batch(fn)` is the seam that folds
+them: one top-level batch opens exactly one `doc.update` (an ambient root
+parked in `activeRoot`, with every write routed through `withUpdate`), so N
+writes commit as one Yorkie change and one `doc.history` entry. Nested
+`batch()` calls short-circuit on a depth counter rather than opening a second
+update, which Yorkie does not support. `MemDocStore` satisfies the same
+contract by suppressing repeat `snapshot()` calls inside a batch. The
+architecture is `YorkieSlidesStore`'s, unchanged — see
+[slides-native-undo.md](../slides/slides-native-undo.md).
+
+Today only the named-style redefinition entry points use it
+(`setDocStyles` / `updateStyleToMatch` / `resetNamedStyle` /
+`resetAllNamedStyles`, whose registry write triggers a second
+`dropStaleStyleOffAll` sweep). Every other editing path keeps the undo
+granularity it had.
 
 ### Data Flow
 
@@ -333,6 +352,6 @@ is determined by Yorkie's merge semantics.
 |------|------------|
 | `getDocument()` tree traversal cost on large docs | Dirty-flag cache; only re-traverse on actual changes. Incremental layout (dirty block tracking) already minimizes downstream cost. |
 | `getBlock(id)` O(n) scan per call on hot path | `Map<string, TreeNode>` index rebuilt on dirty; O(1) lookup. |
-| Local snapshot undo overwrites concurrent users' changes | Known Phase 1 limitation; undo restricted to single-user until Phase 2 migrates to Yorkie operation-level history. |
+| Local snapshot undo overwrites concurrent users' changes | **Resolved.** `YorkieDocStore` delegates undo/redo to Yorkie `doc.history` unconditionally (`snapshot()` is a no-op there), so undo applies the reverse ops of the local client's last change and leaves a peer's concurrent edit intact. Snapshot undo survives only in `MemDocStore`, which is single-client by construction. See the Undo/Redo section above. |
 | `yorkie.Tree` API constraints (edit by path vs index) | Prototype key operations early to validate API fit. |
 | Doc refactoring breaks existing tests | MemDocStore preserves identical behavior; tests update constructor only. |
