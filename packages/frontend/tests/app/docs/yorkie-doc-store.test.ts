@@ -820,6 +820,29 @@ describe('YorkieDocStore', () => {
       expect(store.getBlock(block.id)!.inlines.map((i) => i.text).join('')).toBe('hello');
     });
 
+    it('setDocument() inside a batch throws', () => {
+      // `setDocument` reads the undo stack *after* its write to set the undo
+      // floor. Inside a batch the change is not pushed until the batch's
+      // single `doc.update` closes, so the floor would land one unit low and
+      // the whole loaded document would become undoable. `MemDocStore`
+      // enforces the same rule, so code tested against the memory store
+      // cannot pass and then throw only under the collaborative one.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      expect(() =>
+        store.batch(() => {
+          store.setDocument({ blocks: [makeBlock('replaced')] });
+        }),
+      ).toThrow(/setDocument/);
+      // The guard fires before the write, so nothing landed and the store is
+      // still usable afterwards.
+      expect(
+        new YorkieDocStore(doc).getBlock(block.id)!.inlines.map((i) => i.text).join(''),
+      ).toBe('hello');
+      store.setDocument({ blocks: [makeBlock('replaced')] });
+      expect(store.getDocument().blocks[0].inlines[0].text).toBe('replaced');
+    });
+
     it('an empty batch pushes no undo unit', () => {
       store.setDocument({ blocks: [makeBlock('hello')] });
       const before = doc.getUndoStackForTest().length;

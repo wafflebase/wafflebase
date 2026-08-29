@@ -323,6 +323,83 @@ describe('MemDocStore', () => {
       expect(store.canUndo()).toBe(false);
     });
 
+    it('a batch that writes nothing leaves redo history intact', () => {
+      // `YorkieDocStore` pushes no change for an empty batch, so its
+      // `doc.history` redo stack survives. This store must not clear redo
+      // for a batch that ends up costing no undo unit either — the two
+      // stores document one contract.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.insertText(block.id, 5, '!');
+      store.undo();
+      expect(store.canRedo()).toBe(true);
+
+      store.batch(() => {});
+
+      expect(store.canRedo()).toBe(true);
+      expect(store.canUndo()).toBe(false);
+      store.redo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello!');
+    });
+
+    it('a self-reverting batch leaves redo history intact', () => {
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.snapshot();
+      store.insertText(block.id, 5, '!');
+      store.undo();
+      expect(store.canRedo()).toBe(true);
+
+      store.batch(() => {
+        store.insertText(block.id, 5, '?');
+        store.deleteText(block.id, 5, 1);
+      });
+
+      expect(store.canUndo()).toBe(false);
+      expect(store.canRedo()).toBe(true);
+      store.redo();
+      expect(store.getDocument().blocks[0].inlines.map((i) => i.text).join('')).toBe('Hello!');
+    });
+
+    it('a no-op batch costs nothing on a document the clone normalizes', () => {
+      // `updateBlock` stores the block verbatim, so the live document can
+      // hold a partial block style that `cloneDocument` fills in with
+      // defaults. Comparing the checkpoint (a clone) against the raw live
+      // document would then report a write for a batch that made none, and
+      // leave a dead undo checkpoint behind.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      store.updateBlock(
+        block.id,
+        { ...block, style: { alignment: 'left' } } as unknown as typeof block,
+      );
+
+      store.batch(() => {});
+
+      expect(store.canUndo()).toBe(false);
+    });
+
+    it('setDocument() inside a batch throws', () => {
+      // `YorkieDocStore` refuses it because its undo floor is read after the
+      // write lands, which inside a batch is not until the batch's single
+      // `doc.update` closes. This store refuses it for parity, so code
+      // written against the in-package store cannot pass here and then throw
+      // under the collaborative one.
+      const block = makeBlock('Hello');
+      const store = new MemDocStore({ blocks: [block] });
+      expect(() =>
+        store.batch(() => {
+          store.setDocument({ blocks: [makeBlock('Replaced')] });
+        }),
+      ).toThrow(/setDocument/);
+      // The refusal must not leave the store wedged: no dead checkpoint, and
+      // the call succeeds outside a batch.
+      expect(store.canUndo()).toBe(false);
+      store.setDocument({ blocks: [makeBlock('Replaced')] });
+      expect(store.getDocument().blocks[0].inlines[0].text).toBe('Replaced');
+    });
+
     it('re-arms snapshotting after the batch ends, even on a throw', () => {
       const block = makeBlock('Hello');
       const store = new MemDocStore({ blocks: [block] });

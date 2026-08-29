@@ -122,3 +122,55 @@ Shipped as designed. Notes:
   different mechanisms (suppressing repeat `snapshot()` calls vs. a single
   `doc.update`), because their undo units are anchored to different things.
   The interface documents the contract, not the mechanism.
+
+## Review round 2 (PR #983 feedback)
+
+Seven findings, all applied on the branch:
+
+- [x] **A no-op batch destroyed redo history.** `MemDocStore.batch()` cleared
+      `redoStack` up front but only popped the undo checkpoint in the
+      `wroteNothing` branch, so `batch(() => {})` wiped redo while costing no
+      undo unit — where `YorkieDocStore` pushes no change at all and keeps
+      it. The prior stack is now saved and restored.
+- [x] **`wroteNothing` compared a normalized clone against the raw document.**
+      `cloneDocument` fills block styles in with `normalizeBlockStyle`, and
+      `updateBlock` stores a block verbatim, so a document holding a partial
+      style read as "written" for a batch that wrote nothing and kept a dead
+      undo checkpoint. Both sides now go through `cloneDocument`.
+- [x] **The nested-batch test asserted only the undo count.** It now asserts
+      the nested body's write reached the CRDT (and comes back with the rest
+      on one undo); the main happy-path test re-reads through a fresh
+      `YorkieDocStore` over the same `doc` instead of the optimistic cache.
+- [x] **A rolled-back batch left the docs model holding uncommitted state.**
+      The sweep refreshes `Doc._document` mid-batch, and Yorkie discards the
+      whole update on a throw. `Doc.batch()` now re-reads the store on the
+      throw path, and `withNamedStyleChange` routes through it; the repaint
+      moved into a `finally` so the screen matches the store on both paths.
+- [x] **The `setDocument()`-inside-batch prohibition existed in one store.**
+      `MemDocStore.setDocument()` throws too, and the `DocStore.batch()`
+      contract documents it next to the nested-batch and undo/redo rules.
+- [x] **Nothing exercised a read inside an open batch** — the property the
+      whole seam rests on. A test now reads through a second store (no
+      optimistic cache, so the read goes to `doc.getRoot()`) mid-batch.
+- [x] **Design docs went stale from the fixes themselves.**
+      `docs-font-controls.md` still named `afterNamedStyleChange`;
+      `docs-font-controls.md` and `docs-collaboration.md` described the
+      nested-batch short-circuit as a depth counter, where `YorkieDocStore`
+      deliberately keys on `activeRoot`; the batch-contract section did not
+      mention `setDocument`; the lessons file's "everything else is
+      untouched" contradicted the 30 rerouted `doc.update` call sites.
+
+### Tests added in this round
+
+| Test | File |
+| --- | --- |
+| Mem: a no-op batch leaves redo history intact | `packages/docs/test/store/memory.test.ts` |
+| Mem: a self-reverting batch leaves redo history intact | same |
+| Mem: a no-op batch costs nothing on a document the clone normalizes | same |
+| Mem: `setDocument()` inside a batch throws | same |
+| Yorkie: a nested batch's write actually lands (and undoes with the rest) | `packages/frontend/tests/app/docs/yorkie-doc-store.test.ts` |
+| Yorkie: a batched write is visible through a fresh store, not just the cache | same |
+| Yorkie: a read inside an open batch observes the batch's own writes | same |
+| Yorkie: `setDocument()` inside a batch throws | same |
+| Yorkie: `Doc` refreshes its cached document when a batch throws | same |
+| Editor: a failed redefinition leaves the editor matching the store | `packages/frontend/tests/app/docs/editor-undo-selection.test.ts` |

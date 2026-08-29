@@ -5,10 +5,19 @@
 `docs-font-controls.md` named the missing seam, named the store that
 already had one, and named the two follow-ups it would unblock.
 `slides-native-undo.md` had the implementation, including the two
-non-obvious parts (the depth counter for nested calls, and the fact that
+non-obvious parts (how nested calls short-circuit, and the fact that
 reads inside an open `doc.update` are safe). Reading both before touching
 code turned this from a design task into a transcription task. The repo's
 "a deferral must say what unblocks it" convention paid for itself here.
+
+Transcription, not copying: the slides sketch short-circuits nested batches
+on a depth counter, and `YorkieDocStore` keys on `activeRoot` instead. A
+counter stays raised through the SDK's post-updater work (change push, the
+synchronous `local-change` publish) — which runs after the ambient root is
+gone — so a subscriber re-entering `batch()` there would take the nested fast
+path with no root to write into. Keying on the sentinel `withUpdate` already
+reads makes the two impossible to disagree. `MemDocStore` does use a counter,
+because its undo unit is anchored to `snapshot()` and there is no root.
 
 ## Verify the SDK claim the seam rests on, don't infer it
 
@@ -62,9 +71,15 @@ passed before the change, which is exactly what makes them useful — they
 pin behaviour the change must *not* alter.
 
 The other thing that keeps the risk small is that `batch()` is opt-in: four
-call sites use it, everything else is untouched. Worth stating explicitly in
-the design doc, because "we added a batching primitive" reads much scarier
-than "we added a primitive and called it four times".
+call sites call it, and every other editing path keeps exactly the undo
+granularity it had. "Untouched" would overstate it — all 30 `doc.update`
+call sites in `YorkieDocStore` were rerouted through `withUpdate`, because a
+nested update inside an open batch would split the batch's undo unit. Outside
+a batch `withUpdate` opens the same standalone `doc.update` those call sites
+opened before, so the granularity is unchanged; the code is not. Worth
+stating precisely in the design doc, because "we added a batching primitive"
+reads much scarier than "we added a primitive, called it four times, and
+routed every writer through one helper so it can be honoured".
 
 ## Keep paint outside the transaction
 

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, beforeEach, afterEach, expect } from 'vitest';
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
 import {
@@ -249,6 +249,7 @@ describe('named-style redefinition undo cost (DocStore.batch seam)', () => {
   let container: HTMLDivElement;
   let restoreCanvas: () => void;
   let block: Block;
+  let untouched: Block;
 
   beforeEach(() => {
     restoreCanvas = installCanvasShim();
@@ -259,8 +260,13 @@ describe('named-style redefinition undo cost (DocStore.batch seam)', () => {
       root.content = new yorkie.Tree({ type: 'doc', children: [] });
     });
     store = new YorkieDocStore(doc);
-    block = heading6Block('Heading text', { italic: false });
-    store.setDocument({ blocks: [block] });
+    // The caret run also carries an explicit size, so "update to match"
+    // redefines Heading 6 to something a *different* Heading 6 block would
+    // visibly resolve — which is how the rollback test below observes the
+    // editor's cached document.
+    block = heading6Block('Heading text', { italic: false, fontSize: 33 });
+    untouched = heading6Block('Second heading', {});
+    store.setDocument({ blocks: [block, untouched] });
     container = document.createElement('div');
     document.body.appendChild(container);
     editor = initialize(container, store);
@@ -317,5 +323,32 @@ describe('named-style redefinition undo cost (DocStore.batch seam)', () => {
     editor.updateStyleToMatch('heading-6');
     editor.resetNamedStyle('heading-6');
     expect(doc.getUndoStackForTest().length).toBe(before + 2);
+  });
+
+  // Batching also changed what a *failure* mid-action means. The two writes
+  // used to be two `doc.update()`s, so a failed second one left the first
+  // committed and the editor's cached document matched it. Now the whole
+  // batch is one update that Yorkie discards on a throw — while the sweep
+  // has already refreshed the cache from the in-progress state. The cache
+  // has to be re-read, or the editor is the only holder of a redefinition
+  // that never landed.
+  it('a failed redefinition leaves the editor matching the store', () => {
+    const sweep = vi.spyOn(store, 'applyStyles').mockImplementation(() => {
+      throw new Error('sweep failed');
+    });
+    expect(() => editor.updateStyleToMatch('heading-6')).toThrow('sweep failed');
+    sweep.mockRestore();
+
+    // The registry write is rolled back with the rest of the batch.
+    expect(store.getDocStyles()['heading-6']).toBeUndefined();
+
+    // A caret in the untouched Heading 6 block resolves its size from the
+    // named-style layer, which the editor reads out of its cached document.
+    // A stale cache would still report the never-committed 33.
+    editor._setSelectionForTest({
+      anchor: { blockId: untouched.id, offset: 0 },
+      focus: { blockId: untouched.id, offset: 0 },
+    });
+    expect(editor.getRangeStyleSummary().fontSize).not.toBe(33);
   });
 });

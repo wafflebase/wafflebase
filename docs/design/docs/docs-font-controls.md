@@ -354,7 +354,7 @@ it can go stale three ways, and each one sweeps:
   the run being edited. Every such entry point (`setDocStyles`,
   `updateStyleToMatch`, `resetNamedStyle`, `resetAllNamedStyles`) runs
   `Doc.dropStaleStyleOffAll` over the whole document — body, header,
-  footer, and every nested table cell — via `afterNamedStyleChange`.
+  footer, and every nested table cell — via `withNamedStyleChange`.
 - **A run is pasted into a differently-styled block** — the internal
   clipboard is the only paste payload that preserves an explicit
   `false` (the HTML and markdown parsers only ever write `true`), so
@@ -371,13 +371,18 @@ to take two Cmd+Z, the first of which looked like it did nothing.
 store ([slides-native-undo.md](../slides/slides-native-undo.md)): one
 top-level batch opens exactly one `doc.update` (ambient root, every
 write routed through `withUpdate`), so N writes commit as one Yorkie
-change and one `doc.history` entry; nested calls short-circuit on a
-depth counter. `MemDocStore` reaches the same contract by suppressing
+change and one `doc.history` entry; nested calls short-circuit on
+`activeRoot` — the ambient root itself, not a depth counter (see
+[docs-collaboration.md](docs-collaboration.md) for why the counter is
+wrong there). `MemDocStore` reaches the same contract by suppressing
 repeat `snapshot()` calls inside a batch. All four registry entry points
 run through one `withNamedStyleChange` helper in `view/editor.ts` that
 wraps `snapshot()` + the registry write + `dropStaleStyleOffAll` in a
-single `batch()`, so a redefinition is one Cmd+Z that restores both the
-registry and the flag. Pinned by
+single `Doc.batch()`, so a redefinition is one Cmd+Z that restores both
+the registry and the flag. Going through `Doc.batch` rather than
+`DocStore.batch` also refreshes the editor's cached document if the
+transaction throws — Yorkie discards the whole update, while the sweep
+has already read the in-progress state. Pinned by
 `packages/frontend/tests/app/docs/editor-undo-selection.test.ts`
 ("named-style redefinition undo cost").
 

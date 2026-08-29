@@ -71,6 +71,14 @@ export interface DocStore {
    *   (`YorkieDocStore` rolls the whole `doc.update` back), so do not
    *   depend on partial writes surviving a throw.
    * - Do not call `undo()` / `redo()` from inside a batch.
+   * - Do not call `setDocument()` from inside a batch — **both**
+   *   implementations throw. Loading a whole document is not an edit: it
+   *   re-arms the undo floor, and `YorkieDocStore` can only read that floor
+   *   once the batch's single `doc.update` has closed, so inside a batch the
+   *   floor would land one unit low and the freshly loaded document itself
+   *   would become undoable. `MemDocStore` throws for parity, so code
+   *   written against the in-package store cannot pass there and fail under
+   *   the collaborative one.
    *
    * Mirrors `SlidesStore.batch()`; see
    * `docs/design/slides/slides-native-undo.md`.

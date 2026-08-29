@@ -272,17 +272,43 @@ store writes costs two Cmd+Z. `DocStore.batch(fn)` is the seam that folds
 them: one top-level batch opens exactly one `doc.update` (an ambient root
 parked in `activeRoot`, with every write routed through `withUpdate`), so N
 writes commit as one Yorkie change and one `doc.history` entry. Nested
-`batch()` calls short-circuit on a depth counter rather than opening a second
-update, which Yorkie does not support. `MemDocStore` satisfies the same
-contract by suppressing repeat `snapshot()` calls inside a batch. The
-architecture is `YorkieSlidesStore`'s, unchanged — see
-[slides-native-undo.md](../slides/slides-native-undo.md).
+`batch()` calls short-circuit rather than opening a second update, which
+Yorkie does not support — keyed on **`activeRoot`**, the same sentinel
+`withUpdate` reads, and deliberately not on a depth counter. A counter would
+still read "in a batch" during the SDK's post-updater work (the change push
+and the synchronous `local-change` publish), which runs after the ambient
+root is already gone; a subscriber re-entering `batch()` there would take the
+fast path with no root and get one undo unit per write. `MemDocStore`, whose
+undo unit is anchored to `snapshot()` rather than to an update, satisfies the
+same contract with a depth counter plus a checkpoint taken up front. The
+architecture is `YorkieSlidesStore`'s — see
+[slides-native-undo.md](../slides/slides-native-undo.md), whose sketch uses
+the counter for both stores.
+
+The contract both implementations enforce:
+
+- One top-level `batch(fn)` = at most one undo unit; a batch that writes
+  nothing pushes nothing and leaves redo history alone.
+- Nested `batch()` calls do not nest undo units.
+- `undo()` / `redo()` must not be called inside a batch.
+- `setDocument()` must not be called inside a batch — **both** stores throw.
+  It re-arms the undo floor, and `YorkieDocStore` can only read that floor
+  once the batch's single `doc.update` has closed, so inside a batch the
+  floor would land one unit low and the freshly loaded document itself would
+  become undoable. `MemDocStore` throws for parity, so code written against
+  the in-package store cannot pass there and fail under this one.
+- Whether a partially applied batch is rolled back is store-specific:
+  `YorkieDocStore` discards the whole update, `MemDocStore` does not.
+  `Doc.batch()` therefore re-reads the store when the body throws, so the
+  docs model never outlives writes the CRDT rejected.
 
 Today only the named-style redefinition entry points use it
 (`setDocStyles` / `updateStyleToMatch` / `resetNamedStyle` /
 `resetAllNamedStyles`, whose registry write triggers a second
 `dropStaleStyleOffAll` sweep). Every other editing path keeps the undo
-granularity it had.
+granularity it had, though all of them now route their writes through
+`withUpdate` instead of calling `doc.update` directly — a nested update
+inside an open batch would split its undo unit.
 
 ### Data Flow
 

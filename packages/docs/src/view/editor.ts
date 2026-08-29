@@ -1078,22 +1078,28 @@ export function initialize(
    * document and must run after the batch commits.
    *
    * Routed through `doc.batch` rather than `docStore.batch` so a throw
-   * inside the body re-reads `Doc`'s cached document: a store that rolls the
-   * whole batch back (`YorkieDocStore` discards its `doc.update`) would
-   * otherwise leave the cache describing writes that never committed — see
-   * `Doc.batch`.
+   * inside the transaction refreshes the model: the sweep re-reads the store
+   * mid-batch, and `YorkieDocStore` rolls the whole batch back, so the model
+   * would otherwise be the last holder of writes that never landed. The
+   * repaint is in a `finally` for the same reason — after a failed pass the
+   * screen must show whatever the store really holds, which under
+   * `MemDocStore` (no rollback) is not the pre-batch document.
+   * `notifyStyleApplied` stays on the success path: nothing was applied.
    */
   function withNamedStyleChange(write: () => void): void {
-    doc.batch(() => {
-      docStore.snapshot();
-      write();
-      // `dropStaleStyleOffAll` re-reads the store before deciding (so it sees
-      // the new style table) and again after any write, which is the refresh
-      // these paths used to do by hand.
-      doc.dropStaleStyleOffAll();
-    });
-    invalidateLayout();
-    render();
+    try {
+      doc.batch(() => {
+        docStore.snapshot();
+        write();
+        // `dropStaleStyleOffAll` re-reads the store before deciding (so it
+        // sees the new style table) and again after any write, which is the
+        // refresh these paths used to do by hand.
+        doc.dropStaleStyleOffAll();
+      });
+    } finally {
+      invalidateLayout();
+      render();
+    }
     notifyStyleApplied();
   }
 
