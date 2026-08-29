@@ -1,6 +1,6 @@
 import { Doc } from '../model/document.js';
 import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData, PageSetup } from '../model/types.js';
-import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE, MIN_CONTENT_PX } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
@@ -958,8 +958,28 @@ export function computeHFSelectionRects(
  * Throws rather than clamping: silently substituting a different page size
  * than the caller asked for is the kind of repair that gets noticed months
  * later, and no legitimate caller has anything to clamp.
+ *
+ * That rationale only holds if the two agree on where the floor is. This
+ * check and `resolvePageSetup`'s clamp share `MIN_CONTENT_PX`, because
+ * `writePageSetup` stores `resolvePageSetup(setup)` — so any geometry the
+ * assert let through but the resolver would rescale is exactly the silent
+ * substitution the paragraph above promises never happens. Everything this
+ * accepts, the resolver returns untouched.
+ *
+ * Every failure is a `RangeError`, including a missing `paperSize` or
+ * `margins`. Those are as reachable as any other bad geometry — the argument
+ * is `PageSetup`-typed, but it arrives from a CLI, a test or a future panel,
+ * and TypeScript is not there at runtime — and reading straight through to
+ * `setup.paperSize.width` reports them as a `TypeError`, which a caller
+ * cannot distinguish from a bug inside the editor.
  */
 function assertUsablePageSetup(setup: PageSetup): void {
+  if (!setup || !setup.paperSize || !setup.margins) {
+    throw new RangeError(
+      'Invalid page setup: paperSize and margins are both required',
+    );
+  }
+
   const { width, height } = getEffectiveDimensions(setup);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     throw new RangeError(
@@ -980,12 +1000,12 @@ function assertUsablePageSetup(setup: PageSetup): void {
 
   // Measured against the *effective* box, so the check follows the
   // orientation rather than the stored paper dimensions.
-  if (margins.left + margins.right >= width) {
+  if (margins.left + margins.right > width - MIN_CONTENT_PX) {
     throw new RangeError(
       'Invalid page setup: left and right margins leave no room for content',
     );
   }
-  if (margins.top + margins.bottom >= height) {
+  if (margins.top + margins.bottom > height - MIN_CONTENT_PX) {
     throw new RangeError(
       'Invalid page setup: top and bottom margins leave no room for content',
     );

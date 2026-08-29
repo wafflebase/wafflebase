@@ -263,19 +263,98 @@ function inlineToMarkdown(inline: Inline, opts: MarkdownOptions): string {
 const UNEMITTABLE_URL_CHARS = /[\s\u0000-\u001F\u007F-\u009F]/;
 
 /**
+ * Every character an emitted link destination may contain: the RFC 3986 URI
+ * character set — unreserved (`A-Za-z0-9-._~`), gen-delims (`:/?#[]@`),
+ * sub-delims (`!$&'()*+,;=`) and `%` for percent-encoding — plus any
+ * non-ASCII character.
+ *
+ * This is the allowlist half of the invariant below. Its power is in what
+ * RFC 3986 leaves *out*: `<`, `>` and `\` are not URI characters at all, and
+ * those are exactly the three characters a CommonMark renderer acts on when
+ * it reads a destination. Nothing here has to enumerate them.
+ *
+ * Non-ASCII is admitted rather than percent-encoded so a link written
+ * `/uploads/한글.png` survives the export as the author wrote it; it can name
+ * no scheme, no authority and no Markdown construct. The whitespace and
+ * control characters `UNEMITTABLE_URL_CHARS` refuses are checked separately,
+ * because that class reaches into the non-ASCII range this one admits.
+ */
+const URI_CHARS = /^[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%\u0080-\uFFFF]+$/;
+
+/**
+ * An HTML entity reference: `&` followed by a name, `&#` decimal digits, or
+ * `&#x` hex digits, terminated by `;`.
+ *
+ * `&` is a legitimate URI sub-delim — `?x=1&y=2` is the single most common
+ * shape a query string has — so it cannot simply be excluded from
+ * `URI_CHARS`. But it is also the one admitted character that *starts a
+ * decoder*, and CommonMark decodes entity references inside a link
+ * destination. Only `&` immediately followed by an entity's shape is refused;
+ * a query separator is not, since `&y=2` has no terminating `;`.
+ *
+ * Any `&name;` is refused, not just the HTML5 names CommonMark actually
+ * decodes: the conservative superset costs nothing (a URL wanting a literal
+ * ampersand spells it `%26`) and needs no copy of the entity table.
+ */
+const ENTITY_REFERENCE = /&(?:#[0-9]+|#[xX][0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]*);/;
+
+/**
+ * Is `url` written the same way the consumer will read it?
+ *
+ * This is the invariant the whole gate rests on, and the one round 3 got
+ * wrong: it judged raw bytes while the consumer resolves a *transformed*
+ * string, so every transform was a hole. A CommonMark renderer applies three
+ * of them to a link destination before any URL parser sees it —
+ *
+ *  - it accepts the `[text](<destination>)` form and strips the angle
+ *    brackets, so `<javascript:alert(1)>` carries no scheme as raw bytes but
+ *    resolves as one (and `<script>` lands in the `.md` as raw HTML, since
+ *    `escapeMarkdownHref` never escaped `<`);
+ *  - it decodes HTML entity references, so `&#106;avascript:` and
+ *    `&#47;&#47;evil.example/x` have neither a literal scheme nor a leading
+ *    `//` until the moment they do;
+ *  - it resolves backslash escapes, which the WHATWG parser then compounds by
+ *    folding `\` into `/` for special schemes.
+ *
+ * — and a URL parser adds its own (deleting tabs/CR/LF, trimming C0-or-space)
+ * which `UNEMITTABLE_URL_CHARS` already covers. Rather than model each
+ * rewrite, this refuses any destination that *has* one to apply, so the
+ * string the gate judges and the string the consumer resolves are the same
+ * string. `(` and `)` are the deliberate exception: they are ordinary URI
+ * characters that would truncate the `(…)` segment, so they are admitted here
+ * and escaped on the way out by `escapeMarkdownHref`, which is a
+ * transformation we control and which restores the exact original bytes.
+ */
+function isLiteralDestination(url: string): boolean {
+  if (url.length === 0) return false;
+  if (UNEMITTABLE_URL_CHARS.test(url)) return false;
+  if (!URI_CHARS.test(url)) return false;
+  return !ENTITY_REFERENCE.test(url);
+}
+
+/**
  * Does this reference begin with a scheme? Mirrors RFC 3986's `scheme` rule,
  * which is also what a URL parser uses to decide whether a reference is
  * absolute. Anything matching must clear `isSafeUrl`'s allowlist; anything
  * not matching carries no scheme at all and so cannot name a protocol.
+ *
+ * A relative reference whose *first segment* holds a colon — `foo:bar/x.png`
+ * — matches, fails the allowlist, and is dropped. That is deliberate, not a
+ * misclassification: RFC 3986 §4.2 says such a segment cannot begin a
+ * relative-path reference precisely because every parser reads it as a
+ * scheme, and the RFC's own remedy (`./foo:bar/x.png`) is accepted here.
+ * Guessing "relative" for a string the consumer will read as absolute is the
+ * same class of mistake as the ones above.
  */
 const HAS_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 
 /**
  * A relative reference that is really an *origin* change. `//host/x` keeps
  * the reader's scheme but swaps the authority, so it reaches an attacker's
- * server exactly as an absolute link would — and the WHATWG parser folds `\`
- * into `/` for special schemes, so `\\host/x` and `/\host/x` resolve the same
- * way. None of these is relative to the exported document.
+ * server exactly as an absolute link would. The backslash spellings
+ * (`\\host/x`, `/\host/x`), which the WHATWG parser folds to the same thing,
+ * never reach here — `\` is not a URI character — but stay matched so this
+ * rule reads as the whole rule rather than half of one.
  */
 const SCHEME_RELATIVE = /^[/\\]{2}/;
 
@@ -283,18 +362,18 @@ const SCHEME_RELATIVE = /^[/\\]{2}/;
  * Is `url` both safe to link to *and* safe to write verbatim into a link
  * destination? Every emitted `href`/`src` goes through here.
  *
- * A protocol allowlist can only judge a reference that *has* a protocol.
- * Relative references — `/uploads/x.png` from the app's own upload path,
- * `./a.png` and `#anchor` from HTML paste — name no protocol, so gating on
- * `isSafeUrl` alone rejects every one of them and silently strips legitimate
- * content from the export (an href degrades to bare text, an image to
- * `[image]`). They are accepted here on the strength of what they cannot be:
- * with no scheme they cannot select a dangerous one, and with no authority
- * they cannot leave the document's own origin.
+ * `isLiteralDestination` first, so everything after it judges the same bytes
+ * the consumer resolves. Then a protocol allowlist, which can only judge a
+ * reference that *has* a protocol. Relative references — `/uploads/x.png`
+ * from the app's own upload path, `./a.png` and `#anchor` from HTML paste —
+ * name no protocol, so gating on `isSafeUrl` alone rejects every one of them
+ * and silently strips legitimate content from the export (an href degrades to
+ * bare text, an image to `[image]`). They are accepted on the strength of
+ * what they cannot be: with no scheme they cannot select a dangerous one, and
+ * with no authority they cannot leave the document's own origin.
  */
 function isEmittableUrl(url: string): boolean {
-  if (url.length === 0) return false;
-  if (UNEMITTABLE_URL_CHARS.test(url)) return false;
+  if (!isLiteralDestination(url)) return false;
   if (HAS_SCHEME.test(url)) return isSafeUrl(url);
   return !SCHEME_RELATIVE.test(url);
 }
@@ -311,10 +390,13 @@ const SAFE_IMAGE_DATA_URI =
 
 /** Is `src` something we are willing to write as an image target? */
 function isSafeImageSrc(src: string): boolean {
-  // The character gate first, so it also covers the `data:image` branch —
-  // which bypasses `isEmittableUrl` entirely and is therefore the one path
-  // where no parser would ever look at the string.
-  if (UNEMITTABLE_URL_CHARS.test(src)) return false;
+  // The literal-destination gate first, so it also covers the `data:image`
+  // branch — which bypasses `isEmittableUrl` entirely and is therefore the one
+  // path where no parser would ever look at the string. Without it,
+  // `<data:image/png;base64,…>` and `data:image&#47;png;…` reach
+  // `SAFE_IMAGE_DATA_URI`, whose `^`/`$` anchors judge bytes the renderer will
+  // have rewritten before it resolves them.
+  if (!isLiteralDestination(src)) return false;
   return SAFE_IMAGE_DATA_URI.test(src) || isEmittableUrl(src);
 }
 
@@ -344,13 +426,29 @@ function imageInline(
 /**
  * Line separators, which no backslash escape neutralizes.
  *
- * A run's `text` is inline content — the model puts a paragraph break in a
- * new block, never inside a run — so a line break in one is either import
- * noise or an injection. Emitted verbatim it ends whatever construct
- * encloses it: a blank line closes the paragraph and everything after it is
- * re-parsed as document structure, a single newline truncates a GFM table
- * row, and inside `![...]` it closes the image. Folding them to a space is
- * the only repair that leaves the text in the block it belongs to.
+ * A `\n` inside a run is **not** import noise: it is this model's soft line
+ * break — word-processor Shift+Enter — and the layout engine implements it as
+ * a first-class feature (`MeasuredSegment.softBreak`, a zero-width run that
+ * forces a wrap without splitting the paragraph). Three importers produce
+ * one: DOCX `<w:br/>`, PPTX `<a:br>`, and an HTML `<br>` pasted inside a
+ * table cell, whose content is a single paragraph and so cannot be split into
+ * blocks. An earlier revision of this comment claimed the model "never" puts
+ * a break inside a run; that was wrong, and it is corrected here rather than
+ * left to justify the fold.
+ *
+ * The fold itself stands, for two reasons that survive the correction:
+ *
+ *  - it is what a soft break *means* in Markdown. GFM renders a source line
+ *    break inside a paragraph as a space, so folding to a space reproduces
+ *    the break's rendered effect in a format that has no other spelling for
+ *    it (the two-trailing-spaces hard break is a different construct, and a
+ *    lossy export is this serializer's stated contract).
+ *  - emitted verbatim it ends whatever construct encloses it: a blank line
+ *    closes the paragraph and everything after it is re-parsed as document
+ *    structure, a single newline truncates a GFM table row, and inside
+ *    `![...]` it closes the image. So a break that *is* an injection — the
+ *    same character, arriving from a paste or a collaborator's CRDT write —
+ *    is neutralized by the same rule.
  *
  * NEL (U+0085) and the Unicode line/paragraph separators are included
  * alongside CR and LF because a downstream renderer or editor may treat
@@ -390,9 +488,21 @@ function escapeMarkdownAlt(alt: string): string {
 }
 
 /**
- * Escape `)` and `\` inside a link/image href so a URL like
- * `https://x/(a)b` doesn't truncate the `(...)` segment.
+ * Escape the parentheses inside a link/image href so a URL like
+ * `https://en.wikipedia.org/wiki/Foo_(bar)` doesn't truncate — or unbalance —
+ * the enclosing `(...)` destination.
+ *
+ * Both are escaped, not just `)`: CommonMark accepts unescaped parentheses in
+ * a destination only when they *balance*, so a URL carrying a lone `(` needs
+ * the escape as much as one carrying a lone `)`.
+ *
+ * This is the only rewriting the serializer does to a destination, and it is
+ * information-preserving — a CommonMark reader resolves `\(` back to `(` — so
+ * `isLiteralDestination`'s guarantee survives it. Backslash is no longer
+ * escaped here because it can no longer arrive: it is not an RFC 3986 URI
+ * character, so `URI_CHARS` refuses any href containing one, and the only
+ * backslashes in the output are the ones this function writes.
  */
 function escapeMarkdownHref(href: string): string {
-  return href.replace(/[\\)]/g, (ch) => `\\${ch}`);
+  return href.replace(/[()]/g, (ch) => `\\${ch}`);
 }

@@ -308,6 +308,169 @@ describe('EditorAPI format painter', () => {
     editor.dispose();
   });
 
+  test('a selection starting at a block end reads the next block, not the previous run', () => {
+    // `formatSourcePosition` adds 1 to the selection start so the boundary
+    // between two runs resolves to the *following* one. Applied
+    // unconditionally, that walks off the end of the start block: for a
+    // selection anchored at the very end of "aaa|" the offset becomes
+    // len + 1, `caretInlineStyle` finds no run containing it, and falls
+    // through to the block's *last* run — the run immediately before the
+    // selection, which is exactly what the +1 exists to avoid.
+    //
+    // Nothing in the start block is selected here; the first selected
+    // character is the styled "bbb" at the head of the second block.
+    const editor = setupEditor([
+      {
+        id: 'source',
+        type: 'paragraph',
+        inlines: [{ text: 'aaa', style: { italic: true, fontSize: 11 } }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+      {
+        id: 'second',
+        type: 'paragraph',
+        inlines: [{ text: 'bbb', style: { bold: true, fontSize: 20 } }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+      {
+        id: 'target',
+        type: 'paragraph',
+        inlines: [{ text: 'plain', style: {} }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+    ]);
+
+    editor._setSelectionForTest({
+      anchor: { blockId: 'source', offset: 3 },
+      focus: { blockId: 'second', offset: 3 },
+    });
+    editor.copyFormat();
+
+    editor._setSelectionForTest({
+      anchor: { blockId: 'target', offset: 0 },
+      focus: { blockId: 'target', offset: 5 },
+    });
+    editor.pasteFormat();
+
+    const style = editor.getDoc().document.blocks[2].inlines[0].style;
+    expect(style.bold).toBe(true);
+    expect(style.fontSize).toBe(20);
+    expect(style.italic).toBeUndefined();
+    editor.dispose();
+  });
+
+  test('a selection ending exactly at a block end still reads its first character', () => {
+    // The clamp must not overshoot in the other direction: a selection that
+    // covers a whole single-run block reads that run, not the one after it.
+    const editor = setupEditor([
+      {
+        id: 'source',
+        type: 'paragraph',
+        inlines: [{ text: 'aaa', style: { italic: true, fontSize: 11 } }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+      {
+        id: 'target',
+        type: 'paragraph',
+        inlines: [{ text: 'plain', style: {} }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+    ]);
+
+    editor._setSelectionForTest({
+      anchor: { blockId: 'source', offset: 0 },
+      focus: { blockId: 'source', offset: 3 },
+    });
+    editor.copyFormat();
+
+    editor._setSelectionForTest({
+      anchor: { blockId: 'target', offset: 0 },
+      focus: { blockId: 'target', offset: 5 },
+    });
+    editor.pasteFormat();
+
+    const style = editor.getDoc().document.blocks[1].inlines[0].style;
+    expect(style.italic).toBe(true);
+    expect(style.fontSize).toBe(11);
+    editor.dispose();
+  });
+
+  test('a cell rectangle reads its first cell whichever way it was dragged', () => {
+    // `normalizeRange` orders a cell rectangle's row/column indices but hands
+    // `start`/`end` through as the raw anchor and focus. Reading the anchor
+    // therefore copies whichever cell the drag *started* in, so the same
+    // visible rectangle yields two different formats depending on direction.
+    const cell = (text: string, style: Record<string, unknown>): Block => ({
+      id: `cell-${text}`,
+      type: 'paragraph',
+      inlines: [{ text, style }],
+      style: EMPTY_BLOCK_STYLE,
+    });
+
+    const build = () => {
+      const first = cell('first', { italic: true, fontSize: 11 });
+      const last = cell('last', { bold: true, fontSize: 20 });
+      const table: Block = {
+        id: 'table',
+        type: 'table',
+        inlines: [],
+        style: EMPTY_BLOCK_STYLE,
+        tableData: {
+          rows: [
+            {
+              cells: [
+                { blocks: [first], style: {} },
+                { blocks: [last], style: {} },
+              ],
+            },
+          ],
+          columnWidths: [0.5, 0.5],
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any;
+      return {
+        editor: setupEditor([
+          table,
+          {
+            id: 'target',
+            type: 'paragraph',
+            inlines: [{ text: 'plain', style: {} }],
+            style: EMPTY_BLOCK_STYLE,
+          },
+        ]),
+        first,
+        last,
+      };
+    };
+
+    const rect = {
+      blockId: 'table',
+      start: { rowIndex: 0, colIndex: 0 },
+      end: { rowIndex: 0, colIndex: 1 },
+    };
+
+    // Same rectangle, dragged right-to-left: the anchor is in the *last*
+    // cell, but the rectangle's first cell is still the italic one.
+    const { editor, first, last } = build();
+    editor._setSelectionForTest({
+      anchor: { blockId: last.id, offset: 4 },
+      focus: { blockId: first.id, offset: 0 },
+      tableCellRange: rect,
+    });
+    editor.copyFormat();
+    editor._setSelectionForTest({
+      anchor: { blockId: 'target', offset: 0 },
+      focus: { blockId: 'target', offset: 5 },
+    });
+    editor.pasteFormat();
+
+    const style = editor.getDoc().document.blocks[1].inlines[0].style;
+    expect(style.italic).toBe(true);
+    expect(style.fontSize).toBe(11);
+    expect(style.bold).toBeUndefined();
+    editor.dispose();
+  });
+
   test('the Mod+Shift+C / Mod+Alt+V shortcuts drive the same buffer', () => {
     const editor = setupEditor(twoBlocks());
     const textarea = document.querySelector('textarea');

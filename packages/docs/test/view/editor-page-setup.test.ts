@@ -254,6 +254,57 @@ describe('EditorAPI page setup — bounds', () => {
     editor.dispose();
   });
 
+  test.each([
+    ['no paperSize', { orientation: 'portrait' as const, margins: SQUARE }],
+    ['no margins', { paperSize: PAPER_SIZES.LETTER, orientation: 'portrait' as const }],
+    ['neither', { orientation: 'portrait' as const }],
+    ['nothing at all', {}],
+  ])('refuses a setup with %s as a RangeError, not a TypeError', (_label, setup) => {
+    // `setPageSetup` is public and its argument arrives from a CLI, a test or
+    // a future panel as easily as from the dialog. A missing sub-object is
+    // the same class of mistake as a negative margin — bad geometry — and it
+    // must be reported the same way. Reading through to `setup.paperSize.
+    // width` first throws a TypeError, which no caller can tell apart from a
+    // bug inside the editor.
+    const { editor, store } = setupEditor();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => editor.setPageSetup(setup as any)).toThrow(RangeError);
+
+    expect(store.getDocument().pageSetup).toBeUndefined();
+    editor.dispose();
+  });
+
+  test('refuses a setup the resolver would silently rescale', () => {
+    // The assert and `resolvePageSetup`'s clamp have to agree on where the
+    // floor is, or the write path contradicts its own rationale: the assert
+    // says it "throws rather than clamping" precisely so a caller is never
+    // handed a different page than it asked for, and then `writePageSetup`
+    // stores `resolvePageSetup(setup)`. In the sub-pixel band between the two
+    // — the box is open, but narrower than the resolver's one-pixel minimum —
+    // a deliberate write passed the assert and was then quietly rescaled.
+    const { editor, store } = setupEditor();
+
+    // 816 px wide, 815.5 px of margin: > 0 left over, but < 1 px.
+    const sliver = withMargins({ top: 0, bottom: 0, left: 815.5, right: 0 });
+    expect(() => editor.setPageSetup(sliver)).toThrow(RangeError);
+    expect(store.getDocument().pageSetup).toBeUndefined();
+
+    editor.dispose();
+  });
+
+  test('stores exactly the geometry it accepted', () => {
+    // The other half of the same invariant: anything that clears the assert
+    // must survive the resolver unchanged.
+    const { editor } = setupEditor();
+
+    const accepted = withMargins({ top: 0, bottom: 0, left: 815, right: 0 });
+    editor.setPageSetup(accepted);
+
+    expect(editor.getPageSetup()).toEqual(accepted);
+    editor.dispose();
+  });
+
   test('measures the room against the effective, rotated page box', () => {
     // Landscape swaps the page box: Letter is 816 × 1056 portrait and
     // 1056 × 816 landscape. Vertical margins of 500 + 500 close the landscape

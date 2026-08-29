@@ -397,16 +397,66 @@ export class TextEditor {
    * is what makes it the first selected character rather than the boundary:
    * `caretInlineStyle` resolves an offset that sits exactly between two runs
    * to the *preceding* one (correct for a caret, wrong for a range whose
-   * first character belongs to the following run). The selection is non-empty
-   * here, and an offset past the block's end falls back to its last run.
+   * first character belongs to the following run).
+   *
+   * Two cases the bare `+1` got wrong, both of them the very bug it exists to
+   * prevent, wearing a different hat:
+   *
+   *  - **A selection starting at a block's end.** Dragging from the end of
+   *    one paragraph into the next leaves `start.offset === len`, so `+1`
+   *    lands past every run; `caretInlineStyle` falls through to the block's
+   *    *last* run — the run immediately before the selection. Nothing in that
+   *    block is selected at all, so the source is the first block after it
+   *    that has text.
+   *  - **A table cell rectangle.** `normalizeRange` orders the row/column
+   *    indices of a cell rectangle but passes `start`/`end` through as the
+   *    raw anchor and focus, so a rectangle dragged up-and-left reads the
+   *    cell the user finished on. Worse, for a down-left drag the rectangle's
+   *    first cell is neither endpoint. The ordered rectangle already names
+   *    the right cell, so read from that instead of from either endpoint.
    */
   private formatSourcePosition(): DocPosition {
-    const normalized = this.selection.getNormalizedRange(this.getActiveLayout());
+    const layout = this.getActiveLayout();
+    const normalized = this.selection.getNormalizedRange(layout);
     if (!normalized) return this.cursor.position;
-    return {
-      blockId: normalized.start.blockId,
-      offset: normalized.start.offset + 1,
-    };
+
+    // A cell rectangle's first cell is (start.rowIndex, start.colIndex) of
+    // the *ordered* rectangle, which is independent of drag direction.
+    const rect = normalized.tableCellRange;
+    if (rect) {
+      const table = this.doc.findBlock(rect.blockId)?.tableData;
+      const cell = table?.rows[rect.start.rowIndex]?.cells[rect.start.colIndex];
+      const first = cell?.blocks.find((b) => getBlockTextLength(b) > 0)
+        ?? cell?.blocks[0];
+      if (first) return { blockId: first.id, offset: 1 };
+    }
+
+    const startBlock = this.doc.findBlock(normalized.start.blockId);
+    const startLen = startBlock ? getBlockTextLength(startBlock) : 0;
+    if (normalized.start.offset < startLen) {
+      return {
+        blockId: normalized.start.blockId,
+        offset: normalized.start.offset + 1,
+      };
+    }
+
+    // The selection starts past the last character of its start block, so
+    // that block contributes nothing to it. Walk forward to the first block
+    // that actually holds selected text, stopping at the selection's end.
+    const blocks = this.doc.getContextBlocks();
+    const startIdx = blocks.findIndex((b) => b.id === normalized.start.blockId);
+    const endIdx = blocks.findIndex((b) => b.id === normalized.end.blockId);
+    if (startIdx !== -1 && endIdx >= startIdx) {
+      for (let i = startIdx + 1; i <= endIdx; i++) {
+        if (getBlockTextLength(blocks[i]) > 0) {
+          return { blockId: blocks[i].id, offset: 1 };
+        }
+      }
+    }
+
+    // Nothing selected carries text (an empty block, or a selection the
+    // layout cannot place). The block's own last run is the honest answer.
+    return { blockId: normalized.start.blockId, offset: normalized.start.offset };
   }
 
   /**

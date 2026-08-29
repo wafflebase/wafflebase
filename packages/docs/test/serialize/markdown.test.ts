@@ -456,16 +456,35 @@ describe('serializeMarkdown — escaping', () => {
     ).toBe('[weird\\]label](https://example.com)');
   });
 
-  it('escapes ) and \\ in link href', () => {
+  it('escapes both parentheses in a link href', () => {
+    // Unescaped parentheses are legal in a destination only when they
+    // balance, so a lone `(` needs the escape as much as a lone `)`.
     expect(
       serializeMarkdown(
         doc([
           block('a', 'paragraph', [
-            inline('go', { href: 'https://x.test/a)b\\c' }),
+            inline('go', { href: 'https://x.test/a)b(c' }),
           ]),
         ]),
       ),
-    ).toBe('[go](https://x.test/a\\)b\\\\c)');
+    ).toBe('[go](https://x.test/a\\)b\\(c)');
+  });
+
+  it('drops a link href containing a backslash rather than escaping it', () => {
+    // A backslash is not an RFC 3986 URI character, and it is both a
+    // CommonMark escape and — for a special scheme — folded to `/` by the
+    // WHATWG parser. It is now refused at the gate instead of escaped on
+    // the way out, so there is no longer a backslash the serializer has to
+    // reason about in an href.
+    expect(
+      serializeMarkdown(
+        doc([
+          block('a', 'paragraph', [
+            inline('go', { href: 'https://x.test/a\\c' }),
+          ]),
+        ]),
+      ),
+    ).toBe('go');
   });
 
   it('escapes ] in image alt', () => {
@@ -716,7 +735,94 @@ describe('serializeMarkdown — URL safety', () => {
     // …while the same URL without the padding still links.
     expect(linked('https://example.com/a')).toBe('[click me](https://example.com/a)');
   });
+
+  // ── The consumer's own decoding ───────────────────────────────────────────
+  // Refusing what the *URL* parser rewrites is only half the differential.
+  // Before a CommonMark renderer ever reaches a URL parser it rewrites the
+  // destination itself: it strips a `<…>` wrapper, decodes HTML entity
+  // references, and resolves backslash escapes. A gate that reads raw bytes
+  // and a consumer that reads the decoded form disagree about every one of
+  // those, and each disagreement is a live `javascript:` link.
+  const DECODED_PAYLOADS: Array<[string, string]> = [
+    // CommonMark's angle-bracket destination form: `[t](<dest>)`. As raw
+    // bytes this carries no scheme at all, so a scheme test never fires —
+    // but the renderer strips the brackets and resolves what is inside.
+    ['an angle-bracket javascript: destination', '<javascript:alert(1)>'],
+    ['an angle-bracket scheme-relative destination', '<//evil.example/x>'],
+    // `escapeMarkdownHref` escapes neither `<` nor `>`, so an href shaped
+    // like a tag lands in the exported `.md` as raw HTML.
+    ['a raw HTML tag', '<script>alert(1)</script>'],
+    ['a lone angle bracket', 'https://example.com/<img src=x>'],
+    // Entity references are decoded *inside* a link destination. Neither of
+    // these has a literal `:`-terminated scheme or a leading `//`.
+    ['a decimal entity scheme', '&#106;avascript:alert(1)'],
+    ['a hex entity scheme', '&#x6a;avascript:alert(1)'],
+    ['an entity-encoded colon', 'javascript&#58;alert(1)'],
+    ['a named-entity colon', 'javascript&colon;alert(1)'],
+    ['entity-encoded scheme-relative slashes', '&#47;&#47;evil.example/x'],
+    ['a named-entity solidus', '&sol;&sol;evil.example/x'],
+    // A backslash is both a CommonMark escape character and, for a special
+    // scheme, folded to `/` by the WHATWG parser.
+    ['a backslash escape', 'https://example.com/a\\x'],
+  ];
+
+  it.each(DECODED_PAYLOADS)(
+    'refuses a link destination carrying %s',
+    (_label, href) => {
+      const md = linked(href);
+      expect(md).toBe('click me');
+      // Nothing from the destination may survive into the output — in
+      // particular no `<`, which would be raw HTML in the exported file.
+      expect(md).not.toMatch(/[<>&]/);
+      expect(md).not.toContain('javascript');
+      expect(md).not.toContain('evil.example');
+    },
+  );
+
+  it.each(DECODED_PAYLOADS)(
+    'refuses an image source carrying %s',
+    (_label, src) => {
+      const md = pictured(src);
+      expect(md).toBe('[image]');
+    },
+  );
+
+  it('refuses a data:image source carrying an entity reference', () => {
+    // The `data:image/…` allowance bypasses `isEmittableUrl`, so it needs
+    // the same literal-destination gate.
+    expect(pictured('data:image&#47;png;base64,AAAA')).toBe('[image]');
+    expect(pictured('<data:image/png;base64,AAAA>')).toBe('[image]');
+  });
+
+  // A query string is the one place a bare `&` is both legitimate and
+  // common; it must keep working, because only `&…;` decodes.
+  it.each([
+    ['a two-parameter query', 'https://example.com/a?x=1&y=2'],
+    ['a query whose value ends in a semicolon', 'https://example.com/a?x=1;&y=2'],
+    ['a matrix parameter', 'https://example.com/a;v=1'],
+    ['parentheses', 'https://en.wikipedia.org/wiki/Foo_(bar)'],
+    ['a percent-encoded path', 'https://example.com/a%20b'],
+    ['a non-ASCII path', 'https://example.com/한글.png'],
+  ])('keeps %s as a link target', (_label, href) => {
+    expect(linked(href)).toBe(`[click me](${escapeHref(href)})`);
+  });
+
+  // ── A colon in the first segment ──────────────────────────────────────────
+  it('refuses a relative reference whose first segment holds a colon', () => {
+    // RFC 3986 §4.2: such a segment *cannot* begin a relative-path
+    // reference — every parser reads `foo:` as a scheme. Refusing is the
+    // honest reading; `./foo:bar.png` is the spelling that works.
+    expect(linked('foo:bar/baz.png')).toBe('click me');
+    expect(linked('./foo:bar/baz.png')).toBe(
+      '[click me](./foo:bar/baz.png)',
+    );
+  });
 });
+
+/** Mirror of the serializer's href escaping, for building expectations. */
+function escapeHref(href: string): string {
+  return href.replace(/[()]/g, (ch) => `\\${ch}`);
+}
 
 describe('serializeMarkdown — header / footer toggle', () => {
   const sample: Document = {

@@ -752,8 +752,15 @@ export const DEFAULT_PAGE_SETUP: PageSetup = {
  * Smallest content box `resolvePageSetup` will leave standing. One pixel is
  * enough for `paginateLayout` to make progress; the value only matters when
  * the stored margins were already unusable.
+ *
+ * Exported because it is the floor on *both* sides of the page-setup
+ * contract: `resolvePageSetup` clamps up to it when reading geometry nobody
+ * validated, and `assertUsablePageSetup` refuses below it when validating a
+ * deliberate write. Two copies of the number would let a write pass the
+ * assert and then be silently rescaled by the resolver — the exact
+ * substitution the assert exists to prevent.
  */
-const MIN_CONTENT_PX = 1;
+export const MIN_CONTENT_PX = 1;
 
 /** A stored dimension we are willing to lay out with, or the default. */
 function usableSize(value: unknown, fallback: number): number {
@@ -794,12 +801,21 @@ function fitMargins(
  * Resolve a stored page setup into one every layout pass can consume.
  *
  * This is the single read path — the editor, the ruler, `MemDocStore`,
- * `YorkieDocStore`, the CLI's pagination and PDF export all reach the page
- * setup through it — and it is the only place that sees geometry we did not
- * validate ourselves. `EditorAPI.setPageSetup` refuses unusable geometry at
- * the write it owns, but two paths never touch that write: a `.docx` import
- * stores its parsed geometry through `setDocument`, and a collaborator's
- * CRDT write lands in `document.pageSetup` with no local check at all.
+ * `YorkieDocStore`, the CLI's pagination, and both exporters (`PdfExporter`
+ * and `DocxExporter`) reach the page setup through it — and it is the only
+ * place that sees geometry we did not validate ourselves.
+ * `EditorAPI.setPageSetup` refuses unusable geometry at the write it owns,
+ * but two paths never touch that write: a `.docx` import stores its parsed
+ * geometry through `setDocument`, and a collaborator's CRDT write lands in
+ * `document.pageSetup` with no local check at all — where
+ * `YorkieDocStore.readPageSetup`'s `Number(undefined)` renders a missing
+ * field as `NaN`.
+ *
+ * The exporters are named explicitly because they were the exception this
+ * docstring once claimed they were not: both read `doc.pageSetup` raw, so the
+ * Export menu could hand NaN geometry to `<w:pgSz w:w="NaN"/>` and to
+ * `addPage`. They route through here now, and this list is the contract they
+ * belong to rather than a description of the callers that happened to exist.
  *
  * Clamping (rather than throwing) is the honest answer for data we do not
  * control: a remote peer must not be able to make this replica's document

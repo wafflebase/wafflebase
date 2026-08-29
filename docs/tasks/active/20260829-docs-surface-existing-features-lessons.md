@@ -198,3 +198,70 @@ resolution fell through to it. Moving `dist` aside made the real failure appear
 checkout ordering would have produced. Proving such a mapping is load-bearing
 means removing the thing that was masking it, not just watching the suite stay
 green.
+
+## Gate the string the consumer resolves, not the bytes you wrote
+
+The export URL gate was rewritten three times and the first two rewrites shared
+one mistake: they reasoned about the *raw* `href` while the thing that resolves
+it rewrites the string first. Round 3's rule — "a reference with no scheme
+cannot select a dangerous protocol" — is true of the bytes and false of the
+consumer, because a CommonMark renderer strips a `<…>` wrapper, decodes HTML
+entity references, and resolves backslash escapes *before* any URL parser sees
+the destination. So `<javascript:alert(1)>` and `&#106;avascript:alert(1)` both
+carry "no scheme" right up to the moment they do.
+
+The general shape of the bug: **a validator and its consumer disagreeing about
+what the string is.** Round 2 already hit it once at the URL-parser layer
+(`new URL()` deletes tabs/CR/LF before reading the scheme) and closed it for
+that one parser. The lesson only generalized on the third try — every layer
+between the model and the click is another rewriter, and each one needs the
+same question asked of it.
+
+What finally worked was inverting the direction of the rule. Instead of
+enumerating transforms to block, require the destination to be one that has no
+transform to apply — an allowlist of RFC 3986 URI characters, which excludes
+`<`, `>` and `\` *without naming them*, because none of the three was ever a
+URI character. The one admitted character that still starts a decoder (`&`, which
+a query string genuinely needs) gets a single context rule. Payload-by-payload
+patching would have missed the next spelling; the allowlist has no "next
+spelling".
+
+Corollary worth keeping: an allowlist regex is easy to get catastrophically
+wrong in a way that still looks right. Writing the non-ASCII tail as `%-￿`
+made a *range* starting at `%` (U+0025) that silently re-admitted `<`, `>` and
+`\` — i.e. the exact characters the class existed to exclude. The tests caught
+it; reading the regex did not.
+
+## "Single read path" is a claim about callers, and callers drift
+
+`resolvePageSetup`'s docstring named itself the one read path "including PDF
+export" while `PdfExporter` and `DocxExporter` both still read `doc.pageSetup`
+raw. Combined with `YorkieDocStore.readPageSetup`'s `Number(undefined)` → `NaN`,
+the Export menu could write `<w:pgSz w:w="NaN"/>` into a `.docx` (silently) and
+hand NaN to pdf-lib's `addPage` (an opaque `TypeError`).
+
+A docstring that lists its callers is a claim no compiler checks. When code and
+doc disagree the fix is not to soften the doc — it is to decide which one is
+right and make the other match. Here the doc was right about the design and
+wrong about the world, so the exporters moved.
+
+Related: an assert and a clamp guarding the same invariant must share the
+number. `assertUsablePageSetup` refused a *closed* box while `resolvePageSetup`
+clamped to a 1-px minimum, so geometry in the sub-pixel band passed the assert
+and was then silently rescaled by the resolver the write path calls — precisely
+the substitution the assert's comment promised never happened. One exported
+`MIN_CONTENT_PX` now backs both.
+
+## Check an invariant before writing a comment that asserts it
+
+The Markdown serializer folds line separators to a space, justified by "the
+model puts a paragraph break in a new block, never inside a run". That is false:
+`\n` inside a run is this model's *soft line break*, implemented as a
+first-class `MeasuredSegment.softBreak` in the layout engine and produced by
+DOCX `<w:br/>`, PPTX `<a:br>`, and an HTML `<br>` pasted into a table cell.
+
+The fold survived review anyway, because it is right for a reason the comment
+had not found: a space is what GFM renders a soft break as, so the transform is
+a faithful lossy mapping *and* a neutralization of the injection case. Being
+accidentally correct is not the same as being justified, and the next person to
+touch it would have inherited the false premise.

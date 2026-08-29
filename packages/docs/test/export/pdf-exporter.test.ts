@@ -457,3 +457,66 @@ describe('PdfExporter (outline)', () => {
     expect(outlines).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Unusable stored geometry
+// ---------------------------------------------------------------------------
+// Same argument as the DOCX exporter's matching suite: `resolvePageSetup` is
+// the model's single read path for stored geometry, and the Export menu can
+// hand either exporter a `pageSetup` no local write ever validated — a `.docx`
+// import's parsed geometry, or a collaborator's CRDT write, which
+// `YorkieDocStore.readPageSetup` renders as `NaN` for any missing field.
+// Reading `doc.pageSetup` raw propagates that NaN into the content width, the
+// pagination and finally the page's MediaBox: `paginateLayout` terminates, so
+// the failure is a corrupt PDF rather than a hang.
+describe('PdfExporter — unusable stored page setup', () => {
+  const nanSetup = {
+    paperSize: { name: 'Letter', width: NaN, height: NaN },
+    orientation: 'portrait' as const,
+    margins: { top: NaN, bottom: NaN, left: NaN, right: NaN },
+  };
+
+  const docWith = (pageSetup: unknown): Document => ({
+    blocks: [{
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: [{ text: 'Hello', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    }],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    pageSetup: pageSetup as any,
+  });
+
+  it('emits finite page dimensions for a NaN page setup', async () => {
+    const blob = await PdfExporter.export(docWith(nanSetup), exportOpts());
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    const pages = pdfDoc.getPages();
+    expect(pages.length).toBeGreaterThan(0);
+    for (const page of pages) {
+      const { width, height } = page.getSize();
+      expect(Number.isFinite(width)).toBe(true);
+      expect(Number.isFinite(height)).toBe(true);
+      expect(width).toBeGreaterThan(0);
+      expect(height).toBeGreaterThan(0);
+    }
+  });
+
+  it('matches the default-geometry export, since that is what it falls back to', async () => {
+    const nan = await PdfExporter.export(docWith(nanSetup), exportOpts());
+    const bare = await PdfExporter.export(docWith(undefined), exportOpts());
+    const nanPage = (await PDFDocument.load(await nan.arrayBuffer())).getPage(0);
+    const barePage = (await PDFDocument.load(await bare.arrayBuffer())).getPage(0);
+    expect(nanPage.getSize()).toEqual(barePage.getSize());
+  });
+
+  it('survives a page setup missing paperSize and margins entirely', async () => {
+    const blob = await PdfExporter.export(
+      docWith({ orientation: 'portrait' }),
+      exportOpts(),
+    );
+    const page = (await PDFDocument.load(await blob.arrayBuffer())).getPage(0);
+    const { width, height } = page.getSize();
+    expect(Number.isFinite(width) && width > 0).toBe(true);
+    expect(Number.isFinite(height) && height > 0).toBe(true);
+  });
+});
