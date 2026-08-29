@@ -6,6 +6,10 @@ import type {
   TableCell,
   TableData,
 } from '../model/types.js';
+// Straight from `@wafflebase/core/url` rather than through
+// `view/url-detect.js` (which only re-exports it): a serializer has no
+// business reaching into the view layer.
+import { isSafeUrl } from '@wafflebase/core/url';
 
 /**
  * Options for the Markdown serializer.
@@ -212,7 +216,12 @@ function inlineToMarkdown(inline: Inline, opts: MarkdownOptions): string {
   // "Use * for emphasis" doesn't accidentally turn into emphasis.
   let body = escapeMarkdownText(stripped);
 
-  if (style.href) {
+  // Same protocol gate the editor and the PDF exporter apply. A run can
+  // carry any string as its `href` (DOCX/HTML import, a pasted document, the
+  // CRDT itself), and the produced `.md` is opened by a renderer that will
+  // happily make `javascript:` or `data:text/html` clickable. An unsafe href
+  // degrades to the plain text it wrapped rather than becoming a live link.
+  if (style.href && isSafeUrl(style.href)) {
     body = `[${body}](${escapeMarkdownHref(style.href)})`;
   }
   if (style.strikethrough) {
@@ -227,6 +236,21 @@ function inlineToMarkdown(inline: Inline, opts: MarkdownOptions): string {
   return body;
 }
 
+/**
+ * `data:` URLs that are safe to emit as an image target: an image MIME type
+ * and nothing else. `isSafeUrl` refuses every `data:` URL — right for a
+ * hyperlink, too strict for `inlineImages`, whose whole purpose is to carry
+ * the pasted bytes into the file. `data:text/html`, `data:image/svg+xml`
+ * (which can script) and every other payload stay out.
+ */
+const SAFE_IMAGE_DATA_URI =
+  /^data:image\/(?:png|jpeg|jpg|gif|webp|bmp|avif);base64,[A-Za-z0-9+/=]*$/i;
+
+/** Is `src` something we are willing to write as an image target? */
+function isSafeImageSrc(src: string): boolean {
+  return SAFE_IMAGE_DATA_URI.test(src) || isSafeUrl(src);
+}
+
 function imageInline(
   image: NonNullable<Inline['style']['image']>,
   opts: MarkdownOptions,
@@ -234,6 +258,13 @@ function imageInline(
   const alt = escapeMarkdownAlt(image.alt ?? '');
   const isDataUri = image.src.startsWith('data:');
   if (isDataUri && !opts.inlineImages) {
+    return '[image]';
+  }
+  // An image `src` is a URL the reader's Markdown renderer will fetch (or,
+  // for `javascript:`/`data:text/html`, may execute). Nothing validates it
+  // on the way into the model, so gate it here — the same argument as the
+  // hyperlink above, and the same fallback: the placeholder, not a live URL.
+  if (!isSafeImageSrc(image.src)) {
     return '[image]';
   }
   return `![${alt}](${escapeMarkdownHref(image.src)})`;

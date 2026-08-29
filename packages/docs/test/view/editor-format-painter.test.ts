@@ -200,6 +200,92 @@ describe('EditorAPI format painter', () => {
     editor.dispose();
   });
 
+  test('the painter carries no structural inline kinds', () => {
+    // `image`, `pageNumber` and `href` say *what a run is*, not how it looks.
+    // The buffer is merged over every run of the target selection, so
+    // carrying them would graft the source's image / field / link onto all of
+    // them — a picture appearing five times, or every word turning into a
+    // link to wherever the source pointed.
+    const editor = setupEditor([
+      {
+        id: 'source',
+        type: 'paragraph',
+        inlines: [
+          {
+            text: 'linked',
+            style: {
+              bold: true,
+              href: 'https://example.com',
+              pageNumber: true,
+              image: { src: 'https://example.com/a.png', width: 10, height: 10 },
+            },
+          },
+        ],
+        style: EMPTY_BLOCK_STYLE,
+      },
+      {
+        id: 'target',
+        type: 'paragraph',
+        inlines: [{ text: 'plain', style: {} }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+    ]);
+
+    editor.copyFormat();
+    editor._setSelectionForTest({
+      anchor: { blockId: 'target', offset: 0 },
+      focus: { blockId: 'target', offset: 5 },
+    });
+    expect(editor.pasteFormat()).toBe(true);
+
+    const style = editor.getDoc().document.blocks[1].inlines[0].style;
+    expect(style.bold).toBe(true);
+    expect(style.href).toBeUndefined();
+    expect(style.pageNumber).toBeUndefined();
+    expect(style.image).toBeUndefined();
+    editor.dispose();
+  });
+
+  test('a backward selection copies the format of the text it highlights', () => {
+    // The caret sits at the selection's *focus*, which for a right-to-left
+    // drag is its start — so reading the format at the caret picks up the run
+    // before the highlighted text. Here that is the unstyled "aaa".
+    const editor = setupEditor([
+      {
+        id: 'source',
+        type: 'paragraph',
+        inlines: [
+          { text: 'aaa', style: {} },
+          { text: 'bbb', style: { bold: true, fontSize: 20 } },
+        ],
+        style: EMPTY_BLOCK_STYLE,
+      },
+      {
+        id: 'target',
+        type: 'paragraph',
+        inlines: [{ text: 'plain', style: {} }],
+        style: EMPTY_BLOCK_STYLE,
+      },
+    ]);
+
+    editor._setSelectionForTest({
+      anchor: { blockId: 'source', offset: 6 },
+      focus: { blockId: 'source', offset: 3 },
+    });
+    editor.copyFormat();
+
+    editor._setSelectionForTest({
+      anchor: { blockId: 'target', offset: 0 },
+      focus: { blockId: 'target', offset: 5 },
+    });
+    editor.pasteFormat();
+
+    const style = editor.getDoc().document.blocks[1].inlines[0].style;
+    expect(style.bold).toBe(true);
+    expect(style.fontSize).toBe(20);
+    editor.dispose();
+  });
+
   test('the Mod+Shift+C / Mod+Alt+V shortcuts drive the same buffer', () => {
     const editor = setupEditor(twoBlocks());
     const textarea = document.querySelector('textarea');

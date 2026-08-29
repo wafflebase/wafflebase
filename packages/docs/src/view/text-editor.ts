@@ -383,8 +383,30 @@ export class TextEditor {
    * previously held format.
    */
   copyFormat(): void {
-    this.styleBuffer = this.captureFormatAtCursor();
+    this.styleBuffer = this.captureFormatAtCursor(this.formatSourcePosition());
     this.notifyCopiedFormatChange();
+  }
+
+  /**
+   * Where the painter reads the format from: the first *selected* character
+   * when there is a selection, else the caret.
+   *
+   * `this.cursor.position` sits at the selection's focus, so a right-to-left
+   * drag would otherwise pick up the run immediately before the highlighted
+   * text — the user sees one format highlighted and copies another. The `+1`
+   * is what makes it the first selected character rather than the boundary:
+   * `caretInlineStyle` resolves an offset that sits exactly between two runs
+   * to the *preceding* one (correct for a caret, wrong for a range whose
+   * first character belongs to the following run). The selection is non-empty
+   * here, and an offset past the block's end falls back to its last run.
+   */
+  private formatSourcePosition(): DocPosition {
+    const normalized = this.selection.getNormalizedRange(this.getActiveLayout());
+    if (!normalized) return this.cursor.position;
+    return {
+      blockId: normalized.start.blockId,
+      offset: normalized.start.offset + 1,
+    };
   }
 
   /**
@@ -397,6 +419,12 @@ export class TextEditor {
    * single-shot semantics call `clearCopiedFormat()` afterwards.
    */
   pasteFormat(): boolean {
+    // View-only mode: block the programmatic write, the same way
+    // `insertText()` does. The keydown handler already returns early in
+    // read-only and `initialize()` neuters the `EditorAPI` entry point, but
+    // this class is publicly exported and the guard belongs on the mutator
+    // rather than on each of its call sites.
+    if (this.readOnly) return false;
     if (!this.styleBuffer) return false;
     if (!this.selection.hasSelection() || !this.selection.range) return false;
     this.saveSnapshot();
@@ -3302,12 +3330,26 @@ export class TextEditor {
    * block's named-style default — so painting from an italic Heading 6 makes
    * the target italic instead of clearing it. Only the booleans are baked
    * this way; the other keys stay raw, keeping the lazy cascade intact.
+   *
+   * `image`, `pageNumber` and `href` are dropped: they are structural inline
+   * kinds — *what the run is* — not how it looks, which is why
+   * `CLEAR_INLINE_STYLE` leaves the first two out too. The buffer is merged
+   * over every run of the target selection, so carrying them would graft the
+   * source's image / page-number field / hyperlink onto each of those runs.
    */
-  private captureFormatAtCursor(): Partial<InlineStyle> {
-    const raw = this.getStyleAtCursor();
-    const defaults = this.styleDefaultsAtCursor();
+  private captureFormatAtCursor(
+    position: DocPosition = this.cursor.position,
+  ): Partial<InlineStyle> {
+    const full = caretInlineStyle(this.doc, position);
+    const defaults = caretStyleDefaults(this.doc, position);
     const on = (key: keyof InlineStyle): boolean =>
-      ((raw[key] ?? defaults[key]) as boolean | undefined) === true;
+      ((full[key] ?? defaults[key]) as boolean | undefined) === true;
+    const {
+      image: _image,
+      pageNumber: _pageNumber,
+      href: _href,
+      ...raw
+    } = full;
     return {
       ...raw,
       bold: on('bold'),

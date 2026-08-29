@@ -377,6 +377,47 @@ describe('serializeMarkdown — inline mapping', () => {
     expect(md).toBe('![pic](data:image/png;base64,AAAA)');
   });
 
+  it.each([
+    ['javascript:', 'javascript:alert(1)'],
+    ['a scripting data: payload', 'data:text/html;base64,PHNjcmlwdD4='],
+    ['an SVG data: payload', 'data:image/svg+xml;base64,PHN2Zz4='],
+    ['file:', 'file:///etc/passwd'],
+  ])('never writes %s as an image target, even with inlineImages', (_label, src) => {
+    // The produced `.md` is opened by a renderer that will fetch — or, for
+    // the first two, execute — whatever the target is. Nothing validates an
+    // image `src` on the way into the model (DOCX/HTML import, a pasted
+    // document, the CRDT itself), so it is gated here.
+    const md = serializeMarkdown(
+      doc([
+        block('a', 'paragraph', [
+          inline('\uFFFC', { image: { src, width: 10, height: 10, alt: 'pic' } }),
+        ]),
+      ]),
+      { inlineImages: true },
+    );
+    expect(md).toBe('[image]');
+  });
+
+  it.each([
+    ['javascript:', 'javascript:alert(1)'],
+    ['data:', 'data:text/html;base64,PHNjcmlwdD4='],
+    ['a relative href', '/not/absolute'],
+  ])('drops the link but keeps the text for %s', (_label, href) => {
+    const md = serializeMarkdown(
+      doc([block('a', 'paragraph', [inline('click me', { href })])]),
+    );
+    expect(md).toBe('click me');
+  });
+
+  it('still links a safe href', () => {
+    const md = serializeMarkdown(
+      doc([
+        block('a', 'paragraph', [inline('mail', { href: 'mailto:a@b.com' })]),
+      ]),
+    );
+    expect(md).toBe('[mail](mailto:a@b.com)');
+  });
+
   it('renders the page-number marker as a literal #', () => {
     expect(
       serializeMarkdown(

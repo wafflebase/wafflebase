@@ -69,7 +69,36 @@ describe('DocsPageSetupDialog', () => {
     expect(marginInput('Bottom').value).toBe('0.5');
     expect(marginInput('Left').value).toBe('0.75');
     expect(marginInput('Right').value).toBe('0.25');
-    expect(screen.getByLabelText('Landscape')).toBeTruthy();
+  });
+
+  it('seeds the orientation and paper size, and hands them back untouched', () => {
+    // Both radios and their labels render unconditionally, so "the Landscape
+    // label exists" proves nothing. What has to hold is that the *state* was
+    // seeded: the Landscape radio reads checked, Portrait does not, and an
+    // Apply that touches only a margin returns A4/landscape rather than
+    // resetting the document to the portrait-Letter component defaults.
+    const editor = makeEditor({
+      paperSize: PAPER_SIZES.A4,
+      orientation: 'landscape',
+      margins: { top: 96, bottom: 48, left: 72, right: 24 },
+    });
+    mount(editor);
+
+    expect(
+      screen.getByRole('radio', { name: 'Landscape' }).getAttribute('aria-checked'),
+    ).toBe('true');
+    expect(
+      screen.getByRole('radio', { name: 'Portrait' }).getAttribute('aria-checked'),
+    ).toBe('false');
+
+    fireEvent.change(marginInput('Top'), { target: { value: '2' } });
+    fireEvent.click(apply());
+
+    expect(editor.setPageSetup).toHaveBeenCalledWith({
+      paperSize: PAPER_SIZES.A4,
+      orientation: 'landscape',
+      margins: { top: 192, bottom: 48, left: 72, right: 24 },
+    });
   });
 
   it('applies inches back as px, leaving untouched fields alone', () => {
