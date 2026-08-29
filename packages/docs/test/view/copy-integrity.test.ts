@@ -1081,6 +1081,112 @@ describe('copy path integrity', () => {
       editor.dispose();
     });
 
+    test('a toolbar undo clears it', () => {
+      // ⌘Z is safe by accident — the keydown reaches `imageKeyHandler`'s
+      // catch-all. The toolbar's Undo button calls `EditorAPI.undo()`
+      // straight through, so `undoFn` has to clear it itself.
+      const { editor } = setupEditor([blockWithTwoImages()]);
+      editor._setSelectionForTest({
+        anchor: { blockId: 'b1', offset: 0 },
+        focus: { blockId: 'b1', offset: 0 },
+      });
+      editor.insertTable(2, 2);
+      editor.selectImageAt('b1', 2);
+      expect(editor.getSelectedImage()!.data).toEqual(IMAGE);
+
+      editor.undo();
+
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+
+    test('a toolbar redo clears it', () => {
+      const { editor } = setupEditor([blockWithTwoImages()]);
+      editor._setSelectionForTest({
+        anchor: { blockId: 'b1', offset: 0 },
+        focus: { blockId: 'b1', offset: 0 },
+      });
+      editor.insertTable(2, 2);
+      editor.undo();
+      editor.selectImageAt('b1', 2);
+      expect(editor.getSelectedImage()!.data).toEqual(IMAGE);
+
+      editor.redo();
+
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+
+    // The table structure APIs are toolbar/context-menu driven, so like
+    // undo/redo no keydown precedes them. Each adds or removes blocks, which
+    // is the strongest form of the hazard: the selection can end up naming a
+    // block id that no longer exists at all.
+    const tableOps: Array<[string, (editor: EditorAPI) => void]> = [
+      ['deleteTable', (e) => e.deleteTable()],
+      ['insertTableRow', (e) => e.insertTableRow(true)],
+      ['deleteTableRow', (e) => e.deleteTableRow()],
+      ['insertTableColumn', (e) => e.insertTableColumn(true)],
+      ['deleteTableColumn', (e) => e.deleteTableColumn()],
+      ['splitTableCell', (e) => e.splitTableCell()],
+    ];
+    for (const [name, run] of tableOps) {
+      test(`${name} clears it`, () => {
+        const { editor } = setupEditor([blockWithTwoImages(), tableWithRichCell()]);
+        // Cursor inside the table (so the op is not a no-op), image selection
+        // out in the body paragraph.
+        editor._setSelectionForTest({
+          anchor: { blockId: 'c1', offset: 0 },
+          focus: { blockId: 'c1', offset: 0 },
+        });
+        editor.selectImageAt('b1', 2);
+        expect(editor.getSelectedImage()!.data).toEqual(IMAGE);
+
+        run(editor);
+
+        expect(editor.getSelectedImage()).toBeNull();
+        editor.dispose();
+      });
+    }
+
+    test('a table op called outside a table leaves it alone', () => {
+      // The clear sits after each op's `if (!cellInfo) return` guard, so a
+      // call that mutates nothing must not drop the selection either.
+      const { editor } = setupEditor([blockWithTwoImages()]);
+      editor.selectImageAt('b1', 2);
+
+      editor.deleteTableRow();
+
+      expect(editor.getSelectedImage()!.data).toEqual(IMAGE);
+      editor.dispose();
+    });
+
+    test('resetAfterDocumentReplace clears it', () => {
+      // Import / "replace content" swaps the whole document, so the block the
+      // selection names is very likely gone.
+      const { editor, store } = setupEditor([blockWithTwoImages()]);
+      editor.selectImageAt('b1', 2);
+      expect(editor.getSelectedImage()!.data).toEqual(IMAGE);
+
+      store.setDocument({ blocks: [blockWithImage('zz', 'yy', IMAGE2)] });
+      editor.resetAfterDocumentReplace();
+
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+
+    test('selecting an image in a block that is gone returns rather than throws', () => {
+      // `selectImageAt` / `getSelectedImage` / `updateSelectedImage` all read
+      // the selection coordinate through `findBlock`; `getBlock` throws on a
+      // missing id, and these are reached from view code (context menu,
+      // Image Options panel) holding a coordinate read a moment earlier.
+      const { editor } = setupEditor([blockWithTwoImages()]);
+
+      expect(() => editor.selectImageAt('gone', 0)).not.toThrow();
+
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+
     test('the exported clearImageSelection drops it, for out-of-module mutators', () => {
       // `FindReplaceState.replaceActive` / `replaceAll` run against the `Doc`
       // directly from the find bar, so they cannot be funnelled through the

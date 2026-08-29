@@ -1269,9 +1269,15 @@ export function initialize(
    * `TextEditor.imageSelectionClearer`), every paste (via
    * `TextEditor.applyPastePlan`), and the programmatic
    * `applySpellSuggestion` / `insertTable` / `insertImage` /
-   * `insertPageNumber` / `insertLink` APIs, none of which go through a
-   * keydown that would have cleared it. Renders only when something was
-   * actually selected.
+   * `insertPageNumber` / `insertLink` APIs and the table structure APIs
+   * (`deleteTable`, the row/column inserts and deletes, `mergeTableCells`,
+   * `splitTableCell`), none of which go through a keydown that would have
+   * cleared it. Renders only when something was actually selected.
+   *
+   * Three entry points drop `selectedImage` directly instead of calling this,
+   * because they already render once at the end and an early render there
+   * would paint a document that has moved on: `undoFn`, `redoFn` and
+   * `resetAfterDocumentReplace`.
    *
    * One mutation path lives outside this module and so cannot be funnelled
    * here: `FindReplaceState.replaceActive` / `replaceAll` run straight
@@ -2089,6 +2095,13 @@ export function initialize(
   // Wire up text editor
   const undoFn = () => {
     if (docStore.canUndo()) {
+      // Reverting a change moves the offsets the image selection is measured
+      // in. The keyboard path clears it via `imageKeyHandler`'s catch-all, but
+      // the toolbar's Undo button calls this directly, so the clear has to live
+      // here too. Assigned rather than routed through
+      // `clearImageSelectionForMutation()` because this function renders once
+      // at the end and an early render would paint the pre-undo document.
+      selectedImage = null;
       pending.clear();
       docStore.undo();
       doc.refresh();
@@ -2121,6 +2134,9 @@ export function initialize(
   };
   const redoFn = () => {
     if (docStore.canRedo()) {
+      // Same reasoning as `undoFn`: the toolbar's Redo button never passes
+      // through the keydown that would have cleared the image selection.
+      selectedImage = null;
       pending.clear();
       docStore.redo();
       doc.refresh();
@@ -3580,6 +3596,10 @@ export function initialize(
     deleteTable: () => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      // Removes whole blocks, so an image selection naming one of them (or
+      // measured against offsets the removal shifts) becomes a lie. Cleared
+      // after the guard so a no-op call leaves the selection alone.
+      clearImageSelectionForMutation();
       const tableBlockId = cellInfo.tableBlockId;
       docStore.snapshot();
 
@@ -3614,6 +3634,7 @@ export function initialize(
     insertTableRow: (above: boolean) => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const idx = above ? cellInfo.rowIndex : cellInfo.rowIndex + 1;
       doc.insertRow(cellInfo.tableBlockId, idx);
@@ -3623,6 +3644,7 @@ export function initialize(
     deleteTableRow: () => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const tableBlockId = cellInfo.tableBlockId;
       doc.deleteRow(tableBlockId, cellInfo.rowIndex);
@@ -3639,6 +3661,7 @@ export function initialize(
     insertTableColumn: (left: boolean) => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const idx = left ? cellInfo.colIndex : cellInfo.colIndex + 1;
       doc.insertColumn(cellInfo.tableBlockId, idx);
@@ -3648,6 +3671,7 @@ export function initialize(
     deleteTableColumn: () => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const tableBlockId = cellInfo.tableBlockId;
       doc.deleteColumn(tableBlockId, cellInfo.colIndex);
@@ -3664,6 +3688,7 @@ export function initialize(
     mergeTableCells: (range: CellRange) => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const tableBlockId = cellInfo.tableBlockId;
       doc.mergeCells(tableBlockId, range);
@@ -3677,6 +3702,7 @@ export function initialize(
     splitTableCell: () => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       doc.splitCell(cellInfo.tableBlockId, { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex });
       invalidateLayout();
@@ -3768,7 +3794,9 @@ export function initialize(
       render();
     },
     selectImageAt: (blockId: string, offset: number) => {
-      const block = doc.getBlock(blockId);
+      // Callers pass a coordinate they read earlier (a context-menu hit test),
+      // so the block may already be gone; `getBlock` would throw here.
+      const block = doc.findBlock(blockId);
       if (!block) return;
       if (!findImageAtOffset(block, offset)) return;
       selectImageInline(blockId, offset);
@@ -3777,7 +3805,11 @@ export function initialize(
     clearImageSelection: clearImageSelectionForMutation,
     getSelectedImage: () => {
       if (!selectedImage) return null;
-      const block = doc.getBlock(selectedImage.blockId);
+      // `findBlock`, not `getBlock`: the selection is a coordinate that can
+      // outlive its block (a remote edit, or a mutation entry point that did
+      // not clear it), and `getBlock` throws on a missing id — the same
+      // hardening `imageSelectionProvider` got.
+      const block = doc.findBlock(selectedImage.blockId);
       if (!block) return null;
       const data = findImageAtOffset(block, selectedImage.offset);
       if (!data) return null;
@@ -3790,7 +3822,8 @@ export function initialize(
     updateSelectedImage: (patch: Partial<ImageData>) => {
       if (readOnly) return;
       if (!selectedImage) return;
-      const block = doc.getBlock(selectedImage.blockId);
+      // See `getSelectedImage` — a stale selection must return, not throw.
+      const block = doc.findBlock(selectedImage.blockId);
       if (!block) return;
       const current = findImageAtOffset(block, selectedImage.offset);
       if (!current) return;
@@ -3872,6 +3905,13 @@ export function initialize(
     },
     isComposing: () => textEditor?.isComposing() ?? false,
     resetAfterDocumentReplace: () => {
+      // The whole document was swapped out (import / replace content), so the
+      // block the image selection names is very likely gone. Assigned rather
+      // than routed through `clearImageSelectionForMutation()`: this runs
+      // before `doc.refresh()` and the layout invalidation, so rendering here
+      // would paint the new document through the old layout.
+      selectedImage = null;
+      imageResizeDrag = null;
       pending.clear();
       doc.refresh();
       textEditor?.setEditContext('body');

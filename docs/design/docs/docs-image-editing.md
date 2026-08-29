@@ -310,11 +310,24 @@ selection is still live calls it: cut's text path and every paste (through
 `TextEditor.imageSelectionClearer`, wired into `handleCut` and
 `applyPastePlan` — the single funnel all paste paths reach), plus the
 programmatic `applySpellSuggestion` / `insertTable` / `insertImage` /
-`insertPageNumber` / `insertLink` APIs, none of which are preceded by a
-keydown that would have cleared it. (`insertLink`'s caret branch inserts
-the URL as literal text; its style-only branches shift nothing, but the
-clear is unconditional so the rule reads "this API mutates → it clears
-first" with no exceptions to remember.)
+`insertPageNumber` / `insertLink` APIs and the table structure APIs
+(`deleteTable`, the row/column inserts and deletes, `mergeTableCells`,
+`splitTableCell`), none of which are preceded by a keydown that would have
+cleared it. (`insertLink`'s caret branch inserts the URL as literal text;
+its style-only branches shift nothing, but the clear is unconditional so
+the rule reads "this API mutates → it clears first" with no exceptions to
+remember. The table APIs clear *after* their `if (!cellInfo) return` guard,
+so a call made outside a table is a true no-op.)
+
+Three entry points drop `selectedImage` with a direct assignment rather
+than through the helper: `undoFn`, `redoFn` and
+`resetAfterDocumentReplace`. All three already render once at the end, and
+the helper's own `render()` would run before the document had been
+refreshed and the layout cache invalidated — painting the new document
+through the old layout. The rule still holds for them; only the mechanism
+differs. Undo/redo matter because the keyboard path is safe by accident
+(`⌘Z` reaches `imageKeyHandler`'s catch-all) while the toolbar's Undo/Redo
+buttons call `EditorAPI.undo()/redo()` directly and never pass a keydown.
 
 One mutator lives **outside** `editor.ts` and so cannot be funnelled
 through the helper: `FindReplaceState.replaceActive` / `replaceAll` run
