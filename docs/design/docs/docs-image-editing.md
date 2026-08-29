@@ -117,8 +117,8 @@ image handle overlay is shown. Clicking elsewhere returns to text mode.
 ### Clipboard hooks on `TextEditor`
 
 `TextEditor` owns the `copy`/`cut` listeners but not the image selection,
-which is view-local state in `initialize()`. Two nullable hooks bridge the
-two (issue #870); `initialize()` assigns both:
+which is view-local state in `initialize()`. Three nullable hooks bridge the
+two (issue #870); `initialize()` assigns all three:
 
 ```ts
 class TextEditor {
@@ -133,6 +133,9 @@ class TextEditor {
 
   /** Removes whatever the provider reports, as one undo unit. Cut only. */
   imageDeleteHandler: (() => void) | null;
+
+  /** Drops the image selection without touching the document. Cut only. */
+  imageSelectionClearer: (() => void) | null;
 }
 ```
 
@@ -146,6 +149,20 @@ Two properties of the provider are load-bearing:
   owns the selection state that has to be cleared alongside the deletion,
   and that removal must refuse to run in a read-only editor — see
   [Keyboard](#keyboard) below.
+
+`imageSelectionClearer` exists because the two selections can be live at
+once and the **text** path wins. `handleCut`'s text branch deletes text, so
+it shifts the offsets the image selection is expressed in; left set, the
+selection would name whatever inline landed on that offset, and the next
+Delete would remove *that* image. `handleCopy` needs no such call — it
+mutates nothing, so no offset moves under it.
+
+Both handlers read `e.clipboardData` and bail **before** `preventDefault()`
+when it is null. Claiming the event and then finding the clipboard
+unwritable is the worst outcome available: the native copy is suppressed
+and nothing is written, so the shortcut silently empties the user's system
+clipboard. For cut it is also a data-loss guard — a cut that cannot write
+must not delete.
 
 `writeImageToClipboard` puts the image on the clipboard as a one-inline
 paragraph, the same shape an in-document image copy produces, so it pastes
@@ -203,6 +220,14 @@ table above carries its own read-only check. `deleteSelectedImageInline()`
 editor for exactly that reason; without it a viewer could delete an image
 out of a document they cannot write.
 
+It also **re-validates** the stored `{ blockId, offset }` against the
+document the way `imageSelectionProvider` does, and clears the selection
+instead of writing when the pair no longer resolves. The selection is
+coordinates, not a handle: a peer who deleted the block makes the
+positional `deleteText` throw, and a peer who merely shifted the text
+leaves the offset naming an ordinary character — deleting one character
+there silently takes the wrong one.
+
 Copy and cut are the only two keys the handler consumes **without**
 `preventDefault()`. Clearing the image selection here is what left the
 browser's `copy` event with nothing to write (issue #870), so the handler
@@ -216,6 +241,22 @@ The key is normalized (`e.key.length === 1 ? e.key.toLowerCase() : e.key`)
 the same way `handleKeyDown` does it: the browser reports the *modified*
 character, so Caps Lock turns Cmd+C into `'C'` and a raw comparison would
 fall through to the catch-all and reintroduce #870.
+
+The modifier is `e.metaKey || e.ctrlKey` — **either**, not the platform's.
+`navigator.platform` is an empty string in some browsers, so a
+platform-keyed choice picks the wrong modifier there and the shortcut lands
+in the same catch-all. Accepting both is safe: the branch only declines to
+clear the selection, and Cmd+C and Ctrl+C both mean copy.
+
+Selecting an image — from the mousedown hit-test or the `selectImageAt`
+API — goes through one `selectImageInline()` helper that also **focuses the
+hidden textarea**. Nothing else does: the image mousedown handler
+`preventDefault()`s and stops propagation before `TextEditor.handleMouseDown`
+can focus, and a read-only editor never focuses on mount at all. Without
+that call a clicked image on a read-only document receives neither the
+keydown nor the browser's `copy` event, so the context menu's read-only
+Copy entry would offer something that does nothing. Focus mutates nothing —
+every write still goes through a `readOnly`-gated path.
 
 ## Floating Context Bar *(Planned — Milestone 5)*
 

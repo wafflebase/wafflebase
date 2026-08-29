@@ -105,3 +105,71 @@ branch.
 - A test file written for the *next* commit must be parked outside the repo
   while verifying the current one, or `verify:fast` fails on a bug that has
   not been fixed yet.
+
+## A stored `{ blockId, offset }` is a guess, not a handle
+
+Every consumer of the image selection has to re-derive it. The provider
+learned that in round two (`findBlock`, not the throwing `getBlock`); the
+*deleter* had not, and it is the one that matters most — a read that
+resolves wrongly returns nothing, but a positional `deleteText` that
+resolves wrongly deletes a real character the user never selected.
+`ab<img>cd` with the image gone under it became `abd`.
+
+The rule the code now follows: any path that acts on `selectedImage`
+re-validates with `findBlock` + `findImageAtOffset` first, and treats a
+failed lookup as "the selection is stale, drop it".
+
+The corollary is the second finding: whoever *shifts* the offsets has to
+clear the selection. `handleCut`'s text branch deletes text out from under
+an image selection that can legitimately be live at the same time. Clearing
+after the fact is not enough — the stale selection names whatever inline
+landed on that offset, so the very next Delete removes the wrong image.
+
+## Focus is part of "selected", not a side effect of clicking
+
+The Cmd/Ctrl+C fix reached the keyboard through the hidden textarea, and
+nothing focused it: the image mousedown handler stops propagation before
+`TextEditor.handleMouseDown` runs, and a read-only editor deliberately never
+focuses on mount. So the fix worked in exactly the case that was already
+working (an editable document the user had typed in) and not in the one the
+context-menu change was added for.
+
+Two selection entry points had drifted apart — the mousedown hit-test and
+the `selectImageAt` API each set `selectedImage` themselves. Routing both
+through one `selectImageInline()` is what let a single jsdom test cover the
+production path.
+
+## A platform check that can return the empty string is a coin flip
+
+`/Mac|iPhone|iPad|iPod/.test(navigator.platform)` reads as "is this a Mac",
+but `navigator.platform` is deprecated and empty in some browsers — jsdom
+included, which is how a test caught it. Empty means "not a Mac", so a real
+Mac user gets the Ctrl branch and Cmd+C misses the guard.
+
+Where a wrong answer is a *bug* and accepting both answers is harmless,
+accept both: `e.metaKey || e.ctrlKey`. Round two had declined this same
+change for consistency with the surrounding idiom. Consistency with an
+unsafe idiom is not a reason.
+
+## `preventDefault()` is a promise you can only keep after checking
+
+`handleCopy`/`handleCut` cancelled the event and *then* wrote through
+`e.clipboardData?.setData` — optional chaining, so a null clipboard was
+silently a no-op. The user gets the worst of both: the browser's own copy
+suppressed, nothing written, system clipboard emptied. For cut it was
+worse still, because the deletion ran anyway.
+
+Read the capability first, bail before claiming the event, and bind it to a
+local (`const clipboard = e.clipboardData`) so the optional chaining that
+hid the problem cannot come back.
+
+## Process notes (round three)
+
+- **Never `git checkout -- <file>` to undo a mutation experiment.** It
+  reverts to HEAD, so it took the uncommitted fix with it. Snapshot the file
+  contents in the mutation script and write them back in a `finally`, which
+  is what the script does for every other mutation.
+- Mutation-checking by hand does not scale past three or four guards. A
+  small script that applies each mutation, runs the suite with
+  `--reporter=json`, collects the failed titles and restores the file made
+  seven checks cheap enough to re-run after the accident above.

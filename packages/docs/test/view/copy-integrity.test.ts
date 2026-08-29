@@ -21,6 +21,7 @@ import type { Block } from '../../src/model/types.js';
 
 const EMPTY_BLOCK_STYLE = normalizeBlockStyle({});
 const IMAGE = { src: 'https://example.test/cat.png', width: 120, height: 80 };
+const IMAGE2 = { src: 'https://example.test/dog.png', width: 60, height: 40 };
 
 let originalGetContext: typeof HTMLCanvasElement.prototype.getContext;
 let originalResizeObserver: typeof globalThis.ResizeObserver | undefined;
@@ -87,6 +88,7 @@ function setupEditor(blocks: Block[], readOnly = false): {
 function dispatchClipboard(
   textarea: HTMLTextAreaElement,
   type: 'copy' | 'cut',
+  options: { withData?: boolean } = {},
 ): { written: Map<string, string>; event: Event; errors: unknown[] } {
   const written = new Map<string, string>();
   const clipboardData = {
@@ -94,7 +96,22 @@ function dispatchClipboard(
     getData: (t: string) => written.get(t) ?? '',
   };
   const event = new Event(type, { bubbles: true, cancelable: true });
-  Object.defineProperty(event, 'clipboardData', { value: clipboardData });
+  // `withData: false` models the browsers that hand the listener a `null`
+  // `clipboardData` (a synthetic or permission-denied clipboard event).
+  Object.defineProperty(event, 'clipboardData', {
+    value: options.withData === false ? null : clipboardData,
+  });
+  return { written, event, errors: dispatchCapturingErrors(textarea, event) };
+}
+
+/**
+ * Dispatch `event` on the textarea and return anything its listeners threw.
+ * A DOM listener's exception never propagates to `dispatchEvent`, so without
+ * this a handler that throws still looks like a passing test — it only shows
+ * up out of band on the `window` `error` event. `preventDefault()` on that
+ * error keeps it from escalating to an unhandled rejection as well.
+ */
+function dispatchCapturingErrors(target: EventTarget, event: Event): unknown[] {
   const errors: unknown[] = [];
   const onError = (e: ErrorEvent) => {
     errors.push(e.error ?? e.message);
@@ -102,11 +119,11 @@ function dispatchClipboard(
   };
   window.addEventListener('error', onError);
   try {
-    textarea.dispatchEvent(event);
+    target.dispatchEvent(event);
   } finally {
     window.removeEventListener('error', onError);
   }
-  return { written, event, errors };
+  return errors;
 }
 
 /** Dispatch a `copy` on the hidden textarea and return what was written. */
@@ -119,11 +136,26 @@ function dispatchCut(textarea: HTMLTextAreaElement): Map<string, string> {
   return dispatchClipboard(textarea, 'cut').written;
 }
 
-/** Press the copy shortcut. Both modifiers so the assertion is OS-agnostic. */
-function pressCopyShortcut(textarea: HTMLTextAreaElement, key = 'c'): void {
-  textarea.dispatchEvent(new KeyboardEvent('keydown', {
-    key, metaKey: true, ctrlKey: true, bubbles: true, cancelable: true,
-  }));
+/**
+ * Press the copy shortcut and return the dispatched event, so a caller can
+ * assert on `defaultPrevented` — the whole #870 fix depends on the keydown
+ * NOT being cancelled, since that is what lets the browser go on to fire its
+ * own `copy` event.
+ */
+function pressCopyShortcut(
+  textarea: HTMLTextAreaElement,
+  key = 'c',
+  modifiers: { metaKey?: boolean; ctrlKey?: boolean } = { metaKey: true, ctrlKey: true },
+): KeyboardEvent {
+  const event = new KeyboardEvent('keydown', {
+    key,
+    metaKey: modifiers.metaKey ?? false,
+    ctrlKey: modifiers.ctrlKey ?? false,
+    bubbles: true,
+    cancelable: true,
+  });
+  textarea.dispatchEvent(event);
+  return event;
 }
 
 /** Press a bare (unmodified) key, e.g. Delete. */
@@ -131,6 +163,32 @@ function pressKey(textarea: HTMLTextAreaElement, key: string): void {
   textarea.dispatchEvent(new KeyboardEvent('keydown', {
     key, bubbles: true, cancelable: true,
   }));
+}
+
+/** Press a bare key and report anything the keydown listener threw. */
+function pressKeyCapturingErrors(textarea: HTMLTextAreaElement, key: string): unknown[] {
+  return dispatchCapturingErrors(
+    textarea,
+    new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+  );
+}
+
+/** The concatenated text of a body block, images included as their ORC. */
+function bodyText(editor: EditorAPI, index = 0): string {
+  return editor.getDoc().document.blocks[index].inlines.map((i) => i.text).join('');
+}
+
+/** The blocks of the first cell of the first body table. */
+function cellBlocks(editor: EditorAPI): Block[] {
+  return editor.getDoc().document.blocks[0].tableData!.rows[0].cells[0].blocks;
+}
+
+/** The concatenated text of that cell. */
+function cellText(editor: EditorAPI): string {
+  return cellBlocks(editor)
+    .flatMap((b) => b.inlines)
+    .map((i) => i.text)
+    .join('');
 }
 
 function payloadBlocks(written: Map<string, string>): Block[] {
@@ -177,6 +235,27 @@ function nestedTableWithRichCell(): Block {
   }];
   outer.tableData!.rows[0].cells[0].blocks.push(inner);
   return outer;
+}
+
+/**
+ * `ab` + IMAGE + `c` + IMAGE2 + `d`. Offsets: 0–1 text, 2 IMAGE, 3 `c`,
+ * 4 IMAGE2, 5 `d`. Deleting the leading `ab` shifts IMAGE2 onto offset 2 —
+ * the offset a selection of IMAGE was holding, which is what makes a stale
+ * image selection observable rather than merely wrong-looking.
+ */
+function blockWithTwoImages(): Block {
+  return {
+    id: 'b1',
+    type: 'paragraph',
+    inlines: [
+      { text: 'ab', style: {} },
+      { text: '￼', style: { image: IMAGE } },
+      { text: 'c', style: {} },
+      { text: '￼', style: { image: IMAGE2 } },
+      { text: 'd', style: {} },
+    ],
+    style: EMPTY_BLOCK_STYLE,
+  };
 }
 
 /** A paragraph of `before` + one image + `after`; the image sits at `before.length`. */
@@ -301,6 +380,74 @@ describe('copy path integrity', () => {
       pressCopyShortcut(textarea);
 
       expect(editor.getSelectedImage()).not.toBeNull();
+      editor.dispose();
+    });
+
+    test('the copy shortcut is left uncancelled so the browser still copies', () => {
+      // The whole fix rests on this: `imageKeyHandler` consumes Cmd/Ctrl+C
+      // *without* `preventDefault()`, because the browser only fires its own
+      // `copy` event — the one that actually writes the clipboard — for a
+      // keydown it was allowed to act on. Dispatching the keydown and the
+      // clipboard event separately (as every other test here does) cannot see
+      // that: a `preventDefault()` added to the handler would leave them all
+      // green while the shortcut stopped working in a real browser.
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+
+      expect(pressCopyShortcut(textarea, 'c').defaultPrevented).toBe(false);
+      editor.dispose();
+    });
+
+    test('either modifier alone carries the copy shortcut', () => {
+      // `navigator.platform` is an empty string in some browsers, so a
+      // platform-keyed choice between Meta and Ctrl silently picks the wrong
+      // one and the shortcut falls into the catch-all that clears the image
+      // selection — issue #870 again. Cmd+C and Ctrl+C both mean copy.
+      for (const modifiers of [{ metaKey: true }, { ctrlKey: true }]) {
+        const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+        editor.selectImageAt('b1', 2);
+
+        const event = pressCopyShortcut(textarea, 'c', modifiers);
+
+        expect(event.defaultPrevented).toBe(false);
+        expect(editor.getSelectedImage()).not.toBeNull();
+        expect(payloadBlocks(dispatchCopy(textarea))[0].inlines[0].style.image)
+          .toEqual(IMAGE);
+        editor.dispose();
+      }
+    });
+
+    test('a read-only viewer can copy a click-selected image', () => {
+      // This is what the docs context menu's read-only Copy entry offers. A
+      // read-only editor deliberately never focuses on mount, and the image
+      // mousedown path stops propagation before `TextEditor.handleMouseDown`
+      // can focus, so unless selecting an image focuses the hidden textarea
+      // itself the viewer receives neither the keydown nor the `copy` event.
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')], true);
+      expect(document.activeElement).not.toBe(textarea);
+
+      editor.selectImageAt('b1', 2);
+
+      expect(document.activeElement).toBe(textarea);
+      expect(pressCopyShortcut(textarea, 'c').defaultPrevented).toBe(false);
+      const blocks = payloadBlocks(dispatchCopy(textarea));
+      expect(blocks[0].inlines[0].style.image).toEqual(IMAGE);
+      // Read-only stays read-only: copying mutated nothing.
+      expect(editor.getDoc().document.blocks[0].inlines).toHaveLength(3);
+      editor.dispose();
+    });
+
+    test('a null clipboardData leaves the copy to the browser', () => {
+      // `preventDefault()` before knowing the clipboard is writable is the
+      // worst of both: the native copy is suppressed and nothing is written,
+      // so the shortcut silently clears the user's system clipboard.
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+
+      const { event, errors } = dispatchClipboard(textarea, 'copy', { withData: false });
+
+      expect(errors).toEqual([]);
+      expect(event.defaultPrevented).toBe(false);
       editor.dispose();
     });
 
@@ -477,6 +624,57 @@ describe('copy path integrity', () => {
       editor.dispose();
     });
 
+    test('Delete deletes nothing when the offset no longer holds an image', () => {
+      // The stored selection is coordinates, not a handle. Drive the remote
+      // path production uses (`docs-view.tsx`'s `store.onRemoteChange` →
+      // `editor.getDoc().refresh()`, which leaves the image selection alone):
+      // a peer rewrites the block to plain `abcd`, so offset 2 — where the
+      // image used to be — now names the character `c`. Deleting one
+      // character there without re-validating silently eats the wrong
+      // character and the user's document reads `abd`.
+      const { editor, textarea, store } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+
+      store.setDocument({
+        blocks: [{
+          id: 'b1', type: 'paragraph',
+          inlines: [{ text: 'abcd', style: {} }],
+          style: EMPTY_BLOCK_STYLE,
+        }],
+      });
+      editor.getDoc().refresh();
+
+      const errors = pressKeyCapturingErrors(textarea, 'Delete');
+
+      expect(errors).toEqual([]);
+      expect(bodyText(editor)).toBe('abcd');
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+
+    test('Delete deletes nothing when a peer deleted the block', () => {
+      // Same stale-selection hazard, other half: the block itself is gone, so
+      // the unvalidated `deleteText` throws out of the keydown listener.
+      const { editor, textarea, store } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+
+      store.setDocument({
+        blocks: [{
+          id: 'b2', type: 'paragraph',
+          inlines: [{ text: 'peer', style: {} }],
+          style: EMPTY_BLOCK_STYLE,
+        }],
+      });
+      editor.getDoc().refresh();
+
+      const errors = pressKeyCapturingErrors(textarea, 'Delete');
+
+      expect(errors).toEqual([]);
+      expect(bodyText(editor)).toBe('peer');
+      expect(editor.getSelectedImage()).toBeNull();
+      editor.dispose();
+    });
+
     test('a read-only editor refuses to delete the selected image', () => {
       // `imageKeyHandler` runs *before* `handleKeyDown`'s read-only guard
       // (text-editor.ts: the handler is consulted at the top of the method),
@@ -504,6 +702,31 @@ describe('copy path integrity', () => {
       pressCopyShortcut(textarea, 'x');
 
       expect(editor.getSelectedImage()).not.toBeNull();
+      editor.dispose();
+    });
+
+    test('the cut shortcut is left uncancelled so the browser still cuts', () => {
+      // Same reason as the copy shortcut: cancelling the keydown means the
+      // browser never fires the `cut` event that does the work.
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+
+      expect(pressCopyShortcut(textarea, 'x').defaultPrevented).toBe(false);
+      editor.dispose();
+    });
+
+    test('a null clipboardData cuts nothing at all', () => {
+      // A cut that suppresses the native event, writes nothing because the
+      // clipboard is not writable, and deletes anyway destroys content
+      // outright. Bail before both.
+      const { editor, textarea } = setupEditor([blockWithImage('ab', 'cd')]);
+      editor.selectImageAt('b1', 2);
+
+      const { event, errors } = dispatchClipboard(textarea, 'cut', { withData: false });
+
+      expect(errors).toEqual([]);
+      expect(event.defaultPrevented).toBe(false);
+      expect(editor.getDoc().document.blocks[0].inlines).toHaveLength(3);
       editor.dispose();
     });
 
@@ -615,6 +838,106 @@ describe('copy path integrity', () => {
         .filter((i) => i.style.image);
       expect(images).toHaveLength(1);
       expect(images[0].style.image).toEqual(IMAGE);
+      editor.dispose();
+    });
+
+    test('cutting text clears a coexisting image selection', () => {
+      // Both selections can be live at once, and the text branch wins. It
+      // deletes the text but the image selection is coordinates into the
+      // block it just shifted — leaving it set makes the editor report a
+      // *different* image as selected, and the next Delete removes that one.
+      const { editor, textarea } = setupEditor([blockWithTwoImages()]);
+      // `selectImageAt` clears the text range, so the image goes first.
+      editor.selectImageAt('b1', 2);
+      editor._setSelectionForTest({
+        anchor: { blockId: 'b1', offset: 0 },
+        focus: { blockId: 'b1', offset: 2 },
+      });
+      expect(editor.getSelectedImage()).not.toBeNull();
+
+      const written = dispatchCut(textarea);
+
+      // The text path ran: 'ab' is on the clipboard and out of the document.
+      expect(written.get('text/plain')).toBe('ab');
+      expect(bodyText(editor)).toBe('￼c￼d');
+      // Offset 2 now holds IMAGE2. A surviving selection would name it.
+      expect(editor.getSelectedImage()).toBeNull();
+
+      // And the harm it would do: with no image selected, Delete is an
+      // ordinary forward delete at the caret the cut left at offset 0, so it
+      // takes IMAGE. A stale image selection would route the same keystroke
+      // into `deleteSelectedImageInline` and take IMAGE2 instead.
+      pressKey(textarea, 'Delete');
+
+      expect(bodyText(editor)).toBe('c￼d');
+      expect(editor.getDoc().document.blocks[0].inlines
+        .find((i) => i.style.image)?.style.image).toEqual(IMAGE2);
+      editor.dispose();
+    });
+  });
+
+  describe('cutting inside a table cell (issue #872)', () => {
+    test('carries inline formatting and removes the text from the cell', () => {
+      // The other consumer of the rewritten `getSelectedBlocks()`: the cut
+      // path has to resolve the cell block the same way copy does, or the
+      // clipboard carries plain text while the document loses the styled run.
+      const { editor, textarea } = setupEditor([tableWithRichCell()]);
+      editor._setSelectionForTest({
+        anchor: { blockId: 'c1', offset: 0 },
+        focus: { blockId: 'c1', offset: 4 },
+      });
+
+      const written = dispatchCut(textarea);
+      const blocks = payloadBlocks(written);
+
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0].inlines.map((i) => i.text).join('')).toBe('Bold');
+      expect(blocks[0].inlines[0].style.bold).toBe(true);
+      expect(written.get('text/plain')).toBe('Bold');
+      expect(cellText(editor)).toBe('￼tail');
+      editor.dispose();
+    });
+
+    test('a cut cell run round-trips back through paste', () => {
+      const { editor, textarea } = setupEditor([tableWithRichCell()]);
+      editor._setSelectionForTest({
+        anchor: { blockId: 'c1', offset: 0 },
+        focus: { blockId: 'c1', offset: 5 },
+      });
+      const payload = dispatchCut(textarea).get(WAFFLEDOCS_MIME)!;
+      expect(cellText(editor)).toBe('tail');
+
+      editor._setSelectionForTest({
+        anchor: { blockId: 'c1', offset: 4 },
+        focus: { blockId: 'c1', offset: 4 },
+      });
+      const paste = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, 'clipboardData', {
+        value: {
+          types: [WAFFLEDOCS_MIME],
+          getData: (t: string) => (t === WAFFLEDOCS_MIME ? payload : ''),
+          items: [] as unknown[],
+        },
+      });
+      textarea.dispatchEvent(paste);
+
+      const pasted = cellBlocks(editor).flatMap((b) => b.inlines);
+      expect(pasted.some((i) => i.style.bold)).toBe(true);
+      expect(pasted.some((i) => i.style.image)).toBe(true);
+      editor.dispose();
+    });
+
+    test('a read-only editor cuts nothing out of a cell', () => {
+      const { editor, textarea } = setupEditor([tableWithRichCell()], true);
+      editor._setSelectionForTest({
+        anchor: { blockId: 'c1', offset: 0 },
+        focus: { blockId: 'c1', offset: 4 },
+      });
+
+      const written = dispatchCut(textarea);
+
+      expect(written.size).toBe(0);
+      expect(cellText(editor)).toBe('Bold￼tail');
       editor.dispose();
     });
   });

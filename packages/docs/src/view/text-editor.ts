@@ -283,6 +283,16 @@ export class TextEditor {
   imageDeleteHandler: (() => void) | null = null;
 
   /**
+   * Drops the parent editor's image selection without touching the document.
+   * `handleCut`'s text path calls it: a text selection and a click-selected
+   * image can both be live, and the text path — which wins — deletes text and
+   * so shifts the offsets the image selection is expressed in. Left set, it
+   * would name whatever inline landed on that offset. `handleCopy` needs no
+   * such call; it mutates nothing.
+   */
+  imageSelectionClearer: (() => void) | null = null;
+
+  /**
    * Optional handler for image files pasted from the clipboard. When
    * set and the paste carries at least one `kind === 'file'` item
    * with an image MIME type, the handler is invoked with the first
@@ -1187,6 +1197,13 @@ export class TextEditor {
 
   private handleCopy = (e: ClipboardEvent): void => {
     this.pending?.clear();
+    // Establish that the clipboard is writable *before* claiming the event.
+    // `preventDefault()` with a null `clipboardData` is the worst outcome
+    // available: the native copy is suppressed and nothing is written, so the
+    // shortcut silently wipes whatever the user had on the system clipboard.
+    const clipboard = e.clipboardData;
+    if (!clipboard) return;
+
     if (!this.selection.hasSelection()) {
       // An image selected by clicking it is view-local state, not a text
       // selection, so the copy used to write nothing at all (issue #870).
@@ -1202,15 +1219,15 @@ export class TextEditor {
     if (tableCells) {
       const cloned = cloneTableCells(tableCells);
       const json = serializeClipboard({ blocks: [], tableCells: cloned });
-      e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
-      e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+      clipboard.setData(WAFFLEDOCS_MIME, json);
+      clipboard.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
       return;
     }
 
     const selectedBlocks = this.getSelectedBlocks();
     const json = serializeClipboard({ blocks: selectedBlocks });
-    e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
-    e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+    clipboard.setData(WAFFLEDOCS_MIME, json);
+    clipboard.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
   };
 
   private handleCut = (e: ClipboardEvent): void => {
@@ -1221,6 +1238,12 @@ export class TextEditor {
       return;
     }
     this.pending?.clear();
+    // Same ordering rule as `handleCopy`, and here it also guards the
+    // document: a cut that suppresses the native event, finds it cannot write,
+    // and deletes anyway destroys content that reached no clipboard.
+    const clipboard = e.clipboardData;
+    if (!clipboard) return;
+
     if (!this.selection.hasSelection()) {
       // Mirror of the image branch in `handleCopy`, plus the removal.
       const selected = this.imageSelectionProvider?.();
@@ -1231,13 +1254,16 @@ export class TextEditor {
       return;
     }
     e.preventDefault();
+    // The text path wins over a coexisting image selection, and is about to
+    // move the text that selection's offset is measured against.
+    this.imageSelectionClearer?.();
 
     const tableCells = this.getSelectedTableCells();
     if (tableCells) {
       const cloned = cloneTableCells(tableCells);
       const json = serializeClipboard({ blocks: [], tableCells: cloned });
-      e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
-      e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+      clipboard.setData(WAFFLEDOCS_MIME, json);
+      clipboard.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
       this.saveSnapshot();
       this.deleteSelection();
       this.requestRender();
@@ -1246,8 +1272,8 @@ export class TextEditor {
 
     const selectedBlocks = this.getSelectedBlocks();
     const json = serializeClipboard({ blocks: selectedBlocks });
-    e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
-    e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+    clipboard.setData(WAFFLEDOCS_MIME, json);
+    clipboard.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
     this.saveSnapshot();
     this.deleteSelection();
     this.requestRender();

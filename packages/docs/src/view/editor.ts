@@ -1239,6 +1239,26 @@ export function initialize(
   let selectedImage: { blockId: string; offset: number } | null = null;
 
   /**
+   * Make `offset`'s image in `blockId` the current image selection. The caller
+   * has already established that an image is there, and renders afterwards.
+   *
+   * The focus call is the load-bearing part. The image mousedown handler
+   * `preventDefault()`s and stops propagation before
+   * `TextEditor.handleMouseDown` runs, so nothing else gives the hidden
+   * textarea keyboard focus — and a read-only editor never focuses on mount
+   * either (see `if (!readOnly) textEditor.focus()`). Without it a clicked
+   * image receives neither the Cmd/Ctrl+C keydown nor the browser's `copy`
+   * event, and the issue #870 fix never runs on a read-only document — which
+   * is exactly where the context menu now offers Copy. Focus mutates nothing;
+   * every write still goes through a `readOnly`-gated path.
+   */
+  const selectImageInline = (blockId: string, offset: number): void => {
+    selection.setRange(null);
+    selectedImage = { blockId, offset };
+    textEditorRef?.focus();
+  };
+
+  /**
    * In-progress resize drag, driven by a handle-drag on the selected
    * image's overlay. While this is non-null, `render()` draws the
    * overlay at the preview rect rather than the committed image rect,
@@ -2242,6 +2262,17 @@ export function initialize(
     const deleteSelectedImageInline = (): void => {
       if (readOnly || !selectedImage) return;
       const { blockId, offset } = selectedImage;
+      // The selection is coordinates, not a handle, so re-validate it the way
+      // `imageSelectionProvider` does before deleting a character by position.
+      // A remote peer that deleted the block makes `deleteText` throw; one that
+      // only shifted the text leaves the offset naming an ordinary character,
+      // and deleting one character there silently eats the wrong one.
+      const block = doc.findBlock(blockId);
+      if (!block || !findImageAtOffset(block, offset)) {
+        selectedImage = null;
+        render();
+        return;
+      }
       docStore.snapshot();
       doc.deleteText({ blockId, offset }, 1);
       selectedImage = null;
@@ -2266,6 +2297,14 @@ export function initialize(
       return { blockId: selectedImage.blockId, offset: selectedImage.offset, image };
     };
     textEditor.imageDeleteHandler = deleteSelectedImageInline;
+    // Cut's text path calls this before it deletes; see the field's doc
+    // comment. The editor owns `selectedImage`, so the clear has to come back
+    // here rather than being done inside TextEditor.
+    textEditor.imageSelectionClearer = () => {
+      if (!selectedImage) return;
+      selectedImage = null;
+      render();
+    };
 
     // Image selection key routing. Copy/cut are absorbed here so the image
     // selection survives into the browser's own clipboard event;
@@ -2292,9 +2331,13 @@ export function initialize(
       // *without* preventDefault so the native clipboard event still fires;
       // `TextEditor.handleCopy` / `handleCut` then read the image back
       // through `imageSelectionProvider`.
-      const mod = /Mac|iPhone|iPad|iPod/.test(navigator.platform)
-        ? e.metaKey
-        : e.ctrlKey;
+      // Either modifier, deliberately: `navigator.platform` is an empty string
+      // in some browsers, so a platform-keyed choice between Meta and Ctrl
+      // picks the wrong one there and the shortcut drops into the catch-all
+      // that clears the image selection — issue #870 again. Cmd+C and Ctrl+C
+      // both mean copy, and absorbing the other platform's combination costs
+      // nothing: the branch only declines to clear the selection.
+      const mod = e.metaKey || e.ctrlKey;
       if (mod && !e.shiftKey && !e.altKey && (key === 'c' || key === 'x')) {
         return true;
       }
@@ -2504,8 +2547,7 @@ export function initialize(
       e.stopPropagation();
       e.stopImmediatePropagation();
       pending.clear();
-      selection.setRange(null);
-      selectedImage = { blockId: hit.blockId, offset: hit.offset };
+      selectImageInline(hit.blockId, hit.offset);
       cursor.moveTo({ blockId: hit.blockId, offset: hit.offset });
       render();
       return;
@@ -3640,8 +3682,7 @@ export function initialize(
       const block = doc.getBlock(blockId);
       if (!block) return;
       if (!findImageAtOffset(block, offset)) return;
-      selection.setRange(null);
-      selectedImage = { blockId, offset };
+      selectImageInline(blockId, offset);
       render();
     },
     clearImageSelection: () => {

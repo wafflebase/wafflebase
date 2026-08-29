@@ -177,3 +177,56 @@ keys, the read-only ordering hazard, the key normalization, and the two
 `TextEditor` hooks. Its arrow-key rows claimed a 1px/8px resize nudge that
 has never been implemented — the shipped handler deselects and moves the
 caret — so they were corrected to match the code.
+
+### Third review round (PR #984)
+
+Behaviour this time, not only coverage. Four defects the verifier confirmed,
+plus the small ones worth taking:
+
+- **`deleteSelectedImageInline` deleted blind.** It ran
+  `doc.deleteText({ blockId, offset }, 1)` on the *stored* selection without
+  re-validating it. A peer who deleted the block made it throw; a peer who
+  only shifted the text left the offset naming an ordinary character, and the
+  keystroke ate that character instead — `ab<img>cd` became `abd`. It now
+  re-validates with `findBlock` + `findImageAtOffset`, exactly as
+  `imageSelectionProvider` does, and clears the stale selection instead.
+- **A text cut left a stale image selection.** Both selections can be live;
+  the text path wins and deletes text, shifting the offsets the image
+  selection is measured in. `handleCut` now calls a new
+  `imageSelectionClearer` hook before deleting. `handleCopy` was checked and
+  needs no equivalent — it mutates nothing, so no offset moves under it.
+- **Clicking an image never focused the hidden textarea.** The image mousedown
+  path stops propagation before `TextEditor.handleMouseDown` can focus, and a
+  read-only editor never focuses on mount, so on a read-only document the
+  #870 path received neither the keydown nor the `copy` event — the context
+  menu offered a Copy that did nothing. Both selection entry points now go
+  through one `selectImageInline()` that focuses.
+- **Nothing asserted the keydown is not cancelled.** The fix depends on
+  `imageKeyHandler` consuming Cmd/Ctrl+C *without* `preventDefault()`, but the
+  suite dispatched the keydown and the clipboard event independently, so
+  adding one would have left every test green. Both C and X now assert
+  `defaultPrevented === false`.
+- The mod-key check keyed on `navigator.platform`, which is an empty string in
+  some browsers — it picks the wrong modifier there and the shortcut falls
+  into the catch-all that reintroduces #870. Now `e.metaKey || e.ctrlKey`.
+  This reverses the previous round's "matches the existing idiom" call: the
+  idiom itself is unsafe here, and accepting either modifier costs nothing
+  because the branch only declines to clear the selection.
+- `handleCopy` / `handleCut` called `preventDefault()` before knowing
+  `e.clipboardData` was writable. Both now bail first — for cut that is also
+  a data-loss guard, since it would otherwise delete content that reached no
+  clipboard.
+- New coverage for the two untested consumers the review named: **cut inside
+  a table cell** (the other consumer of the rewritten `getSelectedBlocks`)
+  and **copying a click-selected image in a read-only document**.
+
+All 34 cases in `copy-integrity.test.ts` were mutation-checked by script:
+each guard reverted in turn, the suite run, and the expected case confirmed
+red. Every one was caught.
+
+Still not done, unchanged from the last round: the `model/range-slices.ts`
+re-base (deliberately not nested-table-aware, so it would reintroduce #872
+one level deeper), and extending #872 to the header/footer edit context.
+`getSelectedImage` / `updateSelectedImage` still call the throwing
+`doc.getBlock()`; they are pre-existing siblings that finding 1's fix did not
+touch, and are left for a separate change.
