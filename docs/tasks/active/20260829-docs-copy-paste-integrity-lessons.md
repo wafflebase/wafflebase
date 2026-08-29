@@ -173,3 +173,63 @@ hid the problem cannot come back.
   small script that applies each mutation, runs the suite with
   `--reporter=json`, collects the failed titles and restores the file made
   seven checks cheap enough to re-run after the accident above.
+
+## Synthesize the event *sequence*, not the event
+
+Every shortcut test in this suite dispatched one `{key:'c', metaKey:true}`
+keydown. No browser produces that on its own: it sends the modifier's own
+keydown first (`key:'Meta'`, `metaKey:true`), then the letter while it is
+held. A catch-all that cleared state for "any unrecognised key" therefore
+fired on the *modifier*, wiping the image selection before the letter ever
+arrived — issue #870, never actually fixed, with 34 green tests over it.
+
+A combined-modifier keydown is a test-only artefact. Where a handler
+branches on modifier state, at least one test has to press the modifier as
+its own event, or the suite is asserting against an input the product never
+receives.
+
+## "Justified by a flow that cannot run" is a reviewable defect
+
+Round three added a `focus()` call, a design-doc paragraph and a read-only
+test, all resting on a viewer click-selecting an image. The mousedown
+handler returned early on `readOnly` and nothing in production called
+`selectImageAt`, so that click was impossible — and the test passed only
+because it drove `selectImageAt` directly, the one caller that did not
+exist in production.
+
+Two habits close this: when a test needs a non-production entry point to
+reach the code, ask *why* production cannot reach it; and grep the whole
+repo for a public API's callers before writing prose that assumes it has
+one. `selectImageAt` had exactly one caller — this test file.
+
+## Prefer the chokepoint the invariant already passes through
+
+Coordinates into a document (`{blockId, offset}`) go stale on any edit.
+Clearing them at each editing entry point is a promise that must be re-made
+whenever an entry point is added — round three made it at one site (cut) and
+four others (`paste`, `applySpellSuggestion`, `insertTable`,
+`insertPageNumber`) kept the bug.
+
+The undo snapshot turned out to be the chokepoint: every content edit takes
+one before it writes, so wrapping it clears the selection once for the whole
+surface. Finding a chokepoint is worth a few minutes of grep — here it also
+*deleted* an interface (`TextEditor.imageSelectionClearer`) instead of
+adding four call sites. Note what has to stay outside it: the paths that
+*own* the state being cleared (delete / resize commit / update) keep calling
+the raw snapshot, and saying so in a comment is what stops the next reader
+from "fixing" the inconsistency.
+
+## jsdom geometry has to be stubbed in pairs
+
+Driving the real mousedown hit-test needed the editor's layout and its
+pointer math to agree, and they read widths from *different* elements — the
+container's parent for layout and caret pixels, the canvas for the image
+hit-test. jsdom reports 0 for both, and 0 vs 0 is not agreement: the two
+paths then compute different page-centering offsets (the caret said x=200,
+the hit-test rect started at x=108), so no click could ever land.
+
+Stub every element a coordinate path reads, to the *same* width, and stub
+the viewport-measuring one **before** `initialize()` — the first render
+picks the zoom-to-fit scale factor from it, and a zero width makes the whole
+coordinate space degenerate. `querySelector('canvas')` is also not enough
+when the editor mounts more than one canvas.

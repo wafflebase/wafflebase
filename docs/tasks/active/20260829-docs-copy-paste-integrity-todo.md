@@ -230,3 +230,70 @@ one level deeper), and extending #872 to the header/footer edit context.
 `getSelectedImage` / `updateSelectedImage` still call the throwing
 `doc.getBlock()`; they are pre-existing siblings that finding 1's fix did not
 touch, and are left for a separate change.
+
+### Fourth review round (PR #984)
+
+The verifier found the round-3 fix did not work in a real browser, and two
+consequences of it that had been asserted rather than checked.
+
+- **The #870 fix never ran in a browser.** `imageKeyHandler`'s catch-all
+  cleared the image selection for any unrecognised key — including the
+  *modifier's own keydown*. A real keyboard sends `{key:'Meta',
+  metaKey:true}` first and the `c` only after, so the selection was already
+  gone by the time the shortcut arrived. The whole suite missed it because
+  every test synthesized a single combined `{key:'c', metaKey:true}` event,
+  which no browser produces. `Meta`/`Control`/`Shift`/`Alt`/`AltGraph`/`OS`
+  now return `false` without clearing, and the new tests dispatch the real
+  two-event sequence.
+- **The catch-all cleared without repainting.** For a key `TextEditor` then
+  ignores, nothing else rendered, so the selection overlay stayed painted
+  over state that was gone. It now renders before falling through.
+- **The read-only copy flow was unreachable.** `handleImageMouseDown`
+  returned early on `readOnly` and nothing in production calls
+  `selectImageAt`, so a viewer could never select an image — which made the
+  round-3 focus call, its design-doc paragraph, and the read-only test
+  (which drove `selectImageAt`, not the mousedown) all describe a flow that
+  could not happen. Selecting is not a mutation and every write it can reach
+  is separately `readOnly`-guarded, so click-select is now allowed; the
+  resize-handle branch and the hover cursor stay gated, and the overlay
+  draws its border **without** the eight handles, which would otherwise
+  misdescribe the document's permissions (`drawImageSelection` takes the
+  mount's `readOnly` from `DocCanvas`).
+- **`imageSelectionClearer` was wired to one path only.** Every other
+  offset-shifting entry point left the same stale selection. One
+  `clearImageSelectionForMutation()` helper now owns the rule: `TextEditor`
+  reaches it for cut and for every paste (through `applyPastePlan`, the
+  funnel all paste paths share), and the programmatic
+  `applySpellSuggestion` / `insertTable` / `insertImage` /
+  `insertPageNumber` APIs call it directly — none of those is preceded by a
+  keydown, so the catch-all above would never have covered them.
+- `selectImageInline` focused the hidden textarea before the caret render
+  repositioned it, so the browser could scroll the container to the
+  textarea's stale fixed position. The render now runs first.
+- `writeImageToClipboard` wrote the Object Replacement Character as a
+  literal glyph; now `'￼'` like the rest of the package.
+- Docs: `docs-image-editing.md` rewritten for the bare-modifier guard,
+  read-only selection and the clearing rule; `docs-context-menu.md` gained
+  the per-entry read-only table it was missing; the #872 half of this PR is
+  now recorded in `tables/docs-table-copy-paste.md`, its canonical home.
+
+### Known coverage gap
+
+Read-only image selection was opened up by removing `handleImageMouseDown`'s
+top-level `readOnly` return, which means the pointer *resize* path is now
+reachable in read-only up to the point where the handle branch declines it.
+That gate is the only thing stopping a viewer from resizing — the resize
+commit carries no `readOnly` check of its own. The shipped suite exercises
+read-only selection through `selectImageAt`, not through a handle drag, so
+the gate itself is unpinned: removing it would not turn any test red.
+
+Testing it needs the jsdom geometry the hit-test reads (layout width from
+`container.parentElement`, hit-test width from the canvas, both stubbed
+before `initialize` picks its zoom scale) — machinery this suite does not
+have. Worth adding; recorded here rather than claimed as covered.
+
+Deliberately not done: `getSelectedImage` / `updateSelectedImage` still call
+the throwing `doc.getBlock()` (a *remote* deletion still reaches them, so
+hardening them stays a separate change), and the context menu still offers
+Copy only for a text selection — wiring it would add a production caller of
+exactly that unhardened path.

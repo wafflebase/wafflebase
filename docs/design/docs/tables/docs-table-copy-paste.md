@@ -127,6 +127,59 @@ paste, `pasteTableCells()` calls `normalizeTableMerges()` to repair the grid.
 - `document.ts` — existing `updateBlockDirect()` reused to persist the pasted table block
 - `types.ts` — existing `TableCell`, `TableCellRange`, `CellAddress` reused
 
+### Copying *within* one cell (issue #872)
+
+The cell-range branch above only fires for a `tableCellRange` — a selection
+that spans whole cells. A selection **inside a single cell** falls through to
+the ordinary block path, and that path was body-only:
+
+```ts
+const startBlockIdx = layout.blocks.findIndex((lb) => lb.block.id === start.blockId);
+```
+
+`layout.blocks` holds top-level blocks. Cell content is its own block list
+hanging off the table block, so a cell block id is never found there, both
+indices came back `-1`, and `getSelectedBlocks()` returned `[]`. The
+`WAFFLEDOCS_MIME` flavour was written as an empty payload while `text/plain`
+was written correctly — so the copy *looked* fine and the paste silently
+dropped every bold, colour, link and image in the run. Cut had the same
+resolution failure, and it deleted the styled run from the document while
+putting only plain text on the clipboard.
+
+The fix resolves the block list first and shares the slicing:
+
+```ts
+const cellInfo = layout.blockParentMap.get(start.blockId);
+if (cellInfo) {
+  // `resolveNestedTableLayout`, not `layout.blocks.find` — the cell may
+  // belong to a table nested inside another cell.
+  const resolved = resolveNestedTableLayout(cellInfo.tableBlockId, layout);
+  const cell = resolved?.dataBlock.tableData
+    ?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+  if (!cell) return [];
+  return this.sliceBlockRange(cell.blocks, start, end);
+}
+return this.sliceBlockRange(layout.blocks.map((lb) => lb.block), start, end);
+```
+
+Two things make this correct rather than merely working:
+
+- `blockParentMap` is the same lookup `isInTable()` and `getSelectedText()`
+  already walk, so the copy path agrees with the selection path about which
+  cell a position is in.
+- Only the **start** is resolved. `normalizeRange` guarantees both endpoints
+  share one cell whenever either of them is in one, so the start's cell is
+  the whole range's.
+
+`sliceBlockRange()` is the extracted body of the old loop: clone
+`blocks[start..end]`, trimming the first and last to the selection offsets.
+Body and cell copies differ only in which block list the ids resolve
+against, so they share it and cannot drift apart.
+
+**Changed files:** `text-editor.ts` (`getSelectedBlocks()` cell branch,
+`sliceBlockRange()`), `test/view/copy-integrity.test.ts` (copy and cut, plain
+and nested cells).
+
 ## Risks and Mitigation
 
 | Risk | Mitigation |

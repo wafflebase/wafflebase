@@ -1290,7 +1290,7 @@ export class TextEditor {
       id: generateBlockId(),
       type: 'paragraph',
       // ORC — an image inline is exactly one character (see `ImageData`).
-      inlines: [{ text: '￼', style: { image } }],
+      inlines: [{ text: '\uFFFC', style: { image } }],
       style: { ...DEFAULT_BLOCK_STYLE },
     };
     e.clipboardData?.setData(WAFFLEDOCS_MIME, serializeClipboard({ blocks: [block] }));
