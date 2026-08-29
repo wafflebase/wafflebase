@@ -1056,32 +1056,50 @@ export function initialize(
   }
 
   /**
-   * Tail shared by every named-style redefinition entry point
-   * (`setDocStyles`, `updateStyleToMatch`, `resetNamedStyle`,
-   * `resetAllNamedStyles`).
+   * Run a named-style redefinition (`setDocStyles`, `updateStyleToMatch`,
+   * `resetNamedStyle`, `resetAllNamedStyles`) as one undo unit, then repaint.
    *
-   * Redefining a style moves the layer *underneath* runs the user never
-   * touched, so an `italic: false` that `styleOffAsClear` legitimately kept
-   * because the block's named style supplied italic becomes a dead flag the
-   * moment that style no longer does — the same #749 hazard a block-type
-   * change creates, and `Doc.dropStaleStyleOffAll` clears it the same way.
-   * The cleanup batches its own writes into a single `applyStyles`, so it
-   * costs one undo unit however many runs it strands. It is *not* folded
-   * into the redefinition: `YorkieDocStore.snapshot()` is a no-op because
-   * Yorkie takes its undo units from `doc.update()`, and the cleanup opens
-   * its own. So under the Yorkie store a redefinition that strands a flag
-   * takes two Cmd+Z, the first of which looks like it did nothing. Folding
-   * them needs a `batch()` seam on `DocStore` that does not exist yet —
-   * the slides store has one (`slides-native-undo.md`); this is a
-   * follow-up, not something to assert away in a comment.
+   * `write` makes the registry write. Redefining a style moves the layer
+   * *underneath* runs the user never touched, so an `italic: false` that
+   * `styleOffAsClear` legitimately kept because the block's named style
+   * supplied italic becomes a dead flag the moment that style no longer does
+   * — the same #749 hazard a block-type change creates, and
+   * `Doc.dropStaleStyleOffAll` clears it the same way. The cleanup batches
+   * its own writes into a single `applyStyles`, so it costs one write however
+   * many runs it strands.
+   *
+   * That is still a *second* store write, and `YorkieDocStore.snapshot()` is
+   * a no-op because Yorkie takes its undo units from `doc.update()` — so
+   * this used to cost two Cmd+Z, the first of which looked like it did
+   * nothing. `DocStore.batch()` folds the two into one undo unit on both
+   * stores (see `store.ts` and `slides-native-undo.md`).
+   *
+   * Only the store writes go inside the batch. Layout and paint read the
+   * document and must run after the batch commits.
+   *
+   * Routed through `doc.batch` rather than `docStore.batch` so a throw
+   * inside the transaction refreshes the model: the sweep re-reads the store
+   * mid-batch, and `YorkieDocStore` rolls the whole batch back, so the model
+   * would otherwise be the last holder of writes that never landed. The
+   * repaint is in a `finally` for the same reason — after a failed pass the
+   * screen must show whatever the store really holds, which under
+   * `MemDocStore` (no rollback) is not the pre-batch document.
+   * `notifyStyleApplied` stays on the success path: nothing was applied.
    */
-  function afterNamedStyleChange(): void {
-    // `dropStaleStyleOffAll` re-reads the store before deciding (so it sees
-    // the new style table) and again after any write, which is the refresh
-    // these paths used to do by hand.
-    doc.dropStaleStyleOffAll();
-    invalidateLayout();
-    render();
+  function withNamedStyleChange(write: () => void): void {
+    try {
+      doc.batch(() => {
+        docStore.snapshot();
+        write();
+        // `dropStaleStyleOffAll` re-reads the store before deciding (so it
+        // sees the new style table) and again after any write, which is the
+        // refresh these paths used to do by hand.
+        doc.dropStaleStyleOffAll();
+      });
+    } finally {
+      invalidateLayout();
+      render();
+    }
     notifyStyleApplied();
   }
 
@@ -2922,9 +2940,7 @@ export function initialize(
     },
     getDocStyles: () => docStore.getDocStyles(),
     setDocStyles(styles: DocStyles) {
-      docStore.snapshot();
-      docStore.setDocStyles(styles);
-      afterNamedStyleChange();
+      withNamedStyleChange(() => docStore.setDocStyles(styles));
     },
     updateStyleToMatch(styleId: StyleId) {
       const block = doc.findBlock(cursor.position.blockId);
@@ -2952,19 +2968,13 @@ export function initialize(
         },
         block: { marginTop: block.style.marginTop, marginBottom: block.style.marginBottom },
       };
-      docStore.snapshot();
-      docStore.updateStyleDefinition(styleId, def);
-      afterNamedStyleChange();
+      withNamedStyleChange(() => docStore.updateStyleDefinition(styleId, def));
     },
     resetNamedStyle(styleId: StyleId) {
-      docStore.snapshot();
-      docStore.resetStyle(styleId);
-      afterNamedStyleChange();
+      withNamedStyleChange(() => docStore.resetStyle(styleId));
     },
     resetAllNamedStyles() {
-      docStore.snapshot();
-      docStore.resetAllStyles();
-      afterNamedStyleChange();
+      withNamedStyleChange(() => docStore.resetAllStyles());
     },
     toggleList(kind: 'ordered' | 'unordered') {
       docStore.snapshot();

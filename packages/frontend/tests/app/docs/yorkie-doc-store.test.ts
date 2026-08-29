@@ -676,6 +676,268 @@ describe('YorkieDocStore', () => {
     });
   });
 
+  // `batch()` is the seam that lets one user action make several store
+  // writes and still cost one Cmd+Z. Yorkie takes its undo units from
+  // `doc.update()`, so the only way to group N writes is to run them inside
+  // one update — the ambient-root pattern `YorkieSlidesStore` already uses
+  // (docs/design/slides/slides-native-undo.md).
+  describe('batch()', () => {
+    it('collapses several writes into a single undo unit', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      store.batch(() => {
+        store.insertText(block.id, 5, ' world');
+        store.applyStyle(block.id, 0, 5, { bold: true });
+        store.applyBlockStyle(block.id, { alignment: 'center' });
+      });
+      expect(doc.getUndoStackForTest().length).toBe(before + 1);
+    });
+
+    it('one undo reverts every write in the batch', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      store.batch(() => {
+        store.insertText(block.id, 5, ' world');
+        store.applyStyle(block.id, 0, 5, { bold: true });
+      });
+      expect(store.getBlock(block.id)!.inlines.map((i) => i.text).join('')).toBe('hello world');
+
+      store.undo();
+      const reverted = store.getBlock(block.id)!;
+      expect(reverted.inlines.map((i) => i.text).join('')).toBe('hello');
+      expect(reverted.inlines.every((i) => i.style.bold !== true)).toBe(true);
+    });
+
+    it('a nested batch does not open a second undo unit', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      store.batch(() => {
+        store.applyStyle(block.id, 0, 5, { bold: true });
+        store.batch(() => {
+          store.applyStyle(block.id, 0, 5, { italic: true });
+        });
+        store.applyBlockStyle(block.id, { alignment: 'right' });
+      });
+      expect(doc.getUndoStackForTest().length).toBe(before + 1);
+
+      // The undo-unit count alone cannot tell "the nested write joined the
+      // outer unit" apart from "the nested write was dropped or misrouted
+      // into a discarded context": both read as +1. Assert the nested body's
+      // write actually landed, and through a FRESH store so the assertion
+      // sees the CRDT rather than the mutating store's optimistic cache.
+      const fromTree = new YorkieDocStore(doc).getBlock(block.id)!;
+      expect(fromTree.inlines[0].style.bold).toBe(true);
+      expect(fromTree.inlines[0].style.italic).toBe(true);
+      expect(fromTree.style.alignment).toBe('right');
+    });
+
+    it('every write in a batch reaches the CRDT, not just the cache', () => {
+      // The happy-path batch assertions above read back through the store's
+      // own optimistic cache, which each write updates independently of the
+      // Yorkie write. A batch whose writes never reached the Tree would pass
+      // them; it cannot pass this.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      store.batch(() => {
+        store.insertText(block.id, 5, ' world');
+        store.applyStyle(block.id, 0, 5, { bold: true });
+        store.applyBlockStyle(block.id, { alignment: 'center' });
+      });
+
+      const fromTree = new YorkieDocStore(doc).getBlock(block.id)!;
+      expect(fromTree.inlines.map((i) => i.text).join('')).toBe('hello world');
+      expect(fromTree.inlines[0].style.bold).toBe(true);
+      expect(fromTree.style.alignment).toBe('center');
+    });
+
+    // --- reads inside an open batch ---------------------------------------
+    //
+    // Writes route through the ambient root (`withUpdate`); reads route
+    // through `readRoot()`, which returns that same ambient root while the
+    // batch's single `doc.update` is open. These pin that a read taken
+    // mid-batch observes the batch's own earlier writes — the property the
+    // whole seam rests on, since `Doc.dropStaleStyleOffAll()` decides what to
+    // write from a `getDocument()` taken after the registry write in the same
+    // batch.
+
+    it('a read inside a batch observes the batch\'s own earlier writes', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      let seenText: string | undefined;
+      let seenBold: boolean | undefined;
+      let seenPaper: string | undefined;
+      store.batch(() => {
+        store.insertText(block.id, 5, ' world');
+        store.applyStyle(block.id, 0, 5, { bold: true });
+        store.setPageSetup({
+          paperSize: { name: 'A4', width: 794, height: 1123 },
+          orientation: 'portrait',
+          margins: { top: 72, bottom: 72, left: 72, right: 72 },
+        });
+        const mid = store.getBlock(block.id)!;
+        seenText = mid.inlines.map((i) => i.text).join('');
+        seenBold = mid.inlines[0].style.bold;
+        seenPaper = store.getPageSetup().paperSize.name;
+      });
+      expect(seenText).toBe('hello world');
+      expect(seenBold).toBe(true);
+      expect(seenPaper).toBe('A4');
+    });
+
+    it('a mid-batch read forced past the cache still sees the in-progress writes', () => {
+      // `getBlock` above can be served by the optimistic cache. Invalidate it
+      // inside the batch so the read is forced down to the Yorkie root, which
+      // is where the ambient-root routing actually matters.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      let seen: string | undefined;
+      store.batch(() => {
+        store.insertText(block.id, 5, ' world');
+        // Drop the cache the way a remote change would.
+        (store as unknown as { dirty: boolean; cachedDoc: unknown }).dirty = true;
+        (store as unknown as { dirty: boolean; cachedDoc: unknown }).cachedDoc = null;
+        seen = store.getBlock(block.id)!.inlines.map((i) => i.text).join('');
+      });
+      expect(seen).toBe('hello world');
+      // And the batch still committed as one unit.
+      expect(new YorkieDocStore(doc).getBlock(block.id)!.inlines.map((i) => i.text).join(''))
+        .toBe('hello world');
+    });
+
+    it('the store is readable again after a batch throws', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      expect(() =>
+        store.batch(() => {
+          store.insertText(block.id, 5, ' world');
+          throw new Error('boom');
+        }),
+      ).toThrow('boom');
+      // The rolled-back write must not be visible through the cache either —
+      // `batch()` drops it on the throw path.
+      expect(store.getBlock(block.id)!.inlines.map((i) => i.text).join('')).toBe('hello');
+    });
+
+    it('setDocument() inside a batch throws', () => {
+      // `setDocument` reads the undo stack *after* its write to set the undo
+      // floor. Inside a batch the change is not pushed until the batch's
+      // single `doc.update` closes, so the floor would land one unit low and
+      // the whole loaded document would become undoable. `MemDocStore`
+      // enforces the same rule, so code tested against the memory store
+      // cannot pass and then throw only under the collaborative one.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      expect(() =>
+        store.batch(() => {
+          store.setDocument({ blocks: [makeBlock('replaced')] });
+        }),
+      ).toThrow(/setDocument/);
+      // The guard fires before the write, so nothing landed and the store is
+      // still usable afterwards.
+      expect(
+        new YorkieDocStore(doc).getBlock(block.id)!.inlines.map((i) => i.text).join(''),
+      ).toBe('hello');
+      store.setDocument({ blocks: [makeBlock('replaced')] });
+      expect(store.getDocument().blocks[0].inlines[0].text).toBe('replaced');
+    });
+
+    it('an empty batch pushes no undo unit', () => {
+      store.setDocument({ blocks: [makeBlock('hello')] });
+      const before = doc.getUndoStackForTest().length;
+      store.batch(() => {});
+      expect(doc.getUndoStackForTest().length).toBe(before);
+    });
+
+    it('holds back a non-history presence write inside a batch', () => {
+      // Yorkie's `setReversePresence` *deletes* reverse-presence keys when
+      // `addToHistory` is falsy. Across two `doc.update`s that is harmless;
+      // folded into one change it would erase whatever the batch's own
+      // `recordHistoryPresence` staged, so undo would restore the post-edit
+      // caret. The write is skipped rather than folded — presence is
+      // last-write-wins and the next cursor move republishes.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      store.batch(() => {
+        store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
+        store.applyStyle(block.id, 0, 5, { bold: true });
+      });
+      expect(doc.getUndoStackForTest().length).toBe(before + 1);
+      expect(store.getPresenceCursorPos()).toBeUndefined();
+    });
+
+    it('restores the pre-edit caret when a batch also publishes a cursor', () => {
+      // The failure the skip above prevents: with the presence write folded
+      // in, undo restored offset 2 (post-edit) instead of the staged 0.
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      store.setCursorForHistory({ blockId: block.id, offset: 0 });
+      store.batch(() => {
+        store.applyStyle(block.id, 0, 5, { bold: true });
+        store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
+      });
+      store.undo();
+      expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 0 });
+    });
+
+    it('a non-history presence write outside a batch still publishes', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      store.updateCursorPos({ blockId: block.id, offset: 2 }, null);
+      expect(store.getPresenceCursorPos()).toEqual({ blockId: block.id, offset: 2 });
+    });
+
+    it('rethrows and does not leave the ambient root open', () => {
+      const block = makeBlock('hello');
+      store.setDocument({ blocks: [block] });
+      expect(() =>
+        store.batch(() => {
+          throw new Error('boom');
+        }),
+      ).toThrow('boom');
+      // The next write must still land — a leaked ambient root would send it
+      // into a discarded change context.
+      store.applyStyle(block.id, 0, 5, { bold: true });
+      expect(new YorkieDocStore(doc).getBlock(block.id)!.inlines[0].style.bold).toBe(true);
+    });
+
+    // --- boundary guards -------------------------------------------------
+    //
+    // The hazard `batch()` introduces is the mirror image of the one it
+    // fixes: collapsing genuinely separate user actions into one undo unit.
+    // Slides pins this with a churn test; these two pin the boundary
+    // directly. Nothing outside the named-style entry points calls `batch()`,
+    // so ordinary editing must keep exactly the granularity it had.
+
+    it('unbatched consecutive writes stay separate undo units', () => {
+      const block = makeBlock('');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      store.insertText(block.id, 0, 'a');
+      store.insertText(block.id, 1, 'b');
+      store.insertText(block.id, 2, 'c');
+      expect(doc.getUndoStackForTest().length).toBe(before + 3);
+    });
+
+    it('two typing bursts in two batches stay two undo units', () => {
+      const block = makeBlock('');
+      store.setDocument({ blocks: [block] });
+      const before = doc.getUndoStackForTest().length;
+      store.batch(() => {
+        store.insertText(block.id, 0, 'first');
+      });
+      store.batch(() => {
+        store.insertText(block.id, 5, ' second');
+      });
+      expect(doc.getUndoStackForTest().length).toBe(before + 2);
+
+      store.undo();
+      expect(store.getBlock(block.id)!.inlines.map((i) => i.text).join('')).toBe('first');
+    });
+  });
+
   describe('applyStyle attribute removal', () => {
     // Re-read via a fresh store over the same doc to bypass the optimistic
     // cache and assert the CRDT Tree (source of truth) actually changed.

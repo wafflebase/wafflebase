@@ -125,6 +125,34 @@ export class Doc {
   }
 
   /**
+   * Run `fn` as a single store undo unit (see `DocStore.batch`), keeping
+   * this cache consistent with what actually landed.
+   *
+   * The wrapper is not ceremony. `batch()` is the one place where a store
+   * write can be *un-done by the store itself*: `YorkieDocStore` runs the
+   * whole batch inside one `doc.update`, so a throw makes Yorkie discard the
+   * clone and nothing commits. The reads this class does during the batch —
+   * `dropStaleStyleOffAll` calls `refresh()` twice — would then leave
+   * `_document` holding never-committed state, and every later read
+   * (`getBlock`, layout, paint) would answer from it. Before the seam
+   * existed each write was its own `doc.update`, so partial writes really
+   * did land and the cache matched reality; now it would not.
+   *
+   * So on a throw, re-read before rethrowing. Callers that catch the error
+   * — and the editor's own error boundary, which does not — then see the
+   * document the store actually has. A store that keeps partial writes
+   * (`MemDocStore`) is served by the same refresh.
+   */
+  batch(fn: () => void): void {
+    try {
+      this.store.batch(fn);
+    } catch (err) {
+      this.refresh();
+      throw err;
+    }
+  }
+
+  /**
    * Get blocks for the current editing context (body, header, or footer).
    */
   getContextBlocks(): Block[] {
@@ -380,11 +408,14 @@ export class Doc {
    * start of a Heading 6 does land its `italic: false` in a paragraph that
    * supplies no italic, so the flag goes dead — but the sweep costs a second
    * `store.applyStyles`, and under `YorkieDocStore` (where `snapshot()` is a
-   * no-op and undo granularity is per `doc.update()`) that turns one
+   * no-op and undo granularity is per `doc.update()`) that turned one
    * Backspace into two Cmd+Z on the hottest editing path there is, the first
-   * of which looks like it did nothing. Trading a merge-fragmentation flag
-   * for broken undo is the worse deal. Sweeping here is a follow-up behind
-   * the `DocStore.batch()` seam — see the task file.
+   * of which looks like it did nothing.
+   *
+   * `DocStore.batch()` now exists and would fold the two writes into one
+   * undo unit, so this is unblocked — but wiring it here is its own change
+   * (the merge path is the hottest one in the editor and needs its own
+   * tests). Until then the behaviour below is what the tests pin.
    */
   mergeBlocks(blockId: string, nextBlockId: string): void {
     this.store.mergeBlock(blockId, nextBlockId);
@@ -497,10 +528,13 @@ export class Doc {
    * untouched run. Every such entry point (`setDocStyles`,
    * `updateStyleToMatch`, `resetNamedStyle`, `resetAllNamedStyles`) must call
    * this, or the overrides `styleOffAsClear` deliberately keeps become exactly
-   * the dead flags issue #749 is about.
+   * the dead flags issue #749 is about. They all route through
+   * `withNamedStyleChange` in `view/editor.ts`, which does exactly that.
    *
-   * All edits go out as one `applyStyles` batch, so a redefinition stays one
-   * undo unit however many runs it strands.
+   * All edits go out as one `applyStyles` batch, so this is one store write
+   * however many runs it strands — and `withNamedStyleChange` wraps it and
+   * the registry write in one `DocStore.batch()`, so the whole redefinition
+   * is one undo unit.
    *
    * Self-refreshing on both ends — it must decide from the *new* style table,
    * and leaves the cached document current — so any caller can invoke it right

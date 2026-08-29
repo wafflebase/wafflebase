@@ -54,6 +54,12 @@ import type { DocsPresence } from '@/types/users';
  *  in `DocsPresence.activeSelection`. */
 type DocsSelection = NonNullable<DocsPresence['activeSelection']>;
 
+/** The presence channel `doc.update()` hands its callback. Narrowed to the
+ *  one method this store uses so a batch can park it in a field. */
+type DocsPresenceProxy = {
+  set(presence: Partial<DocsPresence>, option?: { addToHistory?: boolean }): void;
+};
+
 type DocRegion = 'body' | 'header' | 'footer';
 type TreePosRange = ReturnType<YorkieDocsRoot['content']['indexRangeToPosRange']>;
 
@@ -556,6 +562,23 @@ export class YorkieDocStore implements DocStore {
   private compositionStartAnchor: AnchoredDocPosition | null = null;
   /** Undo stack depth after setDocument — users cannot undo past this point. */
   private undoFloor = 0;
+  /**
+   * The live Yorkie root for the duration of a top-level `batch()`. Set
+   * while the batch's single `doc.update` is open; every write routes
+   * through `withUpdate`, which reuses this root instead of opening its own
+   * `doc.update`. That collapses a batch of N writes into ONE Yorkie change
+   * — hence one `doc.history` entry. Null outside a batch. Mirrors
+   * `YorkieSlidesStore` (docs/design/slides/slides-native-undo.md).
+   */
+  private activeRoot: YorkieDocsRoot | null = null;
+  /**
+   * The batch's ambient presence proxy, captured alongside `activeRoot`.
+   * Presence writes fold into this rather than opening a nested
+   * `doc.update`, which Yorkie does not support. Presence `set` without
+   * `addToHistory` is not part of the document change, so this never adds
+   * to the batch's undo unit.
+   */
+  private activePresence: DocsPresenceProxy | null = null;
 
   /**
    * Optional callback invoked when a remote change is detected.
@@ -585,11 +608,28 @@ export class YorkieDocStore implements DocStore {
   // Reads
   // -----------------------------------------------------------------------
 
+  /**
+   * The root every read in this class goes through — the counterpart of
+   * `withUpdate` for the read side.
+   *
+   * Inside a top-level `batch()` the batch's single `doc.update` is still
+   * open, and a read taken from `this.doc.getRoot()` there would be a
+   * *different* proxy over the clone the update is mutating. Yorkie builds
+   * that proxy over the same clone root, so in practice it observes the
+   * in-progress writes — but the whole batch's correctness would then rest
+   * on that SDK internal. Reading the ambient root directly removes the
+   * assumption: a batched read observes exactly what the batched writes
+   * just did, by construction.
+   */
+  private readRoot(): YorkieDocsRoot {
+    return this.activeRoot ?? this.doc.getRoot();
+  }
+
   getDocument(): Document {
     if (!this.dirty && this.cachedDoc) {
       return cloneDocument(this.cachedDoc);
     }
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const tree = root.content;
     if (!tree || typeof tree.getRootTreeNode !== 'function') {
       this.cachedDoc = { blocks: [] };
@@ -619,7 +659,7 @@ export class YorkieDocStore implements DocStore {
    * and the variable/`StoredColor` key shapes inside a style definition.
    */
   private readDocStyles(): DocStyles {
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const json = root.stylesJson;
     if (!json) return {};
     try {
@@ -659,7 +699,7 @@ export class YorkieDocStore implements DocStore {
   }
 
   getPageSetup(): PageSetup {
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     return resolvePageSetup(
       root.pageSetup ? readPageSetup(root.pageSetup) : undefined,
     );
@@ -684,7 +724,7 @@ export class YorkieDocStore implements DocStore {
     const hadHeader = !!doc.header;
 
     // If tree is not initialized yet, fall back to full document write.
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const tree = root.content;
     if (!tree || typeof tree.getRootTreeNode !== 'function') {
       doc.header = header;
@@ -694,7 +734,7 @@ export class YorkieDocStore implements DocStore {
       return;
     }
 
-    this.doc.update((root) => {
+    this.withUpdate((root) => {
       const tree = root.content;
 
       if (header) {
@@ -723,7 +763,7 @@ export class YorkieDocStore implements DocStore {
     const hadFooter = !!doc.footer;
 
     // If tree is not initialized yet, fall back to full document write.
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const tree = root.content;
     if (!tree || typeof tree.getRootTreeNode !== 'function') {
       doc.footer = footer;
@@ -733,7 +773,7 @@ export class YorkieDocStore implements DocStore {
       return;
     }
 
-    this.doc.update((root) => {
+    this.withUpdate((root) => {
       const tree = root.content;
       const treeRoot = tree.getRootTreeNode() as ElementNode;
       const childCount = (treeRoot.children ?? []).length;
@@ -764,6 +804,15 @@ export class YorkieDocStore implements DocStore {
   // -----------------------------------------------------------------------
 
   setDocument(doc: Document): void {
+    // Guarded before the write, not after: `undoFloor` below reads the undo
+    // stack once the write has landed, which inside a batch is not until the
+    // batch's single `doc.update` closes. The floor would land one unit low
+    // and the whole loaded document would become undoable. No caller does
+    // this today, but the coupling is invisible from `batch()`, so it is
+    // enforced rather than documented.
+    if (this.activeRoot) {
+      throw new Error('setDocument() must not be called inside batch()');
+    }
     this.writeFullDocument(doc);
     // Cache the document we just wrote so the next getDocument() returns it
     // even if the Yorkie Tree read doesn't reflect changes immediately
@@ -773,6 +822,7 @@ export class YorkieDocStore implements DocStore {
     // Mark the undo stack depth so users cannot undo past the initial
     // document load. Yorkie's CRDT redo of writeFullDocument can
     // conflict with subsequent text insertions.
+    // Reads the stack *after* the write — see the batch guard at the top.
     this.undoFloor = this.doc.getUndoStackForTest().length;
   }
 
@@ -917,7 +967,7 @@ export class YorkieDocStore implements DocStore {
     pos: DocPosition,
     lineAffinity?: 'forward' | 'backward',
   ): AnchoredDocPosition | null {
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const tree = root.content;
     if (!tree || typeof tree.getRootTreeNode !== 'function') return null;
 
@@ -1050,7 +1100,7 @@ export class YorkieDocStore implements DocStore {
   }
 
   private resolveAnchoredDocPosition(anchor: AnchoredDocPosition): DocPosition {
-    const root = this.doc.getRoot();
+    const root = this.readRoot();
     const tree = root.content;
     if (!tree || typeof tree.getRootTreeNode !== 'function') {
       return {
@@ -1192,7 +1242,8 @@ export class YorkieDocStore implements DocStore {
     selection: DocRange | null;
   }): void {
     if (!resolved.cursor && !resolved.selection) return;
-    this.doc.update((_, p) => {
+    if (this.skipNonHistoryPresence()) return;
+    this.withUpdate((_, p) => {
       p.set({
         activeCursorPos: resolved.cursor ?? undefined,
         activeSelection: resolved.selection ?? undefined,
@@ -1243,7 +1294,7 @@ export class YorkieDocStore implements DocStore {
   /** Log the Yorkie Tree state at a given block path for debugging. */
   private logTreeState(op: string, blockPath: number[]): void {
     try {
-      const root = this.doc.getRoot();
+      const root = this.readRoot();
       const tree = root.content;
       if (!tree || typeof tree.getRootTreeNode !== 'function') return;
       const treeRoot = tree.getRootTreeNode();
@@ -1420,7 +1471,7 @@ export class YorkieDocStore implements DocStore {
     endPath[endPath.length - 1] += 1;
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -1480,7 +1531,7 @@ export class YorkieDocStore implements DocStore {
     if (type !== 'list-item') toRemove.push('listKind', 'listLevel');
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -1547,7 +1598,7 @@ export class YorkieDocStore implements DocStore {
     const attrs = serializeBlockStyle(merged);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -1569,7 +1620,7 @@ export class YorkieDocStore implements DocStore {
     const block = this.getBlockByRegion(currentDoc, blockPath, region);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, { blockId, offset: offset + 1 });
       }
@@ -1646,7 +1697,7 @@ export class YorkieDocStore implements DocStore {
     const targetInline = block.inlines[cacheResolved.inlineIndex];
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, { blockId, offset: offset + text.length });
       }
@@ -1725,7 +1776,7 @@ export class YorkieDocStore implements DocStore {
     }
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, { blockId, offset });
       }
@@ -1782,7 +1833,7 @@ export class YorkieDocStore implements DocStore {
     const updated = applyInlineStyleHelper(block, fromOffset, toOffset, style);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -1825,7 +1876,7 @@ export class YorkieDocStore implements DocStore {
     });
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2001,7 +2052,7 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const off = this.bodyTreeOffset(currentDoc);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2024,7 +2075,7 @@ export class YorkieDocStore implements DocStore {
     insertPath[insertPath.length - 1] += 1;
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2068,7 +2119,7 @@ export class YorkieDocStore implements DocStore {
 
     const nodes = blocks.map((b) => buildBlockNode(b));
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2093,7 +2144,7 @@ export class YorkieDocStore implements DocStore {
     endPath[endPath.length - 1] += 1;
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2114,7 +2165,7 @@ export class YorkieDocStore implements DocStore {
     const currentDoc = this.getDocument();
     const off = this.bodyTreeOffset(currentDoc);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2152,7 +2203,7 @@ export class YorkieDocStore implements DocStore {
     const movesHeadingMemory = splitMovesHeadingMemory(block, offset, newBlockType);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, { blockId: newBlockId, offset: 0 });
       }
@@ -2338,7 +2389,7 @@ export class YorkieDocStore implements DocStore {
     const dropHeadingMemory = mergeDropsHeadingMemory(firstBlock);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         const mergeOffset = firstBlock.inlines.reduce((sum, i) => sum + i.text.length, 0);
         this.recordHistoryPresence(p, { blockId, offset: mergeOffset });
@@ -2472,7 +2523,7 @@ export class YorkieDocStore implements DocStore {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const rowNode = buildRowNode(row);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2488,7 +2539,7 @@ export class YorkieDocStore implements DocStore {
   deleteTableRow(tableBlockId: string, rowIndex: number): void {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2504,7 +2555,7 @@ export class YorkieDocStore implements DocStore {
   insertTableColumn(tableBlockId: string, atIndex: number, cells: TableCell[]): void {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2533,7 +2584,7 @@ export class YorkieDocStore implements DocStore {
     const block = this.resolveTableBlock(tablePath, currentDoc);
     const rowCount = block.tableData!.rows.length;
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2555,7 +2606,7 @@ export class YorkieDocStore implements DocStore {
     const tablePath = this.resolveTableTreePath(tableBlockId);
     const cellNode = buildCellNode(cell);
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2598,7 +2649,7 @@ export class YorkieDocStore implements DocStore {
     const attrs = serializeCellStyle({ ...cell, style: merged });
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2652,7 +2703,7 @@ export class YorkieDocStore implements DocStore {
     }
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2694,7 +2745,7 @@ export class YorkieDocStore implements DocStore {
     const nodeAttrs = serializeTableAttrs(attrs.cols, attrs.rowHeights);
 
     const cursorForHistory = this.consumePendingCursor();
-    this.doc.update((root, p) => {
+    this.withUpdate((root, p) => {
       if (cursorForHistory) {
         this.recordHistoryPresence(p, cursorForHistory);
       }
@@ -2708,7 +2759,7 @@ export class YorkieDocStore implements DocStore {
   }
 
   setPageSetup(setup: PageSetup): void {
-    this.doc.update((root) => {
+    this.withUpdate((root) => {
       root.pageSetup = {
         paperSize: { ...setup.paperSize },
         orientation: setup.orientation,
@@ -2773,7 +2824,7 @@ export class YorkieDocStore implements DocStore {
     if (currentDoc.header) collect(currentDoc.header.blocks);
     if (currentDoc.footer) collect(currentDoc.footer.blocks);
 
-    this.doc.update((root) => {
+    this.withUpdate((root) => {
       root.stylesJson = JSON.stringify(next);
       const tree = root.content;
       if (tree && typeof tree.getRootTreeNode === 'function') {
@@ -2787,11 +2838,77 @@ export class YorkieDocStore implements DocStore {
   }
 
   // -----------------------------------------------------------------------
-  // Undo / Redo (Yorkie-native via doc.history)
+  // Batch + Undo / Redo (Yorkie-native via doc.history)
   // -----------------------------------------------------------------------
 
+  /**
+   * Run `fn` against the batch's ambient root when a top-level `batch()` is
+   * open, otherwise open a standalone `doc.update`. **Every** write in this
+   * class goes through this instead of calling `this.doc.update` directly.
+   *
+   * That is not a style preference: a `doc.update` nested inside another
+   * one builds a second `ChangeContext` and pushes its change while the
+   * outer one is still open, which splits the batch's undo unit and clears
+   * the SDK's `isUpdating` flag early. Reads have the mirror-image rule and
+   * their own seam, {@link readRoot}: inside a batch they read the ambient
+   * root too, so a batched read observes the batch's own writes without
+   * depending on how `getRoot()` happens to build its proxy.
+   */
+  private withUpdate(
+    fn: (root: YorkieDocsRoot, p: DocsPresenceProxy) => void,
+  ): void {
+    if (this.activeRoot) {
+      fn(this.activeRoot, this.activePresence!);
+    } else {
+      this.doc.update((root, p) => fn(root, p));
+    }
+  }
+
+  batch(fn: () => void): void {
+    // Nested batch: we are already inside the ambient `doc.update`, so just
+    // run the body. Opening a second update would split the work into two
+    // undo units and break "one batch = one undo unit".
+    //
+    // Keyed on `activeRoot` — the same sentinel `withUpdate` reads — so the
+    // two can never disagree. A separate depth counter would: it would still
+    // read "in a batch" during the SDK's post-updater work (change push and
+    // the synchronous `local-change` publish), which runs after the ambient
+    // root is gone, and a subscriber that re-entered `batch()` there would
+    // take this fast path with no root and get one undo unit per write.
+    if (this.activeRoot) {
+      fn();
+      return;
+    }
+    let committed = false;
+    try {
+      // ONE doc.update for the whole batch → one Yorkie change → one
+      // `doc.history` entry. Writes run against `activeRoot` via
+      // `withUpdate`; presence writes fold into `activePresence`.
+      this.doc.update((root, p) => {
+        this.activeRoot = root;
+        this.activePresence = p;
+        try {
+          fn();
+        } finally {
+          this.activeRoot = null;
+          this.activePresence = null;
+        }
+      });
+      committed = true;
+    } finally {
+      // A throw rolls the whole update back (Yorkie discards the clone), so
+      // the optimistic cache each write left behind describes state that
+      // never landed. On the happy path the writes kept it current.
+      if (!committed) {
+        this.dirty = true;
+        this.cachedDoc = null;
+      }
+    }
+  }
+
   snapshot(): void {
-    // Yorkie tracks undo units via doc.update() — no-op.
+    // Yorkie tracks undo units via doc.update() — no-op. Grouping several
+    // writes into one undo unit is `batch()`.
   }
 
   undo(): void {
@@ -2826,7 +2943,7 @@ export class YorkieDocStore implements DocStore {
    * This deletes all existing blocks and inserts new ones.
    */
   private writeFullDocument(document: Document): void {
-    this.doc.update((root) => {
+    this.withUpdate((root) => {
       const tree = root.content;
 
       // Build the full list of children: header?, block*, footer?
@@ -3048,12 +3165,35 @@ export class YorkieDocStore implements DocStore {
       ? this.anchorDocPosition(clampedPos, clampedPos.lineAffinity)
       : null;
     this.localSelectionAnchor = this.anchorDocRange(clampedSelection ?? null);
-    this.doc.update((_, p) => {
+    // The anchors above are view-local bookkeeping and always run; only the
+    // presence write is held back inside a batch.
+    if (this.skipNonHistoryPresence()) return;
+    this.withUpdate((_, p) => {
       p.set({
         activeCursorPos: clampedPos ?? undefined,
         activeSelection: clampedSelection ?? undefined,
       });
     });
+  }
+
+  /**
+   * Whether a presence write made *without* `addToHistory` must be skipped
+   * because a batch is open.
+   *
+   * Yorkie's `ChangeContext.setReversePresence` **deletes** keys from the
+   * change's reverse presence when `addToHistory` is falsy. Across two
+   * separate `doc.update`s that is harmless — each has its own context. Fold
+   * both into one change, as a batch does, and a plain cursor publish erases
+   * the reverse presence an earlier `recordHistoryPresence` staged in the
+   * same batch, so undo restores the post-edit caret instead of the
+   * pre-edit one.
+   *
+   * Skipping loses nothing: presence is last-write-wins and the next cursor
+   * move republishes. `recordHistoryPresence` is unaffected — it passes
+   * `addToHistory` and is exactly what must stay inside the batch.
+   */
+  private skipNonHistoryPresence(): boolean {
+    return this.activeRoot !== null;
   }
 
   /**
