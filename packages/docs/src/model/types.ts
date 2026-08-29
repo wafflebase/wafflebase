@@ -748,13 +748,96 @@ export const DEFAULT_PAGE_SETUP: PageSetup = {
   margins: { top: 96, bottom: 96, left: 96, right: 96 },
 };
 
+/**
+ * Smallest content box `resolvePageSetup` will leave standing. One pixel is
+ * enough for `paginateLayout` to make progress; the value only matters when
+ * the stored margins were already unusable.
+ */
+const MIN_CONTENT_PX = 1;
+
+/** A stored dimension we are willing to lay out with, or the default. */
+function usableSize(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : fallback;
+}
+
+/** A stored margin we are willing to lay out with, or the default. */
+function usableMargin(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : fallback;
+}
+
+/**
+ * Shrink a margin pair proportionally until it leaves a usable content box.
+ * Proportional rather than reset-to-default so a document whose margins are
+ * merely too large for its page keeps the ratio its author chose.
+ */
+function fitMargins(
+  near: number,
+  far: number,
+  extent: number,
+): [number, number] {
+  const total = near + far;
+  if (total <= extent - MIN_CONTENT_PX) return [near, far];
+  // A page narrower than `MIN_CONTENT_PX` cannot satisfy the floor at all, and
+  // scaling a zero pair would divide by zero (`0 * -Infinity` is `NaN`, which
+  // is exactly the value this function exists to keep out). Zero margins give
+  // the whole page to content, which is the most room there is.
+  if (total === 0) return [0, 0];
+  const scale = Math.max(0, (extent - MIN_CONTENT_PX) / total);
+  return [near * scale, far * scale];
+}
+
+/**
+ * Resolve a stored page setup into one every layout pass can consume.
+ *
+ * This is the single read path — the editor, the ruler, `MemDocStore`,
+ * `YorkieDocStore`, the CLI's pagination and PDF export all reach the page
+ * setup through it — and it is the only place that sees geometry we did not
+ * validate ourselves. `EditorAPI.setPageSetup` refuses unusable geometry at
+ * the write it owns, but two paths never touch that write: a `.docx` import
+ * stores its parsed geometry through `setDocument`, and a collaborator's
+ * CRDT write lands in `document.pageSetup` with no local check at all.
+ *
+ * Clamping (rather than throwing) is the honest answer for data we do not
+ * control: a remote peer must not be able to make this replica's document
+ * un-openable, and there is no caller here to report an error to. The
+ * deliberate write path still throws, so a caller that *can* be told it
+ * passed nonsense still is.
+ */
 export function resolvePageSetup(setup: PageSetup | undefined): PageSetup {
   const resolved = setup ?? DEFAULT_PAGE_SETUP;
-  return {
-    paperSize: { ...resolved.paperSize },
-    orientation: resolved.orientation,
-    margins: { ...resolved.margins },
+  const storedPaper = resolved.paperSize ?? DEFAULT_PAGE_SETUP.paperSize;
+  const storedMargins = resolved.margins ?? DEFAULT_PAGE_SETUP.margins;
+
+  const paperSize: PaperSize = {
+    name: storedPaper.name ?? DEFAULT_PAGE_SETUP.paperSize.name,
+    width: usableSize(storedPaper.width, DEFAULT_PAGE_SETUP.paperSize.width),
+    height: usableSize(storedPaper.height, DEFAULT_PAGE_SETUP.paperSize.height),
   };
+  const orientation =
+    resolved.orientation === 'landscape' ? 'landscape' : 'portrait';
+
+  // Measured against the *effective* box so the fit follows the orientation
+  // rather than the stored paper dimensions.
+  const width = orientation === 'landscape' ? paperSize.height : paperSize.width;
+  const height =
+    orientation === 'landscape' ? paperSize.width : paperSize.height;
+
+  const [left, right] = fitMargins(
+    usableMargin(storedMargins.left, DEFAULT_PAGE_SETUP.margins.left),
+    usableMargin(storedMargins.right, DEFAULT_PAGE_SETUP.margins.right),
+    width,
+  );
+  const [top, bottom] = fitMargins(
+    usableMargin(storedMargins.top, DEFAULT_PAGE_SETUP.margins.top),
+    usableMargin(storedMargins.bottom, DEFAULT_PAGE_SETUP.margins.bottom),
+    height,
+  );
+
+  return { paperSize, orientation, margins: { top, bottom, left, right } };
 }
 
 export function getEffectiveDimensions(setup: PageSetup): { width: number; height: number } {

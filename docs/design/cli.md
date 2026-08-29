@@ -760,8 +760,8 @@ confirmation payload in JSON.
 | strikethrough                              | `~~text~~`                                                               |
 | color / background / font / size           | dropped                                                                  |
 | superscript / subscript                    | dropped                                                                  |
-| link                                       | `[text](href)`; an unsafe scheme (`javascript:`, `data:text/html`, …) drops the link and keeps the text |
-| image                                      | `![alt](src)`; if `--inline-images=false` (default), `data:` URLs become `[image]`, as does any source that is neither `data:image/…` nor an `isSafeUrl` scheme |
+| link                                       | `[text](href)`; an unsafe scheme (`javascript:`, `data:text/html`, …), a scheme-relative `//host/x`, or whitespace/control characters in the destination drop the link and keep the text. Relative targets (`/uploads/x`, `./x`, `#anchor`) are kept |
+| image                                      | `![alt](src)`; if `--inline-images=false` (default), `data:` URLs become `[image]`, as does any source the link rule above would reject — except `data:image/…`, which `--inline-images` exists to carry |
 | page-number marker                         | literal `#` at its location                                              |
 | header / footer                            | included only when `--include-header-footer=true`                        |
 

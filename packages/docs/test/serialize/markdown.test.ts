@@ -401,7 +401,6 @@ describe('serializeMarkdown — inline mapping', () => {
   it.each([
     ['javascript:', 'javascript:alert(1)'],
     ['data:', 'data:text/html;base64,PHNjcmlwdD4='],
-    ['a relative href', '/not/absolute'],
   ])('drops the link but keeps the text for %s', (_label, href) => {
     const md = serializeMarkdown(
       doc([block('a', 'paragraph', [inline('click me', { href })])]),
@@ -487,6 +486,67 @@ describe('serializeMarkdown — escaping', () => {
       ),
     ).toBe('![foo\\]bar](https://x/y.png)');
   });
+
+  // ── Alt text is attacker-influenceable ────────────────────────────────────
+  // An image `alt` reaches the model from the same untrusted sources as its
+  // `src` — clipboard JSON paste, `insertImage`, a collaborator's CRDT write
+  // — and nothing validates it on the way in. Escaping only `]` leaves the
+  // `![...]` segment closable by a line break, and `<` unescaped lets the
+  // remainder land in the exported `.md` as raw HTML.
+  const alted = (alt: string) =>
+    serializeMarkdown(
+      doc([
+        block('a', 'paragraph', [
+          inline('￼', {
+            image: { src: 'https://x/y.png', width: 10, height: 10, alt },
+          }),
+        ]),
+      ]),
+    );
+
+  it('keeps a blank line in an image alt from closing the image', () => {
+    const md = alted('cap\n\nnot a new block');
+    expect(md).not.toMatch(/[\r\n]/);
+    expect(md).toBe('![cap  not a new block](https://x/y.png)');
+  });
+
+  it('escapes raw HTML in an image alt', () => {
+    const md = alted('<img src=x onerror=alert(1)>');
+    // Every `<` is backslash-escaped, so no tag can open.
+    expect(md).not.toMatch(/(^|[^\\])</);
+    expect(md).toBe('![\\<img src=x onerror=alert(1)>](https://x/y.png)');
+  });
+
+  it('escapes Markdown punctuation in an image alt', () => {
+    expect(alted('a*b_c`d')).toBe('![a\\*b\\_c\\`d](https://x/y.png)');
+  });
+
+  it('keeps a blank line in a text run from forging a new block', () => {
+    // A run carrying `\n\n` would otherwise end its paragraph and let
+    // everything after it be parsed as document structure of the attacker's
+    // choosing.
+    const md = serializeMarkdown(
+      doc([block('a', 'paragraph', [inline('intro\n\n# Forged heading')])]),
+    );
+    expect(md).not.toMatch(/[\r\n]/);
+    expect(md).toBe('intro  # Forged heading');
+  });
+
+  it('keeps a line break in a table cell from truncating the row', () => {
+    const tableData: TableData = {
+      rows: [
+        {
+          cells: [
+            { blocks: [block('c1', 'paragraph', [inline('a\nb')])], style: {} },
+            { blocks: [block('c2', 'paragraph', [inline('c')])], style: {} },
+          ],
+        },
+      ],
+      columnWidths: [1, 1],
+    };
+    const md = serializeMarkdown(doc([block('t', 'table', [], { tableData })]));
+    expect(md.split('\n')).toEqual(['| a b | c |', '| --- | --- |']);
+  });
 });
 
 describe('serializeMarkdown — URL safety', () => {
@@ -510,9 +570,52 @@ describe('serializeMarkdown — URL safety', () => {
     ['data:text/html', 'data:text/html;base64,PHNjcmlwdD4='],
     ['vbscript:', 'vbscript:msgbox(1)'],
     ['file:', 'file:///etc/passwd'],
-    ['a relative path with no scheme', '/local/path'],
+    // A scheme-relative reference is *not* a relative URL: it keeps the
+    // reader's scheme but swaps the host, so it reaches an attacker's origin
+    // exactly as an absolute link would.
+    ['a scheme-relative reference', '//evil.example/x'],
+    // The WHATWG parser folds `\` into `/` for special schemes, so these two
+    // spellings resolve to the same off-origin host as `//`.
+    ['a backslash scheme-relative reference', '\\\\evil.example/x'],
+    ['a mixed slash/backslash reference', '/\\evil.example/x'],
+    // `a:b` is a scheme, not a path segment — and it is not on the allowlist.
+    ['an unknown scheme that looks like a path', 'custom:payload'],
   ])('drops a %s link target, keeping the text', (_label, href) => {
     expect(linked(href)).toBe('click me');
+  });
+
+  // ── Relative targets ──────────────────────────────────────────────────────
+  // The app's own upload path stores images under a site-relative URL, and
+  // HTML paste carries whatever relative hrefs the source page had. A
+  // protocol allowlist can only judge a URL that *has* a protocol, so
+  // rejecting everything without one silently strips legitimate content —
+  // and the fallback for an href is the bare text, so the link just
+  // disappears from the export.
+  it.each([
+    ['a site-absolute path', '/uploads/a.png'],
+    ['a same-directory path', './a.png'],
+    ['a parent-directory path', '../a.png'],
+    ['a bare filename', 'a.png'],
+    ['a nested relative path', 'sub/dir/a.png'],
+    ['a fragment', '#section-2'],
+    ['a query string', '?page=2'],
+  ])('keeps %s as a link target', (_label, href) => {
+    expect(linked(href)).toBe(`[click me](${href})`);
+  });
+
+  it.each([
+    ['a site-absolute path', '/uploads/a.png'],
+    ['a same-directory path', './a.png'],
+    ['a fragment', '#anchor'],
+  ])('keeps %s as an image target', (_label, src) => {
+    expect(pictured(src)).toBe(`![pic](${src})`);
+  });
+
+  it.each([
+    ['a scheme-relative reference', '//evil.example/x.png'],
+    ['a backslash scheme-relative reference', '\\\\evil.example/x.png'],
+  ])('drops %s as an image target', (_label, src) => {
+    expect(pictured(src)).toBe('[image]');
   });
 
   it.each([

@@ -129,3 +129,72 @@ drag handler (20 px of slack) and in the Page Setup dialog (`>= pageWidth`) —
 and nowhere on `writePageSetup`, the single function both go through. A public
 `EditorAPI.setPageSetup` bypassed both. Two callers respecting a rule is not
 the rule being enforced.
+
+## A protocol allowlist cannot judge a URL that has no protocol
+
+The round-2 `href`/`src` gate was `isSafeUrl`, which is `new URL(href)` with no
+base — so it throws on every relative reference and answers `false`. The gate
+did close the `javascript:` hole, and it also silently dropped `/uploads/x.png`
+(what the app's own upload path writes) and `#anchor` (what HTML paste carries)
+out of every export. A security control that rejects the safe majority is not a
+stricter control, it is a functional regression with a security-shaped
+justification.
+
+The fix splits the question the way URL grammar already does: a reference that
+matches RFC 3986's `scheme` rule must clear the allowlist; one that does not
+carries no scheme and so cannot select a dangerous one. The one trap is that
+"no scheme" is not the same as "no authority" — `//host/x` keeps the reader's
+scheme and swaps the origin, and the WHATWG parser folds `\` into `/`, so
+`\\host/x` and `/\host/x` mean the same thing. Those three spellings are the
+only relative-looking references that must still be refused.
+
+## Fix a field, then look at its siblings
+
+`href` and `alt` reach the model from the same untrusted sources — clipboard
+JSON paste, `insertImage`, DOCX/HTML import, a peer's CRDT write — and sit in
+the same `![...](...)` construct. Round 2 hardened one and left the other
+escaping `\` and `]` only, so a blank line in an `alt` still closed the image
+and landed raw HTML in the export. When a gate is added to one field, the
+question to ask immediately is which other fields share its provenance and its
+delimiter.
+
+Line breaks are the part no backslash escape reaches: `\n` cannot be escaped in
+Markdown, only removed. Folding them to a space is safe here precisely because
+the block joiner builds its own `\n` / `\n\n` separators from *rendered blocks*
+and never from run text — so nothing structural depends on a newline surviving
+inside a run.
+
+## Validate where untrusted data enters, not only where your own API writes
+
+`assertUsablePageSetup` guarded `writePageSetup`, the one path the team's own
+UI uses. Hostile geometry does not use it: a `.docx` parses `<w:sectPr>` with
+`parseInt` (`NaN` for garbage, negatives verbatim) and stores the result
+through `setDocument`, and a collaborator's CRDT write reaches
+`document.pageSetup` with no local check at all. The guard's own comment named
+the stake — "persisted into the CRDT for every collaborator" — which is exactly
+what import still did.
+
+Two different answers were right for the two paths:
+
+- **Import** is a parser, so it refuses at the boundary: a `<w:sectPr>` length
+  that is not finite and positive is dropped in favour of the default, rather
+  than carried into the model.
+- **Read** is data we do not control, so it clamps. `resolvePageSetup` is the
+  one function every consumer (editor, ruler, `MemDocStore`, `YorkieDocStore`,
+  CLI pagination, PDF export) already calls, and throwing there would let a
+  remote peer make a document un-openable on this replica. The deliberate write
+  path still throws, so a caller that *can* be told it passed nonsense still is.
+
+Margins that merely exceed the page are scaled proportionally rather than reset,
+so a document whose author chose a ratio keeps it.
+
+## A jest moduleNameMapper gap can hide behind a built `dist`
+
+`packages/backend` maps `@wafflebase/docs` to the docs *source* entry, which now
+transitively imports `@wafflebase/core/url` — a subpath with no mapping. The
+suite still passed, because `packages/core/dist` happened to be built and
+resolution fell through to it. Moving `dist` aside made the real failure appear
+(`Cannot find module '@wafflebase/core/url'`), which is also what a clean CI
+checkout ordering would have produced. Proving such a mapping is load-bearing
+means removing the thing that was masking it, not just watching the suite stay
+green.

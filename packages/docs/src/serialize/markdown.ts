@@ -263,11 +263,40 @@ function inlineToMarkdown(inline: Inline, opts: MarkdownOptions): string {
 const UNEMITTABLE_URL_CHARS = /[\s\u0000-\u001F\u007F-\u009F]/;
 
 /**
+ * Does this reference begin with a scheme? Mirrors RFC 3986's `scheme` rule,
+ * which is also what a URL parser uses to decide whether a reference is
+ * absolute. Anything matching must clear `isSafeUrl`'s allowlist; anything
+ * not matching carries no scheme at all and so cannot name a protocol.
+ */
+const HAS_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
+
+/**
+ * A relative reference that is really an *origin* change. `//host/x` keeps
+ * the reader's scheme but swaps the authority, so it reaches an attacker's
+ * server exactly as an absolute link would — and the WHATWG parser folds `\`
+ * into `/` for special schemes, so `\\host/x` and `/\host/x` resolve the same
+ * way. None of these is relative to the exported document.
+ */
+const SCHEME_RELATIVE = /^[/\\]{2}/;
+
+/**
  * Is `url` both safe to link to *and* safe to write verbatim into a link
  * destination? Every emitted `href`/`src` goes through here.
+ *
+ * A protocol allowlist can only judge a reference that *has* a protocol.
+ * Relative references — `/uploads/x.png` from the app's own upload path,
+ * `./a.png` and `#anchor` from HTML paste — name no protocol, so gating on
+ * `isSafeUrl` alone rejects every one of them and silently strips legitimate
+ * content from the export (an href degrades to bare text, an image to
+ * `[image]`). They are accepted here on the strength of what they cannot be:
+ * with no scheme they cannot select a dangerous one, and with no authority
+ * they cannot leave the document's own origin.
  */
 function isEmittableUrl(url: string): boolean {
-  return !UNEMITTABLE_URL_CHARS.test(url) && isSafeUrl(url);
+  if (url.length === 0) return false;
+  if (UNEMITTABLE_URL_CHARS.test(url)) return false;
+  if (HAS_SCHEME.test(url)) return isSafeUrl(url);
+  return !SCHEME_RELATIVE.test(url);
 }
 
 /**
@@ -283,10 +312,10 @@ const SAFE_IMAGE_DATA_URI =
 /** Is `src` something we are willing to write as an image target? */
 function isSafeImageSrc(src: string): boolean {
   // The character gate first, so it also covers the `data:image` branch —
-  // which bypasses `isSafeUrl` entirely and is therefore the one path where
-  // no parser would ever look at the string.
+  // which bypasses `isEmittableUrl` entirely and is therefore the one path
+  // where no parser would ever look at the string.
   if (UNEMITTABLE_URL_CHARS.test(src)) return false;
-  return SAFE_IMAGE_DATA_URI.test(src) || isSafeUrl(src);
+  return SAFE_IMAGE_DATA_URI.test(src) || isEmittableUrl(src);
 }
 
 function imageInline(
@@ -294,7 +323,11 @@ function imageInline(
   opts: MarkdownOptions,
 ): string {
   const alt = escapeMarkdownAlt(image.alt ?? '');
-  const isDataUri = image.src.startsWith('data:');
+  // Case-insensitive to agree with `SAFE_IMAGE_DATA_URI` (and with every URL
+  // parser, for which a scheme is case-insensitive). Spelled `DATA:` this
+  // test used to answer `false`, so a data URL was emitted inline with
+  // `inlineImages` off — the one thing this branch exists to prevent.
+  const isDataUri = /^data:/i.test(image.src);
   if (isDataUri && !opts.inlineImages) {
     return '[image]';
   }
@@ -309,21 +342,51 @@ function imageInline(
 }
 
 /**
+ * Line separators, which no backslash escape neutralizes.
+ *
+ * A run's `text` is inline content — the model puts a paragraph break in a
+ * new block, never inside a run — so a line break in one is either import
+ * noise or an injection. Emitted verbatim it ends whatever construct
+ * encloses it: a blank line closes the paragraph and everything after it is
+ * re-parsed as document structure, a single newline truncates a GFM table
+ * row, and inside `![...]` it closes the image. Folding them to a space is
+ * the only repair that leaves the text in the block it belongs to.
+ *
+ * NEL (U+0085) and the Unicode line/paragraph separators are included
+ * alongside CR and LF because a downstream renderer or editor may treat
+ * them as breaks too.
+ */
+const LINE_SEPARATORS = /[\r\n\u0085\u2028\u2029]/g;
+
+/**
  * Backslash-escape Markdown special characters in a plain-text run so
  * literal characters like `*`, `_`, `[`, `` ` `` survive the round trip.
  * Backslash itself is escaped first; otherwise the escapes inserted for
  * the other characters would themselves be unescaped on parse.
+ *
+ * Line separators cannot be escaped, so they are folded to a space first —
+ * this does not fight the block joiner, which builds its `\n` / `\n\n`
+ * separators from the *rendered blocks*, never from run text.
  */
 function escapeMarkdownText(text: string): string {
-  return text.replace(/[\\*_[\]`~<]/g, (ch) => `\\${ch}`);
+  return text
+    .replace(LINE_SEPARATORS, ' ')
+    .replace(/[\\*_[\]`~<]/g, (ch) => `\\${ch}`);
 }
 
 /**
- * Escape `]` inside a link body or image alt — the only character that
- * can prematurely close the `[...]` segment.
+ * Escape an image alt.
+ *
+ * `alt` is as attacker-influenceable as `src`: it arrives from clipboard
+ * JSON paste, `insertImage`, DOCX/HTML import and a collaborator's CRDT
+ * write, and nothing validates it on the way into the model. Escaping only
+ * `]` left the `![...]` segment closable by a line break — after which the
+ * payload lands in the exported `.md` as live Markdown or, since `<` was
+ * also unescaped, as raw HTML. It gets the same treatment as body text,
+ * which already covers `]`, `[`, `\` and `<`.
  */
 function escapeMarkdownAlt(alt: string): string {
-  return alt.replace(/[\\\]]/g, (ch) => `\\${ch}`);
+  return escapeMarkdownText(alt);
 }
 
 /**
