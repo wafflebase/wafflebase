@@ -30,8 +30,11 @@ if (typeof window.matchMedia !== 'function') {
  * Stub with a real format-painter buffer behind it, so the toggle is tested
  * against the contract (`hasCopiedFormat` + `onCopiedFormatChange`) rather
  * than against a frozen return value.
+ *
+ * `selectionPresent: false` models the editor's other real answer: with
+ * nothing selected `pasteFormat()` writes nothing and reports `false`.
  */
-function makeEditor() {
+function makeEditor({ selectionPresent = true }: { selectionPresent?: boolean } = {}) {
   let held = false;
   const listeners = new Set<() => void>();
   const notify = () => listeners.forEach((cb) => cb());
@@ -61,7 +64,7 @@ function makeEditor() {
       held = true;
       notify();
     }),
-    pasteFormat: vi.fn(() => held),
+    pasteFormat: vi.fn(() => held && selectionPresent),
     clearCopiedFormat: vi.fn(() => {
       if (!held) return;
       held = false;
@@ -113,6 +116,24 @@ describe('DocsFormattingToolbar format painter', () => {
     expect(editor.pasteFormat).toHaveBeenCalledTimes(1);
     expect(editor.clearCopiedFormat).toHaveBeenCalledTimes(1);
     expect(button.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('cancels the held format when the second press has nothing to paint', () => {
+    // The documented way to put the painter down: press it again with no
+    // selection. Nothing is written, and the button must not stay lit — a
+    // toggle stuck "on" over a buffer the user meant to drop.
+    const editor = makeEditor({ selectionPresent: false });
+    const button = mount(editor);
+
+    fireEvent.click(button);
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(button);
+
+    expect(editor.pasteFormat).toHaveReturnedWith(false);
+    expect(editor.clearCopiedFormat).toHaveBeenCalledTimes(1);
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(editor.hasCopiedFormat()).toBe(false);
   });
 
   it('returns focus to the editor so the selection stays usable', () => {

@@ -489,6 +489,72 @@ describe('serializeMarkdown — escaping', () => {
   });
 });
 
+describe('serializeMarkdown — URL safety', () => {
+  const linked = (href: string) =>
+    serializeMarkdown(
+      doc([block('a', 'paragraph', [inline('click me', { href })])]),
+    );
+
+  const pictured = (src: string, opts = { inlineImages: true }) =>
+    serializeMarkdown(
+      doc([
+        block('a', 'paragraph', [
+          inline('\uFFFC', { image: { src, width: 10, height: 10, alt: 'pic' } }),
+        ]),
+      ]),
+      opts,
+    );
+
+  it.each([
+    ['javascript:', 'javascript:alert(1)'],
+    ['data:text/html', 'data:text/html;base64,PHNjcmlwdD4='],
+    ['vbscript:', 'vbscript:msgbox(1)'],
+    ['file:', 'file:///etc/passwd'],
+    ['a relative path with no scheme', '/local/path'],
+  ])('drops a %s link target, keeping the text', (_label, href) => {
+    expect(linked(href)).toBe('click me');
+  });
+
+  it.each([
+    ['http', 'http://example.com/a'],
+    ['https', 'https://example.com/a'],
+    ['mailto', 'mailto:someone@example.com'],
+    ['tel', 'tel:+15551234'],
+  ])('keeps a %s link target', (_label, href) => {
+    expect(linked(href)).toBe(`[click me](${href})`);
+  });
+
+  it('still wraps the unlinked text in its other formatting', () => {
+    expect(
+      serializeMarkdown(
+        doc([
+          block('a', 'paragraph', [
+            inline('click me', { href: 'javascript:alert(1)', bold: true }),
+          ]),
+        ]),
+      ),
+    ).toBe('**click me**');
+  });
+
+  it.each([
+    ['javascript:', 'javascript:alert(1)'],
+    ['data:text/html', 'data:text/html;base64,PHNjcmlwdD4='],
+    ['file:', 'file:///etc/passwd'],
+  ])('replaces a %s image source with the [image] placeholder', (_label, src) => {
+    expect(pictured(src)).toBe('[image]');
+  });
+
+  it('keeps a data:image source, which is what inlineImages is for', () => {
+    expect(pictured('data:image/png;base64,AAAA')).toBe(
+      '![pic](data:image/png;base64,AAAA)',
+    );
+  });
+
+  it('keeps an https image source', () => {
+    expect(pictured('https://x/y.png')).toBe('![pic](https://x/y.png)');
+  });
+});
+
 describe('serializeMarkdown — header / footer toggle', () => {
   const sample: Document = {
     blocks: [block('a', 'paragraph', [inline('Body')])],

@@ -101,6 +101,26 @@ describe('DocsPageSetupDialog', () => {
     });
   });
 
+  it('seeds the other orientation and paper size just as faithfully', () => {
+    // The counterpart to the case above. Alone, that test is satisfied by a
+    // seed hard-wired to A4/landscape; this one pins the opposite values, so
+    // only a seed that actually reads the document passes both.
+    mount(
+      makeEditor({
+        paperSize: PAPER_SIZES.LEGAL,
+        orientation: 'portrait',
+        margins: { top: 96, bottom: 96, left: 96, right: 96 },
+      }),
+    );
+
+    expect(
+      screen.getByRole('radio', { name: 'Portrait' }).getAttribute('aria-checked'),
+    ).toBe('true');
+    expect(
+      screen.getByRole('radio', { name: 'Landscape' }).getAttribute('aria-checked'),
+    ).toBe('false');
+  });
+
   it('applies inches back as px, leaving untouched fields alone', () => {
     const editor = makeEditor(LETTER_DEFAULT);
     const { onOpenChange } = mount(editor);

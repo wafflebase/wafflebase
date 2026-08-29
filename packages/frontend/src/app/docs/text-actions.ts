@@ -32,6 +32,10 @@ const TEXT_MIME = "text/plain;charset=utf-8";
  * underline, table merges and nested tables are dropped) and header/footer
  * are page chrome that has no place in a single linear stream, so they are
  * left out — the same default the CLI uses.
+ *
+ * URL safety is the serializer's own job, not this caller's: it gates every
+ * `href` and image source it writes, so no `javascript:` / `data:text/html`
+ * target reaches the downloaded file whichever entry point produced it.
  */
 export async function exportMarkdownAndDownload(
   doc: DocsDocument,

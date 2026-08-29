@@ -73,8 +73,42 @@ pagination work, so the dialog is the intended shape.
 - Frontend: `packages/frontend/src/app/docs/docs-page-setup-dialog.tsx` (new),
   `docs-formatting-toolbar.tsx`, `docs-export-button.tsx`,
   `text-actions.ts` (new), `export-utils.ts` (`safeFilename` extensions).
-- Tests: `packages/frontend/tests/app/docs/docs-page-setup-dialog.test.tsx`,
-  `docs-export-button.test.tsx`, `docs-format-painter.test.tsx`,
-  `packages/docs/test/format-painter-api.test.ts`.
-</content>
-</invoke>
+- Tests, engine: `packages/docs/test/view/editor-page-setup.test.ts` (new),
+  `packages/docs/test/view/editor-format-painter.test.ts` (new),
+  `packages/docs/test/view/editor-read-only.test.ts` (extended: the two new
+  mutating `EditorAPI` methods, plus `TextEditor.pasteFormat()`'s own guard),
+  `packages/docs/test/serialize/markdown.test.ts` (extended: URL safety).
+- Tests, frontend: `packages/frontend/tests/app/docs/docs-page-setup-dialog.test.tsx`,
+  `docs-export-button.test.tsx`, `docs-format-painter-toggle.test.tsx`,
+  `text-actions.test.ts` (all new).
+
+## Review follow-ups
+
+Raised in review on the branch and fixed here:
+
+- The format painter carried the structural inline keys (`image`,
+  `pageNumber`, `href`) in its buffer, so a pick-up whose caret sat on an
+  image or a link stamped that image / destination onto every run it was
+  pasted over. `NON_PAINTABLE_INLINE_KEYS` in `text-editor.ts` strips them.
+- `serializeMarkdown` wrote `href` / `image.src` into the downloaded file
+  with no scheme filter, unlike the PDF exporter beside it. Both are now
+  gated: an unsafe link degrades to its text, an unsafe image source to the
+  serializer's existing `[image]` placeholder. A `data:image/...` source is
+  still emitted — that is what `inlineImages` is for.
+- `TextEditor.pasteFormat()` gained the `readOnly` guard every sibling
+  programmatic mutator carries; read-only no longer depends on the
+  `EditorAPI` allowlist alone.
+- The page-setup seeding test asserted a label that always renders, so
+  nothing verified that orientation or paper size were seeded from the
+  document. It now reads the checked radio and the selected paper size
+  against two differently-configured documents, and pins the Apply round
+  trip.
+- Two smaller test gaps closed: the toolbar toggle's cancel-with-no-selection
+  path, and that `notifyStyleApplied` fires only when the paste wrote.
+
+Recorded as known limitations rather than fixed here: `safeFilename` not
+stripping control/bidi characters or a leading dot (pre-existing, identical
+for the already-shipped `.pdf`/`.docx`), the `editor.focus()` / Radix
+focus-restore ordering, the two-press vs one-press painter semantics against
+slides, the mobile-width toolbar calculation, and an automated completeness
+check for the read-only `MUTATING_METHODS` allowlist.
