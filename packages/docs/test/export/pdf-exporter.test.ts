@@ -459,6 +459,80 @@ describe('PdfExporter (outline)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Link annotations
+// ---------------------------------------------------------------------------
+/**
+ * `PdfPainter` gates every `style.href` on `isSafeUrl`, which answers `false`
+ * for a relative reference as well as for an unsafe scheme. That makes the PDF
+ * export deliberately stricter than the Markdown serializer, which keeps
+ * relative targets — a `.md` file is read next to the site it came from, while
+ * a downloaded PDF carries no base URI to resolve one against (this exporter
+ * writes none; PDF 32000-1 §12.6.4.7), so a relative `/URI` action is dead or
+ * viewer-dependent.
+ *
+ * Pinned here because the divergence is easy to mistake for an oversight and
+ * "fix" by loosening the gate. The separate parser-differential defect in this
+ * gate — it validates `style.href` and then writes the raw string rather than
+ * what it validated — is issue #988 and is not addressed by these tests.
+ */
+describe('PdfExporter — link annotation targets', () => {
+  function linkDoc(href: string): Document {
+    return {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'Click me', style: { href } }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+    };
+  }
+
+  /**
+   * The distinct URI targets of every Link annotation in the export.
+   * Distinct because the painter emits one annotation per drawn text segment,
+   * so a single run can produce several identical annotations — a detail of
+   * how the text is measured, not of the gate under test here.
+   */
+  async function linkUris(doc: Document): Promise<string[]> {
+    const blob = await PdfExporter.export(doc, exportOpts());
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
+      updateMetadata: false,
+    });
+    const uris: string[] = [];
+    for (const page of pdfDoc.getPages()) {
+      const annots = page.node.lookup(PDFName.of('Annots'));
+      if (!(annots instanceof PDFArray)) continue;
+      for (let i = 0; i < annots.size(); i++) {
+        const annot = annots.lookup(i);
+        if (!(annot instanceof PDFDict)) continue;
+        const action = annot.lookup(PDFName.of('A'));
+        if (!(action instanceof PDFDict)) continue;
+        const uri = action.lookup(PDFName.of('URI'));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (uri) uris.push((uri as any).decodeText());
+      }
+    }
+    return [...new Set(uris)];
+  }
+
+  it('writes an annotation for an absolute safe URL', async () => {
+    expect(await linkUris(linkDoc('https://example.com/a'))).toEqual([
+      'https://example.com/a',
+    ]);
+  });
+
+  it('writes no annotation for an unsafe scheme', async () => {
+    expect(await linkUris(linkDoc('javascript:alert(1)'))).toEqual([]);
+  });
+
+  it('writes no annotation for a relative target, unlike Markdown export', async () => {
+    expect(await linkUris(linkDoc('/uploads/report.pdf'))).toEqual([]);
+    expect(await linkUris(linkDoc('./diagram.png'))).toEqual([]);
+    expect(await linkUris(linkDoc('#anchor'))).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Unusable stored geometry
 // ---------------------------------------------------------------------------
 // Same argument as the DOCX exporter's matching suite: `resolvePageSetup` is

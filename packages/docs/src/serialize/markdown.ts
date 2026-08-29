@@ -371,6 +371,15 @@ const SCHEME_RELATIVE = /^[/\\]{2}/;
  * bare text, an image to `[image]`). They are accepted on the strength of
  * what they cannot be: with no scheme they cannot select a dangerous one, and
  * with no authority they cannot leave the document's own origin.
+ *
+ * This is where the two exporters diverge, on purpose. `PdfPainter` gates on
+ * `isSafeUrl` alone, so it drops every relative href this keeps. The medium
+ * decides: a `.md` file is read next to the repository or site it came from,
+ * where `/uploads/x.pdf` resolves against a base the reader has, while a
+ * downloaded PDF carries no base URI (this exporter writes none, PDF 32000-1
+ * §12.6.4.7) and a relative `/URI` action is dead or viewer-dependent. See the
+ * matching note at the `isSafeUrl` call in `export/pdf-painter.ts`; the
+ * separate parser-differential defect in that gate is issue #988.
  */
 function isEmittableUrl(url: string): boolean {
   if (!isLiteralDestination(url)) return false;

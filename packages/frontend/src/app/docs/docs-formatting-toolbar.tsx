@@ -90,12 +90,33 @@ import { isMac, modKey } from "@/components/text-formatting/platform";
  * a format picked up with the keyboard lights the button too — and the
  * keyboard flow keeps its own semantics (the shortcut pair is *sticky*: one
  * pick-up can be pasted onto several selections).
+ *
+ * The two subscription members are called through `supportsPainter` rather
+ * than directly. This toggle is the only place in the toolbar that reaches a
+ * *new* `EditorAPI` member at **mount** — every other new member is reached
+ * from a click handler, where a missing method costs one press. Here it would
+ * throw inside an effect and take the whole toolbar down with it, and this
+ * package has no `tsc` to catch an `EditorAPI` that is missing them (the
+ * frontend's only type gate is `eslint`, and its test doubles are built with
+ * `as unknown as EditorAPI`). `EditorAPI` is also exported from
+ * `@wafflebase/docs`, so an out-of-tree adapter can be behind by a version.
+ * An editor that cannot report a held format renders the button disabled —
+ * the same state a null editor gets — instead of blanking the document.
  */
+function supportsPainter(editor: EditorAPI | null): editor is EditorAPI {
+  return (
+    !!editor &&
+    typeof editor.hasCopiedFormat === "function" &&
+    typeof editor.onCopiedFormatChange === "function"
+  );
+}
+
 function FormatPainterToggle({ editor }: { editor: EditorAPI | null }) {
   const [active, setActive] = useState(false);
+  const supported = supportsPainter(editor);
 
   useEffect(() => {
-    if (!editor) {
+    if (!supportsPainter(editor)) {
       setActive(false);
       return;
     }
@@ -110,7 +131,7 @@ function FormatPainterToggle({ editor }: { editor: EditorAPI | null }) {
           size="sm"
           className="h-7 w-7 cursor-pointer"
           pressed={active}
-          disabled={!editor}
+          disabled={!supported}
           aria-label="Format painter"
           // Keep the caret / selection in the canvas: the second press writes
           // to whatever is selected, so a blur before the click would be the
@@ -118,7 +139,7 @@ function FormatPainterToggle({ editor }: { editor: EditorAPI | null }) {
           // shared B/I/U toggles use.
           onMouseDown={(e) => e.preventDefault()}
           onPressedChange={(pressed) => {
-            if (!editor) return;
+            if (!supportsPainter(editor)) return;
             if (pressed) {
               editor.copyFormat();
             } else {

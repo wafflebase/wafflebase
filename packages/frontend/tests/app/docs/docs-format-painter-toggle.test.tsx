@@ -176,3 +176,56 @@ describe('DocsFormattingToolbar format painter', () => {
     ).toBe(true);
   });
 });
+
+/**
+ * The painter is the only toolbar control that reaches a *new* `EditorAPI`
+ * member at **mount**: `hasCopiedFormat` / `onCopiedFormatChange`, from an
+ * effect. Every other member this PR added is reached from a click handler
+ * (`copyFormat` / `pasteFormat` / `clearCopiedFormat`) or behind an `open`
+ * guard (`getPageSetup` / `setPageSetup`, seeded only when the Page Setup
+ * dialog opens), where a missing method costs one press. In the effect it
+ * throws during render and takes the whole toolbar — and so the document
+ * screen — down with it.
+ *
+ * That is reachable rather than theoretical: this package runs no `tsc` (its
+ * only type gate is `eslint`), every `EditorAPI` double in these suites is
+ * built with `as unknown as EditorAPI` so the compiler never checks it, and
+ * `EditorAPI` is exported from `@wafflebase/docs`, so an out-of-tree adapter
+ * can be a version behind.
+ *
+ * The stub is the full one above with exactly the seven new members removed,
+ * so this pins *this* change's blast radius and nothing else.
+ */
+describe('DocsFormattingToolbar with an editor that predates this PR', () => {
+  function makeLegacyEditor(): EditorAPI {
+    const editor = makeEditor() as unknown as Record<string, unknown>;
+    for (const added of [
+      'copyFormat',
+      'pasteFormat',
+      'clearCopiedFormat',
+      'hasCopiedFormat',
+      'onCopiedFormatChange',
+      'getPageSetup',
+      'setPageSetup',
+    ]) {
+      delete editor[added];
+    }
+    return editor as unknown as EditorAPI;
+  }
+
+  it('mounts the body toolbar instead of throwing', () => {
+    expect(() => mount(makeLegacyEditor())).not.toThrow();
+  });
+
+  it('renders the painter disabled and unpressed', () => {
+    const button = mount(makeLegacyEditor()) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('does nothing when the disabled painter is clicked', () => {
+    const button = mount(makeLegacyEditor());
+    expect(() => fireEvent.click(button)).not.toThrow();
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+  });
+});

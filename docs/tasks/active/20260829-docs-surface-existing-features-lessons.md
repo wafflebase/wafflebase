@@ -265,3 +265,46 @@ had not found: a space is what GFM renders a soft break as, so the transform is
 a faithful lossy mapping *and* a neutralization of the injection case. Being
 accidentally correct is not the same as being justified, and the next person to
 touch it would have inherited the false premise.
+
+## The riskiest new interface member is the one called at mount
+
+`EditorAPI` gained seven members here. Six are reached from a click handler or
+behind an `open` guard, where an implementation missing one costs a single
+press. The seventh pair (`hasCopiedFormat` / `onCopiedFormatChange`) is read by
+the format painter's *effect*, so a stub without them throws during render and
+takes the whole toolbar — and the document screen — down.
+
+Nothing would have caught it: the frontend package runs no `tsc`, and every
+`EditorAPI` double in its tests is built with `as unknown as EditorAPI`, so the
+compiler never sees the gap. `color-reset.test.ts` really does mount
+`DocsFormattingToolbar` with a stub missing both, and passes only because the
+variant it renders is the header/footer slim toolbar, which never mounts the
+painter. That is luck, not coverage.
+
+When you widen a published interface, sort the new members by *when* they are
+called, not by what they do — and pin the mount-time ones with a stub built by
+deleting exactly the new members from a complete one, so the test fails for the
+change under review rather than for some older gap.
+
+## Two exporters may disagree when the media disagree
+
+Markdown export keeps relative link targets; PDF export drops them. That reads
+as a bug until you ask what the reader has: a `.md` file is read next to the
+repository or site it came from, so `/uploads/x.pdf` resolves against a real
+base, while a downloaded PDF carries none — a relative `/URI` action needs a
+base URI in the catalog (PDF 32000-1 §12.6.4.7) that this exporter never
+writes, so viewers ignore it or resolve it against the local file path. A dead
+annotation is worse than styled text with no annotation.
+
+Divergence that is justified still has to be *written down at both ends*, with
+a test pinning it. Otherwise the next reviewer closes the gap in the wrong
+direction and nothing fails.
+
+## Coverage can be missing where the behaviour is not
+
+The URL gate lives in `packages/docs` and is thoroughly tested there, but
+`docs content --format md` and `slides content --format md` are separate
+consumers that reach it through the *built* package. A changed option default
+or a swapped serializer would pass every docs-package test and still change the
+bytes a user gets in a file. Where a rule crosses a package boundary, pin it
+again at the boundary — the second assertion is about the wiring, not the rule.

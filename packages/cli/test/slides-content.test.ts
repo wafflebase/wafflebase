@@ -27,6 +27,16 @@ function heading(id: string, level: 1 | 2, text: string): Block {
   } as Block;
 }
 
+/** A paragraph whose single run carries `href`. */
+function link(id: string, text: string, href: string): Block {
+  return {
+    id,
+    type: 'paragraph',
+    inlines: [{ text, style: { href } }],
+    style: { ...DEFAULT_BLOCK_STYLE },
+  } as Block;
+}
+
 function textBody(blocks: Block[]): TextBody {
   return { blocks };
 }
@@ -225,6 +235,34 @@ describe('runSlidesContent (md)', () => {
     runSlidesContent({ deck, format: 'text' }, cap.io);
     // The slide header is still emitted, but no element text.
     expect(cap.stdout.trim()).toBe('Slide 1');
+  });
+
+  /**
+   * `slides content --format md` is the second consumer of the docs Markdown
+   * serializer's URL gate (it wraps each slide's text bodies in a synthetic
+   * `Document`), so the same rule must hold here. Pinned at the command
+   * boundary for the same reason as the docs suite: the CLI resolves
+   * `@wafflebase/docs` through the built package, so nothing in that package's
+   * own tests would notice this path diverging.
+   */
+  it('applies the same link gate as docs: unsafe dropped, relative kept', () => {
+    const deck = makeDeck([
+      slide('s1', [
+        textElement('t1', [
+          link('bad', 'Click me', 'javascript:alert(1)'),
+          link('rel', 'Report', '/uploads/report.pdf'),
+          link('abs', 'Home', 'https://example.com/'),
+        ]),
+      ]),
+    ]);
+    const cap = makeCapture();
+
+    runSlidesContent({ deck, format: 'md' }, cap.io);
+
+    expect(cap.stdout).toContain('Click me');
+    expect(cap.stdout).not.toContain('javascript:');
+    expect(cap.stdout).toContain('[Report](/uploads/report.pdf)');
+    expect(cap.stdout).toContain('[Home](https://example.com/)');
   });
 });
 
