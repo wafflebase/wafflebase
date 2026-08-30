@@ -156,14 +156,26 @@ constructed in read-only mode too, with every **mutating** path gated so
   unguessable.
 - **Revocation** — Deleting a ShareLink immediately invalidates the token.
 - **Cascade deletion** — Deleting a document cascades to all its share links.
-- **Server-side write enforcement** — The Yorkie auth webhook enforces the
-  share-link role server-side: an anonymous visitor's token is checked in
-  `hasAccess()` (`packages/backend/src/document/yorkie-auth.controller.ts`),
-  which returns `needWrite ? link.role === 'editor' : true`, so a `viewer` token
-  requesting a write (`rw`) verb is denied with `403`
-  (see [yorkie-auth-webhook.md](yorkie-auth-webhook.md)). Client-side read-only
-  mode additionally gates the UI so a viewer never hits the error path, and the
-  Yorkie doc key is only revealed after valid token resolution.
+- **Server-side write enforcement, once enabled** — The Yorkie auth webhook can
+  enforce the share-link role server-side: an anonymous visitor's token is
+  checked in `hasAccess()`
+  (`packages/backend/src/document/yorkie-auth.controller.ts`), which returns
+  `needWrite ? link.role === 'editor' : true`, so a `viewer` token requesting a
+  write (`rw`) verb is denied with `403`
+  (see [yorkie-auth-webhook.md](yorkie-auth-webhook.md)).
+
+  This is **off by default**. `YORKIE_AUTH_WEBHOOK_ENFORCE` is unset in a
+  stock deployment, which puts the controller in shadow mode: it logs the
+  decision it would have made and answers `allowed: true` anyway. So the
+  sentence above describes the enforced configuration, and in the default one
+  the client-side `readOnly` flag is the write boundary rather than a
+  convenience in front of one. That is why the client-side gates are treated
+  as load-bearing throughout this document, and why `EditorAPI`'s store and
+  doc accessors hand out a neutered `DocStore` under `readOnly`
+  (`packages/docs/src/store/read-only.ts`, issue #989) rather than relying on
+  the server to catch what gets through. Client-side read-only also gates the
+  UI so a viewer never hits the error path, and the Yorkie doc key is only
+  revealed after valid token resolution.
 - **Expiration** — Links can have time-limited access (1h, 8h, 24h, 7d).
 
 ### Risks and Mitigation
@@ -174,9 +186,12 @@ client-side role enforcement.
 
 **Token leakage across write access** — A `viewer` link is read-only, but an
 `editor` link grants anonymous write access. Mitigation: editor links are gated
-to workspace owners / document authors, are revocable and expirable, and the
-Yorkie auth webhook enforces the link role server-side, so bypassing the
-client-side read-only checks does not grant a viewer token write access.
+to workspace owners / document authors, and are revocable and expirable. With
+`YORKIE_AUTH_WEBHOOK_ENFORCE=true` the auth webhook enforces the link role
+server-side, so bypassing the client-side read-only checks does not grant a
+viewer token write access; with the flag at its default the client-side checks
+are what stands there, so they are written to fail closed (see **Server-side
+write enforcement, once enabled** above).
 
 **Brute-forcing token resolution** — The public resolve endpoint could be
 probed. Mitigation: UUID tokens have sufficient entropy to make brute-force
