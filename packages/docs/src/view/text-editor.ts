@@ -5856,6 +5856,16 @@ export class TextEditor {
 
   dispose(): void {
     this.disposed = true;
+    // Release in-process subscribers as well as DOM ones. Nothing fires these
+    // after `disposed` is set, so this is not about behaviour — it is about a
+    // disposed editor not being what keeps a subscriber's closure alive. The
+    // composition pair matters more than the format-painter one:
+    // `onCopiedFormatChange` returns an unsubscriber that the toolbar does
+    // call, while `onCompositionStart`/`onCompositionEnd` return nothing at
+    // all, so their subscribers have no way to let go on their own (#991).
+    this.copiedFormatListeners = [];
+    this.compositionStartListeners = [];
+    this.compositionEndListeners = [];
     this.textarea.removeEventListener('input', this.handleInput);
     this.textarea.removeEventListener('keydown', this.handleKeyDown);
     this.textarea.removeEventListener('compositionstart', this.handleCompositionStart);

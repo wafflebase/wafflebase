@@ -61,6 +61,14 @@ export {
   CLEAR_INLINE_STYLE,
   DEFAULT_PAGE_SETUP,
   PAPER_SIZES,
+  // The floor `resolvePageSetup` clamps to. It belongs on this entry for the
+  // same reason it is on the browser one: a caller that wants to *check* the
+  // floor rather than be clamped to it should assert against the constant, not
+  // a hardcoded copy of the number. The CLI and the backend reach the model
+  // through here (`package.json`'s `node` condition and the backend tsconfig
+  // path both resolve `@wafflebase/docs` to this file), so leaving it out left
+  // them the hardcoding it exists to prevent (#991).
+  MIN_CONTENT_PX,
   LIST_INDENT_PX,
   UNORDERED_MARKERS,
   ORDERED_FORMATS,
