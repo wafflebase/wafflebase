@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import {
   createSpreadsheetDocument,
   getWorksheetCell,
@@ -66,6 +66,19 @@ describe('ApiV1WorksheetStructureController', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(withDocument).not.toHaveBeenCalled();
   });
+
+  // On this plain-object fixture `root.sheets['__proto__']` is `Object.prototype`
+  // — truthy — so a bare `if (!worksheet)` walked straight past it. (Through a
+  // Yorkie proxy it answers `undefined` and is safe by accident; that side is
+  // covered in the axis controller spec, whose fixture is a real document.)
+  it.each(['__proto__', 'constructor', 'toString'])(
+    'rejects the prototype key %s as a tab id',
+    async (tabId) => {
+      await expect(
+        controller.clearRange(WS, DOC, tabId, { range: 'A1:B2' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    },
+  );
 
   it('rejects clear on a non-sheet document', async () => {
     documentService.getDocumentOrThrow.mockResolvedValue({

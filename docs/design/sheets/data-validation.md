@@ -268,7 +268,7 @@ simplifications, each a small follow-up to close:
   a custom `checkedValue` like `"01"` round-trips for exact-match rendering.
 - **Structural edits** — rules follow row/column insert/delete/move in three
   places that must stay in lockstep: the `Sheet` synced cache, `MemStore`, and the
-  Yorkie document helper (`yorkie-worksheet-structure.ts`). All three route through
+  Yorkie document helper (`worksheet-structure.ts`). All three route through
   the shared `shiftRuleRanges`/`moveRuleRanges` helper (`rule-ranges.ts`).
 - **Formula guard + case-insensitivity** (fixed as a follow-up) — `toggleCheckboxAt`
   now no-ops over a formula cell (returns `false`, leaves `cell.f` intact), so a

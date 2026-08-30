@@ -4,12 +4,12 @@ import {
   parseRef,
   writeWorksheetCell,
   type Cell,
-} from "@wafflebase/sheets";
-import { createWorksheet } from "../../../src/types/worksheet.ts";
+} from "../../src/index";
+import { createWorksheet } from "../../src/model/workbook/worksheet-document";
 import {
-  applyYorkieWorksheetMove,
-  applyYorkieWorksheetShift,
-} from "../../../src/app/spreadsheet/yorkie-worksheet-structure.ts";
+  applyWorksheetMove,
+  applyWorksheetShift,
+} from "../../src/model/workbook/worksheet-structure";
 
 function normalizeCell(cell: Cell): Cell | null {
   const normalized: Cell = {};
@@ -27,7 +27,7 @@ function normalizeCell(cell: Cell): Cell | null {
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
-test("applyYorkieWorksheetShift shifts worksheet metadata and cells together", () => {
+test("applyWorksheetShift shifts worksheet metadata and cells together", () => {
   const worksheet = createWorksheet();
 
   writeWorksheetCell(worksheet, parseRef("A2"), { v: "10" });
@@ -71,7 +71,7 @@ test("applyYorkieWorksheetShift shifts worksheet metadata and cells together", (
     },
   ];
 
-  applyYorkieWorksheetShift({
+  applyWorksheetShift({
     ws: worksheet,
     axis: "row",
     index: 2,
@@ -110,7 +110,7 @@ test("applyYorkieWorksheetShift shifts worksheet metadata and cells together", (
   ]);
 });
 
-test("applyYorkieWorksheetMove remaps worksheet metadata and cells together", () => {
+test("applyWorksheetMove remaps worksheet metadata and cells together", () => {
   const worksheet = createWorksheet();
 
   writeWorksheetCell(worksheet, parseRef("A1"), { v: "5" });
@@ -155,7 +155,7 @@ test("applyYorkieWorksheetMove remaps worksheet metadata and cells together", ()
     },
   ];
 
-  applyYorkieWorksheetMove({
+  applyWorksheetMove({
     ws: worksheet,
     axis: "row",
     srcIndex: 1,

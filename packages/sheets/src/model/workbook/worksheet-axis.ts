@@ -2,9 +2,9 @@ import {
   safeWorksheetRecordKeys,
   createWorksheetAxisId,
   parseWorksheetCellKey,
-  type Axis,
-} from "@wafflebase/sheets";
-import type { Worksheet } from "@/types/worksheet";
+} from './worksheet-record';
+import type { Axis } from '../core/types';
+import type { Worksheet } from './worksheet-document';
 
 function ensureAxisLength(
   ws: Worksheet,
@@ -22,7 +22,7 @@ function ensureAxisLength(
   }
 }
 
-export function insertYorkieWorksheetAxis(
+export function insertWorksheetAxis(
   ws: Worksheet,
   axis: Axis,
   index: number,
@@ -44,7 +44,7 @@ export function insertYorkieWorksheetAxis(
   order.splice(Math.max(0, index - 1), 0, ...created);
 }
 
-export function deleteYorkieWorksheetAxis(
+export function deleteWorksheetAxis(
   ws: Worksheet,
   axis: Axis,
   index: number,
@@ -71,7 +71,7 @@ export function deleteYorkieWorksheetAxis(
   return removedIds;
 }
 
-export function moveYorkieWorksheetAxis(
+export function moveWorksheetAxis(
   ws: Worksheet,
   axis: Axis,
   srcIndex: number,

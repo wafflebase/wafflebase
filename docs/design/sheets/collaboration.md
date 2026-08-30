@@ -139,14 +139,21 @@ the same stable key and survive merges cleanly.
 | --- | --- |
 | `@wafflebase/sheets` | `Store` interface, `Sheet` engine, formula helpers, pure remap helpers, canonical worksheet/document types, worksheet cell read/write helpers |
 | `packages/frontend/src/app/spreadsheet/yorkie-store.ts` | `Store` implementation for one tab, Yorkie `doc.update()` boundary, batch buffering, index invalidation, presence updates |
-| `packages/frontend/src/app/spreadsheet/yorkie-worksheet-axis.ts` | Yorkie-local row/column order mutations (`insert`, `delete`, `move`) |
-| `packages/frontend/src/app/spreadsheet/yorkie-worksheet-structure.ts` | Yorkie-local post-axis structure rewrites: formulas, indexed metadata, range styles, conditional formats, merges, chart anchors |
+| `packages/sheets/src/model/workbook/worksheet-axis.ts` | Row/column order mutations (`insert`, `delete`, `move`) |
+| `packages/sheets/src/model/workbook/worksheet-structure.ts` | Post-axis structure rewrites: formulas, indexed metadata, range styles, conditional formats, merges, chart anchors |
 
 Two important points follow from this split:
 
-1. The shared package does not export Yorkie-only axis mutation helpers.
-2. The frontend owns collaboration-specific orchestration because Yorkie
-   proxy mutation semantics are not a concern of the generic sheet engine.
+1. The two structure helpers live in the shared package, not the frontend.
+   They read and write a `Worksheet` through plain property access, which is
+   equally valid against a plain object and against a Yorkie proxy — nothing
+   in them is Yorkie-specific, and the frontend copy's only local import
+   re-exported `@wafflebase/sheets` anyway. Sharing them is what lets the
+   REST API apply the same structural edit as the editor rather than
+   reimplementing a rewrite that has to stay bug-for-bug identical.
+2. The frontend still owns collaboration-specific orchestration: opening the
+   `doc.update()` boundary, batch buffering, index invalidation, and presence
+   are the editor's concerns, not the engine's.
 
 ## Structural Edit Flow
 
@@ -156,31 +163,60 @@ For `shiftCells` / `moveCells`, the Yorkie-backed path works like this:
 sequenceDiagram
     participant Sheet as Sheet engine
     participant Store as YorkieStore
-    participant Axis as yorkie-worksheet-axis
-    participant Struct as yorkie-worksheet-structure
+    participant Axis as worksheet-axis
+    participant Struct as worksheet-structure
     participant Doc as Yorkie document
 
     Sheet->>Store: shiftCells / moveCells
     Store->>Doc: doc.update(...)
     Store->>Axis: mutate rowOrder / colOrder
-    Store->>Struct: rewrite formulas + metadata + anchors
+    Store->>Struct: rewrite formulas + metadata + anchors + view state
     Struct->>Doc: update worksheet payload
     Store-->>Sheet: operation complete
-    Sheet->>Sheet: local recalc / freeze-pane adjustment
+    Sheet->>Sheet: local recalc
 ```
+
+### What the engine helper owns
+
+Cells survive a structural edit for free, because they are keyed by
+`rowId:colId`. Five fields do not, because they store plain 1-based numbers:
+`filter` (its range and per-column criteria), `hiddenRows`, `hiddenColumns`,
+`frozenRows` and `frozenCols`. An insert above them silently repoints them at
+the wrong rows.
+
+`Sheet.shiftCells` used to remap those itself, immediately around
+`store.shiftCells`. That was invisible to any other caller, so the REST API —
+which calls `applyWorksheetShift` directly — wrote a document whose filter
+range and freeze boundary pointed at pre-shift positions. The remap now lives
+inside `applyWorksheetShift` / `applyWorksheetMove`, so every caller gets it.
+
+Applying it in both places is safe: `Sheet` persists these fields by assigning
+the whole value it computed from its own in-memory state (`setFilterState`,
+`setHiddenState` and `setFreezePane` are absolute writes, never
+read-modify-write), so the editor's later write is the same value again. It is
+also a small repair — `Sheet.shiftUserHiddenState` mutates only the in-memory
+set and never called `persistHiddenState`, so the shifted user-hidden set was
+not written at all until the user next hid or unhid something.
+
+Recalculation stays outside the helper. The editor recalculates immediately
+afterwards; a caller without a calculator passes `invalidateFormulaValues` so
+the cached `v` is dropped rather than left stale (see
+[rest-api.md](../rest-api.md) §5.4).
 
 What the stable-id model changed:
 
 - Structural identity lives in `rowOrder` / `colOrder`.
 - Cell persistence does not bulk-rewrite `A1` keys.
-- Yorkie-specific structure transforms are local helper modules, not
-  shared-package exports.
 
 What has not changed yet:
 
 - Row/column sizes and styles still remap by visual numeric index.
-- `Sheet` still owns its own post-store recalculation and some local state
-  adjustments.
+- `Sheet` still owns its own post-store recalculation.
+- Cross-tab **formula text** is not rewritten by either caller: a `=Sheet1!A5`
+  living on tab-2 is not repointed when tab-1's row 5 is deleted.
+  `shiftCrossTabDataRanges` covers chart and pivot source ranges only. The
+  editor papers over the resulting *value* with
+  `recalculateCrossSheetFormulas`; the text is wrong in both paths.
 
 ## Concurrency Test Strategy
 

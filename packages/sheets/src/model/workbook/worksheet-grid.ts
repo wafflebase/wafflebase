@@ -226,3 +226,51 @@ export function replaceWorksheetCells(
     setWorksheetGridCell(ws, ref, cell);
   }
 }
+
+/**
+ * Reduce a cell to what is worth storing: empty values, empty formulas and
+ * empty style objects are dropped, and a cell left with nothing at all
+ * becomes `null` so the caller deletes it rather than writing an empty
+ * object. Structural edits run every rewritten cell through this, so the
+ * rule about what a stored cell looks like lives in one place instead of
+ * once per store.
+ */
+export function normalizeStoredCell(cell: Cell): Cell | null {
+  const normalized: Cell = {};
+
+  if (cell.v !== undefined && cell.v !== '') {
+    normalized.v = cell.v;
+  }
+  if (cell.f !== undefined && cell.f !== '') {
+    normalized.f = cell.f;
+  }
+  if (cell.s && Object.keys(cell.s).length > 0) {
+    normalized.s = cell.s;
+  }
+  if (cell.spillAnchor !== undefined) {
+    normalized.spillAnchor = cell.spillAnchor;
+  }
+  if (cell.spillRows !== undefined) {
+    normalized.spillRows = cell.spillRows;
+  }
+  if (cell.spillCols !== undefined) {
+    normalized.spillCols = cell.spillCols;
+  }
+  if (cell.spillBlocked !== undefined) {
+    normalized.spillBlocked = cell.spillBlocked;
+  }
+
+  if (
+    normalized.v === undefined &&
+    normalized.f === undefined &&
+    normalized.s === undefined &&
+    normalized.spillAnchor === undefined &&
+    normalized.spillRows === undefined &&
+    normalized.spillCols === undefined &&
+    normalized.spillBlocked === undefined
+  ) {
+    return null;
+  }
+
+  return normalized;
+}

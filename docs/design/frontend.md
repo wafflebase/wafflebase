@@ -279,7 +279,7 @@ all reads/writes to `root.sheets[tabId]`. Each store method maps to a Yorkie
 | `setGrid(grid)` | Batch write through worksheet helpers |
 | `getGrid(range)` | Use CellIndex to iterate only populated cells in range |
 | `findEdge(ref, direction, dimension)` | Delegate to `findEdgeWithIndex` using CellIndex |
-| `shiftCells(axis, index, count)` | Mutate `rowOrder`/`colOrder` through `packages/frontend/src/app/spreadsheet/yorkie-worksheet-axis.ts`, then rewrite formulas, indexed metadata, merges, and chart anchors through `packages/frontend/src/app/spreadsheet/yorkie-worksheet-structure.ts` |
+| `shiftCells(axis, index, count)` | Mutate `rowOrder`/`colOrder` through `packages/sheets/src/model/workbook/worksheet-axis.ts`, then rewrite formulas, indexed metadata, merges, and chart anchors through `packages/sheets/src/model/workbook/worksheet-structure.ts` |
 | `moveCells(axis, src, count, dst)` | Same helper split as `shiftCells`, but with move semantics |
 | `setDimensionSize(axis, index, size)` | Write to `root.rowHeights` or `root.colWidths` |
 | `getDimensionSizes(axis)` | Read from `root.rowHeights` or `root.colWidths` |

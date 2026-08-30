@@ -199,8 +199,14 @@ three reproduce the same freeze at row 1,000,000:
   reach its ref. Inherent to the ID-keyed cell model: a cell at row 1,000,000
   has to be addressable. This is the reason coverage may legitimately exceed
   the cap, and the reason the cap governs extension rather than reach.
-- `yorkie-worksheet-axis.ts` `insertYorkieWorksheetAxis` / `moveYorkieWorksheetAxis`
+- `worksheet-axis.ts` `insertWorksheetAxis` / `moveWorksheetAxis`
   — "Insert row above" at a far-out row materializes everything before it.
+  The **v1 REST** entry point onto these (`POST .../tabs/:tid/insert` and
+  `/move`) *is* bounded, because there the coordinate arrives from an
+  untrusted body rather than from a selection: the controller applies
+  `MaxAxisEntries` — the same 10,000 — against the axis's current length
+  before the first mutation, and the grid bound on top of it makes the cap
+  cumulative across requests. The in-editor callers remain unbounded.
 - `sheet-view.tsx` `openCommentComposerForActiveCell` — seeds coverage from the
   raw active cell so a comment can be anchored.
 
@@ -209,6 +215,14 @@ position in a dense array), which would replace this scheme rather than tune
 it. Until then, a single chokepoint — one `Store` method that queries and
 extends coverage with the cap applied inside it — would at least keep new
 callers from routing around the bound.
+
+One related hazard is closed outright rather than bounded: the ID alphabet is
+36⁴ ≈ 1,679,616 per prefix, and `createWorksheetAxisId` retried until unique
+with no attempt limit, so an axis pushed past that many entries made the loop
+non-terminating — an uninterruptible hang rather than a slow request. It now
+gives up after 64 consecutive collisions and throws. At the worst legitimate
+fill (a full 1e6-row axis) a draw collides with probability ~0.6, so 64 in a
+row has probability ~4e-15.
 
 ### Sheet Engine Changes
 

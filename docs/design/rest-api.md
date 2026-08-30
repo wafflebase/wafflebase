@@ -34,7 +34,7 @@ which consumes this surface — lives in [cli.md](cli.md).
 - Granular per-document or per-cell permission scoping on API keys
   (may be added later).
 - Usage metering or per-key quota accounting. (A global request rate
-  limit *is* enforced — see §5.6 Rate limiting.)
+  limit *is* enforced — see §5.8 Rate limiting.)
 - Frontend UI for API key management beyond the existing workspace
   settings page.
 - MCP server (may be added later as a thin wrapper over the REST API).
@@ -228,7 +228,61 @@ Setting a cell to `null` deletes it. All mutations within a single
 batch request are applied in one Yorkie `doc.update()` call for
 atomicity.
 
-#### 5.4 Docs content (word-processor documents only)
+#### 5.4 Rows and columns (spreadsheets only)
+
+```
+POST   /api/v1/.../tabs/:tid/clear    Empty a range, keeping row/column structure
+POST   /api/v1/.../tabs/:tid/insert   Insert rows/columns  { axis, index, count }
+POST   /api/v1/.../tabs/:tid/delete   Delete rows/columns  { axis, index, count }
+POST   /api/v1/.../tabs/:tid/move     Move rows/columns    { axis, srcIndex, count, dstIndex }
+```
+
+`axis` is `"row"` or `"column"`, and every index is **1-based**, matching the
+A1 refs the rest of the API speaks. `move` rejects a `dstIndex` inside the
+moved block `[srcIndex, srcIndex + count)` — that describes moving a block
+into itself. Each endpoint echoes back the request it applied; `clear` returns
+`{ cleared: <n> }`. Bodies are validated before the Yorkie document is opened,
+so a rejected request never attaches.
+
+Insert, delete and move run the **same engine helpers the editor does**
+(`applyWorksheetShift` / `applyWorksheetMove`), so formulas, merges, range
+styles, conditional formats, validations, chart and image anchors, comment
+threads and the index-keyed view state (filter range, hidden rows/columns,
+freeze pane) follow the edit — including a cross-tab pass that repoints other
+tabs' chart and pivot source ranges at the edited tab.
+
+**Bounds.** The mutation runs synchronously inside one `doc.update()`, and
+`rowOrder`/`colOrder` are dense CRDT arrays, so covering row *N* costs *N*
+entries whatever `count` says. Every request is bounded by the grid
+(`index + count - 1` must be inside 1e6 rows / 18278 columns), and beyond that
+each verb is bounded by whatever actually costs it work — `MaxAxisEntries`,
+10,000, matching the editor's own `MaxAxisCoverage`:
+
+- **insert** — by how many entries it *materializes*, measured against the
+  axis's current length, which is what makes the cap cumulative across
+  requests rather than per-request.
+- **move** — by `count`. The growth bound does not cover a move: on an axis
+  that already spans the block, growth is zero for any `count`, while
+  `moveWorksheetAxis` still splices the block out and spreads it back in, so
+  its cost is `count` either way.
+- **delete** — by the grid alone. It materializes nothing and splices without
+  a spread, so "delete every row" stays a single call.
+
+**Two deliberate differences from the editor:**
+
+- **Cached formula values are cleared, not recalculated.** The calculator needs
+  a live `Sheet` over a `Store` and is `async`, while this mutation is a
+  synchronous `doc.update` callback. `GET .../cells` therefore reports
+  `value: null` for formula cells on the edited tab until an editor session
+  opens the document and recalculates. Serving a stale number that no longer
+  matches the formula beside it would be worse.
+- **A move that would split a merged range returns `409`.** `Sheet.moveCells`
+  abandons the operation silently; for an API, silence is indistinguishable
+  from success. Structural edits on a pivot-output tab or a
+  `datasource`/`lakehouse` tab are refused with `400` for the same reason —
+  the editor refuses them, and the grid there is regenerated anyway.
+
+#### 5.5 Docs content (word-processor documents only)
 
 ```
 GET    /api/v1/workspaces/:wid/documents/:did/content   Read Document JSON
@@ -353,7 +407,7 @@ backend. The CLI imports `@wafflebase/docs` and runs it locally; this
 keeps the backend free of native rendering dependencies. See
 [cli.md](cli.md) for the local pipeline.
 
-#### 5.5 Images (workspace-scoped blobs)
+#### 5.6 Images (workspace-scoped blobs)
 
 ```
 POST   /api/v1/workspaces/:wid/images         Upload an image (multipart `file`)
@@ -373,7 +427,7 @@ is treated as safe to cache. Note this is a `public` policy on a
 bearer-token URL — a shared proxy/CDN may cache the object without
 re-running `CombinedAuthGuard`/`WorkspaceScopeGuard` on later hits.
 
-#### 5.6 Files (blob documents)
+#### 5.7 Files (blob documents)
 
 ```
 POST   /api/v1/workspaces/:wid/files              Upload any file as a document (multipart `file`, optional `title`)
@@ -389,7 +443,7 @@ scope from an API-key caller — the guards prove only that the key is
 valid and bound to this workspace, so without that check a read-scoped
 key could create documents.
 
-Unlike §5.5, which stores a *raw blob* for inline use inside another
+Unlike §5.6, which stores a *raw blob* for inline use inside another
 document, this creates a first-class `Document` row: `POST` stores the
 blob **and** creates the document in one call, deleting the blob if the
 row fails, then returns the created document. The browser splits these
@@ -412,7 +466,7 @@ or 25 MB for image extensions.
 `DELETE /api/v1/workspaces/:wid/documents/:did` deletes the stored blob
 alongside the document row, matching the JWT delete.
 
-#### 5.7 Rate limiting
+#### 5.8 Rate limiting
 
 The application registers a global NestJS `ThrottlerGuard` via
 `ThrottlerModule.forRoot` (default bucket: 120 requests / 60 s). Selected
@@ -441,6 +495,7 @@ packages/backend/src/
       documents.controller.ts
       tabs.controller.ts
       cells.controller.ts
+      worksheet-structure.controller.ts
       docs-content.controller.ts
       images.controller.ts
       files.controller.ts

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { deleteThreadsForAxis } from '../../../src/app/spreadsheet/yorkie-worksheet-structure.ts';
-import type { Thread } from '@wafflebase/sheets';
+import { deleteThreadsForAxis } from '../../src/model/workbook/worksheet-structure';
+import type { Thread } from '../../src/index';
 
 function thread(id: string, rowId: string, colId: string): Thread {
   return {

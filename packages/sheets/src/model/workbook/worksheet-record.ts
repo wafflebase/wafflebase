@@ -76,6 +76,23 @@ export function safeWorksheetRecordValues<T>(obj?: Record<string, T>): T[] {
 
 const AXIS_ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const AXIS_ID_LENGTH = 4;
+/** 36^4 = 1,679,616 distinct ids per prefix. */
+const AXIS_ID_SPACE = AXIS_ID_CHARS.length ** AXIS_ID_LENGTH;
+
+/**
+ * Attempts before {@link createWorksheetAxisId} gives up.
+ *
+ * The retry loop terminates only while a free id exists. An axis holding all
+ * 1,679,616 ids makes every draw a collision, and an unbounded loop then spins
+ * forever holding the thread — in the backend, inside a `doc.update` on an
+ * attached Yorkie document, so nothing can interrupt it. A loud throw beats a
+ * hang that cannot be diagnosed.
+ *
+ * Real callers stay far below exhaustion: the grid is 1,000,000 rows, so even
+ * a fully materialized axis collides with probability ~0.6 per draw and 64
+ * consecutive collisions has probability ~4e-15.
+ */
+const AXIS_ID_MAX_ATTEMPTS = 64;
 
 /**
  * Generates a random axis ID with the given prefix (e.g. `r3k9`).
@@ -85,12 +102,15 @@ const AXIS_ID_LENGTH = 4;
  * is small enough that batches of rows/cols hit the birthday paradox, so pass
  * `existing` — the IDs already in use — to retry until the result is unique.
  * Cells are keyed by `rowId+colId`, so a duplicate axis ID corrupts data.
+ *
+ * Throws once {@link AXIS_ID_MAX_ATTEMPTS} draws all collide, which in
+ * practice means the caller has exhausted the ID space.
  */
 export function createWorksheetAxisId(
   prefix: 'r' | 'c',
   existing?: ReadonlySet<string>,
 ): string {
-  for (;;) {
+  for (let attempt = 0; attempt < AXIS_ID_MAX_ATTEMPTS; attempt++) {
     const bytes = crypto.getRandomValues(new Uint8Array(AXIS_ID_LENGTH));
     let id = prefix;
     for (let i = 0; i < AXIS_ID_LENGTH; i++) {
@@ -100,6 +120,10 @@ export function createWorksheetAxisId(
       return id;
     }
   }
+  throw new Error(
+    `could not mint a unique "${prefix}" axis ID in ${AXIS_ID_MAX_ATTEMPTS} ` +
+      `attempts; the axis holds ${existing?.size ?? 0} of ${AXIS_ID_SPACE} IDs`,
+  );
 }
 
 export function createWorksheetCellKey(rowId: string, colId: string): string {
