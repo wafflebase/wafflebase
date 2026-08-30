@@ -26,7 +26,7 @@ import {
   type CellRect,
 } from './pdf-table-painter.js';
 import type { EmbeddedImage } from './pdf-image-painter.js';
-import { isSafeUrl } from '../view/url-detect.js';
+import { hasUrlAlteringChars, isSafeUrl } from '../view/url-detect.js';
 
 /**
  * Forward-slant approximation (~12°) used to fake italic for Korean
@@ -845,15 +845,18 @@ export class PdfPainter {
       // Emitting a dead-or-unpredictable annotation is worse than emitting
       // styled text with no annotation, which is what happens here.
       //
-      // A separate defect in this gate — it validates `style.href` and then
-      // writes it, rather than writing what it validated — is tracked in
-      // issue #988 and deliberately left out of this change.
-      if (style.href && isSafeUrl(style.href)) {
+      // `isEmittableAnnotationUri` rather than `isSafeUrl` alone: the gate
+      // has to judge the same bytes the annotation receives (issue #988).
+      // Read once. The whole point of the gate is that the string judged
+      // and the string written are the same string, and two reads of
+      // `style.href` are two chances for them not to be.
+      const href = style.href;
+      if (href && isEmittableAnnotationUri(href)) {
         const x1Pt = px2pt(xpx);
         const y1Pt = pageHeightPt - px2pt(drawBaselineYpx + drawDescentPx);
         const x2Pt = px2pt(xpx) + segWidthPt;
         const y2Pt = pageHeightPt - px2pt(drawBaselineYpx - drawAscentPx);
-        addLinkAnnotation(page, [x1Pt, y1Pt, x2Pt, y2Pt], style.href);
+        addLinkAnnotation(page, [x1Pt, y1Pt, x2Pt, y2Pt], href);
       }
 
       // Advance by the glyph width in the embedded font, converted
@@ -871,6 +874,98 @@ function shouldStartTableRender(page: LayoutPage, plIndex: number): boolean {
   if (pl.rowSplitOffset !== undefined) return true;
   if (prev.rowSplitOffset !== undefined) return true;
   return false;
+}
+
+/**
+ * Is `href` safe to link to *and* written the way the annotation will
+ * carry it?
+ *
+ * `isSafeUrl` judges `new URL(href).protocol`, and the WHATWG parser deletes
+ * tab/CR/LF and trims C0-or-space before it reads the scheme. Gating on that
+ * and then writing `href` verbatim means the string that cleared the
+ * allowlist and the string in the PDF are not the same string — so an href
+ * spelling its scheme around a tab clears the gate and the viewer resolves
+ * what it wanted. `hasUrlAlteringChars` refuses that whole class, which is
+ * the same rule (and the same shared predicate) the Markdown serializer
+ * applies in `isLiteralDestination`, for the same reason.
+ *
+ * Only the whitespace/control clause of that serializer's gate is wanted
+ * here. The rest of it models a *CommonMark* consumer — entity references,
+ * the `<…>` destination form — and a PDF viewer decodes none of that.
+ *
+ * This refuses rather than rewrites, but it is only half of what keeps the
+ * judged string and the written string the same string: `toPdfUriLiteral`
+ * emits what this check parsed, so the rewrites a URL parser performs
+ * beyond deleting whitespace — folding `\\` to `/` in a special-scheme
+ * authority, punycoding a non-ASCII host — cannot open a gap either.
+ */
+function isEmittableAnnotationUri(href: string): boolean {
+  return !hasUrlAlteringChars(href) && isSafeUrl(href);
+}
+
+/**
+ * Encode a URI for a PDF literal string: percent-encode anything non-ASCII,
+ * then escape the three delimiters per PDF 32000-1 §7.3.4.2.
+ *
+ * `PDFString.of` writes its argument verbatim — it escapes nothing. An
+ * unbalanced `)` therefore closes the literal early, the following `>>`
+ * closes the annotation's `/A` action dictionary, and the rest of the href
+ * is parsed as PDF syntax: `https://x/)>>/JS(app.alert(1))` lands a `/JS`
+ * key on the annotation itself. The same break also produces a file that
+ * fails to parse at all, so this corrupts PDFs as readily as it injects
+ * into them. `href` is attacker-influenceable through HTML paste, DOCX
+ * import and a collaborator's CRDT write, and the export is run by whoever
+ * downloads the PDF (issue #990).
+ *
+ * Emitting `new URL(href).href` rather than `href` is what makes the gate
+ * total. `isSafeUrl` judges the *parsed* URL, and the parser rewrites more
+ * than the whitespace `hasUrlAlteringChars` refuses: it folds `\\` to `/`
+ * inside a special-scheme authority, so `https://good.com\\@evil.com/`
+ * clears a check that saw host `good.com` while the raw string resolves to
+ * `evil.com` under an RFC 3986 parser — and a PDF viewer hands `/URI` to
+ * whichever resolver the OS supplies. Writing the serialization closes
+ * that by construction rather than by enumerating rewrites, and it costs
+ * nothing a reader sees: unlike a Markdown destination, a PDF annotation
+ * URI is a click target, never displayed. It also punycodes a non-ASCII
+ * host, which percent-encoding would have turned into a dead link.
+ *
+ * The percent-encoding pass is deliberate belt-and-braces, and it is worth
+ * being precise about what it does and does not do. A URI action value is
+ * an ASCII string (§7.11.5), and pdf-lib enforces nothing: it writes a
+ * literal one **byte** per UTF-16 code unit (`charCodeAt(i)` truncated), so
+ * a non-ASCII character whose low byte is `0x28` / `0x29` / `0x5C` would
+ * emit a raw `(` / `)` / `\` that an escaper working on code points never
+ * saw — `https://x/\u0429>>/JS(…)` injecting into the `/A` dictionary, and
+ * `\u0428` corrupting the file outright. That was live against the raw
+ * `href` this function used to receive.
+ *
+ * It is not live against the serialization, which is ASCII already for
+ * every href that clears the gate: the URL serializer percent-encodes
+ * non-ASCII in a path, query and fragment, punycodes it in a host, and the
+ * opaque-path encode set an unusual scheme falls back to still covers
+ * everything above 0x7E. So this pass is unreachable in practice. It stays
+ * because what makes it unreachable is a property of `new URL()`, not of
+ * anything checked here, and the failure it guards is silent corruption of
+ * a downloaded file — the wrong thing to leave resting on a second
+ * library's encode sets. The escape pass below, by contrast, IS live: `(`
+ * and `)` are ordinary URI characters that the serializer keeps.
+ *
+ * Only non-ASCII runs go through `encodeURIComponent`, so an href that
+ * already carries percent-escapes is left alone rather than double-encoded.
+ * A lone surrogate, which has no UTF-8 encoding, never reaches it: the URL
+ * serializer has already replaced it with U+FFFD.
+ *
+ * Escaping rather than switching to `PDFHexString.fromText`: that helper
+ * emits UTF-16BE with a BOM, which is a *text* string, out of spec for
+ * this key. The output here is byte-identical to the old one for every
+ * ASCII href without `(`, `)` or `\`, which is nearly all of them.
+ */
+function toPdfUriLiteral(href: string): string {
+  // Safe to parse unconditionally: the only caller has already cleared
+  // `isSafeUrl`, which is `new URL(href)`.
+  return new URL(href).href
+    .replace(/[^\x00-\x7F]+/g, (run) => encodeURIComponent(run))
+    .replace(/[\\()]/g, (ch) => '\\' + ch);
 }
 
 /**
@@ -893,7 +988,7 @@ function addLinkAnnotation(
     A: ctx.obj({
       Type: 'Action',
       S: 'URI',
-      URI: PDFString.of(uri),
+      URI: PDFString.of(toPdfUriLiteral(uri)),
     }),
   });
   const annotRef = ctx.register(annot);

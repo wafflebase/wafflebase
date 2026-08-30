@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { isSafeUrl, SAFE_PROTOCOLS, seg } from '../src/url/index.ts';
+import {
+  hasUrlAlteringChars,
+  isSafeUrl,
+  SAFE_PROTOCOLS,
+  seg,
+} from '../src/url/index.ts';
 
 describe('isSafeUrl', () => {
   it('accepts http/https/mailto/tel', () => {
@@ -24,6 +29,35 @@ describe('isSafeUrl', () => {
   it('exposes the protocol allowlist', () => {
     expect(SAFE_PROTOCOLS).toContain('https:');
     expect(SAFE_PROTOCOLS).not.toContain('javascript:');
+  });
+});
+
+describe('hasUrlAlteringChars', () => {
+  // The characters the WHATWG parser rewrites before it reads the scheme.
+  // A gate that validates the parsed form and emits the raw string is
+  // judging a different string than the one it ships.
+  it('flags what the URL parser deletes or trims', () => {
+    expect(hasUrlAlteringChars('https://example.com/a\tb')).toBe(true);
+    expect(hasUrlAlteringChars('https://example.com/a\nb')).toBe(true);
+    expect(hasUrlAlteringChars('https://example.com/a\rb')).toBe(true);
+    expect(hasUrlAlteringChars('  https://example.com')).toBe(true);
+    expect(hasUrlAlteringChars('https://example.com  ')).toBe(true);
+    // A space is not deleted by the parser, but it is what ends a
+    // CommonMark link destination — the second reason this class exists.
+    expect(hasUrlAlteringChars('https://example.com/a b')).toBe(true);
+    // C1, which the ranges cover beyond the ASCII controls.
+    expect(hasUrlAlteringChars('https://example.com/\u0085b')).toBe(true);
+  });
+
+  it('leaves ordinary URLs alone, delimiters included', () => {
+    expect(hasUrlAlteringChars('https://example.com/a')).toBe(false);
+    // `(`, `)` and `" + B + B + "` are an emitter-syntax problem, not a parser one:
+    // they are escaped on the way out, not refused.
+    expect(hasUrlAlteringChars('https://example.com/a)b')).toBe(false);
+    expect(hasUrlAlteringChars('https://example.com/a(b')).toBe(false);
+    expect(hasUrlAlteringChars('https://example.com/a\\b')).toBe(false);
+    expect(hasUrlAlteringChars('https://example.com/\uD55C\uAE00')).toBe(false);
+    expect(hasUrlAlteringChars('')).toBe(false);
   });
 });
 

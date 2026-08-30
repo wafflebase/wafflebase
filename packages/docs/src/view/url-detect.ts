@@ -1,6 +1,6 @@
-import { isSafeUrl } from '@wafflebase/core/url';
+import { hasUrlAlteringChars, isSafeUrl } from '@wafflebase/core/url';
 
-export { isSafeUrl };
+export { hasUrlAlteringChars, isSafeUrl };
 
 /**
  * Normalize a user-entered URL: add https:// if no protocol is present,
