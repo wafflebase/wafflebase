@@ -174,11 +174,6 @@ import {
   parseWorksheetCellKey,
 } from './model/workbook/worksheet-record';
 import {
-  insertWorksheetAxis,
-  deleteWorksheetAxis,
-  moveWorksheetAxis,
-} from './model/workbook/worksheet-axis';
-import {
   applyWorksheetShift,
   applyWorksheetMove,
   shiftCrossTabDataRanges,
@@ -354,9 +349,6 @@ export {
   createWorksheetAxisId,
   createWorksheetCellKey,
   parseWorksheetCellKey,
-  insertWorksheetAxis,
-  deleteWorksheetAxis,
-  moveWorksheetAxis,
   applyWorksheetShift,
   applyWorksheetMove,
   shiftCrossTabDataRanges,

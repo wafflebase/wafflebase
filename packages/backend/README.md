@@ -472,6 +472,37 @@ stored, so a rejected value costs no upload.
 | `DELETE` | `.../tabs/:tid/cells/:sref` | Delete single cell |
 | `PATCH` | `.../tabs/:tid/cells` | Batch update (`{ cells: { "A1": {...}, "B2": null } }`) |
 
+#### Rows and columns
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `.../tabs/:tid/clear` | Empty a range, keeping structure (`{ range: "A1:C10" }`) |
+| `POST` | `.../tabs/:tid/insert` | Insert rows/columns (`{ axis, index, count }`) |
+| `POST` | `.../tabs/:tid/delete` | Delete rows/columns (`{ axis, index, count }`) |
+| `POST` | `.../tabs/:tid/move` | Move rows/columns (`{ axis, srcIndex, count, dstIndex }`) |
+
+`axis` is `"row"` or `"column"` and all indices are 1-based. Insert/delete/move
+run the same `@wafflebase/sheets` helpers the editor does, so formulas, merges,
+styles, validations, anchors, comment threads and the index-keyed view state
+(filter range, hidden rows/columns, freeze pane) follow the edit — including
+other tabs' chart and pivot source ranges. Bodies are validated before the
+Yorkie document is opened.
+
+The mutation runs synchronously inside one `doc.update()` on dense CRDT axis
+arrays, so an insert or move is bounded both by the grid and by
+`MaxAxisEntries` (10,000 axis entries *materialized* per request, matching the
+editor's `MaxAxisCoverage`) measured against the axis's current length. A
+delete materializes nothing and is bound only by the grid.
+
+Two deliberate differences from the editor: cached formula values are
+**cleared, not recalculated** (the calculator is async and needs a live
+`Sheet`, so `GET .../cells` reports `value: null` for formula cells until an
+editor session recalculates), and a move that would split a merged range is
+refused with `409` instead of silently doing nothing. Structural edits on a
+pivot-output tab or a `datasource`/`lakehouse` tab return `400`.
+
+See [`docs/design/rest-api.md`](../../docs/design/rest-api.md) §5.4.
+
 ## Auth Flow
 
 ```

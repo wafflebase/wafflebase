@@ -170,24 +170,53 @@ sequenceDiagram
     Sheet->>Store: shiftCells / moveCells
     Store->>Doc: doc.update(...)
     Store->>Axis: mutate rowOrder / colOrder
-    Store->>Struct: rewrite formulas + metadata + anchors
+    Store->>Struct: rewrite formulas + metadata + anchors + view state
     Struct->>Doc: update worksheet payload
     Store-->>Sheet: operation complete
-    Sheet->>Sheet: local recalc / freeze-pane adjustment
+    Sheet->>Sheet: local recalc
 ```
+
+### What the engine helper owns
+
+Cells survive a structural edit for free, because they are keyed by
+`rowId:colId`. Five fields do not, because they store plain 1-based numbers:
+`filter` (its range and per-column criteria), `hiddenRows`, `hiddenColumns`,
+`frozenRows` and `frozenCols`. An insert above them silently repoints them at
+the wrong rows.
+
+`Sheet.shiftCells` used to remap those itself, immediately around
+`store.shiftCells`. That was invisible to any other caller, so the REST API —
+which calls `applyWorksheetShift` directly — wrote a document whose filter
+range and freeze boundary pointed at pre-shift positions. The remap now lives
+inside `applyWorksheetShift` / `applyWorksheetMove`, so every caller gets it.
+
+Applying it in both places is safe: `Sheet` persists these fields by assigning
+the whole value it computed from its own in-memory state (`setFilterState`,
+`setHiddenState` and `setFreezePane` are absolute writes, never
+read-modify-write), so the editor's later write is the same value again. It is
+also a small repair — `Sheet.shiftUserHiddenState` mutates only the in-memory
+set and never called `persistHiddenState`, so the shifted user-hidden set was
+not written at all until the user next hid or unhid something.
+
+Recalculation stays outside the helper. The editor recalculates immediately
+afterwards; a caller without a calculator passes `invalidateFormulaValues` so
+the cached `v` is dropped rather than left stale (see
+[rest-api.md](../rest-api.md) §5.4).
 
 What the stable-id model changed:
 
 - Structural identity lives in `rowOrder` / `colOrder`.
 - Cell persistence does not bulk-rewrite `A1` keys.
-- Yorkie-specific structure transforms are local helper modules, not
-  shared-package exports.
 
 What has not changed yet:
 
 - Row/column sizes and styles still remap by visual numeric index.
-- `Sheet` still owns its own post-store recalculation and some local state
-  adjustments.
+- `Sheet` still owns its own post-store recalculation.
+- Cross-tab **formula text** is not rewritten by either caller: a `=Sheet1!A5`
+  living on tab-2 is not repointed when tab-1's row 5 is deleted.
+  `shiftCrossTabDataRanges` covers chart and pivot source ranges only. The
+  editor papers over the resulting *value* with
+  `recalculateCrossSheetFormulas`; the text is wrong in both paths.
 
 ## Concurrency Test Strategy
 

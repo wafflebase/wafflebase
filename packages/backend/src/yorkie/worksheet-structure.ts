@@ -30,6 +30,32 @@ const MaxColumns = 18278;
 const MaxClearedCells = 1000000;
 
 /**
+ * Ceiling on the axis entries one request may materialize.
+ *
+ * `rowOrder`/`colOrder` are dense CRDT arrays — covering visual row N costs N
+ * array entries — and `insertWorksheetAxis` back-fills the axis out to `index`
+ * before minting `count` new IDs, all synchronously inside `doc.update`. The
+ * grid bound alone does not help, exactly as it does not for `clear`:
+ * `{ index: 1000000, count: 1 }` is inside the grid, spans one row, and still
+ * asks for a million entries. Measured against a real `yorkie.Document`:
+ * 10,000 entries ~80ms, 50,000 ~1.3s, 200,000 ~17.6s — the cost is quadratic
+ * in the axis length, so a full 1e6 is the ~7 minutes `axis-id-selection.md`
+ * records — and spreading ~100,000 ids into `order.splice` throws
+ * `RangeError: Maximum call stack size exceeded` before any of it lands.
+ *
+ * Worse, the axis-id alphabet is 36^4 ≈ 1.68M ids (`createWorksheetAxisId`),
+ * so an axis pushed past that many entries makes the id retry loop
+ * non-terminating: an uninterruptible hang of the whole process, not a slow
+ * request.
+ *
+ * 10,000 is `MaxAxisCoverage` in `sheets/model/worksheet/sheet.ts`, the budget
+ * the editor's own selection path uses to extend an axis, so this API grows an
+ * axis by no more per call than the UI does and the worst case stays under a
+ * tenth of a second.
+ */
+export const MaxAxisEntries = 10000;
+
+/**
  * Validate a `{ range: "A1:C10" }` body for a clear-range action and return the
  * parsed `Range`, **normalized** so `from` is the top-left corner. A single-cell
  * reference (`"A1"`) is accepted and treated as a 1x1 range. A malformed
@@ -120,6 +146,65 @@ function axisLimit(axis: Axis): number {
   return axis === 'row' ? MaxRows : MaxColumns;
 }
 
+/**
+ * The last index a request touches must be inside the grid, not just its
+ * endpoints. `index` and `count` are each inside the axis on their own, and
+ * `{ index: 1000000, count: 2 }` still describes row 1,000,001 — a coordinate
+ * the engine's `Dimensions` cannot address, so the cells written there are
+ * unreachable from every other API.
+ */
+function assertSpan(
+  axis: Axis,
+  start: number,
+  count: number,
+  field: string,
+): void {
+  const limit = axisLimit(axis);
+  const last = start + count - 1;
+  if (last > limit) {
+    throw new BadRequestException(
+      `'${field}' (${start}) plus 'count' (${count}) reaches ${last}, ` +
+        `past the ${limit} limit for axis "${axis}"`,
+    );
+  }
+}
+
+/**
+ * Reject a request that would grow an axis past the grid, or past
+ * {@link MaxAxisEntries} in one call.
+ *
+ * This is the half of the bound the parser cannot make. `count` is in the
+ * body, but the entries a request actually *materializes* depend on how long
+ * the axis already is — `{ index: 1000000, count: 1 }` costs one entry on a
+ * full sheet and 999,999 on an empty one — and only the controller sees that,
+ * inside `doc.update`. Call it before the first mutation; a throw there rolls
+ * the whole update back.
+ *
+ * The grid half is what makes the bound cumulative. Each request is legal in
+ * isolation, so without it, repeated inserts walk the axis past `MaxRows` and
+ * on towards the id-space exhaustion hang.
+ */
+export function assertAxisGrowth(
+  axis: Axis,
+  currentLength: number,
+  requiredLength: number,
+): void {
+  const limit = axisLimit(axis);
+  if (requiredLength > limit) {
+    throw new BadRequestException(
+      `the request would extend the ${axis} axis to ${requiredLength}, ` +
+        `past the ${limit} limit`,
+    );
+  }
+  const growth = requiredLength - currentLength;
+  if (growth > MaxAxisEntries) {
+    throw new BadRequestException(
+      `the request would add ${growth} ${axis} entries, above the ` +
+        `${MaxAxisEntries} limit (the axis is ${currentLength} long)`,
+    );
+  }
+}
+
 function parseIndex(raw: unknown, field: string, axis: Axis): number {
   const limit = axisLimit(axis);
   if (
@@ -136,9 +221,15 @@ function parseIndex(raw: unknown, field: string, axis: Axis): number {
 }
 
 /**
- * `count` is bounded by the axis length for the same reason `clear` bounds its
- * area: the shift runs synchronously inside `doc.update`, and every inserted
- * row rewrites the formulas and anchors below it.
+ * `count` cannot exceed the axis itself. This is a shape check only — it is
+ * the grid bound, and the grid bound caps no work, which is precisely what
+ * `parseClearRange` says about its own area check. The bound that caps work is
+ * {@link assertAxisGrowth}, applied by the controller where the axis's current
+ * length is visible.
+ *
+ * `count` is deliberately *not* capped at {@link MaxAxisEntries} here: a delete
+ * materializes nothing (it only splices entries out), so
+ * `{ index: 1, count: 1000000 }` — "delete every row" — must stay legal.
  */
 function parseCount(raw: unknown, axis: Axis): number {
   const limit = axisLimit(axis);
@@ -164,11 +255,10 @@ function parseCount(raw: unknown, axis: Axis): number {
 export function parseAxisShift(body: unknown): AxisShift {
   const b = assertBody(body, '{ axis, index, count }');
   const axis = parseAxis(b.axis);
-  return {
-    axis,
-    index: parseIndex(b.index, 'index', axis),
-    count: parseCount(b.count, axis),
-  };
+  const index = parseIndex(b.index, 'index', axis);
+  const count = parseCount(b.count, axis);
+  assertSpan(axis, index, count, 'index');
+  return { axis, index, count };
 }
 
 /**
@@ -183,6 +273,7 @@ export function parseAxisMove(body: unknown): AxisMove {
   const srcIndex = parseIndex(b.srcIndex, 'srcIndex', axis);
   const count = parseCount(b.count, axis);
   const dstIndex = parseIndex(b.dstIndex, 'dstIndex', axis);
+  assertSpan(axis, srcIndex, count, 'srcIndex');
 
   if (dstIndex > srcIndex && dstIndex < srcIndex + count) {
     throw new BadRequestException(

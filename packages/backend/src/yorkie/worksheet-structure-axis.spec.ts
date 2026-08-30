@@ -1,5 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
-import { parseAxisMove, parseAxisShift } from './worksheet-structure';
+import {
+  MaxAxisEntries,
+  assertAxisGrowth,
+  parseAxisMove,
+  parseAxisShift,
+} from './worksheet-structure';
+
+const MaxRows = 1000000;
+const MaxColumns = 18278;
 
 describe('parseAxisShift', () => {
   it('accepts a row and a column request', () => {
@@ -44,6 +52,104 @@ describe('parseAxisShift', () => {
       parseAxisShift({ axis: 'column', index: 20000, count: 1 }),
     ).toThrow(BadRequestException);
   });
+
+  it('bounds the index at the very top of each axis', () => {
+    expect(
+      parseAxisShift({ axis: 'row', index: MaxRows, count: 1 }).index,
+    ).toBe(MaxRows);
+    expect(() =>
+      parseAxisShift({ axis: 'row', index: MaxRows + 1, count: 1 }),
+    ).toThrow(BadRequestException);
+    expect(
+      parseAxisShift({ axis: 'column', index: MaxColumns, count: 1 }).index,
+    ).toBe(MaxColumns);
+    expect(() =>
+      parseAxisShift({ axis: 'column', index: MaxColumns + 1, count: 1 }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('bounds count by the axis too', () => {
+    expect(
+      parseAxisShift({ axis: 'row', index: 1, count: MaxRows }).count,
+    ).toBe(MaxRows);
+    expect(() =>
+      parseAxisShift({ axis: 'row', index: 1, count: MaxRows + 1 }),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      parseAxisShift({ axis: 'column', index: 1, count: MaxColumns + 1 }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('rejects a span that reaches past the axis', () => {
+    // Each field is inside the axis on its own; together they name row
+    // 1,000,001, which the engine's grid cannot address.
+    expect(() =>
+      parseAxisShift({ axis: 'row', index: MaxRows, count: 2 }),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      parseAxisShift({ axis: 'column', index: MaxColumns, count: 2 }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('accepts a span ending exactly on the last index', () => {
+    expect(
+      parseAxisShift({ axis: 'row', index: MaxRows - 1, count: 2 }),
+    ).toEqual({ axis: 'row', index: MaxRows - 1, count: 2 });
+  });
+
+  it('still allows deleting the whole axis', () => {
+    // The span check must not turn "delete every row" into a 400 — a delete
+    // materializes nothing, so no work bound applies to it.
+    expect(parseAxisShift({ axis: 'row', index: 1, count: MaxRows })).toEqual({
+      axis: 'row',
+      index: 1,
+      count: MaxRows,
+    });
+  });
+
+  it('rejects a non-finite index or count', () => {
+    for (const body of [
+      { axis: 'row', index: Number.NaN, count: 1 },
+      { axis: 'row', index: 1, count: Number.POSITIVE_INFINITY },
+      { axis: 'row', index: Number.MAX_SAFE_INTEGER, count: 1 },
+    ]) {
+      expect(() => parseAxisShift(body)).toThrow(BadRequestException);
+    }
+  });
+});
+
+describe('assertAxisGrowth', () => {
+  it('accepts growth up to the cap', () => {
+    expect(() => assertAxisGrowth('row', 0, MaxAxisEntries)).not.toThrow();
+  });
+
+  it('rejects growth past the cap', () => {
+    expect(() => assertAxisGrowth('row', 0, MaxAxisEntries + 1)).toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('measures growth against what already exists, not against zero', () => {
+    // Otherwise a large real sheet could never be extended at all.
+    expect(() =>
+      assertAxisGrowth('row', 50000, 50000 + MaxAxisEntries),
+    ).not.toThrow();
+    expect(() =>
+      assertAxisGrowth('row', 50000, 50000 + MaxAxisEntries + 1),
+    ).toThrow(BadRequestException);
+  });
+
+  it('rejects a required length past the grid even when growth is small', () => {
+    // The cumulative bound: each request is legal in isolation, and without
+    // this one they walk the axis past the grid a page at a time.
+    expect(() =>
+      assertAxisGrowth('column', MaxColumns, MaxColumns + 1),
+    ).toThrow(BadRequestException);
+  });
+
+  it('accepts a request that needs no growth', () => {
+    expect(() => assertAxisGrowth('row', 1000, 1000)).not.toThrow();
+  });
 });
 
 describe('parseAxisMove', () => {
@@ -81,5 +187,49 @@ describe('parseAxisMove', () => {
     expect(() => parseAxisMove({ axis: 'row', srcIndex: 1, count: 1 })).toThrow(
       BadRequestException,
     );
+  });
+
+  it('bounds srcIndex, dstIndex and count by the axis', () => {
+    expect(() =>
+      parseAxisMove({
+        axis: 'column',
+        srcIndex: MaxColumns + 1,
+        count: 1,
+        dstIndex: 1,
+      }),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      parseAxisMove({
+        axis: 'column',
+        srcIndex: 1,
+        count: 1,
+        dstIndex: MaxColumns + 1,
+      }),
+    ).toThrow(BadRequestException);
+    expect(() =>
+      parseAxisMove({
+        axis: 'row',
+        srcIndex: 1,
+        count: MaxRows + 1,
+        dstIndex: 3,
+      }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('rejects a source block that reaches past the axis', () => {
+    expect(() =>
+      parseAxisMove({ axis: 'row', srcIndex: MaxRows, count: 2, dstIndex: 1 }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('allows a source block ending on the last index', () => {
+    expect(
+      parseAxisMove({
+        axis: 'row',
+        srcIndex: MaxRows - 1,
+        count: 2,
+        dstIndex: 1,
+      }).srcIndex,
+    ).toBe(MaxRows - 1);
   });
 });

@@ -69,10 +69,12 @@ packages/sheets/src/store/store.ts
 packages/sheets/src/view/
 └── render-comments.ts             # canvas marker rendering
 
+packages/sheets/src/model/workbook/
+└── worksheet-structure.ts         # deleteThreadsForAxis — orphan cleanup on row/col delete
+
 packages/frontend/src/app/spreadsheet/
 ├── yorkie-store.ts                        # Store impl gains comment methods
 ├── yorkie-worksheet-comments.ts           # Yorkie-local comment mutations
-├── yorkie-worksheet-structure.ts          # orphan cleanup on row/col delete
 └── components/comments/CommentPopover.tsx  # cell-click popover
 
 packages/frontend/src/components/comments/  # shared cross-consumer module
@@ -286,13 +288,13 @@ the row, Yorkie history packages both changes together — undo of the row
 delete restores the thread.
 
 ```typescript
-// packages/frontend/src/app/spreadsheet/yorkie-worksheet-structure.ts
+// packages/sheets/src/model/workbook/worksheet-structure.ts
 export function deleteThreadsForAxis(
-  worksheet: yorkie.JsonObject,
+  ws: Pick<Worksheet, 'comments'>,
   axis: 'row' | 'col',
   deletedAxisIds: Set<string>,
 ): void {
-  const comments = worksheet.comments;
+  const comments = ws.comments;
   if (!comments) return;
   for (const [threadId, thread] of Object.entries(comments)) {
     if (thread.anchor.kind !== 'sheet-cell') continue;
@@ -302,8 +304,9 @@ export function deleteThreadsForAxis(
 }
 ```
 
-This is invoked from `shiftCells` (delete path) and `moveCells` immediately
-after the cell map is rewritten.
+It runs inside `applyWorksheetShift`, so both callers of that helper get it:
+the editor's `shiftCells` (delete path) / `moveCells`, and the v1 REST
+row/column endpoints.
 
 ### 6. UI
 

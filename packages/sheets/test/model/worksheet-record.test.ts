@@ -20,4 +20,16 @@ describe('createWorksheetAxisId', () => {
     }
     expect(ids.size).toBe(1000);
   });
+
+  it('throws instead of hanging when the ID space is exhausted', () => {
+    // The retry loop terminates only while a free ID exists. Once an axis
+    // holds all 36^4 ids every draw collides, and an unbounded loop spins
+    // forever holding the thread — in the backend, inside a `doc.update` on an
+    // attached document, where nothing can interrupt it.
+    //
+    // A stand-in set rather than 1.68M real strings: `has` is the only thing
+    // the generator asks it.
+    const exhausted = { has: () => true } as unknown as ReadonlySet<string>;
+    expect(() => createWorksheetAxisId('r', exhausted)).toThrow(/axis ID/);
+  });
 });
