@@ -149,12 +149,48 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   return defaultLinkOpen(tokens, idx, options, env, self);
 };
 
-// Images load lazily and don't block the main thread while decoding.
+/**
+ * Maps a note's stored image `src` to the URL actually fetched. Identity by
+ * default; a shared-link mount installs a resolver that appends its `?token=`
+ * to workspace image URLs so anonymous viewers can load them.
+ *
+ * The `src` lives in the note's markdown inside the CRDT, so it is shared with
+ * every other viewer and the author and cannot itself carry a per-viewer
+ * token — it has to be applied at render time. Mirrors the slides seam in
+ * `packages/slides/src/view/canvas/image-cache.ts`.
+ */
+let imageUrlResolver: (src: string) => string = (s) => s;
+
+/**
+ * Install (or clear, with `null`) the src → fetch-URL resolver for every
+ * preview in this process. The resolver must be idempotent and leave
+ * non-workspace URLs (`data:`, `blob:`, external) untouched. Set on a
+ * shared-link mount, cleared on unmount.
+ *
+ * Module-level rather than a `NotePreview` option because the `markdown-it`
+ * instance the render rules hang off is itself module-level, and because a
+ * shared mount wants every preview it renders tokened without threading the
+ * token through each construction site.
+ */
+export function setImageUrlResolver(
+  resolver: ((src: string) => string) | null,
+): void {
+  imageUrlResolver = resolver ?? ((s) => s);
+}
+
+// Images load lazily and don't block the main thread while decoding, and
+// their `src` goes through the resolver above.
 const defaultImageRule = md.renderer.rules.image ?? defaultRenderToken;
 md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
   token.attrSet('loading', 'lazy');
   token.attrSet('decoding', 'async');
+  // Tokens are re-parsed from source on every `render()`, so the value read
+  // here is always the stored src rather than one this rule already resolved
+  // — the resolver never compounds, and a changed token takes effect on the
+  // next render. `defaultImageRule` escapes whatever we write.
+  const src = token.attrGet('src');
+  if (src !== null) token.attrSet('src', imageUrlResolver(src));
   return defaultImageRule(tokens, idx, options, env, self);
 };
 

@@ -37,3 +37,6 @@ export {
   noteBlameGutter,
   noteBlameTracker,
 } from './view/blame-gutter.js';
+// Lets a shared-link mount append its `?token=` to workspace image URLs at
+// render time (see `setImageUrlResolver`'s comment in `view/preview.ts`).
+export { setImageUrlResolver } from './view/preview.js';
