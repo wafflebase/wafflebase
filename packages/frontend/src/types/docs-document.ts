@@ -44,6 +44,26 @@ export type YorkieDocsRoot = {
  * bootstrap means all replicas share one container and concurrent
  * inserts only set distinct keys, which merge cleanly.
  */
+/**
+ * The root a share-link visitor should attach with, given their role.
+ *
+ * The Yorkie SDK writes every `initialRoot` key the document does not
+ * already have, on each attach — so seeding from a viewer's client means a
+ * viewer creates `content` and `comments` on a never-edited document just by
+ * opening the link. That is a write to a shared document from the one role
+ * that must not make them, and it happens before any of the editor's
+ * read-only machinery exists.
+ *
+ * Nothing a viewer can do needs either key: every `root.comments` read is
+ * existence-guarded, an editor's first comment creates the container lazily,
+ * and commenting is `readOnly`-gated. The LWW argument above is about two
+ * *editors* racing on a first comment, and editors still seed.
+ */
+export function docsInitialRootForRole(
+  role: string,
+): Partial<YorkieDocsRoot> {
+  return role === 'viewer' ? {} : initialDocsRoot();
+}
 export function initialDocsRoot(): Partial<YorkieDocsRoot> {
   return {
     comments: {},

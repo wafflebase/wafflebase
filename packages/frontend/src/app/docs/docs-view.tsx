@@ -319,7 +319,16 @@ export function DocsView({
   useEffect(() => {
     const container = containerRef.current;
     if (!didMount || !container || !doc) return;
-    if (!ensureTree(doc)) return;
+
+    // Repair/seed the Tree on writable docs only, mirroring `notes-view`. A
+    // viewer has no write permission, and this runs before any of the editor's
+    // read-only machinery exists — so without the gate a share-link viewer
+    // wrote to the shared document just by opening it, and the branch that
+    // replaces a `content` it does not recognize would overwrite whatever was
+    // there. A viewer renders what is actually stored; `YorkieDocStore`
+    // answers `{ blocks: [] }` for a missing tree and every mutator
+    // early-returns, so an absent tree is a blank page rather than a crash.
+    if (!readOnly && !ensureTree(doc)) return;
 
     const store = new YorkieDocStore(doc);
     storeRef.current = store;

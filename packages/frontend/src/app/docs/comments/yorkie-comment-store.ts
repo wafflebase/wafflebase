@@ -167,12 +167,15 @@ export class YorkieCommentStore
       } catch {
         throw new StaleCommentAnchorError();
       }
-      // New docs seed `comments` at bootstrap (see `initialDocsRoot`), so the
+      // Editors seed `comments` at bootstrap (see `initialDocsRoot`), so the
       // container is shared across replicas and concurrent inserts merge. This
-      // guard only fires for legacy docs created before that seeding; on those,
+      // guard fires for a document no editor has attached to yet — a legacy
+      // doc created before that seeding, or one only ever opened through a
+      // viewer share link, since viewers deliberately seed nothing. On those,
       // two users adding the first-ever comment concurrently can still race to
       // create the container (Yorkie LWW drops one). Acceptable: the window is
       // a single doc's first concurrent comment and self-heals after one sync.
+      // A viewer never reaches here at all — commenting is `readOnly`-gated.
       if (!root.comments) root.comments = {};
       root.comments[threadId] = {
         id: threadId,

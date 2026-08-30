@@ -291,3 +291,33 @@ describe('YorkieCommentStore — subscribe', () => {
     expect(calls, 'no further calls after unsubscribe').toBe(before);
   });
 });
+
+// A viewer no longer seeds `root.comments` at attach
+// (`docsInitialRootForRole`), so a document only ever opened through a viewer
+// share link reaches the reader with the key absent — the same state legacy
+// documents are in. That is the property the seeding change rests on: reading
+// must work without the container, and writing must create it.
+describe('YorkieCommentStore — absent comments container', () => {
+  it('lists nothing rather than throwing when the key was never seeded', async () => {
+    const doc = newDoc([makeBlock('hi')]);
+    expect(doc.getRoot().comments).toBeUndefined();
+
+    const store = new YorkieCommentStore(doc, { newId: makeIds(), now: makeNow() });
+    await expect(store.listThreads()).resolves.toEqual([]);
+  });
+
+  it('creates the container on the first write, then reads back', async () => {
+    const doc = newDoc([makeBlock('hi')]);
+    const store = new YorkieCommentStore(doc, { newId: makeIds(), now: makeNow() });
+
+    const thread = await store.addThread(
+      { startPath: [0, 0, 0], endPath: [0, 0, 2], blockId: 'b', quotedText: 'hi' },
+      'first',
+      alice,
+    );
+
+    expect(doc.getRoot().comments).toBeDefined();
+    const threads = await store.listThreads();
+    expect(threads.map((t) => t.id)).toEqual([thread.id]);
+  });
+});

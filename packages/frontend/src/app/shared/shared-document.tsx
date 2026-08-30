@@ -13,7 +13,10 @@ import {
   TabMeta,
   initialSpreadsheetDocument,
 } from "@/types/worksheet";
-import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
+import {
+  docsInitialRootForRole,
+  type YorkieDocsRoot,
+} from "@/types/docs-document";
 import {
   initialNotesRoot,
   noteUserColor,
@@ -907,7 +910,17 @@ function SharedDocumentInner({
       {resolved.type === "doc" ? (
         <DocumentProvider<YorkieDocsRoot>
           docKey={docKey}
-          initialRoot={initialDocsRoot()}
+          // A viewer must not seed the root. The SDK writes every
+          // `initialRoot` key the document does not already have, on each
+          // attach — so a viewer opening a share link to a never-edited
+          // document created `content` and `comments` from their own client.
+          // Nothing a viewer can do needs either key: every `root.comments`
+          // read is existence-guarded (`yorkie-comment-store.ts`), an
+          // editor's first comment creates the container lazily, and viewers
+          // cannot add comments at all. The LWW argument for seeding
+          // `comments` is about two *editors* racing on the first comment,
+          // and editors still seed.
+          initialRoot={docsInitialRootForRole(resolved.role)}
           initialPresence={presence}
           enableDevtools={import.meta.env.DEV}
         >

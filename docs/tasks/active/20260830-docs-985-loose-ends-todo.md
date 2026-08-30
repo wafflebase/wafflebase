@@ -168,18 +168,48 @@ claim that presence would break for viewers (every presence call binds the raw
   branch makes the client boundary hold and says plainly in the docs that it
   is the boundary; deciding to enforce server-side is a deployment call and
   its own task (#989's third suggested item).
-- **Two sibling viewer-writes remain, both outside `packages/docs`.** Found
-  while confirming the review finding on the seeding write, and left for a
-  follow-up rather than silently widening this branch:
-  1. `ensureTree` (`packages/frontend/src/app/docs/docs-view.tsx`) runs
-     `doc.update()` for viewers too, and for a legacy `content` that is a
-     truthy non-Tree it *overwrites* it.
-  2. `initialDocsRoot()` includes `comments: {}`, and the Yorkie SDK writes
-     any absent root key on attach — so a viewer opening a share link on a
-     document that has never had a comment writes that key from their own
-     client. Unconditional, on every such attach.
+- **The two sibling viewer-writes are now fixed too** (they were initially
+  recorded here as deferred; investigating them showed both were safe to
+  close):
+  1. `ensureTree` (`packages/frontend/src/app/docs/docs-view.tsx`) ran
+     `doc.update()` for viewers too, and its branch for a `content` it does
+     not recognize *overwrites* what is there. Now gated on `!readOnly`,
+     which is the exact shape `notes-view.tsx` already uses for `ensureText`,
+     for the same stated reason. Safe because `YorkieDocStore` answers
+     `{ blocks: [] }` for a missing tree and every mutator early-returns.
+  2. `initialDocsRoot()` seeds `content` and `comments: {}`, and the SDK
+     writes any absent root key on every attach. Now routed through
+     `docsInitialRootForRole()`, which returns `{}` for a viewer.
 
-  Both are attach-time, before any editor exists, so neither is reachable
-  through the handles this branch closes. Fixing (2) means changing what a
-  viewer attaches with, which could affect whether viewers can read comments
-  at all — a design question, not a patch.
+  The question this was deferred on — "does skipping the seed break viewer
+  comment reading?" — resolves cleanly: every `root.comments` read is
+  existence-guarded (`listThreads` returns `[]`, the rest use `?.`), an
+  editor's first comment creates the container lazily, and commenting is
+  `readOnly`-gated so a viewer never needs it. The LWW rationale for seeding
+  applies to two *editors* racing on a first comment, and editors still seed.
+
+  The two must land together: fixing only the second still leaves `ensureTree`
+  creating the tree from the viewer's client.
+
+## Follow-up (not in this branch)
+
+`initialDocsRoot()` imports `Tree` from `@yorkie-js/sdk`, but the document is
+attached through `@yorkie-js/react`'s `DocumentProvider`, which recognizes CRDT
+values by `instanceof` against **its own** bundled `Tree`. Confirmed by probe:
+`SdkTree === ReactTree` is `false`, and `initialDocsRoot().content instanceof
+ReactTree` is `false` — so the seeded `content` is materialized as a plain
+`CRDTObject` and `ensureTree` immediately replaces it.
+
+This is the identical bug notes already fixed and pinned
+(`src/types/notes-document.ts:1-10`, `notes-document.test.ts`), whose comment
+even claims docs gets it right. It is a one-word import change, but it is not
+a clean one: `apply-imported-content.ts` seeds the same root through an
+`@yorkie-js/sdk` client, so flipping the import moves the realm mismatch to
+that path instead. Whether it self-heals there (`setDocument` →
+`writeFullDocument` creates the tree when absent) needs verifying before the
+change is safe. Filed rather than folded in, since it changes what lands in
+every new document's root.
+
+Also unfixed, and the same shape as (2) above: notes, board and sheets pass a
+seeding `initialRoot` on the same `shared-document.tsx` block. Each needs its
+own "does anything need the key" trace, which this branch did not do.
