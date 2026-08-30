@@ -33,6 +33,8 @@ export class MemDocStore implements DocStore {
   private doc: Document;
   private undoStack: Document[] = [];
   private redoStack: Document[] = [];
+  /** Depth of nested `batch()` calls; 0 outside a batch. */
+  private batchDepth = 0;
 
   constructor(doc?: Document) {
     this.doc = doc ? cloneDocument(doc) : { blocks: [] };
@@ -43,6 +45,16 @@ export class MemDocStore implements DocStore {
   }
 
   setDocument(doc: Document): void {
+    // Prohibited inside a batch so both stores enforce the same contract.
+    // `YorkieDocStore.setDocument()` throws because it reads its `undoFloor`
+    // *after* the write lands, which inside a batch is not until the batch's
+    // single `doc.update` closes — the floor would land one unit low and the
+    // whole loaded document would become undoable. Nothing breaks here, but
+    // the docs package's only store is this one, so code written and tested
+    // against it would pass and then throw under the collaborative store.
+    if (this.batchDepth > 0) {
+      throw new Error('setDocument() must not be called inside batch()');
+    }
     this.doc = cloneDocument(doc);
   }
 
@@ -163,8 +175,66 @@ export class MemDocStore implements DocStore {
   }
 
   snapshot(): void {
+    // Inside a batch the checkpoint has already been taken by `batch()`
+    // itself, and it captured the true pre-batch state. Pushing again here
+    // would make one batch N undo units — the opposite of the contract.
+    if (this.batchDepth > 0) return;
     this.pushUndo();
     this.redoStack = [];
+  }
+
+  batch(fn: () => void): void {
+    // Nested batch: already covered by the outer one's checkpoint. Just run
+    // the body — opening a second would split one action into two undo
+    // units, exactly what the seam exists to prevent.
+    if (this.batchDepth > 0) {
+      this.batchDepth++;
+      try {
+        fn();
+      } finally {
+        this.batchDepth--;
+      }
+      return;
+    }
+    // Checkpoint up front rather than letting the body's first `snapshot()`
+    // do it. Deferring would mean a body that writes *before* it snapshots
+    // (every editor operation snapshots partway through, so composing two of
+    // them lands here) leaves those first writes permanently unundoable, and
+    // a body that never snapshots at all costs no undo unit — neither of
+    // which `YorkieDocStore` does, since its single `doc.update` covers the
+    // whole body regardless. Mirrors `MemSlidesStore.batch()`.
+    const before = cloneDocument(this.doc);
+    const priorRedo = this.redoStack;
+    this.undoStack.push(before);
+    this.redoStack = [];
+    this.batchDepth++;
+    try {
+      fn();
+    } finally {
+      this.batchDepth--;
+      // A batch that wrote nothing costs no undo unit — and no redo history
+      // either, which is why `priorRedo` is put back rather than left
+      // cleared. `YorkieDocStore` pushes no change in that case, so
+      // `doc.history` keeps its redo stack; the two stores share one
+      // contract, so this one must too.
+      //
+      // Compared rather than tracked with a flag so a body that writes and
+      // then reverts itself is also free. Both sides of the comparison go
+      // through `cloneDocument`, which normalizes block styles: comparing a
+      // normalized clone against the raw live document would report a write
+      // for any document holding a partial style (`updateBlock` stores one
+      // verbatim), leaving a dead undo checkpoint behind.
+      //
+      // On a throw the partial writes stand (this store does not roll back),
+      // so the checkpoint is kept — that is what makes the mess undoable.
+      const wroteNothing =
+        this.undoStack[this.undoStack.length - 1] === before &&
+        JSON.stringify(before) === JSON.stringify(cloneDocument(this.doc));
+      if (wroteNothing) {
+        this.undoStack.pop();
+        this.redoStack = priorRedo;
+      }
+    }
   }
 
   insertTableRow(tableBlockId: string, atIndex: number, row: TableRow): void {

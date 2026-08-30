@@ -136,8 +136,19 @@ constructed in read-only mode too, with every **mutating** path gated so
   so read-only holds even for callers that bypass pointer / keyboard events
 - The link popover shows only the open-link anchor (Edit / Remove hidden)
 - Drag selection, `Cmd/Ctrl+C` copy, and plain-click link open still work
+- Clicking an image selects it, so a viewer can copy it. The overlay is
+  border-only — no resize handles are painted and no resize cursor appears
+  over where they would be — because a resize is a document write. The
+  resize drag itself is refused at three points (arming, move, and the
+  CRDT commit), which matters because the client `readOnly` flag is the
+  effective write boundary for an anonymous share link whenever the Yorkie
+  auth webhook is left in shadow mode
 - The hidden textarea is not auto-focused on mount; focus is acquired on
-  first click so the caret paints and the browser copy event fires
+  the first click **or on an image click**, so the caret paints and the
+  browser copy event fires. Selecting an image focuses it too — otherwise
+  the click that selects an image would leave nothing able to receive the
+  `copy` event, and `Cmd/Ctrl+C` over it would do nothing. Focus mutates
+  no document state; every write stays behind a `readOnly` gate
 
 ### Security
 

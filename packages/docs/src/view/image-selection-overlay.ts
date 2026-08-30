@@ -133,16 +133,22 @@ export function formatResizeHud(
 export function drawImageSelection(
   ctx: CanvasRenderingContext2D,
   rect: ImageRect,
-  opts: { borderColor: string; handleFill: string; handleStroke: string } = {
-    borderColor: '#1a73e8',
-    handleFill: '#ffffff',
-    handleStroke: '#1a73e8',
-  },
+  opts: {
+    borderColor?: string;
+    handleFill?: string;
+    handleStroke?: string;
+    /** Draw the eight resize handles. False on a read-only mount, where the
+     *  image can be selected and copied but never resized. */
+    handles?: boolean;
+  } = {},
 ): void {
+  const borderColor = opts.borderColor ?? '#1a73e8';
+  const handleFill = opts.handleFill ?? '#ffffff';
+  const handleStroke = opts.handleStroke ?? '#1a73e8';
   ctx.save();
   // Selection rectangle. Offset by 0.5 so the 1px stroke lands on a
   // pixel center and stays crisp.
-  ctx.strokeStyle = opts.borderColor;
+  ctx.strokeStyle = borderColor;
   ctx.lineWidth = 1;
   ctx.strokeRect(
     Math.round(rect.x) + 0.5,
@@ -151,10 +157,15 @@ export function drawImageSelection(
     Math.round(rect.height),
   );
 
+  if (opts.handles === false) {
+    ctx.restore();
+    return;
+  }
+
   // Eight handles. White fill with a matching stroke so they're visible
   // on both light- and dark-themed image content.
-  ctx.fillStyle = opts.handleFill;
-  ctx.strokeStyle = opts.handleStroke;
+  ctx.fillStyle = handleFill;
+  ctx.strokeStyle = handleStroke;
   ctx.lineWidth = 1;
   for (const handle of IMAGE_HANDLES) {
     const c = handleCenter(rect, handle);

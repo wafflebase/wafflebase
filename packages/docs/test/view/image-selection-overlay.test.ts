@@ -72,6 +72,17 @@ describe('drawImageSelection', () => {
     expect(strokeRect).toHaveBeenCalledTimes(IMAGE_HANDLES.length + 1);
   });
 
+  it('draws the border alone when handles are off', () => {
+    // A read-only mount: the viewer can select an image to copy it, but
+    // cannot resize one, so eight drag handles would be an offer the editor
+    // refuses.
+    const { ctx, strokeRect, fillRect } = makeRecordingCtx();
+    drawImageSelection(ctx, { x: 10, y: 20, width: 100, height: 60 }, { handles: false });
+
+    expect(fillRect).not.toHaveBeenCalled();
+    expect(strokeRect).toHaveBeenCalledTimes(1);
+  });
+
   it('draws the border at pixel-center offsets for crispness', () => {
     const { ctx, strokeRect } = makeRecordingCtx();
     drawImageSelection(ctx, { x: 10, y: 20, width: 100, height: 60 });

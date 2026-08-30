@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, beforeEach, afterEach, expect } from 'vitest';
+import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
 import yorkie from '@yorkie-js/sdk';
 import { YorkieDocStore } from '../../../src/app/docs/yorkie-doc-store.ts';
 import {
@@ -214,5 +214,141 @@ describe('multi-block paste undo cost', () => {
     // refactor that merges two of them does not fail this test, while a
     // regression back to per-block writes still does.
     expect(small).toBeLessThanOrEqual(6);
+  });
+});
+
+/**
+ * Redefining a named style is two store writes: the registry write itself
+ * (`updateStyleDefinition` → `writeStylesAndRematerialize`) and the
+ * stale-style-off sweep it triggers (`Doc.dropStaleStyleOffAll` →
+ * `store.applyStyles`). Each is one `doc.update()`, and `YorkieDocStore`
+ * takes its undo units from `doc.update()`, so before `DocStore.batch()`
+ * this cost **two** Cmd+Z — the first of which looked like it did nothing.
+ *
+ * The setup below is the exact case docs-font-controls.md describes: the
+ * built-in Heading 6 is italic, so `styleOffAsClear` legitimately keeps an
+ * `italic: false` on a Heading 6 run. "Update Heading 6 to match" a caret
+ * sitting in that run redefines Heading 6 as non-italic — which makes the
+ * run's stored `false` a dead flag, and fires the sweep.
+ */
+function heading6Block(text: string, style: Record<string, unknown>): Block {
+  return {
+    id: generateBlockId(),
+    type: 'heading',
+    headingLevel: 6,
+    inlines: [{ text, style }],
+    style: { ...DEFAULT_BLOCK_STYLE },
+  };
+}
+
+describe('named-style redefinition undo cost (DocStore.batch seam)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let doc: any;
+  let store: YorkieDocStore;
+  let editor: EditorAPI;
+  let container: HTMLDivElement;
+  let restoreCanvas: () => void;
+  let block: Block;
+  let untouched: Block;
+
+  beforeEach(() => {
+    restoreCanvas = installCanvasShim();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc = new yorkie.Document<any>(`test-${Date.now()}-${Math.random()}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    doc.update((root: any) => {
+      root.content = new yorkie.Tree({ type: 'doc', children: [] });
+    });
+    store = new YorkieDocStore(doc);
+    // The caret run also carries an explicit size, so "update to match"
+    // redefines Heading 6 to something a *different* Heading 6 block would
+    // visibly resolve — which is how the rollback test below observes the
+    // editor's cached document.
+    block = heading6Block('Heading text', { italic: false, fontSize: 33 });
+    untouched = heading6Block('Second heading', {});
+    store.setDocument({ blocks: [block, untouched] });
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    editor = initialize(container, store);
+    editor._setSelectionForTest({
+      anchor: { blockId: block.id, offset: 0 },
+      focus: { blockId: block.id, offset: 0 },
+    });
+  });
+
+  afterEach(() => {
+    container.remove();
+    restoreCanvas();
+  });
+
+  const italicOf = () => store.getDocument().blocks[0].inlines[0].style.italic;
+
+  it('sanity: the fixture really does strand a style-off flag', () => {
+    expect(italicOf()).toBe(false);
+    editor.updateStyleToMatch('heading-6');
+    // The registry now says Heading 6 is not italic, so the run's stored
+    // `false` no longer overrides anything and the sweep drops it. If this
+    // ever stops holding, the undo-cost assertion below stops testing the
+    // two-write path it is named for.
+    expect(store.getDocStyles()['heading-6']?.inline.italic).toBe(false);
+    expect(italicOf()).toBeUndefined();
+  });
+
+  it('"Update to match" that strands a flag is a single undo unit', () => {
+    const before = doc.getUndoStackForTest().length;
+    editor.updateStyleToMatch('heading-6');
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+  });
+
+  it('one undo restores both the registry and the stranded flag', () => {
+    editor.updateStyleToMatch('heading-6');
+    expect(store.getDocStyles()['heading-6']).toBeDefined();
+
+    editor.undo();
+    expect(store.getDocStyles()['heading-6']).toBeUndefined();
+    expect(italicOf()).toBe(false);
+  });
+
+  it('resetAllNamedStyles is a single undo unit too', () => {
+    editor.updateStyleToMatch('heading-6');
+    const before = doc.getUndoStackForTest().length;
+    editor.resetAllNamedStyles();
+    expect(doc.getUndoStackForTest().length).toBe(before + 1);
+  });
+
+  // Boundary: batching must fold one action's writes together, never two
+  // separate actions into each other.
+  it('two separate named-style actions stay two undo units', () => {
+    const before = doc.getUndoStackForTest().length;
+    editor.updateStyleToMatch('heading-6');
+    editor.resetNamedStyle('heading-6');
+    expect(doc.getUndoStackForTest().length).toBe(before + 2);
+  });
+
+  // Batching also changed what a *failure* mid-action means. The two writes
+  // used to be two `doc.update()`s, so a failed second one left the first
+  // committed and the editor's cached document matched it. Now the whole
+  // batch is one update that Yorkie discards on a throw — while the sweep
+  // has already refreshed the cache from the in-progress state. The cache
+  // has to be re-read, or the editor is the only holder of a redefinition
+  // that never landed.
+  it('a failed redefinition leaves the editor matching the store', () => {
+    const sweep = vi.spyOn(store, 'applyStyles').mockImplementation(() => {
+      throw new Error('sweep failed');
+    });
+    expect(() => editor.updateStyleToMatch('heading-6')).toThrow('sweep failed');
+    sweep.mockRestore();
+
+    // The registry write is rolled back with the rest of the batch.
+    expect(store.getDocStyles()['heading-6']).toBeUndefined();
+
+    // A caret in the untouched Heading 6 block resolves its size from the
+    // named-style layer, which the editor reads out of its cached document.
+    // A stale cache would still report the never-committed 33.
+    editor._setSelectionForTest({
+      anchor: { blockId: untouched.id, offset: 0 },
+      focus: { blockId: untouched.id, offset: 0 },
+    });
+    expect(editor.getRangeStyleSummary().fontSize).not.toBe(33);
   });
 });
