@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { Text as ReactText } from '@yorkie-js/react';
-import { initialNotesRoot, noteUserColor } from './notes-document';
+import {
+  initialNotesRoot,
+  notesInitialRootForRole,
+  noteUserColor,
+} from './notes-document';
 
 describe('initialNotesRoot', () => {
   it('creates content with the @yorkie-js/react Text class the provider recognizes', () => {
@@ -29,5 +33,19 @@ describe('noteUserColor', () => {
 
   it('produces different hues for different seeds', () => {
     expect(noteUserColor('alice')).not.toBe(noteUserColor('bob'));
+  });
+});
+
+describe('notesInitialRootForRole', () => {
+  // The SDK writes every absent `initialRoot` key on each attach, so seeding
+  // from a viewer's client means a viewer creates `content` on a never-edited
+  // note just by opening the share link.
+  it('seeds nothing for a viewer', () => {
+    expect(notesInitialRootForRole('viewer')).toEqual({});
+  });
+
+  it('still seeds a react Text for anyone who can write', () => {
+    expect(notesInitialRootForRole('editor').content).toBeInstanceOf(ReactText);
+    expect(notesInitialRootForRole('owner').content).toBeInstanceOf(ReactText);
   });
 });

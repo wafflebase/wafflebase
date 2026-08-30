@@ -50,6 +50,27 @@ export function initialNotesRoot(): Partial<YorkieNotesRoot> {
 }
 
 /**
+ * The root a share-link visitor should attach with, given their role.
+ *
+ * The Yorkie SDK writes every `initialRoot` key the document does not already
+ * have, on each attach — so a viewer opening a never-edited document creates
+ * these keys from their own client, before any read-only machinery exists.
+ * Only the viewer role is exempt; every other role still seeds, so the
+ * concurrency argument for seeding at bootstrap is untouched.
+ *
+ * Safe for notes because the viewer already runs against a possibly-absent
+ * `content`: `notes-view` seeds only when writable, and every read in
+ * `YorkieNoteStore` guards for it (`getText()` answers `''`,
+ * `getAuthorSpans()`/`getPeerSelections()` answer `[]`). A freshly attached
+ * empty `Text` stringifies to `''` too, so the viewer sees what it saw.
+ */
+export function notesInitialRootForRole(
+  role: string,
+): Partial<YorkieNotesRoot> {
+  return role === 'viewer' ? {} : initialNotesRoot();
+}
+
+/**
  * Deterministic caret color for a note collaborator, derived from a stable
  * seed (the username). Same user → same distinguishable color across sessions
  * and across all peers' views. Returns an HSL string.

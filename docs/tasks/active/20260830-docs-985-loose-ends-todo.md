@@ -215,17 +215,31 @@ claim that presence would break for viewers (every presence call binds the raw
   `clearHistory()` is what preserves it, and that is now said where it is
   true.
 
-## Follow-up (not in this branch)
+- **Notes, board and sheets are closed too**, each after its own trace rather
+  than on the assumption that they match docs. Slides already passed `{}`.
+  - **Notes** — safe as a one-liner. `notes-view` already gates its
+    `ensureText` seed on `!readOnly`, so the viewer *already* ran against a
+    possibly-absent `content`, and every `YorkieNoteStore` read guards for it
+    (`getText()` → `''`, `getAuthorSpans()`/`getPeerSelections()` → `[]`). A
+    freshly attached empty `Text` stringifies to `''` as well, so the viewer
+    sees exactly what it saw.
+  - **Board** — safe as a one-liner. Nothing writes on mount (there is no
+    `ensureBoardRoot`), and `read()`/`readMeta()` fall back to `{}` / `[]`
+    with the same `'Untitled board'` default the seed carried.
+  - **Sheets** — *not* safe as a one-liner, and this is the one that would
+    have shipped a regression. `SharedDocumentLayout` derives `activeTabId`
+    from `root.tabOrder`, and its `if (!activeTabId) return <Loader />` has no
+    other exit. With the seed gone, `doc.getRoot()` is still truthy (an empty
+    proxy), so the load gate passes and the viewer sits on a **permanent
+    spinner** where they previously saw a blank grid — the grid existing only
+    because the viewer manufactured `Sheet1` on their own client. Fixed by
+    giving that branch a real empty state, which is worth having regardless:
+    a workbook with no tabs was always a forever-loader, the seed just hid it.
 
-Notes, board and sheets pass a seeding `initialRoot` on the same
-`shared-document.tsx` block and have the same viewer-write as (2) above. The
-shape of the fix is identical, but each needs its own "does anything need the
-key" trace — the one that made (2) safe took real work to establish — so they
-are left alone rather than changed on the assumption that they match.
-
-Worth checking at the same time whether they carry the same realm mismatch:
-`initialBoardRoot`/`initialSpreadsheetDocument` seed plain objects, but
-`initialNotesRoot` seeds a `Text`, and notes fixed its realm by importing from
-`@yorkie-js/react` — which is correct for the provider but would be wrong for
-any `@yorkie-js/sdk` client that seeds the same root, the trap this branch
-just removed from docs.
+  Realm check while there: `initialBoardRoot` and `initialSpreadsheetDocument`
+  are shared across realms too (board with `apply-imported-content`, sheets
+  with that plus ~18 backend attach sites), but every value they seed is a
+  plain object, so class identity is never consulted and the docs trap does
+  not repeat. `initialNotesRoot` does seed a `Text`, but it is single-realm —
+  only the React provider ever seeds a notes root. Both properties are now
+  pinned by tests, so the next CRDT value added to either seed fails loudly.
