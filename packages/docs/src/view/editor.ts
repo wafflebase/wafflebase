@@ -1,6 +1,6 @@
 import { Doc } from '../model/document.js';
-import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData } from '../model/types.js';
-import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE } from '../model/types.js';
+import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData, PageSetup } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE, MIN_CONTENT_PX } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
@@ -98,6 +98,40 @@ export interface EditorAPI {
   clearInlineFormatting(): void;
   /** Apply block style to the block containing the cursor */
   applyBlockStyle(style: Partial<BlockStyle>): void;
+  /**
+   * Format painter — pick up the inline format at the caret. Same entry
+   * point as the `Mod+Shift+C` shortcut; replaces any format already held.
+   */
+  copyFormat(): void;
+  /**
+   * Format painter — apply the held format to the current selection as one
+   * undo step, and report whether anything was written. Same entry point as
+   * the `Mod+Alt+V` shortcut. Nothing held, or nothing selected, is a no-op.
+   * The held format survives the write; call `clearCopiedFormat()` for
+   * single-shot semantics.
+   */
+  pasteFormat(): boolean;
+  /** Format painter — discard the held format. */
+  clearCopiedFormat(): void;
+  /** Format painter — is a format currently held? */
+  hasCopiedFormat(): boolean;
+  /**
+   * Register a listener fired whenever the held format is picked up or
+   * discarded — including from the keyboard shortcuts, so a toolbar toggle
+   * cannot drift out of sync. Returns an unsubscribe function.
+   */
+  onCopiedFormatChange(cb: () => void): () => void;
+  /**
+   * The document's page setup (paper size, orientation, margins), resolved
+   * against the defaults so callers never see `undefined`. Returns a copy —
+   * mutating it does not touch the document.
+   */
+  getPageSetup(): PageSetup;
+  /**
+   * Replace the page setup, repaginate and repaint, as one undo step. Shares
+   * the write path with the ruler's margin drag.
+   */
+  setPageSetup(setup: PageSetup): void;
   /** Undo */
   undo(): void;
   /** Redo */
@@ -907,6 +941,78 @@ export function computeHFSelectionRects(
 }
 
 /**
+ * Refuse a page setup no layout pass can consume.
+ *
+ * `paginateLayout` derives its content box as `page − margins` and every
+ * consumer downstream — the renderer, the ruler, the PDF exporter — assumes
+ * that box is positive; a closed or negative one is not a smaller document
+ * but a broken one, and it is written into the CRDT for every collaborator.
+ *
+ * The two callers that exist today already respect the invariant (the ruler
+ * refuses a drag that leaves less than 20 px, and the Page Setup dialog
+ * disables Apply), which is exactly why the check belongs here instead: they
+ * are two copies of a rule the write path never stated, and
+ * `EditorAPI.setPageSetup` is public — a CLI, a test or a future panel reaches
+ * it with whatever geometry it likes.
+ *
+ * Throws rather than clamping: silently substituting a different page size
+ * than the caller asked for is the kind of repair that gets noticed months
+ * later, and no legitimate caller has anything to clamp.
+ *
+ * That rationale only holds if the two agree on where the floor is. This
+ * check and `resolvePageSetup`'s clamp share `MIN_CONTENT_PX`, because
+ * `writePageSetup` stores `resolvePageSetup(setup)` — so any geometry the
+ * assert let through but the resolver would rescale is exactly the silent
+ * substitution the paragraph above promises never happens. Everything this
+ * accepts, the resolver returns untouched.
+ *
+ * Every failure is a `RangeError`, including a missing `paperSize` or
+ * `margins`. Those are as reachable as any other bad geometry — the argument
+ * is `PageSetup`-typed, but it arrives from a CLI, a test or a future panel,
+ * and TypeScript is not there at runtime — and reading straight through to
+ * `setup.paperSize.width` reports them as a `TypeError`, which a caller
+ * cannot distinguish from a bug inside the editor.
+ */
+function assertUsablePageSetup(setup: PageSetup): void {
+  if (!setup || !setup.paperSize || !setup.margins) {
+    throw new RangeError(
+      'Invalid page setup: paperSize and margins are both required',
+    );
+  }
+
+  const { width, height } = getEffectiveDimensions(setup);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new RangeError(
+      `Invalid page setup: paper size must be finite and positive (got ` +
+        `${setup.paperSize.width}×${setup.paperSize.height})`,
+    );
+  }
+
+  const { margins } = setup;
+  for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+    const value = margins[side];
+    if (!Number.isFinite(value) || value < 0) {
+      throw new RangeError(
+        `Invalid page setup: ${side} margin must be finite and >= 0 (got ${value})`,
+      );
+    }
+  }
+
+  // Measured against the *effective* box, so the check follows the
+  // orientation rather than the stored paper dimensions.
+  if (margins.left + margins.right > width - MIN_CONTENT_PX) {
+    throw new RangeError(
+      'Invalid page setup: left and right margins leave no room for content',
+    );
+  }
+  if (margins.top + margins.bottom > height - MIN_CONTENT_PX) {
+    throw new RangeError(
+      'Invalid page setup: top and bottom margins leave no room for content',
+    );
+  }
+}
+
+/**
  * Initialize the document editor.
  *
  * @param container - The DOM element to mount the editor in
@@ -948,7 +1054,7 @@ export function initialize(
   spacer.style.pointerEvents = 'none';
   container.appendChild(spacer);
 
-  const docCanvas = new DocCanvas(canvas);
+  const docCanvas = new DocCanvas(canvas, readOnly);
   // The measurer is shared across recomputeLayout, header/footer layout, hit
   // testing, and cursor/selection rendering. It owns a private OffscreenCanvas
   // ctx so its `lastFont` cache stays valid across calls regardless of what
@@ -1056,32 +1162,50 @@ export function initialize(
   }
 
   /**
-   * Tail shared by every named-style redefinition entry point
-   * (`setDocStyles`, `updateStyleToMatch`, `resetNamedStyle`,
-   * `resetAllNamedStyles`).
+   * Run a named-style redefinition (`setDocStyles`, `updateStyleToMatch`,
+   * `resetNamedStyle`, `resetAllNamedStyles`) as one undo unit, then repaint.
    *
-   * Redefining a style moves the layer *underneath* runs the user never
-   * touched, so an `italic: false` that `styleOffAsClear` legitimately kept
-   * because the block's named style supplied italic becomes a dead flag the
-   * moment that style no longer does — the same #749 hazard a block-type
-   * change creates, and `Doc.dropStaleStyleOffAll` clears it the same way.
-   * The cleanup batches its own writes into a single `applyStyles`, so it
-   * costs one undo unit however many runs it strands. It is *not* folded
-   * into the redefinition: `YorkieDocStore.snapshot()` is a no-op because
-   * Yorkie takes its undo units from `doc.update()`, and the cleanup opens
-   * its own. So under the Yorkie store a redefinition that strands a flag
-   * takes two Cmd+Z, the first of which looks like it did nothing. Folding
-   * them needs a `batch()` seam on `DocStore` that does not exist yet —
-   * the slides store has one (`slides-native-undo.md`); this is a
-   * follow-up, not something to assert away in a comment.
+   * `write` makes the registry write. Redefining a style moves the layer
+   * *underneath* runs the user never touched, so an `italic: false` that
+   * `styleOffAsClear` legitimately kept because the block's named style
+   * supplied italic becomes a dead flag the moment that style no longer does
+   * — the same #749 hazard a block-type change creates, and
+   * `Doc.dropStaleStyleOffAll` clears it the same way. The cleanup batches
+   * its own writes into a single `applyStyles`, so it costs one write however
+   * many runs it strands.
+   *
+   * That is still a *second* store write, and `YorkieDocStore.snapshot()` is
+   * a no-op because Yorkie takes its undo units from `doc.update()` — so
+   * this used to cost two Cmd+Z, the first of which looked like it did
+   * nothing. `DocStore.batch()` folds the two into one undo unit on both
+   * stores (see `store.ts` and `slides-native-undo.md`).
+   *
+   * Only the store writes go inside the batch. Layout and paint read the
+   * document and must run after the batch commits.
+   *
+   * Routed through `doc.batch` rather than `docStore.batch` so a throw
+   * inside the transaction refreshes the model: the sweep re-reads the store
+   * mid-batch, and `YorkieDocStore` rolls the whole batch back, so the model
+   * would otherwise be the last holder of writes that never landed. The
+   * repaint is in a `finally` for the same reason — after a failed pass the
+   * screen must show whatever the store really holds, which under
+   * `MemDocStore` (no rollback) is not the pre-batch document.
+   * `notifyStyleApplied` stays on the success path: nothing was applied.
    */
-  function afterNamedStyleChange(): void {
-    // `dropStaleStyleOffAll` re-reads the store before deciding (so it sees
-    // the new style table) and again after any write, which is the refresh
-    // these paths used to do by hand.
-    doc.dropStaleStyleOffAll();
-    invalidateLayout();
-    render();
+  function withNamedStyleChange(write: () => void): void {
+    try {
+      doc.batch(() => {
+        docStore.snapshot();
+        write();
+        // `dropStaleStyleOffAll` re-reads the store before deciding (so it
+        // sees the new style table) and again after any write, which is the
+        // refresh these paths used to do by hand.
+        doc.dropStaleStyleOffAll();
+      });
+    } finally {
+      invalidateLayout();
+      render();
+    }
     notifyStyleApplied();
   }
 
@@ -1237,6 +1361,66 @@ export function initialize(
   // is suppressed and the image selection overlay (Milestone 2) renders
   // handles here. Kept as `null` when the user is in text editing mode.
   let selectedImage: { blockId: string; offset: number } | null = null;
+
+  /**
+   * Make `offset`'s image in `blockId` the current image selection. The caller
+   * has already established that an image is there, and renders afterwards.
+   *
+   * The focus call is the load-bearing part. The image mousedown handler
+   * `preventDefault()`s and stops propagation before
+   * `TextEditor.handleMouseDown` runs, so nothing else gives the hidden
+   * textarea keyboard focus — and a read-only editor never focuses on mount
+   * either (see `if (!readOnly) textEditor.focus()`). Without it a clicked
+   * image receives neither the Cmd/Ctrl+C keydown nor the browser's `copy`
+   * event, and the issue #870 fix never runs — on a read-only document that
+   * shortcut is the *only* way to copy the image, since the context menu's
+   * Copy entry is gated on `getActiveSelection()`, which is null for an
+   * image selection. Focus mutates nothing; every write still goes through a
+   * `readOnly`-gated path.
+   */
+  const selectImageInline = (blockId: string, offset: number): void => {
+    selection.setRange(null);
+    selectedImage = { blockId, offset };
+    textEditorRef?.focus();
+  };
+
+  /**
+   * Drop the image selection because the text under it is about to move.
+   *
+   * `selectedImage` is a `(blockId, offset)` coordinate, not a handle on the
+   * inline itself, so any edit that shifts offsets leaves it naming whichever
+   * inline slid into that slot — a different image, or an ordinary character.
+   * Every entry point that mutates text while an image selection can still be
+   * live routes through here first: cut's text path (via
+   * `TextEditor.imageSelectionClearer`), every paste (via
+   * `TextEditor.applyPastePlan`), and the programmatic
+   * `applySpellSuggestion` / `insertTable` / `insertImage` /
+   * `insertPageNumber` / `insertLink` APIs and the table structure APIs
+   * (`deleteTable`, the row/column inserts and deletes, `mergeTableCells`,
+   * `splitTableCell`), none of which go through a keydown that would have
+   * cleared it. Renders only when something was actually selected.
+   *
+   * Three entry points drop `selectedImage` directly instead of calling this,
+   * because they already render once at the end and an early render there
+   * would paint a document that has moved on: `undoFn`, `redoFn` and
+   * `resetAfterDocumentReplace`.
+   *
+   * Two mutation sources live outside this module and so cannot be funnelled
+   * here. Both call the exported `clearImageSelection` (which is this
+   * function) themselves:
+   *
+   * - `FindReplaceState.replaceActive` / `replaceAll` run straight against
+   *   the `Doc` the find bar holds — see
+   *   `packages/frontend/src/app/docs/docs-find-bar.tsx`.
+   * - A remote peer's edit, which arrives through the store rather than
+   *   through any editor entry point — see `store.onRemoteChange` in
+   *   `packages/frontend/src/app/docs/docs-view.tsx`.
+   */
+  const clearImageSelectionForMutation = (): void => {
+    if (!selectedImage) return;
+    selectedImage = null;
+    render();
+  };
 
   /**
    * In-progress resize drag, driven by a handle-drag on the selected
@@ -1963,15 +2147,31 @@ export function initialize(
   // known image dimensions, so no relayout is needed.
   docCanvas.setRequestRender(() => renderPaintOnly());
 
+  /**
+   * The one page-setup write path: snapshot for undo, store, re-read the
+   * document, drop the cached layout so `paginateLayout` runs against the new
+   * paper size / margins, repaint. Driven by both the ruler's margin drag and
+   * `EditorAPI.setPageSetup` (the Page Setup dialog).
+   */
+  const writePageSetup = (setup: PageSetup) => {
+    // Before anything is snapshotted or stored: a setup that closes the
+    // content box is not a smaller document, it is one no layout pass can
+    // consume, and it would be persisted into the CRDT for every collaborator.
+    assertUsablePageSetup(setup);
+    docStore.snapshot();
+    // Copy on the way in — the store keeps what it is handed, and a caller's
+    // object must not stay aliased to document state.
+    docStore.setPageSetup(resolvePageSetup(setup));
+    doc.refresh();
+    invalidateLayout();
+    render();
+  };
+
   // Wire ruler callbacks
   ruler.onMarginChange((margins) => {
-    docStore.snapshot();
     const setup = resolvePageSetup(doc.document.pageSetup);
     setup.margins = { ...margins };
-    docStore.setPageSetup(setup);
-    doc.refresh();
-    layoutCache = undefined;
-    render();
+    writePageSetup(setup);
   });
 
   ruler.onIndentChange((style) => {
@@ -2042,6 +2242,17 @@ export function initialize(
   // Wire up text editor
   const undoFn = () => {
     if (docStore.canUndo()) {
+      // Reverting a change moves the offsets the image selection is measured
+      // in. The keyboard path clears it via `imageKeyHandler`'s catch-all, but
+      // the toolbar's Undo button calls this directly, so the clear has to live
+      // here too. Assigned rather than routed through
+      // `clearImageSelectionForMutation()` because this function renders once
+      // at the end and an early render would paint the pre-undo document.
+      selectedImage = null;
+      // An in-flight resize drag names the same moving offsets, so it has to
+      // go with the selection: left armed, its `mouseup` would commit a size
+      // onto whatever the undo put at that coordinate.
+      abortImageResizeDrag();
       pending.clear();
       docStore.undo();
       doc.refresh();
@@ -2074,6 +2285,10 @@ export function initialize(
   };
   const redoFn = () => {
     if (docStore.canRedo()) {
+      // Same reasoning as `undoFn`: the toolbar's Redo button never passes
+      // through the keydown that would have cleared the image selection.
+      selectedImage = null;
+      abortImageResizeDrag();
       pending.clear();
       docStore.redo();
       doc.refresh();
@@ -2236,19 +2451,101 @@ export function initialize(
     // re-measuring the whole document (arrow keys, Home/End).
     textEditor.requestCursorRender = renderCursorMove;
 
-    // Image selection key routing. Delete/Backspace delete the selected
-    // image inline and return to text mode; Escape clears the image
-    // selection without mutating the doc; anything else (arrows, typing,
-    // modifier combos) returns false so TextEditor handles the key
-    // normally — we just clear the image selection first so typing
-    // while an image is selected naturally replaces the image's slot
-    // with a plain caret, matching Google Docs.
+    // Remove the selected image inline as one undo unit and return to text
+    // mode. Shared by the Delete/Backspace keys and by cut, which needs the
+    // same removal but writes the clipboard first.
+    const deleteSelectedImageInline = (): void => {
+      if (readOnly || !selectedImage) return;
+      const { blockId, offset } = selectedImage;
+      // The selection is coordinates, not a handle, so re-validate it the way
+      // `imageSelectionProvider` does before deleting a character by position.
+      // A remote peer that deleted the block makes `deleteText` throw; one that
+      // only shifted the text leaves the offset naming an ordinary character,
+      // and deleting one character there silently eats the wrong one.
+      const block = doc.findBlock(blockId);
+      if (!block || !findImageAtOffset(block, offset)) {
+        selectedImage = null;
+        render();
+        return;
+      }
+      docStore.snapshot();
+      doc.deleteText({ blockId, offset }, 1);
+      selectedImage = null;
+      cursor.moveTo({ blockId, offset });
+      markDirty(blockId);
+      invalidateLayout();
+      render();
+    };
+
+    // The copy/cut handlers own no image state of their own — they read it
+    // from here, and hand the removal back (issue #870).
+    textEditor.imageSelectionProvider = () => {
+      if (!selectedImage) return null;
+      // `findBlock`, not `getBlock`: the latter throws. This runs inside the
+      // browser's `copy` listener *before* `preventDefault()`, so a block a
+      // remote peer just deleted would throw out of the listener and let the
+      // default copy wipe the user's system clipboard.
+      const block = doc.findBlock(selectedImage.blockId);
+      if (!block) return null;
+      const image = findImageAtOffset(block, selectedImage.offset);
+      if (!image) return null;
+      return { blockId: selectedImage.blockId, offset: selectedImage.offset, image };
+    };
+    textEditor.imageDeleteHandler = deleteSelectedImageInline;
+    // Cut's text path and every paste call this before they mutate; see the
+    // field's doc comment. The editor owns `selectedImage`, so the clear has
+    // to come back here rather than being done inside TextEditor.
+    textEditor.imageSelectionClearer = clearImageSelectionForMutation;
+
+    // Image selection key routing. Copy/cut are absorbed here so the image
+    // selection survives into the browser's own clipboard event;
+    // Delete/Backspace delete the selected image inline and return to text
+    // mode; Escape clears the image selection without mutating the doc;
+    // anything else (arrows, typing, modifier combos) returns false so
+    // TextEditor handles the key normally — we just clear the image
+    // selection first so typing while an image is selected naturally
+    // replaces the image's slot with a plain caret, matching Google Docs.
     // `textEditor.imageHoverHandler` is assigned below, after
     // `handleImageHover` is declared — it can't be wired here because
     // `const` declarations in the TDZ would throw on reference.
     textEditor.imageKeyHandler = (e: KeyboardEvent): boolean => {
       if (!selectedImage) return false;
-      const key = e.key;
+      // Normalized the same way `TextEditor.handleKeyDown` does: the browser
+      // reports the *modified* character, so Caps Lock turns Cmd+C into
+      // `'C'` and a raw comparison would miss it — dropping straight into
+      // the catch-all below, which clears the selection and reintroduces
+      // issue #870.
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      // A modifier's *own* keydown arrives before the character it modifies:
+      // pressing Cmd+C fires `key === 'Meta'` first, then `key === 'c'`. Left
+      // to reach the catch-all below, that first event would clear the image
+      // selection a beat before the copy branch could ever read it, so the
+      // issue #870 fix would never fire on a real keyboard even though a test
+      // synthesizing only the combined keydown passes. Consume them and
+      // change nothing — a bare modifier means the user has not chosen yet.
+      if (
+        key === 'Meta' || key === 'Control' || key === 'Shift' ||
+        key === 'Alt' || key === 'AltGraph' || key === 'CapsLock' ||
+        key === 'OS' || key === 'Hyper' || key === 'Super'
+      ) {
+        return true;
+      }
+      // Copy / cut must NOT fall through to the "clear and let the text path
+      // see it" branch below: clearing here is what left the browser's
+      // `copy` event with nothing to write (issue #870). Consume the key
+      // *without* preventDefault so the native clipboard event still fires;
+      // `TextEditor.handleCopy` / `handleCut` then read the image back
+      // through `imageSelectionProvider`.
+      // Either modifier, deliberately: `navigator.platform` is an empty string
+      // in some browsers, so a platform-keyed choice between Meta and Ctrl
+      // picks the wrong one there and the shortcut drops into the catch-all
+      // that clears the image selection — issue #870 again. Cmd+C and Ctrl+C
+      // both mean copy, and absorbing the other platform's combination costs
+      // nothing: the branch only declines to clear the selection.
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && !e.shiftKey && !e.altKey && (key === 'c' || key === 'x')) {
+        return true;
+      }
       if (key === 'Escape') {
         e.preventDefault();
         const restore = selectedImage;
@@ -2259,14 +2556,7 @@ export function initialize(
       }
       if (key === 'Delete' || key === 'Backspace') {
         e.preventDefault();
-        const { blockId, offset } = selectedImage;
-        docStore.snapshot();
-        doc.deleteText({ blockId, offset }, 1);
-        selectedImage = null;
-        cursor.moveTo({ blockId, offset });
-        markDirty(blockId);
-        invalidateLayout();
-        render();
+        deleteSelectedImageInline();
         return true;
       }
       // Arrow keys deselect the image and move the cursor, matching
@@ -2296,8 +2586,13 @@ export function initialize(
         return true;
       }
       // Other keys clear image selection and fall through so the text
-      // path sees them on the now-active caret.
+      // path sees them on the now-active caret. Render here rather than
+      // relying on the text path to do it: a key TextEditor ignores (F5, a
+      // dead key, a shortcut it does not implement) would otherwise leave
+      // the selection overlay painted around an image that is no longer
+      // selected.
       selectedImage = null;
+      render();
       return false;
     };
   }
@@ -2341,7 +2636,11 @@ export function initialize(
   };
 
   const handleImageResizeMouseMove = (e: MouseEvent) => {
-    if (!imageResizeDrag) return;
+    // Read-only carries its own gate rather than inheriting the one on the
+    // branch that starts the drag: a viewer can now select an image, so this
+    // handler is one branch condition away from a document a viewer must not
+    // be able to resize.
+    if (readOnly || !imageResizeDrag) return;
     const s = scaleFactor;
     const dx = (e.clientX - imageResizeDrag.startClientX) / s;
     const dy = (e.clientY - imageResizeDrag.startClientY) / s;
@@ -2371,15 +2670,28 @@ export function initialize(
     const { blockId, offset } = imageResizeDrag;
     // Tear down drag state before mutating so any synchronous render
     // during the mutation sees the committed selection rather than
-    // the preview rect.
-    document.removeEventListener('mousemove', handleImageResizeMouseMove);
-    document.removeEventListener('mouseup', handleImageResizeMouseUp);
-    imageResizeDrag = null;
-    canvas.style.cursor = '';
+    // the preview rect. Shared with the abort paths so a commit and an
+    // abort can never tear down different amounts of state.
+    abortImageResizeDrag();
+
+    // The write below is the actual mutation, so it is gated here rather than
+    // trusting that only the `!readOnly` branch in `handleImageMouseDown`
+    // could have armed the drag. The teardown above still runs so no listener
+    // or preview rect is left behind.
+    if (readOnly) {
+      render();
+      return;
+    }
 
     // Only commit if the drag actually changed the size. Avoids a
     // no-op undo step for a mousedown-up on a handle without movement.
-    const block = doc.getBlock(blockId);
+    //
+    // `findBlock`, not `getBlock`: `blockId` was captured at mousedown and is a
+    // coordinate that can outlive its block — a remote collaborator (or a
+    // toolbar mutation racing the drag) can delete it mid-drag, and `getBlock`
+    // throws on a missing id, which would escape this document-level `mouseup`
+    // listener with nothing to catch it.
+    const block = doc.findBlock(blockId);
     const current = block ? findImageAtOffset(block, offset) : null;
     if (!current) {
       render();
@@ -2403,13 +2715,43 @@ export function initialize(
     render();
   };
 
+  /**
+   * Drops an in-flight resize drag without committing it.
+   *
+   * `imageResizeDrag` holds the same kind of stale-able coordinate as
+   * `selectedImage` — a `(blockId, offset)` captured at mousedown — so every
+   * path that clears the image selection because the offsets moved under it
+   * has to drop the drag too, or the next `mouseup` commits the drag's size
+   * onto whatever inline now sits at that coordinate.
+   *
+   * Nulling the drag alone is not enough: the move/up listeners live on
+   * `document` and the cursor override lives on the canvas, both installed
+   * when the drag started. This tears down all three. It renders nothing —
+   * every caller already renders once at the end.
+   */
+  const abortImageResizeDrag = (): void => {
+    if (!imageResizeDrag) return;
+    document.removeEventListener('mousemove', handleImageResizeMouseMove);
+    document.removeEventListener('mouseup', handleImageResizeMouseUp);
+    imageResizeDrag = null;
+    canvas.style.cursor = '';
+  };
+
   // Image hit test, installed in the capture phase so it runs before
   // TextEditor's bubble-phase container listener. A click on a handle
   // starts a resize drag; a click on an image's body selects it; a
   // click elsewhere clears the image selection and lets TextEditor
   // handle the click normally.
+  //
+  // Read-only runs this too, minus the resize-drag branch: selecting an
+  // image mutates nothing, and it is the only way a viewer can reach the
+  // image copy `Cmd/Ctrl+C` now offers (issue #870). Not the context menu —
+  // its Copy entry needs `getActiveSelection()`, which is null for an image
+  // selection, so the shortcut is the whole of it.
+  // The overlay drops its resize handles in read-only (`new DocCanvas`
+  // below), so the selection reads as a selection rather than an offer to
+  // resize something the viewer cannot resize.
   const handleImageMouseDown = (e: MouseEvent) => {
-    if (readOnly) return;
     if (!layout) return;
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -2428,8 +2770,9 @@ export function initialize(
 
     // 1) If an image is already selected, check for a handle hit first
     //    so the user can start a resize drag without having to click
-    //    the image body twice.
-    if (selectedImage) {
+    //    the image body twice. A resize writes to the document, so this
+    //    branch stays editable-only.
+    if (!readOnly && selectedImage) {
       const selRect = rects.get(`${selectedImage.blockId}:${selectedImage.offset}`);
       if (selRect) {
         const handle = hitTestImageHandle(selRect, docX, docY);
@@ -2459,11 +2802,16 @@ export function initialize(
     const hit = findImageAtPoint(rects, docX, docY);
     if (hit) {
       e.preventDefault();
+      // Claiming the event here means `TextEditor.handleMouseDown` never runs,
+      // and with it the read-only bookkeeping that lets a plain click follow a
+      // hyperlinked image's link on mouseup. Arm it directly — otherwise
+      // opening the image click to viewers (below) would have silently taken
+      // link-following on images away from them. No-op when editable.
+      textEditorRef?.recordReadOnlyLinkAtMouse(e);
       e.stopPropagation();
       e.stopImmediatePropagation();
       pending.clear();
-      selection.setRange(null);
-      selectedImage = { blockId: hit.blockId, offset: hit.offset };
+      selectImageInline(hit.blockId, hit.offset);
       cursor.moveTo({ blockId: hit.blockId, offset: hit.offset });
       render();
       return;
@@ -2609,6 +2957,11 @@ export function initialize(
   // immediately overwrite ours. Returning `true` tells TextEditor to
   // skip its default cursor reset for this pointer position.
   const handleImageHover = (e: MouseEvent): boolean => {
+    // A viewer can select an image now, but cannot resize one: the overlay
+    // draws no handles and both the drag start and its commit are
+    // `readOnly`-gated. Advertising a resize cursor over handles that are
+    // neither painted nor actionable would promise an edit that never lands.
+    if (readOnly) return false;
     // While dragging, the drag state owns the cursor — skip the
     // hover override so the corner cursor doesn't flip to ns/ew
     // mid-drag.
@@ -2738,10 +3091,78 @@ export function initialize(
     });
     return hit ? { blockId: hit.blockId, offset: hit.offset } : undefined;
   };
+  /**
+   * The store `EditorAPI.getStore()` hands out: the real `DocStore` with
+   * `setPageSetup` — and only `setPageSetup` — replaced.
+   *
+   * It exists for one reason. `EditorAPI.setPageSetup` refuses geometry no
+   * layout pass can consume (`assertUsablePageSetup`); `DocStore.setPageSetup`
+   * does not; and `getStore()` is public — the export button, the find bar and
+   * the hunt bridge already hold what it returns. Reaching `setPageSetup`
+   * through the store therefore walked around an invariant this editor owns
+   * and persisted a closed content box into the CRDT for every collaborator.
+   * Both doors to that one write now behave the same way.
+   *
+   * It is NOT an access-control boundary, and nothing here should be read as
+   * one. Every other member of `DocStore` — some thirty mutators — forwards
+   * untouched, `getDoc()` hands out a `Doc` that writes straight to the
+   * unwrapped store, and neither is trapped. Read-only across the store handle
+   * is **issue #989**: it predates this wrapper (on `main` neither accessor
+   * was in `MUTATING_METHODS`) and is deliberately out of scope here. The
+   * `readOnly` drop below covers `setPageSetup` and nothing else — it is there
+   * so the two doors to that single write agree, not because the handle is
+   * guarded in general.
+   *
+   * Naming the one guarded method is also what removes any obligation to keep
+   * this in step with `DocStore` as the interface grows: a method added
+   * tomorrow is forwarded, never silently half-guarded. So the proxy earns its
+   * keep on the *forwarding* side, not the guarding side — a hand-written
+   * delegate would need a new line per interface method just to stay a working
+   * store, and a missed one is `undefined` at the call site. Members resolve
+   * off the real store and are bound to it, so no implementation ever observes
+   * the proxy as `this` — and they are memoized per underlying function so
+   * `store.canUndo === store.canUndo` still holds while a method replaced on
+   * the store (a test spy) is still picked up.
+   */
+  const boundStoreMembers = new Map<
+    string | symbol,
+    { raw: unknown; bound: unknown }
+  >();
+  const guardedSetPageSetup = (setup: PageSetup): void => {
+    // Read-only first, so this behaves exactly like `EditorAPI.setPageSetup`
+    // for the one write both reach. Defence in depth over a single method, not
+    // a boundary: it does not make the handle read-only — see #989 above.
+    if (readOnly) return;
+    // The reason the wrapper exists: geometry a layout pass can consume.
+    // `resolvePageSetup` copies on the way in for the same reason
+    // `writePageSetup` does — the store keeps what it is handed. This is still
+    // a store-level write, so it deliberately does not snapshot or repaint;
+    // `getStore()`'s other writes do not either.
+    assertUsablePageSetup(setup);
+    docStore.setPageSetup(resolvePageSetup(setup));
+  };
+  const pageSetupGuardedStore: DocStore = new Proxy(docStore, {
+    get(target, prop) {
+      if (prop === 'setPageSetup') return guardedSetPageSetup;
+      const raw = Reflect.get(target, prop) as unknown;
+      if (typeof raw !== 'function') return raw;
+      const cached = boundStoreMembers.get(prop);
+      if (cached && cached.raw === raw) return cached.bound;
+      const bound = (raw as (...args: unknown[]) => unknown).bind(target);
+      boundStoreMembers.set(prop, { raw, bound });
+      return bound;
+    },
+    set(target, prop, value) {
+      // Assigning over the guard would restore the unvalidated write.
+      if (prop === 'setPageSetup') return false;
+      return Reflect.set(target, prop, value);
+    },
+  });
+
   const api: EditorAPI = {
     render,
     getDoc: () => doc,
-    getStore: () => docStore,
+    getStore: () => pageSetupGuardedStore,
     getSelectionStyle: (): Partial<InlineStyle> => {
       const base = getSelectionStyleImpl(true);
       if (pending.has() && !selection.hasSelection()) {
@@ -2855,6 +3276,21 @@ export function initialize(
       render();
       notifyStyleApplied();
     },
+    copyFormat: () => textEditor?.copyFormat(),
+    pasteFormat: () => {
+      const applied = textEditor?.pasteFormat() ?? false;
+      // Same follow-up the toolbar's other style writes get: the pickers
+      // re-read their summaries off `onCursorMove` even though the caret
+      // has not moved.
+      if (applied) notifyStyleApplied();
+      return applied;
+    },
+    clearCopiedFormat: () => textEditor?.clearCopiedFormat(),
+    hasCopiedFormat: () => textEditor?.hasCopiedFormat() ?? false,
+    onCopiedFormatChange: (cb: () => void) =>
+      textEditor?.onCopiedFormatChange(cb) ?? (() => {}),
+    getPageSetup: () => resolvePageSetup(doc.document.pageSetup),
+    setPageSetup: writePageSetup,
     undo: undoFn,
     redo: redoFn,
     setTheme: (mode: ThemeMode) => {
@@ -2922,9 +3358,7 @@ export function initialize(
     },
     getDocStyles: () => docStore.getDocStyles(),
     setDocStyles(styles: DocStyles) {
-      docStore.snapshot();
-      docStore.setDocStyles(styles);
-      afterNamedStyleChange();
+      withNamedStyleChange(() => docStore.setDocStyles(styles));
     },
     updateStyleToMatch(styleId: StyleId) {
       const block = doc.findBlock(cursor.position.blockId);
@@ -2952,19 +3386,13 @@ export function initialize(
         },
         block: { marginTop: block.style.marginTop, marginBottom: block.style.marginBottom },
       };
-      docStore.snapshot();
-      docStore.updateStyleDefinition(styleId, def);
-      afterNamedStyleChange();
+      withNamedStyleChange(() => docStore.updateStyleDefinition(styleId, def));
     },
     resetNamedStyle(styleId: StyleId) {
-      docStore.snapshot();
-      docStore.resetStyle(styleId);
-      afterNamedStyleChange();
+      withNamedStyleChange(() => docStore.resetStyle(styleId));
     },
     resetAllNamedStyles() {
-      docStore.snapshot();
-      docStore.resetAllStyles();
-      afterNamedStyleChange();
+      withNamedStyleChange(() => docStore.resetAllStyles());
     },
     toggleList(kind: 'ordered' | 'unordered') {
       docStore.snapshot();
@@ -3033,6 +3461,11 @@ export function initialize(
       notifyStyleApplied();
     },
     insertLink: (url: string) => {
+      // The caret branch below inserts the URL as text, shifting every offset
+      // after it. Toolbar/⌘K-driven, so no keydown cleared the image
+      // selection; the style-only branches are harmless but clearing there
+      // too keeps the rule "this API mutates → it clears first" unconditional.
+      clearImageSelectionForMutation();
       if (selection.hasSelection() && selection.range) {
         docStore.snapshot();
         // Record the caret + selection so undo restores them. Mirrors
@@ -3275,6 +3708,10 @@ export function initialize(
     },
     applySpellSuggestion: (err: SpellError, replacement: string): void => {
       if (!spellSession || readOnly) return;
+      // The correction can be a different length than the word it replaces,
+      // so it shifts every offset after it — including a click-selected
+      // image's. No keydown precedes this call to have cleared it.
+      clearImageSelectionForMutation();
       // replace() snapshots (undo) then deletes+inserts the correction.
       spellSession.replace(doc, err, replacement);
       // Drop the replaced error synchronously before render() so that
@@ -3363,6 +3800,9 @@ export function initialize(
       render();
     },
     insertTable: (rows: number, cols: number) => {
+      // Splits the caret's block and inserts blocks around it; an image
+      // selection measured against the old offsets would survive as a lie.
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const pos = cursor.position;
       const cellInfo = layout.blockParentMap.get(pos.blockId);
@@ -3411,6 +3851,10 @@ export function initialize(
     deleteTable: () => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      // Removes whole blocks, so an image selection naming one of them (or
+      // measured against offsets the removal shifts) becomes a lie. Cleared
+      // after the guard so a no-op call leaves the selection alone.
+      clearImageSelectionForMutation();
       const tableBlockId = cellInfo.tableBlockId;
       docStore.snapshot();
 
@@ -3445,6 +3889,7 @@ export function initialize(
     insertTableRow: (above: boolean) => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const idx = above ? cellInfo.rowIndex : cellInfo.rowIndex + 1;
       doc.insertRow(cellInfo.tableBlockId, idx);
@@ -3454,6 +3899,7 @@ export function initialize(
     deleteTableRow: () => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const tableBlockId = cellInfo.tableBlockId;
       doc.deleteRow(tableBlockId, cellInfo.rowIndex);
@@ -3470,6 +3916,7 @@ export function initialize(
     insertTableColumn: (left: boolean) => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const idx = left ? cellInfo.colIndex : cellInfo.colIndex + 1;
       doc.insertColumn(cellInfo.tableBlockId, idx);
@@ -3479,6 +3926,7 @@ export function initialize(
     deleteTableColumn: () => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const tableBlockId = cellInfo.tableBlockId;
       doc.deleteColumn(tableBlockId, cellInfo.colIndex);
@@ -3495,6 +3943,7 @@ export function initialize(
     mergeTableCells: (range: CellRange) => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       const tableBlockId = cellInfo.tableBlockId;
       doc.mergeCells(tableBlockId, range);
@@ -3508,6 +3957,7 @@ export function initialize(
     splitTableCell: () => {
       const cellInfo = doc.blockParentMap.get(cursor.position.blockId);
       if (!cellInfo) return;
+      clearImageSelectionForMutation();
       docStore.snapshot();
       doc.splitCell(cellInfo.tableBlockId, { rowIndex: cellInfo.rowIndex, colIndex: cellInfo.colIndex });
       invalidateLayout();
@@ -3577,6 +4027,10 @@ export function initialize(
         ...(opts?.originalHeight !== undefined ? { originalHeight: opts.originalHeight } : {}),
       };
       pending.clear();
+      // Inserting an inline shifts every offset after it, so a prior image
+      // selection would name the wrong slot — and the newly inserted image
+      // is not selected either (matching the toolbar/DnD insert today).
+      clearImageSelectionForMutation();
       docStore.snapshot();
       // `insertImageInline` routes through the block-helpers path for both
       // top-level blocks and cells, so it works inside tables without
@@ -3595,21 +4049,22 @@ export function initialize(
       render();
     },
     selectImageAt: (blockId: string, offset: number) => {
-      const block = doc.getBlock(blockId);
+      // Callers pass a coordinate they read earlier (a context-menu hit test),
+      // so the block may already be gone; `getBlock` would throw here.
+      const block = doc.findBlock(blockId);
       if (!block) return;
       if (!findImageAtOffset(block, offset)) return;
-      selection.setRange(null);
-      selectedImage = { blockId, offset };
+      selectImageInline(blockId, offset);
       render();
     },
-    clearImageSelection: () => {
-      if (!selectedImage) return;
-      selectedImage = null;
-      render();
-    },
+    clearImageSelection: clearImageSelectionForMutation,
     getSelectedImage: () => {
       if (!selectedImage) return null;
-      const block = doc.getBlock(selectedImage.blockId);
+      // `findBlock`, not `getBlock`: the selection is a coordinate that can
+      // outlive its block (a remote edit, or a mutation entry point that did
+      // not clear it), and `getBlock` throws on a missing id — the same
+      // hardening `imageSelectionProvider` got.
+      const block = doc.findBlock(selectedImage.blockId);
       if (!block) return null;
       const data = findImageAtOffset(block, selectedImage.offset);
       if (!data) return null;
@@ -3622,7 +4077,8 @@ export function initialize(
     updateSelectedImage: (patch: Partial<ImageData>) => {
       if (readOnly) return;
       if (!selectedImage) return;
-      const block = doc.getBlock(selectedImage.blockId);
+      // See `getSelectedImage` — a stale selection must return, not throw.
+      const block = doc.findBlock(selectedImage.blockId);
       if (!block) return;
       const current = findImageAtOffset(block, selectedImage.offset);
       if (!current) return;
@@ -3660,6 +4116,9 @@ export function initialize(
       if (!textEditor) return;
       const ctx = textEditor.getEditContext();
       if (ctx !== 'header' && ctx !== 'footer') return;
+      // Inserts a character, shifting the offsets a body image selection is
+      // measured in. Toolbar-driven, so no keydown cleared it.
+      clearImageSelectionForMutation();
       docStore.snapshot();
       doc.insertText(cursor.position, '#');
       doc.applyInlineStyle(
@@ -3701,6 +4160,17 @@ export function initialize(
     },
     isComposing: () => textEditor?.isComposing() ?? false,
     resetAfterDocumentReplace: () => {
+      // The whole document was swapped out (import / replace content), so the
+      // block the image selection names is very likely gone. Assigned rather
+      // than routed through `clearImageSelectionForMutation()`: this runs
+      // before `doc.refresh()` and the layout invalidation, so rendering here
+      // would paint the new document through the old layout.
+      selectedImage = null;
+      // Not a bare `imageResizeDrag = null`: that would leave the drag's
+      // document-level move/up listeners installed and the canvas stuck on the
+      // resize cursor, so the next `mouseup` anywhere would run the commit path
+      // against the replaced document.
+      abortImageResizeDrag();
       pending.clear();
       doc.refresh();
       textEditor?.setEditContext('body');
@@ -3765,6 +4235,11 @@ export function initialize(
   // gate it here too. Keep this allowlist in sync when adding mutating
   // methods. Read-only stays a client-side convenience — the store/server
   // remains the authoritative write boundary for viewer share tokens.
+  //
+  // The allowlist neuters members of `api` itself and nothing beyond them:
+  // `getStore()` and `getDoc()` hand out live handles whose own mutators keep
+  // writing (`getStore()` drops `setPageSetup` alone, as defence in depth over
+  // that one write). Closing those two accessors is issue #989.
   if (readOnly) {
     const MUTATING_METHODS = [
       'applyStyle', 'stepSelectionFontSize', 'clearInlineFormatting', 'applyBlockStyle',
@@ -3775,7 +4250,7 @@ export function initialize(
       'insertTableRow', 'deleteTableRow', 'insertTableColumn',
       'deleteTableColumn', 'mergeTableCells', 'splitTableCell',
       'applyTableCellStyle', 'insertImage', 'updateSelectedImage',
-      'insertPageNumber',
+      'insertPageNumber', 'setPageSetup',
     ] as const;
     const noop = () => {};
     for (const name of MUTATING_METHODS) {
@@ -3783,6 +4258,10 @@ export function initialize(
       // void. A bare no-op satisfies both — callers only await or ignore.
       (api as unknown as Record<string, () => void>)[name] = noop;
     }
+    // `pasteFormat` is mutating too, but it reports whether it wrote. A bare
+    // no-op returns `undefined`, which a caller reads as "nothing applied"
+    // only by accident — be explicit so the neutered version cannot lie.
+    api.pasteFormat = () => false;
   }
 
   return api;

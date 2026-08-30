@@ -11,6 +11,8 @@
     "^@wafflebase/sheets$": "<rootDir>/../sheets/src/index.ts",
     "^@wafflebase/docs$": "<rootDir>/../docs/src/node.ts",
     "^@wafflebase/slides$": "<rootDir>/../slides/src/node.ts",
+    "^@wafflebase/core/tokens$": "<rootDir>/../core/src/tokens/index.ts",
+    "^@wafflebase/core/url$": "<rootDir>/../core/src/url/index.ts",
     "^(\\.{1,2}/.*)\\.js$": "$1"
   },
   "maxWorkers": 1

@@ -622,3 +622,64 @@ describe('DocxExporter', () => {
     expect(tableBlock!.tableData!.rows[0].cells[1].blocks[0].inlines[0].text).toBe('Right');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Unusable stored geometry
+// ---------------------------------------------------------------------------
+// `resolvePageSetup` is the model's single read path for a stored page setup,
+// and the only place that sees geometry nobody validated. `EditorAPI.
+// setPageSetup` guards the write it owns, but two paths never touch that
+// write: a `.docx` import stores parsed geometry through `setDocument`, and a
+// collaborator's CRDT write lands in `document.pageSetup` unchecked — where
+// `YorkieDocStore.readPageSetup` turns a missing or non-numeric field into
+// `NaN` via `Number(undefined)`. Reading `doc.pageSetup` raw here hands that
+// NaN straight to the twips conversion and writes `w:w="NaN"` into
+// `word/document.xml`, which is not a smaller page but an unopenable file.
+describe('DocxExporter — unusable stored page setup', () => {
+  const nanSetup = {
+    // Exactly the shape `YorkieDocStore.readPageSetup` produces for a
+    // `pageSetup` whose fields never made it into the CRDT.
+    paperSize: { name: 'Letter', width: NaN, height: NaN },
+    orientation: 'portrait' as const,
+    margins: { top: NaN, bottom: NaN, left: NaN, right: NaN },
+  };
+
+  const docWith = (pageSetup: unknown): Document => ({
+    blocks: [{
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: [{ text: 'Hello', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    }],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    pageSetup: pageSetup as any,
+  });
+
+  async function documentXml(doc: Document): Promise<string> {
+    const blob = await DocxExporter.export(doc);
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    return (await zip.file('word/document.xml')?.async('string'))!;
+  }
+
+  it('never writes NaN geometry into the section properties', async () => {
+    const xml = await documentXml(docWith(nanSetup));
+    expect(xml).not.toContain('NaN');
+    // It falls back to the resolver's defaults rather than emitting nothing.
+    expect(xml).toMatch(/<w:pgSz w:w="\d+" w:h="\d+"/);
+    expect(xml).toMatch(/<w:pgMar w:top="\d+"/);
+  });
+
+  it('survives a page setup missing paperSize and margins entirely', async () => {
+    const xml = await documentXml(docWith({ orientation: 'portrait' }));
+    expect(xml).not.toContain('NaN');
+    expect(xml).not.toContain('undefined');
+    expect(xml).toMatch(/<w:pgSz w:w="\d+" w:h="\d+"/);
+  });
+
+  it('re-imports to a document a reader can open', async () => {
+    const blob = await DocxExporter.export(docWith(nanSetup));
+    const reimported = await DocxImporter.import(await blob.arrayBuffer());
+    expect(reimported.blocks[0].inlines[0].text).toBe('Hello');
+  });
+});

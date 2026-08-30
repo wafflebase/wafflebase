@@ -183,10 +183,25 @@ jobs:
             // is nothing to re-run, the cleared latch still lets the next CI run through.
             let reran = false;
             try {
-              const runs = await github.rest.actions.listWorkflowRuns({
-                owner, repo, workflow_id: 'ci.yml', head_sha: pr.head.sha, per_page: 1,
+              // Mirrors `ciRunToRerun` in scripts/agent/checks.mjs, where the rule
+              // is unit-tested — this step runs before any checkout and cannot
+              // import it, the same constraint that makes agent-review-panel.yml
+              // mirror `ciRunDecision` inline. checks.test.mjs pins both copies.
+              //
+              // Exactly ONE run — the newest COMPLETED one. That is the run whose
+              // conclusion gate 1 reads, and re-running it bumps run_attempt,
+              // which is the only thing the panel's gate admits a `completed`
+              // event for. Re-running every red run instead would erode this
+              // workflow's own attempt bound (it counts current `failure`
+              // conclusions, and a re-run REPLACES one) and emit a completion per
+              // run into a cancel-in-progress group, cancelling the fixer
+              // mid-push. COMPLETED because the API answers 422 for a run still
+              // in flight — which emits its own completion event anyway.
+              const all = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner, repo, workflow_id: 'ci.yml', head_sha: pr.head.sha, per_page: 100,
               });
-              const run = runs.data.workflow_runs[0];
+              const completed = all.filter((r) => r.status === 'completed');
+              const run = completed.reduce((n, r) => (n === null || r.id > n.id ? r : n), null);
               if (run) { await github.rest.actions.reRunWorkflow({ owner, repo, run_id: run.id }); reran = true; }
             } catch (e) {
               core.warning(`Could not re-run CI (${e.message}); the loop will engage on the next CI run.`);

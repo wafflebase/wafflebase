@@ -1,0 +1,460 @@
+/**
+ * The Page Setup dialog — the surface `docs-pagination.md` deferred.
+ *
+ * What matters here is the unit conversion (the model stores CSS px at
+ * 96 dpi, the dialog talks inches), that the form is seeded from the live
+ * document every time it opens, and that a setup which would leave no room
+ * for content can never be applied.
+ */
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { PAPER_SIZES, type EditorAPI, type PageSetup } from '@wafflebase/docs';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { DocsPageSetupDialog } from '@/app/docs/docs-page-setup-dialog';
+import { DocsFormattingToolbar } from '@/app/docs/docs-formatting-toolbar';
+
+// jsdom ships no matchMedia; the toolbar reads it through `useIsMobile()`.
+if (typeof window.matchMedia !== 'function') {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  })) as unknown as typeof window.matchMedia;
+}
+
+function makeEditor(setup: PageSetup) {
+  const editor = {
+    getPageSetup: vi.fn(() => structuredClone(setup)),
+    setPageSetup: vi.fn(),
+    focus: vi.fn(),
+  };
+  return editor as typeof editor & EditorAPI;
+}
+
+const LETTER_DEFAULT: PageSetup = {
+  paperSize: PAPER_SIZES.LETTER,
+  orientation: 'portrait',
+  margins: { top: 96, bottom: 96, left: 96, right: 96 },
+};
+
+function mount(editor: EditorAPI, open = true) {
+  const onOpenChange = vi.fn();
+  render(
+    <DocsPageSetupDialog editor={editor} open={open} onOpenChange={onOpenChange} />,
+  );
+  return { onOpenChange };
+}
+
+const marginInput = (label: string) =>
+  screen.getByLabelText(label) as HTMLInputElement;
+
+const apply = () => screen.getByRole('button', { name: 'Apply' });
+
+const paperTrigger = () => screen.getByLabelText('Paper size');
+
+/**
+ * Radix `Select` opens on ArrowDown (a synthetic `.click()` does nothing in
+ * jsdom, the same reason `docs-export-button.test.tsx` drives its menu by
+ * pointer events) and commits an option on click.
+ */
+function pickPaper(name: string) {
+  fireEvent.keyDown(paperTrigger(), { key: 'ArrowDown' });
+  fireEvent.click(screen.getByRole('option', { name }));
+}
+
+describe('DocsPageSetupDialog', () => {
+  it('seeds the margins from the document, converted to inches', () => {
+    mount(
+      makeEditor({
+        paperSize: PAPER_SIZES.A4,
+        orientation: 'landscape',
+        margins: { top: 96, bottom: 48, left: 72, right: 24 },
+      }),
+    );
+
+    expect(marginInput('Top').value).toBe('1');
+    expect(marginInput('Bottom').value).toBe('0.5');
+    expect(marginInput('Left').value).toBe('0.75');
+    expect(marginInput('Right').value).toBe('0.25');
+  });
+
+  it('seeds the orientation and paper size, and hands them back untouched', () => {
+    // Both radios and their labels render unconditionally, so "the Landscape
+    // label exists" proves nothing. What has to hold is that the *state* was
+    // seeded: the Landscape radio reads checked, Portrait does not, and an
+    // Apply that touches only a margin returns A4/landscape rather than
+    // resetting the document to the portrait-Letter component defaults.
+    const editor = makeEditor({
+      paperSize: PAPER_SIZES.A4,
+      orientation: 'landscape',
+      margins: { top: 96, bottom: 48, left: 72, right: 24 },
+    });
+    mount(editor);
+
+    expect(
+      screen.getByRole('radio', { name: 'Landscape' }).getAttribute('aria-checked'),
+    ).toBe('true');
+    expect(
+      screen.getByRole('radio', { name: 'Portrait' }).getAttribute('aria-checked'),
+    ).toBe('false');
+
+    fireEvent.change(marginInput('Top'), { target: { value: '2' } });
+    fireEvent.click(apply());
+
+    expect(editor.setPageSetup).toHaveBeenCalledWith({
+      paperSize: PAPER_SIZES.A4,
+      orientation: 'landscape',
+      margins: { top: 192, bottom: 48, left: 72, right: 24 },
+    });
+  });
+
+  it('seeds the other orientation and paper size just as faithfully', () => {
+    // The counterpart to the case above. Alone, that test is satisfied by a
+    // seed hard-wired to A4/landscape; this one pins the opposite values, so
+    // only a seed that actually reads the document passes both.
+    mount(
+      makeEditor({
+        paperSize: PAPER_SIZES.LEGAL,
+        orientation: 'portrait',
+        margins: { top: 96, bottom: 96, left: 96, right: 96 },
+      }),
+    );
+
+    expect(
+      screen.getByRole('radio', { name: 'Portrait' }).getAttribute('aria-checked'),
+    ).toBe('true');
+    expect(
+      screen.getByRole('radio', { name: 'Landscape' }).getAttribute('aria-checked'),
+    ).toBe('false');
+  });
+
+  it('applies inches back as px, leaving untouched fields alone', () => {
+    const editor = makeEditor(LETTER_DEFAULT);
+    const { onOpenChange } = mount(editor);
+
+    fireEvent.change(marginInput('Top'), { target: { value: '1.5' } });
+    fireEvent.click(apply());
+
+    expect(editor.setPageSetup).toHaveBeenCalledWith({
+      paperSize: PAPER_SIZES.LETTER,
+      orientation: 'portrait',
+      margins: { top: 144, bottom: 96, left: 96, right: 96 },
+    });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('applies a zero margin', () => {
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    fireEvent.change(marginInput('Left'), { target: { value: '0' } });
+    fireEvent.click(apply());
+
+    expect(editor.setPageSetup.mock.calls[0][0].margins.left).toBe(0);
+  });
+
+  it('seeds the paper size into the trigger, and switches it on Apply', () => {
+    // The dialog's headline control. Everything else is checked through the
+    // margins, which would still pass if the paper `Select` were inert.
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    expect(paperTrigger().textContent).toBe('Letter');
+
+    pickPaper('A4');
+
+    expect(paperTrigger().textContent).toBe('A4');
+    fireEvent.click(apply());
+    expect(editor.setPageSetup).toHaveBeenCalledWith(
+      expect.objectContaining({ paperSize: PAPER_SIZES.A4 }),
+    );
+  });
+
+  it('re-measures the margins against the paper size just picked', () => {
+    // 4.2 in + 4.2 in (806 px) fits across Letter (816 px) but not A4
+    // (794 px), so the room check has to follow the `Select`. Without this,
+    // a paper size that never reached the validation path would still pass
+    // every other test in this file.
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    fireEvent.change(marginInput('Left'), { target: { value: '4.2' } });
+    fireEvent.change(marginInput('Right'), { target: { value: '4.2' } });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect((apply() as HTMLButtonElement).disabled).toBe(false);
+
+    pickPaper('A4');
+
+    expect(screen.getByRole('alert').textContent).toMatch(/room for content/i);
+    expect((apply() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('labels a paper size that matches no preset instead of relabelling it', () => {
+    // An imported document can carry any page size. Showing "Letter" for a
+    // 700 × 1000 page would be a lie, and applying the dialog unchanged would
+    // then silently resize the document.
+    const custom = { name: 'B5', width: 700, height: 1000 };
+    const editor = makeEditor({ ...LETTER_DEFAULT, paperSize: custom });
+    mount(editor);
+
+    expect(paperTrigger().textContent).toBe('Custom (B5)');
+
+    fireEvent.change(marginInput('Top'), { target: { value: '2' } });
+    fireEvent.click(apply());
+
+    expect(editor.setPageSetup).toHaveBeenCalledWith(
+      expect.objectContaining({ paperSize: custom }),
+    );
+  });
+
+  it('leaves the custom size behind once a preset is picked', () => {
+    const custom = { name: 'B5', width: 700, height: 1000 };
+    const editor = makeEditor({ ...LETTER_DEFAULT, paperSize: custom });
+    mount(editor);
+
+    pickPaper('Legal');
+
+    // The sentinel entry is gone from the list — it exists only while the
+    // current size matches no preset.
+    expect(paperTrigger().textContent).toBe('Legal');
+    fireEvent.keyDown(paperTrigger(), { key: 'ArrowDown' });
+    expect(screen.queryAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Letter',
+      'A4',
+      'Legal',
+    ]);
+  });
+
+  it('switches orientation without touching the paper size', () => {
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    fireEvent.click(screen.getByLabelText('Landscape'));
+    fireEvent.click(apply());
+
+    expect(editor.setPageSetup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orientation: 'landscape',
+        paperSize: PAPER_SIZES.LETTER,
+      }),
+    );
+  });
+
+  it('refuses margins that would leave no room for content', () => {
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    // Letter is 816 px (8.5 in) wide, so 5 in + 5 in has nothing left over.
+    fireEvent.change(marginInput('Left'), { target: { value: '5' } });
+    fireEvent.change(marginInput('Right'), { target: { value: '5' } });
+
+    expect(screen.getByRole('alert').textContent).toMatch(/room for content/i);
+    expect((apply() as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(apply());
+    expect(editor.setPageSetup).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    // Letter-tall page, 815.5 px across: 8.49 in (815 px) of left margin
+    // leaves half a pixel of content. Open, but under the engine's floor.
+    ['across', { name: 'Sliver', width: 815.5, height: 1056 }, 'Left', '8.49'],
+    // The same half-pixel band down the page.
+    ['down', { name: 'Sliver', width: 816, height: 1055.5 }, 'Top', '10.99'],
+  ])(
+    'refuses a sliver %s that the engine would reject anyway',
+    (_axis, paperSize, field, value) => {
+      // The dialog's room check and `EditorAPI.setPageSetup`'s
+      // `assertUsablePageSetup` have to agree, because Apply calls the
+      // setter. This PR made that setter *throw*; a form the dialog accepts
+      // and the setter rejects therefore raises an uncaught `RangeError` out
+      // of a React event handler and takes the editor down with it.
+      //
+      // The band only exists when the effective page box is fractional — the
+      // dialog rounds every typed margin to a whole pixel — which a
+      // collaborator's CRDT write or a CLI-set geometry reaches easily:
+      // `resolvePageSetup` keeps any finite positive paper dimension.
+      const editor = makeEditor({ ...LETTER_DEFAULT, paperSize });
+      mount(editor);
+
+      fireEvent.change(marginInput(field), { target: { value } });
+      fireEvent.change(
+        marginInput(field === 'Left' ? 'Right' : 'Bottom'),
+        { target: { value: '0' } },
+      );
+
+      expect(screen.getByRole('alert').textContent).toMatch(/room for content/i);
+      expect((apply() as HTMLButtonElement).disabled).toBe(true);
+
+      fireEvent.click(apply());
+      expect(editor.setPageSetup).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still accepts the widest margins the engine accepts', () => {
+    // The other half of the same agreement: the dialog must not have been
+    // fixed by tightening it past the engine. 815 px of margin across a
+    // 816 px page leaves exactly the one pixel `MIN_CONTENT_PX` requires.
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    // 8.49 in = 815 px.
+    fireEvent.change(marginInput('Left'), { target: { value: '8.49' } });
+    fireEvent.change(marginInput('Right'), { target: { value: '0' } });
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(apply());
+    expect(editor.setPageSetup.mock.calls[0][0].margins).toEqual({
+      top: 96,
+      bottom: 96,
+      left: 815,
+      right: 0,
+    });
+  });
+
+  it('surfaces a setter rejection instead of letting it escape the dialog', () => {
+    // Apply is defensive on top of the check above, not instead of it.
+    // `EditorAPI.setPageSetup` is a public engine API that grew a throw once
+    // already, and the dialog's check is a second implementation of its
+    // floor, not a proof the floor cannot move again. An exception out of a
+    // React event handler unmounts the editor; a message does not.
+    const editor = makeEditor(LETTER_DEFAULT);
+    editor.setPageSetup.mockImplementation(() => {
+      throw new RangeError('Invalid page setup: refused by the engine');
+    });
+    const { onOpenChange } = mount(editor);
+
+    fireEvent.change(marginInput('Top'), { target: { value: '1.5' } });
+    expect(() => fireEvent.click(apply())).not.toThrow();
+
+    expect(screen.getByRole('alert').textContent).toMatch(/refused by the engine/);
+    // Nothing is swallowed: the dialog stays open and the caret is not moved
+    // back to a document that was never changed.
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(editor.focus).not.toHaveBeenCalled();
+  });
+
+  it('clears a surfaced rejection once the form changes again', () => {
+    const editor = makeEditor(LETTER_DEFAULT);
+    editor.setPageSetup.mockImplementationOnce(() => {
+      throw new RangeError('Invalid page setup: refused by the engine');
+    });
+    mount(editor);
+
+    fireEvent.click(apply());
+    expect(screen.getByRole('alert')).toBeTruthy();
+
+    fireEvent.change(marginInput('Top'), { target: { value: '1.5' } });
+
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('measures the room against the orientation the user picked', () => {
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    // 5 in + 5 in fits across a landscape Letter (11 in) but not a portrait
+    // one (8.5 in) — the check has to follow the radio, not the stored value.
+    fireEvent.change(marginInput('Left'), { target: { value: '5' } });
+    fireEvent.change(marginInput('Right'), { target: { value: '5' } });
+    expect((apply() as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByLabelText('Landscape'));
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect((apply() as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('refuses a negative or unparseable margin', () => {
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    fireEvent.change(marginInput('Top'), { target: { value: '-1' } });
+
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect((apply() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it.each([
+    ['an emptied field', ''],
+    ['whitespace only', '   '],
+    ['a hex literal', '0x60'],
+  ])('refuses %s rather than applying it as a margin', (_label, value) => {
+    // `Number("")` is 0 and `Number("0x60")` is 96 — both finite and
+    // non-negative, so a bare finiteness check would apply 0" and 96"
+    // margins respectively, with the Apply button never going disabled.
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    fireEvent.change(marginInput('Top'), { target: { value } });
+
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect((apply() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('re-reads the document each time it opens, so it cannot go stale', () => {
+    const editor = makeEditor(LETTER_DEFAULT);
+    const onOpenChange = vi.fn();
+    const { rerender } = render(
+      <DocsPageSetupDialog editor={editor} open={false} onOpenChange={onOpenChange} />,
+    );
+
+    // A collaborator drags the ruler while the dialog is closed.
+    editor.getPageSetup.mockReturnValue({
+      ...LETTER_DEFAULT,
+      margins: { ...LETTER_DEFAULT.margins, top: 192 },
+    });
+    rerender(
+      <DocsPageSetupDialog editor={editor} open onOpenChange={onOpenChange} />,
+    );
+
+    expect(marginInput('Top').value).toBe('2');
+  });
+
+  it('cancels without writing anything', () => {
+    const editor = makeEditor(LETTER_DEFAULT);
+    const { onOpenChange } = mount(editor);
+
+    fireEvent.change(marginInput('Top'), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(editor.setPageSetup).not.toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('is reachable from the docs toolbar', () => {
+    const editor = {
+      ...makeEditor(LETTER_DEFAULT),
+      applyStyle: vi.fn(),
+      applyBlockStyle: vi.fn(),
+      getSelectionStyle: vi.fn(() => ({})),
+      getRangeStyleSummary: vi.fn(() => ({})),
+      getBlockStyle: vi.fn(() => ({})),
+      getBlockType: vi.fn(() => 'paragraph'),
+      onCursorMove: vi.fn(() => () => {}),
+      undo: vi.fn(),
+      redo: vi.fn(),
+      getDocStyles: vi.fn(() => ({})),
+      setDocStyles: vi.fn(),
+      getStore: vi.fn(() => ({})),
+      hasCopiedFormat: () => false,
+      onCopiedFormatChange: () => () => {},
+    } as unknown as EditorAPI;
+
+    render(
+      <TooltipProvider>
+        <DocsFormattingToolbar editor={editor} />
+      </TooltipProvider>,
+    );
+    expect(screen.queryByLabelText('Top')).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('Page setup'));
+
+    expect(marginInput('Top').value).toBe('1');
+  });
+});

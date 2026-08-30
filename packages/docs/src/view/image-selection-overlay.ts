@@ -14,6 +14,50 @@ export interface ImageRect {
   height: number;
 }
 
+/**
+ * True when any selection rectangle overlaps the image box.
+ *
+ * Both arguments must be in unrounded layout coordinates — what
+ * `computeSelectionRects` returns. The fill that follows rounds its
+ * left/top edge, and `renderRun` rounds the image the same way, so the
+ * tint lands exactly on the picture; but that rounded value must not be
+ * what the overlap is measured with. Rounding moves one operand into
+ * screen space while the selection rectangle stays in layout space, and
+ * a comparison across the two is wrong by however far the rounding moved
+ * — up to half a pixel.
+ *
+ * Adjacent images are where half a pixel matters. Two neighbours share an
+ * edge exactly in layout space: one ends where the next begins, so a
+ * selection covering one of them touches the other without overlapping.
+ * Round one side of that comparison up and the touch becomes an overlap,
+ * and the neighbour is tinted too. A pasted picture is scaled to the
+ * content width (`clampImageToWidth`) and so has a fractional width; the
+ * fraction accumulates along the row, and the first rounding that goes up
+ * lands around the third image — which is where the artefact showed.
+ *
+ * It lives here rather than next to either caller because both renderers
+ * need it — `DocCanvas.render` for body images and `renderTableContent`
+ * for images inside table cells — and `table-renderer` cannot import
+ * `doc-canvas`, which imports it.
+ *
+ * Edge contact is deliberately *not* an intersection, which is why
+ * `@wafflebase/core/geometry`'s `rectsIntersect` is not reused: it counts
+ * a shared edge as overlapping (Google Slides lasso semantics), and a
+ * shared edge is exactly the case this has to answer "no" to.
+ */
+export function imageIntersectsSelection(
+  image: { x: number; y: number; width: number; height: number },
+  selectionRects: ReadonlyArray<{ x: number; y: number; width: number; height: number }>,
+): boolean {
+  return selectionRects.some(
+    (sr) =>
+      sr.x < image.x + image.width &&
+      sr.x + sr.width > image.x &&
+      sr.y < image.y + image.height &&
+      sr.y + sr.height > image.y,
+  );
+}
+
 /** Identifier for one of the eight resize handles around a selection. */
 export type ImageHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
@@ -133,16 +177,22 @@ export function formatResizeHud(
 export function drawImageSelection(
   ctx: CanvasRenderingContext2D,
   rect: ImageRect,
-  opts: { borderColor: string; handleFill: string; handleStroke: string } = {
-    borderColor: '#1a73e8',
-    handleFill: '#ffffff',
-    handleStroke: '#1a73e8',
-  },
+  opts: {
+    borderColor?: string;
+    handleFill?: string;
+    handleStroke?: string;
+    /** Draw the eight resize handles. False on a read-only mount, where the
+     *  image can be selected and copied but never resized. */
+    handles?: boolean;
+  } = {},
 ): void {
+  const borderColor = opts.borderColor ?? '#1a73e8';
+  const handleFill = opts.handleFill ?? '#ffffff';
+  const handleStroke = opts.handleStroke ?? '#1a73e8';
   ctx.save();
   // Selection rectangle. Offset by 0.5 so the 1px stroke lands on a
   // pixel center and stays crisp.
-  ctx.strokeStyle = opts.borderColor;
+  ctx.strokeStyle = borderColor;
   ctx.lineWidth = 1;
   ctx.strokeRect(
     Math.round(rect.x) + 0.5,
@@ -151,10 +201,15 @@ export function drawImageSelection(
     Math.round(rect.height),
   );
 
+  if (opts.handles === false) {
+    ctx.restore();
+    return;
+  }
+
   // Eight handles. White fill with a matching stroke so they're visible
   // on both light- and dark-themed image content.
-  ctx.fillStyle = opts.handleFill;
-  ctx.strokeStyle = opts.handleStroke;
+  ctx.fillStyle = handleFill;
+  ctx.strokeStyle = handleStroke;
   ctx.lineWidth = 1;
   for (const handle of IMAGE_HANDLES) {
     const c = handleCenter(rect, handle);

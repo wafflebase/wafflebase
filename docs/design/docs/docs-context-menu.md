@@ -53,10 +53,37 @@ still handles right-click (distinct context; table text isn't spell-checked).
 - **Frontend** (`DocsContextMenu`): one `contextmenu` listener on the
   editor container. Bails when `editor.isInTable()`. Computes group
   visibility first and **returns without opening** if every group is empty
-  (so read-only / nothing-to-offer right-clicks show neither an overlay
-  nor the native menu). Async suggestions are guarded by a generation ref
-  bumped on every open. Lifecycle (outside-mousedown + Escape close,
-  `offsetWidth/Height` viewport clamp) mirrors `DocsTableContextMenu`.
+  (so nothing-to-offer right-clicks show neither an overlay nor the native
+  menu). Async suggestions are guarded by a generation ref bumped on every
+  open. Lifecycle (outside-mousedown + Escape close, `offsetWidth/Height`
+  viewport clamp) mirrors `DocsTableContextMenu`.
+
+### Read-only
+
+Per-entry gating, not a whole-menu one:
+
+| Entry | Shown when |
+|-------|------------|
+| Spell suggestions | Editable **and** a misspelling is under the pointer |
+| Cut | Editable **and** a text selection |
+| **Copy** | **A text selection — read-only included** |
+| Paste | Editable |
+| Add link / Add comment | Editable |
+
+Copy is deliberately *not* gated on `!readOnly`. A read-only editor still
+constructs its `TextEditor` and hidden textarea, so `editor.copy()` works
+there — the same reason `handleKeyDown` lets plain Cmd/Ctrl+C through in
+read-only mode. A viewer right-clicking a text selection therefore gets a
+one-entry clipboard group; with no selection every group is empty and the
+menu does not open at all.
+
+The gate is `getActiveSelection()`, which is a **text** selection. A
+click-selected image is view-local state the menu does not read, so the
+menu never offers Copy for an image in either mode — a viewer copies an
+image with Cmd/Ctrl+C after clicking it (see
+[docs-image-editing.md](docs-image-editing.md)). Wiring an image selection
+into this gate is a straightforward follow-up and deliberately not part of
+the read-only Copy change.
 
 ## Risks and Mitigation
 

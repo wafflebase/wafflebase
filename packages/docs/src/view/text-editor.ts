@@ -1,4 +1,4 @@
-import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
+import type { Block, BlockCellInfo, CellAddress, DocPosition, DocRange, ImageData, Inline, InlineStyle, HeadingLevel, TableCell } from '../model/types.js';
 import { generateBlockId, getBlockText, getBlockTextLength, unlistedBlockType, DEFAULT_BLOCK_STYLE, createBlock, createTableBlock, normalizeTableMerges, isStructuralInline } from '../model/types.js';
 import { Doc, type EditContext } from '../model/document.js';
 import { cloneBlockWithFreshIds, mergeDropsHeadingMemory } from '../store/block-helpers.js';
@@ -163,7 +163,9 @@ export class TextEditor {
    * browsers fire more than one).
    */
   private ignoreInputUntilNextTick = false;
+  /** Format painter — see `copyFormat()`. Never assign directly. */
   private styleBuffer: Partial<InlineStyle> | null = null;
+  private copiedFormatListeners: Array<() => void> = [];
 
   // Software Hangul assembler for browsers that don't fire composition events
   // (e.g., Mobile Safari with hidden textarea sends raw jamo as insertText).
@@ -267,6 +269,33 @@ export class TextEditor {
   imageKeyHandler: ((e: KeyboardEvent) => boolean) | null = null;
 
   /**
+   * Reads the parent editor's image selection — an image the user clicked,
+   * which is view-local state the text `Selection` knows nothing about. The
+   * copy/cut handlers consult it when there is no text selection, so
+   * Cmd/Ctrl+C over a selected image writes the image instead of nothing
+   * (issue #870). Returns null when no image is selected.
+   */
+  imageSelectionProvider: (() => { blockId: string; offset: number; image: ImageData } | null) | null = null;
+
+  /**
+   * Removes whatever `imageSelectionProvider` reports, as one undo unit.
+   * Only `handleCut` calls it; the parent editor owns the deletion because it
+   * also owns the selection state that has to be cleared with it.
+   */
+  imageDeleteHandler: (() => void) | null = null;
+
+  /**
+   * Drops the parent editor's image selection without touching the document.
+   * `handleCut`'s text path calls it: a text selection and a click-selected
+   * image can both be live, and the text path — which wins — deletes text and
+   * so shifts the offsets the image selection is expressed in. Left set, it
+   * would name whatever inline landed on that offset. `applyPastePlan` calls
+   * it for the same reason, on behalf of every paste path. `handleCopy` needs
+   * no such call; it mutates nothing.
+   */
+  imageSelectionClearer: (() => void) | null = null;
+
+  /**
    * Optional handler for image files pasted from the clipboard. When
    * set and the paste carries at least one `kind === 'file'` item
    * with an image MIME type, the handler is invoked with the first
@@ -367,6 +396,147 @@ export class TextEditor {
 
   onEditContextChange(cb: (context: EditContext) => void): void {
     this.editContextChangeCallback = cb;
+  }
+
+  // ─── Format painter ────────────────────────────────────────────────────────
+  // The buffer itself is driven from two places — the Cmd/Ctrl+Shift+C /
+  // Cmd/Ctrl+Alt+V key handlers and (through `EditorAPI`) a toolbar toggle —
+  // so the four operations live here rather than inline in `handleKeyDown`,
+  // and every mutation notifies listeners. A toolbar button that did not see
+  // the keyboard's writes would render an "off" state over a held format.
+
+  /**
+   * Pick up the inline format at the caret (Cmd/Ctrl+Shift+C). Replaces any
+   * previously held format.
+   */
+  copyFormat(): void {
+    this.styleBuffer = this.captureFormatAtCursor(this.formatSourcePosition());
+    this.notifyCopiedFormatChange();
+  }
+
+  /**
+   * Where the painter reads the format from: the first *selected* character
+   * when there is a selection, else the caret.
+   *
+   * `this.cursor.position` sits at the selection's focus, so a right-to-left
+   * drag would otherwise pick up the run immediately before the highlighted
+   * text — the user sees one format highlighted and copies another. The `+1`
+   * is what makes it the first selected character rather than the boundary:
+   * `caretInlineStyle` resolves an offset that sits exactly between two runs
+   * to the *preceding* one (correct for a caret, wrong for a range whose
+   * first character belongs to the following run).
+   *
+   * Two cases the bare `+1` got wrong, both of them the very bug it exists to
+   * prevent, wearing a different hat:
+   *
+   *  - **A selection starting at a block's end.** Dragging from the end of
+   *    one paragraph into the next leaves `start.offset === len`, so `+1`
+   *    lands past every run; `caretInlineStyle` falls through to the block's
+   *    *last* run — the run immediately before the selection. Nothing in that
+   *    block is selected at all, so the source is the first block after it
+   *    that has text.
+   *  - **A table cell rectangle.** `normalizeRange` orders the row/column
+   *    indices of a cell rectangle but passes `start`/`end` through as the
+   *    raw anchor and focus, so a rectangle dragged up-and-left reads the
+   *    cell the user finished on. Worse, for a down-left drag the rectangle's
+   *    first cell is neither endpoint. The ordered rectangle already names
+   *    the right cell, so read from that instead of from either endpoint.
+   */
+  private formatSourcePosition(): DocPosition {
+    const layout = this.getActiveLayout();
+    const normalized = this.selection.getNormalizedRange(layout);
+    if (!normalized) return this.cursor.position;
+
+    // A cell rectangle's first cell is (start.rowIndex, start.colIndex) of
+    // the *ordered* rectangle, which is independent of drag direction.
+    const rect = normalized.tableCellRange;
+    if (rect) {
+      const table = this.doc.findBlock(rect.blockId)?.tableData;
+      const cell = table?.rows[rect.start.rowIndex]?.cells[rect.start.colIndex];
+      const first = cell?.blocks.find((b) => getBlockTextLength(b) > 0)
+        ?? cell?.blocks[0];
+      if (first) return { blockId: first.id, offset: 1 };
+    }
+
+    const startBlock = this.doc.findBlock(normalized.start.blockId);
+    const startLen = startBlock ? getBlockTextLength(startBlock) : 0;
+    if (normalized.start.offset < startLen) {
+      return {
+        blockId: normalized.start.blockId,
+        offset: normalized.start.offset + 1,
+      };
+    }
+
+    // The selection starts past the last character of its start block, so
+    // that block contributes nothing to it. Walk forward to the first block
+    // that actually holds selected text, stopping at the selection's end.
+    const blocks = this.doc.getContextBlocks();
+    const startIdx = blocks.findIndex((b) => b.id === normalized.start.blockId);
+    const endIdx = blocks.findIndex((b) => b.id === normalized.end.blockId);
+    if (startIdx !== -1 && endIdx >= startIdx) {
+      for (let i = startIdx + 1; i <= endIdx; i++) {
+        if (getBlockTextLength(blocks[i]) > 0) {
+          return { blockId: blocks[i].id, offset: 1 };
+        }
+      }
+    }
+
+    // Nothing selected carries text (an empty block, or a selection the
+    // layout cannot place). The block's own last run is the honest answer.
+    return { blockId: normalized.start.blockId, offset: normalized.start.offset };
+  }
+
+  /**
+   * Apply the held format to the current selection (Cmd/Ctrl+Alt+V), as one
+   * undo step. Returns whether anything was written — nothing is held, or
+   * nothing is selected, is a silent no-op.
+   *
+   * The buffer deliberately survives the write: the keyboard flow lets one
+   * pick-up be pasted onto several selections in a row. Callers that want
+   * single-shot semantics call `clearCopiedFormat()` afterwards.
+   */
+  pasteFormat(): boolean {
+    // View-only mode: block the programmatic write, the same way
+    // `insertText()` does. The keydown handler already returns early in
+    // read-only and `initialize()` neuters the `EditorAPI` entry point, but
+    // this class is publicly exported and the guard belongs on the mutator
+    // rather than on each of its call sites.
+    if (this.readOnly) return false;
+    if (!this.styleBuffer) return false;
+    if (!this.selection.hasSelection() || !this.selection.range) return false;
+    this.saveSnapshot();
+    // Through the shared write path so a cell rectangle restyles the
+    // selected cells, not the whole table.
+    this.applyStyleToSelection(this.selection.range, this.styleBuffer);
+    return true;
+  }
+
+  /** Discard the held format. No-op when nothing is held. */
+  clearCopiedFormat(): void {
+    if (this.styleBuffer === null) return;
+    this.styleBuffer = null;
+    this.notifyCopiedFormatChange();
+  }
+
+  /** Is a format currently held by the painter? */
+  hasCopiedFormat(): boolean {
+    return this.styleBuffer !== null;
+  }
+
+  /**
+   * Register a listener fired whenever the held format is picked up or
+   * discarded. Returns an unsubscribe function.
+   */
+  onCopiedFormatChange(cb: () => void): () => void {
+    this.copiedFormatListeners.push(cb);
+    return () => {
+      const i = this.copiedFormatListeners.indexOf(cb);
+      if (i !== -1) this.copiedFormatListeners.splice(i, 1);
+    };
+  }
+
+  private notifyCopiedFormatChange(): void {
+    for (const cb of [...this.copiedFormatListeners]) cb();
   }
 
   onCompositionStart(cb: (startPos: DocPosition) => void): void {
@@ -997,7 +1167,7 @@ export class TextEditor {
         // Cmd/Ctrl+Shift+C: copy formatting (format painter)
         if (mod && shiftKey) {
           e.preventDefault();
-          this.styleBuffer = this.captureFormatAtCursor();
+          this.copyFormat();
         }
         break;
       case 'b':
@@ -1137,12 +1307,7 @@ export class TextEditor {
         // Cmd/Ctrl+Alt+V: paste formatting (format painter apply)
         if (mod && altKey) {
           e.preventDefault();
-          if (this.styleBuffer && this.selection.hasSelection() && this.selection.range) {
-            this.saveSnapshot();
-            // Through the shared write path so a cell rectangle restyles the
-            // selected cells, not the whole table.
-            this.applyStyleToSelection(this.selection.range, this.styleBuffer);
-          }
+          this.pasteFormat();
           break;
         }
         // Cmd/Ctrl+Shift+V: paste as plain text (strip formatting)
@@ -1171,22 +1336,37 @@ export class TextEditor {
 
   private handleCopy = (e: ClipboardEvent): void => {
     this.pending?.clear();
-    if (!this.selection.hasSelection()) return;
+    // Establish that the clipboard is writable *before* claiming the event.
+    // `preventDefault()` with a null `clipboardData` is the worst outcome
+    // available: the native copy is suppressed and nothing is written, so the
+    // shortcut silently wipes whatever the user had on the system clipboard.
+    const clipboard = e.clipboardData;
+    if (!clipboard) return;
+
+    if (!this.selection.hasSelection()) {
+      // An image selected by clicking it is view-local state, not a text
+      // selection, so the copy used to write nothing at all (issue #870).
+      const selected = this.imageSelectionProvider?.();
+      if (!selected) return;
+      e.preventDefault();
+      this.writeImageToClipboard(e, selected.image);
+      return;
+    }
     e.preventDefault();
 
     const tableCells = this.getSelectedTableCells();
     if (tableCells) {
       const cloned = cloneTableCells(tableCells);
       const json = serializeClipboard({ blocks: [], tableCells: cloned });
-      e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
-      e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+      clipboard.setData(WAFFLEDOCS_MIME, json);
+      clipboard.setData('text/plain', this.selection.getSelectedText(this.getActiveLayout()));
       return;
     }
 
     const selectedBlocks = this.getSelectedBlocks();
     const json = serializeClipboard({ blocks: selectedBlocks });
-    e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
-    e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+    clipboard.setData(WAFFLEDOCS_MIME, json);
+    clipboard.setData('text/plain', this.selection.getSelectedText(this.getActiveLayout()));
   };
 
   private handleCut = (e: ClipboardEvent): void => {
@@ -1197,15 +1377,32 @@ export class TextEditor {
       return;
     }
     this.pending?.clear();
-    if (!this.selection.hasSelection()) return;
+    // Same ordering rule as `handleCopy`, and here it also guards the
+    // document: a cut that suppresses the native event, finds it cannot write,
+    // and deletes anyway destroys content that reached no clipboard.
+    const clipboard = e.clipboardData;
+    if (!clipboard) return;
+
+    if (!this.selection.hasSelection()) {
+      // Mirror of the image branch in `handleCopy`, plus the removal.
+      const selected = this.imageSelectionProvider?.();
+      if (!selected) return;
+      e.preventDefault();
+      this.writeImageToClipboard(e, selected.image);
+      this.imageDeleteHandler?.();
+      return;
+    }
     e.preventDefault();
+    // The text path wins over a coexisting image selection, and is about to
+    // move the text that selection's offset is measured against.
+    this.imageSelectionClearer?.();
 
     const tableCells = this.getSelectedTableCells();
     if (tableCells) {
       const cloned = cloneTableCells(tableCells);
       const json = serializeClipboard({ blocks: [], tableCells: cloned });
-      e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
-      e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+      clipboard.setData(WAFFLEDOCS_MIME, json);
+      clipboard.setData('text/plain', this.selection.getSelectedText(this.getActiveLayout()));
       this.saveSnapshot();
       this.deleteSelection();
       this.requestRender();
@@ -1214,12 +1411,30 @@ export class TextEditor {
 
     const selectedBlocks = this.getSelectedBlocks();
     const json = serializeClipboard({ blocks: selectedBlocks });
-    e.clipboardData?.setData(WAFFLEDOCS_MIME, json);
-    e.clipboardData?.setData('text/plain', this.selection.getSelectedText(this.getLayout()));
+    clipboard.setData(WAFFLEDOCS_MIME, json);
+    clipboard.setData('text/plain', this.selection.getSelectedText(this.getActiveLayout()));
     this.saveSnapshot();
     this.deleteSelection();
     this.requestRender();
   };
+
+  /**
+   * Put a single image on the clipboard as a one-inline paragraph — the same
+   * shape an in-document image copy produces, so it pastes back through the
+   * ordinary `WAFFLEDOCS_MIME` path with no special case at the other end.
+   */
+  private writeImageToClipboard(e: ClipboardEvent, image: ImageData): void {
+    const block: Block = {
+      id: generateBlockId(),
+      type: 'paragraph',
+      // ORC — an image inline is exactly one character (see `ImageData`).
+      inlines: [{ text: '\uFFFC', style: { image } }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    };
+    e.clipboardData?.setData(WAFFLEDOCS_MIME, serializeClipboard({ blocks: [block] }));
+    // Nothing readable to hand a plain-text consumer beyond the alt text.
+    e.clipboardData?.setData('text/plain', image.alt ?? '');
+  }
 
   /**
    * Decide what a clipboard payload should become, without writing anything.
@@ -1268,6 +1483,12 @@ export class TextEditor {
    * `DocStore`, which does not exist.
    */
   private applyPastePlan(plan: PastePlan): void {
+    // Every paste — the keyboard one, the programmatic `pasteContent` the
+    // context menu uses — lands here, and all of them shift the offsets a
+    // click-selected image is expressed in. The Cmd/Ctrl+V keydown clears the
+    // selection on the keyboard path, but nothing does on the programmatic
+    // one, so the clear belongs at the mutation instead.
+    this.imageSelectionClearer?.();
     this.saveSnapshot();
     this.deleteSelection();
     if (plan.kind === 'text') {
@@ -1540,6 +1761,22 @@ export class TextEditor {
     return null;
   }
 
+  /**
+   * Record the link under the pointer so `handleMouseUp` can follow it on a
+   * pure click. No-op outside read-only.
+   *
+   * Public because `handleMouseDown` is no longer the only press that has to
+   * arm it: the editor's capture-phase image hit test claims image clicks
+   * with `stopImmediatePropagation()` — in read-only too, since a viewer may
+   * select an image to copy it — so a click on a *hyperlinked* image never
+   * reaches the listener below. Without this call the viewer's click on such
+   * an image would do nothing, where before it opened the link.
+   */
+  recordReadOnlyLinkAtMouse(e: MouseEvent): void {
+    if (!this.readOnly) return;
+    this.readOnlyPendingLinkHref = this.getLinkHrefAtMouse(e) ?? null;
+  }
+
   private handleMouseDown = (e: MouseEvent): void => {
     // A large paste is mid-yield; moving the caret now would land the
     // pending write wherever the user clicked. See `pasting`.
@@ -1581,9 +1818,7 @@ export class TextEditor {
     // View-only mode: remember the link under the pointer so a pure click
     // (no drag) opens it on mouseup — Google-Docs viewer behavior, where a
     // plain click follows the link rather than placing an editing caret.
-    if (this.readOnly) {
-      this.readOnlyPendingLinkHref = this.getLinkHrefAtMouse(e) ?? null;
-    }
+    this.recordReadOnlyLinkAtMouse(e);
 
     e.preventDefault();
 
@@ -3242,12 +3477,26 @@ export class TextEditor {
    * block's named-style default — so painting from an italic Heading 6 makes
    * the target italic instead of clearing it. Only the booleans are baked
    * this way; the other keys stay raw, keeping the lazy cascade intact.
+   *
+   * `image`, `pageNumber` and `href` are dropped: they are structural inline
+   * kinds — *what the run is* — not how it looks, which is why
+   * `CLEAR_INLINE_STYLE` leaves the first two out too. The buffer is merged
+   * over every run of the target selection, so carrying them would graft the
+   * source's image / page-number field / hyperlink onto each of those runs.
    */
-  private captureFormatAtCursor(): Partial<InlineStyle> {
-    const raw = this.getStyleAtCursor();
-    const defaults = this.styleDefaultsAtCursor();
+  private captureFormatAtCursor(
+    position: DocPosition = this.cursor.position,
+  ): Partial<InlineStyle> {
+    const full = caretInlineStyle(this.doc, position);
+    const defaults = caretStyleDefaults(this.doc, position);
     const on = (key: keyof InlineStyle): boolean =>
-      ((raw[key] ?? defaults[key]) as boolean | undefined) === true;
+      ((full[key] ?? defaults[key]) as boolean | undefined) === true;
+    const {
+      image: _image,
+      pageNumber: _pageNumber,
+      href: _href,
+      ...raw
+    } = full;
     return {
       ...raw,
       bold: on('bold'),
@@ -3653,7 +3902,10 @@ export class TextEditor {
    * Extract selected table cells as a 2D array when a tableCellRange is active.
    */
   private getSelectedTableCells(): TableCell[][] | null {
-    const layout = this.getLayout();
+    // See `getSelectedBlocks()` — the cell-rectangle copy shape resolved its
+    // table block through the body layout too, so a rectangle drawn across a
+    // header table's cells wrote nothing.
+    const layout = this.getActiveLayout();
     const normalized = this.selection.getNormalizedRange(layout);
     if (!normalized?.tableCellRange) return null;
 
@@ -3681,23 +3933,54 @@ export class TextEditor {
    * block to the selection boundaries. Block IDs are regenerated.
    */
   private getSelectedBlocks(): Block[] {
-    const layout = this.getLayout();
+    // `getActiveLayout()`, not `getLayout()`: a header or footer block is not
+    // in the *body* layout's `blocks` or `blockParentMap`, so every id lookup
+    // below missed and a header selection copied an empty payload — a plain
+    // header paragraph, not just a header table cell. Its siblings
+    // (`isInTable()`, `getVisualLineRange()`, …) already follow the edit
+    // context; this path and `getSelectedTableCells()` were the two that did
+    // not, which is what confined the issue #872 fix to the body.
+    const layout = this.getActiveLayout();
     const normalized = this.selection.getNormalizedRange(layout);
     if (!normalized) return [];
 
     const { start, end } = normalized;
-    const startBlockIdx = layout.blocks.findIndex(
-      (lb) => lb.block.id === start.blockId,
-    );
-    const endBlockIdx = layout.blocks.findIndex(
-      (lb) => lb.block.id === end.blockId,
-    );
+
+    // A selection inside a table cell names blocks that are *not* in
+    // `layout.blocks` — cell content is its own block list hanging off the
+    // table block (issue #872). Resolve those through `blockParentMap`, the
+    // same path `isInTable()` / `getSelectedText()` already walk, or the
+    // block lookup below fails and the clipboard loses every style and image.
+    // `normalizeRange` guarantees both endpoints share one cell whenever
+    // either of them is in one, so the start's cell is the whole range's.
+    const cellInfo = layout.blockParentMap.get(start.blockId);
+    if (cellInfo) {
+      // `resolveNestedTableLayout` (not `layout.blocks.find`) so a cell inside
+      // a nested table resolves too.
+      const resolved = resolveNestedTableLayout(cellInfo.tableBlockId, layout);
+      const cell = resolved?.dataBlock.tableData
+        ?.rows[cellInfo.rowIndex]?.cells[cellInfo.colIndex];
+      if (!cell) return [];
+      return this.sliceBlockRange(cell.blocks, start, end);
+    }
+
+    return this.sliceBlockRange(layout.blocks.map((lb) => lb.block), start, end);
+  }
+
+  /**
+   * Clone `blocks[start..end]`, trimming the first and last to the selection
+   * offsets. Shared by the body and table-cell copy paths — the two differ
+   * only in which block list the ids resolve against.
+   */
+  private sliceBlockRange(blocks: Block[], start: DocPosition, end: DocPosition): Block[] {
+    const startBlockIdx = blocks.findIndex((b) => b.id === start.blockId);
+    const endBlockIdx = blocks.findIndex((b) => b.id === end.blockId);
     if (startBlockIdx === -1 || endBlockIdx === -1) return [];
 
     const result: Block[] = [];
 
     for (let bi = startBlockIdx; bi <= endBlockIdx; bi++) {
-      const block = layout.blocks[bi].block;
+      const block = blocks[bi];
       const blockLen = getBlockTextLength(block);
       const sliceStart = bi === startBlockIdx ? start.offset : 0;
       const sliceEnd = bi === endBlockIdx ? end.offset : blockLen;

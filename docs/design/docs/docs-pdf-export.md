@@ -388,13 +388,24 @@ packages/frontend/src/app/docs/
   pdf-actions.ts         # NEW — exportPdfAndDownload(doc, title, opts)
 ```
 
-The export menu (currently single DOCX button) becomes a dropdown:
+The export menu (currently single DOCX button) becomes a dropdown. It has
+since grown the two text formats the `@wafflebase/docs` serializers already
+produced for the CLI (`wafflebase docs content --format md|text`), so what
+ships today is four entries:
 
 ```
 [Export ▾]
    ├ DOCX (.docx)
-   └ PDF  (.pdf)
+   ├ PDF  (.pdf)
+   ├ Markdown (.md)
+   └ Plain text (.txt)
 ```
+
+Markdown and plain text live in `text-actions.ts` alongside the two binary
+actions and share `export-utils.ts`'s `downloadBlob` and filename sanitiser
+(whose extension union carries `md` and `txt`). They report no progress
+because they walk the document in a single synchronous pass — the
+`updateExportToast` progress plumbing exists for the two that do not.
 
 The PDF menu item dynamically imports the PDF module so the +200 KB of
 pdf-lib + fontkit doesn't enter the initial bundle:
@@ -500,8 +511,10 @@ packages/docs/test/export/            # tests live under test/, not src/__tests_
 packages/frontend/src/app/docs/
   export-utils.ts
   pdf-actions.ts
-  docs-export-button.tsx              # Export ▾ dropdown (DOCX / PDF)
+  docs-export-button.tsx              # Export ▾ dropdown
+                                      # (DOCX / PDF / Markdown / plain text)
   docx-actions.ts                     # refactored to use export-utils
+  text-actions.ts                     # later — Markdown + plain text
 ```
 
 ### Phased Implementation

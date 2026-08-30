@@ -171,7 +171,15 @@ clamped, so the corrupted value survives. See issue #609.
 | 6 | Cell span attributes (styleByPath) | ✅ Shipped |
 | 7 | Table-level attributes (styleByPath on block) | ✅ Shipped |
 | 8 | Cell structural edits (editByPath) | ✅ Shipped |
-| 9 | Yorkie-native undo/redo (feature-flagged) | Planned |
+| 9 | Yorkie-native undo/redo | ✅ Shipped |
+
+Phase 9 shipped **unflagged**. `YorkieDocStore.undo()/redo()/canUndo()/canRedo()`
+delegate to `doc.history` unconditionally and `snapshot()` is a no-op there;
+there is no flag and no snapshot fallback left in the collaborative store
+(only `MemDocStore` still keeps one). Undo units are therefore one per
+`doc.update()`, and `DocStore.batch(fn)` is the seam for grouping several
+writes into one — see the Undo/Redo section of
+[docs-collaboration.md](docs-collaboration.md).
 
 ### Phase 4: Table Cell Internal Edits
 

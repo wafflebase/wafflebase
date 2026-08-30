@@ -9,7 +9,12 @@ import { drawPeerCaret, drawPeerLabel } from './peer-cursor.js';
 import { renderTableBackgrounds, renderTableContent } from './table-renderer.js';
 import { computeTableRangeForPageLine } from './table-geometry.js';
 import { getOrLoadImage } from './image-cache.js';
-import { drawImageSelection, drawResizeHud, type ImageRect } from './image-selection-overlay.js';
+import {
+  drawImageSelection,
+  drawResizeHud,
+  imageIntersectsSelection,
+  type ImageRect,
+} from './image-selection-overlay.js';
 import {
   renderRun as paintRenderRun,
   renderListMarker as paintRenderListMarker,
@@ -141,8 +146,17 @@ export class DocCanvas {
    */
   private requestRender: (() => void) | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
+  /**
+   * View-only mount. The only thing it changes here is the image selection
+   * overlay, which drops its eight resize handles: a viewer can select an
+   * image (to copy it) but cannot resize one, and handles that do nothing
+   * on drag are an offer the editor cannot keep.
+   */
+  private readOnly: boolean;
+
+  constructor(canvas: HTMLCanvasElement, readOnly = false) {
     this.canvas = canvas;
+    this.readOnly = readOnly;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Failed to get 2d context');
     this.ctx = ctx;
@@ -559,19 +573,21 @@ export class DocCanvas {
           // drawn earlier. Re-draw a semi-transparent overlay on top
           // of the image when it intersects the selection, so that
           // selected images show a visible blue tint.
+          //
+          // Overlap is tested in layout coordinates; only the fill
+          // rounds, matching how `renderRun` places the image itself.
+          // See `imageIntersectsSelection`.
           if (run.inline.style.image && selectionRects) {
-            const ix = Math.round(pageX + pl.x + run.x);
             const drawH = run.imageHeight ?? pl.line.height;
-            const iy = Math.round(pageY + pl.y + pl.line.height - drawH);
-            const iw = run.width;
-            const ih = drawH;
-            for (const sr of selectionRects) {
-              if (sr.x < ix + iw && sr.x + sr.width > ix &&
-                  sr.y < iy + ih && sr.y + sr.height > iy) {
-                this.ctx.fillStyle = focused ? Theme.selectionColor : Theme.selectionColorInactive;
-                this.ctx.fillRect(ix, iy, iw, ih);
-                break;
-              }
+            const box = {
+              x: pageX + pl.x + run.x,
+              y: pageY + pl.y + pl.line.height - drawH,
+              width: run.width,
+              height: drawH,
+            };
+            if (imageIntersectsSelection(box, selectionRects)) {
+              this.ctx.fillStyle = focused ? Theme.selectionColor : Theme.selectionColorInactive;
+              this.ctx.fillRect(Math.round(box.x), Math.round(box.y), box.width, box.height);
             }
           }
         }
@@ -671,7 +687,7 @@ export class DocCanvas {
     // The optional HUD renders after the handles so the pill sits
     // above the se handle instead of getting clipped by it.
     if (imageSelectionRect) {
-      drawImageSelection(this.ctx, imageSelectionRect);
+      drawImageSelection(this.ctx, imageSelectionRect, { handles: !this.readOnly });
       if (imageResizeHudText) {
         drawResizeHud(this.ctx, imageSelectionRect, imageResizeHudText);
       }

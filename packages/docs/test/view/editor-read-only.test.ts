@@ -2,6 +2,13 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { MemDocStore } from '../../src/store/memory.js';
 import { initialize, type EditorAPI } from '../../src/view/editor.js';
+import { Doc } from '../../src/model/document.js';
+import { Cursor } from '../../src/view/cursor.js';
+import { Selection } from '../../src/view/selection.js';
+import { TextEditor } from '../../src/view/text-editor.js';
+import type { DocumentLayout } from '../../src/view/layout.js';
+import type { PaginatedLayout } from '../../src/view/pagination.js';
+import type { TextMeasurer } from '../../src/view/measurer.js';
 import { createTableBlock, getBlockText, normalizeBlockStyle } from '../../src/model/types.js';
 import type { Block } from '../../src/model/types.js';
 
@@ -359,5 +366,315 @@ describe('read-only docs editor (issue #482)', () => {
     // Text is unchanged by navigation.
     expect(bodyText(editor)).toBe('hello world');
     editor.dispose();
+  });
+});
+
+/**
+ * The image-resize drag, driven through real pointer events.
+ *
+ * The CRDT write at the end of `handleImageResizeMouseUp` is guarded three
+ * times over: `handleImageMouseDown` only arms the drag when editable,
+ * `handleImageResizeMouseMove` returns early on `readOnly`, and the commit
+ * itself returns early on `readOnly`. That redundancy is deliberate — the
+ * client flag is the effective write boundary for an anonymous share link
+ * whenever the Yorkie auth webhook is left in shadow mode — but it also means
+ * no single-gate deletion is observable on its own.
+ *
+ * What these tests can and cannot pin, precisely:
+ *
+ * - The **arming** gate (`!readOnly` in `handleImageMouseDown`) is pinned
+ *   individually: arming is visible in the canvas cursor, so a viewer's
+ *   handle press setting a resize cursor turns a test red.
+ * - The move and commit gates are **unreachable in read-only by
+ *   construction**, and so cannot be pinned individually by any test: the
+ *   arming branch is the only thing that ever assigns `imageResizeDrag`, and
+ *   `readOnly` is fixed at `initialize()`, so a read-only editor can never
+ *   enter either handler with a drag in flight. Deleting either one alone is
+ *   unobservable because the gate above it already refused. This is an
+ *   architecture fact, not a gap in the harness.
+ * - What *is* pinned is the conjunction — "a viewer cannot resize an image"
+ *   survives no matter which gates are removed together, since the size
+ *   assertion below only goes green while at least one still stands.
+ *
+ * The editable control test is what keeps all of that non-vacuous: it proves
+ * this exact gesture really does drive a resize, so a read-only assertion can
+ * never pass merely because the pointer geometry stopped landing on a handle.
+ */
+describe('read-only image resize drag', () => {
+  const IMAGE = { src: 'https://example.test/cat.png', width: 120, height: 80 };
+
+  let originalRect: typeof Element.prototype.getBoundingClientRect;
+
+  /**
+   * jsdom reports every box as 0×0, which collapses the document layout and
+   * leaves no image to hit. Give every element the page's own 816×1056 box:
+   * the editor then picks scale 1 and `collectImageRects` lays the page out at
+   * `x = 0`, so a client coordinate and a document coordinate are the same
+   * number and the handle positions below are readable.
+   */
+  function installGeometryShim(): void {
+    originalRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (): DOMRect {
+      return {
+        x: 0, y: 0, left: 0, top: 0, right: 816, bottom: 1056,
+        width: 816, height: 1056, toJSON: () => ({}),
+      } as DOMRect;
+    };
+  }
+
+  function restoreGeometryShim(): void {
+    Element.prototype.getBoundingClientRect = originalRect;
+  }
+
+  function imageBlock(): Block {
+    return {
+      id: 'b1',
+      type: 'paragraph',
+      // ORC — an image inline is exactly one character.
+      inlines: [{ text: '￼', style: { image: { ...IMAGE } } }],
+      style: EMPTY_BLOCK_STYLE,
+    };
+  }
+
+  /**
+   * Centre of the image's south-east resize handle, in client coordinates.
+   *
+   * Derived by scanning the mounted editor for every point that arms a drag:
+   * the armed region spans `x ∈ [104, 228]`, `y ∈ [126, 212]`, and a handle
+   * reaches `HANDLE_HALF + HANDLE_HIT_SLACK` = 8px in each direction, so the
+   * image rect is `x ∈ [112, 220]`, `y ∈ [134, 204]` and its bottom-right
+   * corner — where the `se` handle is centred — is (220, 204). The editable
+   * control test re-proves this lands on a handle on every run.
+   */
+  const SE_HANDLE = { x: 220, y: 204 };
+
+  /** Press the se handle, drag 40px down-right, release. */
+  function dragSouthEast(container: HTMLElement): void {
+    container.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, button: 0,
+      clientX: SE_HANDLE.x, clientY: SE_HANDLE.y,
+    }));
+    document.dispatchEvent(new MouseEvent('mousemove', {
+      bubbles: true, clientX: SE_HANDLE.x + 40, clientY: SE_HANDLE.y + 40,
+    }));
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  }
+
+  /** Press the se handle and hold, so arming is observable before teardown. */
+  function pressSouthEast(container: HTMLElement): void {
+    container.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, button: 0,
+      clientX: SE_HANDLE.x, clientY: SE_HANDLE.y,
+    }));
+  }
+
+  /**
+   * Arming is what puts a resize cursor on the canvas. The editor mounts more
+   * than one canvas, so ask whether *any* of them took one rather than
+   * depending on which.
+   */
+  function resizeCursorCount(container: HTMLElement): number {
+    return [...container.querySelectorAll('canvas')]
+      .filter((c) => (c as HTMLCanvasElement).style.cursor.endsWith('-resize'))
+      .length;
+  }
+
+  function imageWidth(editor: EditorAPI): number | undefined {
+    return editor.getSelectedImage()?.data.width;
+  }
+
+  beforeEach(() => {
+    installCanvasShim();
+    installGeometryShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    restoreGeometryShim();
+    document.body.innerHTML = '';
+  });
+
+  test('editable: dragging the se handle resizes the image', () => {
+    // The control. Everything below asserts that a viewer gets *nothing* from
+    // this gesture, which would also be true if the gesture had quietly
+    // stopped reaching a handle at all.
+    const { editor, container } = setupEditor([imageBlock()], false);
+    editor.selectImageAt('b1', 0);
+    expect(imageWidth(editor)).toBe(120);
+
+    dragSouthEast(container);
+
+    expect(imageWidth(editor)).toBeGreaterThan(120);
+    editor.dispose();
+  });
+
+  test('editable: pressing the se handle arms the drag', () => {
+    // The other half of the control: proves a resize cursor is an observable
+    // signal of arming, so the read-only assertion on it is not vacuous.
+    const { editor, container } = setupEditor([imageBlock()], false);
+    editor.selectImageAt('b1', 0);
+
+    pressSouthEast(container);
+
+    expect(resizeCursorCount(container)).toBeGreaterThan(0);
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    editor.dispose();
+  });
+
+  test('read-only: pressing the se handle arms nothing', () => {
+    // Pins the arming gate on its own: without `!readOnly` in
+    // `handleImageMouseDown` the drag arms here and the cursor changes, even
+    // though the two gates below it would still refuse the write.
+    const { editor, container } = setupEditor([imageBlock()], true);
+    editor.selectImageAt('b1', 0);
+
+    pressSouthEast(container);
+
+    expect(resizeCursorCount(container)).toBe(0);
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    editor.dispose();
+  });
+
+  test('read-only: dragging the se handle does not resize the image', () => {
+    // Pins the conjunction of all three gates: green only while at least one
+    // of them still refuses the write.
+    const { editor, container } = setupEditor([imageBlock()], true);
+    editor.selectImageAt('b1', 0);
+    expect(imageWidth(editor)).toBe(120);
+
+    dragSouthEast(container);
+
+    expect(imageWidth(editor)).toBe(120);
+    editor.dispose();
+  });
+
+  test('read-only: a viewer can still select an image by clicking it', () => {
+    // The opening this PR made, pinned with the same real geometry: the click
+    // that arms nothing must still select, or the read-only image copy has no
+    // way in.
+    const { editor, container } = setupEditor([imageBlock()], true);
+
+    container.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, button: 0, clientX: 160, clientY: 170,
+    }));
+
+    expect(editor.getSelectedImage()?.data.src).toBe(IMAGE.src);
+    expect(resizeCursorCount(container)).toBe(0);
+    editor.dispose();
+  });
+});
+
+/**
+ * `TextEditor` is exported from the package root, so `initialize()`'s
+ * `MUTATING_METHODS` allowlist is not the only thing standing between a
+ * read-only mount and a write — anything holding the instance can call a
+ * mutator on it directly. Every other programmatic mutator on the class
+ * (`insertText()` is the model) carries its own `readOnly` guard for that
+ * reason; `pasteFormat()` is tested here against the class, not the API.
+ */
+describe('TextEditor.pasteFormat() read-only guard', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
+    if (originalResizeObserver === undefined) {
+      delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    } else {
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = originalResizeObserver;
+    }
+  });
+
+  /**
+   * A bare `TextEditor` over two paragraphs. Only the collaborators
+   * `copyFormat` / `pasteFormat` actually touch are real. `copyFormat` reads
+   * the layout to resolve which end of the selection the format comes from
+   * (a backward drag picks up the first *highlighted* character, not the
+   * caret), so the block layout is stubbed with just the two blocks it walks;
+   * the paginated layout and the measurer stay unreachable, since the write
+   * itself goes through `Doc` and reads no geometry.
+   */
+  function bareTextEditor(readOnly: boolean) {
+    const store = new MemDocStore();
+    store.setDocument({
+      blocks: [
+        {
+          id: 'source',
+          type: 'paragraph',
+          inlines: [{ text: 'styled', style: { bold: true } }],
+          style: EMPTY_BLOCK_STYLE,
+        },
+        para('target', 'plain'),
+      ],
+    });
+    const doc = new Doc(store);
+    const cursor = new Cursor('source', 0);
+    const selection = new Selection();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const unreached = () => {
+      throw new Error('layout should not be read on the format-painter path');
+    };
+    // `copyFormat` resolves the selection's start through the block layout;
+    // with no range set it falls back to the caret, so an empty layout is
+    // enough. The paginated layout and the measurer stay unreachable — the
+    // write goes through `Doc` and touches no geometry.
+    const blockLayout = () =>
+      ({ blocks: [], blockParentMap: new Map() }) as unknown as DocumentLayout;
+    const snapshots: number[] = [];
+    const textEditor = new TextEditor(
+      container,
+      doc,
+      cursor,
+      selection,
+      blockLayout,
+      unreached as unknown as () => PaginatedLayout,
+      unreached as unknown as () => TextMeasurer,
+      () => 800,
+      () => 1,
+      () => 0,
+      () => {},
+      () => snapshots.push(1),
+      () => {},
+      () => {},
+      () => {},
+      () => {},
+      undefined,
+      undefined,
+      readOnly,
+    );
+    const targetStyle = () => doc.document.blocks[1].inlines[0].style;
+    return { textEditor, selection, snapshots, targetStyle };
+  }
+
+  function pickUpAndPaste(readOnly: boolean) {
+    const ctx = bareTextEditor(readOnly);
+    ctx.textEditor.copyFormat();
+    ctx.selection.setRange({
+      anchor: { blockId: 'target', offset: 0 },
+      focus: { blockId: 'target', offset: 5 },
+    });
+    const applied = ctx.textEditor.pasteFormat();
+    return { ...ctx, applied };
+  }
+
+  test('reports no write, writes nothing, and takes no snapshot', () => {
+    const { applied, targetStyle, snapshots } = pickUpAndPaste(true);
+
+    expect(applied).toBe(false);
+    expect(targetStyle().bold).toBeUndefined();
+    // A snapshot with no write behind it would cost an empty undo step.
+    expect(snapshots).toHaveLength(0);
+  });
+
+  test('control: the same call DOES restyle when not read-only', () => {
+    const { applied, targetStyle, snapshots } = pickUpAndPaste(false);
+
+    expect(applied).toBe(true);
+    expect(targetStyle().bold).toBe(true);
+    expect(snapshots).toHaveLength(1);
   });
 });

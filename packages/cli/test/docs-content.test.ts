@@ -37,6 +37,28 @@ function heading(id: string, level: 1 | 2, text: string): Block {
   };
 }
 
+/** A paragraph whose single run carries `href`. */
+function link(id: string, text: string, href: string): Block {
+  return {
+    id,
+    type: 'paragraph',
+    inlines: [{ text, style: { href } }],
+    style: { ...DEFAULT_BLOCK_STYLE },
+  };
+}
+
+/** A paragraph holding a single image inline. */
+function image(id: string, src: string, alt: string): Block {
+  return {
+    id,
+    type: 'paragraph',
+    inlines: [
+      { text: '￼', style: { image: { src, alt, width: 10, height: 10 } } },
+    ],
+    style: { ...DEFAULT_BLOCK_STYLE },
+  };
+}
+
 interface Capture {
   stdout: string;
   stderr: string[];
@@ -125,6 +147,94 @@ describe('runDocsContent (md)', () => {
       cap.io,
     );
     expect(cap.stderr).not.toContain(LOSSY_NOTICE);
+  });
+});
+
+/**
+ * The URL gate is the serializer's, and `packages/docs` tests it there. This
+ * suite exists because `docs content --format md` is a *separate* consumer of
+ * it: the CLI resolves `@wafflebase/docs` through the built package, so a
+ * regression that only reached this command — a changed option default, an
+ * `inlineImages` wire-up, a serializer swapped for a local one — would pass
+ * every docs-package test and still change what users get in a `.md` file.
+ * These assertions pin the emitted bytes at the command boundary.
+ *
+ * The rule itself is documented in `docs/design/cli.md` § 6.5.
+ */
+describe('runDocsContent (md) — link and image targets', () => {
+  it('drops an unsafe href and keeps the text it wrapped', () => {
+    const cap = makeCapture();
+    runDocsContent(
+      { doc: makeDoc([link('l', 'Click me', 'javascript:alert(1)')]), format: 'md' },
+      cap.io,
+    );
+    expect(cap.stdout).toContain('Click me');
+    expect(cap.stdout).not.toContain('javascript:');
+    expect(cap.stdout).not.toContain('](');
+  });
+
+  it('keeps a relative href as a live link', () => {
+    const cap = makeCapture();
+    runDocsContent(
+      { doc: makeDoc([link('l', 'Report', '/uploads/report.pdf')]), format: 'md' },
+      cap.io,
+    );
+    expect(cap.stdout).toContain('[Report](/uploads/report.pdf)');
+  });
+
+  it('keeps a relative image src as a live image', () => {
+    const cap = makeCapture();
+    runDocsContent(
+      { doc: makeDoc([image('i', './diagram.png', 'Diagram')]), format: 'md' },
+      cap.io,
+    );
+    expect(cap.stdout).toContain('![Diagram](./diagram.png)');
+  });
+
+  it('drops a scheme-relative href, which changes origin', () => {
+    const cap = makeCapture();
+    runDocsContent(
+      { doc: makeDoc([link('l', 'Elsewhere', '//evil.example/x')]), format: 'md' },
+      cap.io,
+    );
+    expect(cap.stdout).toContain('Elsewhere');
+    expect(cap.stdout).not.toContain('evil.example');
+  });
+
+  it('writes the same targets to a file as it prints to stdout', () => {
+    const cap = makeCapture();
+    const doc = makeDoc([
+      link('safe', 'Home', 'https://example.com/a(b)'),
+      link('rel', 'Report', '/uploads/report.pdf'),
+      link('bad', 'Click me', 'javascript:alert(1)'),
+      image('img', './diagram.png', 'Diagram'),
+      image('data', 'data:image/png;base64,AAAA', 'Pasted'),
+    ]);
+
+    runDocsContent({ doc, format: 'md', out: 'out.md' }, cap.io);
+
+    const written = cap.files['out.md'];
+    expect(written).toContain('[Home](https://example.com/a\\(b\\))');
+    expect(written).toContain('[Report](/uploads/report.pdf)');
+    expect(written).toContain('Click me');
+    expect(written).not.toContain('javascript:');
+    expect(written).toContain('![Diagram](./diagram.png)');
+    // `--inline-images` is off by default, so pasted bytes stay out of the file.
+    expect(written).toContain('[image]');
+    expect(written).not.toContain('base64');
+  });
+
+  it('carries a data:image src only when --inline-images is set', () => {
+    const cap = makeCapture();
+    runDocsContent(
+      {
+        doc: makeDoc([image('i', 'data:image/png;base64,AAAA', 'Pasted')]),
+        format: 'md',
+        inlineImages: true,
+      },
+      cap.io,
+    );
+    expect(cap.stdout).toContain('![Pasted](data:image/png;base64,AAAA)');
   });
 });
 

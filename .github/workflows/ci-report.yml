@@ -44,7 +44,16 @@ jobs:
     # Only pull requests have somewhere to post. `always()` is deliberately NOT
     # used, but there is no status gate either: this must run for a FAILED CI run
     # too, and `workflow_run` fires on `completed` regardless of conclusion.
-    if: github.event.workflow_run.event == 'pull_request'
+    # The `path` clause is not redundant with the trigger: `workflow_run`'s
+    # `workflows:` filter matches the run's DISPLAY NAME, and a second file
+    # saying `name: CI` produces runs it accepts. Unlike docker-publish and
+    # publish-ghpage — whose `head_branch == 'main'` clause means a forgery would
+    # have to be MERGED first — this one fires on PR branches, so the file that
+    # produced the run has to be checked here. Only one file can occupy
+    # `.github/workflows/ci.yml`.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.path == '.github/workflows/ci.yml'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

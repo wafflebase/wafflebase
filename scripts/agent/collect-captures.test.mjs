@@ -1313,18 +1313,46 @@ test("a SKIPPED producer does not start a collection, but a failed one does", ()
   // `failure` must NOT be gated: a panel that crashed after four of six lenses
   // captured four, and those are data. That is the assertion that matters here;
   // gating too much loses captures silently, which is the whole failure mode.
+  //
+  // Asserted by EVALUATING the condition rather than by pinning its text. It
+  // used to be compared against one exact string, which broke the day the
+  // expression grew the `path` / `head_repository` clauses that keep a forged
+  // "Agent Review Panel" run away from this job's cross-repo PAT — a change to
+  // WHICH producers are trusted, not to which CONCLUSIONS are collected.
   const yamlOnly = readFileSync(path.join(HERE, "..", "..", ".github", "workflows", "capture-collect.yml"), "utf8")
     .split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
-  const cond = /^\s+if:\s*(.+?)\s*$/m.exec(yamlOnly);
-  assert.ok(cond, "the collect job must be gated on the producer's conclusion");
-  assert.equal(
-    cond[1],
-    "${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion != 'skipped' }}",
+  const expr = (yamlOnly.match(/^ {4}if: >-\n((?: {6}.*\n)+)/m) || [])[1];
+  assert.ok(expr, "the collect job must be gated on the producer's conclusion");
+
+  const admits = new Function(
+    "EVENT",
+    "CONCLUSION",
+    "PATH",
+    "REPO",
+    `return (${expr
+      .replace(/github\.event\.workflow_run\.head_repository\.full_name/g, "REPO")
+      .replace(/github\.repository/g, "'o/r'")
+      .replace(/github\.event\.workflow_run\.conclusion/g, "CONCLUSION")
+      .replace(/github\.event\.workflow_run\.path/g, "PATH")
+      .replace(/github\.event_name/g, "EVENT")
+      .replace(/\$\{\{|\}\}/g, "")});`,
   );
+  const panel = ".github/workflows/agent-review-panel.yml";
+
+  assert.equal(
+    Boolean(admits("workflow_run", "skipped", panel, "o/r")),
+    false,
+    "a skipped producer uploaded nothing; collecting costs ~41 API pages for zero",
+  );
+  for (const keep of ["failure", "cancelled", "success"]) {
+    assert.ok(
+      admits("workflow_run", keep, panel, "o/r"),
+      `a ${keep} producer may still have uploaded captures`,
+    );
+  }
   // `schedule` and `workflow_dispatch` have no `workflow_run` payload, so the
   // event_name half is what keeps them running at all.
-  assert.match(cond[1], /github\.event_name != 'workflow_run' \|\|/);
-  for (const keep of ["failure", "cancelled", "success"]) {
-    assert.equal(cond[1].includes(keep), false, `a ${keep} producer may still have uploaded captures`);
+  for (const event of ["schedule", "workflow_dispatch"]) {
+    assert.ok(admits(event, undefined, undefined, undefined), `${event} must still sweep`);
   }
 });

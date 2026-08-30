@@ -377,6 +377,19 @@ export function DocsView({
     // render() repaints the canvas with the latest content.
     store.onRemoteChange = () => {
       const resolvedLocalCursor = store.resolveAnchoredLocalCursor();
+      // A click-selected image is held as a `(blockId, offset)` coordinate,
+      // not a handle on the inline itself, so any edit that shifts offsets
+      // leaves it naming whichever inline slid into that slot. Local
+      // mutations all funnel through the editor's own
+      // `clearImageSelectionForMutation()`; a remote peer's edit is the one
+      // mutation source that never touches it, so the clear has to happen
+      // here. Deliberately unconditional — the store hands us no diff to tell
+      // an edit before the image from one after it, and dropping the
+      // selection is the safe side of that ambiguity. It runs before
+      // `refresh()` so its repaint still matches the document currently laid
+      // out, and no-ops (no repaint) when no image was selected, which is the
+      // common case.
+      editor.clearImageSelection();
       editor.getDoc().refresh();
       editor.restoreLocalCursor(
         resolvedLocalCursor.cursor,
@@ -602,6 +615,7 @@ export function DocsView({
           showReplace={findBarShowReplace}
           onClose={() => setFindBarOpen(false)}
           containerRef={containerRef}
+          readOnly={readOnly}
         />
       )}
       <DocsTableContextMenu

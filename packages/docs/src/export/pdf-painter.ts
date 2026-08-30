@@ -831,6 +831,23 @@ export class PdfPainter {
       // Filter against `isSafeUrl` (the same gate the editor uses on
       // user input) so an imported document or paste-time mishap can't
       // smuggle a `javascript:` / `data:` URI into a downloaded PDF.
+      //
+      // `isSafeUrl` answers `false` for a *relative* reference too, so this
+      // deliberately drops one class of link the Markdown serializer keeps
+      // (see `isEmittableUrl` in `serialize/markdown.ts`). The two media
+      // differ, not the rule: a `.md` file is read in place — next to the
+      // repository or site it came from — so `/uploads/x.pdf` resolves
+      // against a base the reader actually has. A downloaded PDF has none:
+      // resolving a
+      // relative `/URI` action needs a base URI in the catalog (PDF 32000-1
+      // §12.6.4.7), which this exporter never writes, so viewers either
+      // ignore the annotation or resolve it against the local file path.
+      // Emitting a dead-or-unpredictable annotation is worse than emitting
+      // styled text with no annotation, which is what happens here.
+      //
+      // A separate defect in this gate — it validates `style.href` and then
+      // writes it, rather than writing what it validated — is tracked in
+      // issue #988 and deliberately left out of this change.
       if (style.href && isSafeUrl(style.href)) {
         const x1Pt = px2pt(xpx);
         const y1Pt = pageHeightPt - px2pt(drawBaselineYpx + drawDescentPx);

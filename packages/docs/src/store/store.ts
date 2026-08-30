@@ -47,6 +47,43 @@ export interface DocStore {
   setFooter(footer: HeaderFooter | undefined): void;
   /** Save current state to the undo stack before a group of mutations. */
   snapshot(): void;
+  /**
+   * Run `fn` so that every store write it makes costs **one** undo unit.
+   *
+   * The seam exists because undo granularity is anchored to different
+   * things in different stores: `MemDocStore` pushes a checkpoint on
+   * `snapshot()`, while `YorkieDocStore` takes one undo unit per
+   * `doc.update()` and its `snapshot()` is a no-op. So a user action that
+   * needs two store writes — redefining a named style is the canonical
+   * one: the registry write, then the stale-style-off sweep it triggers —
+   * cost two Cmd+Z under the collaborative store, the first of which
+   * looked like it did nothing.
+   *
+   * Contract, identical for every implementation:
+   *
+   * - One top-level `batch(fn)` = at most one undo unit, however many
+   *   writes `fn` makes. A batch that writes nothing pushes nothing.
+   * - **Nested** `batch()` calls do not create nested undo units; the
+   *   inner call just runs its body inside the outer one's unit.
+   * - `fn` runs synchronously. An exception propagates, and the batch
+   *   state is unwound so the next write behaves normally. Whether a
+   *   partially-applied batch is rolled back is store-specific
+   *   (`YorkieDocStore` rolls the whole `doc.update` back), so do not
+   *   depend on partial writes surviving a throw.
+   * - Do not call `undo()` / `redo()` from inside a batch.
+   * - Do not call `setDocument()` from inside a batch — **both**
+   *   implementations throw. Loading a whole document is not an edit: it
+   *   re-arms the undo floor, and `YorkieDocStore` can only read that floor
+   *   once the batch's single `doc.update` has closed, so inside a batch the
+   *   floor would land one unit low and the freshly loaded document itself
+   *   would become undoable. `MemDocStore` throws for parity, so code
+   *   written against the in-package store cannot pass there and fail under
+   *   the collaborative one.
+   *
+   * Mirrors `SlidesStore.batch()`; see
+   * `docs/design/slides/slides-native-undo.md`.
+   */
+  batch(fn: () => void): void;
   undo(): void;
   redo(): void;
   canUndo(): boolean;

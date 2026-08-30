@@ -103,7 +103,7 @@ export function updateExportToast(
  */
 export function safeFilename(
   title: string,
-  ext: "docx" | "pdf" | "pptx",
+  ext: "docx" | "pdf" | "pptx" | "md" | "txt",
 ): string {
   // Strip filesystem-unsafe characters; if nothing usable is left,
   // fall back to "document" so we don't return a hidden file like ".pdf".

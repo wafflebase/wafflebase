@@ -50,6 +50,99 @@ describe('PageSetup', () => {
     expect(resolved.paperSize).not.toBe(DEFAULT_PAGE_SETUP.paperSize);
   });
 
+  // ── Read-path clamp ───────────────────────────────────────────────────────
+  // `EditorAPI.setPageSetup` refuses unusable geometry, but that guard only
+  // covers the one write path. A `.docx` import writes its parsed geometry
+  // straight through `setDocument`, and a collaborator's CRDT write reaches
+  // `document.pageSetup` with no local validation at all. Every consumer —
+  // editor, ruler, CLI pagination, PDF export — reads the setup through
+  // `resolvePageSetup`, so that is where data we do not control is made
+  // usable.
+  describe('resolvePageSetup clamps unusable stored geometry', () => {
+    const withSetup = (setup: unknown) =>
+      resolvePageSetup(setup as Parameters<typeof resolvePageSetup>[0]);
+
+    it.each([
+      ['NaN', NaN],
+      ['a negative width', -100],
+      ['zero', 0],
+      ['Infinity', Infinity],
+      ['a non-number', '816' as unknown as number],
+    ])('falls back to the default paper width for %s', (_label, width) => {
+      const resolved = withSetup({
+        ...DEFAULT_PAGE_SETUP,
+        paperSize: { name: 'Custom', width, height: 1056 },
+      });
+      expect(resolved.paperSize.width).toBe(DEFAULT_PAGE_SETUP.paperSize.width);
+      expect(resolved.paperSize.height).toBe(1056);
+    });
+
+    it.each([
+      ['NaN', NaN],
+      ['a negative margin', -50],
+      ['Infinity', Infinity],
+    ])('falls back to the default top margin for %s', (_label, top) => {
+      const resolved = withSetup({
+        ...DEFAULT_PAGE_SETUP,
+        margins: { ...DEFAULT_PAGE_SETUP.margins, top },
+      });
+      expect(resolved.margins.top).toBe(DEFAULT_PAGE_SETUP.margins.top);
+    });
+
+    it('leaves a positive content box when margins would close it', () => {
+      const resolved = withSetup({
+        ...DEFAULT_PAGE_SETUP,
+        margins: { top: 5000, bottom: 5000, left: 5000, right: 5000 },
+      });
+      const { width, height } = getEffectiveDimensions(resolved);
+      expect(width - resolved.margins.left - resolved.margins.right).toBeGreaterThan(0);
+      expect(height - resolved.margins.top - resolved.margins.bottom).toBeGreaterThan(0);
+    });
+
+    it('measures the content box against the effective, rotated box', () => {
+      // Landscape swaps width and height, so margins that fit portrait can
+      // close the box once rotated.
+      const resolved = withSetup({
+        paperSize: { name: 'Custom', width: 816, height: 300 },
+        orientation: 'landscape',
+        margins: { top: 400, bottom: 400, left: 96, right: 96 },
+      });
+      const { width, height } = getEffectiveDimensions(resolved);
+      expect(width).toBe(300);
+      expect(height).toBe(816);
+      expect(height - resolved.margins.top - resolved.margins.bottom).toBeGreaterThan(0);
+      expect(width - resolved.margins.left - resolved.margins.right).toBeGreaterThan(0);
+    });
+
+    it('never produces a NaN margin on a page smaller than the content floor', () => {
+      // Zero margins on a sub-pixel page: the floor is unsatisfiable, and
+      // scaling a zero pair would divide by zero.
+      const resolved = withSetup({
+        paperSize: { name: 'Custom', width: 0.5, height: 0.5 },
+        orientation: 'portrait',
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      });
+      expect(resolved.margins).toEqual({ top: 0, bottom: 0, left: 0, right: 0 });
+      const { width, height } = getEffectiveDimensions(resolved);
+      expect(width - resolved.margins.left - resolved.margins.right).toBeGreaterThan(0);
+      expect(height - resolved.margins.top - resolved.margins.bottom).toBeGreaterThan(0);
+    });
+
+    it('survives a setup missing its nested objects entirely', () => {
+      const resolved = withSetup({});
+      expect(resolved).toEqual(DEFAULT_PAGE_SETUP);
+    });
+
+    it('leaves a legitimate setup untouched', () => {
+      const custom = {
+        paperSize: { ...PAPER_SIZES.A4 },
+        orientation: 'landscape' as const,
+        margins: { top: 48, bottom: 48, left: 72, right: 72 },
+      };
+      expect(resolvePageSetup(custom)).toEqual(custom);
+    });
+  });
+
   it('getEffectiveDimensions returns paper size for portrait', () => {
     const dims = getEffectiveDimensions(DEFAULT_PAGE_SETUP);
     expect(dims.width).toBe(816);

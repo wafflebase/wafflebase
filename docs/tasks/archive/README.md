@@ -6,14 +6,21 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 555
+Total archived tasks: 562
 
-## 2026/08 (125 tasks)
+## 2026/08 (132 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| docs copy paste integrity (2026-08-29) | [20260829-docs-copy-paste-integrity-todo.md](./2026/08/20260829-docs-copy-paste-integrity-todo.md) | [20260829-docs-copy-paste-integrity-lessons.md](./2026/08/20260829-docs-copy-paste-integrity-lessons.md) |
+| docs store batch seam (2026-08-29) | [20260829-docs-store-batch-seam-todo.md](./2026/08/20260829-docs-store-batch-seam-todo.md) | [20260829-docs-store-batch-seam-lessons.md](./2026/08/20260829-docs-store-batch-seam-lessons.md) |
+| docs surface existing features (2026-08-29) | [20260829-docs-surface-existing-features-todo.md](./2026/08/20260829-docs-surface-existing-features-todo.md) | [20260829-docs-surface-existing-features-lessons.md](./2026/08/20260829-docs-surface-existing-features-lessons.md) |
+| notes mobile toolbar (2026-08-28) | [20260828-notes-mobile-toolbar-todo.md](./2026/08/20260828-notes-mobile-toolbar-todo.md) | [20260828-notes-mobile-toolbar-lessons.md](./2026/08/20260828-notes-mobile-toolbar-lessons.md) |
+| v1 worksheet review fix (2026-08-27) | [20260827-v1-worksheet-review-fix-todo.md](./2026/08/20260827-v1-worksheet-review-fix-todo.md) | [20260827-v1-worksheet-review-fix-lessons.md](./2026/08/20260827-v1-worksheet-review-fix-lessons.md) |
+| notes img size (2026-08-26) | [20260826-notes-img-size-todo.md](./2026/08/20260826-notes-img-size-todo.md) | [20260826-notes-img-size-lessons.md](./2026/08/20260826-notes-img-size-lessons.md) |
 | design editor open loop (2026-08-25) | [20260825-design-editor-open-loop-todo.md](./2026/08/20260825-design-editor-open-loop-todo.md) | [20260825-design-editor-open-loop-lessons.md](./2026/08/20260825-design-editor-open-loop-lessons.md) |
 | frontend vite config node floor (2026-08-25) | [20260825-frontend-vite-config-node-floor-todo.md](./2026/08/20260825-frontend-vite-config-node-floor-todo.md) | [20260825-frontend-vite-config-node-floor-lessons.md](./2026/08/20260825-frontend-vite-config-node-floor-lessons.md) |
+| promote exit code default (2026-08-25) | [20260825-promote-exit-code-default-todo.md](./2026/08/20260825-promote-exit-code-default-todo.md) | [20260825-promote-exit-code-default-lessons.md](./2026/08/20260825-promote-exit-code-default-lessons.md) |
 | panel pool exhaustion infra (2026-08-24) | [20260824-panel-pool-exhaustion-infra-todo.md](./2026/08/20260824-panel-pool-exhaustion-infra-todo.md) | - |
 | docs large paste perf (2026-08-23) | [20260823-docs-large-paste-perf-todo.md](./2026/08/20260823-docs-large-paste-perf-todo.md) | [20260823-docs-large-paste-perf-lessons.md](./2026/08/20260823-docs-large-paste-perf-lessons.md) |
 | caret line affinity (2026-08-22) | [20260822-caret-line-affinity-todo.md](./2026/08/20260822-caret-line-affinity-todo.md) | [20260822-caret-line-affinity-lessons.md](./2026/08/20260822-caret-line-affinity-lessons.md) |

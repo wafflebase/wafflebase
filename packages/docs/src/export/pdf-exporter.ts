@@ -8,7 +8,7 @@ import {
 } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import type { Document } from '../model/types.js';
-import { DEFAULT_PAGE_SETUP, getEffectiveDimensions } from '../model/types.js';
+import { getEffectiveDimensions, resolvePageSetup } from '../model/types.js';
 import {
   PdfFonts,
   scanFontsUsed,
@@ -84,7 +84,16 @@ export class PdfExporter {
 
     // 2. Compute layout using the caller-supplied measurer (browser:
     // CanvasTextMeasurer; CLI: fontkit-backed; tests: stub).
-    const setup = doc.pageSetup ?? DEFAULT_PAGE_SETUP;
+    // Through the resolver, not raw. This is the model's single read path
+    // for a stored page setup, and export is one of the places that most
+    // needs it: `EditorAPI.setPageSetup` validates the write it owns, but a
+    // `.docx` import stores its parsed geometry through `setDocument`, and a
+    // collaborator's CRDT write lands in `document.pageSetup` with no local
+    // check — where `YorkieDocStore.readPageSetup` renders a missing or
+    // non-numeric field as `NaN`. Read raw, that NaN reaches the content
+    // width, the pagination, and finally `addPage`, which rejects it with an
+    // opaque type error from inside pdf-lib.
+    const setup = resolvePageSetup(doc.pageSetup);
     const { width: wPx } = getEffectiveDimensions(setup);
     const contentWidth = wPx - setup.margins.left - setup.margins.right;
     const measurer = opts.measurer;
