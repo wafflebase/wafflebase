@@ -22,6 +22,16 @@ interface DocsFindBarProps {
   showReplace: boolean;
   onClose: () => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
+  /**
+   * Viewer mode. Find stays available — it only reads — but replace is a
+   * write, and this bar drives `FindReplaceState` straight against the Doc
+   * and the store, so it never passes through the editor's read-only
+   * neutralization (`MUTATING_METHODS` in `packages/docs/src/view/editor.ts`).
+   * The gate therefore has to live here: the replace row is not rendered and
+   * both replace handlers refuse, so neither the buttons nor the Enter key in
+   * the replace input can reach a CRDT write.
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -34,6 +44,7 @@ export function DocsFindBar({
   showReplace,
   onClose,
   containerRef,
+  readOnly = false,
 }: DocsFindBarProps) {
   const [query, setQuery] = useState("");
   const [replacement, setReplacement] = useState("");
@@ -120,7 +131,7 @@ export function DocsFindBar({
   // has to drop the image selection itself.
   const handleReplace = () => {
     const state = stateRef.current;
-    if (!state || state.activeIndex < 0) return;
+    if (readOnly || !state || state.activeIndex < 0) return;
     editor?.clearImageSelection();
     state.replaceActive(replacement);
     syncHighlights();
@@ -129,7 +140,7 @@ export function DocsFindBar({
 
   const handleReplaceAll = () => {
     const state = stateRef.current;
-    if (!state || state.matches.length === 0) return;
+    if (readOnly || !state || state.matches.length === 0) return;
     editor?.clearImageSelection();
     state.replaceAll(replacement);
     syncHighlights();
@@ -273,8 +284,8 @@ export function DocsFindBar({
         </Tooltip>
       </div>
 
-      {/* Replace row */}
-      {showReplace && (
+      {/* Replace row — a write, so viewers never get it. */}
+      {showReplace && !readOnly && (
         <div className="flex items-center gap-1">
           <input
             type="text"

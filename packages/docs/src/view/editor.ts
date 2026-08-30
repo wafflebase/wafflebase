@@ -1281,11 +1281,16 @@ export function initialize(
    * would paint a document that has moved on: `undoFn`, `redoFn` and
    * `resetAfterDocumentReplace`.
    *
-   * One mutation path lives outside this module and so cannot be funnelled
-   * here: `FindReplaceState.replaceActive` / `replaceAll` run straight
-   * against the `Doc` the find bar holds. It calls the exported
-   * `clearImageSelection` (which is this function) before replacing — see
-   * `packages/frontend/src/app/docs/docs-find-bar.tsx`.
+   * Two mutation sources live outside this module and so cannot be funnelled
+   * here. Both call the exported `clearImageSelection` (which is this
+   * function) themselves:
+   *
+   * - `FindReplaceState.replaceActive` / `replaceAll` run straight against
+   *   the `Doc` the find bar holds — see
+   *   `packages/frontend/src/app/docs/docs-find-bar.tsx`.
+   * - A remote peer's edit, which arrives through the store rather than
+   *   through any editor entry point — see `store.onRemoteChange` in
+   *   `packages/frontend/src/app/docs/docs-view.tsx`.
    */
   const clearImageSelectionForMutation = (): void => {
     if (!selectedImage) return;

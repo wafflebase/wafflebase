@@ -350,13 +350,26 @@ shares that helper for its own teardown, and reads its captured block through
 the block mid-drag, and an exception from a document-level listener has
 nothing to catch it.
 
-One mutator lives **outside** `editor.ts` and so cannot be funnelled
-through the helper: `FindReplaceState.replaceActive` / `replaceAll` run
-straight against the `Doc` the find bar holds, deleting and inserting text
-of different lengths. `DocsFindBar` therefore calls the exported
-`EditorAPI.clearImageSelection()` — which *is* the same helper — before
-each replace. Any future consumer that drives `FindReplaceState`, or the
-`Doc` directly, owes the same call.
+Two mutation sources live **outside** `editor.ts` and so cannot be
+funnelled through the helper. Both call the exported
+`EditorAPI.clearImageSelection()` — which *is* the same helper — themselves:
+
+- **Find & replace.** `FindReplaceState.replaceActive` / `replaceAll` run
+  straight against the `Doc` the find bar holds, deleting and inserting
+  text of different lengths. `DocsFindBar` clears before each replace.
+- **A remote peer's edit.** It arrives through `YorkieDocStore`, not
+  through any editor entry point, so `store.onRemoteChange` in
+  `docs-view.tsx` clears before `doc.refresh()`. The clear is
+  unconditional: the store hands the view no diff that would distinguish
+  an edit *before* the selected image (which shifts its offset) from one
+  after it, and dropping the selection is the safe side of that
+  ambiguity. Placing it before `refresh()` keeps the helper's own repaint
+  matched to the document currently laid out, and it no-ops without
+  repainting when nothing was selected — the common case, so a peer
+  typing costs an idle viewer nothing.
+
+Any future consumer that drives `FindReplaceState`, or the `Doc`
+directly, owes the same call.
 
 ## Floating Context Bar *(Planned — Milestone 5)*
 
