@@ -5,6 +5,7 @@ import { DEFAULT_BORDER_STYLE, LIST_INDENT_PX, UNORDERED_MARKERS } from '../mode
 import { defaultColorResolver, resolveStoredColor } from '../model/color.js';
 import { Theme, buildFont, ptToPx, lineBaselineY } from './theme.js';
 import { getOrLoadImage } from './image-cache.js';
+import { imageIntersectsSelection } from './image-selection-overlay.js';
 import {
   computeMergedCellLineLayouts,
   getBlockIndexForLine,
@@ -423,8 +424,14 @@ export function renderTableContent(
           // image to the line and call drawImage once it finishes loading.
           if (style.image) {
             const drawHeight = run.imageHeight ?? line.height;
-            const imgX = Math.round(runX);
-            const imgY = Math.round(runLineY + line.height - drawHeight);
+            const box = {
+              x: runX,
+              y: runLineY + line.height - drawHeight,
+              width: run.width,
+              height: drawHeight,
+            };
+            const imgX = Math.round(box.x);
+            const imgY = Math.round(box.y);
             const img = getOrLoadImage(style.image.src, () => {
               requestRender?.();
             });
@@ -432,18 +439,12 @@ export function renderTableContent(
               ctx.drawImage(img, imgX, imgY, run.width, drawHeight);
             }
             // Re-draw selection overlay on top of the opaque image,
-            // mirroring the body path in DocCanvas.render.
-            if (selectionRects) {
-              const iw = run.width;
-              const ih = drawHeight;
-              for (const sr of selectionRects) {
-                if (sr.x < imgX + iw && sr.x + sr.width > imgX &&
-                    sr.y < imgY + ih && sr.y + sr.height > imgY) {
-                  ctx.fillStyle = focused ? Theme.selectionColor : Theme.selectionColorInactive;
-                  ctx.fillRect(imgX, imgY, iw, ih);
-                  break;
-                }
-              }
+            // mirroring the body path in DocCanvas.render — including
+            // testing the overlap in unrounded layout coordinates while
+            // only the fill rounds. See `imageIntersectsSelection`.
+            if (selectionRects && imageIntersectsSelection(box, selectionRects)) {
+              ctx.fillStyle = focused ? Theme.selectionColor : Theme.selectionColorInactive;
+              ctx.fillRect(imgX, imgY, box.width, box.height);
             }
             continue;
           }
