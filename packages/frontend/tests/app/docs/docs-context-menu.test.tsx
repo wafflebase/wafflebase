@@ -87,4 +87,42 @@ describe('DocsContextMenu', () => {
     expect(screen.queryByText('Paste')).toBeNull();
     expect(screen.queryByText('Add link')).toBeNull();
   });
+
+  // A read-only editor still constructs its TextEditor and hidden textarea,
+  // so `editor.copy()` works there — the menu used to hide Copy anyway.
+  it('(d) readOnly + selection: offers Copy but not Cut or Paste', () => {
+    const editor = makeEditor({
+      getActiveSelection: vi.fn(() => ({
+        anchor: { blockId: 'b1', offset: 0 },
+        focus: { blockId: 'b1', offset: 3 },
+      })) as unknown as EditorAPI['getActiveSelection'],
+    });
+    render(<Wrapper editor={editor} readOnly={true} />);
+
+    const container = screen.getByTestId('doc-container');
+    fireEvent.contextMenu(container, { clientX: 10, clientY: 10 });
+
+    expect(screen.getByText('Copy')).toBeDefined();
+    expect(screen.queryByText('Cut')).toBeNull();
+    expect(screen.queryByText('Paste')).toBeNull();
+    expect(screen.queryByText('Add link')).toBeNull();
+  });
+
+  it('(e) Copy in readOnly calls editor.copy()', () => {
+    const copy = vi.fn();
+    const editor = makeEditor({
+      copy,
+      getActiveSelection: vi.fn(() => ({
+        anchor: { blockId: 'b1', offset: 0 },
+        focus: { blockId: 'b1', offset: 3 },
+      })) as unknown as EditorAPI['getActiveSelection'],
+    });
+    render(<Wrapper editor={editor} readOnly={true} />);
+
+    const container = screen.getByTestId('doc-container');
+    fireEvent.contextMenu(container, { clientX: 10, clientY: 10 });
+    fireEvent.click(screen.getByText('Copy'));
+
+    expect(copy).toHaveBeenCalledTimes(1);
+  });
 });
