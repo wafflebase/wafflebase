@@ -191,25 +191,41 @@ claim that presence would break for viewers (every presence call binds the raw
   The two must land together: fixing only the second still leaves `ensureTree`
   creating the tree from the viewer's client.
 
+- **The seed's realm mismatch is fixed too**, by removing the coupling rather
+  than moving it. `initialDocsRoot()` built `content` from `@yorkie-js/sdk`'s
+  `Tree`, but a `Tree` is recognized by `instanceof` against the class of
+  whichever SDK copy owns the document — and this one module is shared by two:
+  `@yorkie-js/react`'s provider bundles its own SDK (the editor routes and
+  share links), while `apply-imported-content` drives a plain `@yorkie-js/sdk`
+  client. Probed: `SdkTree === ReactTree` is `false`, and
+  `initialDocsRoot().content instanceof ReactTree` is `false`.
+
+  The first instinct — flip the import, as notes did
+  (`notes-document.ts:1-10`) — only moves the mismatch to the import path.
+  The seed now carries **no CRDT value at all** (`{ comments: {} }`), because
+  every consumer already creates the Tree in its own realm: `ensureTree` for
+  the provider paths, `writeFullDocument` for the import path, and the
+  backend's own `writeDocsRoot`. That is less code than flipping the import,
+  and it removes a write — attach used to store a placeholder that
+  `ensureTree` overwrote a moment later.
+
+  The docstring's rationale for seeding at attach (keeping the setup off the
+  undo stack, yorkie-js-sdk PR #1238) was sound but had never actually held on
+  the provider path, for exactly this reason; `ensureTree`'s own
+  `clearHistory()` is what preserves it, and that is now said where it is
+  true.
+
 ## Follow-up (not in this branch)
 
-`initialDocsRoot()` imports `Tree` from `@yorkie-js/sdk`, but the document is
-attached through `@yorkie-js/react`'s `DocumentProvider`, which recognizes CRDT
-values by `instanceof` against **its own** bundled `Tree`. Confirmed by probe:
-`SdkTree === ReactTree` is `false`, and `initialDocsRoot().content instanceof
-ReactTree` is `false` — so the seeded `content` is materialized as a plain
-`CRDTObject` and `ensureTree` immediately replaces it.
+Notes, board and sheets pass a seeding `initialRoot` on the same
+`shared-document.tsx` block and have the same viewer-write as (2) above. The
+shape of the fix is identical, but each needs its own "does anything need the
+key" trace — the one that made (2) safe took real work to establish — so they
+are left alone rather than changed on the assumption that they match.
 
-This is the identical bug notes already fixed and pinned
-(`src/types/notes-document.ts:1-10`, `notes-document.test.ts`), whose comment
-even claims docs gets it right. It is a one-word import change, but it is not
-a clean one: `apply-imported-content.ts` seeds the same root through an
-`@yorkie-js/sdk` client, so flipping the import moves the realm mismatch to
-that path instead. Whether it self-heals there (`setDocument` →
-`writeFullDocument` creates the tree when absent) needs verifying before the
-change is safe. Filed rather than folded in, since it changes what lands in
-every new document's root.
-
-Also unfixed, and the same shape as (2) above: notes, board and sheets pass a
-seeding `initialRoot` on the same `shared-document.tsx` block. Each needs its
-own "does anything need the key" trace, which this branch did not do.
+Worth checking at the same time whether they carry the same realm mismatch:
+`initialBoardRoot`/`initialSpreadsheetDocument` seed plain objects, but
+`initialNotesRoot` seeds a `Text`, and notes fixed its realm by importing from
+`@yorkie-js/react` — which is correct for the provider but would be wrong for
+any `@yorkie-js/sdk` client that seeds the same root, the trap this branch
+just removed from docs.
