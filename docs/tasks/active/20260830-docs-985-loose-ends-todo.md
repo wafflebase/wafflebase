@@ -108,6 +108,63 @@ Load-bearing facts from the investigation:
 
 ## Verification
 
-- [x] `pnpm verify:fast`
-- [x] New tests fail on `origin/main` and pass on the branch
-- [x] Self-review over the full branch diff before pushing
+- [x] `pnpm verify:fast` (exit 0, 11 lanes)
+- [x] `tsc --noEmit` over `packages/docs` — caught one test-only error that
+      every vitest run passed
+- [x] Each new test demonstrated failing with its fix reverted, not just
+      passing with it applied
+- [x] Three adversarial review passes over the full branch diff
+
+## Review
+
+Three review rounds. The first two each broke a shipped fix; the third found
+no exploitable defect.
+
+**Round 1** — two real defects, both in the security fixes:
+
+1. The #990 escape ran on code points, but pdf-lib writes a literal one byte
+   per UTF-16 code unit, so `Щ` (low byte `0x29`) emitted a raw `)` and
+   re-opened the injection; `Ш` corrupted the file. The original regression
+   test passed only because it used an ASCII `)`.
+2. `readOnlyDocStore`'s `get` forwarded non-function properties, handing out
+   `MemDocStore.doc` / `YorkieDocStore.doc` — the live document and the CRDT
+   handle — with no method call at all.
+
+**Round 2** — one full escape and two more doors, plus a gap in #988:
+
+3. `setPrototypeOf` was untrapped, so it forwarded to the target; a planted
+   accessor then ran with `this` bound to the real store. It left every
+   published assertion passing, since the handle still reported a null
+   prototype.
+4. `preventExtensions` was untrapped, so `Object.freeze(handle)` made the real
+   store non-extensible and every later enumeration threw.
+5. `has` disagreed with `get` about hidden fields.
+6. #988 was only half closed: the WHATWG parser also folds `\` to `/` in a
+   special-scheme authority, so `https://good.com\@evil.com/` cleared a gate
+   that saw `good.com`. Fixed by emitting `new URL(href).href` — the string
+   the gate parsed — rather than enumerating rewrites.
+
+**Round 3** — no exploitable defect. Four accuracy items, all fixed: a
+comment describing the percent-encode pass as live when normalization had
+made it unreachable; `get` not honouring the non-configurable invariant the
+other three traps were hardened for; a misleading note on the `has` trap; and
+`editor.ts` still calling read-only "a client-side convenience" three lines
+above the new text explaining why it is not. Also bound `style.href` to a
+local so the gate and the emit provably read one string.
+
+Two findings across the rounds were rejected on inspection: #991's claim that
+`vi.spyOn` throws on the page-setup proxy (it uses `defineProperty`, which was
+untrapped — it silently spies the underlying store, which is worse), and a
+claim that presence would break for viewers (every presence call binds the raw
+`docStore`, never `readStore`).
+
+## Known limitations
+
+- `getDoc().document` is a live render cache; mutating it corrupts the
+  editor's own view until the next `refresh()`. It reaches neither the store
+  nor the CRDT, and it predates this work — out of scope, recorded here so it
+  is not mistaken for a gap in the read-only boundary.
+- The shadow-mode default of `YORKIE_AUTH_WEBHOOK_ENFORCE` is unchanged. This
+  branch makes the client boundary hold and says plainly in the docs that it
+  is the boundary; deciding to enforce server-side is a deployment call and
+  its own task (#989's third suggested item).
