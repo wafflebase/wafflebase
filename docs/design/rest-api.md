@@ -253,13 +253,20 @@ tabs' chart and pivot source ranges at the edited tab.
 
 **Bounds.** The mutation runs synchronously inside one `doc.update()`, and
 `rowOrder`/`colOrder` are dense CRDT arrays, so covering row *N* costs *N*
-entries whatever `count` says. Requests are therefore bounded twice: by the
-grid (`index + count - 1` must be inside 1e6 rows / 18278 columns) and, for
-inserts and moves, by `MaxAxisEntries` — the number of axis entries one
-request may *materialize*, set to 10,000 to match the editor's own
-`MaxAxisCoverage`. The second bound is cumulative, since it is measured
-against the axis's current length. A delete materializes nothing and is bound
-only by the grid, so "delete every row" stays a single call.
+entries whatever `count` says. Every request is bounded by the grid
+(`index + count - 1` must be inside 1e6 rows / 18278 columns), and beyond that
+each verb is bounded by whatever actually costs it work — `MaxAxisEntries`,
+10,000, matching the editor's own `MaxAxisCoverage`:
+
+- **insert** — by how many entries it *materializes*, measured against the
+  axis's current length, which is what makes the cap cumulative across
+  requests rather than per-request.
+- **move** — by `count`. The growth bound does not cover a move: on an axis
+  that already spans the block, growth is zero for any `count`, while
+  `moveWorksheetAxis` still splices the block out and spreads it back in, so
+  its cost is `count` either way.
+- **delete** — by the grid alone. It materializes nothing and splices without
+  a spread, so "delete every row" stays a single call.
 
 **Two deliberate differences from the editor:**
 

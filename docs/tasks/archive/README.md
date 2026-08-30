@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 562
+Total archived tasks: 563
 
-## 2026/08 (132 tasks)
+## 2026/08 (133 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| pr review fixes 986 982 (2026-08-30) | [20260830-pr-review-fixes-986-982-todo.md](./2026/08/20260830-pr-review-fixes-986-982-todo.md) | [20260830-pr-review-fixes-986-982-lessons.md](./2026/08/20260830-pr-review-fixes-986-982-lessons.md) |
 | docs copy paste integrity (2026-08-29) | [20260829-docs-copy-paste-integrity-todo.md](./2026/08/20260829-docs-copy-paste-integrity-todo.md) | [20260829-docs-copy-paste-integrity-lessons.md](./2026/08/20260829-docs-copy-paste-integrity-lessons.md) |
 | docs store batch seam (2026-08-29) | [20260829-docs-store-batch-seam-todo.md](./2026/08/20260829-docs-store-batch-seam-todo.md) | [20260829-docs-store-batch-seam-lessons.md](./2026/08/20260829-docs-store-batch-seam-lessons.md) |
 | docs surface existing features (2026-08-29) | [20260829-docs-surface-existing-features-todo.md](./2026/08/20260829-docs-surface-existing-features-todo.md) | [20260829-docs-surface-existing-features-lessons.md](./2026/08/20260829-docs-surface-existing-features-lessons.md) |

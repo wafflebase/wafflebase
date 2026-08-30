@@ -489,10 +489,13 @@ other tabs' chart and pivot source ranges. Bodies are validated before the
 Yorkie document is opened.
 
 The mutation runs synchronously inside one `doc.update()` on dense CRDT axis
-arrays, so an insert or move is bounded both by the grid and by
-`MaxAxisEntries` (10,000 axis entries *materialized* per request, matching the
-editor's `MaxAxisCoverage`) measured against the axis's current length. A
-delete materializes nothing and is bound only by the grid.
+arrays, so every request is bounded by the grid and each verb additionally by
+whatever costs it work, capped at `MaxAxisEntries` (10,000, matching the
+editor's `MaxAxisCoverage`): an insert by the entries it *materializes*
+(measured against the axis's current length, so the cap is cumulative), a move
+by `count` (its cost is the spliced block, not the growth — an axis that
+already spans the block grows by nothing), and a delete by the grid alone,
+since it materializes nothing and splices without a spread.
 
 Two deliberate differences from the editor: cached formula values are
 **cleared, not recalculated** (the calculator is async and needs a live

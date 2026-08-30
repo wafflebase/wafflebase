@@ -222,6 +222,30 @@ describe('parseAxisMove', () => {
     ).toThrow(BadRequestException);
   });
 
+  it('bounds the moved block by MaxAxisEntries', () => {
+    // The growth bound cannot cover this: a move on an axis that already
+    // covers the block grows it by nothing, so growth is 0 for any `count`.
+    // But `moveWorksheetAxis` splices the block out and spreads it back in,
+    // so its cost is `count` regardless, and a large enough spread throws
+    // `RangeError: Maximum call stack size exceeded`.
+    expect(
+      parseAxisMove({
+        axis: 'row',
+        srcIndex: 1,
+        count: MaxAxisEntries,
+        dstIndex: MaxAxisEntries + 1,
+      }).count,
+    ).toBe(MaxAxisEntries);
+    expect(() =>
+      parseAxisMove({
+        axis: 'row',
+        srcIndex: 1,
+        count: MaxAxisEntries + 1,
+        dstIndex: MaxAxisEntries + 2,
+      }),
+    ).toThrow(BadRequestException);
+  });
+
   it('allows a source block ending on the last index', () => {
     expect(
       parseAxisMove({

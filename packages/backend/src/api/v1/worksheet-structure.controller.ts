@@ -18,6 +18,7 @@ import {
   normalizeStoredCell,
   parseRef,
   safeWorksheetRecordEntries,
+  safeWorksheetRecordKeys,
   shiftCrossTabDataRanges,
   toRefsFromRanges,
   writeWorksheetCell,
@@ -93,16 +94,22 @@ export class ApiV1WorksheetStructureController {
    *
    * `Object.hasOwn` and `in` are both unusable here — the proxy's
    * `getOwnPropertyDescriptor` trap returns a descriptor unconditionally, and
-   * there is no `has` trap, so `in` is false even for a real tab. `Object.keys`
+   * there is no `has` trap, so `in` is false even for a real tab. The key list
    * goes through the `ownKeys` trap, which returns the CRDT object's actual
    * keys, and is equally correct on a plain object.
+   *
+   * It reads that list through `safeWorksheetRecordKeys` rather than raw
+   * `Object.keys`, which is what that helper exists for: `ownKeys` throws
+   * `TypeError: ... duplicate` on a record that ended up with duplicate CRDT
+   * keys, and a tab lookup that throws would 500 every structural request on
+   * such a document instead of resolving the tab.
    */
   private worksheetOrThrow(
     root: { sheets?: Record<string, unknown> },
     tabId: string,
   ) {
     const sheets = root.sheets;
-    if (!sheets || !Object.keys(sheets).includes(tabId)) {
+    if (!sheets || !safeWorksheetRecordKeys(sheets).includes(tabId)) {
       throw new NotFoundException('Tab not found');
     }
     return sheets[tabId] as Worksheet;

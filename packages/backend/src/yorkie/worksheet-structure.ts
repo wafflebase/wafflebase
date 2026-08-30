@@ -184,6 +184,32 @@ function assertSpan(
  * isolation, so without it, repeated inserts walk the axis past `MaxRows` and
  * on towards the id-space exhaustion hang.
  */
+/**
+ * Reject a move whose block is too large to splice in one go.
+ *
+ * {@link assertAxisGrowth} does not cover this. A move on an axis that already
+ * covers the block grows it by nothing, so growth is 0 and any `count` passes
+ * — but `moveWorksheetAxis` splices the block out and then spreads it back in
+ * (`order.splice(destination, 0, ...moved)`), so its cost is `count`
+ * regardless of growth, and spreading enough arguments throws `RangeError:
+ * Maximum call stack size exceeded` (measured here at ~125,000). Reachable
+ * with 13 legal `MaxAxisEntries` inserts followed by one move of the whole
+ * axis.
+ *
+ * Insert needs no equivalent: its growth is at least `count`, so the growth
+ * bound already covers the spread. Delete needs none either —
+ * `deleteWorksheetAxis` is `splice(start, count)` with no spread, and "delete
+ * every row" has to stay a single call.
+ */
+export function assertMovableBlock(axis: Axis, count: number): void {
+  if (count > MaxAxisEntries) {
+    throw new BadRequestException(
+      `'count' (${count}) is above the ${MaxAxisEntries} limit for one ` +
+        `${axis} move`,
+    );
+  }
+}
+
 export function assertAxisGrowth(
   axis: Axis,
   currentLength: number,
@@ -274,6 +300,8 @@ export function parseAxisMove(body: unknown): AxisMove {
   const count = parseCount(b.count, axis);
   const dstIndex = parseIndex(b.dstIndex, 'dstIndex', axis);
   assertSpan(axis, srcIndex, count, 'srcIndex');
+  // Depends on the request alone, so it rejects before the document is opened.
+  assertMovableBlock(axis, count);
 
   if (dstIndex > srcIndex && dstIndex < srcIndex + count) {
     throw new BadRequestException(
