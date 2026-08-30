@@ -6,8 +6,8 @@ regression of that PR — every one is pre-existing and was filed rather than
 folded in, to keep #985's blast radius small.
 
 They ship as one branch because three of the four live in `packages/docs`,
-#988 and #990 are two defects in the *same function*, and #991 item 3 is a
-line of the same proxy #989 replaces.
+issues #988 and #990 are two defects in the *same function*, and #991 item 3
+is a line of the same proxy #989 replaces.
 
 ## #990 — PDF link href is injected unescaped into a PDF literal string
 
@@ -168,3 +168,18 @@ claim that presence would break for viewers (every presence call binds the raw
   branch makes the client boundary hold and says plainly in the docs that it
   is the boundary; deciding to enforce server-side is a deployment call and
   its own task (#989's third suggested item).
+- **Two sibling viewer-writes remain, both outside `packages/docs`.** Found
+  while confirming the review finding on the seeding write, and left for a
+  follow-up rather than silently widening this branch:
+  1. `ensureTree` (`packages/frontend/src/app/docs/docs-view.tsx`) runs
+     `doc.update()` for viewers too, and for a legacy `content` that is a
+     truthy non-Tree it *overwrites* it.
+  2. `initialDocsRoot()` includes `comments: {}`, and the Yorkie SDK writes
+     any absent root key on attach — so a viewer opening a share link on a
+     document that has never had a comment writes that key from their own
+     client. Unconditional, on every such attach.
+
+  Both are attach-time, before any editor exists, so neither is reachable
+  through the handles this branch closes. Fixing (2) means changing what a
+  viewer attaches with, which could affect whether viewers can read comments
+  at all — a design question, not a patch.

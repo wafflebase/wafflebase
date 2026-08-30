@@ -706,7 +706,11 @@ describe('read-only store and doc handles', () => {
     }
   });
 
-  function mount(readOnly: boolean) {
+  function mount(readOnly: boolean): {
+    editor: EditorAPI;
+    store: MemDocStore;
+    text: () => string;
+  } {
     const store = new MemDocStore();
     store.setDocument({
       blocks: [
@@ -886,6 +890,44 @@ describe('read-only store and doc handles', () => {
     expect(text()).toBe('hello');
   });
 
+  // `initialize` seeds an empty store with one paragraph so the editor has
+  // something to render. That predates the read-only work and ran before the
+  // guard existed, so a viewer wrote to the shared store — and `setDocument`
+  // replaces the whole tree with `Doc.create()`'s output, which has no
+  // header, no footer and no named styles. A viewer could destroy all three
+  // for every collaborator, in a change they could not undo.
+  //
+  // A zero-block document is unreachable by typing but reachable through the
+  // non-interactive writers (a DOCX with no paragraph in its body, and
+  // `PUT /api/v1/.../content`, which accepts `blocks: []`).
+  test('a read-only mount does not seed an empty store', () => {
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [] });
+    store.setHeader({
+      blocks: [{ id: 'h1', type: 'paragraph', inlines: [{ text: 'confidential', style: {} }], style: EMPTY_BLOCK_STYLE }],
+      marginFromEdge: 48,
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    expect(() => initialize(container, store, undefined, true)).not.toThrow();
+
+    // Nothing written, and the header the placeholder would have dropped is
+    // still there.
+    expect(store.getDocument().blocks).toHaveLength(0);
+    expect(getBlockText(store.getHeader()!.blocks[0])).toBe('confidential');
+  });
+
+  test('control: an editable mount still seeds an empty store', () => {
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [] });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    initialize(container, store, undefined, false);
+
+    expect(store.getDocument().blocks).toHaveLength(1);
+  });
   test('control: the same calls DO write when not read-only', () => {
     const { editor, text } = mount(false);
 

@@ -1031,8 +1031,25 @@ export function initialize(
 
   const docStore = store ?? new MemDocStore();
 
-  // Ensure the store has at least one block
-  if (docStore.getDocument().blocks.length === 0) {
+  // Ensure the store has at least one block — but never from a read-only
+  // mount. This seeding predates the read-only work and runs before the guard
+  // below exists, so a viewer opening a document with no body blocks wrote to
+  // the shared store, and `setDocument` is not an append: it replaces the
+  // whole tree with `Doc.create()`'s single paragraph, which carries no header,
+  // no footer and no named-style registry. A viewer could therefore destroy
+  // all three for every collaborator, in one pushed change they could not undo
+  // (`setDocument` re-arms the undo floor).
+  //
+  // A zero-block document is not reachable by typing — deleting everything
+  // inserts a fresh paragraph first — but it is reachable by the non-
+  // interactive writers: a DOCX whose body holds no paragraph, and
+  // `PUT /api/v1/.../content`, which accepts `blocks: []`.
+  //
+  // Skipping it leaves a viewer looking at a genuinely empty document, which
+  // is the truthful rendering. The layout, pagination and caret paths all
+  // tolerate zero blocks already; the caret id below is the one place that
+  // assumed otherwise.
+  if (!readOnly && docStore.getDocument().blocks.length === 0) {
     const tempDoc = Doc.create();
     docStore.setDocument(tempDoc.document);
   }
@@ -1071,7 +1088,11 @@ export function initialize(
   // paint code does to the visible canvas's ctx.font in between.
   const measurer = new CanvasTextMeasurer();
   const ruler = new Ruler(container, canvas, readOnly);
-  const cursor = new Cursor(doc.document.blocks[0].id);
+  // `?? ''` because the seeding above no longer runs for a read-only mount, so
+  // a zero-block document now reaches here. `Cursor` resolves an unknown id to
+  // no pixel position, and the caret is not painted in a read-only mount
+  // anyway; without the guard this would be a `TypeError` on mount.
+  const cursor = new Cursor(doc.document.blocks[0]?.id ?? '');
   const selection = new Selection();
   let layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };
   let paginatedLayout: PaginatedLayout = { pages: [], pageSetup: resolvePageSetup(undefined) };
