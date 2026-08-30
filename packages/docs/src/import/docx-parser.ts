@@ -1,5 +1,5 @@
 import type { Inline, InlineStyle, BlockStyle, PageSetup, PageMargins, PaperSize } from '../model/types.js';
-import { DEFAULT_BLOCK_STYLE } from '../model/types.js';
+import { DEFAULT_BLOCK_STYLE, resolvePageSetup } from '../model/types.js';
 import { mapRunProperties, mapParagraphProperties } from './docx-style-map.js';
 import { twipsToPx, pointsToEmus, pxToEmus } from './units.js';
 
@@ -285,6 +285,34 @@ export function parseParagraph(pEl: Element): {
 /**
  * Parse <w:sectPr> into PageSetup.
  */
+/**
+ * A `<w:sectPr>` measurement, in px, or `undefined` when the attribute is
+ * absent or is not a usable length.
+ *
+ * A `.docx` is an untrusted file: `parseInt` answers `NaN` for anything
+ * non-numeric and returns negatives verbatim, and the setup parsed here goes
+ * straight into `setDocument`, which writes `root.pageSetup` for every
+ * collaborator. `NaN` or a negative page size makes a content box no layout
+ * pass can consume, so a value that is not a finite length is dropped in
+ * favour of the caller's default rather than carried into the document.
+ *
+ * `allowZero` separates the two kinds: a page dimension of 0 is as broken as
+ * a negative one, while a margin of 0 is a legitimate edge-to-edge layout.
+ */
+function sectPrLengthPx(
+  el: Element,
+  name: string,
+  allowZero: boolean,
+): number | undefined {
+  const raw = el.getAttributeNS(W, name) || el.getAttribute(`w:${name}`);
+  if (!raw) return undefined;
+  const twips = parseInt(raw, 10);
+  if (!Number.isFinite(twips)) return undefined;
+  const px = Math.round(twipsToPx(twips));
+  if (!Number.isFinite(px)) return undefined;
+  return allowZero ? (px >= 0 ? px : undefined) : px > 0 ? px : undefined;
+}
+
 export function parsePageSetup(sectPr: Element): PageSetup {
   const pgSz = sectPr.getElementsByTagNameNS(W, 'pgSz')[0];
   const pgMar = sectPr.getElementsByTagNameNS(W, 'pgMar')[0];
@@ -294,27 +322,27 @@ export function parsePageSetup(sectPr: Element): PageSetup {
   let orientation: 'portrait' | 'landscape' = 'portrait';
 
   if (pgSz) {
-    const w = pgSz.getAttributeNS(W, 'w') || pgSz.getAttribute('w:w');
-    const h = pgSz.getAttributeNS(W, 'h') || pgSz.getAttribute('w:h');
+    const w = sectPrLengthPx(pgSz, 'w', false);
+    const h = sectPrLengthPx(pgSz, 'h', false);
     const orient = pgSz.getAttributeNS(W, 'orient') || pgSz.getAttribute('w:orient');
-    if (w) width = Math.round(twipsToPx(parseInt(w, 10)));
-    if (h) height = Math.round(twipsToPx(parseInt(h, 10)));
+    if (w !== undefined) width = w;
+    if (h !== undefined) height = h;
     if (orient === 'landscape') orientation = 'landscape';
   }
 
   const margins: PageMargins = { top: 96, bottom: 96, left: 96, right: 96 };
   if (pgMar) {
-    const getMargin = (name: string) => {
-      const val = pgMar.getAttributeNS(W, name) || pgMar.getAttribute(`w:${name}`);
-      return val ? Math.round(twipsToPx(parseInt(val, 10))) : undefined;
-    };
-    const t = getMargin('top');     if (t !== undefined) margins.top = t;
-    const b = getMargin('bottom');  if (b !== undefined) margins.bottom = b;
-    const l = getMargin('left');    if (l !== undefined) margins.left = l;
-    const r = getMargin('right');   if (r !== undefined) margins.right = r;
+    for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+      const value = sectPrLengthPx(pgMar, side, true);
+      if (value !== undefined) margins[side] = value;
+    }
   }
 
   const paperSize: PaperSize = { name: 'Custom', width, height };
 
-  return { paperSize, orientation, margins };
+  // Word permits margins that exceed the page (they simply produce an empty
+  // document); the layout engine does not. Route the parsed geometry through
+  // the shared resolver so an import can never plant a closed content box —
+  // the same clamp a hostile CRDT write meets on read.
+  return resolvePageSetup({ paperSize, orientation, margins });
 }

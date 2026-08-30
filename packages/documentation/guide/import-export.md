@@ -9,7 +9,7 @@ the platform.
 | Product | Import | Export |
 |---------|--------|--------|
 | **Sheets** | Excel (`.xlsx`) | — *(CSV/JSON via [CLI](../developers/cli))* |
-| **Docs** | Word (`.docx`) | Word (`.docx`), PDF (`.pdf`) |
+| **Docs** | Word (`.docx`) | Word (`.docx`), PDF (`.pdf`), Markdown (`.md`), plain text (`.txt`) |
 | **Slides** | PowerPoint (`.pptx`) | PowerPoint (`.pptx`), PDF (`.pdf`) |
 | **Notes** | — | — |
 | **PDF** | Upload (`.pdf`) | — *(view-only)* |
@@ -47,6 +47,15 @@ header) and choose:
 - **Word (`.docx`)** — the full document, including tables and headers/footers.
 - **PDF (`.pdf`)** — a paginated, print-ready PDF that mirrors the on-screen
   page layout.
+- **Markdown (`.md`)** — GitHub-Flavoured Markdown. Deliberately lossy:
+  headings, lists, tables, links, images, bold, italic and strikethrough
+  survive; alignment, indent, line spacing, colour, font choice and size,
+  underline, super/subscript, merged and nested table cells, and
+  headers/footers do not. Link and image targets are checked on the way out —
+  anything that is not an ordinary web address (or, for an image, embedded
+  image data) is dropped, leaving the text it wrapped behind.
+- **Plain text (`.txt`)** — the text only, one block per line, with table rows
+  tab-separated. All formatting is dropped.
 
 ### Slides
 

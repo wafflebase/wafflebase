@@ -1,6 +1,6 @@
 import { Doc } from '../model/document.js';
-import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData } from '../model/types.js';
-import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE } from '../model/types.js';
+import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData, PageSetup } from '../model/types.js';
+import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE, MIN_CONTENT_PX } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
 import type { DocStore } from '../store/store.js';
 import type { DocStyles, NamedStyleDef, StyleId } from '../model/named-styles.js';
@@ -98,6 +98,40 @@ export interface EditorAPI {
   clearInlineFormatting(): void;
   /** Apply block style to the block containing the cursor */
   applyBlockStyle(style: Partial<BlockStyle>): void;
+  /**
+   * Format painter — pick up the inline format at the caret. Same entry
+   * point as the `Mod+Shift+C` shortcut; replaces any format already held.
+   */
+  copyFormat(): void;
+  /**
+   * Format painter — apply the held format to the current selection as one
+   * undo step, and report whether anything was written. Same entry point as
+   * the `Mod+Alt+V` shortcut. Nothing held, or nothing selected, is a no-op.
+   * The held format survives the write; call `clearCopiedFormat()` for
+   * single-shot semantics.
+   */
+  pasteFormat(): boolean;
+  /** Format painter — discard the held format. */
+  clearCopiedFormat(): void;
+  /** Format painter — is a format currently held? */
+  hasCopiedFormat(): boolean;
+  /**
+   * Register a listener fired whenever the held format is picked up or
+   * discarded — including from the keyboard shortcuts, so a toolbar toggle
+   * cannot drift out of sync. Returns an unsubscribe function.
+   */
+  onCopiedFormatChange(cb: () => void): () => void;
+  /**
+   * The document's page setup (paper size, orientation, margins), resolved
+   * against the defaults so callers never see `undefined`. Returns a copy —
+   * mutating it does not touch the document.
+   */
+  getPageSetup(): PageSetup;
+  /**
+   * Replace the page setup, repaginate and repaint, as one undo step. Shares
+   * the write path with the ruler's margin drag.
+   */
+  setPageSetup(setup: PageSetup): void;
   /** Undo */
   undo(): void;
   /** Redo */
@@ -904,6 +938,78 @@ export function computeHFSelectionRects(
   return mapHFLayoutRects(
     layoutRects, hfLayout, hf, region, paginatedLayout, canvasWidth, activePageIndex,
   );
+}
+
+/**
+ * Refuse a page setup no layout pass can consume.
+ *
+ * `paginateLayout` derives its content box as `page − margins` and every
+ * consumer downstream — the renderer, the ruler, the PDF exporter — assumes
+ * that box is positive; a closed or negative one is not a smaller document
+ * but a broken one, and it is written into the CRDT for every collaborator.
+ *
+ * The two callers that exist today already respect the invariant (the ruler
+ * refuses a drag that leaves less than 20 px, and the Page Setup dialog
+ * disables Apply), which is exactly why the check belongs here instead: they
+ * are two copies of a rule the write path never stated, and
+ * `EditorAPI.setPageSetup` is public — a CLI, a test or a future panel reaches
+ * it with whatever geometry it likes.
+ *
+ * Throws rather than clamping: silently substituting a different page size
+ * than the caller asked for is the kind of repair that gets noticed months
+ * later, and no legitimate caller has anything to clamp.
+ *
+ * That rationale only holds if the two agree on where the floor is. This
+ * check and `resolvePageSetup`'s clamp share `MIN_CONTENT_PX`, because
+ * `writePageSetup` stores `resolvePageSetup(setup)` — so any geometry the
+ * assert let through but the resolver would rescale is exactly the silent
+ * substitution the paragraph above promises never happens. Everything this
+ * accepts, the resolver returns untouched.
+ *
+ * Every failure is a `RangeError`, including a missing `paperSize` or
+ * `margins`. Those are as reachable as any other bad geometry — the argument
+ * is `PageSetup`-typed, but it arrives from a CLI, a test or a future panel,
+ * and TypeScript is not there at runtime — and reading straight through to
+ * `setup.paperSize.width` reports them as a `TypeError`, which a caller
+ * cannot distinguish from a bug inside the editor.
+ */
+function assertUsablePageSetup(setup: PageSetup): void {
+  if (!setup || !setup.paperSize || !setup.margins) {
+    throw new RangeError(
+      'Invalid page setup: paperSize and margins are both required',
+    );
+  }
+
+  const { width, height } = getEffectiveDimensions(setup);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new RangeError(
+      `Invalid page setup: paper size must be finite and positive (got ` +
+        `${setup.paperSize.width}×${setup.paperSize.height})`,
+    );
+  }
+
+  const { margins } = setup;
+  for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+    const value = margins[side];
+    if (!Number.isFinite(value) || value < 0) {
+      throw new RangeError(
+        `Invalid page setup: ${side} margin must be finite and >= 0 (got ${value})`,
+      );
+    }
+  }
+
+  // Measured against the *effective* box, so the check follows the
+  // orientation rather than the stored paper dimensions.
+  if (margins.left + margins.right > width - MIN_CONTENT_PX) {
+    throw new RangeError(
+      'Invalid page setup: left and right margins leave no room for content',
+    );
+  }
+  if (margins.top + margins.bottom > height - MIN_CONTENT_PX) {
+    throw new RangeError(
+      'Invalid page setup: top and bottom margins leave no room for content',
+    );
+  }
 }
 
 /**
@@ -2041,15 +2147,31 @@ export function initialize(
   // known image dimensions, so no relayout is needed.
   docCanvas.setRequestRender(() => renderPaintOnly());
 
+  /**
+   * The one page-setup write path: snapshot for undo, store, re-read the
+   * document, drop the cached layout so `paginateLayout` runs against the new
+   * paper size / margins, repaint. Driven by both the ruler's margin drag and
+   * `EditorAPI.setPageSetup` (the Page Setup dialog).
+   */
+  const writePageSetup = (setup: PageSetup) => {
+    // Before anything is snapshotted or stored: a setup that closes the
+    // content box is not a smaller document, it is one no layout pass can
+    // consume, and it would be persisted into the CRDT for every collaborator.
+    assertUsablePageSetup(setup);
+    docStore.snapshot();
+    // Copy on the way in — the store keeps what it is handed, and a caller's
+    // object must not stay aliased to document state.
+    docStore.setPageSetup(resolvePageSetup(setup));
+    doc.refresh();
+    invalidateLayout();
+    render();
+  };
+
   // Wire ruler callbacks
   ruler.onMarginChange((margins) => {
-    docStore.snapshot();
     const setup = resolvePageSetup(doc.document.pageSetup);
     setup.margins = { ...margins };
-    docStore.setPageSetup(setup);
-    doc.refresh();
-    layoutCache = undefined;
-    render();
+    writePageSetup(setup);
   });
 
   ruler.onIndentChange((style) => {
@@ -2969,10 +3091,78 @@ export function initialize(
     });
     return hit ? { blockId: hit.blockId, offset: hit.offset } : undefined;
   };
+  /**
+   * The store `EditorAPI.getStore()` hands out: the real `DocStore` with
+   * `setPageSetup` — and only `setPageSetup` — replaced.
+   *
+   * It exists for one reason. `EditorAPI.setPageSetup` refuses geometry no
+   * layout pass can consume (`assertUsablePageSetup`); `DocStore.setPageSetup`
+   * does not; and `getStore()` is public — the export button, the find bar and
+   * the hunt bridge already hold what it returns. Reaching `setPageSetup`
+   * through the store therefore walked around an invariant this editor owns
+   * and persisted a closed content box into the CRDT for every collaborator.
+   * Both doors to that one write now behave the same way.
+   *
+   * It is NOT an access-control boundary, and nothing here should be read as
+   * one. Every other member of `DocStore` — some thirty mutators — forwards
+   * untouched, `getDoc()` hands out a `Doc` that writes straight to the
+   * unwrapped store, and neither is trapped. Read-only across the store handle
+   * is **issue #989**: it predates this wrapper (on `main` neither accessor
+   * was in `MUTATING_METHODS`) and is deliberately out of scope here. The
+   * `readOnly` drop below covers `setPageSetup` and nothing else — it is there
+   * so the two doors to that single write agree, not because the handle is
+   * guarded in general.
+   *
+   * Naming the one guarded method is also what removes any obligation to keep
+   * this in step with `DocStore` as the interface grows: a method added
+   * tomorrow is forwarded, never silently half-guarded. So the proxy earns its
+   * keep on the *forwarding* side, not the guarding side — a hand-written
+   * delegate would need a new line per interface method just to stay a working
+   * store, and a missed one is `undefined` at the call site. Members resolve
+   * off the real store and are bound to it, so no implementation ever observes
+   * the proxy as `this` — and they are memoized per underlying function so
+   * `store.canUndo === store.canUndo` still holds while a method replaced on
+   * the store (a test spy) is still picked up.
+   */
+  const boundStoreMembers = new Map<
+    string | symbol,
+    { raw: unknown; bound: unknown }
+  >();
+  const guardedSetPageSetup = (setup: PageSetup): void => {
+    // Read-only first, so this behaves exactly like `EditorAPI.setPageSetup`
+    // for the one write both reach. Defence in depth over a single method, not
+    // a boundary: it does not make the handle read-only — see #989 above.
+    if (readOnly) return;
+    // The reason the wrapper exists: geometry a layout pass can consume.
+    // `resolvePageSetup` copies on the way in for the same reason
+    // `writePageSetup` does — the store keeps what it is handed. This is still
+    // a store-level write, so it deliberately does not snapshot or repaint;
+    // `getStore()`'s other writes do not either.
+    assertUsablePageSetup(setup);
+    docStore.setPageSetup(resolvePageSetup(setup));
+  };
+  const pageSetupGuardedStore: DocStore = new Proxy(docStore, {
+    get(target, prop) {
+      if (prop === 'setPageSetup') return guardedSetPageSetup;
+      const raw = Reflect.get(target, prop) as unknown;
+      if (typeof raw !== 'function') return raw;
+      const cached = boundStoreMembers.get(prop);
+      if (cached && cached.raw === raw) return cached.bound;
+      const bound = (raw as (...args: unknown[]) => unknown).bind(target);
+      boundStoreMembers.set(prop, { raw, bound });
+      return bound;
+    },
+    set(target, prop, value) {
+      // Assigning over the guard would restore the unvalidated write.
+      if (prop === 'setPageSetup') return false;
+      return Reflect.set(target, prop, value);
+    },
+  });
+
   const api: EditorAPI = {
     render,
     getDoc: () => doc,
-    getStore: () => docStore,
+    getStore: () => pageSetupGuardedStore,
     getSelectionStyle: (): Partial<InlineStyle> => {
       const base = getSelectionStyleImpl(true);
       if (pending.has() && !selection.hasSelection()) {
@@ -3086,6 +3276,21 @@ export function initialize(
       render();
       notifyStyleApplied();
     },
+    copyFormat: () => textEditor?.copyFormat(),
+    pasteFormat: () => {
+      const applied = textEditor?.pasteFormat() ?? false;
+      // Same follow-up the toolbar's other style writes get: the pickers
+      // re-read their summaries off `onCursorMove` even though the caret
+      // has not moved.
+      if (applied) notifyStyleApplied();
+      return applied;
+    },
+    clearCopiedFormat: () => textEditor?.clearCopiedFormat(),
+    hasCopiedFormat: () => textEditor?.hasCopiedFormat() ?? false,
+    onCopiedFormatChange: (cb: () => void) =>
+      textEditor?.onCopiedFormatChange(cb) ?? (() => {}),
+    getPageSetup: () => resolvePageSetup(doc.document.pageSetup),
+    setPageSetup: writePageSetup,
     undo: undoFn,
     redo: redoFn,
     setTheme: (mode: ThemeMode) => {
@@ -4030,6 +4235,11 @@ export function initialize(
   // gate it here too. Keep this allowlist in sync when adding mutating
   // methods. Read-only stays a client-side convenience — the store/server
   // remains the authoritative write boundary for viewer share tokens.
+  //
+  // The allowlist neuters members of `api` itself and nothing beyond them:
+  // `getStore()` and `getDoc()` hand out live handles whose own mutators keep
+  // writing (`getStore()` drops `setPageSetup` alone, as defence in depth over
+  // that one write). Closing those two accessors is issue #989.
   if (readOnly) {
     const MUTATING_METHODS = [
       'applyStyle', 'stepSelectionFontSize', 'clearInlineFormatting', 'applyBlockStyle',
@@ -4040,7 +4250,7 @@ export function initialize(
       'insertTableRow', 'deleteTableRow', 'insertTableColumn',
       'deleteTableColumn', 'mergeTableCells', 'splitTableCell',
       'applyTableCellStyle', 'insertImage', 'updateSelectedImage',
-      'insertPageNumber',
+      'insertPageNumber', 'setPageSetup',
     ] as const;
     const noop = () => {};
     for (const name of MUTATING_METHODS) {
@@ -4048,6 +4258,10 @@ export function initialize(
       // void. A bare no-op satisfies both — callers only await or ignore.
       (api as unknown as Record<string, () => void>)[name] = noop;
     }
+    // `pasteFormat` is mutating too, but it reports whether it wrote. A bare
+    // no-op returns `undefined`, which a caller reads as "nothing applied"
+    // only by accident — be explicit so the neutered version cannot lie.
+    api.pasteFormat = () => false;
   }
 
   return api;

@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import type { Document, Block, Inline, TableData, PageSetup, HeaderFooter } from '../model/types.js';
-import { DEFAULT_PAGE_SETUP } from '../model/types.js';
+import { resolvePageSetup } from '../model/types.js';
 import {
   buildRunPropertiesXml,
   buildParagraphPropertiesXml,
@@ -159,7 +159,13 @@ export class DocxExporter {
 
     // Build document.xml
     const bodyXml = doc.blocks.map((b) => DocxExporter.blockToXml(b, docImageEntries)).join('\n');
-    const sectPr = DocxExporter.buildSectPrXml(doc.pageSetup ?? DEFAULT_PAGE_SETUP, headerRId, footerRId);
+    // Through the resolver, not raw — same argument as the PDF exporter.
+    // A stored page setup reaches export without ever passing the validated
+    // write path (`.docx` import via `setDocument`, or a collaborator's CRDT
+    // write, which `YorkieDocStore.readPageSetup` renders as `NaN` for any
+    // missing field). Read raw, that NaN is written straight into
+    // `<w:pgSz w:w="NaN"/>` — not a smaller page, but a file Word refuses.
+    const sectPr = DocxExporter.buildSectPrXml(resolvePageSetup(doc.pageSetup), headerRId, footerRId);
     const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
             xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"

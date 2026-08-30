@@ -167,4 +167,48 @@ describe('parsePageSetup', () => {
     expect(setup.margins.top).toBeCloseTo(96, 0);
     expect(setup.margins.left).toBeCloseTo(72, 0);
   });
+
+  // ── Hostile geometry ──────────────────────────────────────────────────────
+  // A `.docx` is an untrusted file, and its `<w:sectPr>` attributes reach the
+  // page setup through `parseInt` — which answers `NaN` for anything
+  // non-numeric and happily returns a negative. The parsed setup is stored
+  // through `setDocument`, which writes `root.pageSetup` for every
+  // collaborator, so the import must not be able to plant geometry no layout
+  // pass can consume.
+  const sectPr = (inner: string) =>
+    new DOMParser().parseFromString(
+      `<w:sectPr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${inner}</w:sectPr>`,
+      'text/xml',
+    ).documentElement;
+
+  it.each([
+    ['non-numeric', '<w:pgSz w:w="abc" w:h="xyz"/>'],
+    ['negative', '<w:pgSz w:w="-11906" w:h="-16838"/>'],
+    ['zero', '<w:pgSz w:w="0" w:h="0"/>'],
+    ['empty', '<w:pgSz w:w="" w:h=""/>'],
+  ])('falls back to the Letter default for a %s page size', (_label, inner) => {
+    const setup = parsePageSetup(sectPr(inner));
+    expect(setup.paperSize.width).toBe(816);
+    expect(setup.paperSize.height).toBe(1056);
+  });
+
+  it.each([
+    ['non-numeric', '<w:pgMar w:top="abc" w:right="abc" w:bottom="abc" w:left="abc"/>'],
+    ['negative', '<w:pgMar w:top="-1440" w:right="-1080" w:bottom="-1440" w:left="-1080"/>'],
+  ])('falls back to the default margins for %s values', (_label, inner) => {
+    const setup = parsePageSetup(sectPr(inner));
+    expect(setup.margins).toEqual({ top: 96, bottom: 96, left: 96, right: 96 });
+  });
+
+  it('leaves a positive content box when the margins swallow the page', () => {
+    const setup = parsePageSetup(
+      sectPr(
+        '<w:pgSz w:w="11906" w:h="16838"/>' +
+          '<w:pgMar w:top="20000" w:right="20000" w:bottom="20000" w:left="20000"/>',
+      ),
+    );
+    const { paperSize, margins } = setup;
+    expect(paperSize.width - margins.left - margins.right).toBeGreaterThan(0);
+    expect(paperSize.height - margins.top - margins.bottom).toBeGreaterThan(0);
+  });
 });

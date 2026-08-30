@@ -50,7 +50,7 @@ planned item links to (or will link to) its own design doc.
 | Keyboard shortcuts (Google Docs compatible) | ✅ Partial |
 | Superscript / Subscript | ✅ |
 | Hyperlinks (href, popover, Ctrl+K, auto-detect) | ✅ |
-| Clipboard (JSON, HTML paste, format painter) | ✅ |
+| Clipboard (JSON, HTML paste, format painter — shortcuts + toolbar toggle) | ✅ |
 | Find & Replace (Ctrl+F/H, match highlighting) | ✅ |
 | Tables (cells as Block[], row/column ops, nesting, copy-paste, row split) | ✅ |
 | Images (insert, resize, rotate, crop, alignment) | ✅ |
@@ -67,7 +67,9 @@ planned item links to (or will link to) its own design doc.
 | DOCX import / export, PDF export | ✅ |
 | Multi-column layout, footnotes | ❌ Planned |
 | Insert: special characters, emoji, equations, drawing/shapes, charts, bookmarks, watermark | ❌ Planned |
-| Page setup dialog, tab stops, paragraph spacing UI (models exist, UI missing) | ❌ Planned |
+| Page setup dialog (paper size / orientation / margins) | ✅ |
+| Markdown / plain-text export | ✅ |
+| Tab stops, paragraph spacing UI (models exist, UI missing) | ❌ Planned |
 | Word count, document outline, AutoCorrect/substitutions, citations | ❌ Planned |
 | Smart chips, document tabs, building-block templates (Google Docs) | ❌ Planned |
 | Formatting marks, pageless view | ❌ Planned |
@@ -133,13 +135,18 @@ A 2026-07-01 audit against the Google Docs **Insert / Format / Tools** menus
 and the MS Word **Insert / Layout / References / Review** ribbons surfaced a
 parity surface wider than the original 6-phase plan: an Insert menu (special
 characters, emoji, equations, drawing/shapes, charts, bookmarks &
-cross-references, watermark), page/paragraph controls (a Page Setup **dialog**
-over the already-modeled `PageSetup`, tab stops, first-line/hanging indent and
-paragraph-spacing UI, page color), tools (word count, document outline,
-AutoCorrect/substitutions, citations), Google-Docs smart content (smart chips,
-document tabs, building-block templates), structural UX (formatting marks,
-pageless view), and export wiring (Markdown / plain-text serializers exist in
-the engine but aren't surfaced). Wafflebase stays toolbar-driven — a
+cross-references, watermark), page/paragraph controls (tab stops,
+first-line/hanging indent and paragraph-spacing UI, page color), tools (word
+count, document outline, AutoCorrect/substitutions, citations), Google-Docs
+smart content (smart chips, document tabs, building-block templates), and
+structural UX (formatting marks, pageless view). Three of those items were
+pure wiring over shipped engine capability and have since landed: the Page
+Setup **dialog** over the already-modeled `PageSetup` (see
+[`docs-pagination.md`](docs-pagination.md#page-setup-ui)), Markdown and
+plain-text export over the engine serializers, and a toolbar button for the
+keyboard-only format painter. Word count is *not* in that group — nothing in
+the engine counts words, so it is a feature to build rather than one to
+surface. Wafflebase stays toolbar-driven — a
 File/Edit/View/Insert/Format/Tools menu bar is an explicit non-goal; new
 actions surface through the toolbar, context menus, and `@`-style pickers. The full itemized backlog, with which items already have
 model/engine support and a suggested sequencing, lives in the task tracker:

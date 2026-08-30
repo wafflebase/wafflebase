@@ -163,7 +163,9 @@ export class TextEditor {
    * browsers fire more than one).
    */
   private ignoreInputUntilNextTick = false;
+  /** Format painter — see `copyFormat()`. Never assign directly. */
   private styleBuffer: Partial<InlineStyle> | null = null;
+  private copiedFormatListeners: Array<() => void> = [];
 
   // Software Hangul assembler for browsers that don't fire composition events
   // (e.g., Mobile Safari with hidden textarea sends raw jamo as insertText).
@@ -394,6 +396,147 @@ export class TextEditor {
 
   onEditContextChange(cb: (context: EditContext) => void): void {
     this.editContextChangeCallback = cb;
+  }
+
+  // ─── Format painter ────────────────────────────────────────────────────────
+  // The buffer itself is driven from two places — the Cmd/Ctrl+Shift+C /
+  // Cmd/Ctrl+Alt+V key handlers and (through `EditorAPI`) a toolbar toggle —
+  // so the four operations live here rather than inline in `handleKeyDown`,
+  // and every mutation notifies listeners. A toolbar button that did not see
+  // the keyboard's writes would render an "off" state over a held format.
+
+  /**
+   * Pick up the inline format at the caret (Cmd/Ctrl+Shift+C). Replaces any
+   * previously held format.
+   */
+  copyFormat(): void {
+    this.styleBuffer = this.captureFormatAtCursor(this.formatSourcePosition());
+    this.notifyCopiedFormatChange();
+  }
+
+  /**
+   * Where the painter reads the format from: the first *selected* character
+   * when there is a selection, else the caret.
+   *
+   * `this.cursor.position` sits at the selection's focus, so a right-to-left
+   * drag would otherwise pick up the run immediately before the highlighted
+   * text — the user sees one format highlighted and copies another. The `+1`
+   * is what makes it the first selected character rather than the boundary:
+   * `caretInlineStyle` resolves an offset that sits exactly between two runs
+   * to the *preceding* one (correct for a caret, wrong for a range whose
+   * first character belongs to the following run).
+   *
+   * Two cases the bare `+1` got wrong, both of them the very bug it exists to
+   * prevent, wearing a different hat:
+   *
+   *  - **A selection starting at a block's end.** Dragging from the end of
+   *    one paragraph into the next leaves `start.offset === len`, so `+1`
+   *    lands past every run; `caretInlineStyle` falls through to the block's
+   *    *last* run — the run immediately before the selection. Nothing in that
+   *    block is selected at all, so the source is the first block after it
+   *    that has text.
+   *  - **A table cell rectangle.** `normalizeRange` orders the row/column
+   *    indices of a cell rectangle but passes `start`/`end` through as the
+   *    raw anchor and focus, so a rectangle dragged up-and-left reads the
+   *    cell the user finished on. Worse, for a down-left drag the rectangle's
+   *    first cell is neither endpoint. The ordered rectangle already names
+   *    the right cell, so read from that instead of from either endpoint.
+   */
+  private formatSourcePosition(): DocPosition {
+    const layout = this.getActiveLayout();
+    const normalized = this.selection.getNormalizedRange(layout);
+    if (!normalized) return this.cursor.position;
+
+    // A cell rectangle's first cell is (start.rowIndex, start.colIndex) of
+    // the *ordered* rectangle, which is independent of drag direction.
+    const rect = normalized.tableCellRange;
+    if (rect) {
+      const table = this.doc.findBlock(rect.blockId)?.tableData;
+      const cell = table?.rows[rect.start.rowIndex]?.cells[rect.start.colIndex];
+      const first = cell?.blocks.find((b) => getBlockTextLength(b) > 0)
+        ?? cell?.blocks[0];
+      if (first) return { blockId: first.id, offset: 1 };
+    }
+
+    const startBlock = this.doc.findBlock(normalized.start.blockId);
+    const startLen = startBlock ? getBlockTextLength(startBlock) : 0;
+    if (normalized.start.offset < startLen) {
+      return {
+        blockId: normalized.start.blockId,
+        offset: normalized.start.offset + 1,
+      };
+    }
+
+    // The selection starts past the last character of its start block, so
+    // that block contributes nothing to it. Walk forward to the first block
+    // that actually holds selected text, stopping at the selection's end.
+    const blocks = this.doc.getContextBlocks();
+    const startIdx = blocks.findIndex((b) => b.id === normalized.start.blockId);
+    const endIdx = blocks.findIndex((b) => b.id === normalized.end.blockId);
+    if (startIdx !== -1 && endIdx >= startIdx) {
+      for (let i = startIdx + 1; i <= endIdx; i++) {
+        if (getBlockTextLength(blocks[i]) > 0) {
+          return { blockId: blocks[i].id, offset: 1 };
+        }
+      }
+    }
+
+    // Nothing selected carries text (an empty block, or a selection the
+    // layout cannot place). The block's own last run is the honest answer.
+    return { blockId: normalized.start.blockId, offset: normalized.start.offset };
+  }
+
+  /**
+   * Apply the held format to the current selection (Cmd/Ctrl+Alt+V), as one
+   * undo step. Returns whether anything was written — nothing is held, or
+   * nothing is selected, is a silent no-op.
+   *
+   * The buffer deliberately survives the write: the keyboard flow lets one
+   * pick-up be pasted onto several selections in a row. Callers that want
+   * single-shot semantics call `clearCopiedFormat()` afterwards.
+   */
+  pasteFormat(): boolean {
+    // View-only mode: block the programmatic write, the same way
+    // `insertText()` does. The keydown handler already returns early in
+    // read-only and `initialize()` neuters the `EditorAPI` entry point, but
+    // this class is publicly exported and the guard belongs on the mutator
+    // rather than on each of its call sites.
+    if (this.readOnly) return false;
+    if (!this.styleBuffer) return false;
+    if (!this.selection.hasSelection() || !this.selection.range) return false;
+    this.saveSnapshot();
+    // Through the shared write path so a cell rectangle restyles the
+    // selected cells, not the whole table.
+    this.applyStyleToSelection(this.selection.range, this.styleBuffer);
+    return true;
+  }
+
+  /** Discard the held format. No-op when nothing is held. */
+  clearCopiedFormat(): void {
+    if (this.styleBuffer === null) return;
+    this.styleBuffer = null;
+    this.notifyCopiedFormatChange();
+  }
+
+  /** Is a format currently held by the painter? */
+  hasCopiedFormat(): boolean {
+    return this.styleBuffer !== null;
+  }
+
+  /**
+   * Register a listener fired whenever the held format is picked up or
+   * discarded. Returns an unsubscribe function.
+   */
+  onCopiedFormatChange(cb: () => void): () => void {
+    this.copiedFormatListeners.push(cb);
+    return () => {
+      const i = this.copiedFormatListeners.indexOf(cb);
+      if (i !== -1) this.copiedFormatListeners.splice(i, 1);
+    };
+  }
+
+  private notifyCopiedFormatChange(): void {
+    for (const cb of [...this.copiedFormatListeners]) cb();
   }
 
   onCompositionStart(cb: (startPos: DocPosition) => void): void {
@@ -1024,7 +1167,7 @@ export class TextEditor {
         // Cmd/Ctrl+Shift+C: copy formatting (format painter)
         if (mod && shiftKey) {
           e.preventDefault();
-          this.styleBuffer = this.captureFormatAtCursor();
+          this.copyFormat();
         }
         break;
       case 'b':
@@ -1164,12 +1307,7 @@ export class TextEditor {
         // Cmd/Ctrl+Alt+V: paste formatting (format painter apply)
         if (mod && altKey) {
           e.preventDefault();
-          if (this.styleBuffer && this.selection.hasSelection() && this.selection.range) {
-            this.saveSnapshot();
-            // Through the shared write path so a cell rectangle restyles the
-            // selected cells, not the whole table.
-            this.applyStyleToSelection(this.selection.range, this.styleBuffer);
-          }
+          this.pasteFormat();
           break;
         }
         // Cmd/Ctrl+Shift+V: paste as plain text (strip formatting)
@@ -3339,12 +3477,26 @@ export class TextEditor {
    * block's named-style default — so painting from an italic Heading 6 makes
    * the target italic instead of clearing it. Only the booleans are baked
    * this way; the other keys stay raw, keeping the lazy cascade intact.
+   *
+   * `image`, `pageNumber` and `href` are dropped: they are structural inline
+   * kinds — *what the run is* — not how it looks, which is why
+   * `CLEAR_INLINE_STYLE` leaves the first two out too. The buffer is merged
+   * over every run of the target selection, so carrying them would graft the
+   * source's image / page-number field / hyperlink onto each of those runs.
    */
-  private captureFormatAtCursor(): Partial<InlineStyle> {
-    const raw = this.getStyleAtCursor();
-    const defaults = this.styleDefaultsAtCursor();
+  private captureFormatAtCursor(
+    position: DocPosition = this.cursor.position,
+  ): Partial<InlineStyle> {
+    const full = caretInlineStyle(this.doc, position);
+    const defaults = caretStyleDefaults(this.doc, position);
     const on = (key: keyof InlineStyle): boolean =>
-      ((raw[key] ?? defaults[key]) as boolean | undefined) === true;
+      ((full[key] ?? defaults[key]) as boolean | undefined) === true;
+    const {
+      image: _image,
+      pageNumber: _pageNumber,
+      href: _href,
+      ...raw
+    } = full;
     return {
       ...raw,
       bold: on('bold'),

@@ -760,8 +760,8 @@ confirmation payload in JSON.
 | strikethrough                              | `~~text~~`                                                               |
 | color / background / font / size           | dropped                                                                  |
 | superscript / subscript                    | dropped                                                                  |
-| link                                       | `[text](href)`                                                           |
-| image                                      | `![alt](src)`; if `--inline-images=false` (default), `data:` URLs become `[image]` |
+| link                                       | `[text](href)`; the destination must be a *literal* one — only RFC 3986 URI characters (so no `<`, `>` or `\`, the three a CommonMark renderer rewrites), no whitespace or control characters, and no `&…;` entity reference — and must then either carry a safe scheme or be relative. An unsafe scheme (`javascript:`, `data:text/html`, …), a scheme-relative `//host/x`, or a first path segment containing a colon (`foo:bar/x`, which RFC 3986 §4.2 says every parser reads as a scheme — spell it `./foo:bar/x`) drop the link and keep the text. Relative targets (`/uploads/x`, `./x`, `#anchor`) are kept; parentheses are backslash-escaped |
+| image                                      | `![alt](src)`; if `--inline-images=false` (default), `data:` URLs become `[image]`, as does any source the link rule above would reject — except `data:image/…`, which `--inline-images` exists to carry |
 | page-number marker                         | literal `#` at its location                                              |
 | header / footer                            | included only when `--include-header-footer=true`                        |
 

@@ -2,6 +2,13 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { MemDocStore } from '../../src/store/memory.js';
 import { initialize, type EditorAPI } from '../../src/view/editor.js';
+import { Doc } from '../../src/model/document.js';
+import { Cursor } from '../../src/view/cursor.js';
+import { Selection } from '../../src/view/selection.js';
+import { TextEditor } from '../../src/view/text-editor.js';
+import type { DocumentLayout } from '../../src/view/layout.js';
+import type { PaginatedLayout } from '../../src/view/pagination.js';
+import type { TextMeasurer } from '../../src/view/measurer.js';
 import { createTableBlock, getBlockText, normalizeBlockStyle } from '../../src/model/types.js';
 import type { Block } from '../../src/model/types.js';
 
@@ -554,5 +561,120 @@ describe('read-only image resize drag', () => {
     expect(editor.getSelectedImage()?.data.src).toBe(IMAGE.src);
     expect(resizeCursorCount(container)).toBe(0);
     editor.dispose();
+  });
+});
+
+/**
+ * `TextEditor` is exported from the package root, so `initialize()`'s
+ * `MUTATING_METHODS` allowlist is not the only thing standing between a
+ * read-only mount and a write — anything holding the instance can call a
+ * mutator on it directly. Every other programmatic mutator on the class
+ * (`insertText()` is the model) carries its own `readOnly` guard for that
+ * reason; `pasteFormat()` is tested here against the class, not the API.
+ */
+describe('TextEditor.pasteFormat() read-only guard', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
+    if (originalResizeObserver === undefined) {
+      delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    } else {
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = originalResizeObserver;
+    }
+  });
+
+  /**
+   * A bare `TextEditor` over two paragraphs. Only the collaborators
+   * `copyFormat` / `pasteFormat` actually touch are real. `copyFormat` reads
+   * the layout to resolve which end of the selection the format comes from
+   * (a backward drag picks up the first *highlighted* character, not the
+   * caret), so the block layout is stubbed with just the two blocks it walks;
+   * the paginated layout and the measurer stay unreachable, since the write
+   * itself goes through `Doc` and reads no geometry.
+   */
+  function bareTextEditor(readOnly: boolean) {
+    const store = new MemDocStore();
+    store.setDocument({
+      blocks: [
+        {
+          id: 'source',
+          type: 'paragraph',
+          inlines: [{ text: 'styled', style: { bold: true } }],
+          style: EMPTY_BLOCK_STYLE,
+        },
+        para('target', 'plain'),
+      ],
+    });
+    const doc = new Doc(store);
+    const cursor = new Cursor('source', 0);
+    const selection = new Selection();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const unreached = () => {
+      throw new Error('layout should not be read on the format-painter path');
+    };
+    // `copyFormat` resolves the selection's start through the block layout;
+    // with no range set it falls back to the caret, so an empty layout is
+    // enough. The paginated layout and the measurer stay unreachable — the
+    // write goes through `Doc` and touches no geometry.
+    const blockLayout = () =>
+      ({ blocks: [], blockParentMap: new Map() }) as unknown as DocumentLayout;
+    const snapshots: number[] = [];
+    const textEditor = new TextEditor(
+      container,
+      doc,
+      cursor,
+      selection,
+      blockLayout,
+      unreached as unknown as () => PaginatedLayout,
+      unreached as unknown as () => TextMeasurer,
+      () => 800,
+      () => 1,
+      () => 0,
+      () => {},
+      () => snapshots.push(1),
+      () => {},
+      () => {},
+      () => {},
+      () => {},
+      undefined,
+      undefined,
+      readOnly,
+    );
+    const targetStyle = () => doc.document.blocks[1].inlines[0].style;
+    return { textEditor, selection, snapshots, targetStyle };
+  }
+
+  function pickUpAndPaste(readOnly: boolean) {
+    const ctx = bareTextEditor(readOnly);
+    ctx.textEditor.copyFormat();
+    ctx.selection.setRange({
+      anchor: { blockId: 'target', offset: 0 },
+      focus: { blockId: 'target', offset: 5 },
+    });
+    const applied = ctx.textEditor.pasteFormat();
+    return { ...ctx, applied };
+  }
+
+  test('reports no write, writes nothing, and takes no snapshot', () => {
+    const { applied, targetStyle, snapshots } = pickUpAndPaste(true);
+
+    expect(applied).toBe(false);
+    expect(targetStyle().bold).toBeUndefined();
+    // A snapshot with no write behind it would cost an empty undo step.
+    expect(snapshots).toHaveLength(0);
+  });
+
+  test('control: the same call DOES restyle when not read-only', () => {
+    const { applied, targetStyle, snapshots } = pickUpAndPaste(false);
+
+    expect(applied).toBe(true);
+    expect(targetStyle().bold).toBe(true);
+    expect(snapshots).toHaveLength(1);
   });
 });

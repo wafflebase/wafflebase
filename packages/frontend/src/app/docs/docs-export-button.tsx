@@ -16,6 +16,7 @@ import type { Document as DocsDocument } from "@wafflebase/docs";
 import type { EditorAPI } from "./docs-view";
 import { exportDocxAndDownload } from "./docx-actions";
 import { exportPdfAndDownload } from "./pdf-actions";
+import { exportMarkdownAndDownload, exportTextAndDownload } from "./text-actions";
 import { updateExportToast } from "./export-utils";
 
 interface DocsExportButtonProps {
@@ -25,9 +26,12 @@ interface DocsExportButtonProps {
 
 /**
  * Header "Export" menu for the docs editor — icon-only to save space,
- * mirroring the slides header. Offers DOCX and PDF (the same actions the
- * formatting toolbar's Export dropdown exposes), reading the live
- * document straight off the editor's store.
+ * mirroring the slides header. Offers DOCX, PDF, Markdown and plain text,
+ * reading the live document straight off the editor's store.
+ *
+ * The two text formats reuse the serializers the CLI already prints from
+ * (`wafflebase docs content --format md|text`); they report no progress
+ * because they walk the document in one synchronous pass.
  */
 export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
   const [exporting, setExporting] = useState(false);
@@ -38,7 +42,9 @@ export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
     onProgress?: (d: number, t: number, p: string) => void,
   ) => Promise<void>;
 
-  const runExport = async (kind: "docx" | "pdf", fn: ExportAction) => {
+  type ExportKind = "docx" | "pdf" | "markdown" | "text";
+
+  const runExport = async (kind: ExportKind, fn: ExportAction) => {
     if (!editor || exporting) return;
     setExporting(true);
     const t = title || "document";
@@ -98,6 +104,22 @@ export function DocsExportButton({ editor, title }: DocsExportButtonProps) {
         >
           <IconFileDownload size={16} className="mr-2" />
           PDF (.pdf)
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="cursor-pointer"
+          disabled={exporting}
+          onSelect={() => runExport("markdown", exportMarkdownAndDownload)}
+        >
+          <IconFileDownload size={16} className="mr-2" />
+          Markdown (.md)
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="cursor-pointer"
+          disabled={exporting}
+          onSelect={() => runExport("text", exportTextAndDownload)}
+        >
+          <IconFileDownload size={16} className="mr-2" />
+          Plain text (.txt)
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

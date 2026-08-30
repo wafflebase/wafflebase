@@ -457,3 +457,140 @@ describe('PdfExporter (outline)', () => {
     expect(outlines).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Link annotations
+// ---------------------------------------------------------------------------
+/**
+ * `PdfPainter` gates every `style.href` on `isSafeUrl`, which answers `false`
+ * for a relative reference as well as for an unsafe scheme. That makes the PDF
+ * export deliberately stricter than the Markdown serializer, which keeps
+ * relative targets — a `.md` file is read next to the site it came from, while
+ * a downloaded PDF carries no base URI to resolve one against (this exporter
+ * writes none; PDF 32000-1 §12.6.4.7), so a relative `/URI` action is dead or
+ * viewer-dependent.
+ *
+ * Pinned here because the divergence is easy to mistake for an oversight and
+ * "fix" by loosening the gate. The separate parser-differential defect in this
+ * gate — it validates `style.href` and then writes the raw string rather than
+ * what it validated — is issue #988 and is not addressed by these tests.
+ */
+describe('PdfExporter — link annotation targets', () => {
+  function linkDoc(href: string): Document {
+    return {
+      blocks: [{
+        id: generateBlockId(),
+        type: 'paragraph',
+        inlines: [{ text: 'Click me', style: { href } }],
+        style: { ...DEFAULT_BLOCK_STYLE },
+      }],
+    };
+  }
+
+  /**
+   * The distinct URI targets of every Link annotation in the export.
+   * Distinct because the painter emits one annotation per drawn text segment,
+   * so a single run can produce several identical annotations — a detail of
+   * how the text is measured, not of the gate under test here.
+   */
+  async function linkUris(doc: Document): Promise<string[]> {
+    const blob = await PdfExporter.export(doc, exportOpts());
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
+      updateMetadata: false,
+    });
+    const uris: string[] = [];
+    for (const page of pdfDoc.getPages()) {
+      const annots = page.node.lookup(PDFName.of('Annots'));
+      if (!(annots instanceof PDFArray)) continue;
+      for (let i = 0; i < annots.size(); i++) {
+        const annot = annots.lookup(i);
+        if (!(annot instanceof PDFDict)) continue;
+        const action = annot.lookup(PDFName.of('A'));
+        if (!(action instanceof PDFDict)) continue;
+        const uri = action.lookup(PDFName.of('URI'));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (uri) uris.push((uri as any).decodeText());
+      }
+    }
+    return [...new Set(uris)];
+  }
+
+  it('writes an annotation for an absolute safe URL', async () => {
+    expect(await linkUris(linkDoc('https://example.com/a'))).toEqual([
+      'https://example.com/a',
+    ]);
+  });
+
+  it('writes no annotation for an unsafe scheme', async () => {
+    expect(await linkUris(linkDoc('javascript:alert(1)'))).toEqual([]);
+  });
+
+  it('writes no annotation for a relative target, unlike Markdown export', async () => {
+    expect(await linkUris(linkDoc('/uploads/report.pdf'))).toEqual([]);
+    expect(await linkUris(linkDoc('./diagram.png'))).toEqual([]);
+    expect(await linkUris(linkDoc('#anchor'))).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unusable stored geometry
+// ---------------------------------------------------------------------------
+// Same argument as the DOCX exporter's matching suite: `resolvePageSetup` is
+// the model's single read path for stored geometry, and the Export menu can
+// hand either exporter a `pageSetup` no local write ever validated — a `.docx`
+// import's parsed geometry, or a collaborator's CRDT write, which
+// `YorkieDocStore.readPageSetup` renders as `NaN` for any missing field.
+// Reading `doc.pageSetup` raw propagates that NaN into the content width, the
+// pagination and finally the page's MediaBox: `paginateLayout` terminates, so
+// the failure is a corrupt PDF rather than a hang.
+describe('PdfExporter — unusable stored page setup', () => {
+  const nanSetup = {
+    paperSize: { name: 'Letter', width: NaN, height: NaN },
+    orientation: 'portrait' as const,
+    margins: { top: NaN, bottom: NaN, left: NaN, right: NaN },
+  };
+
+  const docWith = (pageSetup: unknown): Document => ({
+    blocks: [{
+      id: generateBlockId(),
+      type: 'paragraph',
+      inlines: [{ text: 'Hello', style: {} }],
+      style: { ...DEFAULT_BLOCK_STYLE },
+    }],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    pageSetup: pageSetup as any,
+  });
+
+  it('emits finite page dimensions for a NaN page setup', async () => {
+    const blob = await PdfExporter.export(docWith(nanSetup), exportOpts());
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer());
+    const pages = pdfDoc.getPages();
+    expect(pages.length).toBeGreaterThan(0);
+    for (const page of pages) {
+      const { width, height } = page.getSize();
+      expect(Number.isFinite(width)).toBe(true);
+      expect(Number.isFinite(height)).toBe(true);
+      expect(width).toBeGreaterThan(0);
+      expect(height).toBeGreaterThan(0);
+    }
+  });
+
+  it('matches the default-geometry export, since that is what it falls back to', async () => {
+    const nan = await PdfExporter.export(docWith(nanSetup), exportOpts());
+    const bare = await PdfExporter.export(docWith(undefined), exportOpts());
+    const nanPage = (await PDFDocument.load(await nan.arrayBuffer())).getPage(0);
+    const barePage = (await PDFDocument.load(await bare.arrayBuffer())).getPage(0);
+    expect(nanPage.getSize()).toEqual(barePage.getSize());
+  });
+
+  it('survives a page setup missing paperSize and margins entirely', async () => {
+    const blob = await PdfExporter.export(
+      docWith({ orientation: 'portrait' }),
+      exportOpts(),
+    );
+    const page = (await PDFDocument.load(await blob.arrayBuffer())).getPage(0);
+    const { width, height } = page.getSize();
+    expect(Number.isFinite(width) && width > 0).toBe(true);
+    expect(Number.isFinite(height) && height > 0).toBe(true);
+  });
+});
