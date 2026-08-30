@@ -1,4 +1,3 @@
-import { Tree } from '@yorkie-js/sdk';
 import type { DocsRangeAnchor, Thread } from '@/types/comments.ts';
 
 /**
@@ -27,13 +26,30 @@ export type YorkieDocsRoot = {
 /**
  * Initial Yorkie document root for a new docs document.
  *
- * The Tree CRDT is created here so that `client.attach({ initialRoot })`
- * runs the setup inside the SDK and clears the undo stack right after
- * (yorkie-js-sdk PR #1238). If we instead call `doc.update` after
- * attach to populate the Tree, the setup ends up on the undo stack —
- * a long enough Cmd+Z sequence then unwinds it and destroys the
- * initial block, crashing `text-editor.handleInput` with "Block not
- * found".
+ * Deliberately seeds no `content`. It used to, on the reasoning that
+ * creating the Tree inside `client.attach({ initialRoot })` keeps the setup
+ * off the undo stack (yorkie-js-sdk PR #1238) — otherwise a long enough
+ * Cmd+Z unwinds it, destroys the initial block and crashes
+ * `text-editor.handleInput` with "Block not found".
+ *
+ * That reasoning was sound but the code never delivered it. A `Tree` is
+ * recognized by `instanceof` against the class belonging to whichever copy
+ * of the SDK owns the document, and this module is shared by two of them:
+ * `@yorkie-js/react`'s `DocumentProvider` bundles its own SDK (the editor
+ * routes and share links), while `apply-imported-content` drives a plain
+ * `@yorkie-js/sdk` client. A Tree built from either one is unrecognized by
+ * the other and materializes as a plain `CRDTObject`, so whichever class
+ * this file picked, one path got a placeholder rather than a Tree.
+ *
+ * Seeding nothing removes the choice instead of moving it, and costs
+ * nothing, because every consumer already creates the Tree in its own
+ * realm: `ensureTree` in `docs-view.tsx` for the provider paths (calling
+ * `clearHistory()` afterwards, which is what preserves the undo property
+ * above), `writeFullDocument` for the import path, and the backend's own
+ * `writeDocsRoot`. It also removes a write: attach used to store a
+ * placeholder that `ensureTree` overwrote a moment later.
+ *
+ * `comments` stays. It is a plain object, so no class identity is involved.
  *
  * `comments` is initialized to an empty map for the same reason it must
  * be created once: Yorkie resolves concurrent assignment of the same
@@ -44,27 +60,26 @@ export type YorkieDocsRoot = {
  * bootstrap means all replicas share one container and concurrent
  * inserts only set distinct keys, which merge cleanly.
  */
+/**
+ * The root a share-link visitor should attach with, given their role.
+ *
+ * The Yorkie SDK writes every `initialRoot` key the document does not
+ * already have, on each attach — so seeding from a viewer's client means a
+ * viewer creates `comments` on a never-edited document just by opening the
+ * link. That is a write to a shared document from the one role that must
+ * not make them, and it happens before any of the editor's read-only
+ * machinery exists.
+ *
+ * Nothing a viewer can do needs it: every `root.comments` read is
+ * existence-guarded, an editor's first comment creates the container lazily,
+ * and commenting is `readOnly`-gated. The LWW argument above is about two
+ * *editors* racing on a first comment, and editors still seed.
+ */
+export function docsInitialRootForRole(
+  role: string,
+): Partial<YorkieDocsRoot> {
+  return role === 'viewer' ? {} : initialDocsRoot();
+}
 export function initialDocsRoot(): Partial<YorkieDocsRoot> {
-  return {
-    comments: {},
-    content: new Tree({
-      type: 'doc',
-      children: [
-        {
-          type: 'block',
-          attributes: {
-            id: `block-${Date.now()}-0`,
-            type: 'paragraph',
-            alignment: 'left',
-            lineHeight: '1.5',
-            marginTop: '0',
-            marginBottom: '8',
-            textIndent: '0',
-            marginLeft: '0',
-          },
-          children: [{ type: 'inline', children: [] }],
-        },
-      ],
-    }),
-  };
+  return { comments: {} };
 }

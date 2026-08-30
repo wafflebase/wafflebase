@@ -16,10 +16,44 @@
 export const SAFE_PROTOCOLS = ['http:', 'https:', 'mailto:', 'tel:'];
 
 /**
+ * Whitespace plus the C0 and C1 control characters (`\t`, `\n` and `\r` fall
+ * in both halves).
+ *
+ * This is the class the WHATWG URL parser *rewrites*: it deletes tab, CR and
+ * LF anywhere in the input and trims leading/trailing C0-or-space, all before
+ * it reads the scheme. So an href carrying one of these is not the same string
+ * to `new URL()` as it is to whoever writes it out — a gate that validates the
+ * parsed form and then emits the raw bytes is judging a different string than
+ * the one it ships (issue #988).
+ *
+ * Refusing the whole class, rather than modelling each rewrite, is what keeps
+ * the two the same string. Emitters have their own reasons to want the same
+ * rule — a space terminates a CommonMark link destination, and is not
+ * something normalization would have stripped — so the class earns its keep
+ * twice over.
+ */
+const URL_ALTERING_CHARS = /[\s\u0000-\u001F\u007F-\u009F]/;
+
+/**
+ * Does `href` carry a character a URL parser would delete or trim?
+ *
+ * Lives beside `isSafeUrl` because it is that function's precondition: the
+ * allowlist below judges `new URL(href).protocol`, which is only the same
+ * decision as judging `href` when the parser leaves `href` alone. Every
+ * emitter that validates one string and then writes it out needs both.
+ */
+export function hasUrlAlteringChars(href: string): boolean {
+  return URL_ALTERING_CHARS.test(href);
+}
+
+/**
  * Check if a URL has a safe protocol (not `javascript:`, `data:`, etc.).
  *
  * Returns `false` for invalid or relative URLs — callers must pass an
  * absolute URL with an explicit scheme (normalize schemeless input first).
+ *
+ * Callers that go on to *emit* the string they validated must pair this with
+ * `hasUrlAlteringChars`, which see.
  */
 export function isSafeUrl(href: string): boolean {
   try {

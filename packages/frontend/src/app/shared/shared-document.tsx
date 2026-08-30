@@ -11,16 +11,22 @@ import SheetView from "@/app/spreadsheet/sheet-view";
 import {
   SpreadsheetDocument,
   TabMeta,
-  initialSpreadsheetDocument,
+  sheetsInitialRootForRole,
 } from "@/types/worksheet";
-import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
 import {
-  initialNotesRoot,
+  docsInitialRootForRole,
+  type YorkieDocsRoot,
+} from "@/types/docs-document";
+import {
+  notesInitialRootForRole,
   noteUserColor,
   type YorkieNotesRoot,
 } from "@/types/notes-document";
 import type { YorkieSlidesRoot } from "@/types/slides-document";
-import { initialBoardRoot, type YorkieBoardRoot } from "@/types/board-document";
+import {
+  boardInitialRootForRole,
+  type YorkieBoardRoot,
+} from "@/types/board-document";
 import type { UserPresence as UserPresenceType } from "@/types/users";
 import { UserPresence } from "@/components/user-presence";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -73,6 +79,25 @@ const DataSourceView = lazy(() =>
     default: module.DataSourceView,
   })),
 );
+
+/**
+ * A shared spreadsheet whose workbook has no sheets yet. Reachable when the
+ * document was created through the API and shared before anyone opened it,
+ * so no client has ever written its root.
+ */
+function SharedEmptySpreadsheet({ title }: { title: string }) {
+  return (
+    <div className="flex h-screen w-full items-center justify-center p-6 text-center">
+      <div className="max-w-md space-y-2">
+        <h2 className="text-sm font-medium">{title}</h2>
+        <p className="text-sm text-muted-foreground">
+          This spreadsheet has no sheets yet. It will appear here once
+          someone with edit access opens it.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Lakehouse endpoints require JWT workspace membership. This placeholder
@@ -219,8 +244,17 @@ function SharedDocumentLayout({
     return <Loader />;
   }
 
+  // A workbook with no tabs is not a blank grid, it is no grid — and
+  // `activeTabId` can only be null because there is nothing to select. The
+  // bare loader here spun forever in that state; it was unreachable only
+  // because every visitor, viewer included, seeded a `Sheet1` from their own
+  // client on attach. Viewers no longer do, so the case needs an exit.
   if (!activeTabId) {
-    return <Loader />;
+    return tabs.length === 0 ? (
+      <SharedEmptySpreadsheet title={resolved.title} />
+    ) : (
+      <Loader />
+    );
   }
 
   const activeTab = root.tabs[activeTabId];
@@ -907,7 +941,17 @@ function SharedDocumentInner({
       {resolved.type === "doc" ? (
         <DocumentProvider<YorkieDocsRoot>
           docKey={docKey}
-          initialRoot={initialDocsRoot()}
+          // A viewer must not seed the root. The SDK writes every
+          // `initialRoot` key the document does not already have, on each
+          // attach — so a viewer opening a share link to a never-edited
+          // document created `content` and `comments` from their own client.
+          // Nothing a viewer can do needs either key: every `root.comments`
+          // read is existence-guarded (`yorkie-comment-store.ts`), an
+          // editor's first comment creates the container lazily, and viewers
+          // cannot add comments at all. The LWW argument for seeding
+          // `comments` is about two *editors* racing on the first comment,
+          // and editors still seed.
+          initialRoot={docsInitialRootForRole(resolved.role)}
           initialPresence={presence}
           enableDevtools={import.meta.env.DEV}
         >
@@ -925,7 +969,7 @@ function SharedDocumentInner({
       ) : resolved.type === "note" ? (
         <DocumentProvider<Partial<YorkieNotesRoot>>
           docKey={docKey}
-          initialRoot={initialNotesRoot()}
+          initialRoot={notesInitialRootForRole(resolved.role)}
           initialPresence={{
             ...presence,
             color: noteUserColor(presence.username),
@@ -940,7 +984,7 @@ function SharedDocumentInner({
       ) : resolved.type === "board" ? (
         <DocumentProvider<Partial<YorkieBoardRoot>>
           docKey={docKey}
-          initialRoot={initialBoardRoot()}
+          initialRoot={boardInitialRootForRole(resolved.role)}
           initialPresence={{
             ...presence,
             selectedElementIds: [],
@@ -953,7 +997,7 @@ function SharedDocumentInner({
       ) : (
         <DocumentProvider
           docKey={docKey}
-          initialRoot={initialSpreadsheetDocument()}
+          initialRoot={sheetsInitialRootForRole(resolved.role)}
           initialPresence={presence}
           enableDevtools={import.meta.env.DEV}
         >

@@ -471,9 +471,12 @@ describe('PdfExporter (outline)', () => {
  * viewer-dependent.
  *
  * Pinned here because the divergence is easy to mistake for an oversight and
- * "fix" by loosening the gate. The separate parser-differential defect in this
- * gate — it validates `style.href` and then writes the raw string rather than
- * what it validated — is issue #988 and is not addressed by these tests.
+ * "fix" by loosening the gate.
+ *
+ * The two defects that used to live at this emission site are pinned below:
+ * the gate validating a normalized string while the raw one is written
+ * (#988), and the raw one then being spliced into a PDF literal that escapes
+ * nothing (#990).
  */
 describe('PdfExporter — link annotation targets', () => {
   function linkDoc(href: string): Document {
@@ -529,6 +532,137 @@ describe('PdfExporter — link annotation targets', () => {
     expect(await linkUris(linkDoc('/uploads/report.pdf'))).toEqual([]);
     expect(await linkUris(linkDoc('./diagram.png'))).toEqual([]);
     expect(await linkUris(linkDoc('#anchor'))).toEqual([]);
+  });
+
+  // ── The parser differential (#988) ──────────────────────────────────────
+  // `isSafeUrl` parses with WHATWG `new URL()`, which deletes every tab, CR
+  // and LF and trims C0-or-space *before* it reads the scheme. Gating on that
+  // and then writing `style.href` verbatim means the string that cleared the
+  // allowlist is not the string the annotation carries. Same payload table as
+  // the Markdown serializer's matching suite, because it is the same defect
+  // in a different emission site.
+  const BREAKOUT_PAYLOADS: Array<[string, string]> = [
+    ['a tab', 'https://example.com/a\tb'],
+    ['a line feed', 'https://example.com/a\nb'],
+    ['a carriage return', 'https://example.com/a\rb'],
+    ['a CRLF', 'https://example.com/a\r\nb'],
+    ['a space', 'https://example.com/a b'],
+    // Normalization strips the newline mid-scheme, so the *validated* string
+    // reads `javascript:` while the raw one names no scheme at all.
+    ['a scheme split by a newline', 'java\nscript:alert(1)'],
+    ['leading whitespace', '  https://example.com/a'],
+  ];
+
+  it.each(BREAKOUT_PAYLOADS)(
+    'writes no annotation for an href containing %s',
+    async (_label, href) => {
+      expect(await linkUris(linkDoc(href))).toEqual([]);
+    },
+  );
+
+  // ── PDF literal syntax (#990) ───────────────────────────────────────────
+  // `PDFString.of` escapes nothing, so an unbalanced `)` closed the literal,
+  // the following `>>` closed the annotation's `/A` dictionary, and the rest
+  // of the href became PDF syntax. Both assertions below failed before the
+  // fix — the injection one by emitting a different URI, and `PDFDocument`
+  // .load throwing outright on the malformed object.
+  it('round-trips an href containing PDF literal delimiters', async () => {
+    // Parens are ordinary URI characters the serializer keeps, so they
+    // reach the literal and must be escaped there.
+    expect(await linkUris(linkDoc('https://example.com/a)b'))).toEqual([
+      'https://example.com/a)b',
+    ]);
+    expect(await linkUris(linkDoc('https://example.com/a(b'))).toEqual([
+      'https://example.com/a(b',
+    ]);
+  });
+
+  // The other half of #988: a URL parser rewrites more than whitespace.
+  // For a special scheme it folds a backslash into `/`, so the authority
+  // `isSafeUrl` judged and the one a raw string resolves to under an RFC
+  // 3986 parser are different hosts. Writing the serialization is what
+  // makes the judged string and the written string the same string.
+  it('writes the authority the gate validated, not the raw one', async () => {
+    expect(await linkUris(linkDoc('https://good.com\\@evil.com/'))).toEqual([
+      'https://good.com/@evil.com/',
+    ]);
+  });
+
+
+  // pdf-lib writes a literal one *byte* per UTF-16 code unit, truncating
+  // each `charCodeAt`. So a non-ASCII character whose low byte is 0x28 /
+  // 0x29 / 0x5C emits a raw delimiter that an escaper working on code
+  // points never sees — U+0429 re-opened the injection above, and U+0428
+  // corrupted the file outright. Percent-encoding non-ASCII before the
+  // escape is what makes the escape total.
+  it.each([
+    ['U+0429, whose low byte is `)`', String.fromCharCode(0x0429)],
+    ['U+0428, whose low byte is `(`', String.fromCharCode(0x0428)],
+    ['U+D55C, whose low byte is a backslash', String.fromCharCode(0xd55c)],
+  ])('does not let %s reach the literal as a raw delimiter', async (_label, ch) => {
+    const href = `https://example.com/${ch}>>/JS(app.alert(1))`;
+    // Percent-encoded, so the URI reads as one value and nothing escapes
+    // into the dictionary.
+    expect(await linkUris(linkDoc(href))).toEqual([
+      `https://example.com/${encodeURIComponent(ch)}%3E%3E/JS(app.alert(1))`,
+    ]);
+  });
+
+  it('percent-encodes a non-ASCII path and punycodes a non-ASCII host', async () => {
+    expect(await linkUris(linkDoc('https://example.com/\uD55C\uAE00'))).toEqual([
+      'https://example.com/%ED%95%9C%EA%B8%80',
+    ]);
+    // A host must be punycoded, never percent-encoded — percent-encoding
+    // one produces a link no resolver can follow.
+    expect(await linkUris(linkDoc('https://\u00E9xample.com/'))).toEqual([
+      'https://xn--xample-9ua.com/',
+    ]);
+    // An href that already carries percent-escapes is ASCII, so it is left
+    // exactly as written rather than re-encoded to `%2541`.
+    expect(await linkUris(linkDoc('https://example.com/a%41b'))).toEqual([
+      'https://example.com/a%41b',
+    ]);
+  });
+
+  // A lone surrogate has no UTF-8 encoding. The URL serializer replaces it
+  // with U+FFFD, so it can never reach `encodeURIComponent` (which would
+  // throw) — the annotation is written, carrying the replacement.
+  it('replaces a lone surrogate rather than throwing', async () => {
+    expect(await linkUris(linkDoc('https://example.com/\uD800'))).toEqual([
+      'https://example.com/%EF%BF%BD',
+    ]);
+  });
+  it('does not let an href inject keys into the annotation dictionary', async () => {
+    const href = 'https://example.com/)>>/JS(app.alert(1))';
+    // The whole href survives as one URI value, rather than half of it
+    // becoming the value and the remainder becoming dictionary keys. `>`
+    // arrives percent-encoded because what is written is the URL parser's
+    // own serialization, which is the string the gate judged.
+    expect(await linkUris(linkDoc(href))).toEqual([
+      'https://example.com/)%3E%3E/JS(app.alert(1))',
+    ]);
+
+    const blob = await PdfExporter.export(linkDoc(href), exportOpts());
+    const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
+      updateMetadata: false,
+    });
+    for (const page of pdfDoc.getPages()) {
+      const annots = page.node.lookup(PDFName.of('Annots'));
+      if (!(annots instanceof PDFArray)) continue;
+      for (let i = 0; i < annots.size(); i++) {
+        const annot = annots.lookup(i);
+        if (!(annot instanceof PDFDict)) continue;
+        expect(annot.lookup(PDFName.of('JS'))).toBeUndefined();
+        const action = annot.lookup(PDFName.of('A'));
+        if (!(action instanceof PDFDict)) continue;
+        expect(action.lookup(PDFName.of('JS'))).toBeUndefined();
+        expect(action.keys().map(String).sort()).toEqual([
+          '/S',
+          '/Type',
+          '/URI',
+        ]);
+      }
+    }
   });
 });
 

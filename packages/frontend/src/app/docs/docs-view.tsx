@@ -41,15 +41,16 @@ export interface JumpHandle {
 /**
  * Ensure the Yorkie document has a Tree CRDT for content.
  *
- * New docs receive the Tree via `client.attach({ initialRoot })`
- * (see `initialDocsRoot()`), and yorkie-js-sdk PR #1238 clears the
- * undo stack right after — so the setup is not undoable.
+ * This is where the Tree is created for a document that has none —
+ * a brand-new one, or a legacy one whose Tree was never persisted.
+ * `initialDocsRoot()` deliberately seeds no `content`, because a Tree is
+ * only recognized by the SDK copy that owns the document and that module
+ * is shared by two of them; the Tree here comes from `@yorkie-js/react`,
+ * matching the provider that attached this document.
  *
- * This helper is a fallback for legacy docs whose Tree was never
- * persisted. After creating the Tree we call `clearHistory()` so
- * the setup is similarly absent from the undo stack; otherwise a
- * long enough Cmd+Z sequence could unwind the Tree creation and
- * destroy the initial block, crashing the editor.
+ * The `clearHistory()` below is load-bearing: it keeps the setup off the
+ * undo stack, so a long enough Cmd+Z cannot unwind the Tree creation,
+ * destroy the initial block and crash the editor.
  */
 function ensureTree(doc: ReturnType<typeof useDocument<YorkieDocsRoot>>["doc"]): boolean {
   if (!doc) return false;
@@ -319,7 +320,16 @@ export function DocsView({
   useEffect(() => {
     const container = containerRef.current;
     if (!didMount || !container || !doc) return;
-    if (!ensureTree(doc)) return;
+
+    // Repair/seed the Tree on writable docs only, mirroring `notes-view`. A
+    // viewer has no write permission, and this runs before any of the editor's
+    // read-only machinery exists — so without the gate a share-link viewer
+    // wrote to the shared document just by opening it, and the branch that
+    // replaces a `content` it does not recognize would overwrite whatever was
+    // there. A viewer renders what is actually stored; `YorkieDocStore`
+    // answers `{ blocks: [] }` for a missing tree and every mutator
+    // early-returns, so an absent tree is a blank page rather than a crash.
+    if (!readOnly && !ensureTree(doc)) return;
 
     const store = new YorkieDocStore(doc);
     storeRef.current = store;

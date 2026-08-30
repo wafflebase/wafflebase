@@ -1,4 +1,5 @@
 import { Doc } from '../model/document.js';
+import { readOnlyDocStore } from '../store/read-only.js';
 import type { Block, InlineStyle, BlockStyle, BlockType, HeadingLevel, SearchMatch, CellAddress, CellRange, CellStyle, ImageData, PageSetup } from '../model/types.js';
 import { resolvePageSetup, getEffectiveDimensions, getBlockTextLength, getBlockText, findImageAtOffset, clampImageToWidth, unlistedBlockType, CLEAR_INLINE_STYLE, DEFAULT_INLINE_STYLE, MIN_CONTENT_PX } from '../model/types.js';
 import { MemDocStore } from '../store/memory.js';
@@ -1030,13 +1031,39 @@ export function initialize(
 
   const docStore = store ?? new MemDocStore();
 
-  // Ensure the store has at least one block
-  if (docStore.getDocument().blocks.length === 0) {
+  // Ensure the store has at least one block — but never from a read-only
+  // mount. This seeding predates the read-only work and runs before the guard
+  // below exists, so a viewer opening a document with no body blocks wrote to
+  // the shared store, and `setDocument` is not an append: it replaces the
+  // whole tree with `Doc.create()`'s single paragraph, which carries no header,
+  // no footer and no named-style registry. A viewer could therefore destroy
+  // all three for every collaborator, in one pushed change they could not undo
+  // (`setDocument` re-arms the undo floor).
+  //
+  // A zero-block document is not reachable by typing — deleting everything
+  // inserts a fresh paragraph first — but it is reachable by the non-
+  // interactive writers: a DOCX whose body holds no paragraph, and
+  // `PUT /api/v1/.../content`, which accepts `blocks: []`.
+  //
+  // Skipping it leaves a viewer looking at a genuinely empty document, which
+  // is the truthful rendering. The layout, pagination and caret paths all
+  // tolerate zero blocks already; the caret id below is the one place that
+  // assumed otherwise.
+  if (!readOnly && docStore.getDocument().blocks.length === 0) {
     const tempDoc = Doc.create();
     docStore.setDocument(tempDoc.document);
   }
 
-  const doc = new Doc(docStore);
+  // Under `readOnly` the editor works over a neutered store, which is what
+  // closes `getDoc()` as well as `getStore()`: `Doc` owns no persistence of
+  // its own — all ~30 of its mutators delegate to the store it holds, and
+  // `Doc.store` is `private` only to TypeScript. One `Doc` for both the
+  // editor and the accessor, deliberately: handing out a second one over the
+  // read-only store would leave a caller's `getDoc().refresh()` updating a
+  // throwaway while the editor's own cache went stale, and remote edits
+  // would stop repainting for exactly the viewers this protects.
+  const readStore = readOnly ? readOnlyDocStore(docStore) : docStore;
+  const doc = new Doc(readStore);
   const pending = createPendingStyle(doc);
 
   // Create canvas (viewport-sized) and a spacer div for scroll height
@@ -1061,7 +1088,11 @@ export function initialize(
   // paint code does to the visible canvas's ctx.font in between.
   const measurer = new CanvasTextMeasurer();
   const ruler = new Ruler(container, canvas, readOnly);
-  const cursor = new Cursor(doc.document.blocks[0].id);
+  // `?? ''` because the seeding above no longer runs for a read-only mount, so
+  // a zero-block document now reaches here. `Cursor` resolves an unknown id to
+  // no pixel position, and the caret is not painted in a read-only mount
+  // anyway; without the guard this would be a `TypeError` on mount.
+  const cursor = new Cursor(doc.document.blocks[0]?.id ?? '');
   const selection = new Selection();
   let layout: DocumentLayout = { blocks: [], totalHeight: 0, blockParentMap: new Map() };
   let paginatedLayout: PaginatedLayout = { pages: [], pageSetup: resolvePageSetup(undefined) };
@@ -3105,13 +3136,14 @@ export function initialize(
    *
    * It is NOT an access-control boundary, and nothing here should be read as
    * one. Every other member of `DocStore` — some thirty mutators — forwards
-   * untouched, `getDoc()` hands out a `Doc` that writes straight to the
-   * unwrapped store, and neither is trapped. Read-only across the store handle
-   * is **issue #989**: it predates this wrapper (on `main` neither accessor
-   * was in `MUTATING_METHODS`) and is deliberately out of scope here. The
-   * `readOnly` drop below covers `setPageSetup` and nothing else — it is there
-   * so the two doors to that single write agree, not because the handle is
-   * guarded in general.
+   * untouched. Read-only is a separate concern handled separately: under
+   * `readOnly` this wrapper is not what `getStore()` returns at all, and
+   * `readOnlyDocStore` is (issue #989). The two compose rather than overlap
+   * — this one enforces geometry an editing session must not persist, that
+   * one enforces who may write at all — which is why the `readOnly` check
+   * below survives even though a read-only session never reaches this proxy:
+   * it keeps the guard true on its own terms rather than by depending on the
+   * caller having been handed the other object.
    *
    * Naming the one guarded method is also what removes any obligation to keep
    * this in step with `DocStore` as the interface grows: a method added
@@ -3152,17 +3184,21 @@ export function initialize(
       boundStoreMembers.set(prop, { raw, bound });
       return bound;
     },
-    set(target, prop, value) {
-      // Assigning over the guard would restore the unvalidated write.
-      if (prop === 'setPageSetup') return false;
-      return Reflect.set(target, prop, value);
-    },
+    // No `set` trap. One used to refuse `setPageSetup` on the theory that
+    // assigning over the guard would restore the unvalidated write, but the
+    // `get` trap above returns `guardedSetPageSetup` unconditionally — it
+    // never consults the target for that key — so nothing assigned is ever
+    // read back through here. Its only observable effect was a `TypeError`
+    // on assignment, and it did not even close the door it was aimed at:
+    // `vi.spyOn` installs via `Object.defineProperty`, which was untrapped,
+    // so a spy landed on the underlying store and silently recorded a
+    // post-validation value while `get` kept returning the guard (#991).
   });
 
   const api: EditorAPI = {
     render,
     getDoc: () => doc,
-    getStore: () => pageSetupGuardedStore,
+    getStore: () => (readOnly ? readStore : pageSetupGuardedStore),
     getSelectionStyle: (): Partial<InlineStyle> => {
       const base = getSelectionStyleImpl(true);
       if (pending.has() && !selection.hasSelection()) {
@@ -4233,13 +4269,19 @@ export function initialize(
   // keyboard / clipboard events, but the programmatic EditorAPI (e.g.
   // paste, applyStyle, table ops) is reachable by any holder of `api`, so
   // gate it here too. Keep this allowlist in sync when adding mutating
-  // methods. Read-only stays a client-side convenience — the store/server
-  // remains the authoritative write boundary for viewer share tokens.
+  // methods. Read-only is not merely a convenience in front of a server
+  // check: the Yorkie auth webhook that would be that check ships in
+  // shadow mode unless `YORKIE_AUTH_WEBHOOK_ENFORCE=true`, so in a stock
+  // deployment this is the write boundary for a viewer share token. See
+  // `store/read-only.ts` and `docs/design/sharing.md`.
   //
-  // The allowlist neuters members of `api` itself and nothing beyond them:
-  // `getStore()` and `getDoc()` hand out live handles whose own mutators keep
-  // writing (`getStore()` drops `setPageSetup` alone, as defence in depth over
-  // that one write). Closing those two accessors is issue #989.
+  // The allowlist neuters members of `api` itself. The two accessors that
+  // hand out live handles are covered upstream of it rather than in it:
+  // `getStore()` and `getDoc()` are both backed by `readOnlyDocStore` under
+  // `readOnly`, so their mutators are already dead by the time this runs
+  // (#989). That split is deliberate — a list of names cannot guard an
+  // object it merely returns, and adding them here would have looked like
+  // it did.
   if (readOnly) {
     const MUTATING_METHODS = [
       'applyStyle', 'stepSelectionFontSize', 'clearInlineFormatting', 'applyBlockStyle',

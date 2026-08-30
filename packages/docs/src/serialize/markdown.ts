@@ -7,9 +7,33 @@ import type {
   TableData,
 } from '../model/types.js';
 // Straight from `@wafflebase/core/url` rather than through
-// `view/url-detect.js` (which only re-exports it): a serializer has no
+// `view/url-detect.js` (which only re-exports them): a serializer has no
 // business reaching into the view layer.
-import { isSafeUrl } from '@wafflebase/core/url';
+//
+// `hasUrlAlteringChars` is what disqualifies a URL from a Markdown link
+// destination, checked against the **raw** string before anything parses
+// it. Without it the gate is a parser differential: `isSafeUrl` validates
+// what WHATWG `new URL()` makes of the input, and that parser silently
+// deletes every tab, LF and CR (and trims leading/trailing C0-or-space)
+// before it looks at the scheme — but the serializer writes the raw
+// string. So `https://example.com/` followed by two newlines and an
+// `<img src=x onerror=…>` passes the protocol check and then closes the
+// `(...)` destination, and everything after the newline lands in the
+// exported `.md` as live Markdown or raw HTML. The value is
+// attacker-influenceable: HTML paste, DOCX import, a collaborator's CRDT
+// write.
+//
+// Refusing those characters — rather than emitting `new URL(href).href`,
+// the other way to close the differential — keeps every accepted URL
+// byte-for-byte as the author wrote it (normalizing would percent-encode
+// every non-ASCII path, turning a readable link into `%ED%95%9C…`), and
+// covers one case normalization does not: a space is not stripped but
+// still terminates a CommonMark link destination.
+//
+// It lives in core beside `isSafeUrl`, rather than here, because the PDF
+// exporter needs the identical rule for the identical reason (#988), and a
+// rule enforced by two copies drifts.
+import { hasUrlAlteringChars, isSafeUrl } from '@wafflebase/core/url';
 
 /**
  * Options for the Markdown serializer.
@@ -237,32 +261,6 @@ function inlineToMarkdown(inline: Inline, opts: MarkdownOptions): string {
 }
 
 /**
- * Characters that disqualify a URL from being written into a Markdown link
- * destination, checked against the **raw** string before anything parses it.
- *
- * Without this the gate is a parser differential. `isSafeUrl` validates what
- * WHATWG `new URL()` makes of the input, and that parser silently *deletes*
- * every tab, LF and CR (and trims leading/trailing C0-or-space) before it
- * looks at the scheme — but the serializer writes the raw string. So
- * `https://example.com/\n\n<img src=x onerror=…>` passes the protocol check
- * and then closes the `(...)` destination, and everything after the newline
- * lands in the exported `.md` as live Markdown or raw HTML. The value is
- * attacker-influenceable: HTML paste, DOCX import, a collaborator's CRDT
- * write.
- *
- * Refusing these characters — rather than emitting `new URL(href).href`, the
- * other way to close the differential — keeps every accepted URL byte-for-byte
- * as the author wrote it (normalizing would percent-encode every non-ASCII
- * path, turning a readable link into `%ED%95%9C…`), and covers one case
- * normalization does not: a space is not stripped but still terminates a
- * CommonMark link destination.
- *
- * `\s` carries the Unicode spaces; the two ranges add the C0 and C1 controls
- * (`\t`, `\n` and `\r` are in both).
- */
-const UNEMITTABLE_URL_CHARS = /[\s\u0000-\u001F\u007F-\u009F]/;
-
-/**
  * Every character an emitted link destination may contain: the RFC 3986 URI
  * character set — unreserved (`A-Za-z0-9-._~`), gen-delims (`:/?#[]@`),
  * sub-delims (`!$&'()*+,;=`) and `%` for percent-encoding — plus any
@@ -276,7 +274,7 @@ const UNEMITTABLE_URL_CHARS = /[\s\u0000-\u001F\u007F-\u009F]/;
  * Non-ASCII is admitted rather than percent-encoded so a link written
  * `/uploads/한글.png` survives the export as the author wrote it; it can name
  * no scheme, no authority and no Markdown construct. The whitespace and
- * control characters `UNEMITTABLE_URL_CHARS` refuses are checked separately,
+ * control characters `hasUrlAlteringChars` refuses are checked separately,
  * because that class reaches into the non-ASCII range this one admits.
  */
 const URI_CHARS = /^[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%\u0080-\uFFFF]+$/;
@@ -317,7 +315,7 @@ const ENTITY_REFERENCE = /&(?:#[0-9]+|#[xX][0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]*);/;
  *    folding `\` into `/` for special schemes.
  *
  * — and a URL parser adds its own (deleting tabs/CR/LF, trimming C0-or-space)
- * which `UNEMITTABLE_URL_CHARS` already covers. Rather than model each
+ * which `hasUrlAlteringChars` already covers. Rather than model each
  * rewrite, this refuses any destination that *has* one to apply, so the
  * string the gate judges and the string the consumer resolves are the same
  * string. `(` and `)` are the deliberate exception: they are ordinary URI
@@ -327,7 +325,7 @@ const ENTITY_REFERENCE = /&(?:#[0-9]+|#[xX][0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]*);/;
  */
 function isLiteralDestination(url: string): boolean {
   if (url.length === 0) return false;
-  if (UNEMITTABLE_URL_CHARS.test(url)) return false;
+  if (hasUrlAlteringChars(url)) return false;
   if (!URI_CHARS.test(url)) return false;
   return !ENTITY_REFERENCE.test(url);
 }

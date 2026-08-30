@@ -11,6 +11,7 @@ import type { PaginatedLayout } from '../../src/view/pagination.js';
 import type { TextMeasurer } from '../../src/view/measurer.js';
 import { createTableBlock, getBlockText, normalizeBlockStyle } from '../../src/model/types.js';
 import type { Block } from '../../src/model/types.js';
+import type { DocStore } from '../../src/store/store.js';
 
 const EMPTY_BLOCK_STYLE = normalizeBlockStyle({});
 
@@ -676,5 +677,266 @@ describe('TextEditor.pasteFormat() read-only guard', () => {
     expect(applied).toBe(true);
     expect(targetStyle().bold).toBe(true);
     expect(snapshots).toHaveLength(1);
+  });
+});
+
+/**
+ * The two accessors that hand out live handles (issue #989).
+ *
+ * `MUTATING_METHODS` neuters members of `EditorAPI` itself, which a store
+ * handle simply walks around: `getStore()` returns a `DocStore` and
+ * `getDoc()` a `Doc` whose ~30 mutators all delegate to one. Under
+ * `readOnly` both are now backed by `readOnlyDocStore`, so these pin that the
+ * document behind them is untouched — and, just as importantly, that reads
+ * through them still work, since a viewer needs `getDoc().refresh()` to see
+ * peer edits at all.
+ */
+describe('read-only store and doc handles', () => {
+  beforeEach(() => {
+    installCanvasShim();
+    document.body.innerHTML = String();
+  });
+  afterEach(() => {
+    document.body.innerHTML = String();
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
+    if (originalResizeObserver === undefined) {
+      delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    } else {
+      (globalThis as { ResizeObserver?: unknown }).ResizeObserver = originalResizeObserver;
+    }
+  });
+
+  function mount(readOnly: boolean): {
+    editor: EditorAPI;
+    store: MemDocStore;
+    text: () => string;
+  } {
+    const store = new MemDocStore();
+    store.setDocument({
+      blocks: [
+        {
+          id: 'b1',
+          type: 'paragraph',
+          inlines: [{ text: 'hello', style: {} }],
+          style: EMPTY_BLOCK_STYLE,
+        },
+      ],
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = initialize(container, store, undefined, readOnly);
+    const text = () => getBlockText(store.getDocument().blocks[0]);
+    return { editor, store, text };
+  }
+
+  test('getStore() mutators write nothing', () => {
+    const { editor, store, text } = mount(true);
+
+    editor.getStore().insertText('b1', 5, ' world');
+    editor.getStore().deleteText('b1', 0, 2);
+    editor.getStore().applyStyle('b1', 0, 5, { bold: true });
+    editor.getStore().setDocument({ blocks: [] });
+    editor.getStore().deleteBlock('b1');
+    editor.getStore().undo();
+
+    expect(text()).toBe('hello');
+    expect(store.getDocument().blocks).toHaveLength(1);
+    expect(store.getDocument().blocks[0].inlines[0].style.bold).toBeUndefined();
+  });
+
+  test('getDoc() mutators write nothing', () => {
+    const { editor, store, text } = mount(true);
+
+    editor.getDoc().insertText({ blockId: 'b1', offset: 5 }, ' world');
+    editor.getDoc().deleteText({ blockId: 'b1', offset: 0 }, 2);
+    editor.getDoc().applyInlineStyle(
+      { anchor: { blockId: 'b1', offset: 0 }, focus: { blockId: 'b1', offset: 5 } },
+      { bold: true },
+    );
+
+    expect(text()).toBe('hello');
+    expect(store.getDocument().blocks[0].inlines[0].style.bold).toBeUndefined();
+  });
+
+  // `Doc.store` is `private` only to TypeScript — it is an ordinary property
+  // at runtime, and the whole point of neutering the store the `Doc` holds
+  // (rather than the `Doc`) is that reaching it buys nothing.
+  test('the store reached through getDoc() is the neutered one', () => {
+    const { editor, text } = mount(true);
+
+    const inner = (editor.getDoc() as unknown as { store: DocStore }).store;
+    inner.insertText('b1', 5, ' world');
+
+    expect(text()).toBe('hello');
+  });
+
+  // A `get`/`set`-only proxy is reachable this way: `YorkieDocStore`'s
+  // methods live on its class prototype, so `getPrototypeOf(store).m.call(
+  // store, …)` would hit the target untouched.
+  test('the prototype is not a way around it', () => {
+    const { editor, text } = mount(true);
+
+    expect(Object.getPrototypeOf(editor.getStore())).toBeNull();
+    expect(() => { (editor.getStore() as unknown as Record<string, unknown>).insertText = () => {}; })
+      .toThrow(TypeError);
+    expect(() => Object.defineProperty(editor.getStore(), 'insertText', {
+      value: () => {},
+    })).toThrow(TypeError);
+
+    expect(text()).toBe('hello');
+  });
+
+  // Hiding the methods is not enough on its own. Both implementations keep
+  // their live state in an own *field*: `MemDocStore.doc` is the internal
+  // `Document`, and `YorkieDocStore.doc` is the CRDT handle whose
+  // `update()` is the documented write path. A `get` trap that forwarded
+  // data properties would leave a wider hole than the prototype one, and
+  // reachable without a method call at all.
+  test('the live internal state is not reachable as a property', () => {
+    const { editor, store, text } = mount(true);
+
+    const handle = editor.getStore() as unknown as Record<string, unknown>;
+    expect(handle.doc).toBeUndefined();
+    expect(handle.undoStack).toBeUndefined();
+
+    // A descriptor read carries the value with it, and enumeration happens
+    // before the read for spread / `Object.keys` / `structuredClone`.
+    expect(Object.keys(handle)).toEqual([]);
+    expect(Object.getOwnPropertyDescriptor(handle, 'doc')).toBeUndefined();
+    expect({ ...handle }).toEqual({});
+
+    expect(text()).toBe('hello');
+    expect(store.getDocument().blocks).toHaveLength(1);
+  });
+  // Reporting a null prototype is not the same as refusing to be given
+  // one. An untrapped `setPrototypeOf` forwards to the target, and then an
+  // accessor planted on the chain runs with `this` bound to the real store
+  // — a complete escape that leaves every published assertion still
+  // passing, since the handle keeps reporting a null prototype afterwards.
+  test('a prototype cannot be planted to recover the raw store', () => {
+    const { editor, store, text } = mount(true);
+    const handle = editor.getStore();
+
+    let stolen: unknown;
+    expect(() =>
+      Object.setPrototypeOf(handle, {
+        get probe() {
+          stolen = this;
+          return undefined;
+        },
+      }),
+    ).toThrow(TypeError);
+    void (handle as unknown as Record<string, unknown>).probe;
+
+    expect(stolen).toBeUndefined();
+    expect(Object.getPrototypeOf(store)).not.toBeNull();
+    expect(text()).toBe('hello');
+  });
+
+  // `Object.freeze` runs `preventExtensions` first, so an untrapped one
+  // makes the real store non-extensible — and from then on the hiding
+  // traps violate a proxy invariant and every enumeration throws.
+  test('the handle cannot make the underlying store non-extensible', () => {
+    const { editor, store } = mount(true);
+    const handle = editor.getStore();
+
+    expect(() => Object.preventExtensions(handle)).toThrow(TypeError);
+    expect(Object.isExtensible(store)).toBe(true);
+    // Still usable afterwards: the invariant was never broken.
+    expect(Object.keys(handle)).toEqual([]);
+    expect(handle.getPageSetup()).toBeDefined();
+  });
+
+  // `in` does not consult `ownKeys`, so it needs its own trap to agree
+  // with what `get` hands back.
+  test('`in` reports what get will actually return', () => {
+    const handle = mount(true).editor.getStore();
+
+    expect('doc' in handle).toBe(false);
+    expect('undoStack' in handle).toBe(false);
+    expect('getDocument' in handle).toBe(true);
+    // A mutator is still present — it is neutered, not absent, so a
+    // feature detection followed by a call behaves consistently.
+    expect('insertText' in handle).toBe(true);
+  });
+  // Reads are the reason the accessors exist at all, so they must survive.
+  test('reads through both handles still work', () => {
+    const { editor } = mount(true);
+
+    expect(getBlockText(editor.getStore().getDocument().blocks[0])).toBe('hello');
+    expect(editor.getStore().getBlock('b1')).toBeDefined();
+    expect(editor.getStore().getPageSetup()).toBeDefined();
+    expect(editor.getStore().canUndo()).toBe(false);
+    expect(getBlockText(editor.getDoc().document.blocks[0])).toBe('hello');
+    // What `docs-view` calls on every remote change; a viewer that loses it
+    // stops seeing peer edits.
+    expect(() => editor.getDoc().refresh()).not.toThrow();
+  });
+
+  // `batch(fn)` groups writes into one undo unit; it is not itself a write.
+  // A bare no-op would swallow the body, so a viewer batching *reads* would
+  // silently get none of them.
+  test('batch runs its body, and the writes inside it are still dead', () => {
+    const { editor, store, text } = mount(true);
+
+    let ran = false;
+    editor.getStore().batch(() => {
+      ran = true;
+      expect(store.getDocument().blocks).toHaveLength(1);
+      editor.getStore().insertText('b1', 5, '!');
+    });
+
+    expect(ran).toBe(true);
+    expect(text()).toBe('hello');
+  });
+
+  // `initialize` seeds an empty store with one paragraph so the editor has
+  // something to render. That predates the read-only work and ran before the
+  // guard existed, so a viewer wrote to the shared store — and `setDocument`
+  // replaces the whole tree with `Doc.create()`'s output, which has no
+  // header, no footer and no named styles. A viewer could destroy all three
+  // for every collaborator, in a change they could not undo.
+  //
+  // A zero-block document is unreachable by typing but reachable through the
+  // non-interactive writers (a DOCX with no paragraph in its body, and
+  // `PUT /api/v1/.../content`, which accepts `blocks: []`).
+  test('a read-only mount does not seed an empty store', () => {
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [] });
+    store.setHeader({
+      blocks: [{ id: 'h1', type: 'paragraph', inlines: [{ text: 'confidential', style: {} }], style: EMPTY_BLOCK_STYLE }],
+      marginFromEdge: 48,
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    expect(() => initialize(container, store, undefined, true)).not.toThrow();
+
+    // Nothing written, and the header the placeholder would have dropped is
+    // still there.
+    expect(store.getDocument().blocks).toHaveLength(0);
+    expect(getBlockText(store.getHeader()!.blocks[0])).toBe('confidential');
+  });
+
+  test('control: an editable mount still seeds an empty store', () => {
+    const store = new MemDocStore();
+    store.setDocument({ blocks: [] });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    initialize(container, store, undefined, false);
+
+    expect(store.getDocument().blocks).toHaveLength(1);
+  });
+  test('control: the same calls DO write when not read-only', () => {
+    const { editor, text } = mount(false);
+
+    editor.getStore().insertText('b1', 5, ' world');
+    expect(text()).toBe('hello world');
+
+    editor.getDoc().insertText({ blockId: 'b1', offset: 11 }, '!');
+    expect(text()).toBe('hello world!');
+
+    expect(Object.getPrototypeOf(editor.getStore())).not.toBeNull();
   });
 });
