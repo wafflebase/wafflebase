@@ -11,7 +11,7 @@ import { SelectionOverlay } from "./selection-overlay";
 import { ObjectLayerViewport } from "./object-layer-viewport";
 import { useObjectKeyboardShortcuts, useObjectDragResize } from "./use-object-layer";
 import type { SpreadsheetDocument } from "@/types/worksheet";
-import { getOrLoadImage } from "./image-cache";
+import { getOrLoadImage, resolveImageSrc } from "./image-cache";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -189,6 +189,10 @@ function ImageObject({
   const scaledWidth = layout.width * zoom;
   const scaledHeight = layout.height * zoom;
 
+  // The `<img>` below must be pointed at the same URL the cache warmed —
+  // rendering the raw `image.src` would make the browser issue a second,
+  // un-tokened request that a share-link viewer's backend refuses.
+  const fetchSrc = resolveImageSrc(image.src);
   const loadedImg = getOrLoadImage(image.src, onImageLoad);
 
   return (
@@ -209,7 +213,7 @@ function ImageObject({
       {/* Image content or placeholder */}
       {loadedImg ? (
         <img
-          src={image.src}
+          src={fetchSrc}
           alt={image.alt || ""}
           draggable={false}
           className="h-full w-full select-none"

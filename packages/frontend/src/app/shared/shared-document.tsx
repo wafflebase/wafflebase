@@ -47,6 +47,8 @@ import { Download } from "lucide-react";
 import { DocsFormattingToolbar } from "@/app/docs/docs-formatting-toolbar";
 import type { SlidesEditor, Theme } from "@wafflebase/slides";
 import { setImageUrlResolver as setSlidesImageUrlResolver } from "@wafflebase/slides";
+import { setImageUrlResolver as setNotesImageUrlResolver } from "@wafflebase/notes";
+import { setImageUrlResolver as setSheetsImageUrlResolver } from "@/app/spreadsheet/image-cache";
 import { appendShareTokenToImageUrl } from "@/api/share-image-url";
 import type { YorkieSlidesStore } from "@/app/slides/yorkie-slides-store";
 import {
@@ -822,35 +824,65 @@ export function sharedBlobKind(type: string): "pdf" | "blob" | "crdt" {
 }
 
 /**
- * Install the share-token image-URL resolver on the slides engine (which
- * renders both `slides` and `board`) for the lifetime of the shared mount.
- * Other types render no slides-engine workspace image, so the hook no-ops:
- * `doc` uploads to the unauthenticated legacy `/images/:id` route (nothing to
- * token), and pdf/image/file/note don't paint through this engine.
+ * Which engine's image-URL seam a shared document type paints through.
+ *
+ * A workspace image is fetched over a plain image request that carries no
+ * CRDT/Yorkie share credential, so an anonymous viewer needs the share
+ * `?token=` appended to it (`ApiV1ImageReadController` accepts it; without it
+ * the read is a 403). The stored `src` lives in the CRDT and is shared with
+ * every other viewer and the author, so the token cannot be baked in at upload
+ * time — each engine exposes a resolver applied at render time instead.
+ *
+ * Types absent from this map render no workspace image at all: `doc` uploads
+ * through the unauthenticated legacy `/images/:id` route, which has no
+ * workspace scope to gate, and pdf/image/file are blobs served by
+ * `DocumentFileController`, which does its own share-token check.
+ */
+const IMAGE_RESOLVER_INSTALLERS = new Map<
+  string,
+  (resolver: ((src: string) => string) | null) => void
+>([
+  // The slides engine renders both of these.
+  ["slides", setSlidesImageUrlResolver],
+  ["board", setSlidesImageUrlResolver],
+  // The markdown preview's `<img>`.
+  ["note", setNotesImageUrlResolver],
+  // `image-object-layer`'s floating images.
+  ["sheet", setSheetsImageUrlResolver],
+]);
+
+/**
+ * Install the share-token image-URL resolver on whichever engine renders this
+ * document type, for the lifetime of the shared mount.
  *
  * Installed in a commit-phase `useLayoutEffect`, not during render: a
- * render-phase mutation of the module-level singleton could be clobbered by an
- * abandoned/concurrent render. A layout effect still runs before the slides
- * canvas's first draw — the canvas paints from a passive `useEffect` /
- * `requestAnimationFrame` (see slides-view), and all layout effects run before
- * any passive effect — so the token is in place before the first image load
- * and no un-tokened 403 is fired. Cleanup clears the singleton on unmount and
- * pairs correctly with StrictMode's dev mount→cleanup→remount.
+ * render-phase mutation of a module-level singleton could be clobbered by an
+ * abandoned/concurrent render. A layout effect is still early enough for every
+ * engine here, because none of them can request an image during the same
+ * commit: the slides canvas paints from a passive `useEffect` /
+ * `requestAnimationFrame` (see slides-view) and all layout effects run before
+ * any passive effect; the notes preview is built in a passive effect gated on
+ * the Yorkie document having loaded (see notes-view); and the sheets image
+ * layer is behind `lazy()`, so its chunk cannot resolve before this commit
+ * ends. So the token is in place before the first image load and no un-tokened
+ * 403 is fired. Cleanup clears the singleton on unmount and pairs correctly
+ * with StrictMode's dev mount→cleanup→remount.
  */
 function useSharedImageTokenResolver(type: string, token?: string): void {
-  const isSlidesEngine = type === "slides" || type === "board";
+  // A `Map`, not an object literal: `type` is API-supplied, and a plain-object
+  // lookup of e.g. `"constructor"` would walk the prototype chain and hand back
+  // something callable that is not an installer.
+  const install = IMAGE_RESOLVER_INSTALLERS.get(type);
   const resolver = useMemo(
     () =>
-      isSlidesEngine && token
-        ? (src: string) => appendShareTokenToImageUrl(src, token)
-        : null,
-    [isSlidesEngine, token],
+      token ? (src: string) => appendShareTokenToImageUrl(src, token) : null,
+    [token],
   );
   useLayoutEffect(() => {
-    if (!resolver) return;
-    setSlidesImageUrlResolver(resolver);
-    return () => setSlidesImageUrlResolver(null);
-  }, [resolver]);
+    if (!install || !resolver) return;
+    install(resolver);
+    return () => install(null);
+  }, [install, resolver]);
 }
 
 function SharedDocumentInner({
