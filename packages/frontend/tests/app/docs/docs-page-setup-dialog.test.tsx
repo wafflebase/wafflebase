@@ -260,6 +260,100 @@ describe('DocsPageSetupDialog', () => {
     expect(editor.setPageSetup).not.toHaveBeenCalled();
   });
 
+  it.each([
+    // Letter-tall page, 815.5 px across: 8.49 in (815 px) of left margin
+    // leaves half a pixel of content. Open, but under the engine's floor.
+    ['across', { name: 'Sliver', width: 815.5, height: 1056 }, 'Left', '8.49'],
+    // The same half-pixel band down the page.
+    ['down', { name: 'Sliver', width: 816, height: 1055.5 }, 'Top', '10.99'],
+  ])(
+    'refuses a sliver %s that the engine would reject anyway',
+    (_axis, paperSize, field, value) => {
+      // The dialog's room check and `EditorAPI.setPageSetup`'s
+      // `assertUsablePageSetup` have to agree, because Apply calls the
+      // setter. This PR made that setter *throw*; a form the dialog accepts
+      // and the setter rejects therefore raises an uncaught `RangeError` out
+      // of a React event handler and takes the editor down with it.
+      //
+      // The band only exists when the effective page box is fractional — the
+      // dialog rounds every typed margin to a whole pixel — which a
+      // collaborator's CRDT write or a CLI-set geometry reaches easily:
+      // `resolvePageSetup` keeps any finite positive paper dimension.
+      const editor = makeEditor({ ...LETTER_DEFAULT, paperSize });
+      mount(editor);
+
+      fireEvent.change(marginInput(field), { target: { value } });
+      fireEvent.change(
+        marginInput(field === 'Left' ? 'Right' : 'Bottom'),
+        { target: { value: '0' } },
+      );
+
+      expect(screen.getByRole('alert').textContent).toMatch(/room for content/i);
+      expect((apply() as HTMLButtonElement).disabled).toBe(true);
+
+      fireEvent.click(apply());
+      expect(editor.setPageSetup).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still accepts the widest margins the engine accepts', () => {
+    // The other half of the same agreement: the dialog must not have been
+    // fixed by tightening it past the engine. 815 px of margin across a
+    // 816 px page leaves exactly the one pixel `MIN_CONTENT_PX` requires.
+    const editor = makeEditor(LETTER_DEFAULT);
+    mount(editor);
+
+    // 8.49 in = 815 px.
+    fireEvent.change(marginInput('Left'), { target: { value: '8.49' } });
+    fireEvent.change(marginInput('Right'), { target: { value: '0' } });
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(apply());
+    expect(editor.setPageSetup.mock.calls[0][0].margins).toEqual({
+      top: 96,
+      bottom: 96,
+      left: 815,
+      right: 0,
+    });
+  });
+
+  it('surfaces a setter rejection instead of letting it escape the dialog', () => {
+    // Apply is defensive on top of the check above, not instead of it.
+    // `EditorAPI.setPageSetup` is a public engine API that grew a throw once
+    // already, and the dialog's check is a second implementation of its
+    // floor, not a proof the floor cannot move again. An exception out of a
+    // React event handler unmounts the editor; a message does not.
+    const editor = makeEditor(LETTER_DEFAULT);
+    editor.setPageSetup.mockImplementation(() => {
+      throw new RangeError('Invalid page setup: refused by the engine');
+    });
+    const { onOpenChange } = mount(editor);
+
+    fireEvent.change(marginInput('Top'), { target: { value: '1.5' } });
+    expect(() => fireEvent.click(apply())).not.toThrow();
+
+    expect(screen.getByRole('alert').textContent).toMatch(/refused by the engine/);
+    // Nothing is swallowed: the dialog stays open and the caret is not moved
+    // back to a document that was never changed.
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(editor.focus).not.toHaveBeenCalled();
+  });
+
+  it('clears a surfaced rejection once the form changes again', () => {
+    const editor = makeEditor(LETTER_DEFAULT);
+    editor.setPageSetup.mockImplementationOnce(() => {
+      throw new RangeError('Invalid page setup: refused by the engine');
+    });
+    mount(editor);
+
+    fireEvent.click(apply());
+    expect(screen.getByRole('alert')).toBeTruthy();
+
+    fireEvent.change(marginInput('Top'), { target: { value: '1.5' } });
+
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('measures the room against the orientation the user picked', () => {
     const editor = makeEditor(LETTER_DEFAULT);
     mount(editor);

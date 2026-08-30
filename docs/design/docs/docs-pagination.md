@@ -93,8 +93,46 @@ interface Document {
 When `pageSetup` is undefined, all consumers use `DEFAULT_PAGE_SETUP`. This
 avoids a breaking change — existing `Document` construction sites
 (`MemDocStore`, `Doc.create()`, tests) continue to work without modification.
-A helper `resolvePageSetup(setup: PageSetup | undefined): PageSetup` returns
-`setup ?? DEFAULT_PAGE_SETUP` (callers pass `doc.document.pageSetup`).
+
+### `resolvePageSetup` — the single read path
+
+`resolvePageSetup(setup: PageSetup | undefined): PageSetup` began as plain
+defaulting (`setup ?? DEFAULT_PAGE_SETUP`). It is now the **sanitisation
+boundary** for stored page geometry, and the one place every consumer goes
+through: the editor, the ruler, `MemDocStore`, `YorkieDocStore`, the CLI's
+pagination, the DOCX importer, and both exporters (`PdfExporter`,
+`DocxExporter`) all read a page setup through it. Callers still pass
+`doc.document.pageSetup`; what changed is what comes back.
+
+Given a stored setup it returns a fresh, fully populated `PageSetup` in which:
+
+- a missing `paperSize` / `margins` / `orientation` falls back to
+  `DEFAULT_PAGE_SETUP`, field by field rather than whole-object — a stored
+  `NaN` width does not drag the margins down with it;
+- every paper dimension is finite and `> 0`, every margin finite and `>= 0`;
+- the margins leave at least `MIN_CONTENT_PX` (1 px) of content box, measured
+  against the *effective* (orientation-rotated) page. A pair that does not is
+  scaled down proportionally, so a document whose margins are merely too large
+  for its page keeps the ratio its author chose;
+- the result is a copy, so document state is never aliased to a caller's
+  object.
+
+**It clamps rather than throws, deliberately.** The geometry reaching it is
+data this replica did not validate: a collaborator's CRDT write lands in
+`document.pageSetup` with no local check at all (and `YorkieDocStore`'s
+`Number(undefined)` renders a missing field as `NaN`), and a `.docx` import
+stores parsed geometry through `setDocument`. There is no caller to report an
+error to on those paths, and a remote peer must not be able to make this
+replica's document un-openable — so the read path repairs instead of refusing.
+
+The *deliberate* write path is the opposite: `EditorAPI.setPageSetup` throws a
+`RangeError` (`assertUsablePageSetup`), because a caller that can be told it
+passed nonsense should be, and silently storing a different page than it asked
+for is the kind of repair noticed months later. The two floors are the same
+constant, `MIN_CONTENT_PX`, exported from `model/types.ts` for exactly that
+reason: `writePageSetup` stores `resolvePageSetup(setup)`, so anything the
+assert accepted but the resolver would rescale would be precisely the silent
+substitution the throw exists to prevent.
 
 ## Pagination Engine
 
@@ -333,8 +371,25 @@ one already stored — the dialog disables **Apply** and says why, and
 `paginateLayout` cannot lay out. The engine-side check is the load-bearing
 one: it also covers the ruler drag and any programmatic caller, so the
 invariant is stated once on the write instead of once per UI that respects
-it. It refuses only a *closed* content box (and non-finite or negative
-values); the ruler keeps a stricter 20 px in hand while dragging.
+it. It refuses a content box below `MIN_CONTENT_PX` (and non-finite or
+negative values); the ruler keeps a stricter 20 px in hand while dragging.
+
+The dialog imports that same `MIN_CONTENT_PX` rather than re-stating the
+floor as "> 0". A looser check there is not a friendlier dialog: Apply calls
+a setter that *throws*, so any setup the dialog accepts and the assert
+refuses is an uncaught `RangeError` out of a React event handler, which
+unmounts the editor. The band between the two is only reachable when the
+effective page box is fractional — the dialog rounds every typed margin to a
+whole pixel — which is routine for geometry that arrived from a collaborator
+or the CLI, since `resolvePageSetup` preserves any finite positive paper
+dimension.
+
+Apply is nonetheless defensive on top of that check, not instead of it:
+`setPageSetup` is a public engine API whose floor moved once already, and the
+dialog's check is a second implementation of it rather than a proof of
+exhaustiveness. A throw is caught and shown verbatim in the same
+`role="alert"` line the form validation uses, the dialog stays open, and
+nothing is applied — the failure is surfaced, never swallowed.
 
 Two `EditorAPI` members carry it:
 

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
   DEFAULT_PAGE_SETUP,
+  MIN_CONTENT_PX,
   PAPER_SIZES,
   type EditorAPI,
   type PageSetup,
@@ -117,6 +118,20 @@ export function DocsPageSetupDialog({
   const [margins, setMargins] = useState<MarginDraft>(() =>
     draftFrom(DEFAULT_PAGE_SETUP),
   );
+  /**
+   * A `setPageSetup` rejection the form's own validation did not predict.
+   *
+   * Defence on top of that validation, not instead of it.
+   * `EditorAPI.setPageSetup` is a public engine API that grew a throw once
+   * already, and the check below is a second implementation of its floor
+   * rather than a proof the floor cannot move again. An exception out of a
+   * React event handler unmounts the editor; a message does not. Nothing is
+   * swallowed — the engine's own text is shown, in the same `role="alert"`
+   * line the form validation uses, and the dialog stays open with nothing
+   * applied. Any change to the form clears it, so a stale rejection can never
+   * outlive the setup it was about.
+   */
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || !editor) return;
@@ -124,6 +139,7 @@ export function DocsPageSetupDialog({
     setPaperSize(current.paperSize);
     setOrientation(current.orientation);
     setMargins(draftFrom(current));
+    setApplyError(null);
   }, [open, editor]);
 
   const parsed: Record<MarginKey, number | null> = {
@@ -139,28 +155,45 @@ export function DocsPageSetupDialog({
   const pageHeight =
     orientation === "landscape" ? paperSize.width : paperSize.height;
 
+  // `MIN_CONTENT_PX`, not "> 0": `EditorAPI.setPageSetup` throws below the
+  // engine's floor, so a looser check here is not a friendlier dialog — it is
+  // a form that enables Apply and then raises an uncaught `RangeError`. The
+  // gap is only reachable when the effective page box is fractional (this
+  // dialog rounds every typed margin to a whole pixel), which a collaborator's
+  // CRDT write or a CLI-set geometry produces easily, since `resolvePageSetup`
+  // keeps any finite positive paper dimension. Sharing the constant is what
+  // keeps the two from drifting apart again.
   let error: string | null = null;
   if (Object.values(parsed).some((v) => v === null)) {
     error = "Margins must be zero or a positive number of inches.";
-  } else if (parsed.left! + parsed.right! >= pageWidth) {
+  } else if (parsed.left! + parsed.right! > pageWidth - MIN_CONTENT_PX) {
     error = "Left and right margins must leave room for content.";
-  } else if (parsed.top! + parsed.bottom! >= pageHeight) {
+  } else if (parsed.top! + parsed.bottom! > pageHeight - MIN_CONTENT_PX) {
     error = "Top and bottom margins must leave room for content.";
   }
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!editor || error) return;
-    editor.setPageSetup({
-      paperSize,
-      orientation,
-      margins: {
-        top: parsed.top!,
-        bottom: parsed.bottom!,
-        left: parsed.left!,
-        right: parsed.right!,
-      },
-    });
+    try {
+      editor.setPageSetup({
+        paperSize,
+        orientation,
+        margins: {
+          top: parsed.top!,
+          bottom: parsed.bottom!,
+          left: parsed.left!,
+          right: parsed.right!,
+        },
+      });
+    } catch (err) {
+      setApplyError(
+        err instanceof Error
+          ? err.message
+          : "The editor refused this page setup.",
+      );
+      return;
+    }
     onOpenChange(false);
     editor.focus();
   };
@@ -190,7 +223,9 @@ export function DocsPageSetupDialog({
                 value={selectValue}
                 onValueChange={(name) => {
                   const next = PAPER_OPTIONS.find((p) => p.name === name);
-                  if (next) setPaperSize(next);
+                  if (!next) return;
+                  setPaperSize(next);
+                  setApplyError(null);
                 }}
               >
                 <SelectTrigger id="page-setup-paper" className="w-full">
@@ -220,9 +255,10 @@ export function DocsPageSetupDialog({
               <RadioGroup
                 className="flex items-center gap-6"
                 value={orientation}
-                onValueChange={(v) =>
-                  setOrientation(v as PageSetup["orientation"])
-                }
+                onValueChange={(v) => {
+                  setOrientation(v as PageSetup["orientation"]);
+                  setApplyError(null);
+                }}
               >
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="portrait" id="page-setup-portrait" />
@@ -264,18 +300,21 @@ export function DocsPageSetupDialog({
                       // it.
                       step="any"
                       value={margins[key]}
-                      onChange={(e) =>
-                        setMargins((m) => ({ ...m, [key]: e.target.value }))
-                      }
+                      onChange={(e) => {
+                        setMargins((m) => ({ ...m, [key]: e.target.value }));
+                        setApplyError(null);
+                      }}
                     />
                   </div>
                 ))}
               </div>
             </fieldset>
 
-            {error && (
+            {/* One alert line for both: the form's own validation, and the
+                rejection the engine reported when validation missed it. */}
+            {(error ?? applyError) && (
               <p role="alert" className="text-sm text-red-500">
-                {error}
+                {error ?? applyError}
               </p>
             )}
           </div>

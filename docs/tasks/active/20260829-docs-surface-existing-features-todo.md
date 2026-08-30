@@ -169,3 +169,57 @@ check for the read-only `MUTATING_METHODS` allowlist.
   `getStore()` in read-only, tagged `#989`, so the wrapper cannot be misread
   as read-only enforcement. It is written to fail — and be inverted, not
   deleted — when #989 lands.
+
+## Fourth review round (closing)
+
+- **The dialog could produce an uncaught `RangeError`.** Making
+  `EditorAPI.setPageSetup` throw (third round) left the Page Setup dialog's
+  own margin check looser than the floor the setter asserts on: the dialog
+  refused `left + right >= pageWidth`, the assert refuses
+  `left + right > pageWidth - MIN_CONTENT_PX`. In the band between them a form
+  the dialog accepted — Apply enabled, no error shown — reached the throwing
+  setter, and the exception escaped a React event handler and unmounted the
+  editor. Reachable whenever the effective page box is fractional (the dialog
+  rounds every typed margin to a whole pixel), which `resolvePageSetup`
+  preserves for any finite positive paper dimension, so a collaborator's CRDT
+  write or a CLI-set geometry is enough. Fixed by importing the engine's
+  `MIN_CONTENT_PX` — now re-exported from `@wafflebase/docs` — instead of
+  restating the floor. Failing tests first
+  (`docs-page-setup-dialog.test.tsx`: two sliver cases, one per axis, plus a
+  "still accepts the widest margins the engine accepts" test so the fix
+  cannot be a blanket tightening); each mutation-checked.
+- **Apply is defensive too.** Not instead of that check: `setPageSetup` is a
+  public engine API whose floor moved once already, and the dialog's check is
+  a second implementation of it, not a proof of exhaustiveness. A throw is
+  caught and shown verbatim in the same `role="alert"` line the form
+  validation uses, the dialog stays open, nothing is applied, and any change
+  to the form clears it. Nothing is swallowed — two tests pin the surfaced
+  message and the clear.
+- **`docs-pagination.md` still described `resolvePageSetup` as plain
+  defaulting.** It is now the sanitisation boundary every consumer reads
+  through. The doc describes what it does (per-field fallback, finite/positive
+  dimensions, proportional margin fit to `MIN_CONTENT_PX`, defensive copy) and
+  why it clamps rather than throws: the geometry reaching it is a remote
+  peer's or an importer's, with no caller to report to, and a peer must not be
+  able to make this replica's document un-openable. The deliberate write path
+  still throws, on the same constant.
+- **`docs-pdf-export.md` still described the Export dropdown as DOCX/PDF.**
+  Corrected to the four entries that ship, with `text-actions.ts` added to the
+  file listing. The rest of that document's export surface was re-checked: the
+  "Print Preview" non-goal and the lazy-import note are still accurate, and
+  the stale "the formatting toolbar's Export dropdown" phrasing had already
+  been removed — there is one export surface, in the docs header.
+
+Explicitly **not** done in this round, and why:
+
+- **#989** (read-only across `getStore()` / `getDoc()`, including the proxy's
+  `getPrototypeOf` / `defineProperty` escapes) and **#990** (the PDF link
+  annotation's unescaped href in a PDF literal string, from #168) — both
+  filed, both predate this branch, both ruled out of scope.
+- **`resolvePageSetup` has no minimum *page* size** (a 1×1 px paper survives
+  it). Pre-existing and by design: the function's floor is on the content box,
+  and a page too small to be useful is still a page that lays out.
+- **The backend `docs-content` PUT validator does not check `pageSetup`.**
+  Pre-existing; this branch added no backend validation and no new write path
+  there. Anything it stores meets `resolvePageSetup` on read, which is the
+  boundary that has to hold for untrusted geometry.
