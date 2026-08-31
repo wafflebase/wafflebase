@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/notes",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "private": true,
   "license": "Apache-2.0",
   "description": "CodeMirror-based collaborative markdown note editor for Wafflebase",
@@ -67,6 +67,6 @@
     "mermaid": "^11.16.0"
   },
   "peerDependencies": {
-    "@yorkie-js/sdk": "0.7.17"
+    "@yorkie-js/sdk": "0.7.18"
   }
 }

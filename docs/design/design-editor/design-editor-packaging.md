@@ -1,6 +1,6 @@
 ---
 title: design-editor-packaging
-target-version: 0.6.6
+target-version: 0.6.7
 ---
 
 # Packaging: what an installed copy needs

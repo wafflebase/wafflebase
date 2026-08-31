@@ -69,11 +69,15 @@ information.
 Deliberately deferred rather than forgotten. Each is a consequence of the
 same missing seam, so they are cheapest done together.
 
-- [ ] **`DocStore.batch()` seam.** Every sweep is a second store write, and
+- [x] **`DocStore.batch()` seam.** Every sweep is a second store write, and
       `YorkieDocStore.snapshot()` is a no-op (Yorkie takes undo units from
       `doc.update()`), so a redefinition that strands a flag costs two Cmd+Z.
       The slides store already has the seam
       (`docs/design/slides/slides-native-undo.md`).
+      **Shipped as #983** in the v0.6.7 window, which also folded named-style
+      updates into one undo unit. The two sweeps below are what it unblocks —
+      #983 states explicitly that it does not carry them, since each needs its
+      own tests. This task stays active for them.
 - [ ] **Sweep on block merge**, behind that seam. Backspace at the start of a
       Heading 6 strands the flag in a paragraph; the sweep is one line, but
       unbatched it doubles the undo units on the hottest editing path, so it

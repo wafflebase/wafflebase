@@ -68,22 +68,27 @@ fixed by the one change.
 
 ## Verify
 
-- [ ] `pnpm verify:fast`
-- [ ] Self code review over the branch diff
-- [ ] Manual: open the picker in Docs and Slides with DevTools Network filtered
-      on `fonts.googleapis.com` — only visible rows request, more as you
-      scroll, keyboard navigation loads too. Do not hover while checking; that
-      is what hid the bug in the first place.
+- [x] `pnpm verify:fast` — `verify-self` green in #947's checks list.
+- [x] Self code review over the branch diff — #947 was reviewed and merged
+      2026-08-24.
+- [x] Manual: open the picker in Docs and Slides with DevTools Network filtered
+      on `fonts.googleapis.com`. **Recorded in #947's "Notes for Reviewers":**
+      "Verified manually in Docs and Slides with DevTools filtered on
+      fonts.googleapis.com — only visible rows request, more arrive on scroll,
+      and keyboard navigation loads them too." It also notes the ~0.4 s
+      fallback flash on first open, which is `display=swap` arriving — the
+      observation that became the #969 follow-up.
 - No visual-lane impact: the harness never mounts `FontFamilyPicker`
   (`slides-pickers` is the standalone theme-font picker), so no baseline moves
   and no new font fixture is needed.
 
 ## Follow-up (new issue, not this branch)
 
-- [ ] File **"font previews: subset a preview to its label glyphs"**. A row
+- [x] File **"font previews: subset a preview to its label glyphs"**. A row
       pulls its family's entire CSS just to paint that family's name; Google
       Fonts' `&text=` subsets it to those glyphs. Noticed while fixing #727,
-      not part of it.
+      not part of it. Filed, and shipped as #969 in the v0.6.7 window —
+      tracked by `20260825-font-preview-subset-todo.md`.
 
 ## Out of scope
 

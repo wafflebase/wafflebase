@@ -70,11 +70,25 @@ workspace member OR a valid `?token=` share link. We mirror that for images.
   only for this PR).
 
 ## Verify
-- [ ] `pnpm verify:fast`
-- [ ] Manual smoke: open `/shared/:token` in a fresh incognito profile, confirm
-      images on an image-heavy slide load.
-- [ ] Self-review over branch diff (code-review skill).
-- [ ] Lessons + archive.
+- [x] `pnpm verify:fast` — green, recorded in #955's test plan.
+- [x] Self-review over branch diff (code-review skill).
+- Lessons + archive — **half done.** Archived in the v0.6.7 release pass, but
+  no `-lessons.md` was ever written for this task, and writing one now from
+  the PR alone would be reconstruction rather than recollection. The one
+  lesson the PR does record in its own words is kept here instead: an initial
+  exploration mis-reported `doc` as sharing the workspace image route, and
+  code review caught it — `doc` uploads through the legacy *unauthenticated*
+  `/images/:id` route, which anonymous viewers already read.
+- Manual smoke (`/shared/:token` in a fresh incognito profile, images on an
+  image-heavy slide load) — #955's test plan carries it as *recommended before
+  merge*, not as run, so it is a bullet rather than a tick. The real-world
+  confirmation arrived later and from the other direction: the follow-up this
+  task deferred (sheets + notes, #993) was verified end to end against the
+  reported share link, 8 of 8 images loading with every `src` tokened.
+
+The deferred follow-up named above — wiring the frontend token-append for
+sheets floating images and notes — shipped as #993 in this release window,
+so nothing this task scoped out is still outstanding.
 
 ## Notes / decisions
 - Authorization granularity: token → workspace (not token → specific document),

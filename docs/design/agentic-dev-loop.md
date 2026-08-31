@@ -1,6 +1,6 @@
 ---
 title: agentic-dev-loop
-target-version: 0.6.6
+target-version: 0.6.7
 ---
 
 <!-- Make sure to append document link in design README.md after creating the document. -->
