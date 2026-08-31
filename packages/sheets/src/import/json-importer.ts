@@ -1,9 +1,5 @@
-import { toCell } from '../store/readonly';
-import { cellFromInput } from '../model/worksheet/input';
-import { isEmptyCell } from '../model/worksheet/style-mutation';
-import { createWorksheet } from '../model/workbook/worksheet-document';
-import { writeWorksheetCell } from '../model/workbook/worksheet-grid';
 import type { ImportedSheet } from './imported-sheet';
+import { importRecordsAsSheet, type ImportedRecord } from './record-importer';
 
 export type JsonImportMode = 'auto' | 'ndjson';
 
@@ -12,7 +8,7 @@ export type JsonImportOptions = {
   mode?: JsonImportMode;
 };
 
-type JsonRecord = Record<string, unknown>;
+type JsonRecord = ImportedRecord;
 
 function isJsonRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -92,61 +88,14 @@ function parseRecords(text: string, mode: JsonImportMode): JsonRecord[] {
   }
 }
 
-function collectColumns(records: JsonRecord[]): string[] {
-  const columns = new Set<string>();
-  for (const record of records) {
-    for (const key of Object.keys(record)) {
-      columns.add(key);
-    }
-  }
-  if (columns.size === 0) {
-    throw new Error('JSON import contains no columns');
-  }
-  return [...columns];
-}
-
 export function importJsonText(
   text: string,
   options: JsonImportOptions,
 ): ImportedSheet {
   const records = parseRecords(text, options.mode ?? 'auto');
-  const columns = collectColumns(records);
-  const worksheet = createWorksheet();
-  let cellCount = 0;
-
-  columns.forEach((column, index) => {
-    writeWorksheetCell(
-      worksheet,
-      { r: 1, c: index + 1 },
-      { v: column, s: { b: true } },
-    );
-    cellCount += 1;
+  return importRecordsAsSheet(records, {
+    sheetName: options.sheetName,
+    fallbackName: 'Imported JSON',
+    formatName: 'JSON',
   });
-
-  records.forEach((record, rowIndex) => {
-    columns.forEach((column, columnIndex) => {
-      const value = record[column];
-      if (value === null || value === undefined) {
-        return;
-      }
-      const cell = cellFromInput(toCell(value));
-      if (isEmptyCell(cell)) {
-        return;
-      }
-      writeWorksheetCell(
-        worksheet,
-        { r: rowIndex + 2, c: columnIndex + 1 },
-        cell,
-      );
-      cellCount += 1;
-    });
-  });
-
-  return {
-    name: options.sheetName.trim() || 'Imported JSON',
-    worksheet,
-    cellCount,
-    rowCount: records.length + 1,
-    columnCount: columns.length,
-  };
 }

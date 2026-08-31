@@ -1,5 +1,6 @@
 import {
   importJsonText,
+  importParquetFile,
   importXlsxWorkbook,
   type ImportedSheet,
   type ImportedXlsxSheet,
@@ -114,6 +115,17 @@ async function importCsv(file: File): Promise<ImportedSpreadsheetFile> {
   };
 }
 
+async function importParquet(file: File): Promise<ImportedSpreadsheetFile> {
+  const sheetName = sheetImportBaseName(file.name, "Imported Parquet");
+  const importedSheet = await importParquetFile(await file.arrayBuffer(), {
+    sheetName,
+  });
+  return {
+    document: createSpreadsheetDocumentFromImportedSheets([importedSheet]),
+    fileName: file.name,
+  };
+}
+
 export async function importSheetFile(
   file: File,
 ): Promise<ImportedSpreadsheetFile> {
@@ -128,6 +140,8 @@ export async function importSheetFile(
     case "csv":
     case "tsv":
       return importCsv(file);
+    case "parquet":
+      return importParquet(file);
     default:
       throw new Error(`Unsupported sheet import format: ${file.name}`);
   }
