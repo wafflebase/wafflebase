@@ -138,6 +138,18 @@ time.
 | Content **write** | 2–3 | `PUT .../content` accepts doc · slides · note, but the CLI's `content` is read-only in all three (`docs.ts:188`, `notes.ts:146`, `slides.ts:151`) |
 | Workspace images | 3 | `POST` / `DELETE .../images/:imageId` · `GET .../images/:imageId` |
 
+> **Status note (Step 3 of the todo, landed after this audit).** Every row of
+> the class-A table above now has commands: `sheets styles` / `sheet-style` /
+> `column-styles` / `row-styles`, `sheets freeze` / `hidden` / `merges`,
+> `sheets column-widths` / `row-heights`, `sheets conditional-formats` /
+> `data-validations`, `sheets filter` / `pivot`, `sheets clear` / `insert` /
+> `delete` / `move`, `sheets charts`, `docs|slides|notes set-content`,
+> and a top-level `images` namespace — all registered and discoverable through
+> `wafflebase schema`. The table is left as measured: it is the *before* half
+> of the comparison §3 exists to make, and the bench numbers taken against
+> v0.6.7 are only readable next to it. Classes A′, B and C are unchanged, so
+> the ceiling that paragraph describes has moved, not lifted.
+
 #### A′ — backend has it, but outside `/api/v1` and JWT-only (7)
 
 | Area | Items | Evidence |

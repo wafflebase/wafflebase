@@ -47,16 +47,24 @@ Original proposal: @ggyuchive, v1, 2026-08-29
 Ordered by what the bench actually blocks on; re-derive against the current tag
 before treating this as a roadmap.
 
-- [ ] Content **write** — `PUT .../content` for doc · slides · note (CLI
-      `content` is read-only in all three today)
-- [ ] Rows / columns — `clear` · `insert` · `delete` · `move`
-- [ ] Style / formatting — `range-styles` · `sheet-style` · `column-styles` · `row-styles`
-- [ ] Rules — `conditional-formats` · `data-validations`
-- [ ] Analysis — `filter` · `pivot`
-- [ ] Structure display — `freeze` · `hidden` · `merges`
-- [ ] Dimensions — `column-widths` · `row-heights`
-- [ ] Charts
-- [ ] Workspace images — upload / delete / read
+- [x] Content **write** — `docs|slides|notes set-content` (`content-write.ts`,
+      one `PUT .../content` for all three; the backend picks the writer from the
+      persisted type)
+- [x] Rows / columns — `sheets clear` · `insert` · `delete` · `move`
+      (`sheets-structure.ts`; the four verbs mirror the backend's own
+      `POST clear|insert|delete|move` one-to-one)
+- [x] Style / formatting — `sheets styles` · `sheet-style` · `column-styles` ·
+      `row-styles` (`sheets-styles.ts`)
+- [x] Rules — `sheets conditional-formats` · `data-validations` (`sheets-rules.ts`)
+- [x] Analysis — `sheets filter` · `pivot` (`sheets-analysis.ts`)
+- [x] Structure display — `sheets freeze` · `hidden` · `merges` (`sheets-view.ts`)
+- [x] Dimensions — `sheets column-widths` · `row-heights` (`sheets-dimensions.ts`)
+- [x] Charts — `sheets charts` (`sheets-charts.ts`)
+- [x] Workspace images — `images upload` / `get` / `delete` (`images.ts`, a new
+      top-level namespace: the bucket is workspace-scoped, not document-scoped)
+- [x] All of the above registered and discoverable — mounted in
+      `sheets.ts` / `docs.ts` / `slides.ts` / `notes.ts` / `cli.ts`, and every
+      one carries a `schema/registry.ts` entry with aliases and safety
 - [ ] Re-run the baseline on the new CLI version and compare
 
 ## Step 4: Decide the A′ question (7 items)

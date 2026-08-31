@@ -18,6 +18,7 @@ import { createImageFetcher } from '../docs/image-fetcher.js';
 import { parsePageRange } from '../docs/page-range.js';
 import { writeBinary } from '../output/binary.js';
 import { runDocsImport } from '../docs/import.js';
+import { registerDocsSetContentCommand } from './content-write.js';
 
 type DocType = 'doc' | 'sheet';
 
@@ -334,6 +335,7 @@ export function registerDocsCommand(program: Command) {
     });
 
   registerDocsImportCommand(doc);
+  registerDocsSetContentCommand(doc);
 }
 
 async function pdfPageCount(bytes: Uint8Array): Promise<number> {
