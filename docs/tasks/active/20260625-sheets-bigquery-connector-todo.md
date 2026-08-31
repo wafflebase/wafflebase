@@ -48,8 +48,15 @@ Each task lists **what / files / reuse / done**. Mirror
 
 - [ ] **Dry-run estimate** — run `dryRun: true` first → `totalBytesProcessed`;
   return an estimate before execution. Done: estimate surfaced pre-run.
-- [ ] **`maximumBytesBilled` ceiling** — per-connection + per-query cap passed to
+- [x] **`maximumBytesBilled` ceiling** — per-connection + per-query cap passed to
   the job. Done: an over-ceiling query hard-fails with a clear message.
+  **Shipped in #811**: `bigquery.service.ts:268` passes the source's ceiling
+  into `createQueryJob`, `toBillingCeiling` converts the DTO on create/update,
+  and a failed job becomes a `BadRequestException` carrying the reason via
+  `describeConnectionError()`. Pinned by `bigquery.service.spec.ts`. The other
+  two boxes in this section (dry-run estimate, warning UI) did **not** ship —
+  #811's own body scopes itself to "the backend connection-management and
+  query-execution slice".
 - [ ] **Warning UI** — banner + confirm when estimate exceeds a threshold. Done:
   user confirms before an expensive run.
 

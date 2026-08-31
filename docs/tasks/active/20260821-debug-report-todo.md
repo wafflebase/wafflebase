@@ -220,9 +220,11 @@ Node-side code that must not be bundled into the app, so it cannot live under
       `/harness/interaction`, `/harness/visual`, `/login`. Canvas counts differ
       (2 / 3 / 1 / 1 / 12 / 4 / 0 / 0), which is what makes the set worth
       keeping — the two zero-canvas routes are the DOM path.
-- [ ] **Retina (DPR 2) capture size** — still unmeasured. At DPR 1 a 160×60
-      region is 1-3 KB and a full 1280×721 screen is 81 KB; the quota guard is
-      sized for the DPR 2 case but has not been checked against it.
+- **Retina (DPR 2) capture size** — still unmeasured. At DPR 1 a 160×60
+  region is 1-3 KB and a full 1280×721 screen is 81 KB; the quota guard is
+  sized for the DPR 2 case but has not been checked against it. A plain
+  bullet rather than a box: its text is a negative disclosure, so ticking it
+  would assert the opposite of what it says.
 - [ ] Pre-existing, unrelated, and worth its own report: `/harness/docs` throws
       `TypeError: s.destroy is not a function` three times on load with debug
       mode untouched. Exactly the class SP1.5's console-error detection is for.

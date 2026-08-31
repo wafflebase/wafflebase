@@ -48,10 +48,20 @@ Architecture: the approved Checkpoint 1 plan. Design docs to update on landing:
   - [x] CP4.1 — Node shims + engine/Yorkie resolution
   - [x] CP4.2 — the offline Yorkie provider
   - [x] CP4.3 — canvas scene mounts + seeded fixtures
-  - [ ] ~~CP4.4 — canvas-aware hit-testing~~ **deferred** (pivot, note above)
-  - [ ] CP4.5 — the theme bridge
+  - [ ] ~~CP4.4 — canvas-aware hit-testing~~ **deferred** (pivot, note above).
+        Cancelled by design decision, not outstanding: canvas scenes stay
+        render-only. Its sub-boxes below are kept for the spec, not as work.
+  - [ ] CP4.5 — the theme bridge. **Genuinely open** — the pivot kept this
+        one. No `wb:set-canvas-theme` exists; `design-editor-engine.md` §3.8
+        documents it without implementing it.
   - [ ] CP4.6 — verification + doc closeout ← **current**
-- [ ] **CP5 — Diff engine + doc closeout**
+- [ ] **CP5 — Diff engine + doc closeout.** Half of this shipped **outside
+      this task's PR train**: the diff engine landed as `scripts/design-pr.mjs`
+      / `pnpm design-pr` via #964 and #971 (v0.6.7), implementing the
+      "git diff is the review surface" design. The remaining half — the Phase 4
+      `AgentPopover` agent loop — was **withdrawn**, per the pivot note at the
+      top of this file; it has no destination. So what is left here is doc
+      closeout, not engine work.
 - [x] **Packaging — the two-package split** (`design-editor-local-plugin.md` §6)
 
 ## CP2 scope — done
