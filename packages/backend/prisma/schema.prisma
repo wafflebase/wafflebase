@@ -16,6 +16,7 @@ model User {
   folders Folder[]
   notificationsReceived Notification[] @relation("NotificationRecipient")
   notificationsActed    Notification[] @relation("NotificationActor")
+  templateListings      TemplateListing[]
 }
 
 model UserDocStyles {
@@ -121,6 +122,7 @@ model Document {
   folder   Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
   notifications Notification[]
+  templateListing TemplateListing?
 
   @@index([workspaceId, folderId])
 }
@@ -151,6 +153,12 @@ model ShareLink {
   creator    User      @relation(fields: [createdBy], references: [id])
   createdAt  DateTime  @default(now())
   expiresAt  DateTime?
+
+  // Set when this link is the non-expiring `viewer` link a template listing
+  // mints for its preview. Revoking it degrades the listing to a
+  // thumbnail-only card (see TemplateListing.shareLinkId) rather than
+  // breaking it.
+  templateListing TemplateListing?
 }
 
 model Workspace {
@@ -168,6 +176,7 @@ model Workspace {
   apiKeys     ApiKey[]
   folders     Folder[]
   notifications Notification[]
+  templateListings TemplateListing[]
 }
 
 model WorkspaceMember {
@@ -256,6 +265,75 @@ model Notification {
   /// connect, poll tick, publish, and mark-read. Without this it scans every
   /// row the user has ever received, read ones included.
   @@index([recipientId, readAt])
+}
+
+/// A document published as a template — see docs/design/template-gallery.md.
+///
+/// A template is deliberately NOT a `Document.type`: that column routes which
+/// editor opens a document, and a template must open in the editor of whatever
+/// it is a template *of*. So the listing is a sidecar row and "publish" is an
+/// upsert on `documentId`, which is why that column is unique.
+model TemplateListing {
+  id          String    @id @default(uuid())
+
+  /// The document this listing publishes. Cascades, so a deleted document
+  /// takes its listing with it and never leaves a dead card in the gallery.
+  documentId  String    @unique
+  document    Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  /// The publishing workspace, denormalized so the workspace-tier gallery
+  /// query does not have to join. Read authorization deliberately does NOT
+  /// use it — that follows `document.workspaceId`, so moving a document out of
+  /// a workspace stops that workspace reading it through the listing.
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   Int
+  creator     User      @relation(fields: [createdBy], references: [id])
+
+  /// The non-expiring `viewer` share link minted at publish, which is what
+  /// lets an anonymous visitor preview the template through the existing
+  /// `/shared/:token` machinery (and what the Yorkie auth webhook honours in
+  /// enforce mode). `SetNull`: a manager revoking it from the Share dialog
+  /// degrades the listing to a thumbnail-only card, and re-publishing mints a
+  /// new one — it must not delete the listing.
+  shareLinkId String?    @unique
+  shareLink   ShareLink? @relation(fields: [shareLinkId], references: [id], onDelete: SetNull)
+
+  /// Gallery metadata. `title` is seeded from the document title but is
+  /// independently editable: a template is named for what it is *for*.
+  title       String
+  description String?
+  category    String?
+  tags        String[]
+  /// Key in the image bucket (`GET /images/:id`), which is unauthenticated and
+  /// immutably cached — so a gallery card renders for a logged-out visitor
+  /// with no extra serving path.
+  thumbnailId String?
+
+  /// unlisted (link only) | workspace | public
+  visibility  String    @default("unlisted")
+  /// listed | pending | rejected. Only the `public` tier ever leaves `listed`.
+  status      String    @default("listed")
+  /// Incremented on each successful use. A counter, not a ledger: an
+  /// occasional lost increment is acceptable, and it is what a future creator
+  /// program would rank and pay on.
+  useCount    Int       @default(0)
+  /// When the publisher granted the license that lets others copy and modify
+  /// the content. Required before a listing may go `public`.
+  licensedAt  DateTime?
+  /// The publisher's original, once `documentId` points at the frozen copy a
+  /// public listing is promoted to at approval time. Null for the unlisted and
+  /// workspace tiers, which track the live document as Canva's template links
+  /// do.
+  originId    String?
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  /// The public gallery's browse query: filter by tier+status, rank by usage.
+  @@index([visibility, status, useCount])
+  /// The workspace gallery's query.
+  @@index([workspaceId, visibility])
 }
 
 datasource db {

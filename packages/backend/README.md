@@ -299,6 +299,44 @@ Documents gain folder support: `GET /workspaces/:wid/documents?folderId=` filter
 to a folder (omitted = workspace root); document create and `PATCH /documents/:id`
 accept `folderId` (`null` = move to root, manager-gated like the workspace move).
 
+### Templates (`/templates`)
+
+Publishing a document as a template and starting a new document from one
+(design: [`docs/design/template-gallery.md`](../../docs/design/template-gallery.md)).
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `POST` | `/documents/:id/template` | JWT (manager) | Publish or re-publish as a template |
+| `GET` | `/documents/:id/template` | JWT | The document's listing, or `null` |
+| `PATCH` | `/templates/:id` | JWT (manager) | Edit listing metadata |
+| `DELETE` | `/templates/:id` | JWT (manager) | Unpublish; revokes the preview link |
+| `GET` | `/templates/:id` | Optional JWT | Listing metadata + preview token |
+| `POST` | `/templates/:id/use` | JWT (member of the destination) | Start a new document from the template |
+
+A template is **not** a `Document.type` — that column routes which editor opens
+a document, so the listing is a sidecar row and publishing is an upsert on its
+unique `documentId`. Publishing is gated at the `isDocumentManager` tier at
+every visibility tier, the same bar as minting an editor share link and for the
+same reason: it hands the content to an audience workspace membership no longer
+bounds. It mints a non-expiring `viewer` `ShareLink`, which is what lets an
+anonymous visitor preview the template through the existing `/shared/:token`
+machinery; revoking that link from the Share dialog degrades the listing to a
+card without a live preview rather than breaking it.
+
+`POST /templates/:id/use` is the one route where a document crosses a workspace
+boundary, so authorization inverts: **read** authority comes from the listing's
+visibility (`public` and listed, `workspace` and the caller is a member, or
+`unlisted` and the caller holds the id), **write** authority from
+`assertMember` on the *destination*. It runs `DocumentCopyService` with a
+destination, so every document type is covered by the same engine "Make a copy"
+uses; the new document is authored by whoever used the template and is named
+after it (`uniqueTitle`, not `copyTitle` — a document started from a "Weekly
+Report" template is a weekly report, not a copy of one).
+
+A tier the caller may not see answers `404`, not `403`: whether a workspace has
+published a template is itself workspace information. The `public` tier is
+refused with a `400` until the Phase 3 review pipeline exists.
+
 ### Miro import (`/workspaces/:workspaceId/miro/import`)
 
 Reads a Miro board on the caller's behalf so it can be imported as a
@@ -607,6 +645,24 @@ blob with none (see
 | `readAt` | DateTime? | Null while unread |
 | `createdAt` | DateTime | Auto-set. `@@index([recipientId, createdAt])` covers the list; `@@index([recipientId, readAt])` covers the unread badge, which would otherwise scan every row the recipient has ever received |
 
+**TemplateListing** — a document published as a template
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | String (PK) | UUID. For an `unlisted` listing this *is* the capability — 122 bits, same as a share token |
+| `documentId` | String | Unique FK to Document (`Cascade`) — one listing per document, so publish is an upsert and a deleted document leaves no dead card |
+| `workspaceId` | String | Publishing workspace, FK (`Cascade`). Denormalized so the workspace-tier query needs no join |
+| `createdBy` | Int | FK to User |
+| `shareLinkId` | String? | Unique FK to ShareLink (`SetNull`) — the non-expiring `viewer` link backing the preview |
+| `title` / `description` / `category` / `tags` | | Gallery metadata; `title` seeds from the document title but is independently editable |
+| `thumbnailId` | String? | Key in the image bucket, served by the unauthenticated `GET /images/:id` |
+| `visibility` | String | `unlisted` / `workspace` / `public` |
+| `status` | String | `listed` / `pending` / `rejected`. Only `public` ever leaves `listed` |
+| `useCount` | Int | Incremented per successful use. A counter, not a ledger — a failed increment never fails the request |
+| `licensedAt` | DateTime? | The publisher's grant that others may copy and modify. Required before `public` |
+| `originId` | String? | The publisher's original, once `documentId` points at the frozen copy a public listing is promoted to |
+| `publishedAt` / `createdAt` / `updatedAt` | DateTime | `@@index([visibility, status, useCount])` covers the public browse query; `@@index([workspaceId, visibility])` the workspace one |
+
 ## Module Structure
 
 ```
@@ -653,6 +709,7 @@ src/
 ├── workspace/                 # Workspaces + members + sharing roles
 ├── folder/                    # Workspace folder tree (folder.md / workspace-folders.md)
 ├── share-link/                # URL-based token sharing (sharing.md)
+├── template/                  # Template gallery: publish + use (template-gallery.md)
 ├── datasource/                # External PostgreSQL/MySQL/BigQuery datasources
 ├── file/                      # Blob storage for static file types (pdf)
 ├── image/                     # Image document type upload/serve (image-viewer.md)

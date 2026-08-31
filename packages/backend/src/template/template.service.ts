@@ -1,0 +1,425 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { Document as DocumentModel, TemplateListing } from '@prisma/client';
+import { PrismaService } from 'src/database/prisma.service';
+import { isDocumentManager } from '../document/document-access';
+import { DocumentCopyService } from '../document/document-copy.service';
+import { ShareLinkService } from '../share-link/share-link.service';
+import { WorkspaceService } from '../workspace/workspace.service';
+import { FolderService } from '../folder/folder.service';
+import {
+  PublishTemplateDto,
+  UpdateTemplateDto,
+  UseTemplateDto,
+} from './template.dto';
+
+/**
+ * What a caller is told about a listing. Deliberately not the raw row:
+ * `workspaceId` and `createdBy` are internal, and `previewToken` is a
+ * capability that only a permitted viewer may receive.
+ */
+export interface TemplateListingView {
+  id: string;
+  documentId: string;
+  documentType: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  tags: string[];
+  thumbnailId: string | null;
+  visibility: string;
+  status: string;
+  useCount: number;
+  publishedAt: string | null;
+  author: { id: number; username: string; photo: string | null } | null;
+  /**
+   * The `viewer` share-link token backing the read-only preview, or `null` if
+   * that link was revoked — in which case the landing page shows the card
+   * without a live preview rather than failing.
+   */
+  previewToken: string | null;
+  /** Whether the caller may edit or unpublish this listing. */
+  canManage: boolean;
+}
+
+type ListingWithRelations = TemplateListing & {
+  document: DocumentModel;
+  shareLink: { token: string } | null;
+  creator: { id: number; username: string; photo: string | null } | null;
+};
+
+/**
+ * The template gallery — publishing a document as a template and starting a
+ * new document from one (docs/design/template-gallery.md).
+ *
+ * Two rules run through everything here:
+ *
+ * - **Publishing is manager-gated at every tier.** It hands the document's
+ *   content to an audience workspace membership no longer bounds, which is the
+ *   same escalation an editor share link is, so it takes the same bar.
+ * - **Using inverts authorization.** Read authority comes from the listing's
+ *   visibility; write authority comes from membership of the *destination*
+ *   workspace. This is the only path where a document crosses a workspace
+ *   boundary.
+ */
+@Injectable()
+export class TemplateService {
+  private readonly logger = new Logger(TemplateService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly documentCopyService: DocumentCopyService,
+    private readonly shareLinkService: ShareLinkService,
+    private readonly workspaceService: WorkspaceService,
+    private readonly folderService: FolderService,
+  ) {}
+
+  /**
+   * Resolve the caller's authority over a document's listing, throwing unless
+   * they are its manager (workspace owner or document author). Mirrors
+   * `ShareLinkService.resolveCapability`: it queries `workspaceMember`
+   * directly so the author-who-is-no-longer-a-member case still resolves.
+   */
+  private async assertManager(
+    documentId: string,
+    userId: number,
+  ): Promise<DocumentModel> {
+    const doc = await this.prisma.document.findUnique({
+      where: { id: documentId },
+    });
+    if (!doc) throw new NotFoundException('Document not found');
+
+    const membership = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: doc.workspaceId, userId } },
+    });
+    if (!isDocumentManager(membership?.role, doc.authorID, userId)) {
+      throw new ForbiddenException(
+        'Only the workspace owner or document owner can publish this document as a template',
+      );
+    }
+    return doc;
+  }
+
+  async publish(
+    documentId: string,
+    userId: number,
+    dto: PublishTemplateDto,
+  ): Promise<TemplateListingView> {
+    const doc = await this.assertManager(documentId, userId);
+    const visibility = dto.visibility ?? 'unlisted';
+    assertPublishable(visibility);
+
+    const existing = await this.prisma.templateListing.findUnique({
+      where: { documentId },
+    });
+
+    // Minted through `ShareLinkService` rather than Prisma directly so link
+    // creation keeps a single source of truth. A republish reuses the live
+    // link; one revoked from the Share dialog is replaced here.
+    const shareLinkId =
+      existing?.shareLinkId ??
+      (await this.shareLinkService.create(documentId, 'viewer', userId, null))
+        .id;
+
+    const data = {
+      title: dto.title ?? doc.title,
+      description: dto.description ?? null,
+      category: dto.category ?? null,
+      tags: dto.tags ?? [],
+      thumbnailId: dto.thumbnailId ?? null,
+      visibility,
+      status: 'listed',
+      licensedAt: dto.acceptLicense ? new Date() : (existing?.licensedAt ?? null),
+      publishedAt: existing?.publishedAt ?? new Date(),
+      shareLinkId,
+    };
+
+    const listing = await this.prisma.templateListing.upsert({
+      where: { documentId },
+      create: {
+        documentId,
+        workspaceId: doc.workspaceId,
+        createdBy: userId,
+        ...data,
+      },
+      update: data,
+      include: LISTING_INCLUDE,
+    });
+    return toView(listing, true);
+  }
+
+  async update(
+    id: string,
+    userId: number,
+    dto: UpdateTemplateDto,
+  ): Promise<TemplateListingView> {
+    const listing = await this.prisma.templateListing.findUnique({
+      where: { id },
+    });
+    if (!listing) throw new NotFoundException('Template not found');
+    await this.assertManager(listing.documentId, userId);
+
+    const visibility = dto.visibility ?? listing.visibility;
+    assertPublishable(visibility);
+
+    const updated = await this.prisma.templateListing.update({
+      where: { id },
+      data: {
+        ...(dto.title !== undefined ? { title: dto.title } : {}),
+        ...(dto.description !== undefined
+          ? { description: dto.description }
+          : {}),
+        ...(dto.category !== undefined ? { category: dto.category } : {}),
+        ...(dto.tags !== undefined ? { tags: dto.tags } : {}),
+        ...(dto.thumbnailId !== undefined
+          ? { thumbnailId: dto.thumbnailId }
+          : {}),
+        ...(dto.visibility !== undefined ? { visibility } : {}),
+        ...(dto.acceptLicense ? { licensedAt: new Date() } : {}),
+      },
+      include: LISTING_INCLUDE,
+    });
+    return toView(updated, true);
+  }
+
+  /**
+   * Unpublish: the listing goes, the document stays. The preview share link is
+   * revoked with it — leaving it behind would keep the document anonymously
+   * readable after the publisher believed they had withdrawn it.
+   */
+  async unpublish(id: string, userId: number): Promise<{ deleted: true }> {
+    const listing = await this.prisma.templateListing.findUnique({
+      where: { id },
+    });
+    if (!listing) throw new NotFoundException('Template not found');
+    await this.assertManager(listing.documentId, userId);
+
+    await this.prisma.templateListing.delete({ where: { id } });
+    if (listing.shareLinkId) {
+      await this.prisma.shareLink
+        .delete({ where: { id: listing.shareLinkId } })
+        .catch((err) => {
+          this.logger.warn(
+            `failed to revoke preview link ${listing.shareLinkId}: ${err}`,
+          );
+        });
+    }
+    return { deleted: true };
+  }
+
+  /**
+   * Read a listing as `userId` (undefined = anonymous).
+   *
+   * A tier the caller may not see answers `404`, not `403`: whether a given
+   * workspace has published a template is itself workspace information.
+   */
+  async findForViewer(
+    id: string,
+    userId?: number,
+  ): Promise<TemplateListingView> {
+    const listing = await this.prisma.templateListing.findUnique({
+      where: { id },
+      include: LISTING_INCLUDE,
+    });
+    if (!listing) throw new NotFoundException('Template not found');
+
+    const canManage = userId
+      ? await this.isManagerOf(listing, userId)
+      : false;
+    if (!canManage && !(await this.isVisibleTo(listing, userId))) {
+      throw new NotFoundException('Template not found');
+    }
+    return toView(listing, canManage);
+  }
+
+  /**
+   * Start a new document from a template.
+   *
+   * Read authority is the listing's visibility; write authority is membership
+   * of the destination workspace. The copy is authored by the caller, so the
+   * audit trail names whoever used the template, not the publisher.
+   */
+  async use(
+    id: string,
+    userId: number,
+    dto: UseTemplateDto,
+  ): Promise<DocumentModel> {
+    const listing = await this.prisma.templateListing.findUnique({
+      where: { id },
+      include: LISTING_INCLUDE,
+    });
+    if (!listing) throw new NotFoundException('Template not found');
+    if (
+      !(await this.isVisibleTo(listing, userId)) &&
+      !(await this.isManagerOf(listing, userId))
+    ) {
+      throw new NotFoundException('Template not found');
+    }
+
+    // `assertMember` resolves a slug, so its `workspaceId` — not the body's —
+    // is the canonical destination.
+    const member = await this.workspaceService.assertMember(
+      dto.workspaceId,
+      userId,
+    );
+    if (dto.folderId) {
+      await this.folderService.assertSameWorkspace(
+        dto.folderId,
+        member.workspaceId,
+      );
+    }
+
+    const created = await this.documentCopyService.copy(
+      listing.document,
+      userId,
+      {
+        workspaceId: member.workspaceId,
+        folderId: dto.folderId ?? null,
+        title: listing.title,
+      },
+    );
+
+    // A counter, not a ledger (docs/design/template-gallery.md): the document
+    // the caller asked for exists, so a failed increment must not fail the
+    // request.
+    await this.prisma.templateListing
+      .update({ where: { id }, data: { useCount: { increment: 1 } } })
+      .catch((err) => {
+        this.logger.warn(`failed to increment useCount for ${id}: ${err}`);
+      });
+
+    return created;
+  }
+
+  /**
+   * The listing attached to a document, for the Share dialog's Template
+   * section.
+   *
+   * Gated on **workspace membership**, not on the listing's own visibility.
+   * An unlisted listing is readable by anyone holding its id, but that is a
+   * capability the publisher hands out deliberately; reaching the same
+   * `previewToken` by document id instead would let anyone who knows the
+   * document — an expiring viewer share link, say — trade up to the listing's
+   * non-expiring one.
+   */
+  async findByDocument(
+    documentId: string,
+    userId: number,
+  ): Promise<TemplateListingView | null> {
+    const listing = await this.prisma.templateListing.findUnique({
+      where: { documentId },
+      include: LISTING_INCLUDE,
+    });
+    if (!listing) return null;
+
+    const membership = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: listing.document.workspaceId,
+          userId,
+        },
+      },
+    });
+    const canManage = isDocumentManager(
+      membership?.role,
+      listing.document.authorID,
+      userId,
+    );
+    if (!membership && !canManage) return null;
+    return toView(listing, canManage);
+  }
+
+  private async isVisibleTo(
+    listing: TemplateListing & { document: DocumentModel },
+    userId?: number,
+  ): Promise<boolean> {
+    if (listing.visibility === 'public') return listing.status === 'listed';
+    // The listing id is a v4 UUID, so it carries the same 122 bits an unlisted
+    // share token does: holding it *is* the capability.
+    if (listing.visibility === 'unlisted') return true;
+    if (!userId) return false;
+    // The *document's* current workspace, not the listing's denormalized copy:
+    // read authority follows the document. Moving a document to another
+    // workspace must not leave its old workspace reading it through a listing.
+    const membership = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: listing.document.workspaceId,
+          userId,
+        },
+      },
+    });
+    return membership !== null;
+  }
+
+  private async isManagerOf(
+    listing: TemplateListing & { document: DocumentModel },
+    userId: number,
+  ): Promise<boolean> {
+    const membership = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: listing.document.workspaceId,
+          userId,
+        },
+      },
+    });
+    return isDocumentManager(
+      membership?.role,
+      listing.document.authorID,
+      userId,
+    );
+  }
+}
+
+const LISTING_INCLUDE = {
+  document: true,
+  shareLink: { select: { token: true } },
+  creator: { select: { id: true, username: true, photo: true } },
+} as const;
+
+/**
+ * The `public` tier needs a review pipeline and an explicit license grant
+ * before anything may enter it (docs/design/template-gallery.md, Phase 3).
+ * Neither exists yet, so publishing there is refused rather than silently
+ * downgraded — a publisher who asked for "public" and got "unlisted" would
+ * believe their template was in the gallery.
+ *
+ * `acceptLicense` is already accepted and recorded (`licensedAt`) so a
+ * publisher who granted it before Phase 3 lands does not have to re-grant it;
+ * it is not yet sufficient on its own.
+ */
+function assertPublishable(visibility: string): void {
+  if (visibility !== 'public') return;
+  throw new BadRequestException(
+    'The public template gallery is not available yet',
+  );
+}
+
+function toView(
+  listing: ListingWithRelations,
+  canManage: boolean,
+): TemplateListingView {
+  return {
+    id: listing.id,
+    documentId: listing.documentId,
+    documentType: listing.document.type,
+    title: listing.title,
+    description: listing.description,
+    category: listing.category,
+    tags: listing.tags,
+    thumbnailId: listing.thumbnailId,
+    visibility: listing.visibility,
+    status: listing.status,
+    useCount: listing.useCount,
+    publishedAt: listing.publishedAt?.toISOString() ?? null,
+    author: listing.creator,
+    previewToken: listing.shareLink?.token ?? null,
+    canManage,
+  };
+}

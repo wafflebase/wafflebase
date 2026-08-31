@@ -1,4 +1,4 @@
-import { copyTitle } from './document-copy-title.util';
+import { copyTitle, uniqueTitle } from './document-copy-title.util';
 
 describe('copyTitle', () => {
   it('appends "(copy)" when the name is free', () => {
@@ -45,5 +45,43 @@ describe('copyTitle', () => {
     const copy = copyTitle(long, [long]);
     expect(copy).toHaveLength(200);
     expect(copy.endsWith(' (copy)')).toBe(true);
+  });
+});
+
+describe('uniqueTitle', () => {
+  it('uses the name itself when it is free', () => {
+    // The whole point of the split from copyTitle: a document started from a
+    // "Weekly Report" template is a weekly report, not a copy of one.
+    expect(uniqueTitle('Weekly Report', [])).toBe('Weekly Report');
+  });
+
+  it('numbers only on collision', () => {
+    expect(uniqueTitle('Weekly Report', ['Weekly Report'])).toBe(
+      'Weekly Report (2)',
+    );
+  });
+
+  it('keeps counting', () => {
+    expect(
+      uniqueTitle('Weekly Report', [
+        'Weekly Report',
+        'Weekly Report (2)',
+        'Weekly Report (3)',
+      ]),
+    ).toBe('Weekly Report (4)');
+  });
+
+  it('reuses a gap in the numbering', () => {
+    expect(
+      uniqueTitle('Weekly Report', ['Weekly Report', 'Weekly Report (3)']),
+    ).toBe('Weekly Report (2)');
+  });
+
+  it('clamps to 200 chars by trimming the base, never the suffix', () => {
+    const long = 'a'.repeat(200);
+    expect(uniqueTitle(long, [])).toHaveLength(200);
+    const second = uniqueTitle(long, [long]);
+    expect(second).toHaveLength(200);
+    expect(second.endsWith(' (2)')).toBe(true);
   });
 });
