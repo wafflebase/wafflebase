@@ -213,21 +213,61 @@ Node-side code that must not be bundled into the app, so it cannot live under
 
 ## Verification checklist
 
-- [ ] The eight surfaces that open without a login. Swept 2026-08-23 against
-      the SPIKE, which proves the surfaces and the capture geometry but not the
-      shipped overlay — re-run against it before the PR merges:
-      `/harness/hunt?surface={sheet,doc,slides,board}`, `/harness/docs`,
-      `/harness/interaction`, `/harness/visual`, `/login`. Canvas counts differ
-      (2 / 3 / 1 / 1 / 12 / 4 / 0 / 0), which is what makes the set worth
-      keeping — the two zero-canvas routes are the DOM path.
+- [x] The eight surfaces that open without a login. **Re-swept 2026-08-31
+      against the shipped overlay** (`pnpm frontend dev`, headless Chrome),
+      not the SP0 spike. All eight open logged-out, and `Mod+Shift+Y` renders
+      `[data-testid="debug-overlay"]` + `debug-badge` on every one:
+
+      | Surface | Canvases expected | Actual | Overlay |
+      | --- | --- | --- | --- |
+      | `/harness/hunt?surface=sheet` | 2 | 2 | yes |
+      | `/harness/hunt?surface=doc` | 3 | 3 | yes |
+      | `/harness/hunt?surface=slides` | 1 | 1 | yes |
+      | `/harness/hunt?surface=board` | 1 | 1 | yes |
+      | `/harness/docs` | 12 | 12 | yes |
+      | `/harness/interaction` | 4 | 4 | yes |
+      | `/harness/visual` | 0 | **59** | yes |
+      | `/login` | 0 | 0 | yes |
+
+      **Seven of eight match. `/harness/visual` does not, and it invalidates
+      the sentence this checklist item ended on.** That sentence said "the two
+      zero-canvas routes are the DOM path" — the set was kept precisely
+      because it covered both paths. Only `/login` is DOM-only now; the visual
+      harness has grown 59 canvases since 2026-08-23. The canvas/DOM split the
+      sweep was designed to exercise is therefore carried by a single route,
+      which is thinner coverage than the item assumed.
+
+      Recorded rather than silently re-baselined: the number moving is not the
+      finding, the collapse of the two-path property is.
 - **Retina (DPR 2) capture size** — still unmeasured. At DPR 1 a 160×60
   region is 1-3 KB and a full 1280×721 screen is 81 KB; the quota guard is
   sized for the DPR 2 case but has not been checked against it. A plain
   bullet rather than a box: its text is a negative disclosure, so ticking it
   would assert the opposite of what it says.
-- [ ] Pre-existing, unrelated, and worth its own report: `/harness/docs` throws
+- [x] Pre-existing, unrelated, and worth its own report: `/harness/docs` throws
       `TypeError: s.destroy is not a function` three times on load with debug
       mode untouched. Exactly the class SP1.5's console-error detection is for.
+      **Filed as #997** on 2026-08-31, with the root cause rather than just the
+      symptom.
+
+      Two corrections the reproduction produced, both worth keeping because the
+      original note would have sent someone to the wrong place:
+
+      - **It is not "on load".** A fresh load of `/harness/docs` is clean — 12
+        canvases, zero console errors. The throw is on **unmount**, and the
+        damage only becomes visible on the *next* mount, which is what made it
+        look load-shaped.
+      - **The harness does not recover.** After the throw, navigating back
+        renders **0 canvases instead of 12**; every docs scenario is blank
+        until a full reload. The original note recorded three console errors
+        and stopped there.
+
+      Root cause is one line, twice: `page.tsx:52` and `:63` call `.destroy()`
+      on the `Spreadsheet` that `initialize()` resolves to, but `Spreadsheet`'s
+      teardown method is `cleanup()` (`spreadsheet.ts:932`). `instance` is
+      typed `Awaited<ReturnType<typeof initialize>>`, so this should have been
+      a compile error — #997 flags that separately, since whatever hides it
+      hides the same mistake on every other harness page.
 
 ## Out of scope for 1a
 

@@ -6,9 +6,9 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 574
+Total archived tasks: 575
 
-## 2026/08 (144 tasks)
+## 2026/08 (145 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
@@ -49,6 +49,7 @@ Total archived tasks: 574
 | sheets clear borders prune (2026-08-22) | [20260822-sheets-clear-borders-prune-todo.md](./2026/08/20260822-sheets-clear-borders-prune-todo.md) | [20260822-sheets-clear-borders-prune-lessons.md](./2026/08/20260822-sheets-clear-borders-prune-lessons.md) |
 | sheets merge refusal notice (2026-08-22) | [20260822-sheets-merge-refusal-notice-todo.md](./2026/08/20260822-sheets-merge-refusal-notice-todo.md) | [20260822-sheets-merge-refusal-notice-lessons.md](./2026/08/20260822-sheets-merge-refusal-notice-lessons.md) |
 | task archive audit (2026-08-22) | [20260822-task-archive-audit-todo.md](./2026/08/20260822-task-archive-audit-todo.md) | [20260822-task-archive-audit-lessons.md](./2026/08/20260822-task-archive-audit-lessons.md) |
+| debug report (2026-08-21) | [20260821-debug-report-todo.md](./2026/08/20260821-debug-report-todo.md) | - |
 | eval panel digest (2026-08-20) | [20260820-eval-panel-digest-todo.md](./2026/08/20260820-eval-panel-digest-todo.md) | - |
 | eval report section5 (2026-08-20) | [20260820-eval-report-section5-todo.md](./2026/08/20260820-eval-report-section5-todo.md) | - |
 | eval validity scorer (2026-08-20) | [20260820-eval-validity-scorer-todo.md](./2026/08/20260820-eval-validity-scorer-todo.md) | - |

@@ -18,7 +18,6 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| debug report (2026-08-21) | [20260821-debug-report-todo.md](./active/20260821-debug-report-todo.md) | - |
 | docs inline style off clears key (2026-08-19) | [20260819-docs-inline-style-off-clears-key-todo.md](./active/20260819-docs-inline-style-off-clears-key-todo.md) | [20260819-docs-inline-style-off-clears-key-lessons.md](./active/20260819-docs-inline-style-off-clears-key-lessons.md) |
 | claude token pool (2026-08-14) | [20260814-claude-token-pool-todo.md](./active/20260814-claude-token-pool-todo.md) | - |
 | path aware ci (2026-08-12) | [20260812-path-aware-ci-todo.md](./active/20260812-path-aware-ci-todo.md) | - |
@@ -38,7 +37,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 574
+- Archived task count: 575
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: debug report (2026-08-21)
+Latest active task: docs inline style off clears key (2026-08-19)
