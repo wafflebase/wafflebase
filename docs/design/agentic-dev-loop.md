@@ -89,7 +89,7 @@ assigned to one primary area, so they sum rather than double-count shared files.
 | Fix agent | 2026-08-05 (#672) | 2026-08-19 (#894) | — | harness Phase 30 |
 | Eval / benchmark | 2026-08-06 (#677) | 2026-08-24 (#951) | 35 | `docs/tasks/archive/2026/08/20260805-eval-corpus-skeleton-todo.md` |
 | Design → code | 2026-08-08 (#701) | 2026-08-25 (#966) | 37 | `docs/tasks/active/20260729-design-editor-layout-sandbox-todo.md` |
-| Debug reporter | 2026-08-24 (#946) | 2026-08-25 (#961) | 4 | `docs/tasks/active/20260821-debug-report-todo.md` |
+| Debug reporter | 2026-08-24 (#946) | 2026-08-25 (#961) | 4 | `docs/tasks/archive/2026/08/20260821-debug-report-todo.md` |
 
 36 days, 269 merged commits over the union of those paths. The review panel and the
 hunters dominate the count, and both for the same reason: their output is judged by
