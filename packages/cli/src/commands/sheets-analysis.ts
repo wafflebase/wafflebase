@@ -8,6 +8,7 @@ import {
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
+import { unwrap } from './payload.js';
 import type {
   PivotTableDefinition,
   WorksheetFilterState,
@@ -133,7 +134,12 @@ export function registerSheetsAnalysisCommand(parent: Command) {
         outputError(new Error(payload.message), this);
         return;
       }
-      const filterState = payload.value as WorksheetFilterState | null;
+      // Unwrapped ahead of the dry-run branch so `filter get | filter set`
+      // round-trips and the preview is the body that would go on the wire.
+      const filterState = unwrap(
+        payload.value,
+        'filter',
+      ) as WorksheetFilterState | null;
 
       try {
         // Inside the try, ahead of `--format` validation: the preview is
@@ -209,7 +215,11 @@ export function registerSheetsAnalysisCommand(parent: Command) {
         outputError(new Error(payload.message), this);
         return;
       }
-      const pivotTable = payload.value as PivotTableDefinition | null;
+      // Unwrapped ahead of the dry-run branch, as `filter set` does.
+      const pivotTable = unwrap(
+        payload.value,
+        'pivot',
+      ) as PivotTableDefinition | null;
 
       try {
         // Inside the try, ahead of `--format` validation — see `filter set`.

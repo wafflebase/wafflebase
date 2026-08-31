@@ -9,6 +9,7 @@ import {
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
 import type { MergeSpan } from '../client/http-client.js';
+import { unwrap } from './payload.js';
 
 /**
  * Worksheet view state — freeze panes, hidden rows/columns, merged cells.
@@ -268,13 +269,17 @@ function registerMergesCommand(parent: Command) {
         data?: string;
       }>();
 
-      // The payload is the merge *map* itself, matching the shape `merges get`
-      // prints under its `merges` key and the argument `HttpClient.setMerges`
-      // takes; the client is what wraps it in the `{ merges }` envelope the
-      // endpoint expects.
+      // The payload is the merge *map* itself — the argument
+      // `HttpClient.setMerges` takes; the client is what wraps it in the
+      // `{ merges }` envelope the endpoint expects. The enveloped form that
+      // `merges get` prints is accepted too, unwrapped ahead of the dry-run
+      // branch so the preview is the body that would go on the wire.
       const parsed = await readJsonPayload(this, dataStr, 'merge');
       if (!parsed.ok) return;
-      const merges = parsed.value as Record<string, MergeSpan>;
+      const merges = unwrap(parsed.value, 'merges') as Record<
+        string,
+        MergeSpan
+      >;
 
       try {
         // Inside the try, ahead of `--format` validation: the preview is

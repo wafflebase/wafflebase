@@ -8,6 +8,7 @@ import {
 } from '../output/formatter.js';
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
+import { unwrap } from './payload.js';
 
 /**
  * Whole-column widths and whole-row heights for a spreadsheet tab.
@@ -99,7 +100,12 @@ export function registerSheetsDimensionsCommand(parent: Command) {
       // stdin, and it has to be caught here to add that.
       let columnWidths: SizeMap;
       try {
-        columnWidths = await readSizeMap(dataStr);
+        // Unwrapped ahead of the dry-run branch so
+        // `column-widths get | column-widths set` round-trips.
+        columnWidths = unwrap(
+          await readSizeMap(dataStr),
+          'columnWidths',
+        ) as SizeMap;
       } catch (e) {
         outputError(
           new Error(
@@ -191,7 +197,11 @@ export function registerSheetsDimensionsCommand(parent: Command) {
       // than left to `runCli`'s generic envelope.
       let rowHeights: SizeMap;
       try {
-        rowHeights = await readSizeMap(dataStr);
+        // Unwrapped ahead of the dry-run branch, as `column-widths set` does.
+        rowHeights = unwrap(
+          await readSizeMap(dataStr),
+          'rowHeights',
+        ) as SizeMap;
       } catch (e) {
         outputError(
           new Error(

@@ -443,6 +443,53 @@ describe('sheets view-state commands', () => {
       expect(stderr.join('\n')).toMatch(/Invalid/);
     });
   });
+
+  /**
+   * Regression: `merges get` prints the `{ merges }` envelope, so a
+   * `get | set` pipe hands `set` the enveloped form. Before the unwrap,
+   * `set` wrapped it a second time and the server answered 400. The existing
+   * `set` cases all pass the already-bare map, so none of them saw it.
+   */
+  describe('merges get | merges set', () => {
+    const span = { rows: 2, cols: 2 };
+
+    it('round-trips the real stdout of get back into set', async () => {
+      getMerges.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { merges: { A1: span } },
+      });
+      await run(['sheets', 'merges', 'get', 'doc-1']);
+      const piped = stdout.join('\n');
+      stdout.length = 0;
+
+      setMerges.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { merges: { A1: span } },
+      });
+      await run(['sheets', 'merges', 'set', 'doc-1', '--data', piped]);
+
+      expect(setMerges).toHaveBeenCalledWith('doc-1', 'tab-1', { A1: span });
+    });
+
+    it('previews the unwrapped body under --dry-run', async () => {
+      await run([
+        'sheets',
+        'merges',
+        'set',
+        'doc-1',
+        '--dry-run',
+        '--data',
+        JSON.stringify({ merges: { A1: span } }),
+      ]);
+
+      expect(JSON.parse(stdout.join('\n')).body).toEqual({
+        merges: { A1: span },
+      });
+      expect(setMerges).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('sheets view-state command registration', () => {

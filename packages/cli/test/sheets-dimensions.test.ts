@@ -441,6 +441,59 @@ describe('sheets dimensions commands', () => {
       expect(stderr.join('\n')).toMatch(/Invalid path segment/);
     });
   });
+
+  /**
+   * Regression: the size-map `get`s print `{ columnWidths }` /
+   * `{ rowHeights }`, which `set` used to wrap a second time. See the
+   * matching block in sheets-view.test.ts.
+   */
+  describe('column-widths and row-heights get | set', () => {
+    it('round-trips the real stdout of column-widths get back into set', async () => {
+      const columnWidths = { 1: 180, 2: 90 };
+      getColumnWidths.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { columnWidths },
+      });
+      await run(['sheets', 'column-widths', 'get', 'doc-1']);
+      const piped = stdout.join('\n');
+      stdout.length = 0;
+
+      setColumnWidths.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { columnWidths },
+      });
+      await run(['sheets', 'column-widths', 'set', 'doc-1', '--data', piped]);
+
+      expect(setColumnWidths).toHaveBeenCalledWith(
+        'doc-1',
+        'tab-1',
+        columnWidths,
+      );
+    });
+
+    it('round-trips the real stdout of row-heights get back into set', async () => {
+      const rowHeights = { 1: 32, 4: null };
+      getRowHeights.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { rowHeights },
+      });
+      await run(['sheets', 'row-heights', 'get', 'doc-1']);
+      const piped = stdout.join('\n');
+      stdout.length = 0;
+
+      setRowHeights.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { rowHeights },
+      });
+      await run(['sheets', 'row-heights', 'set', 'doc-1', '--data', piped]);
+
+      expect(setRowHeights).toHaveBeenCalledWith('doc-1', 'tab-1', rowHeights);
+    });
+  });
 });
 
 describe('sheets dimensions command registration', () => {

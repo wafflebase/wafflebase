@@ -441,6 +441,69 @@ describe('sheets filter/pivot commands', () => {
       expect(stderr.join('\n')).toMatch(/400/);
     });
   });
+
+  /**
+   * Regression: `filter get` / `pivot get` print the `{ filter }` /
+   * `{ pivot }` envelope, which `set` used to wrap a second time. See the
+   * matching block in sheets-view.test.ts.
+   */
+  describe('filter and pivot get | set', () => {
+    const filter = { startRow: 1, startCol: 1, endRow: 10, endCol: 4 };
+    const pivot = { sourceRange: 'A1:D10', rows: [], columns: [], values: [] };
+
+    it('round-trips the real stdout of filter get back into filter set', async () => {
+      getFilter.mockResolvedValue({ ok: true, status: 200, data: { filter } });
+      await run(['sheets', 'filter', 'get', 'doc-1']);
+      const piped = stdout.join('\n');
+      stdout.length = 0;
+
+      setFilter.mockResolvedValue({ ok: true, status: 200, data: { filter } });
+      await run(['sheets', 'filter', 'set', 'doc-1', '--data', piped]);
+
+      expect(setFilter).toHaveBeenCalledWith('doc-1', 'tab-1', filter);
+    });
+
+    it('round-trips the real stdout of pivot get back into pivot set', async () => {
+      getPivot.mockResolvedValue({ ok: true, status: 200, data: { pivot } });
+      await run(['sheets', 'pivot', 'get', 'doc-1']);
+      const piped = stdout.join('\n');
+      stdout.length = 0;
+
+      setPivot.mockResolvedValue({ ok: true, status: 200, data: { pivot } });
+      await run(['sheets', 'pivot', 'set', 'doc-1', '--data', piped]);
+
+      expect(setPivot).toHaveBeenCalledWith('doc-1', 'tab-1', pivot);
+    });
+
+    it('still accepts a bare null to clear the filter', async () => {
+      setFilter.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { filter: null },
+      });
+      await run(['sheets', 'filter', 'set', 'doc-1', '--data', 'null']);
+
+      expect(setFilter).toHaveBeenCalledWith('doc-1', 'tab-1', null);
+    });
+
+    it('unwraps an enveloped null, so clearing round-trips too', async () => {
+      setFilter.mockResolvedValue({
+        ok: true,
+        status: 200,
+        data: { filter: null },
+      });
+      await run([
+        'sheets',
+        'filter',
+        'set',
+        'doc-1',
+        '--data',
+        JSON.stringify({ filter: null }),
+      ]);
+
+      expect(setFilter).toHaveBeenCalledWith('doc-1', 'tab-1', null);
+    });
+  });
 });
 
 describe('sheets filter/pivot registration', () => {

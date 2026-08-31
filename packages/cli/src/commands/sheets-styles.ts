@@ -9,6 +9,7 @@ import {
 import { printDryRun } from '../client/dry-run.js';
 import { seg } from '../client/url.js';
 import type { CellStyle, RangeStylePatch } from '../client/http-client.js';
+import { isPlainObject, unwrap } from './payload.js';
 
 /**
  * Worksheet formatting: the range-style layer (`styles`), the single
@@ -61,19 +62,6 @@ async function readJsonPayload(
     );
     return { ok: false };
   }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * Accept the response envelope the matching `get` prints as well as the bare
- * value, so a `get | set` pipe is a round trip.
- */
-function unwrap(payload: unknown, key: string): unknown {
-  if (isPlainObject(payload) && key in payload) return payload[key];
-  return payload;
 }
 
 /**
