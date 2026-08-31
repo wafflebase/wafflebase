@@ -224,13 +224,14 @@ Node-side code that must not be bundled into the app, so it cannot live under
       | `/harness/hunt?surface=doc` | 3 | 3 | yes |
       | `/harness/hunt?surface=slides` | 1 | 1 | yes |
       | `/harness/hunt?surface=board` | 1 | 1 | yes |
-      | `/harness/docs` | 12 | 12, but see below | yes |
+      | `/harness/docs` | 12 (wrong, see below) | 12 before #997, **6** after | yes |
       | `/harness/interaction` | 4 | 4 | yes |
       | `/harness/visual` | 0 | **59** | yes |
       | `/login` | 0 | 0 | yes |
 
-      **Seven of eight match. `/harness/visual` does not, and it invalidates
-      the sentence this checklist item ended on.** That sentence said "the two
+      **Six of eight match outright. Two do not, and both matter more than
+      the six that do.** `/harness/visual` invalidates the sentence this
+      checklist item ended on. That sentence said "the two
       zero-canvas routes are the DOM path" — the set was kept precisely
       because it covered both paths. Only `/login` is DOM-only now; the visual
       harness has grown 59 canvases since 2026-08-23. The canvas/DOM split the
@@ -258,11 +259,14 @@ Node-side code that must not be bundled into the app, so it cannot live under
   sized for the DPR 2 case but has not been checked against it. A plain
   bullet rather than a box: its text is a negative disclosure, so ticking it
   would assert the opposite of what it says.
-- [x] Pre-existing, unrelated, and worth its own report: `/harness/docs` throws
+- [x] Pre-existing, unrelated, and worth its own report. **Filed as #997** on
+      2026-08-31 and fixed in #996, with the root cause rather than just the
+      symptom. Exactly the class SP1.5's console-error detection is for.
+
+      As originally recorded: "`/harness/docs` throws
       `TypeError: s.destroy is not a function` three times on load with debug
-      mode untouched. Exactly the class SP1.5's console-error detection is for.
-      **Filed as #997** on 2026-08-31, with the root cause rather than just the
-      symptom.
+      mode untouched." Reproducing it showed **"on load" was wrong** — the
+      wording is kept only because it is what the original observation said.
 
       Two corrections the reproduction produced, both worth keeping because the
       original note would have sent someone to the wrong place:

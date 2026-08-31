@@ -65,33 +65,49 @@ function SheetScenario({
     let cancelled = false;
     let instance: Awaited<ReturnType<typeof initialize>> | undefined;
 
-    const run = chainRef.current.then(async () => {
-      if (cancelled) return;
-      await setup();
-      if (cancelled) return;
-      const s = await initialize(el, {
-        theme,
-        store,
-        readOnly: true,
-        hideFormulaBar: true,
-        hideAutofillHandle: true,
+    const run = chainRef.current
+      .then(async () => {
+        if (cancelled) return;
+        await setup();
+        if (cancelled) return;
+        const s = await initialize(el, {
+          theme,
+          store,
+          readOnly: true,
+          hideFormulaBar: true,
+          hideAutofillHandle: true,
+        });
+        if (cancelled) {
+          s.cleanup();
+          return;
+        }
+        instance = s;
+        setReady(true);
+      })
+      // The queue must always settle *resolved*. Every later mount chains off
+      // this promise, so one rejected link would make each of them skip its
+      // own initialisation body forever — the whole harness dead until reload,
+      // which is a worse failure than the one scenario that actually broke.
+      .catch((err) => {
+        console.error("[docs harness] scenario failed to initialize", err);
+        instance?.cleanup();
+        instance = undefined;
       });
-      if (cancelled) {
-        s.cleanup();
-        return;
-      }
-      instance = s;
-      setReady(true);
-    });
     chainRef.current = run;
 
     return () => {
       cancelled = true;
       setReady(false);
-      chainRef.current = run.then(() => {
-        instance?.cleanup();
-        instance = undefined;
-      });
+      chainRef.current = run
+        .then(() => {
+          instance?.cleanup();
+          instance = undefined;
+        })
+        .catch((err) => {
+          // Same reason, for the teardown link.
+          console.error("[docs harness] scenario failed to clean up", err);
+          instance = undefined;
+        });
     };
   }, [grid, theme, columnWidths]);
 

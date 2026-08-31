@@ -48,7 +48,7 @@ Architecture: the approved Checkpoint 1 plan. Design docs to update on landing:
   - [x] CP4.1 — Node shims + engine/Yorkie resolution
   - [x] CP4.2 — the offline Yorkie provider
   - [x] CP4.3 — canvas scene mounts + seeded fixtures
-  - [ ] ~~CP4.4 — canvas-aware hit-testing~~ **deferred** (pivot, note above).
+  - ~~CP4.4 — canvas-aware hit-testing~~ **deferred** (pivot, note above).
         Cancelled by design decision, not outstanding: canvas scenes stay
         render-only. Its sub-boxes below are kept for the spec, not as work.
   - [ ] CP4.5 — the theme bridge. **Genuinely open** — the pivot kept this
