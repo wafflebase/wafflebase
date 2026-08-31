@@ -31,6 +31,23 @@ function SheetScenario({
 }: ScenarioProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
+  /**
+   * Serialises mount/teardown across effect runs (#997).
+   *
+   * Teardown is `Spreadsheet.cleanup()`, whose last act is
+   * `container.innerHTML = ''`. Both runs of a StrictMode double-invoke share
+   * one container, and `initialize()` is async — so an unchained teardown from
+   * run N lands *after* run N+1 has painted and wipes its canvases, leaving
+   * `ready === true` over an empty box.
+   *
+   * Chaining makes run N+1 wait for run N's teardown, so the wipe can only
+   * ever hit a container nobody owns.
+   *
+   * This race predates #997; it was invisible because the teardown it depends
+   * on threw (`destroy` is not a method on `Spreadsheet`) before reaching the
+   * wipe. Fixing the method name is what made it reachable.
+   */
+  const chainRef = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     const el = containerRef.current;
@@ -45,19 +62,52 @@ function SheetScenario({
       }
     };
 
-    let destroyed = false;
+    let cancelled = false;
     let instance: Awaited<ReturnType<typeof initialize>> | undefined;
-    setup().then(() => initialize(el, { theme, store, readOnly: true, hideFormulaBar: true, hideAutofillHandle: true })).then((s) => {
-      if (destroyed) {
-        s.destroy();
-        return;
-      }
-      instance = s;
-      setReady(true);
-    });
+
+    const run = chainRef.current
+      .then(async () => {
+        if (cancelled) return;
+        await setup();
+        if (cancelled) return;
+        const s = await initialize(el, {
+          theme,
+          store,
+          readOnly: true,
+          hideFormulaBar: true,
+          hideAutofillHandle: true,
+        });
+        if (cancelled) {
+          s.cleanup();
+          return;
+        }
+        instance = s;
+        setReady(true);
+      })
+      // The queue must always settle *resolved*. Every later mount chains off
+      // this promise, so one rejected link would make each of them skip its
+      // own initialisation body forever — the whole harness dead until reload,
+      // which is a worse failure than the one scenario that actually broke.
+      .catch((err) => {
+        console.error("[docs harness] scenario failed to initialize", err);
+        instance?.cleanup();
+        instance = undefined;
+      });
+    chainRef.current = run;
+
     return () => {
-      destroyed = true;
-      instance?.destroy();
+      cancelled = true;
+      setReady(false);
+      chainRef.current = run
+        .then(() => {
+          instance?.cleanup();
+          instance = undefined;
+        })
+        .catch((err) => {
+          // Same reason, for the teardown link.
+          console.error("[docs harness] scenario failed to clean up", err);
+          instance = undefined;
+        });
     };
   }, [grid, theme, columnWidths]);
 

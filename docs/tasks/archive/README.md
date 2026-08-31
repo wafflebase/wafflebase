@@ -6,12 +6,13 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 572
+Total archived tasks: 575
 
-## 2026/08 (142 tasks)
+## 2026/08 (145 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.7 (2026-08-31) | [20260831-release-v0.6.7-todo.md](./2026/08/20260831-release-v0.6.7-todo.md) | [20260831-release-v0.6.7-lessons.md](./2026/08/20260831-release-v0.6.7-lessons.md) |
 | shared image token notes sheets (2026-08-31) | [20260831-shared-image-token-notes-sheets-todo.md](./2026/08/20260831-shared-image-token-notes-sheets-todo.md) | [20260831-shared-image-token-notes-sheets-lessons.md](./2026/08/20260831-shared-image-token-notes-sheets-lessons.md) |
 | docs 985 loose ends (2026-08-30) | [20260830-docs-985-loose-ends-todo.md](./2026/08/20260830-docs-985-loose-ends-todo.md) | [20260830-docs-985-loose-ends-lessons.md](./2026/08/20260830-docs-985-loose-ends-lessons.md) |
 | pr review fixes 986 982 (2026-08-30) | [20260830-pr-review-fixes-986-982-todo.md](./2026/08/20260830-pr-review-fixes-986-982-todo.md) | [20260830-pr-review-fixes-986-982-lessons.md](./2026/08/20260830-pr-review-fixes-986-982-lessons.md) |
@@ -30,6 +31,7 @@ Total archived tasks: 572
 | promote exit code default (2026-08-25) | [20260825-promote-exit-code-default-todo.md](./2026/08/20260825-promote-exit-code-default-todo.md) | [20260825-promote-exit-code-default-lessons.md](./2026/08/20260825-promote-exit-code-default-lessons.md) |
 | sync status indicator (2026-08-25) | [20260825-sync-status-indicator-todo.md](./2026/08/20260825-sync-status-indicator-todo.md) | - |
 | panel pool exhaustion infra (2026-08-24) | [20260824-panel-pool-exhaustion-infra-todo.md](./2026/08/20260824-panel-pool-exhaustion-infra-todo.md) | - |
+| release v0.6.6 (2026-08-24) | [20260824-release-v0.6.6-todo.md](./2026/08/20260824-release-v0.6.6-todo.md) | [20260824-release-v0.6.6-lessons.md](./2026/08/20260824-release-v0.6.6-lessons.md) |
 | shared image access (2026-08-24) | [20260824-shared-image-access-todo.md](./2026/08/20260824-shared-image-access-todo.md) | - |
 | docs large paste perf (2026-08-23) | [20260823-docs-large-paste-perf-todo.md](./2026/08/20260823-docs-large-paste-perf-todo.md) | [20260823-docs-large-paste-perf-lessons.md](./2026/08/20260823-docs-large-paste-perf-lessons.md) |
 | caret line affinity (2026-08-22) | [20260822-caret-line-affinity-todo.md](./2026/08/20260822-caret-line-affinity-todo.md) | [20260822-caret-line-affinity-lessons.md](./2026/08/20260822-caret-line-affinity-lessons.md) |
@@ -47,6 +49,7 @@ Total archived tasks: 572
 | sheets clear borders prune (2026-08-22) | [20260822-sheets-clear-borders-prune-todo.md](./2026/08/20260822-sheets-clear-borders-prune-todo.md) | [20260822-sheets-clear-borders-prune-lessons.md](./2026/08/20260822-sheets-clear-borders-prune-lessons.md) |
 | sheets merge refusal notice (2026-08-22) | [20260822-sheets-merge-refusal-notice-todo.md](./2026/08/20260822-sheets-merge-refusal-notice-todo.md) | [20260822-sheets-merge-refusal-notice-lessons.md](./2026/08/20260822-sheets-merge-refusal-notice-lessons.md) |
 | task archive audit (2026-08-22) | [20260822-task-archive-audit-todo.md](./2026/08/20260822-task-archive-audit-todo.md) | [20260822-task-archive-audit-lessons.md](./2026/08/20260822-task-archive-audit-lessons.md) |
+| debug report (2026-08-21) | [20260821-debug-report-todo.md](./2026/08/20260821-debug-report-todo.md) | - |
 | eval panel digest (2026-08-20) | [20260820-eval-panel-digest-todo.md](./2026/08/20260820-eval-panel-digest-todo.md) | - |
 | eval report section5 (2026-08-20) | [20260820-eval-report-section5-todo.md](./2026/08/20260820-eval-report-section5-todo.md) | - |
 | eval validity scorer (2026-08-20) | [20260820-eval-validity-scorer-todo.md](./2026/08/20260820-eval-validity-scorer-todo.md) | - |
