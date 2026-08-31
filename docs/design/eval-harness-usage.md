@@ -1,6 +1,6 @@
 ---
 title: eval-harness-usage
-target-version: 0.6.6
+target-version: 0.6.7
 ---
 
 # Running the review-panel benchmark

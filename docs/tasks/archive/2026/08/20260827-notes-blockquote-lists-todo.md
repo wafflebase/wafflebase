@@ -51,14 +51,14 @@ so `> - [ ] a` parses as a plain paragraph whose "content" is the whole line,
 
 ## Acceptance criteria (from the issue + review comment)
 
-- [ ] `[ ]` / `[x]` at line start becomes a checkbox — including after `> `
-- [ ] Clicking anywhere on a preview task item toggles it — including a
+- [x] `[ ]` / `[x]` at line start becomes a checkbox — including after `> `
+- [x] Clicking anywhere on a preview task item toggles it — including a
       blockquoted one
-- [ ] Bullet / Numbered / Checkbox toggles, Indent / Outdent, all multi-line —
+- [x] Bullet / Numbered / Checkbox toggles, Indent / Outdent, all multi-line —
       including on blockquoted lines, with correct pressed/disabled state
-- [ ] Outdenting a quoted item never strips its `> `
-- [ ] Preview checkboxes have an accessible name
-- [ ] `writing-a-note.md` documents the whole toolbar
+- [x] Outdenting a quoted item never strips its `> `
+- [x] Preview checkboxes have an accessible name
+- [x] `writing-a-note.md` documents the whole toolbar
 
 ## Non-goals
 
