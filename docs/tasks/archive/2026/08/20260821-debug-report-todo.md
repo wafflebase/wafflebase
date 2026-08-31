@@ -224,7 +224,7 @@ Node-side code that must not be bundled into the app, so it cannot live under
       | `/harness/hunt?surface=doc` | 3 | 3 | yes |
       | `/harness/hunt?surface=slides` | 1 | 1 | yes |
       | `/harness/hunt?surface=board` | 1 | 1 | yes |
-      | `/harness/docs` | 12 | 12 | yes |
+      | `/harness/docs` | 12 | 12, but see below | yes |
       | `/harness/interaction` | 4 | 4 | yes |
       | `/harness/visual` | 0 | **59** | yes |
       | `/login` | 0 | 0 | yes |
@@ -239,6 +239,20 @@ Node-side code that must not be bundled into the app, so it cannot live under
 
       Recorded rather than silently re-baselined: the number moving is not the
       finding, the collapse of the two-path property is.
+
+      **`/harness/docs` matched, and the match was wrong.** Fixing #997
+      revealed that `12` was never the correct count — it was the leak. Each
+      scenario mounts one `Spreadsheet` painting two canvases (grid +
+      overlay), and there are three scenarios, so the correct total is **6**.
+      Twelve is what you get when StrictMode's double-invoke builds a second
+      instance per scenario and the teardown throws before disposing either.
+      After the fix: 3 scenarios × 2 canvases = 6, stable across repeated
+      unmount/remount.
+
+      So this row agreeing with its baseline was the least trustworthy result
+      in the table — a checklist that only compares against a previously
+      recorded number cannot tell a correct value from a reproducible bug. The
+      one row that "passed" hardest is the one that was broken.
 - **Retina (DPR 2) capture size** — still unmeasured. At DPR 1 a 160×60
   region is 1-3 KB and a full 1280×721 screen is 81 KB; the quota guard is
   sized for the DPR 2 case but has not been checked against it. A plain
