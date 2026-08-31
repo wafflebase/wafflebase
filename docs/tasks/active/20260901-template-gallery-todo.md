@@ -71,24 +71,116 @@ Status: **research + design written; implementation not started, not approved**
 - [ ] Backend e2e coverage through the HTTP layer, alongside the existing
       share-link/document integration specs
 
-## Phase 2 — Workspace gallery
+## Phase 2 — Workspace gallery (the store)
 
-- [ ] `visibility: 'workspace'` + listing scope in `GET /templates`
-- [ ] **Templates** tab in the workspace
-- [ ] **New from template** in the documents-list create menu
+Phase 1 shipped the spine — one template, one link, one copy. This is the phase
+that makes a listing **findable**: there is no discovery surface at all today.
+The `workspace` tier's authorization already shipped and is tested, so none of
+the work below is authorization work.
+
+### 2a. `GET /templates` — the collection endpoint
+
+The single largest piece, and the one every later surface reads.
+
+- [ ] `GET /templates?scope=workspace|public&workspaceId=&type=&category=&tag=&q=&sort=popular|recent&cursor=&limit=`
+- [ ] Visibility as a **query constraint, never a post-filter**; `scope=workspace`
+      runs `assertMember` first and constrains on the *document's* current
+      workspace (the Phase 1 rule)
+- [ ] `unlisted` listings never appear in any collection — holding the id is
+      their entire access story
+- [ ] **No `previewToken` in list responses** — a page of 24 cards must not hand
+      out 24 non-expiring read capabilities; the token comes from
+      `GET /templates/:id` when a card is opened
+- [ ] Keyset pagination on `(useCount, id)` / `(publishedAt, id)`, not offset
+- [ ] `@@index([visibility, status, publishedAt])` for the recency sort
+- [ ] Tests: cross-tier leakage (unlisted absent, another workspace's listings
+      absent, a moved document's listing absent), token omission, cursor
+      stability while counts change
+
+### 2b. Thumbnails
+
+- [ ] Client-side capture at publish: `drawSlide()` for slides/board, the
+      paginated page renderer for docs, the grid renderer for sheets, the blob
+      itself for pdf/image, a type icon for note/file
+- [ ] Downscale ~640 px WebP → `POST /images` → store the **id**, never a URL
+- [ ] Refresh on republish; document that a thumbnail is a snapshot
+- [ ] Card and landing page render it (landing page already does)
+
+### 2c. Taxonomy
+
+- [ ] Fixed `category` list shared by backend validation and the frontend picker
+      (Business / Education / Personal / Project management / Finance /
+      Marketing / Design / Other) — a constant, not a table
+- [ ] Tag normalization on write: trim, lowercase, de-duplicate, max 10
+- [ ] Category + tag inputs in the Share dialog's Template section
+
+### 2d. Surfaces
+
+- [ ] **Templates** tab at `/w/:workspaceId/templates`
+- [ ] **New from template** picker in the documents-list create menu
 - [ ] Manager may unpublish any listing in their workspace (publishing itself is
       manager-gated at this tier too — see Decisions)
 
-## Phase 3 — Public gallery
+### 2e. Phase 1 shortcuts cleared here
 
-- [ ] `status: pending | listed | rejected` + maintainer allowlist review
-- [ ] Frozen-copy promotion on approval (copy service into a system workspace)
-- [ ] Re-host a public listing's embedded images alongside the frozen copy
-      (reuse the Miro importer's re-hosting path)
-- [ ] Public `/templates` browse page — type/category facets, `useCount` sort
-- [ ] License grant accepted at publish, attribution on the listing
-- [ ] Report endpoint; takedown deletes the listing, never the document
-- [ ] Rate-limit `use` per user
+A gallery makes both far more visible than a single hand-sent link did.
+
+- [ ] Embed the preview in `/t/:id` instead of opening `/shared/<token>`
+      (needs `SharedDocument` to accept a token prop rather than read
+      `useParams`)
+- [ ] Return a logged-out visitor to `/t/:id` after sign-in (needs the OAuth
+      `state` to carry a server-validated return path — an auth change)
+
+## Phase 3 — Public community gallery
+
+Everything the workspace tier can skip *because* its audience is bounded.
+`public` stays refused with a `400` until all of it exists — this phase is not
+a flag flip.
+
+### 3a. Review pipeline
+
+- [ ] Requesting `public` sets `status: 'pending'` and lists nothing
+- [ ] `POST /templates/:id/review { decision, reason? }` gated on
+      `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` (configuration, not a new admin console)
+- [ ] `template_reviewed` notification on both outcomes; the rejection reason is
+      the notification `preview` — a submission that disappears silently is the
+      failure mode CapCut's help pages are mostly about
+- [ ] Reviewer queue view (pending listings + reports)
+
+### 3b. Frozen-copy promotion
+
+- [ ] `WAFFLEBASE_TEMPLATE_WORKSPACE_ID` system workspace, seeded once
+- [ ] Approval copies into it and re-points `documentId`, recording the
+      publisher's original in `originId`
+- [ ] Republish → new frozen copy → re-review; the superseded copy is deleted
+      once the listing points at its replacement
+- [ ] Re-host the frozen copy's embedded images into listing-owned keys
+      (reuse the Miro importer's re-hosting shape), so a publisher deleting an
+      image cannot break an approved listing
+
+### 3c. Public browse
+
+- [ ] `/templates` page outside `PrivateRoute`, reading 2a with `scope=public`
+- [ ] Document-type and category facets, popular/recent sort
+- [ ] Search: `ILIKE` over title/description + tag containment; `pg_trgm` index
+      only if it gets slow — Postgres only, no new infrastructure
+
+### 3d. Trust and safety
+
+- [ ] License grant required to submit (`licensedAt`); grant text as a docs page
+- [ ] Attribution (author) on the listing and the card
+- [ ] `TemplateReport` model + `POST /templates/:id/report { reason }`,
+      authenticated and throttled
+- [ ] Takedown sets `status: 'rejected'` + visibility back to `unlisted`; never
+      touches the document, and copies already made stay
+- [ ] Ranking guards: a publisher's own use does not increment `useCount`;
+      per-user throttle on `use`
+
+## Still Non-Goals at every phase
+
+Monetization (Canva's royalty pool / CapCut's payouts — needs payments, tax and
+fraud defence), template versioning, and CapCut-style parameterized slots
+(decided against, see Decisions).
 
 ## Review
 

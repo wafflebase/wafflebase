@@ -25,6 +25,36 @@ Nothing about the document model, the Yorkie schema, or `Document.type`
 changes. What is genuinely new is a listing model, a discovery surface, and —
 only for the public tier — review and attribution.
 
+### Scope map
+
+The whole feature, and where each piece lands. "Shipped" is measured against
+`main` at 0.6.7 + Phase 1.
+
+| Capability | Phase | State |
+| --- | :---: | --- |
+| `TemplateListing` model, publish / unpublish / edit | 1 | shipped |
+| Preview via a minted `viewer` share link | 1 | shipped |
+| Use → copy into a destination workspace | 1 | shipped |
+| `/t/:id` landing page, unlisted link sharing | 1 | shipped |
+| Manager gate, per-tier visibility, `useCount` | 1 | shipped |
+| **`GET /templates` collection endpoint** (facets, sort, keyset pages) | 2 | — |
+| **Thumbnail capture** per document type | 2 | — |
+| **Category taxonomy + tag normalization** | 2 | — |
+| **Workspace Templates tab**, New-from-template picker | 2 | — |
+| Embedded preview, post-login return to `/t/:id` | 2 | — |
+| **Review pipeline** (`pending` → `listed` / `rejected`) + reviewer allowlist | 3 | — |
+| **Frozen-copy promotion** into a system workspace | 3 | — |
+| **Image re-hosting** for public listings | 3 | — |
+| **Public `/templates` browse page** + search | 3 | — |
+| License grant, attribution, report / takedown | 3 | — |
+| Ranking guards (self-use, rate limits) | 3 | — |
+| Monetization, versioning, parameterized slots | — | Non-Goal |
+
+Phase 1 built the *spine* — one template, one link, one copy. Phases 2 and 3
+build the *store*: everything that turns a set of listings into something you
+can browse, trust, and be found in. There is no discovery surface at all today;
+a template is reachable only by someone sending you its URL.
+
 ### Goals
 
 - Publish any document type as a template with a title, description, category
@@ -32,9 +62,14 @@ only for the public tier — review and attribution.
   **public**.
 - Anyone allowed to see a listing can preview it read-only without an account,
   and can start their own independent copy in a workspace they belong to.
+- **Browse and search** the templates the caller is allowed to see, faceted by
+  document type and category and ranked by usage, so a template is found rather
+  than only received.
+- A public listing is **reviewed before it is listed**, attributed to its
+  author, licensed explicitly, reportable, and immutable after approval.
 - The publisher's document is never mutated by anyone using it.
 - Reuse what exists: the copy service, share links, the image bucket, the
-  documents list.
+  documents list, the notification system.
 
 ### Non-Goals
 
@@ -261,21 +296,129 @@ Publishing at the `public` tier is refused with a `400` for as long as Phase 3
 does not exist — failing closed, because a publisher told "ok" would believe
 their template was in a gallery that nothing reviews.
 
-**Phase 2 — Workspace gallery.** `visibility: 'workspace'`, a **Templates** tab
-in the workspace, and **New from template** in the documents-list create menu.
-Publishing stays manager-gated here too, and a manager may unpublish anyone's
-listing in their workspace. This is the Brand Templates / Google org-gallery
-tier and needs no review.
+**Phase 2 — Workspace gallery.** The Brand Templates / Google org-gallery tier,
+and the phase that turns a set of listings into something browsable. The
+authorization for `visibility: 'workspace'` already shipped and is tested; what
+is missing is everything that lets anyone find such a listing. Four pieces,
+detailed in *Discovery: the collection endpoint*, *Thumbnails* and *Taxonomy*
+below:
 
-**Phase 3 — Public gallery.** `visibility: 'public'` enters `status: 'pending'`
-and needs approval before it is listed, plus: a public `/templates` browse page
-(type and category facets, sorted by `useCount` or recency), the frozen-copy
-promotion above, an explicit license grant accepted at publish time (the
-publisher permits anyone to copy and modify the content), attribution on the
-listing, and a report endpoint whose takedown deletes the *listing* and never
-the document. Review starts as a maintainer allowlist rather than an admin
-console; there is no admin surface today and building one is a larger project
-than this feature.
+1. `GET /templates` — the collection endpoint, shared by every later surface.
+2. Thumbnail capture, so a card has something to show.
+3. A category taxonomy and tag normalization, so facets mean something.
+4. The surfaces: a **Templates** tab at `/w/:workspaceId/templates`, and a
+   **New from template** picker in the documents-list create menu.
+
+Publishing stays manager-gated here, and a manager may unpublish any listing in
+their workspace. No review: workspace membership is the trust boundary. The two
+Phase 1 shortcuts — the preview opening in a new tab, and a logged-out visitor
+not returning to `/t/:id` — are also cleared here, because a gallery makes both
+much more visible than a single hand-sent link does.
+
+**Phase 3 — Public gallery.** Everything the workspace tier can skip *because*
+its audience is bounded, and the public tier cannot. `visibility: 'public'` is
+still refused with a `400` until all of it exists; the phase is not a flag flip.
+
+- **Review.** Requesting `public` sets `status: 'pending'` rather than listing
+  anything. `POST /templates/:id/review { decision, reason? }` is gated on a
+  reviewer allowlist read from configuration
+  (`WAFFLEBASE_TEMPLATE_REVIEWER_IDS`), not on a new admin console — there is no
+  admin surface today and building one is a larger project than this feature.
+  Both outcomes notify the publisher through the existing notification system
+  (a new `template_reviewed` type; the rejection reason is the notification's
+  `preview`), because a submission that disappears silently is the failure mode
+  CapCut's own help pages are mostly about.
+- **Frozen-copy promotion.** Approval runs the copy service into a system-owned
+  workspace (`WAFFLEBASE_TEMPLATE_WORKSPACE_ID`, seeded once) and re-points
+  `documentId` at that copy, recording the publisher's original in `originId`.
+  The publisher keeps editing their document; a republish produces a new frozen
+  copy and re-enters review. This is what makes an approved listing immutable —
+  see *Live source vs. frozen copy*.
+- **Image re-hosting.** A frozen copy still references the publisher's image
+  objects by URL, so a publisher who deletes an image breaks every future use of
+  a listing that a reviewer approved. Promotion therefore walks the frozen
+  copy's root for image URLs pointing at our own bucket, `CopyObject`s each into
+  a listing-owned key, and rewrites the reference — the same re-hosting shape
+  the Miro importer already performs for `imageUrl`s it downloads.
+- **Browse and search.** A public `/templates` page outside `PrivateRoute`,
+  reading the same collection endpoint with `scope=public`: document-type and
+  category facets, `useCount` or recency sort, and a query box. Search starts as
+  `ILIKE` over title/description plus tag containment, with a `pg_trgm` index if
+  it gets slow — Postgres only, no new infrastructure.
+- **License and attribution.** Submitting for public review requires an explicit
+  grant (`licensedAt`) that others may copy and modify the content; the listing
+  shows the author. Both are prerequisites for listing, not decorations: without
+  the grant we would be redistributing someone's document on an assumption.
+- **Report and takedown.** `POST /templates/:id/report { reason }` —
+  authenticated and throttled — files a `TemplateReport` row into the reviewer
+  queue. A takedown sets `status: 'rejected'` and drops visibility back to
+  `unlisted`; it never touches the document, and documents already created from
+  the template are independent copies and stay.
+- **Ranking guards.** `useCount` drives the default sort, so it must not be
+  trivially inflatable: a use by the listing's own publisher does not increment
+  it, and `POST /templates/:id/use` gets a per-user throttle.
+
+### Discovery: the collection endpoint
+
+One endpoint serves the workspace tab, the New-from-template picker, and the
+public browse page. Introducing it is the single largest piece of Phase 2.
+
+```
+GET /templates?scope=workspace&workspaceId=…&type=&category=&tag=&q=
+              &sort=popular|recent&cursor=&limit=
+```
+
+Three properties are load-bearing:
+
+- **Visibility is a query constraint, never a post-filter.** The `where` clause
+  is built from what the caller may see — `scope=public` becomes
+  `visibility: 'public', status: 'listed'`; `scope=workspace` is checked against
+  `assertMember` first and constrains on the *document's* current workspace, for
+  the reason [given below](#live-source-vs-frozen-copy) and enforced in Phase 1.
+  `unlisted` listings never appear in any collection: holding the id is their
+  whole access story, and a list that included them would hand out that
+  capability wholesale.
+- **A list response carries no `previewToken`.** A page of 24 cards would
+  otherwise hand out 24 non-expiring read capabilities to satisfy a thumbnail
+  grid. Cards render from `thumbnailId`; the token comes from the single-listing
+  `GET /templates/:id` when a card is actually opened. This is the same rule
+  that made `GET /documents/:id/template` membership-gated in Phase 1.
+- **Keyset pagination, not offset.** The existing
+  `@@index([visibility, status, useCount])` supports `(useCount, id)` cursors
+  directly; `sort=recent` needs a matching `[visibility, status, publishedAt]`
+  index. Offset paging over a gallery that reorders as counts change skips and
+  repeats rows.
+
+### Thumbnails
+
+A gallery without thumbnails is a list of titles. Capture happens **client-side
+at publish time**, because the renderers are all in the browser and the backend
+has no canvas:
+
+| Type | Source |
+| --- | --- |
+| `slides`, `board` | `drawSlide()` into an offscreen canvas — the same call PDF export uses |
+| `doc` | the paginated page renderer, first page |
+| `sheet` | the grid renderer over the used range |
+| `pdf`, `image` | the stored blob's first page / the image itself |
+| `note`, `file` | none — a document-type icon |
+
+The result is downscaled (~640 px wide, WebP), uploaded through the existing
+`POST /images`, and its **id** — never a URL — stored in `thumbnailId`, so a
+listing can only ever point at this deployment's bucket. A thumbnail is a
+snapshot: it goes stale when the document changes and is refreshed on
+republish. That is the correct trade, since the alternative is rendering a
+document per card on every gallery paint.
+
+### Taxonomy
+
+Facets are only useful if the values are closed. `category` becomes a fixed list
+shared between backend validation and the frontend picker (roughly: Business,
+Education, Personal, Project management, Finance, Marketing, Design, Other) —
+a constant, not a table, because it changes at release cadence and a table would
+invite per-workspace divergence that the public gallery could not merge. `tags`
+stay freeform but are normalized on write (trimmed, lowercased, de-duplicated,
+max 10), so `Budget`, `budget ` and `budget` are one facet.
 
 ### Declined: parameterized templates
 
@@ -302,3 +445,8 @@ the option is a decision rather than an oversight.
 | Comments or share links leaking into a copy. | `DocumentCopyService` already strips comments and carries no share links; the destination parameter does not change that. |
 | An abandoned listing points at a deleted document. | `documentId` cascades, so the listing goes with it. |
 | The public tier attracts spam and copyright violations, which is a moderation cost, not a code cost. | It is the reason public is Phase 3 and behind a maintainer allowlist: the workspace tier delivers most of the value with none of this exposure. |
+| A collection endpoint hands out preview capabilities in bulk — a page of cards would carry a page of non-expiring read tokens. | List responses omit `previewToken` entirely; it is returned only by the single-listing read, when a card is opened. `unlisted` listings never appear in any collection. |
+| `useCount` ranks the gallery, so it is worth inflating. | A publisher's own use does not increment it, and `use` is throttled per user. Detecting coordinated inflation is out of scope, which is another reason monetization stays a Non-Goal — the counter is a ranking hint, not money. |
+| The review queue backs up and submissions sit silently, the complaint CapCut's own help pages are mostly about. | Both review outcomes notify the publisher through the existing notification system, and a rejection carries its reason. Queue depth is an operational problem the allowlist keeps small by construction. |
+| Frozen copies accumulate: every approved republish creates another document in the system workspace. | The superseded frozen copy is deleted once the listing points at its replacement. Documents users already created from it are independent copies and are unaffected. |
+| A public listing breaks when the publisher deletes an embedded image. | Promotion re-hosts the frozen copy's images into listing-owned keys, so an approved listing no longer depends on the publisher's objects. |
