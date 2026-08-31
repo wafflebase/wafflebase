@@ -18,6 +18,8 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| template gallery (2026-09-01) | [20260901-template-gallery-todo.md](./active/20260901-template-gallery-todo.md) | [20260901-template-gallery-lessons.md](./active/20260901-template-gallery-lessons.md) |
+| agentic office workflow (2026-08-31) | [20260831-agentic-office-workflow-todo.md](./active/20260831-agentic-office-workflow-todo.md) | [20260831-agentic-office-workflow-lessons.md](./active/20260831-agentic-office-workflow-lessons.md) |
 | docs inline style off clears key (2026-08-19) | [20260819-docs-inline-style-off-clears-key-todo.md](./active/20260819-docs-inline-style-off-clears-key-todo.md) | [20260819-docs-inline-style-off-clears-key-lessons.md](./active/20260819-docs-inline-style-off-clears-key-lessons.md) |
 | claude token pool (2026-08-14) | [20260814-claude-token-pool-todo.md](./active/20260814-claude-token-pool-todo.md) | - |
 | path aware ci (2026-08-12) | [20260812-path-aware-ci-todo.md](./active/20260812-path-aware-ci-todo.md) | - |
@@ -40,4 +42,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 575
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: docs inline style off clears key (2026-08-19)
+Latest active task: template gallery (2026-09-01)
