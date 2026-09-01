@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const parquetMocks = vi.hoisted(() => ({
+  parquetMetadata: vi.fn(),
   parquetReadObjects: vi.fn(),
 }));
 
 vi.mock('hyparquet', () => ({
+  parquetMetadata: parquetMocks.parquetMetadata,
   parquetReadObjects: parquetMocks.parquetReadObjects,
 }));
 
@@ -18,6 +20,10 @@ import { importParquetFile } from '../../src/import/parquet-importer';
 describe('importParquetFile', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    parquetMocks.parquetMetadata.mockReturnValue({
+      num_rows: 2n,
+      schema: [{ name: 'schema', num_children: 4 }],
+    });
   });
 
   it('maps reader records into an editable worksheet', async () => {
@@ -31,7 +37,12 @@ describe('importParquetFile', () => {
 
     expect(parquetMocks.parquetReadObjects).toHaveBeenCalledWith({
       file,
+      metadata: {
+        num_rows: 2n,
+        schema: [{ name: 'schema', num_children: 4 }],
+      },
       compressors: { GZIP: expect.any(Function) },
+      utf8: false,
     });
     expect(imported.name).toBe('People');
     expect(imported.rowCount).toBe(3);
@@ -63,5 +74,67 @@ describe('importParquetFile', () => {
     await expect(
       importParquetFile(new ArrayBuffer(0), { sheetName: 'Empty' }),
     ).rejects.toThrow('Parquet import contains no columns');
+  });
+
+  it('rejects a footer whose data and header exceed the cell limit before decoding', async () => {
+    parquetMocks.parquetMetadata.mockReturnValue({
+      num_rows: 40_000n,
+      schema: [{ name: 'schema', num_children: 1 }],
+    });
+
+    await expect(
+      importParquetFile(new ArrayBuffer(0), { sheetName: 'Too Large' }),
+    ).rejects.toThrow('Parquet import exceeds the 40,000-cell limit');
+    expect(parquetMocks.parquetReadObjects).not.toHaveBeenCalled();
+  });
+
+  it('rejects values whose estimated document size exceeds the import budget', async () => {
+    parquetMocks.parquetMetadata.mockReturnValue({
+      num_rows: 1n,
+      schema: [{ name: 'schema', num_children: 1 }],
+    });
+    parquetMocks.parquetReadObjects.mockResolvedValue([
+      { body: 'x'.repeat(4_000_000) },
+    ]);
+
+    await expect(
+      importParquetFile(new ArrayBuffer(0), { sheetName: 'Long Text' }),
+    ).rejects.toThrow('Parquet import exceeds the spreadsheet limit');
+  });
+
+  it('preserves Parquet native values without precision loss or JSON errors', async () => {
+    parquetMocks.parquetMetadata.mockReturnValue({
+      num_rows: 1n,
+      schema: [{ name: 'schema', num_children: 4 }],
+    });
+    parquetMocks.parquetReadObjects.mockResolvedValue([
+      {
+        id: 9_007_199_254_740_993n,
+        occurredAt: new Date('2026-09-01T12:34:56.000Z'),
+        bytes: new Uint8Array([0, 15, 255]),
+        nested: {
+          ids: [1n, 2n],
+          payload: new Uint8Array([171, 205]),
+        },
+      },
+    ]);
+
+    const imported = await importParquetFile(new ArrayBuffer(0), {
+      sheetName: 'Native values',
+    });
+
+    expect(getWorksheetCell(imported.worksheet, { r: 2, c: 1 })).toEqual({
+      v: '9007199254740993',
+    });
+    expect(getWorksheetCell(imported.worksheet, { r: 2, c: 2 })).toEqual({
+      v: '2026-09-01 12:34:56',
+      s: { nf: 'date' },
+    });
+    expect(getWorksheetCell(imported.worksheet, { r: 2, c: 3 })).toEqual({
+      v: '0x000fff',
+    });
+    expect(getWorksheetCell(imported.worksheet, { r: 2, c: 4 })).toEqual({
+      v: '{"ids":["1","2"],"payload":"0xabcd"}',
+    });
   });
 });
