@@ -1,6 +1,6 @@
 ---
 title: template-gallery
-target-version: 0.7.0
+target-version: 0.6.8
 ---
 
 # Template Gallery — Publishing and Reusing Documents as Templates
@@ -28,7 +28,7 @@ only for the public tier — review and attribution.
 ### Scope map
 
 The whole feature, and where each piece lands. "Shipped" is measured against
-`main` at 0.6.7 + Phase 1.
+`main` at 0.6.8, which carries Phases 1 and 2.
 
 | Capability | Phase | State |
 | --- | :---: | --- |

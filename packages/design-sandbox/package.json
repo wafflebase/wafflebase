@@ -1,6 +1,6 @@
 {
   "name": "@wafflebase/design-sandbox",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "private": true,
   "type": "module",
   "description": "Wafflebase's own instance of the design editor: the @wafflebase/core token adapter and the Vite config that wires it up. Never published.",
