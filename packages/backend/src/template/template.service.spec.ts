@@ -300,6 +300,28 @@ describe('TemplateService.browse', () => {
     ).toMatchObject({ visibility: 'public' });
   });
 
+  it('accepts a workspace slug, which is what the URL actually carries', async () => {
+    // `/w/hackerwins-s-workspace/templates` — the pages read the param
+    // straight off `useParams`, so the slug is the only value the gallery
+    // ever sends. `assertMember` resolves it; requiring a UUID made the
+    // Templates tab fail outright.
+    const { service, prisma, workspaceService } = makeService({
+      members: { 'hackerwins-s-workspace:9': 'member' },
+    });
+    await service.browse(
+      { scope: 'workspace', workspaceId: 'hackerwins-s-workspace' },
+      9,
+    );
+    expect(workspaceService.assertMember).toHaveBeenCalledWith(
+      'hackerwins-s-workspace',
+      9,
+    );
+    // The *resolved* id is what constrains the query, never the raw param.
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ document: { workspaceId: 'hackerwins-s-workspace' } });
+  });
+
   it('refuses a workspace browse the caller does not belong to', async () => {
     const { service } = makeService({ members: {} });
     await expect(
@@ -582,6 +604,20 @@ describe('TemplateService.use', () => {
       folderId: null,
       title: 'Weekly Report',
     });
+  });
+
+  it('accepts a workspace slug as the destination', async () => {
+    // The New-from-template picker is mounted from the documents list, whose
+    // `workspaceId` prop is the slug out of `/w/:workspaceId`.
+    const { service, documentCopyService } = makeService({
+      members: { 'hackerwins-s-workspace:9': 'member' },
+    });
+    await service.use('tpl-1', 9, { workspaceId: 'hackerwins-s-workspace' });
+    expect(documentCopyService.copy).toHaveBeenCalledWith(
+      DOC,
+      9,
+      expect.objectContaining({ workspaceId: 'hackerwins-s-workspace' }),
+    );
   });
 
   it('refuses a destination workspace the caller does not belong to', async () => {

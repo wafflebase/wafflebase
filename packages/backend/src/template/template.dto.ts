@@ -113,9 +113,19 @@ export class BrowseTemplatesDto {
   @IsIn(TEMPLATE_SCOPES)
   scope: TemplateScope;
 
-  /** Required for `scope=workspace`; the caller must be a member of it. */
+  /**
+   * Required for `scope=workspace`; the caller must be a member of it.
+   *
+   * A workspace **id or slug**, not a UUID. Every workspace-scoped URL in the
+   * app is `/w/:workspaceId` carrying the *slug*
+   * (`/w/hackerwins-s-workspace/templates`), and the pages read it straight
+   * off `useParams`. `WorkspaceService.assertMember` resolves either through
+   * `resolveId`, so requiring a UUID here rejected the only value the gallery
+   * ever actually sends.
+   */
   @IsOptional()
-  @IsUUID()
+  @IsString()
+  @Length(1, 200)
   workspaceId?: string;
 
   /** Document type facet — `sheet`, `doc`, `slides`, … */
@@ -128,10 +138,19 @@ export class BrowseTemplatesDto {
   @IsIn(TEMPLATE_CATEGORIES)
   category?: string;
 
-  /** A single normalized tag; matched with array containment. */
+  /**
+   * A single tag; normalized before matching, with array containment.
+   *
+   * `@Matches` as well as `@Length`: a whitespace-only value passes a length
+   * check but normalizes to *nothing*, and a filter that reduces to nothing
+   * would be dropped from the `where` clause — so `?tag=%20%20` would silently
+   * return the whole unfiltered gallery instead of the empty result the caller
+   * asked for. Refused here rather than repaired downstream.
+   */
   @IsOptional()
   @IsString()
   @Length(1, MAX_TEMPLATE_TAG_LENGTH)
+  @Matches(/\S/, { message: 'tag must contain a non-whitespace character' })
   tag?: string;
 
   /** Free-text over title and description. */
@@ -162,8 +181,16 @@ export class BrowseTemplatesDto {
 }
 
 export class UseTemplateDto {
-  /** Destination workspace. The caller must be a member of it. */
-  @IsUUID()
+  /**
+   * Destination workspace — an id **or slug**, for the same reason
+   * `BrowseTemplatesDto.workspaceId` is. The New-from-template picker is
+   * mounted from the documents list, whose `workspaceId` prop is the slug out
+   * of `/w/:workspaceId`; the landing page's picker sends a real id. Both
+   * resolve through `assertMember`, and the *resolved* id is what the copy
+   * lands in.
+   */
+  @IsString()
+  @Length(1, 200)
   workspaceId: string;
 
   /** Omitted = the destination workspace's root, never the source's folder. */

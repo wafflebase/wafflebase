@@ -50,9 +50,10 @@ export function LoginForm({
   error?: string | null;
   /**
    * Where to send the browser after a successful login. Forwarded to
-   * , which stores it in its own cookie and
-   * re-validates it in the callback — it is a *request*, not a promise, and
-   * the server refuses anything that is not a same-origin path.
+   * `GET /auth/github?returnTo=`, which stores it in its own short-lived
+   * cookie and re-validates it in the OAuth callback — it is a *request*, not
+   * a promise, and the server refuses anything that is not a same-origin path
+   * (`packages/backend/src/auth/login-return-path.ts`).
    */
   returnTo?: string | null;
 }) {

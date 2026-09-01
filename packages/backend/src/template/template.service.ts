@@ -379,7 +379,12 @@ export class TemplateService {
     if (dto.type) documentWhere.type = dto.type;
     if (Object.keys(documentWhere).length > 0) where.document = documentWhere;
     if (dto.category) where.category = dto.category;
-    if (dto.tag) where.tags = { has: normalizeTags([dto.tag])[0] };
+    // Never emit `has: undefined` — Prisma drops an undefined filter, which
+    // turns "show me this tag" into "show me everything". The DTO already
+    // refuses a value that normalizes to nothing; this is the second gate, so
+    // a future caller that bypasses validation cannot widen the query either.
+    const tag = dto.tag ? normalizeTags([dto.tag])[0] : undefined;
+    if (tag) where.tags = { has: tag };
     if (dto.q) {
       where.OR = [
         { title: { contains: dto.q, mode: 'insensitive' } },

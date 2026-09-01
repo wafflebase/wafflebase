@@ -48,6 +48,17 @@ export function TemplateShareSection({
   const [listing, setListing] = useState<TemplateListing | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
+  /**
+   * Chosen *before* publishing, not after.
+   *
+   * The audience is the whole decision a publisher is making, and defaulting
+   * it to `unlisted` and hiding the control until after the listing exists
+   * meant the workspace gallery stayed empty unless someone found a second
+   * dropdown and pressed Save again. Defaults to `workspace`, which is what
+   * "publish" means to most people; the link works either way.
+   */
+  const [publishVisibility, setPublishVisibility] =
+    useState<TemplateVisibility>("workspace");
 
   useEffect(() => {
     setLoaded(false);
@@ -93,7 +104,9 @@ export function TemplateShareSection({
   const handlePublish = async () => {
     setBusy(true);
     try {
-      const published = await publishTemplate(documentId);
+      const published = await publishTemplate(documentId, {
+        visibility: publishVisibility,
+      });
       setListing(published);
       await copyToClipboard(
         `${window.location.origin}/t/${published.id}`,
@@ -183,17 +196,41 @@ export function TemplateShareSection({
           </>
         ) : (
           <>
-            <Button
-              variant="outline"
-              disabled={busy || !loaded || !ready || !canManage}
-              onClick={handlePublish}
-            >
-              {busy ? "Publishing..." : "Publish as template"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Select
+                value={publishVisibility}
+                onValueChange={(v) =>
+                  setPublishVisibility(v as TemplateVisibility)
+                }
+                disabled={!canManage}
+              >
+                <SelectTrigger
+                  className="flex-1"
+                  aria-label="Template visibility"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="workspace">
+                    Listed in this workspace
+                  </SelectItem>
+                  <SelectItem value="unlisted">Anyone with the link</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                disabled={busy || !loaded || !ready || !canManage}
+                onClick={handlePublish}
+              >
+                {busy ? "Publishing..." : "Publish as template"}
+              </Button>
+            </div>
             <p className="text-muted-foreground text-xs">
               {ready && !canManage
                 ? "Only the document owner or a workspace owner can publish a template."
-                : "Creates a link others can open to start their own copy of this document."}
+                : publishVisibility === "workspace"
+                  ? "Appears in this workspace's Templates tab, and anyone with the link can use it too."
+                  : "Only people you send the link to can find it."}
             </p>
           </>
         )}

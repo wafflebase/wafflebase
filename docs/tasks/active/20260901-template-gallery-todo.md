@@ -64,11 +64,6 @@ Status: **Phase 1 shipped (#1000). Phase 2 browse shipped on `feat/template-gall
       destination cases + `uniqueTitle`
 - [ ] Client-rendered thumbnail capture uploaded through `POST /images`; type
       icon fallback (column, serving and card rendering are in place)
-- [x] Embed the preview in `/t/:id` instead of opening `/shared/<token>`
-      (needs `SharedDocument` to accept a token prop rather than read
-      `useParams`)
-- [x] Return a logged-out visitor to `/t/:id` after sign-in (needs the OAuth
-      `state` to carry a server-validated return path — an auth change)
 - [ ] Backend e2e coverage through the HTTP layer, alongside the existing
       share-link/document integration specs
 
@@ -132,11 +127,14 @@ The single largest piece, and the one every later surface reads.
 
 A gallery makes both far more visible than a single hand-sent link did.
 
-- [ ] Embed the preview in `/t/:id` instead of opening `/shared/<token>`
-      (needs `SharedDocument` to accept a token prop rather than read
-      `useParams`)
-- [ ] Return a logged-out visitor to `/t/:id` after sign-in (needs the OAuth
-      `state` to carry a server-validated return path — an auth change)
+- [x] Embed the preview in `/t/:id` instead of opening `/shared/<token>`.
+      Cheaper than estimated: every component below the route already took
+      `token` as a prop, so this was extracting `SharedDocumentByToken`, not
+      a refactor of a 1088-line component
+- [x] Return a logged-out visitor to `/t/:id` after sign-in. **Not** via the
+      OAuth `state` as sketched — `state` must stay an opaque token compared
+      by equality. The path rides in its own short-lived cookie and is
+      re-validated on read by `safeReturnPath`
 
 ## Phase 3 — Public community gallery
 

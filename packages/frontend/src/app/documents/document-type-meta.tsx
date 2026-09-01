@@ -51,7 +51,17 @@ export const TYPE_OPTIONS: ReadonlyArray<DocumentType> = [
  * `TYPE_META` for a type string that came off the wire. A listing stores its
  * document's type as a plain string, so a build that has not learned a newer
  * type must render *something* rather than crash on an undefined lookup.
+ *
+ * The own-property check is the load-bearing part, and it is the same trap
+ * `login-form.tsx` documents for its `?error=` lookup: an object literal
+ * answers for its prototype too, so `type: "toString"` or `"constructor"`
+ * would return an inherited *function*, `??` would not fire, and destructuring
+ * `Icon` off it yields `undefined` — which React throws on when rendered as a
+ * component. The value is a plain string from a database column, so the
+ * defence belongs here rather than in a claim about what can be stored.
  */
 export function typeMeta(type: string) {
-  return TYPE_META[type as DocumentType] ?? TYPE_META.file;
+  return Object.prototype.hasOwnProperty.call(TYPE_META, type)
+    ? TYPE_META[type as DocumentType]
+    : TYPE_META.file;
 }
