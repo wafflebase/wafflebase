@@ -22,6 +22,7 @@ import { MiroModule } from './miro/miro.module';
 import { NotificationModule } from './notification/notification.module';
 import { logSafeUrl } from './logging/log-safe-url';
 import { LakehouseModule } from './lakehouse/lakehouse.module';
+import { TemplateModule } from './template/template.module';
 
 @Module({
   imports: [
@@ -119,6 +120,7 @@ import { LakehouseModule } from './lakehouse/lakehouse.module';
     MiroModule,
     NotificationModule,
     LakehouseModule,
+    TemplateModule,
   ],
   controllers: [],
   providers: [

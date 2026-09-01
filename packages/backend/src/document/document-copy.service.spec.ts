@@ -114,6 +114,64 @@ describe('DocumentCopyService', () => {
     );
   });
 
+  describe('with a destination (template gallery "use this template")', () => {
+    it('creates the copy in the destination workspace, not the source’s', async () => {
+      const { service, documentService } = makeService({ siblings: [] });
+      await service.copy(SOURCE as never, 42, {
+        workspaceId: 'ws-2',
+        folderId: 'fld-9',
+        title: 'Weekly Report',
+      });
+      expect(documentService.documents).toHaveBeenCalledWith({
+        where: { workspaceId: 'ws-2', folderId: 'fld-9' },
+      });
+      expect(documentService.createDocument).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workspace: { connect: { id: 'ws-2' } },
+          folder: { connect: { id: 'fld-9' } },
+          author: { connect: { id: 42 } },
+        }),
+      );
+    });
+
+    it('names the new document after the template, without "(copy)"', async () => {
+      const { service, documentService } = makeService({ siblings: [] });
+      await service.copy(SOURCE as never, 42, {
+        workspaceId: 'ws-2',
+        title: 'Weekly Report',
+      });
+      expect(documentService.createDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Weekly Report' }),
+      );
+    });
+
+    it('lands in the destination root when no folder is given', async () => {
+      // Not the *source's* folder: that id belongs to another workspace and
+      // would either fail the FK or file the document somewhere invisible.
+      const { service, documentService } = makeService({ siblings: [] });
+      await service.copy(SOURCE as never, 42, { workspaceId: 'ws-2' });
+      expect(documentService.documents).toHaveBeenCalledWith({
+        where: { workspaceId: 'ws-2', folderId: null },
+      });
+      expect(documentService.createDocument).toHaveBeenCalledWith(
+        expect.not.objectContaining({ folder: expect.anything() }),
+      );
+    });
+
+    it('de-duplicates the template title against the destination', async () => {
+      const { service, documentService } = makeService({
+        siblings: [{ title: 'Weekly Report' }],
+      });
+      await service.copy(SOURCE as never, 42, {
+        workspaceId: 'ws-2',
+        title: 'Weekly Report',
+      });
+      expect(documentService.createDocument).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Weekly Report (2)' }),
+      );
+    });
+  });
+
   it('copies a whole sheet root, tabs included', async () => {
     const sourceRoot = {
       tabs: { t1: { id: 't1', name: 'Sheet1' }, t2: { id: 't2', name: 'Q3' } },

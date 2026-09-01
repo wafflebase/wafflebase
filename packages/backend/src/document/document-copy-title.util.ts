@@ -22,3 +22,27 @@ export function copyTitle(title: string, existing: Iterable<string>): string {
     if (!taken.has(candidate)) return candidate;
   }
 }
+
+/**
+ * The title for a document created *from* `title`: `title` itself when it is
+ * free among `existing`, then `<title> (2)`, `(3)` …
+ *
+ * This is the template-gallery counterpart of `copyTitle`
+ * (docs/design/template-gallery.md). The distinction is intentional: a
+ * duplicate is *of* something and reads correctly as `Report (copy)`, but a
+ * document started from a "Weekly Report" template is a weekly report — naming
+ * the first one `Weekly Report (copy)` would be wrong, and every subsequent
+ * one identically wrong.
+ *
+ * Same cosmetic-only contract as `copyTitle`: titles are not unique in the
+ * data model, so two concurrent uses may land on the same name.
+ */
+export function uniqueTitle(title: string, existing: Iterable<string>): string {
+  const taken = new Set(existing);
+  for (let n = 1; ; n++) {
+    const suffix = n === 1 ? '' : ` (${n})`;
+    const base = title.slice(0, MAX_TITLE_LENGTH - suffix.length);
+    const candidate = `${base}${suffix}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
