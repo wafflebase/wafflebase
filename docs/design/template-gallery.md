@@ -452,6 +452,12 @@ is refreshed by *Update preview* in the Share dialog's Template section. That
 is the correct trade, since the alternative is rendering a document per card on
 every gallery paint.
 
+Thumbnails therefore arrive in **whatever shape their document is** — 16:9 for
+a deck, the editor viewport for a docs / sheet / board capture — so the gallery
+card letterboxes rather than crops (`object-contain` in a fixed `16/10` box).
+The box stays one size so the grid stays a grid; cropping to fill it cut the
+sides off every slide, and the picture is the thing being chosen.
+
 Every failure degrades to **no thumbnail**, never to a failed publish: capture
 is attempted, and a listing without one shows its document-type icon exactly as
 every card did before this existed. On a republish a failed capture is *omitted*

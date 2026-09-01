@@ -222,7 +222,13 @@ function TemplateGalleryCard({
           // listing can carry an id from before capture worked. Falling back
           // to the icon beats a broken-image glyph on the card.
           onError={() => setThumbnailBroken(true)}
-          className="bg-muted mb-3 aspect-[4/3] w-full rounded border object-cover object-top"
+          // Letterboxed, not cropped. Thumbnails arrive in whatever shape
+          // their document is — a deck is 16:9, a docs or sheet capture is
+          // the editor viewport — and `object-cover` in a fixed box cut the
+          // sides off every slide. The box stays one size so the grid stays a
+          // grid; `contain` keeps the whole picture inside it, which is the
+          // point of a gallery where the picture is what you are choosing.
+          className="bg-muted mb-3 aspect-[16/10] w-full rounded border object-contain"
         />
       )}
       <div className="flex items-start gap-3">

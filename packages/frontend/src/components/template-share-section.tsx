@@ -376,7 +376,10 @@ function TemplateMetaEditor({
             <img
               src={imageUrl(listing.thumbnailId)}
               alt=""
-              className="h-full w-full object-cover"
+              // `contain` for the same reason the gallery card uses it: this
+              // chip exists to show what was actually captured, and a crop
+              // would hide the part the publisher most wants to check.
+              className="h-full w-full object-contain"
             />
           ) : (
             <div className="text-muted-foreground flex h-full w-full items-center justify-center text-[10px]">
