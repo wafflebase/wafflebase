@@ -79,10 +79,10 @@ export function hasThumbnailSource(documentId: string): boolean {
  *
  * `null` is an ordinary outcome, not an error: no editor is mounted, the
  * document type has no renderer, the canvas is empty — or the canvas is
- * **tainted**. That last one is a real and current limitation: the editors
- * load images without `crossOrigin` (deliberately, so third-party image URLs
- * render at all — see `app/docs/image-insert.ts`), so any document holding a
- * remote image poisons the canvas for `toBlob` and gets no thumbnail. Such a
+ * **tainted**. Our own images no longer taint it (`@wafflebase/core/image`
+ * requests them with credentialed CORS), but a third-party image URL still
+ * does, deliberately: most such hosts send no `Access-Control-Allow-Origin`,
+ * and rendering the image matters more than reading the canvas back. Such a
  * card falls back to its document-type icon, which is what every card did
  * before this existed.
  */
@@ -100,25 +100,26 @@ export async function captureThumbnail(
     // a deck whose images tainted the canvas — indistinguishable from a
     // document type that simply has no renderer, and the difference took a
     // database query and a Yorkie dump to recover.
-    warn('the editor could not render one', err);
+    warn("the editor could not render one", err);
     return null;
   }
   if (!canvas) {
-    warn('the editor had nothing to render');
+    warn("the editor had nothing to render");
     return null;
   }
   const blob = await encodeThumbnail(canvas);
   if (!blob) {
     warn(
-      'the canvas could not be encoded — most likely tainted by a ' +
-        'cross-origin image, which no document holding one can avoid yet',
+      "the canvas could not be encoded — most likely tainted by a " +
+        "third-party image, which sends no CORS header and so cannot be " +
+        "read back",
     );
   }
   return blob;
 }
 
 function warn(reason: string, err?: unknown): void {
-  console.warn(`[thumbnail] no thumbnail captured: ${reason}`, err ?? '');
+  console.warn(`[thumbnail] no thumbnail captured: ${reason}`, err ?? "");
 }
 
 /**
@@ -139,10 +140,10 @@ export async function encodeThumbnail(
   if (!(width > 0) || !(height > 0)) return null;
 
   const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
-  const target = document.createElement('canvas');
+  const target = document.createElement("canvas");
   target.width = Math.max(1, Math.round(width * scale));
   target.height = Math.max(1, Math.round(height * scale));
-  const ctx = target.getContext('2d');
+  const ctx = target.getContext("2d");
   if (!ctx) return null;
 
   try {
@@ -152,8 +153,8 @@ export async function encodeThumbnail(
   }
 
   return (
-    (await toBlob(target, 'image/webp', WEBP_QUALITY)) ??
-    (await toBlob(target, 'image/png'))
+    (await toBlob(target, "image/webp", WEBP_QUALITY)) ??
+    (await toBlob(target, "image/png"))
   );
 }
 
@@ -167,8 +168,15 @@ export async function encodeThumbnail(
  * composited because these editors layer them — a spreadsheet paints its grid
  * and its selection overlay separately, and only the pair is the picture.
  *
- * Thin canvases are skipped: a ruler or a scrollbar gutter is chrome, not
- * content, and including it puts a stripe down the side of every card.
+ * A canvas marked `data-canvas-chrome` is skipped: the docs rulers and the
+ * board minimap live inside the same container as the content, and drawing
+ * them puts a stripe down the side of every docs card and a
+ * picture-in-picture into the corner of every board one. The marker is
+ * deliberately an **opt-out the chrome declares about itself** rather than
+ * something inferred here — the first version of this filtered by size, which
+ * is what let the 200x150 minimap through while excluding the 20px ruler.
+ * Whoever adds the next non-content canvas is the one who knows it is not
+ * content.
  *
  * The result is cropped to **what was actually drawn**, not to the container.
  * The docs ruler takes 20 px of the container's flow before the page canvas
@@ -186,11 +194,12 @@ export function captureFromContainer(
   let top = Infinity;
   let right = -Infinity;
   let bottom = -Infinity;
-  for (const canvas of container.querySelectorAll('canvas')) {
+  for (const canvas of container.querySelectorAll<HTMLCanvasElement>(
+    "canvas:not([data-canvas-chrome])",
+  )) {
     const rect = canvas.getBoundingClientRect();
-    if (rect.width < MIN_CONTENT_EDGE || rect.height < MIN_CONTENT_EDGE) {
-      continue;
-    }
+    // A canvas with no area contributes nothing and would corrupt the union.
+    if (!(rect.width > 0) || !(rect.height > 0)) continue;
     layers.push({ canvas, rect });
     left = Math.min(left, rect.left);
     top = Math.min(top, rect.top);
@@ -208,10 +217,10 @@ export function captureFromContainer(
   // for nothing. The draw calls below stay in CSS coordinates; the transform
   // does the scaling.
   const dpr = Math.min(window.devicePixelRatio || 1, MAX_CAPTURE_DPR);
-  const out = document.createElement('canvas');
+  const out = document.createElement("canvas");
   out.width = Math.round(width * dpr);
   out.height = Math.round(height * dpr);
-  const ctx = out.getContext('2d');
+  const ctx = out.getContext("2d");
   if (!ctx) return null;
   ctx.scale(dpr, dpr);
 
@@ -242,12 +251,6 @@ export function captureFromContainer(
   return painted ? out : null;
 }
 
-/**
- * Below this, in CSS pixels, a canvas is chrome rather than content — the
- * docs rulers are 20-odd pixels thick on their short axis.
- */
-const MIN_CONTENT_EDGE = 48;
-
 /** Fully transparent in every spelling `getComputedStyle` returns. */
 const TRANSPARENT = /^(transparent$|rgba\(.*,\s*0\s*\)$)/;
 
@@ -267,7 +270,7 @@ function resolveBackgroundColor(element: HTMLElement): string {
     const color = getComputedStyle(el).backgroundColor;
     if (color && !TRANSPARENT.test(color)) return color;
   }
-  return '#ffffff';
+  return "#ffffff";
 }
 
 function toBlob(

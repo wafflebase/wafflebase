@@ -67,6 +67,8 @@ function makeService(
   } = {},
 ) {
   const members = opts.members ?? { 'ws-1:7': 'member' };
+  /** The listing these mocks read and write, before any call under test. */
+  const baseListing = (opts.listing ?? LISTING) as typeof LISTING;
   // `Promise.resolve` rather than `async () =>`: a mock body with nothing to
   // await trips `@typescript-eslint/require-await`, which the backend lint
   // enforces (and which `verify:fast` does not run — see the lessons file).
@@ -95,11 +97,16 @@ function makeService(
       findUnique: jest.fn(() =>
         Promise.resolve(opts.listing === undefined ? LISTING : opts.listing),
       ),
+      // Both return the row as it now STANDS — the test's own listing with the
+      // write applied on top, not the module-level constant. Spreading
+      // `LISTING` made a field the caller never mentioned come back as its
+      // default, which is the opposite of what Prisma does and hid whether
+      // `update` had actually changed anything.
       upsert: jest.fn(({ create, update }: UpsertArgs) =>
-        Promise.resolve({ ...LISTING, ...create, ...update }),
+        Promise.resolve({ ...baseListing, ...create, ...update }),
       ),
       update: jest.fn((args: UpdateArgs) =>
-        Promise.resolve({ ...LISTING, ...args.data }),
+        Promise.resolve({ ...baseListing, ...args.data }),
       ),
       delete: jest.fn(() => Promise.resolve(LISTING)),
       findMany: jest.fn((args: FindManyArgs) =>
@@ -134,6 +141,8 @@ function makeService(
     ),
   };
 
+  const imageService = { delete: jest.fn(() => Promise.resolve(undefined)) };
+
   const service = new TemplateService(
     prisma as never,
     documentCopyService as never,
@@ -141,6 +150,7 @@ function makeService(
     workspaceService as never,
     folderService as never,
     yorkieService as never,
+    imageService as never,
   );
   return {
     service,
@@ -150,6 +160,7 @@ function makeService(
     workspaceService,
     folderService,
     yorkieService,
+    imageService,
   };
 }
 
@@ -482,6 +493,25 @@ describe('TemplateService.browse', () => {
 });
 
 describe('TemplateService.update', () => {
+  it('deletes the thumbnail it replaces', async () => {
+    // "Update preview" is repeatable, so without this every press leaks one
+    // publicly readable snapshot forever.
+    const { service, imageService } = makeService({
+      listing: { ...LISTING, thumbnailId: 'old.webp' },
+    });
+    await service.update('tpl-1', 7, { thumbnailId: 'new.webp' });
+    expect(imageService.delete).toHaveBeenCalledWith('old.webp');
+  });
+
+  it('deletes nothing when the thumbnail is untouched', async () => {
+    // An edit to the title must not throw away the picture.
+    const { service, imageService } = makeService({
+      listing: { ...LISTING, thumbnailId: 'keep.webp' },
+    });
+    await service.update('tpl-1', 7, { title: 'Renamed' });
+    expect(imageService.delete).not.toHaveBeenCalled();
+  });
+
   it('lets a manager edit listing metadata', async () => {
     const { service, prisma } = makeService();
     await service.update('tpl-1', 7, { title: 'Renamed', category: 'Finance' });
@@ -768,6 +798,30 @@ describe('TemplateService.unpublish', () => {
     await expect(service.unpublish('tpl-1', 9)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+
+  it('deletes the thumbnail, so a withdrawn snapshot stops being readable', async () => {
+    // `GET /images/:id` is unauthenticated and immutably cached, so a
+    // thumbnail left behind is a picture of the document the publisher
+    // believed they had withdrawn.
+    const { service, imageService } = makeService({
+      listing: { ...LISTING, thumbnailId: 'thumb-1.webp' },
+    });
+    await service.unpublish('tpl-1', 7);
+    expect(imageService.delete).toHaveBeenCalledWith('thumb-1.webp');
+  });
+
+  it('still unpublishes when the thumbnail cannot be deleted', async () => {
+    // Best-effort, unlike the share-link revoke: an orphaned picture grants no
+    // access to the document, and is not worth stranding the listing over.
+    const { service, prisma, imageService } = makeService({
+      listing: { ...LISTING, thumbnailId: 'thumb-1.webp' },
+    });
+    imageService.delete.mockRejectedValueOnce(new Error('s3 down'));
+    await expect(service.unpublish('tpl-1', 7)).resolves.toEqual({
+      deleted: true,
+    });
+    expect(prisma.templateListing.delete).toHaveBeenCalled();
   });
 
   it('lets a workspace owner unpublish a listing another member published', async () => {

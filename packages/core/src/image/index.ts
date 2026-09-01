@@ -14,22 +14,64 @@
  *   gallery's thumbnail capture (docs/design/template-gallery.md) — gets
  *   nothing for any document holding a single remote image.
  *
- * Asking for CORS **and retrying without it** satisfies both, because the two
- * requirements never apply to the same host. Our own image bucket answers with
- * the header (the API enables CORS for the app origin), so its images load on
- * the first attempt and leave the canvas readable. A host that does not answer
- * with it costs one failed request and then loads exactly as it did before,
- * tainting the canvas exactly as it did before.
+ * Both hold, and they never apply to the same host: only **our own** image
+ * routes can be relied on to answer with the header. So CORS is requested for
+ * those origins and nowhere else. A third-party URL is loaded exactly as it
+ * was before this existed — no extra request, no behaviour change, and a
+ * tainted canvas, which is the honest price of rendering it at all.
+ *
+ * The mode is `use-credentials`, not `anonymous`, and that distinction is the
+ * whole feature: `anonymous` sets the request's credentials mode to
+ * `same-origin`, so a cross-origin load sends no cookie — and the SPA and the
+ * API are on different origins in every environment we ship. The workspace
+ * image route (`GET /api/v1/workspaces/:wid/images/:id`) authorizes on that
+ * cookie, so an `anonymous` request would be refused with 403, fall back to
+ * the plain retry, and taint the canvas anyway while costing an extra round
+ * trip per image on the main render path. The API answers with a specific
+ * `Access-Control-Allow-Origin` plus `Access-Control-Allow-Credentials: true`,
+ * which is exactly what `use-credentials` requires.
  *
  * Kept here rather than duplicated three times because the ordering is subtle:
  * the retry has to replace the caller's cached element, or a later draw finds
- * the failed one.
+ * the one that already failed.
  */
+
+/**
+ * Origins whose images are requested with credentialed CORS. Empty by default,
+ * so a consumer that never configures this (tests, a non-browser build) gets
+ * exactly the pre-existing plain-`<img>` behaviour.
+ */
+let credentialedOrigins: readonly string[] = [];
+
+/**
+ * Declare the origins that serve *our* images — normally just the API origin.
+ *
+ * Configuration rather than a constant because the packages this lives in are
+ * engines: they have no `import.meta.env`, and the API origin is the app's
+ * fact, not theirs. Mirrors the `setImageUrlResolver` seam the caches already
+ * expose.
+ */
+export function setCredentialedImageOrigins(origins: readonly string[]): void {
+  credentialedOrigins = origins.filter((origin) => origin.length > 0);
+}
+
+/** Whether `src` should be requested with credentialed CORS. */
+function wantsCors(src: string): boolean {
+  if (credentialedOrigins.length === 0) return false;
+  try {
+    const { origin } = new URL(src, globalThis.location?.href);
+    return credentialedOrigins.includes(origin);
+  } catch {
+    // A `data:` / `blob:` URL, or something unparseable. Neither needs CORS:
+    // `data:` and `blob:` do not taint the canvas in the first place.
+    return false;
+  }
+}
 
 export interface LoadImageCallbacks {
   /** The image finished loading and is safe to draw. */
   onLoad: () => void;
-  /** The image will never load, under CORS or without it. */
+  /** The image will never load, with CORS or without it. */
   onError: () => void;
   /**
    * The CORS attempt failed and `img` is the plain retry that replaced it.
@@ -40,7 +82,9 @@ export interface LoadImageCallbacks {
 }
 
 /**
- * Start loading `src`, asking for CORS first and retrying without it once.
+ * Start loading `src`. Images on a {@link setCredentialedImageOrigins} origin
+ * are requested with credentialed CORS and retried once plainly if that fails;
+ * everything else is loaded plainly to begin with.
  *
  * Returns the element immediately (still loading). Exactly one of `onLoad` or
  * `onError` fires, and `onRetry` may fire once before either.
@@ -53,10 +97,13 @@ export function loadImage(
     const img = new Image();
     // Set before `src`: assigning `crossOrigin` after the load has started
     // has no effect on the request already in flight.
-    if (withCors) img.crossOrigin = 'anonymous';
+    if (withCors) img.crossOrigin = 'use-credentials';
     img.onload = onLoad;
     img.onerror = () => {
       if (withCors) {
+        // Our own origin refused a credentialed load — a misconfigured CORS
+        // allowlist, or an image belonging to a *different* deployment. Render
+        // it anyway; only the readback is lost.
         onRetry(attempt(false));
         return;
       }
@@ -65,5 +112,5 @@ export function loadImage(
     img.src = src;
     return img;
   };
-  return attempt(true);
+  return attempt(wantsCors(src));
 }

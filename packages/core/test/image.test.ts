@@ -1,5 +1,11 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { loadImage } from '../src/image/index.js';
+import {
+  loadImage,
+  setCredentialedImageOrigins,
+} from '../src/image/index.js';
+
+/** The app's own API origin, as `main.tsx` declares it. */
+const OURS = 'https://api.wafflebase.test';
 
 /**
  * A stand-in for `HTMLImageElement` that records what was set and lets a test
@@ -51,81 +57,106 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  setCredentialedImageOrigins([]);
+});
+
+const callbacks = () => ({
+  onLoad: vi.fn(),
+  onError: vi.fn(),
+  onRetry: vi.fn(),
 });
 
 describe('loadImage', () => {
-  it('asks for CORS on the first attempt, before setting src', () => {
-    // Assigning `crossOrigin` after the load has started has no effect on the
-    // request already in flight, so the order is the whole point.
-    loadImage('https://example.test/a.png', {
-      onLoad: vi.fn(),
-      onError: vi.fn(),
-      onRetry: vi.fn(),
-    });
+  it('asks for credentialed CORS on our own origin, before setting src', () => {
+    // `use-credentials`, not `anonymous`: the workspace image route authorizes
+    // on the session cookie, and `anonymous` sends none cross-origin — it
+    // would be refused, fall back, and taint the canvas anyway. Assigning
+    // `crossOrigin` after the load has started has no effect on the request
+    // in flight, so the order matters too.
+    setCredentialedImageOrigins([OURS]);
+    loadImage(`${OURS}/images/a.png`, callbacks());
     expect(FakeImage.created).toHaveLength(1);
-    expect(FakeImage.created[0].corsAtRequest).toBe('anonymous');
-    expect(FakeImage.created[0].src).toBe('https://example.test/a.png');
+    expect(FakeImage.created[0].corsAtRequest).toBe('use-credentials');
+    expect(FakeImage.created[0].src).toBe(`${OURS}/images/a.png`);
+  });
+
+  it('loads a third-party host plainly, with no CORS attempt at all', () => {
+    // Most public image hosts send no `Access-Control-Allow-Origin`, so asking
+    // would cost a failed request per image and end in the same tainted
+    // canvas. Their behaviour is unchanged by this module existing.
+    setCredentialedImageOrigins([OURS]);
+    const cbs = callbacks();
+    loadImage('https://third-party.test/a.png', cbs);
+
+    expect(FakeImage.created).toHaveLength(1);
+    expect(FakeImage.created[0].corsAtRequest).toBeNull();
+
+    FakeImage.created[0].onerror!();
+    // Straight to the error: there was no CORS attempt to fall back from.
+    expect(cbs.onRetry).not.toHaveBeenCalled();
+    expect(cbs.onError).toHaveBeenCalledTimes(1);
+    expect(FakeImage.created).toHaveLength(1);
+  });
+
+  it('asks for nothing when no origin is configured', () => {
+    // A consumer that never configures this gets exactly the behaviour that
+    // existed before the module did.
+    loadImage(`${OURS}/images/a.png`, callbacks());
+    expect(FakeImage.created[0].corsAtRequest).toBeNull();
+  });
+
+  it('does not ask for CORS on a data: URL', () => {
+    // A `data:` URL never taints the canvas, so there is nothing to gain and a
+    // CORS attribute on one is meaningless.
+    setCredentialedImageOrigins([OURS]);
+    loadImage('data:image/png;base64,iVBORw0KGgo=', callbacks());
+    expect(FakeImage.created[0].corsAtRequest).toBeNull();
   });
 
   it('reports success without retrying', () => {
-    const onLoad = vi.fn();
-    const onRetry = vi.fn();
-    loadImage('https://example.test/a.png', {
-      onLoad,
-      onError: vi.fn(),
-      onRetry,
-    });
+    setCredentialedImageOrigins([OURS]);
+    const cbs = callbacks();
+    loadImage(`${OURS}/images/a.png`, cbs);
     FakeImage.created[0].onload!();
-    expect(onLoad).toHaveBeenCalledTimes(1);
-    expect(onRetry).not.toHaveBeenCalled();
+    expect(cbs.onLoad).toHaveBeenCalledTimes(1);
+    expect(cbs.onRetry).not.toHaveBeenCalled();
     expect(FakeImage.created).toHaveLength(1);
   });
 
-  it('retries without CORS when the CORS attempt fails', () => {
-    // A host that sends no `Access-Control-Allow-Origin` rejects the CORS load
-    // outright. Rendering the image matters more than reading the canvas back,
-    // so the retry drops the requirement rather than the image.
-    const onError = vi.fn();
-    const onRetry = vi.fn();
-    loadImage('https://third-party.test/a.png', {
-      onLoad: vi.fn(),
-      onError,
-      onRetry,
-    });
+  it('retries plainly when our own origin refuses the CORS load', () => {
+    // A misconfigured allowlist, or an image belonging to another deployment.
+    // Rendering it matters more than reading the canvas back.
+    setCredentialedImageOrigins([OURS]);
+    const cbs = callbacks();
+    loadImage(`${OURS}/images/a.png`, cbs);
     FakeImage.created[0].onerror!();
 
     expect(FakeImage.created).toHaveLength(2);
     expect(FakeImage.created[1].corsAtRequest).toBeNull();
-    expect(FakeImage.created[1].src).toBe('https://third-party.test/a.png');
+    expect(FakeImage.created[1].src).toBe(`${OURS}/images/a.png`);
     // The caller must be able to re-point its cache at the retry.
-    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(cbs.onRetry).toHaveBeenCalledTimes(1);
     // Not an error yet — the retry may still succeed.
-    expect(onError).not.toHaveBeenCalled();
+    expect(cbs.onError).not.toHaveBeenCalled();
   });
 
   it('reports the retry loading, so a cached element is the live one', () => {
-    const onLoad = vi.fn();
-    loadImage('https://third-party.test/a.png', {
-      onLoad,
-      onError: vi.fn(),
-      onRetry: vi.fn(),
-    });
+    setCredentialedImageOrigins([OURS]);
+    const cbs = callbacks();
+    loadImage(`${OURS}/images/a.png`, cbs);
     FakeImage.created[0].onerror!();
     FakeImage.created[1].onload!();
-    expect(onLoad).toHaveBeenCalledTimes(1);
+    expect(cbs.onLoad).toHaveBeenCalledTimes(1);
   });
 
   it('errors once the plain retry also fails, and does not retry again', () => {
-    const onError = vi.fn();
-    loadImage('https://broken.test/a.png', {
-      onLoad: vi.fn(),
-      onError,
-      onRetry: vi.fn(),
-    });
+    setCredentialedImageOrigins([OURS]);
+    const cbs = callbacks();
+    loadImage(`${OURS}/images/a.png`, cbs);
     FakeImage.created[0].onerror!();
     FakeImage.created[1].onerror!();
 
-    expect(onError).toHaveBeenCalledTimes(1);
+    expect(cbs.onError).toHaveBeenCalledTimes(1);
     // Two attempts total: a third would loop forever on a genuinely broken URL.
     expect(FakeImage.created).toHaveLength(2);
   });

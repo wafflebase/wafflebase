@@ -1,6 +1,6 @@
 # Template gallery — Phase 2 leftovers + thumbnail capture
 
-Status: in progress
+Status: complete
 Design: [`docs/design/template-gallery.md`](../../design/template-gallery.md)
 Follows: [`20260901-template-gallery-todo.md`](20260901-template-gallery-todo.md)
 (Phase 1 = #1000, Phase 2 = #1001)
@@ -40,7 +40,7 @@ stays out.
 ## B. Phase 2b — thumbnails
 
 - [x] **B1.** `src/lib/thumbnail-capture.ts`: a document-id-keyed registry of
-      capture sources plus the downscale/encode step (longest edge 640 px,
+      capture sources plus the downscale/encode step (longest edge 1280 px,
       WebP with a PNG fallback). In `lib/` because the architecture lint
       forbids `components/` from importing `@/app/*`, and the Share dialog is
       the consumer.
@@ -75,25 +75,65 @@ editor canvas instead, and two capture nothing:
 The design doc is updated to say this rather than leaving the table
 aspirational.
 
-## Known limitation, and the follow-up it earns
+## C. Tainted canvases (added mid-task, from smoke testing)
 
-**A document holding a remote image gets no thumbnail.** The editors load
-images without `crossOrigin` (deliberately — see `app/docs/image-insert.ts`),
-which taints the canvas and makes `toBlob` throw. Caught, answered with `null`,
-card falls back to the type icon.
+A document holding a remote image got **no thumbnail at all** — drawing an
+image fetched without CORS taints the canvas and `toBlob` throws. Not a rare
+case: the first real deck tested hit it.
 
-The fix is to load our *own* bucket's images in CORS mode with a
-no-`crossOrigin` retry on error, so a missing header degrades to today's
-behavior. That touches the shared image loaders in three engine packages and
-the main render path of every document, which is why it is not in this PR.
+- [x] `@wafflebase/core/image` — `loadImage`, requesting **credentialed** CORS
+      for our own API origin and retrying once plainly if that is refused.
+      `use-credentials`, not `anonymous`: the workspace image route authorizes
+      on the session cookie, which `anonymous` does not send cross-origin, so
+      it would be refused, fall back, and taint the canvas anyway while costing
+      a round trip per image.
+- [x] Third-party origins get **no CORS attempt at all** — most send no
+      `Access-Control-Allow-Origin`, so asking would cost a failed request per
+      image and end in the same tainted canvas. Their behaviour is unchanged.
+- [x] Wired into the Slides, Docs and Sheets image caches; origins declared
+      once in `main.tsx`.
+
+Still uncoverable: a document referencing **another deployment's** bucket (a
+deck imported with `https://api.wafflebase.io/...` URLs, opened locally). That
+origin's allowlist does not include this one, so the retry renders it and the
+canvas stays tainted.
 
 ## Verification
 
-- [ ] `pnpm verify:fast`
-- [ ] Backend e2e with `RUN_DB_INTEGRATION_TESTS=true`
-- [ ] Manual smoke in `pnpm dev`: publish a sheet, a doc, a deck and a board;
-      confirm each card in the workspace Templates tab shows its own picture
+- [x] `pnpm verify:fast`
+- [x] `pnpm verify:self` (adds every build, the frontend chunk gate and the
+      doc-staleness gate)
+- [x] Backend e2e with `RUN_DB_INTEGRATION_TESTS=true` — 18/18
+- [x] Manual smoke in `pnpm dev` across sheet / doc / slides / board / note
+- [x] Self code review over the full branch diff
 
 ## Review
 
-_(filled in before merge)_
+Six commits. What the plan predicted, and what actually happened:
+
+- **The registry was the right seam, and the architecture lint chose it.**
+  `components/` may not import `@/app/*`, which made the direct call
+  impossible; the indirection it forced is better than the call would have
+  been. Same rule put `postSharedImage` in `api/` and removed a duplicate.
+- **Every visual defect came from smoke testing, not from tests.** The wrong
+  bucket key, the dark-mode white band, the crop, the resolution, notes having
+  no preview — five findings, all from running it. The unit tests were green
+  throughout. What the tests did do is make each fix cheap to land.
+- **The largest single miss was diagnosability.** `captureThumbnail` swallowed
+  every failure, so tracing one took a database query and a Yorkie dump.
+  Adding one `console.warn` turned the next occurrence into a one-line answer —
+  and the user found the taint case with it minutes later.
+- **Code review caught three things smoke testing could not**, all of them
+  about paths that do not run in the happy case: `crossOrigin="anonymous"`
+  silently defeating the cookie-authorized image route (a regression, not just
+  a missed benefit), the thumbnail being uploaded to a permanently public URL
+  *before* the publish that justifies it was authorized, and the board minimap
+  being composited into every board thumbnail because "chrome" was inferred
+  from size rather than declared.
+- **One test caught a lying mock.** The `update` mock spread the module-level
+  constant rather than the test's own listing, so a field the caller never
+  mentioned came back as its default — the opposite of what Prisma does. The
+  thumbnail-replacement test failed against it, which is the mock being wrong
+  and the test being right.
+- **One cost not predicted:** the frontend chunk gate again (218 → 220), for
+  two genuine shared-module hoists.

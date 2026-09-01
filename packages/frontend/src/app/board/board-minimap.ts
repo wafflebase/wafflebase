@@ -59,6 +59,11 @@ export function createBoardMinimap(deps: BoardMinimapDeps): BoardMinimap {
   ].join(';');
 
   const canvas = document.createElement('canvas');
+  // Chrome, not content: it sits inside the board container, so without this
+  // the template gallery's capture would composite a picture-in-picture of the
+  // minimap into the bottom-right of every board thumbnail
+  // (packages/frontend/src/lib/thumbnail-capture.ts).
+  canvas.dataset.canvasChrome = 'true';
   canvas.width = Math.round(MINI_W * dpr);
   canvas.height = Math.round(MINI_H * dpr);
   canvas.style.width = `${MINI_W}px`;

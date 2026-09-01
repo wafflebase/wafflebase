@@ -51,6 +51,23 @@ export function imageUrl(id: string): string {
   return `${BACKEND_BASE}/images/${encodeURIComponent(id)}`;
 }
 
+/**
+ * The origin the API serves images from, for
+ * `setCredentialedImageOrigins`.
+ *
+ * Empty string when `VITE_BACKEND_API_URL` is unset — a same-origin
+ * deployment, where a canvas is never tainted in the first place and there is
+ * nothing to declare.
+ */
+export function backendOrigin(): string {
+  if (!BACKEND_BASE) return "";
+  try {
+    return new URL(BACKEND_BASE, window.location.href).origin;
+  } catch {
+    return "";
+  }
+}
+
 async function post(
   url: string,
   file: File | Blob,
@@ -58,9 +75,12 @@ async function post(
 ): Promise<{ id: string; url: string }> {
   const formData = new FormData();
   // With a `filename` the platform rewraps the value into a fresh `File`, so
-  // it is passed only when the caller has a name to give — a raw `Blob` needs
-  // one for the server to see an extension, an already-named `File` does not
-  // and should reach the request as itself.
+  // it is passed only when the caller has one to give. Not for the server's
+  // benefit — `ImageService.upload` derives the stored extension from the
+  // validated MIME type and ignores the filename entirely — but because a
+  // multipart part with no name is harder to read in a log or a proxy, and
+  // because rewrapping an already-named `File` would break callers that
+  // compare identity.
   if (filename) formData.append("file", file, filename);
   else formData.append("file", file);
 

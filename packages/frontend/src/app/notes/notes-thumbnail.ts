@@ -17,11 +17,16 @@
  * with no image on it.
  */
 
-/** Rendered at 2× and downscaled by the encoder, so text stays sharp. */
-const WIDTH = 800;
-const HEIGHT = 500;
-const PADDING = 48;
-const LINE_HEIGHT = 30;
+/**
+ * Drawn at the encoder's own ceiling (`MAX_EDGE`, 1280) rather than below it.
+ * At 800 the encoder had nothing to downscale, so a note card was the one type
+ * the landing page — which shows a thumbnail across ~1440 device pixels —
+ * still had to upscale. 16:10 to match the gallery card's box.
+ */
+const WIDTH = 1280;
+const HEIGHT = 800;
+const PADDING = 77;
+const LINE_HEIGHT = 48;
 /** Enough to fill the card; the rest of the note is not the thumbnail's job. */
 const MAX_LINES = Math.floor((HEIGHT - PADDING * 2) / LINE_HEIGHT);
 /** Truncation guard — a minified one-line file must not be measured whole. */
@@ -36,9 +41,12 @@ export interface NoteThumbnailTheme {
   body: string;
 }
 
-export const NOTE_THUMBNAIL_THEMES: Record<'light' | 'dark', NoteThumbnailTheme> = {
-  light: { background: '#ffffff', heading: '#111827', body: '#4b5563' },
-  dark: { background: '#0b0f19', heading: '#f3f4f6', body: '#9ca3af' },
+export const NOTE_THUMBNAIL_THEMES: Record<
+  "light" | "dark",
+  NoteThumbnailTheme
+> = {
+  light: { background: "#ffffff", heading: "#111827", body: "#4b5563" },
+  dark: { background: "#0b0f19", heading: "#f3f4f6", body: "#9ca3af" },
 };
 
 /**
@@ -54,10 +62,10 @@ export function outlineOf(markdown: string): Array<{
 }> {
   const out: Array<{ text: string; heading: boolean }> = [];
   let fenced = false;
-  for (const raw of markdown.slice(0, MAX_CHARS_SCANNED).split('\n')) {
+  for (const raw of markdown.slice(0, MAX_CHARS_SCANNED).split("\n")) {
     if (out.length >= MAX_LINES) break;
     const line = raw.trim();
-    if (line.startsWith('```')) {
+    if (line.startsWith("```")) {
       // Toggle rather than skip-to-end: an unterminated fence would otherwise
       // swallow the whole note and produce an empty thumbnail.
       fenced = !fenced;
@@ -69,10 +77,10 @@ export function outlineOf(markdown: string): Array<{
     // Strip only the markers that would read as noise at thumbnail size. The
     // text stays otherwise verbatim — this is a preview, not a renderer.
     const text = line
-      .replace(/^#{1,6}\s+/, '')
-      .replace(/^[-*+]\s+/, '• ')
-      .replace(/^>\s+/, '')
-      .replace(/[*_`]/g, '');
+      .replace(/^#{1,6}\s+/, "")
+      .replace(/^[-*+]\s+/, "• ")
+      .replace(/^>\s+/, "")
+      .replace(/[*_`]/g, "");
     if (text) out.push({ text, heading });
   }
   return out;
@@ -90,19 +98,19 @@ export function renderNoteThumbnail(
   const lines = outlineOf(markdown);
   if (lines.length === 0) return null;
 
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
   ctx.fillStyle = theme.background;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
-  ctx.textBaseline = 'top';
+  ctx.textBaseline = "top";
 
   let y = PADDING;
   for (const { text, heading } of lines) {
-    ctx.font = heading ? `600 22px ${FONT_STACK}` : `16px ${FONT_STACK}`;
+    ctx.font = heading ? `600 35px ${FONT_STACK}` : `26px ${FONT_STACK}`;
     ctx.fillStyle = heading ? theme.heading : theme.body;
     ctx.fillText(ellipsize(ctx, text, WIDTH - PADDING * 2), PADDING, y);
     y += LINE_HEIGHT;

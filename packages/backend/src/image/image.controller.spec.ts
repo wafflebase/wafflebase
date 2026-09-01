@@ -61,6 +61,18 @@ describe('ImageController.get', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('lets a storage failure stay a 500 rather than reporting it as 404', async () => {
+    // Reporting an outage as "not found" is precisely the signal you need
+    // during one.
+    const getObject = jest
+      .fn()
+      .mockRejectedValue(new Error('connection reset by peer'));
+    const ctrl = makeController(getObject);
+    await expect(
+      ctrl.get('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.webp', makeRes() as never),
+    ).rejects.toThrow('connection reset by peer');
+  });
+
   it('maps every accepted extension to its own image MIME type', async () => {
     const cases: Array<[string, string]> = [
       ['aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.png', 'image/png'],

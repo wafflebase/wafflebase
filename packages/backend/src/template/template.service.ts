@@ -26,6 +26,7 @@ import {
 import { normalizeTags } from './template-taxonomy';
 import { findExternalDataTabs } from './template-content-guard';
 import { YorkieService } from '../yorkie/yorkie.service';
+import { ImageService } from '../image/image.service';
 
 /**
  * What a caller is told about a listing. Deliberately not the raw row:
@@ -100,6 +101,7 @@ export class TemplateService {
     private readonly workspaceService: WorkspaceService,
     private readonly folderService: FolderService,
     private readonly yorkieService: YorkieService,
+    private readonly imageService: ImageService,
   ) {}
 
   /**
@@ -260,6 +262,12 @@ export class TemplateService {
       },
       include: LISTING_INCLUDE,
     });
+    // A refreshed thumbnail replaces the old object rather than orphaning it —
+    // "Update preview" is a repeatable action, so without this every press
+    // leaks one publicly readable snapshot forever.
+    if (updated.thumbnailId !== listing.thumbnailId) {
+      await this.discardThumbnail(listing.thumbnailId);
+    }
     return toView(updated, true);
   }
 
@@ -290,7 +298,27 @@ export class TemplateService {
       });
     }
     await this.prisma.templateListing.delete({ where: { id } });
+    // Only once the listing is gone: a thumbnail deleted before a failed row
+    // delete would leave a live card pointing at nothing.
+    await this.discardThumbnail(listing.thumbnailId);
     return { deleted: true };
+  }
+
+  /**
+   * Delete a thumbnail object, best-effort.
+   *
+   * Deliberately best-effort, unlike the share-link revoke above, and the
+   * difference is what each one grants. The link is a live capability on the
+   * *document* — it keeps working, so failing to revoke it must fail the whole
+   * unpublish. A thumbnail is a stale picture at an unguessable id: leaving
+   * one behind costs storage and a snapshot the publisher meant to withdraw,
+   * neither of which is worth stranding a listing the caller asked to delete.
+   */
+  private async discardThumbnail(thumbnailId: string | null): Promise<void> {
+    if (!thumbnailId) return;
+    await this.imageService.delete(thumbnailId).catch((err) => {
+      this.logger.warn(`failed to delete thumbnail ${thumbnailId}: ${err}`);
+    });
   }
 
   /**

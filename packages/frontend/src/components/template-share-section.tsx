@@ -51,10 +51,36 @@ async function captureThumbnailId(
   try {
     const blob = await captureThumbnail(documentId);
     if (!blob) return undefined;
-    const { id } = await postSharedImage(blob, "thumbnail.webp");
+    // Named for what it actually is: `encodeThumbnail` falls back to PNG where
+    // WebP cannot be encoded, and the extension the server stores comes from
+    // the bytes' own MIME type either way.
+    const ext = blob.type === "image/png" ? "png" : "webp";
+    const { id } = await postSharedImage(blob, `thumbnail.${ext}`);
     return id;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Capture a picture of `listing`'s document and attach it, best-effort.
+ *
+ * Separate from publishing so the upload only ever happens on a path that
+ * already succeeded. A listing with no thumbnail is an ordinary state — the
+ * card falls back to its document-type icon — so nothing here is worth a toast
+ * the user cannot act on.
+ */
+async function attachThumbnail(
+  listing: TemplateListing,
+  onSaved: (listing: TemplateListing) => void,
+): Promise<void> {
+  const thumbnailId = await captureThumbnailId(listing.documentId);
+  if (!thumbnailId) return;
+  try {
+    onSaved(await updateTemplate(listing.id, { thumbnailId }));
+  } catch {
+    // The listing exists and is usable; it just has no picture yet, and
+    // "Update preview" can try again.
   }
 }
 
@@ -136,16 +162,17 @@ export function TemplateShareSection({
   const handlePublish = async () => {
     setBusy(true);
     try {
-      const thumbnailId = await captureThumbnailId(documentId);
+      // Publish FIRST, then attach the picture. Capturing first would upload a
+      // permanently public snapshot of the document — `GET /images/:id` is
+      // unauthenticated and immutably cached — before learning whether the
+      // publish is even allowed. A 403 from the manager gate, or the 400 that
+      // refuses a document connected to external data, would then leave a
+      // picture of content the server just declined to share.
       const published = await publishTemplate(documentId, {
         visibility: publishVisibility,
-        // Omitted rather than sent as null when there is no picture: `publish`
-        // is an upsert whose fields fall back to the existing listing, and a
-        // republish that failed to capture must not blank the thumbnail the
-        // previous one stored.
-        ...(thumbnailId ? { thumbnailId } : {}),
       });
       setListing(published);
+      await attachThumbnail(published, setListing);
       await copyToClipboard(
         `${window.location.origin}/t/${published.id}`,
         "Template link created and copied to clipboard",

@@ -149,6 +149,12 @@ export function TemplateLanding() {
         <img
           src={imageUrl(t.thumbnailId)}
           alt=""
+          // Same fallback as the gallery card: an id outlives the object it
+          // names, and a broken-image box is the worst thing to show on the
+          // one page a stranger lands on.
+          onError={(e) => {
+            e.currentTarget.style.display = "none";
+          }}
           className="mt-6 w-full max-w-full rounded-md border"
         />
       )}
