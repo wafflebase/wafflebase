@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getDocumentPath } from "@/app/documents/document-list-utils";
+import { SharedDocumentByToken } from "@/app/shared/shared-document";
 import type { DocumentType } from "@/types/documents";
 
 /**
@@ -40,6 +41,7 @@ export function TemplateLanding() {
   const navigate = useNavigate();
   const [workspaceId, setWorkspaceId] = useState<string>("");
   const [creating, setCreating] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
 
   const listing = useQuery({
     queryKey: ["template", id],
@@ -67,23 +69,15 @@ export function TemplateLanding() {
     }
   }, [workspaces.data, workspaceId]);
 
-  const previewUrl = useMemo(
-    () =>
-      listing.data?.previewToken
-        ? `/shared/${listing.data.previewToken}`
-        : null,
-    [listing.data?.previewToken],
-  );
 
   const handleUse = async () => {
     if (!id) return;
     if (!signedIn) {
-      // Straight to `/login`, not `/login?redirect=…`: the GitHub callback
-      // returns the browser to FRONTEND_URL, so a return path would have to be
-      // carried through the OAuth state and validated server-side. Tracked as
-      // a follow-up; until then the copy below tells the visitor to reopen the
-      // link.
-      navigate("/login");
+      // Come back to this template after signing in. The path is a *request*:
+      // the backend stores it in its own cookie and re-validates it in the
+      // OAuth callback, refusing anything that is not a same-origin path
+      // (packages/backend/src/auth/login-return-path.ts).
+      navigate(`/login?returnTo=${encodeURIComponent(`/t/${id}`)}`);
       return;
     }
     if (!workspaceId) {
@@ -123,6 +117,26 @@ export function TemplateLanding() {
   }
 
   const t = listing.data;
+
+  // The real read-only viewer, mounted on the listing's own preview token —
+  // not a second tab and not a screenshot. Full-screen because the viewers
+  // render their own chrome and expect the viewport.
+  if (previewing && t.previewToken) {
+    return (
+      <div className="fixed inset-0 z-50 bg-background">
+        <div className="absolute top-3 right-3 z-10">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setPreviewing(false)}
+          >
+            Close preview
+          </Button>
+        </div>
+        <SharedDocumentByToken token={t.previewToken} />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
@@ -172,11 +186,9 @@ export function TemplateLanding() {
               ? "Use this template"
               : "Sign in to use this template"}
         </Button>
-        {previewUrl && (
-          <Button variant="outline" asChild>
-            <a href={previewUrl} target="_blank" rel="noreferrer">
-              Preview
-            </a>
+        {t.previewToken && (
+          <Button variant="outline" onClick={() => setPreviewing(true)}>
+            Preview
           </Button>
         )}
       </div>
@@ -184,7 +196,7 @@ export function TemplateLanding() {
       <p className="text-muted-foreground mt-4 text-xs">
         {signedIn
           ? "You get your own copy to edit. The original is never changed."
-          : "Sign in, then open this link again to start your own copy. The original is never changed."}
+          : "Sign in and we'll bring you back here. The original is never changed."}
       </p>
     </div>
   );

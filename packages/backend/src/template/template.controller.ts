@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -14,8 +15,13 @@ import { Document as DocumentModel } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from 'src/auth/optional-jwt-auth.guard';
 import { AuthenticatedRequest } from 'src/auth/auth.types';
-import { TemplateListingView, TemplateService } from './template.service';
 import {
+  TemplateBrowsePage,
+  TemplateListingView,
+  TemplateService,
+} from './template.service';
+import {
+  BrowseTemplatesDto,
   PublishTemplateDto,
   UpdateTemplateDto,
   UseTemplateDto,
@@ -72,6 +78,27 @@ export class TemplateController {
     @Req() req: AuthenticatedRequest,
   ): Promise<{ deleted: true }> {
     return this.templateService.unpublish(id, Number(req.user.id));
+  }
+
+  /**
+   * Browse listings — the collection behind the workspace Templates tab, the
+   * New-from-template picker, and (Phase 3) the public gallery.
+   *
+   * Optional auth for the same reason `GET /templates/:id` has it: the public
+   * scope must serve a logged-out visitor, while `scope=workspace` needs the
+   * caller's identity and is refused without it.
+   *
+   * Declared **before** `GET /templates/:id` so `/templates` is not swallowed
+   * by the parameterized route.
+   */
+  @Get('templates')
+  @UseGuards(OptionalJwtAuthGuard)
+  async browse(
+    @Query() query: BrowseTemplatesDto,
+    @Req() req: Request & { user?: { id: number } },
+  ): Promise<TemplateBrowsePage> {
+    const userId = req.user ? Number(req.user.id) : undefined;
+    return this.templateService.browse(query, userId);
   }
 
   /**

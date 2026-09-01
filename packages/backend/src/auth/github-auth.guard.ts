@@ -15,6 +15,11 @@ import {
   oauthStateCookieOptions,
   useSecureCookies,
 } from './oauth-state';
+import {
+  loginReturnCookieName,
+  loginReturnCookieOptions,
+  safeReturnPath,
+} from './login-return-path';
 
 /** Hostnames the browser treats as a secure context over plain http. */
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
@@ -196,7 +201,12 @@ export class GitHubAuthGuard extends AuthGuard('github') {
 
   canActivate(context: ExecutionContext) {
     const http = context.switchToHttp();
-    const req = http.getRequest();
+    // Typed rather than left as `any`: this method reads five different query
+    // parameters off it, and an untyped request makes each read an unchecked
+    // member access on a value that came straight off the wire.
+    const req = http.getRequest<
+      Request & { __cliConfirmed?: boolean; __oauthState?: string }
+    >();
     const res = http.getResponse<Response>();
     this.warnIfInsecureOrigin();
     const isCliStart = req.query?.mode === 'cli';
@@ -222,6 +232,20 @@ export class GitHubAuthGuard extends AuthGuard('github') {
       const { secret, state } = createWebOAuthState();
       res.cookie(oauthStateCookieName(), secret, oauthStateCookieOptions());
       req.__oauthState = state;
+      // Where to come back to once GitHub returns the browser to
+      // FRONTEND_URL. Its own cookie rather than a field inside `state`, which
+      // must stay an opaque token compared by equality — see
+      // login-return-path.ts. The value is attacker-choosable by construction
+      // (this endpoint is unauthenticated), so `safeReturnPath` reducing it to
+      // a same-origin path is the actual guard, not the cookie.
+      const returnTo = safeReturnPath(req.query?.returnTo);
+      if (returnTo) {
+        res.cookie(
+          loginReturnCookieName(),
+          returnTo,
+          loginReturnCookieOptions(),
+        );
+      }
     }
 
     return super.canActivate(context);

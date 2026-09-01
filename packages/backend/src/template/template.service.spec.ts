@@ -40,6 +40,13 @@ const LISTING = {
 type ListingFields = Record<string, unknown>;
 type UpsertArgs = { create: ListingFields; update: ListingFields };
 type UpdateArgs = { where: { id: string }; data: ListingFields };
+type FindManyArgs = {
+  where: ListingFields;
+  orderBy: Array<Record<string, string>>;
+  take: number;
+  cursor?: { id: string };
+  skip?: number;
+};
 
 /**
  * `members` maps `<workspaceId>:<userId>` to a role, so a test states exactly
@@ -51,6 +58,7 @@ function makeService(
     document?: Record<string, unknown> | null;
     members?: Record<string, string>;
     siblings?: Array<{ title: string }>;
+    rows?: Array<Record<string, unknown>>;
   } = {},
 ) {
   const members = opts.members ?? { 'ws-1:7': 'member' };
@@ -89,6 +97,9 @@ function makeService(
         Promise.resolve({ ...LISTING, ...args.data }),
       ),
       delete: jest.fn(() => Promise.resolve(LISTING)),
+      findMany: jest.fn((args: FindManyArgs) =>
+        Promise.resolve((opts.rows ?? [LISTING]).slice(0, args.take)),
+      ),
     },
     shareLink: { delete: jest.fn(() => Promise.resolve({ id: 'link-1' })) },
   };
@@ -242,6 +253,170 @@ describe('TemplateService.publish', () => {
         acceptLicense: true,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('TemplateService.browse', () => {
+  it('never returns a preview token on a card', async () => {
+    // A page of 24 cards would otherwise hand out 24 non-expiring read
+    // capabilities just to render a thumbnail grid.
+    const { service } = makeService({ members: { 'ws-1:9': 'member' } });
+    const page = await service.browse(
+      { scope: 'workspace', workspaceId: 'ws-1' },
+      9,
+    );
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).not.toHaveProperty('previewToken');
+  });
+
+  it('constrains visibility in the query rather than filtering after', async () => {
+    const { service, prisma } = makeService({
+      members: { 'ws-1:9': 'member' },
+    });
+    await service.browse({ scope: 'workspace', workspaceId: 'ws-1' }, 9);
+    const where = prisma.templateListing.findMany.mock.calls[0][0].where;
+    expect(where).toMatchObject({ visibility: 'workspace', status: 'listed' });
+  });
+
+  it('scopes a workspace browse to the document’s current workspace', async () => {
+    // The Phase 1 rule: read authority follows the document, not the
+    // listing's denormalized workspaceId.
+    const { service, prisma } = makeService({
+      members: { 'ws-1:9': 'member' },
+    });
+    await service.browse({ scope: 'workspace', workspaceId: 'ws-1' }, 9);
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ document: { workspaceId: 'ws-1' } });
+  });
+
+  it('has no scope that selects unlisted listings', async () => {
+    // There is no `scope: 'unlisted'`; both scopes pin `visibility` to
+    // something else, so the tier whose id *is* the capability is unreachable.
+    const { service, prisma } = makeService({ members: {} });
+    await service.browse({ scope: 'public' });
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ visibility: 'public' });
+  });
+
+  it('accepts a workspace slug, which is what the URL actually carries', async () => {
+    // `/w/hackerwins-s-workspace/templates` — the pages read the param
+    // straight off `useParams`, so the slug is the only value the gallery
+    // ever sends. `assertMember` resolves it; requiring a UUID made the
+    // Templates tab fail outright.
+    const { service, prisma, workspaceService } = makeService({
+      members: { 'hackerwins-s-workspace:9': 'member' },
+    });
+    await service.browse(
+      { scope: 'workspace', workspaceId: 'hackerwins-s-workspace' },
+      9,
+    );
+    expect(workspaceService.assertMember).toHaveBeenCalledWith(
+      'hackerwins-s-workspace',
+      9,
+    );
+    // The *resolved* id is what constrains the query, never the raw param.
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ document: { workspaceId: 'hackerwins-s-workspace' } });
+  });
+
+  it('refuses a workspace browse the caller does not belong to', async () => {
+    const { service } = makeService({ members: {} });
+    await expect(
+      service.browse({ scope: 'workspace', workspaceId: 'ws-1' }, 9),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('refuses a workspace browse with no workspaceId', async () => {
+    const { service } = makeService({ members: { 'ws-1:9': 'member' } });
+    await expect(
+      service.browse({ scope: 'workspace' }, 9),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('refuses a workspace browse from an anonymous caller', async () => {
+    const { service } = makeService();
+    await expect(
+      service.browse({ scope: 'workspace', workspaceId: 'ws-1' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('serves the public scope to an anonymous caller', async () => {
+    const { service } = makeService({ members: {} });
+    await expect(service.browse({ scope: 'public' })).resolves.toMatchObject({
+      nextCursor: null,
+    });
+  });
+
+  it('combines the type facet with the workspace constraint', async () => {
+    // Both constrain the *document* relation; a second assignment would
+    // otherwise overwrite the first and widen the query.
+    const { service, prisma } = makeService({
+      members: { 'ws-1:9': 'member' },
+    });
+    await service.browse(
+      { scope: 'workspace', workspaceId: 'ws-1', type: 'slides' },
+      9,
+    );
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ document: { workspaceId: 'ws-1', type: 'slides' } });
+  });
+
+  it('normalizes the tag facet so it matches stored tags', async () => {
+    const { service, prisma } = makeService({ members: {} });
+    await service.browse({ scope: 'public', tag: '  Budget ' });
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where,
+    ).toMatchObject({ tags: { has: 'budget' } });
+  });
+
+  it('orders by usage with an id tiebreak by default', async () => {
+    const { service, prisma } = makeService({ members: {} });
+    await service.browse({ scope: 'public' });
+    expect(prisma.templateListing.findMany.mock.calls[0][0].orderBy).toEqual([
+      { useCount: 'desc' },
+      { id: 'desc' },
+    ]);
+  });
+
+  it('orders by recency when asked, still with the id tiebreak', async () => {
+    const { service, prisma } = makeService({ members: {} });
+    await service.browse({ scope: 'public', sort: 'recent' });
+    expect(prisma.templateListing.findMany.mock.calls[0][0].orderBy).toEqual([
+      { publishedAt: 'desc' },
+      { id: 'desc' },
+    ]);
+  });
+
+  it('reports no next cursor when the page is not full', async () => {
+    const { service } = makeService({ members: {}, rows: [LISTING] });
+    const page = await service.browse({ scope: 'public', limit: 2 });
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it('takes one row past the page to decide whether another exists', async () => {
+    const rows = [
+      { ...LISTING, id: 'a' },
+      { ...LISTING, id: 'b' },
+      { ...LISTING, id: 'c' },
+    ];
+    const { service, prisma } = makeService({ members: {}, rows });
+    const page = await service.browse({ scope: 'public', limit: 2 });
+    expect(prisma.templateListing.findMany.mock.calls[0][0].take).toBe(3);
+    expect(page.items.map((i) => i.id)).toEqual(['a', 'b']);
+    // The cursor is the last row *of the page*, not the lookahead row.
+    expect(page.nextCursor).toBe('b');
+  });
+
+  it('skips the cursor row itself on the next page', async () => {
+    const { service, prisma } = makeService({ members: {} });
+    await service.browse({ scope: 'public', cursor: 'b' });
+    const args = prisma.templateListing.findMany.mock.calls[0][0];
+    expect(args.cursor).toEqual({ id: 'b' });
+    expect(args.skip).toBe(1);
   });
 });
 
@@ -429,6 +604,20 @@ describe('TemplateService.use', () => {
       folderId: null,
       title: 'Weekly Report',
     });
+  });
+
+  it('accepts a workspace slug as the destination', async () => {
+    // The New-from-template picker is mounted from the documents list, whose
+    // `workspaceId` prop is the slug out of `/w/:workspaceId`.
+    const { service, documentCopyService } = makeService({
+      members: { 'hackerwins-s-workspace:9': 'member' },
+    });
+    await service.use('tpl-1', 9, { workspaceId: 'hackerwins-s-workspace' });
+    expect(documentCopyService.copy).toHaveBeenCalledWith(
+      DOC,
+      9,
+      expect.objectContaining({ workspaceId: 'hackerwins-s-workspace' }),
+    );
   });
 
   it('refuses a destination workspace the caller does not belong to', async () => {

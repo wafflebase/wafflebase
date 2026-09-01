@@ -4,6 +4,7 @@ import { SiteHeader } from "@/components/site-header";
 import { matchPath, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   IconFolder,
+  IconLayoutGrid,
   IconSettings,
   IconDatabase,
   IconChartBar,
@@ -22,6 +23,7 @@ const ROUTE_TITLES: Array<{ path: string; title: string }> = [
   { path: "/w/:workspaceId/datasources", title: "Data Sources" },
   { path: "/w/:workspaceId/analytics", title: "Analytics" },
   { path: "/w/:workspaceId/analytics/:id", title: "Document Analytics" },
+  { path: "/w/:workspaceId/templates", title: "Templates" },
   { path: "/w/:workspaceId/settings", title: "Settings" },
   { path: "/w/:workspaceId", title: "Documents" },
   { path: "/datasources", title: "Data Sources" },
@@ -65,6 +67,11 @@ export default function Layout() {
             title: "Documents",
             url: `/w/${workspaceSlug}`,
             icon: IconFolder,
+          },
+          {
+            title: "Templates",
+            url: `/w/${workspaceSlug}/templates`,
+            icon: IconLayoutGrid,
           },
           {
             title: "Data Sources",
