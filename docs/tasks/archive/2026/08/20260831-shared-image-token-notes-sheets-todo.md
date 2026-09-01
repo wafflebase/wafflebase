@@ -62,7 +62,7 @@ no workspace scope to gate.
 - [x] `pnpm verify:fast`
 - [x] Self review over the branch diff
 - [x] End-to-end check against the reported share link
-- [ ] PR
+- [x] PR — merged as #993, 2026-08-30T23:40:58Z
 
 ## Review
 

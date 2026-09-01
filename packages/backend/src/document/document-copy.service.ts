@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Document as DocumentModel } from '@prisma/client';
 import { DocumentService } from './document.service';
-import { copyTitle } from './document-copy-title.util';
+import { copyTitle, uniqueTitle } from './document-copy-title.util';
 import { FileService } from '../file/file.service';
 import { VALID_FILE_ID_PATTERN } from '../file/file.constants';
 import { YorkieService } from '../yorkie/yorkie.service';
@@ -34,14 +34,33 @@ const JSON_ROOT_TYPES = new Set(['sheet', 'slides', 'board']);
 const BLOB_TYPES = new Set(['pdf', 'image', 'file']);
 
 /**
- * Duplicate a document — the server side of "Make a copy"
- * (docs/design/document-copy.md).
+ * Where a copy should land, when that is not "beside its source".
  *
- * The copy lands in the source's workspace and folder, owned by whoever asked
- * for it, with fresh timestamps and a fresh Yorkie history. Comments, share
- * links, presence, and analytics are deliberately not carried over: the copy is
- * a new document, and a share link minted for the source must never grant
- * access to it.
+ * Supplied only by the template gallery's "use this template"
+ * (docs/design/template-gallery.md), which is the one path where a document
+ * crosses a workspace boundary. `copy()` itself performs **no** authorization
+ * on this — the caller must have asserted membership of `workspaceId` and that
+ * `folderId` belongs to it, exactly as the documents controller does for a
+ * move. Omitting `dest` entirely preserves "Make a copy" behavior.
+ */
+export interface CopyDestination {
+  workspaceId: string;
+  /** `undefined`/`null` = the workspace root, never "the source's folder". */
+  folderId?: string | null;
+  /** Base title, de-duplicated with `uniqueTitle` instead of `copyTitle`. */
+  title?: string;
+}
+
+/**
+ * Duplicate a document — the server side of "Make a copy"
+ * (docs/design/document-copy.md) and of the template gallery's "use this
+ * template" (docs/design/template-gallery.md).
+ *
+ * The copy lands in the source's workspace and folder unless a `dest` says
+ * otherwise, owned by whoever asked for it, with fresh timestamps and a fresh
+ * Yorkie history. Comments, share links, presence, and analytics are
+ * deliberately not carried over: the copy is a new document, and a share link
+ * minted for the source must never grant access to it.
  *
  * Content is copied per type. Both blob and CRDT paths produce an *independent*
  * copy — deleting the source (which deletes its blob) cannot affect it.
@@ -56,14 +75,27 @@ export class DocumentCopyService {
     private readonly yorkieService: YorkieService,
   ) {}
 
-  async copy(source: DocumentModel, userId: number): Promise<DocumentModel> {
+  async copy(
+    source: DocumentModel,
+    userId: number,
+    dest?: CopyDestination,
+  ): Promise<DocumentModel> {
+    const workspaceId = dest?.workspaceId ?? source.workspaceId;
+    const folderId = dest ? (dest.folderId ?? null) : source.folderId;
     const siblings = await this.documentService.documents({
-      where: { workspaceId: source.workspaceId, folderId: source.folderId },
+      where: { workspaceId, folderId },
     });
-    const title = copyTitle(
-      source.title,
-      siblings.map((d) => d.title),
-    );
+    // A duplicate is named `<title> (copy)`; a document started from a template
+    // is named after the template. See document-copy-title.util.ts.
+    const title = dest?.title
+      ? uniqueTitle(
+          dest.title,
+          siblings.map((d) => d.title),
+        )
+      : copyTitle(
+          source.title,
+          siblings.map((d) => d.title),
+        );
 
     // Order matters: everything that can fail without leaving a trace runs
     // first, and each later step rolls back what the earlier ones created.
@@ -95,10 +127,8 @@ export class DocumentCopyService {
             }
           : {}),
         author: { connect: { id: userId } },
-        workspace: { connect: { id: source.workspaceId } },
-        ...(source.folderId
-          ? { folder: { connect: { id: source.folderId } } }
-          : {}),
+        workspace: { connect: { id: workspaceId } },
+        ...(folderId ? { folder: { connect: { id: folderId } } } : {}),
       });
     } catch (err) {
       await this.discardBlob(fileId);

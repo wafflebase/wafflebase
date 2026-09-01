@@ -6,23 +6,33 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 563
+Total archived tasks: 575
 
-## 2026/08 (133 tasks)
+## 2026/08 (145 tasks)
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.7 (2026-08-31) | [20260831-release-v0.6.7-todo.md](./2026/08/20260831-release-v0.6.7-todo.md) | [20260831-release-v0.6.7-lessons.md](./2026/08/20260831-release-v0.6.7-lessons.md) |
+| shared image token notes sheets (2026-08-31) | [20260831-shared-image-token-notes-sheets-todo.md](./2026/08/20260831-shared-image-token-notes-sheets-todo.md) | [20260831-shared-image-token-notes-sheets-lessons.md](./2026/08/20260831-shared-image-token-notes-sheets-lessons.md) |
+| docs 985 loose ends (2026-08-30) | [20260830-docs-985-loose-ends-todo.md](./2026/08/20260830-docs-985-loose-ends-todo.md) | [20260830-docs-985-loose-ends-lessons.md](./2026/08/20260830-docs-985-loose-ends-lessons.md) |
 | pr review fixes 986 982 (2026-08-30) | [20260830-pr-review-fixes-986-982-todo.md](./2026/08/20260830-pr-review-fixes-986-982-todo.md) | [20260830-pr-review-fixes-986-982-lessons.md](./2026/08/20260830-pr-review-fixes-986-982-lessons.md) |
 | docs copy paste integrity (2026-08-29) | [20260829-docs-copy-paste-integrity-todo.md](./2026/08/20260829-docs-copy-paste-integrity-todo.md) | [20260829-docs-copy-paste-integrity-lessons.md](./2026/08/20260829-docs-copy-paste-integrity-lessons.md) |
 | docs store batch seam (2026-08-29) | [20260829-docs-store-batch-seam-todo.md](./2026/08/20260829-docs-store-batch-seam-todo.md) | [20260829-docs-store-batch-seam-lessons.md](./2026/08/20260829-docs-store-batch-seam-lessons.md) |
 | docs surface existing features (2026-08-29) | [20260829-docs-surface-existing-features-todo.md](./2026/08/20260829-docs-surface-existing-features-todo.md) | [20260829-docs-surface-existing-features-lessons.md](./2026/08/20260829-docs-surface-existing-features-lessons.md) |
+| axis order selection perf (2026-08-28) | [20260828-axis-order-selection-perf-todo.md](./2026/08/20260828-axis-order-selection-perf-todo.md) | [20260828-axis-order-selection-perf-lessons.md](./2026/08/20260828-axis-order-selection-perf-lessons.md) |
 | notes mobile toolbar (2026-08-28) | [20260828-notes-mobile-toolbar-todo.md](./2026/08/20260828-notes-mobile-toolbar-todo.md) | [20260828-notes-mobile-toolbar-lessons.md](./2026/08/20260828-notes-mobile-toolbar-lessons.md) |
+| notes blockquote lists (2026-08-27) | [20260827-notes-blockquote-lists-todo.md](./2026/08/20260827-notes-blockquote-lists-todo.md) | [20260827-notes-blockquote-lists-lessons.md](./2026/08/20260827-notes-blockquote-lists-lessons.md) |
 | v1 worksheet review fix (2026-08-27) | [20260827-v1-worksheet-review-fix-todo.md](./2026/08/20260827-v1-worksheet-review-fix-todo.md) | [20260827-v1-worksheet-review-fix-lessons.md](./2026/08/20260827-v1-worksheet-review-fix-lessons.md) |
 | notes img size (2026-08-26) | [20260826-notes-img-size-todo.md](./2026/08/20260826-notes-img-size-todo.md) | [20260826-notes-img-size-lessons.md](./2026/08/20260826-notes-img-size-lessons.md) |
+| deferred findings channel (2026-08-25) | [20260825-deferred-findings-channel-todo.md](./2026/08/20260825-deferred-findings-channel-todo.md) | - |
 | design editor open loop (2026-08-25) | [20260825-design-editor-open-loop-todo.md](./2026/08/20260825-design-editor-open-loop-todo.md) | [20260825-design-editor-open-loop-lessons.md](./2026/08/20260825-design-editor-open-loop-lessons.md) |
+| font preview subset (2026-08-25) | [20260825-font-preview-subset-todo.md](./2026/08/20260825-font-preview-subset-todo.md) | [20260825-font-preview-subset-lessons.md](./2026/08/20260825-font-preview-subset-lessons.md) |
 | frontend vite config node floor (2026-08-25) | [20260825-frontend-vite-config-node-floor-todo.md](./2026/08/20260825-frontend-vite-config-node-floor-todo.md) | [20260825-frontend-vite-config-node-floor-lessons.md](./2026/08/20260825-frontend-vite-config-node-floor-lessons.md) |
 | promote exit code default (2026-08-25) | [20260825-promote-exit-code-default-todo.md](./2026/08/20260825-promote-exit-code-default-todo.md) | [20260825-promote-exit-code-default-lessons.md](./2026/08/20260825-promote-exit-code-default-lessons.md) |
+| sync status indicator (2026-08-25) | [20260825-sync-status-indicator-todo.md](./2026/08/20260825-sync-status-indicator-todo.md) | - |
 | panel pool exhaustion infra (2026-08-24) | [20260824-panel-pool-exhaustion-infra-todo.md](./2026/08/20260824-panel-pool-exhaustion-infra-todo.md) | - |
+| release v0.6.6 (2026-08-24) | [20260824-release-v0.6.6-todo.md](./2026/08/20260824-release-v0.6.6-todo.md) | [20260824-release-v0.6.6-lessons.md](./2026/08/20260824-release-v0.6.6-lessons.md) |
+| shared image access (2026-08-24) | [20260824-shared-image-access-todo.md](./2026/08/20260824-shared-image-access-todo.md) | - |
 | docs large paste perf (2026-08-23) | [20260823-docs-large-paste-perf-todo.md](./2026/08/20260823-docs-large-paste-perf-todo.md) | [20260823-docs-large-paste-perf-lessons.md](./2026/08/20260823-docs-large-paste-perf-lessons.md) |
 | caret line affinity (2026-08-22) | [20260822-caret-line-affinity-todo.md](./2026/08/20260822-caret-line-affinity-todo.md) | [20260822-caret-line-affinity-lessons.md](./2026/08/20260822-caret-line-affinity-lessons.md) |
 | docs cell hf wrap affinity (2026-08-22) | [20260822-docs-cell-hf-wrap-affinity-todo.md](./2026/08/20260822-docs-cell-hf-wrap-affinity-todo.md) | [20260822-docs-cell-hf-wrap-affinity-lessons.md](./2026/08/20260822-docs-cell-hf-wrap-affinity-lessons.md) |
@@ -39,6 +49,7 @@ Total archived tasks: 563
 | sheets clear borders prune (2026-08-22) | [20260822-sheets-clear-borders-prune-todo.md](./2026/08/20260822-sheets-clear-borders-prune-todo.md) | [20260822-sheets-clear-borders-prune-lessons.md](./2026/08/20260822-sheets-clear-borders-prune-lessons.md) |
 | sheets merge refusal notice (2026-08-22) | [20260822-sheets-merge-refusal-notice-todo.md](./2026/08/20260822-sheets-merge-refusal-notice-todo.md) | [20260822-sheets-merge-refusal-notice-lessons.md](./2026/08/20260822-sheets-merge-refusal-notice-lessons.md) |
 | task archive audit (2026-08-22) | [20260822-task-archive-audit-todo.md](./2026/08/20260822-task-archive-audit-todo.md) | [20260822-task-archive-audit-lessons.md](./2026/08/20260822-task-archive-audit-lessons.md) |
+| debug report (2026-08-21) | [20260821-debug-report-todo.md](./2026/08/20260821-debug-report-todo.md) | - |
 | eval panel digest (2026-08-20) | [20260820-eval-panel-digest-todo.md](./2026/08/20260820-eval-panel-digest-todo.md) | - |
 | eval report section5 (2026-08-20) | [20260820-eval-report-section5-todo.md](./2026/08/20260820-eval-report-section5-todo.md) | - |
 | eval validity scorer (2026-08-20) | [20260820-eval-validity-scorer-todo.md](./2026/08/20260820-eval-validity-scorer-todo.md) | - |
@@ -50,6 +61,7 @@ Total archived tasks: 563
 | design editor token panels (2026-08-19) | [20260819-design-editor-token-panels-todo.md](./2026/08/20260819-design-editor-token-panels-todo.md) | [20260819-design-editor-token-panels-lessons.md](./2026/08/20260819-design-editor-token-panels-lessons.md) |
 | design sandbox canvas (2026-08-19) | [20260819-design-sandbox-canvas-todo.md](./2026/08/20260819-design-sandbox-canvas-todo.md) | [20260819-design-sandbox-canvas-lessons.md](./2026/08/20260819-design-sandbox-canvas-lessons.md) |
 | design sandbox scene half (2026-08-19) | [20260819-design-sandbox-scene-half-todo.md](./2026/08/20260819-design-sandbox-scene-half-todo.md) | [20260819-design-sandbox-scene-half-lessons.md](./2026/08/20260819-design-sandbox-scene-half-lessons.md) |
+| font list preview (2026-08-19) | [20260819-font-list-preview-todo.md](./2026/08/20260819-font-list-preview-todo.md) | - |
 | freeze review surface (2026-08-19) | [20260819-freeze-review-surface-todo.md](./2026/08/20260819-freeze-review-surface-todo.md) | - |
 | slides toolbar focus release (2026-08-19) | [20260819-slides-toolbar-focus-release-todo.md](./2026/08/20260819-slides-toolbar-focus-release-todo.md) | [20260819-slides-toolbar-focus-release-lessons.md](./2026/08/20260819-slides-toolbar-focus-release-lessons.md) |
 | design editor chrome (2026-08-18) | [20260818-design-editor-chrome-todo.md](./2026/08/20260818-design-editor-chrome-todo.md) | [20260818-design-editor-chrome-lessons.md](./2026/08/20260818-design-editor-chrome-lessons.md) |

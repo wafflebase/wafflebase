@@ -177,12 +177,16 @@ into each, so a skip delta cannot be an environment artefact. Reported as
       byte-identical, 2 steps added and 0 removed, `checks.create` 2 → 3,
       `checks.update` 2 → 2.
 - [x] **YAML well-formedness** — parses, 8 jobs.
-- [ ] **`actionlint` — NOT RUN. It is not installed on this machine.** The structural
-      diff above is the substitute, not a claim of equivalence.
-- [ ] **Never executed against a live panel run.** No PR has produced an
-      `agent-deferred-findings` check run yet; the end-to-end test drives the CLI over
-      a synthesised `.agent-review` tree, which exercises the module but not the
-      workflow wiring or the API call.
+Two disclosures below are stated in the negative, so a tick would assert the
+opposite of their text. They are plain bullets, the convention v0.6.5
+established and v0.6.6 reused for `docs-sync`:
+
+- **`actionlint` — NOT RUN. It is not installed on this machine.** The
+  structural diff above is the substitute, not a claim of equivalence.
+- **Never executed against a live panel run** (as of the v0.6.7 release pass).
+  No PR has produced an `agent-deferred-findings` check run yet; the end-to-end
+  test drives the CLI over a synthesised `.agent-review` tree, which exercises
+  the module but not the workflow wiring or the API call.
 
 ## Review findings
 

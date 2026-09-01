@@ -18,16 +18,9 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
-| axis order selection perf (2026-08-28) | [20260828-axis-order-selection-perf-todo.md](./active/20260828-axis-order-selection-perf-todo.md) | [20260828-axis-order-selection-perf-lessons.md](./active/20260828-axis-order-selection-perf-lessons.md) |
-| notes blockquote lists (2026-08-27) | [20260827-notes-blockquote-lists-todo.md](./active/20260827-notes-blockquote-lists-todo.md) | [20260827-notes-blockquote-lists-lessons.md](./active/20260827-notes-blockquote-lists-lessons.md) |
-| deferred findings channel (2026-08-25) | [20260825-deferred-findings-channel-todo.md](./active/20260825-deferred-findings-channel-todo.md) | - |
-| font preview subset (2026-08-25) | [20260825-font-preview-subset-todo.md](./active/20260825-font-preview-subset-todo.md) | [20260825-font-preview-subset-lessons.md](./active/20260825-font-preview-subset-lessons.md) |
-| sync status indicator (2026-08-25) | [20260825-sync-status-indicator-todo.md](./active/20260825-sync-status-indicator-todo.md) | - |
-| release v0.6.6 (2026-08-24) | [20260824-release-v0.6.6-todo.md](./active/20260824-release-v0.6.6-todo.md) | [20260824-release-v0.6.6-lessons.md](./active/20260824-release-v0.6.6-lessons.md) |
-| shared image access (2026-08-24) | [20260824-shared-image-access-todo.md](./active/20260824-shared-image-access-todo.md) | - |
-| debug report (2026-08-21) | [20260821-debug-report-todo.md](./active/20260821-debug-report-todo.md) | - |
+| template gallery (2026-09-01) | [20260901-template-gallery-todo.md](./active/20260901-template-gallery-todo.md) | [20260901-template-gallery-lessons.md](./active/20260901-template-gallery-lessons.md) |
+| agentic office workflow (2026-08-31) | [20260831-agentic-office-workflow-todo.md](./active/20260831-agentic-office-workflow-todo.md) | [20260831-agentic-office-workflow-lessons.md](./active/20260831-agentic-office-workflow-lessons.md) |
 | docs inline style off clears key (2026-08-19) | [20260819-docs-inline-style-off-clears-key-todo.md](./active/20260819-docs-inline-style-off-clears-key-todo.md) | [20260819-docs-inline-style-off-clears-key-lessons.md](./active/20260819-docs-inline-style-off-clears-key-lessons.md) |
-| font list preview (2026-08-19) | [20260819-font-list-preview-todo.md](./active/20260819-font-list-preview-todo.md) | - |
 | claude token pool (2026-08-14) | [20260814-claude-token-pool-todo.md](./active/20260814-claude-token-pool-todo.md) | - |
 | path aware ci (2026-08-12) | [20260812-path-aware-ci-todo.md](./active/20260812-path-aware-ci-todo.md) | - |
 | cli upstream error envelope (2026-08-11) | [20260811-cli-upstream-error-envelope-todo.md](./active/20260811-cli-upstream-error-envelope-todo.md) | [20260811-cli-upstream-error-envelope-lessons.md](./active/20260811-cli-upstream-error-envelope-lessons.md) |
@@ -46,7 +39,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 ## Archive
 
-- Archived task count: 563
+- Archived task count: 575
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: axis order selection perf (2026-08-28)
+Latest active task: template gallery (2026-09-01)

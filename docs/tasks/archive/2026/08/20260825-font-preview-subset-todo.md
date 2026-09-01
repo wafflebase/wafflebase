@@ -22,38 +22,38 @@ to `packages/frontend/src/components/text-formatting/font-catalog.ts`.
 full-load path (picker selection, `onPrefetch`, dialog selection) stays
 provably untouched.
 
-- [ ] `ensurePreviewFontLink` marks its link with a **different** attribute,
+- [x] `ensurePreviewFontLink` marks its link with a **different** attribute,
       `data-wafflebase-font-preview`, so `findFontLink`'s
       `link[data-wafflebase-font]` query cannot see it. Otherwise selecting a
       previewed-only family would dedupe against the subset and render with
       missing glyphs.
-- [ ] It no-ops when a full link already exists (`findFontLink` resolves) —
+- [x] It no-ops when a full link already exists (`findFontLink` resolves) —
       a later-declared subset link would otherwise win the cascade for the
       label's glyphs after a hover-prefetch.
-- [ ] It keeps `ensureFontLink`'s other guards: SSR, system fonts, eager
+- [x] It keeps `ensureFontLink`'s other guards: SSR, system fonts, eager
       bootstrap families, and idempotency per family.
-- [ ] Weight is derived from the entry's `weights`, never hardcoded to 400:
+- [x] Weight is derived from the entry's `weights`, never hardcoded to 400:
       `Sunflower` (`해바라기`) ships only 700 and `css2?…:wght@400` answers
       HTTP 400 with an HTML error page, which would strand that row in a
       fallback face forever. Take the first weight of the spec.
-- [ ] The subset text is read from the row's own `textContent`, not from a
+- [x] The subset text is read from the row's own `textContent`, not from a
       catalog lookup — recents and the full library contain families absent
       from `CATALOG_INDEX`. This also covers `MoreFontsDialog`'s group-name
       span, which inherits the row button's `fontFamily` and so must not
       split across two faces (e.g. "Sans-serif" needs U+2d and U+72).
-- [ ] Both observers pass the row's text plus a `data-font-weights`
+- [x] Both observers pass the row's text plus a `data-font-weights`
       attribute carrying the entry's `weights`.
 
 ## Tests
 
-- [ ] `ensure-font-link.test.ts`: preview injects under the new marker, is
+- [x] `ensure-font-link.test.ts`: preview injects under the new marker, is
       invisible to the full path, carries `&text=`, no-ops when a full link
       exists, and requests a shipped weight for a 700-only family.
-- [ ] `font-family-picker.test.ts`: a row scrolling into view injects a
+- [x] `font-family-picker.test.ts`: a row scrolling into view injects a
       **preview** link; previewing then selecting injects the full link too.
-- [ ] `more-fonts-dialog.test.ts`: the dialog's observer subsets the label
+- [x] `more-fonts-dialog.test.ts`: the dialog's observer subsets the label
       *and* the group name.
-- [ ] `pnpm verify:fast` green before the draft PR.
+- [x] `pnpm verify:fast` green before the draft PR.
 
 ## Out of scope
 

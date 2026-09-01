@@ -32,6 +32,7 @@ import {
   ShareLinkPermissions,
 } from "@/api/share-links";
 import { isAuthExpiredError } from "@/api/auth";
+import { TemplateShareSection } from "@/components/template-share-section";
 
 const DEFAULT_PERMISSIONS: ShareLinkPermissions = {
   canCreateEditorLink: false,
@@ -263,6 +264,16 @@ export function ShareDialog({ documentId }: { documentId: string }) {
               </div>
             </>
           )}
+          {/*
+            `canCreateEditorLink` is the manager predicate the backend already
+            resolved for this document — publishing a template takes the same
+            tier, so it is reused rather than fetched a second time.
+          */}
+          <TemplateShareSection
+            documentId={documentId}
+            canManage={permissions.canCreateEditorLink}
+            ready={loaded}
+          />
         </div>
         <div className="flex justify-end">
           <Button onClick={handleCreate} disabled={loading || !loaded}>

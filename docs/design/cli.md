@@ -417,10 +417,12 @@ wafflebase
   │     │     [--pages <range>]              (pdf: exact subset; docx: warn+ignore)
   │     │     [--include-header-footer]      (default: true)
   │     │     [--force]                      (overwrite existing file)
-  │     └── import <file>
-  │           [--title <title>]              (default: file basename)
-  │           [--replace <doc-id> --yes]     (destructive; required together)
-  │           [--workspace <id>]
+  │     ├── import <file>
+  │     │     [--title <title>]              (default: file basename)
+  │     │     [--replace <doc-id> --yes]     (destructive; required together)
+  │     │     [--workspace <id>]
+  │     └── set-content <doc-id>             [--data <json>] (JSON from stdin or --data;
+  │                                          destructive: replaces the whole content)
   │
   ├── sheets (aliases: sheet, spreadsheet, spreadsheets)
   │     ├── tabs (alias: tab)
@@ -437,10 +439,57 @@ wafflebase
   │     │     (--start places a positional grid; it is ignored for an
   │     │      exported `ref,value,formula` table, whose rows carry their
   │     │      own ref. The response's `mode` says which ran: cells|grid)
-  │     └── export <doc-id> <file>
-  │           [--tab <tab-id>] [--range A1:C10] [--file-format csv|json]
-  │           [--raw]   (CSV: write cell text verbatim, no formula guard,
-  │                      so `sheets import` round-trips formulas)
+  │     ├── export <doc-id> <file>
+  │     │     [--tab <tab-id>] [--range A1:C10] [--file-format csv|json]
+  │     │     [--raw]   (CSV: write cell text verbatim, no formula guard,
+  │     │                so `sheets import` round-trips formulas)
+  │     ├── clear <doc-id>                   [--tab] [--data] — { "range": "A1:C10" }
+  │     ├── insert <doc-id>                  [--tab] [--data] — { axis, index, count }
+  │     ├── delete <doc-id>                  [--tab] [--data] — { axis, index, count }
+  │     ├── move <doc-id>                    [--tab] [--data] —
+  │     │                                    { axis, srcIndex, count, dstIndex }
+  │     ├── styles (aliases: style, range-styles)      The range-style layer
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — replaces the layer
+  │     ├── sheet-style                                The one sheet-wide style
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — merges; `null` clears
+  │     ├── column-styles (alias: column-style)        Whole-column styles
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — merges per index
+  │     ├── row-styles (alias: row-style)              Whole-row styles
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — merges per index
+  │     ├── column-widths (alias: column-width)        Whole-column widths
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — merges per index
+  │     ├── row-heights (alias: row-height)            Whole-row heights
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — merges per index
+  │     ├── freeze                                     Frozen row/column counts
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — { rows, cols }
+  │     ├── hidden                                     Hidden row/column indices
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — { rows, columns }
+  │     ├── merges (alias: merge)                      Merged cells by anchor ref
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — replaces the map
+  │     ├── conditional-formats (alias: conditional-format)
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — replaces the rules
+  │     ├── data-validations (alias: data-validation)
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — replaces the rules
+  │     ├── charts (alias: chart)                      Charts anchored on the tab
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — replaces the collection
+  │     ├── filter                                     The tab's filter state
+  │     │     ├── get <doc-id>               [--tab]
+  │     │     └── set <doc-id>               [--tab] [--data] — `null` clears
+  │     └── pivot                                      The tab's pivot table
+  │           ├── get <doc-id>               [--tab]
+  │           └── set <doc-id>               [--tab] [--data] — `null` clears
   │
   ├── slides (aliases: slide, deck)
   │     ├── list                             List slide decks (type: slides)
@@ -456,9 +505,10 @@ wafflebase
   │     ├── export <doc-id> <file>
   │     │     [--format pptx]                (default: from extension)
   │     │     [--force]                       (overwrite existing file)
-  │     └── import <file>
-  │           [--title <title>]               (default: file basename)
-  │           [--replace <doc-id> --yes]      (destructive; required together)
+  │     ├── import <file>
+  │     │     [--title <title>]               (default: file basename)
+  │     │     [--replace <doc-id> --yes]      (destructive; required together)
+  │     └── set-content <doc-id>             [--data <json>] (replaces the whole deck)
   │
   ├── notes (alias: note)
   │     ├── list                             List notes (type: note)
@@ -473,21 +523,28 @@ wafflebase
   │     ├── export <doc-id> <file>|-         (- writes Markdown to stdout)
   │     │     [--format md]                  (default: from extension; - ⇒ md)
   │     │     [--force]                       (overwrite existing file)
-  │     └── import <file>
-  │           [--title <title>]               (default: file basename)
-  │           [--replace <doc-id> --yes]      (destructive; required together)
+  │     ├── import <file>
+  │     │     [--title <title>]               (default: file basename)
+  │     │     [--replace <doc-id> --yes]      (destructive; required together)
+  │     └── set-content <doc-id>             [--data <json>] (replaces the whole note)
   │
-  └── files (alias: file)
-        ├── upload <file>                    Upload any file as a document
-        │     [--title <title>]               (default: filename, with ext)
-        │     [--folder <id>]                 (default: workspace root)
-        ├── download <doc-id> [out]          (out: path, - for stdout;
-        │     [--force]                       default: the document filename)
-        ├── list                             List blob docs (file/pdf/image)
-        │     [--type file|pdf|image]
-        ├── get <doc-id>                      Show file document metadata
-        ├── rename <doc-id> <title>          Rename a file document
-        └── delete <doc-id>                   Delete it and its stored bytes
+  ├── files (alias: file)
+  │     ├── upload <file>                    Upload any file as a document
+  │     │     [--title <title>]               (default: filename, with ext)
+  │     │     [--folder <id>]                 (default: workspace root)
+  │     ├── download <doc-id> [out]          (out: path, - for stdout;
+  │     │     [--force]                       default: the document filename)
+  │     ├── list                             List blob docs (file/pdf/image)
+  │     │     [--type file|pdf|image]
+  │     ├── get <doc-id>                      Show file document metadata
+  │     ├── rename <doc-id> <title>          Rename a file document
+  │     └── delete <doc-id>                   Delete it and its stored bytes
+  │
+  └── images (alias: image)                  The workspace image bucket
+        ├── upload <file>                    png|jpeg|gif|webp, 10 MB cap
+        ├── get <image-id> [out]             (out: path, - for stdout;
+        │     [--force]                       default: the image id)
+        └── delete <image-id>                 Delete the stored image
 ```
 
 The Slides `content` command is text-only for `md`/`text`: it walks each
@@ -552,6 +609,57 @@ the derived-not-echoed rule in `packages/backend/src/document/file-response.util
 reuses, so a `file` document always arrives as an opaque attachment; the CLI
 reduces the advertised name to a bare filename before it can reach the
 filesystem.
+
+Everything under `sheets` below `export` is **worksheet state that is not a
+cell**: formatting layers, sizing, view state, rules, charts and the
+analysis objects. Each is a `get` / `set` pair over one
+`GET` + `PUT /documents/:id/tabs/:tab/<resource>` endpoint, so the whole
+group is one shape to learn — `--tab` (default `tab-1`), and on the write
+side a JSON body from `--data` or stdin, exactly like `sheets cells batch`.
+Two rules distinguish them, and both are in the safety table below:
+
+- **Replace vs merge.** `styles`, `merges`, `conditional-formats`,
+  `data-validations` and `charts` are whole-collection PUTs — anything
+  omitted from the payload is deleted, which is why they are `destructive`.
+  `sheet-style`, `column-styles`, `row-styles`, `column-widths` and
+  `row-heights` merge per key, so they are `write` with a `destructive`
+  variant for the `null` value that clears one entry.
+- **The payload is the bare value, not the envelope.** `--data` takes the
+  array / map / object itself; the client adds the `{ rangeStyles: … }`
+  wrapper the endpoint wants. Each `set` also accepts the envelope its own
+  `get` prints, so `sheets styles get D | sheets styles set D` round-trips.
+  `--dry-run` prints the enveloped body byte-for-byte as it would be sent.
+
+`clear`, `insert`, `delete` and `move` sit directly on `sheets`
+because they are verbs, not state. They are the CLI face of the row/column
+endpoints in [rest-api.md](rest-api.md) §5.4, so formulas, merges, styles,
+validations and comment anchors follow the edit. `delete` removes
+**rows or columns**; the verb that empties a cell range while keeping the
+grid is `clear`.
+The CLI validates only its own contract (a JSON object, `axis` of
+`row`/`column`, positive integer indices); the grid bounds and the
+`MaxAxisEntries` cap depend on the axis's current length, which only the
+backend can see inside its own `doc.update`, so those arrive as its `400`.
+
+`set-content` is the write half of `content` on `docs` / `slides` /
+`notes`: one `PUT /documents/:id/content` with the body verbatim. The
+backend picks the writer from the document's *persisted* type, not from
+the namespace you typed, and answers `400` when the body shape disagrees
+(or `409 TYPE_MISMATCH` for a spreadsheet) — so the CLI validates nothing
+beyond "is it JSON", rather than keeping a second copy of that contract
+that could drift from it.
+
+The `images` namespace is the workspace image bucket the slides / board /
+docs renderers fetch embedded images from. It is workspace-scoped, not
+document-scoped: an image blob has no link back to the document that
+embeds it (that reference lives in the CRDT), so there is no doc id and no
+`--tab`. Upload is multipart and takes a path, never stdin, for the reason
+`files upload` does — the content type comes from the filename. The
+allow-list (`png`/`jpeg`/`gif`/`webp`) and the 10 MB cap mirror
+`images.controller.ts` and are checked before the bytes go over the wire.
+`images get` is a binary download in the `files download` shape, except
+that the read route sends no `Content-Disposition`, so the default output
+name is the image id.
 
 **Global flags**: `--server`, `--api-key`, `--workspace`, `--profile`,
 `--format json|table|csv|yaml` (default: json), `--quiet`, `--verbose`,
@@ -625,6 +733,27 @@ wafflebase docs export abc-123 out.pdf --pages 1-3     # exact page subset
 wafflebase docs export abc-123 out.docx                # export to DOCX
 wafflebase docs import draft.docx                      # new doc from .docx
 wafflebase docs import revision.docx --replace abc-123 --yes
+
+# Worksheet state beyond the cells
+wafflebase sheets styles get abc-123 --tab tab-1
+echo '{"1":180,"2":90}' | wafflebase sheets column-widths set abc-123
+echo '{"rows":1,"cols":0}' | wafflebase sheets freeze set abc-123
+wafflebase sheets charts get abc-123 | wafflebase sheets charts set abc-123
+echo 'null' | wafflebase sheets filter set abc-123          # clear the filter
+
+# Rows and columns
+echo '{"range":"A2:C99"}' | wafflebase sheets clear abc-123
+echo '{"axis":"row","index":2,"count":3}' | wafflebase sheets insert abc-123
+echo '{"axis":"row","srcIndex":5,"count":1,"dstIndex":2}' | wafflebase sheets move abc-123
+
+# Whole-content writes (destructive; the read half is `content`)
+wafflebase docs content abc-123 > doc.json
+wafflebase docs set-content abc-123 --data "$(cat doc.json)"
+
+# Workspace images
+wafflebase images upload logo.png
+wafflebase images get img-42 logo.png --force
+wafflebase images delete img-42
 
 # Files (any file, stored as bytes)
 wafflebase files upload archive.zip                    # → a `file` document
@@ -1426,6 +1555,7 @@ Schema entries by command (canonical plural names):
 | `docs.content`           | read-only     |                                                        |
 | `docs.export`            | read-only     | file write is local                                    |
 | `docs.import`            | write         | `safety` becomes `destructive` with `--replace`        |
+| `docs.set-content`       | destructive   | whole-content replace, not a merge                     |
 | `sheets.tabs.list`       | read-only     |                                                        |
 | `sheets.tabs.create`     | write         |                                                        |
 | `sheets.tabs.rename`     | write         |                                                        |
@@ -1435,6 +1565,38 @@ Schema entries by command (canonical plural names):
 | `sheets.cells.delete`    | destructive   |                                                        |
 | `sheets.import`          | write         |                                                        |
 | `sheets.export`          | read-only     |                                                        |
+| `sheets.clear`           | destructive   | empties a range, keeps rows/columns                    |
+| `sheets.insert`          | write         | rows or columns                                        |
+| `sheets.delete`          | destructive   | rows or columns; `clear` is what empties a range        |
+| `sheets.move`            | write         | `409` if it would split a merged range                 |
+| `sheets.styles.get`      | read-only     |                                                        |
+| `sheets.styles.set`      | destructive   | replaces the layer; omitted patches are deleted        |
+| `sheets.sheet-style.get` | read-only     |                                                        |
+| `sheets.sheet-style.set` | write         | `destructive` when the payload is `null`               |
+| `sheets.column-styles.get` | read-only   |                                                        |
+| `sheets.column-styles.set` | write       | `destructive` for a `null` value                       |
+| `sheets.row-styles.get`  | read-only     |                                                        |
+| `sheets.row-styles.set`  | write         | `destructive` for a `null` value                       |
+| `sheets.column-widths.get` | read-only   |                                                        |
+| `sheets.column-widths.set` | write       | `destructive` for a `null` value                       |
+| `sheets.row-heights.get` | read-only     |                                                        |
+| `sheets.row-heights.set` | write         | `destructive` for a `null` value                       |
+| `sheets.freeze.get`      | read-only     |                                                        |
+| `sheets.freeze.set`      | write         | an omitted key resets that axis to 0                   |
+| `sheets.hidden.get`      | read-only     |                                                        |
+| `sheets.hidden.set`      | write         | replaces the whole hidden set                          |
+| `sheets.merges.get`      | read-only     |                                                        |
+| `sheets.merges.set`      | destructive   | replaces the map; omitted anchors are unmerged         |
+| `sheets.conditional-formats.get` | read-only |                                                    |
+| `sheets.conditional-formats.set` | destructive | replaces the whole rule collection               |
+| `sheets.data-validations.get` | read-only |                                                       |
+| `sheets.data-validations.set` | destructive | replaces the whole rule collection                  |
+| `sheets.charts.get`      | read-only     |                                                        |
+| `sheets.charts.set`      | destructive   | replaces the collection; omitted charts are deleted    |
+| `sheets.filter.get`      | read-only     |                                                        |
+| `sheets.filter.set`      | write         | `destructive` when the payload is `null`               |
+| `sheets.pivot.get`       | read-only     |                                                        |
+| `sheets.pivot.set`       | write         | `destructive` when the payload is `null`               |
 | `slides.list`            | read-only     | filtered to `type: slides`                             |
 | `slides.create`          | write         |                                                        |
 | `slides.get`             | read-only     | metadata only                                          |
@@ -1443,6 +1605,7 @@ Schema entries by command (canonical plural names):
 | `slides.content`         | read-only     | `json` lossless; `md`/`text` text-only                 |
 | `slides.export`          | read-only     | file write is local; PPTX only                         |
 | `slides.import`          | write         | `safety` becomes `destructive` with `--replace`        |
+| `slides.set-content`     | destructive   | whole-deck replace                                     |
 | `notes.list`             | read-only     | filtered to `type: note`                               |
 | `notes.create`           | write         |                                                        |
 | `notes.get`              | read-only     | metadata only                                          |
@@ -1451,12 +1614,16 @@ Schema entries by command (canonical plural names):
 | `notes.content`          | read-only     | `json` → `{content}`; `md`/`text` raw markdown         |
 | `notes.export`           | read-only     | file write is local; Markdown only                     |
 | `notes.import`           | write         | `safety` becomes `destructive` with `--replace`        |
+| `notes.set-content`      | destructive   | whole-note replace                                     |
 | `files.upload`           | write         | stores bytes verbatim; never parses                    |
 | `files.download`         | read-only     | file write is local                                    |
 | `files.list`             | read-only     | filtered to `file`/`pdf`/`image`                       |
 | `files.get`              | read-only     | metadata only                                          |
 | `files.rename`           | write         |                                                        |
 | `files.delete`           | destructive   | deletes the stored blob too                            |
+| `images.upload`          | write         | png/jpeg/gif/webp only, 10 MB cap                      |
+| `images.get`             | read-only     | binary; file write is local                            |
+| `images.delete`          | destructive   | deletes the stored image bytes                         |
 | `login`                  | write         | OAuth login, writes session file                       |
 | `logout`                 | write         | Deletes session file                                   |
 | `status`                 | read-only     | Shows current auth state                               |

@@ -16,6 +16,7 @@ import {
   parseNotesContentFormat,
   runNotesContent,
 } from '../notes/content.js';
+import { registerNotesSetContentCommand } from './content-write.js';
 
 interface NotesImportOpts {
   title?: string;
@@ -235,6 +236,7 @@ export function registerNotesCommand(program: Command) {
     });
 
   registerNotesImportCommand(notes);
+  registerNotesSetContentCommand(notes);
 }
 
 export function registerNotesImportCommand(notes: Command) {

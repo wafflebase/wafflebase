@@ -57,10 +57,12 @@ rather than failing the whole export: one `src` you cannot fix must not cost
 you the export you asked for. The rest of the document still exports, minus
 those images.
 
-## Command Tree (v0.3.7)
+## Command Tree
 
 Plural namespaces are canonical; singular forms are accepted as
-aliases for back-compat with earlier scripts.
+aliases for back-compat with earlier scripts. `wafflebase schema` is the
+machine-readable version of this tree — every command below has an entry
+there carrying its parameters, response shape and safety level.
 
 ```
 wafflebase
@@ -75,7 +77,11 @@ wafflebase
 │   ├── delete <doc-id>
 │   ├── content <doc-id>                   --format json|md|text + --pages
 │   ├── export <doc-id> <file>             --format pdf|docx + --pages (PDF)
-│   └── import <file>                      --replace <id> --yes for in-place
+│   ├── import <file>                      --replace <id> --yes for in-place
+│   └── set-content <doc-id>               --data <json> | stdin (destructive)
+│
+│   slides and notes mirror docs: list / create / get / rename / delete /
+│   content / export / import / set-content.
 │
 ├── sheets (aliases: sheet, spreadsheet, spreadsheets)
 │   ├── tabs (alias: tab)
@@ -88,7 +94,24 @@ wafflebase
 │   │   ├── batch <doc-id>                 --data <json> | stdin
 │   │   └── delete <doc-id> <ref>
 │   ├── import <doc-id> <file>             CSV/JSON
-│   └── export <doc-id> <file>             CSV/JSON
+│   ├── export <doc-id> <file>             CSV/JSON
+│   ├── clear / insert / delete / move <doc-id>
+│   │                                      --data <json> | stdin. insert /
+│   │                                      delete / move act on rows or
+│   │                                      columns; clear empties a range
+│   └── get/set pairs over the rest of a tab's state, each --tab + --data:
+│       styles (style, range-styles) · sheet-style · column-styles ·
+│       row-styles · column-widths · row-heights · freeze · hidden ·
+│       merges (merge) · conditional-formats · data-validations ·
+│       charts (chart) · filter · pivot
+│
+├── files (alias: file)                    Any file, stored as bytes
+│   └── upload / download / list / get / rename / delete
+│
+├── images (alias: image)                  Workspace image bucket
+│   ├── upload <file>                      png|jpeg|gif|webp, 10 MB cap
+│   ├── get <image-id> [out]               --force to overwrite
+│   └── delete <image-id>
 │
 ├── api-keys (alias: api-key)
 │   ├── create <name>
@@ -120,11 +143,26 @@ wafflebase sheets cells get abc-123 A1:D100
 echo '{"A1":"Name","B1":"Score"}' | wafflebase sheets cells batch abc-123
 wafflebase sheets export abc-123 out.csv
 
+# Everything on a tab that is not a cell (get/set pairs, JSON on stdin)
+wafflebase sheets styles get abc-123
+echo '{"1":180,"2":90}' | wafflebase sheets column-widths set abc-123
+echo '{"rows":1,"cols":0}' | wafflebase sheets freeze set abc-123
+wafflebase sheets charts get abc-123 | wafflebase sheets charts set abc-123
+
+# Rows and columns (delete removes rows/columns; clear empties a range)
+echo '{"range":"A2:C99"}' | wafflebase sheets clear abc-123
+echo '{"axis":"row","index":2,"count":3}' | wafflebase sheets insert abc-123
+
+# Workspace images
+wafflebase images upload logo.png
+wafflebase images get img-42 logo.png --force
+
 # Word-processor docs
 wafflebase docs content abc-123 --format md
 wafflebase docs export abc-123 out.pdf --pages 1-3
 wafflebase docs import draft.docx --title "Final Draft"
 wafflebase docs import revision.docx --replace abc-123 --yes
+wafflebase docs content abc-123 | wafflebase docs set-content abc-123
 
 # Schema introspection (singular aliases resolve too)
 wafflebase schema docs.content

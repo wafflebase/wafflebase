@@ -29,5 +29,8 @@ import { FolderModule } from '../folder/folder.module';
     PrismaService,
     YorkieSignatureGuard,
   ],
+  // The template gallery's "use this template" is this same copy engine with a
+  // destination (docs/design/template-gallery.md).
+  exports: [DocumentCopyService],
 })
 export class DocumentModule {}

@@ -59,7 +59,12 @@ materialize a dense array to the grid boundary.
 - [x] Early-out in `YorkieStore.ensureAxisOrder()`
 - [x] Update `docs/design/sheets/axis-id-selection.md` (risk row + coverage rule)
 - [x] `pnpm verify:fast`
-- [ ] Manual smoke in `pnpm dev`: Shift+Arrow at row 1,000,000 is instant
+- Manual smoke in `pnpm dev` (Shift+Arrow at row 1,000,000 is instant) —
+  **not run**, and stated as such in #980's own test plan: no Postgres/Yorkie
+  stack was up in that worktree and `:8080` was answered by another checkout,
+  so a session would have exercised different code. Left as a plain bullet
+  rather than a tickable box, since ticking it would assert something that
+  did not happen.
 
 ## Review
 

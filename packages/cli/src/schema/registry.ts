@@ -193,6 +193,19 @@ const registry: CommandSchema[] = [
     ],
     aliases: ['doc.import', 'document.import', 'documents.import'],
   },
+  {
+    name: 'docs.set-content',
+    description: 'Replace document content from JSON (stdin or --data)',
+    // A whole-content replace, not a merge — the same classification
+    // `docs.import --replace` carries.
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--data': { type: 'string', required: false, description: 'Content as a JSON string (default: read stdin)' },
+    },
+    response: { type: 'object', description: 'The stored document JSON, echoed back by the server' },
+    aliases: ['doc.set-content', 'document.set-content', 'documents.set-content'],
+  },
 
   // Slides (presentation) namespace
   {
@@ -290,6 +303,17 @@ const registry: CommandSchema[] = [
     response: { type: 'binary', description: 'PPTX bytes' },
     aliases: ['slide.export', 'deck.export', 'decks.export'],
   },
+  {
+    name: 'slides.set-content',
+    description: 'Replace deck content from JSON (stdin or --data)',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--data': { type: 'string', required: false, description: 'Content as a JSON string (default: read stdin)' },
+    },
+    response: { type: 'object', description: 'The stored deck JSON, echoed back by the server' },
+    aliases: ['slide.set-content', 'deck.set-content', 'decks.set-content'],
+  },
 
   // Notes (markdown) namespace
   {
@@ -386,6 +410,17 @@ const registry: CommandSchema[] = [
     response: { type: 'string', description: 'Markdown text' },
     aliases: ['note.export'],
   },
+  {
+    name: 'notes.set-content',
+    description: 'Replace note content from JSON (stdin or --data)',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--data': { type: 'string', required: false, description: 'Content as a JSON string (default: read stdin)' },
+    },
+    response: { type: 'object', description: 'The stored note JSON ({content}), echoed back by the server' },
+    aliases: ['note.set-content'],
+  },
 
   // Files (blob documents) namespace
   {
@@ -452,6 +487,42 @@ const registry: CommandSchema[] = [
     },
     response: { id: 'string' },
     aliases: ['file.delete'],
+  },
+
+  // Images (workspace image bucket) namespace. Workspace-scoped, not
+  // document-scoped: an image blob has no link back to the document that
+  // embeds it, so there is no doc id and no --tab here.
+  {
+    name: 'images.upload',
+    description: 'Upload an image (png, jpeg, gif, or webp) to the workspace image bucket',
+    safety: 'write',
+    parameters: {
+      file: { type: 'string', required: true, description: 'Source image path (no stdin: the part name and content type come from the filename)' },
+    },
+    response: { id: 'string', url: 'string' },
+    aliases: ['image.upload'],
+  },
+  {
+    name: 'images.get',
+    description: "Download a workspace image's bytes",
+    safety: 'read-only',
+    parameters: {
+      'image-id': { type: 'string', required: true, description: 'Image ID' },
+      out: { type: 'string', required: false, description: 'Output path, - for stdout (default: the image id; the read route sends no filename)' },
+      '--force': { type: 'boolean', required: false, description: 'Overwrite existing output file', default: 'false' },
+    },
+    response: { type: 'binary', description: 'Stored image bytes' },
+    aliases: ['image.get'],
+  },
+  {
+    name: 'images.delete',
+    description: 'Delete an image from the workspace image bucket',
+    safety: 'destructive',
+    parameters: {
+      'image-id': { type: 'string', required: true, description: 'Image ID' },
+    },
+    response: { deleted: 'boolean' },
+    aliases: ['image.delete'],
   },
 
   // Sheets namespace — canonical names live under sheets.*
@@ -593,6 +664,405 @@ const registry: CommandSchema[] = [
     },
     response: { type: 'string', description: 'Formatted cell data' },
     aliases: ['export', 'sheet.export'],
+  },
+  {
+    name: 'sheets.clear',
+    description: 'Empty a cell range on a spreadsheet tab, keeping rows and columns (JSON body from stdin or --data)',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Request body as JSON: { "range": "A1:C10" }. Read from stdin when omitted. A single reference ("A1") is a 1x1 range. The server caps one call at 1,000,000 cells', default: 'read from stdin' },
+    },
+    response: { cleared: 'number — how many non-empty cells were emptied' },
+    aliases: ['clear', 'sheet.clear'],
+  },
+  {
+    name: 'sheets.insert',
+    description: 'Insert rows or columns into a spreadsheet tab (JSON body from stdin or --data)',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Request body as JSON: { "axis": "row" | "column", "index": number, "count": number }. Read from stdin when omitted. `index` is 1-based and names the position the new entries are inserted before; the server refuses a call that would materialize more than 10,000 axis entries (MaxAxisEntries), measured against the axis\'s current length so the cap is cumulative', default: 'read from stdin' },
+    },
+    response: { axis: "'row' | 'column'", index: 'number — echoed back', count: 'number — echoed back' },
+    aliases: ['insert', 'sheet.insert'],
+  },
+  {
+    name: 'sheets.delete',
+    description: 'Delete rows or columns from a spreadsheet tab (JSON body from stdin or --data)',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Request body as JSON: { "axis": "row" | "column", "index": number, "count": number }. Read from stdin when omitted. `index` is 1-based and `count` is positive — the engine\'s negative-count convention is applied server-side. A delete materializes nothing, so it is not bounded by MaxAxisEntries: deleting every row is one legal call', default: 'read from stdin' },
+    },
+    response: { axis: "'row' | 'column'", index: 'number — echoed back', count: 'number — echoed back, positive' },
+    aliases: ['sheet.delete'],
+  },
+  {
+    name: 'sheets.move',
+    description: 'Move rows or columns within a spreadsheet tab (JSON body from stdin or --data)',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Request body as JSON: { "axis": "row" | "column", "srcIndex": number, "count": number, "dstIndex": number }. Read from stdin when omitted. All indices are 1-based; `dstIndex` is the position the moved block lands before and may not fall inside the block. `count` is capped at 10,000 (MaxAxisEntries). Returns 409 when the move would split a merged range — move the whole merged block or unmerge it first', default: 'read from stdin' },
+    },
+    response: { axis: "'row' | 'column'", srcIndex: 'number — echoed back', count: 'number — echoed back', dstIndex: 'number — echoed back' },
+    aliases: ['move', 'sheet.move'],
+  },
+  {
+    name: 'sheets.styles.get',
+    description: 'Get the range-style layer of a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { type: 'array', items: { range: 'array of two { r, c } cell refs', style: 'object' } },
+    aliases: ['style.get', 'styles.get', 'range-styles.get', 'sheet.styles.get', 'sheet.style.get', 'sheet.range-styles.get', 'sheets.style.get', 'sheets.range-styles.get'],
+  },
+  {
+    name: 'sheets.styles.set',
+    description: 'Replace the range-style layer of a spreadsheet tab (JSON array from stdin or --data); patches omitted from the payload are deleted',
+    // The PUT replaces the whole collection, so an omitted patch is deleted.
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Range style patches as a JSON array of { range, style } (or the { rangeStyles: [...] } envelope `styles get` prints); pipe from stdin when omitted' },
+    },
+    response: { type: 'array', items: { range: 'array of two { r, c } cell refs', style: 'object' } },
+    aliases: ['style.set', 'styles.set', 'range-styles.set', 'sheet.styles.set', 'sheet.style.set', 'sheet.range-styles.set', 'sheets.style.set', 'sheets.range-styles.set'],
+  },
+  {
+    name: 'sheets.sheet-style.get',
+    description: 'Get the sheet-wide style of a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { style: 'object | null' },
+    aliases: ['sheet-style.get', 'sheet.sheet-style.get'],
+  },
+  {
+    name: 'sheets.sheet-style.set',
+    description: 'Merge a style into the sheet-wide style of a tab (JSON from stdin or --data); an explicit null clears it',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Sheet style as a JSON object, `null` to clear, or the { style: ... } envelope `sheet-style get` prints; pipe from stdin when omitted' },
+    },
+    response: { style: 'object | null' },
+    variants: [
+      { when: 'default', safety: 'write', modifies: 'the sheet-wide style (merged onto the stored one)' },
+      { when: 'payload is null', safety: 'destructive', removes: 'the sheet-wide style' },
+    ],
+    aliases: ['sheet-style.set', 'sheet.sheet-style.set'],
+  },
+  {
+    name: 'sheets.column-styles.get',
+    description: 'Get the whole-column styles of a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { columnStyles: 'object map of 1-based column index (as a string) to style object' },
+    aliases: ['column-styles.get', 'column-style.get', 'sheet.column-styles.get', 'sheet.column-style.get', 'sheets.column-style.get'],
+  },
+  {
+    name: 'sheets.column-styles.set',
+    description: 'Merge whole-column styles keyed by 1-based column index (JSON from stdin or --data); a null value clears that column',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Column styles as a JSON object map of 1-based column index to style or null (or the { columnStyles: {...} } envelope `column-styles get` prints); pipe from stdin when omitted' },
+    },
+    response: { columnStyles: 'object map of 1-based column index (as a string) to style object' },
+    variants: [
+      { when: 'default', safety: 'write', modifies: "the listed columns' styles (merged per index)" },
+      { when: 'a value is null', safety: 'destructive', removes: "that column's stored style" },
+    ],
+    aliases: ['column-styles.set', 'column-style.set', 'sheet.column-styles.set', 'sheet.column-style.set', 'sheets.column-style.set'],
+  },
+  {
+    name: 'sheets.row-styles.get',
+    description: 'Get the whole-row styles of a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { rowStyles: 'object map of 1-based row index (as a string) to style object' },
+    aliases: ['row-styles.get', 'row-style.get', 'sheet.row-styles.get', 'sheet.row-style.get', 'sheets.row-style.get'],
+  },
+  {
+    name: 'sheets.row-styles.set',
+    description: 'Merge whole-row styles keyed by 1-based row index (JSON from stdin or --data); a null value clears that row',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Row styles as a JSON object map of 1-based row index to style or null (or the { rowStyles: {...} } envelope `row-styles get` prints); pipe from stdin when omitted' },
+    },
+    response: { rowStyles: 'object map of 1-based row index (as a string) to style object' },
+    variants: [
+      { when: 'default', safety: 'write', modifies: "the listed rows' styles (merged per index)" },
+      { when: 'a value is null', safety: 'destructive', removes: "that row's stored style" },
+    ],
+    aliases: ['row-styles.set', 'row-style.set', 'sheet.row-styles.set', 'sheet.row-style.set', 'sheets.row-style.set'],
+  },
+  {
+    name: 'sheets.column-widths.get',
+    description: 'Get whole-column widths for a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { columnWidths: 'object — map of 1-based column index (as a string, "1" = column A) to width; only sized columns appear' },
+    aliases: ['column-widths.get', 'column-width.get', 'sheet.column-widths.get', 'sheet.column-width.get', 'sheets.column-width.get'],
+  },
+  {
+    name: 'sheets.column-widths.set',
+    description: 'Set whole-column widths (JSON map of 1-based column index to width, or null to clear; merges per index)',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'JSON map of 1-based column index to width, or null to clear that index (or pipe from stdin)' },
+    },
+    response: { columnWidths: "object — the tab's full column-width map after the merge" },
+    variants: [
+      { when: 'default', safety: 'write', modifies: "the listed columns' widths (merged per index)" },
+      { when: 'a value is null', safety: 'destructive', removes: "that column's stored width" },
+    ],
+    aliases: ['column-widths.set', 'column-width.set', 'sheet.column-widths.set', 'sheet.column-width.set', 'sheets.column-width.set'],
+  },
+  {
+    name: 'sheets.row-heights.get',
+    description: 'Get whole-row heights for a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { rowHeights: 'object — map of 1-based row index (as a string, "1" = the first row) to height; only sized rows appear' },
+    aliases: ['row-heights.get', 'row-height.get', 'sheet.row-heights.get', 'sheet.row-height.get', 'sheets.row-height.get'],
+  },
+  {
+    name: 'sheets.row-heights.set',
+    description: 'Set whole-row heights (JSON map of 1-based row index to height, or null to clear; merges per index)',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'JSON map of 1-based row index to height, or null to clear that index (or pipe from stdin)' },
+    },
+    response: { rowHeights: "object — the tab's full row-height map after the merge" },
+    variants: [
+      { when: 'default', safety: 'write', modifies: "the listed rows' heights (merged per index)" },
+      { when: 'a value is null', safety: 'destructive', removes: "that row's stored height" },
+    ],
+    aliases: ['row-heights.set', 'row-height.set', 'sheet.row-heights.set', 'sheet.row-height.set', 'sheets.row-height.set'],
+  },
+  {
+    name: 'sheets.freeze.get',
+    description: 'Get the frozen row/column counts for a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { rows: 'number', cols: 'number' },
+    aliases: ['freeze.get', 'sheet.freeze.get'],
+  },
+  {
+    name: 'sheets.freeze.set',
+    description: 'Set frozen rows/columns (JSON body { rows, cols }; an omitted key resets to 0)',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'JSON data (or pipe from stdin)' },
+    },
+    response: { rows: 'number', cols: 'number' },
+    aliases: ['freeze.set', 'sheet.freeze.set'],
+  },
+  {
+    name: 'sheets.hidden.get',
+    description: 'Get the hidden row/column indices (1-based) for a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { rows: 'number[]', columns: 'number[]' },
+    aliases: ['hidden.get', 'sheet.hidden.get'],
+  },
+  {
+    name: 'sheets.hidden.set',
+    description: 'Set hidden rows/columns (JSON body { rows, columns }, 1-based; replaces the whole set)',
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'JSON data (or pipe from stdin)' },
+    },
+    response: { rows: 'number[]', columns: 'number[]' },
+    aliases: ['hidden.set', 'sheet.hidden.set'],
+  },
+  {
+    name: 'sheets.merges.get',
+    description: 'Get merged cells as a map of anchor ref to { rs, cs }',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { merges: 'object (cell ref -> { rs: number, cs: number })' },
+    aliases: ['merge.get', 'merges.get', 'sheet.merges.get', 'sheet.merge.get', 'sheets.merge.get'],
+  },
+  {
+    name: 'sheets.merges.set',
+    description: 'Replace all merged cells (JSON map of anchor ref to { rs, cs }; omitted merges are removed)',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'JSON data (or pipe from stdin)' },
+    },
+    response: { merges: 'object (cell ref -> { rs: number, cs: number })' },
+    aliases: ['merge.set', 'merges.set', 'sheet.merges.set', 'sheet.merge.set', 'sheets.merge.set'],
+  },
+  {
+    name: 'sheets.conditional-formats.get',
+    description: 'Get the conditional format rules of a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { type: 'array', items: { id: 'string', ranges: 'array', op: 'string', value: 'string | undefined', value2: 'string | undefined', style: 'object' } },
+    aliases: ['conditional-format.get', 'conditional-formats.get', 'sheet.conditional-formats.get', 'sheet.conditional-format.get', 'sheets.conditional-format.get'],
+  },
+  {
+    name: 'sheets.conditional-formats.set',
+    description: 'Replace the conditional format rules of a spreadsheet tab',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Rules as JSON (array or { rules: [...] }; or pipe from stdin)' },
+    },
+    response: { type: 'array', items: { id: 'string', ranges: 'array', op: 'string', value: 'string | undefined', value2: 'string | undefined', style: 'object' } },
+    aliases: ['conditional-format.set', 'conditional-formats.set', 'sheet.conditional-formats.set', 'sheet.conditional-format.set', 'sheets.conditional-format.set'],
+  },
+  {
+    name: 'sheets.data-validations.get',
+    description: 'Get the data validation rules of a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { type: 'array', items: { id: 'string', ranges: 'array', kind: 'string', onInvalid: 'string | undefined', list: 'string[] | undefined', operator: 'string | undefined', values: 'string[] | undefined' } },
+    aliases: ['data-validation.get', 'data-validations.get', 'sheet.data-validations.get', 'sheet.data-validation.get', 'sheets.data-validation.get'],
+  },
+  {
+    name: 'sheets.data-validations.set',
+    description: 'Replace the data validation rules of a spreadsheet tab',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Rules as JSON (array or { rules: [...] }; or pipe from stdin)' },
+    },
+    response: { type: 'array', items: { id: 'string', ranges: 'array', kind: 'string', onInvalid: 'string | undefined', list: 'string[] | undefined', operator: 'string | undefined', values: 'string[] | undefined' } },
+    aliases: ['data-validation.set', 'data-validations.set', 'sheet.data-validations.set', 'sheet.data-validation.set', 'sheets.data-validation.set'],
+  },
+  {
+    name: 'sheets.charts.get',
+    description: 'Get the charts on a spreadsheet tab',
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { type: 'array', items: { id: 'string', type: "'bar' | 'line' | 'area' | 'pie' | 'scatter'", sourceTabId: 'string', sourceRange: 'string', anchor: 'string (A1 reference)', offsetX: 'number', offsetY: 'number', width: 'number', height: 'number', title: 'string (optional)', xAxisColumn: 'string (optional)', seriesColumns: 'string[] (optional)', legendPosition: "'top' | 'bottom' | 'right' | 'left' | 'none' (optional)", colorPalette: 'string (optional)', showGridlines: 'boolean (optional)' } },
+    aliases: ['chart.get', 'charts.get', 'sheet.charts.get', 'sheet.chart.get', 'sheets.chart.get'],
+  },
+  {
+    name: 'sheets.charts.set',
+    description: 'Replace all charts on a spreadsheet tab (JSON from stdin or --data; omitted charts are deleted)',
+    safety: 'destructive',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Charts as a JSON array, or { "charts": [ ... ] } (or pipe from stdin)' },
+    },
+    response: { type: 'array', items: { id: 'string', type: "'bar' | 'line' | 'area' | 'pie' | 'scatter'", sourceTabId: 'string', sourceRange: 'string', anchor: 'string (A1 reference)', offsetX: 'number', offsetY: 'number', width: 'number', height: 'number', title: 'string (optional)', xAxisColumn: 'string (optional)', seriesColumns: 'string[] (optional)', legendPosition: "'top' | 'bottom' | 'right' | 'left' | 'none' (optional)", colorPalette: 'string (optional)', showGridlines: 'boolean (optional)' } },
+    aliases: ['chart.set', 'charts.set', 'sheet.charts.set', 'sheet.chart.set', 'sheets.chart.set'],
+  },
+  {
+    name: 'sheets.filter.get',
+    description: "Get a spreadsheet tab's filter state",
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { filter: 'object | null — { startRow, endRow, startCol, endCol, columns, hiddenRows } as stored, or null when the tab has no filter' },
+    aliases: ['filter.get', 'sheet.filter.get'],
+  },
+  {
+    name: 'sheets.filter.set',
+    description: "Set a spreadsheet tab's filter (JSON object from stdin or --data; null clears it)",
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Filter state as a JSON string — the filter object itself ({ startRow, endRow, startCol, endCol, columns, hiddenRows }), not wrapped in a `filter` key; `null` clears the filter. Read from stdin when omitted' },
+    },
+    response: { filter: 'object | null — the filter as stored after the write' },
+    variants: [
+      { when: 'default', safety: 'write', modifies: "the tab's filter" },
+      { when: 'payload is null', safety: 'destructive', removes: "the tab's filter" },
+    ],
+    aliases: ['filter.set', 'sheet.filter.set'],
+  },
+  {
+    name: 'sheets.pivot.get',
+    description: "Get a spreadsheet tab's pivot table definition",
+    safety: 'read-only',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+    },
+    response: { pivot: 'object | null — { id, sourceTabId, sourceRange, rowFields, columnFields, valueFields, filterFields, showTotals } as stored, or null when the tab has no pivot table' },
+    aliases: ['pivot.get', 'sheet.pivot.get'],
+  },
+  {
+    name: 'sheets.pivot.set',
+    description: "Set a spreadsheet tab's pivot table (JSON object from stdin or --data; null clears it)",
+    safety: 'write',
+    parameters: {
+      'doc-id': { type: 'string', required: true, description: 'Document ID' },
+      '--tab': { type: 'string', required: false, description: 'Tab ID', default: 'tab-1' },
+      '--data': { type: 'string', required: false, description: 'Pivot table definition as a JSON string — the pivot object itself ({ id, sourceTabId, sourceRange, rowFields, columnFields, valueFields, filterFields, showTotals }), not wrapped in a `pivot` key; `null` clears it. Read from stdin when omitted' },
+    },
+    response: { pivot: 'object | null — the pivot table as stored after the write' },
+    variants: [
+      { when: 'default', safety: 'write', modifies: "the tab's pivot table" },
+      { when: 'payload is null', safety: 'destructive', removes: "the tab's pivot table" },
+    ],
+    aliases: ['pivot.set', 'sheet.pivot.set'],
   },
 
   // API keys namespace

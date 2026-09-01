@@ -16,6 +16,7 @@ const Documents = lazy(() => import("@/app/documents/page"));
 const DocumentDetail = lazy(() => import("@/app/documents/document-detail"));
 const DataSourcesPage = lazy(() => import("@/app/datasources/page"));
 const SharedDocument = lazy(() => import("@/app/shared/shared-document"));
+const TemplateLanding = lazy(() => import("@/app/templates/template-landing"));
 const Settings = lazy(() => import("@/app/settings/page"));
 const VisualHarnessPage = lazy(() => import("@/app/harness/visual/page"));
 const InteractionHarnessPage = lazy(
@@ -101,6 +102,9 @@ function App() {
                   <Route path="/harness/hunt" element={<HuntHarnessPage />} />
                 )}
                 <Route path="/shared/:token" element={<SharedDocument />} />
+                {/* Public on purpose: a template link is handed to people who
+                    may not have an account yet (docs/design/template-gallery.md). */}
+                <Route path="/t/:id" element={<TemplateLanding />} />
                 <Route path="/" element={<HomeOrRedirect />} />
                 <Route element={<PrivateRoute />}>
                   <Route element={<Layout />}>

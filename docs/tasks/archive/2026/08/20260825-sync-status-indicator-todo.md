@@ -308,15 +308,25 @@ have been fixed in the same branch:
       neither of which any unit test in the suite at the time would have
       caught, because both fakes modelled what the code assumed rather than
       what the SDK does.
-- [ ] Re-smoke after Phase 6, which changed the toast and recovery paths:
-  - [ ] Go offline, type, wait for the toast, then click a sidebar link. The
-        warning must disappear with the editor, not follow you to the
-        documents list.
-  - [ ] Go offline, type, wait for the toast, then go back online. No "Saved"
-        confirmation until the chip itself reaches `Saved`.
-  - [ ] Tab-focus the chip with the keyboard; the tooltip must open.
-- [ ] No visual-lane impact expected; if the header baseline moves, the chip's
-      `saved` state is rendering when it should be hidden on narrow viewports.
+- **Re-smoke after Phase 6 — not run.** Phase 6 changed the toast and recovery
+  paths *after* the manual smoke above, and nothing records a second pass over
+  them. Stated as a bullet rather than ticked, since ticking would assert a
+  session that did not happen. What each pass would have covered, kept for
+  whoever runs it:
+  - Go offline, type, wait for the toast, then click a sidebar link. The
+    warning must disappear with the editor, not follow you to the documents
+    list.
+  - Go offline, type, wait for the toast, then go back online. No "Saved"
+    confirmation until the chip itself reaches `Saved`.
+  - Tab-focus the chip with the keyboard; the tooltip must open.
+
+  Two of the three are covered by unit tests written in Phase 6
+  (`sync-status-chip.test.tsx`, `use-sync-status.test.ts`) — the retraction
+  and the separated recovery confirmation. The uncovered one is the sidebar
+  navigation, which is also the case #967's own "Known limitations" already
+  names as unguarded: `beforeunload` does not fire on a route change.
+- [x] No visual-lane impact — `verify-self` and the browser lane were green on
+      #967, so the header baseline did not move.
 
 ## Out of scope
 

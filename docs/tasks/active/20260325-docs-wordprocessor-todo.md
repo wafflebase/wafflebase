@@ -92,9 +92,11 @@ Wafflebase cannot:
 
 ### B. Format / paragraph / page controls
 
-- [~] B.1 **Page Setup dialog** (both) — paper size / orientation / margins are
-  fully modeled (`PageSetup`, `store.setPageSetup`) but **no UI exposes them**.
-  Highest-value quick win: a File → Page setup dialog over the existing model.
+- [x] B.1 **Page Setup dialog** (both) — **shipped in #985** (v0.6.7).
+  `docs-page-setup-dialog.tsx` exposes paper size / orientation / the four
+  margins over the existing `PageSetup` / `store.setPageSetup` model, reachable
+  from the toolbar and the mobile overflow menu. The model was always complete;
+  what was missing was the door.
 - [ ] B.2 **Page color / background** (both) — extend `PageSetup` + paginated
   renderer with a page fill color.
 - [~] B.3 **Hanging indent + numeric indent control** (both) — first-line indent
@@ -150,9 +152,11 @@ context menus, and `@`-style pickers rather than a top menu bar.
 
 ### F. Import / Export
 
-- [~] F.1 **Markdown export** — `serialize/markdown.ts` exists in the engine but
-  is **not wired** to the Export dropdown. Quick win.
-- [~] F.2 **Plain-text export** — `serialize/text.ts` likewise exists, unwired.
+- [x] F.1 **Markdown export** — **shipped in #985** (v0.6.7). Wired into the
+  existing `runExport` → `downloadBlob` path; `docs-export-button.tsx` now
+  offers DOCX, PDF, Markdown and plain text.
+- [x] F.2 **Plain-text export** — **shipped in #985** (v0.6.7), through the same
+  export path as F.1.
 - [ ] F.3 **Markdown import** — no importer; pairs with C.3 substitution work.
 
 ### G. Review / collaboration (already tracked above, restated for parity map)
