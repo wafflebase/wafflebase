@@ -6,7 +6,14 @@ Completed task records, grouped by year/month.
 - Move completed tasks from root/active into archive: `pnpm tasks:archive`
 - Back to tasks index: [../README.md](../README.md)
 
-Total archived tasks: 575
+Total archived tasks: 577
+
+## 2026/09 (2 tasks)
+
+| Task | Todo | Lessons |
+|---|---|---|
+| sidebar nav drift (2026-09-01) | [20260901-sidebar-nav-drift-todo.md](./2026/09/20260901-sidebar-nav-drift-todo.md) | [20260901-sidebar-nav-drift-lessons.md](./2026/09/20260901-sidebar-nav-drift-lessons.md) |
+| template thumbnails (2026-09-01) | [20260901-template-thumbnails-todo.md](./2026/09/20260901-template-thumbnails-todo.md) | [20260901-template-thumbnails-lessons.md](./2026/09/20260901-template-thumbnails-lessons.md) |
 
 ## 2026/08 (145 tasks)
 
