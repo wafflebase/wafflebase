@@ -226,7 +226,7 @@ export function oauthStateCookieOptions(): CookieOptions {
  * deployment, which downgrades the cookie. `COOKIE_SECURE=true` is how such
  * a deployment says so.
  */
-export function isSecureCookie(): boolean {
+function isSecureCookie(): boolean {
   const configured = (process.env.COOKIE_SECURE ?? '').trim().toLowerCase();
   if (configured === 'true' || configured === '1') return true;
   if (configured === 'false' || configured === '0') return false;

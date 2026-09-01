@@ -187,7 +187,12 @@ export function TemplateShareSection({
                 )}
               </div>
             </div>
-            <TemplateMetaEditor listing={listing} onSaved={setListing} />
+            {/* Same gate as the unpublish button above. Editing a listing is
+                manager-only server-side, so showing the controls to a plain
+                member offers an action whose Save can only ever 403. */}
+            {listing.canManage && (
+              <TemplateMetaEditor listing={listing} onSaved={setListing} />
+            )}
             <p className="text-muted-foreground text-xs">
               {listing.visibility === "workspace"
                 ? "Listed in this workspace's Templates tab, and usable by anyone with this link. Your document is never changed."

@@ -1,5 +1,5 @@
 import { CookieOptions } from 'express';
-import { hostPrefixedCookieName, isSecureCookie } from './oauth-state';
+import { hostPrefixedCookieName, useSecureCookies } from './oauth-state';
 /**
  * The path to send the browser back to after a web OAuth login.
  *
@@ -92,7 +92,7 @@ export function loginReturnCookieName(): string {
 export function loginReturnCookieOptions(): CookieOptions {
   return {
     httpOnly: true,
-    secure: isSecureCookie(),
+    secure: useSecureCookies(),
     sameSite: 'lax',
     path: '/',
     maxAge: LOGIN_RETURN_MAX_AGE_MS,
