@@ -422,7 +422,14 @@ and the reasons are worth keeping:
   scrolled, rather than page 1 or the used range). The composite exists because
   these editors layer canvases — a spreadsheet paints its grid and its
   selection overlay separately — and canvases thinner than 48 px are skipped so
-  a ruler does not put a grey stripe down every card.
+  a ruler does not put a stripe down every card. The composite is cropped to
+  **what was drawn**, not to the container, and backed by the nearest ancestor
+  background that actually paints. Both rules exist because a constant white
+  backdrop plus a container-sized crop put a white band across the top of every
+  dark-mode docs card, where the skipped 20 px ruler strip left nothing drawn:
+  what is skipped as chrome has to be outside the picture, and what shows
+  through a transparent overlay has to be the editor's own colour rather than a
+  colour that is only right in one theme.
 - **`board` reads it too, and always will.** A board is an unbounded plane with
   no first page; the view the author left it on is the honest cover.
 

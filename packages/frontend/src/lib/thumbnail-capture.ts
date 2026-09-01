@@ -79,15 +79,39 @@ export async function captureThumbnail(
   let canvas: HTMLCanvasElement | null;
   try {
     canvas = await source();
-  } catch {
+  } catch (err) {
+    // Degrade, but say so. Silently swallowing this made a real failure —
+    // a deck whose images tainted the canvas — indistinguishable from a
+    // document type that simply has no renderer, and the difference took a
+    // database query and a Yorkie dump to recover.
+    warn('the editor could not render one', err);
     return null;
   }
-  if (!canvas) return null;
-  return encodeThumbnail(canvas);
+  if (!canvas) {
+    warn('the editor had nothing to render');
+    return null;
+  }
+  const blob = await encodeThumbnail(canvas);
+  if (!blob) {
+    warn(
+      'the canvas could not be encoded — most likely tainted by a ' +
+        'cross-origin image, which no document holding one can avoid yet',
+    );
+  }
+  return blob;
+}
+
+function warn(reason: string, err?: unknown): void {
+  console.warn(`[thumbnail] no thumbnail captured: ${reason}`, err ?? '');
 }
 
 /**
  * Downscale `canvas` to fit {@link MAX_EDGE} and encode it.
+ *
+ * No backdrop is painted here. Producing an opaque canvas is the *source's*
+ * job, because only the source knows what colour "empty" is — a hardcoded
+ * white fill here put a white band across the top of every dark-mode docs
+ * thumbnail, where the skipped ruler strip left nothing drawn.
  *
  * WebP with a PNG fallback: `toBlob` answers `null` for a format the browser
  * cannot encode, and a thumbnail in the wrong format beats no thumbnail.
@@ -99,16 +123,12 @@ export async function encodeThumbnail(
   if (!(width > 0) || !(height > 0)) return null;
 
   const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
-  const target = document.createElement("canvas");
+  const target = document.createElement('canvas');
   target.width = Math.max(1, Math.round(width * scale));
   target.height = Math.max(1, Math.round(height * scale));
-  const ctx = target.getContext("2d");
+  const ctx = target.getContext('2d');
   if (!ctx) return null;
 
-  // A canvas drawn on nothing is transparent, and a transparent thumbnail
-  // reads as a broken image on a light card. Paint the page under it.
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, target.width, target.height);
   try {
     ctx.drawImage(canvas, 0, 0, target.width, target.height);
   } catch {
@@ -116,8 +136,8 @@ export async function encodeThumbnail(
   }
 
   return (
-    (await toBlob(target, "image/webp", WEBP_QUALITY)) ??
-    (await toBlob(target, "image/png"))
+    (await toBlob(target, 'image/webp', WEBP_QUALITY)) ??
+    (await toBlob(target, 'image/png'))
   );
 }
 
@@ -132,32 +152,60 @@ export async function encodeThumbnail(
  * and its selection overlay separately, and only the pair is the picture.
  *
  * Thin canvases are skipped: a ruler or a scrollbar gutter is chrome, not
- * content, and including it puts a grey stripe down the side of every card.
+ * content, and including it puts a stripe down the side of every card.
+ *
+ * The result is cropped to **what was actually drawn**, not to the container.
+ * The docs ruler takes 20 px of the container's flow before the page canvas
+ * starts, so cropping to the container left that strip unpainted — a white
+ * band across the top of every dark-mode card. What is skipped as chrome must
+ * also be outside the picture, or it is not skipped at all.
  */
 export function captureFromContainer(
   container: HTMLElement | null,
 ): HTMLCanvasElement | null {
   if (!container) return null;
-  const host = container.getBoundingClientRect();
-  if (!(host.width > 0) || !(host.height > 0)) return null;
 
-  const out = document.createElement("canvas");
-  out.width = Math.round(host.width);
-  out.height = Math.round(host.height);
-  const ctx = out.getContext("2d");
-  if (!ctx) return null;
-
-  let painted = false;
-  for (const canvas of container.querySelectorAll("canvas")) {
+  const layers: Array<{ canvas: HTMLCanvasElement; rect: DOMRect }> = [];
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const canvas of container.querySelectorAll('canvas')) {
     const rect = canvas.getBoundingClientRect();
     if (rect.width < MIN_CONTENT_EDGE || rect.height < MIN_CONTENT_EDGE) {
       continue;
     }
+    layers.push({ canvas, rect });
+    left = Math.min(left, rect.left);
+    top = Math.min(top, rect.top);
+    right = Math.max(right, rect.right);
+    bottom = Math.max(bottom, rect.bottom);
+  }
+  const width = Math.round(right - left);
+  const height = Math.round(bottom - top);
+  if (layers.length === 0 || !(width > 0) || !(height > 0)) return null;
+
+  const out = document.createElement('canvas');
+  out.width = width;
+  out.height = height;
+  const ctx = out.getContext('2d');
+  if (!ctx) return null;
+
+  // A layer may be transparent where it has nothing to say (a selection
+  // overlay is almost entirely so), and a thumbnail encoded from a
+  // part-transparent canvas reads as the card's own background showing
+  // through. The editor's own background is the honest colour to put under
+  // it — and, unlike a constant, it is right in both themes.
+  ctx.fillStyle = resolveBackgroundColor(container);
+  ctx.fillRect(0, 0, width, height);
+
+  let painted = false;
+  for (const { canvas, rect } of layers) {
     try {
       ctx.drawImage(
         canvas,
-        rect.left - host.left,
-        rect.top - host.top,
+        rect.left - left,
+        rect.top - top,
         rect.width,
         rect.height,
       );
@@ -175,6 +223,28 @@ export function captureFromContainer(
  * docs rulers are 20-odd pixels thick on their short axis.
  */
 const MIN_CONTENT_EDGE = 48;
+
+/** Fully transparent in every spelling `getComputedStyle` returns. */
+const TRANSPARENT = /^(transparent$|rgba\(.*,\s*0\s*\)$)/;
+
+/**
+ * The nearest ancestor background that actually paints, walking up from
+ * `element`. Elements in this app are overwhelmingly transparent — the theme
+ * colour is set once near the root — so the answer is almost never on the
+ * container itself. White is the last resort, matching a browser's own
+ * default canvas.
+ */
+function resolveBackgroundColor(element: HTMLElement): string {
+  for (
+    let el: HTMLElement | null = element;
+    el;
+    el = el.parentElement as HTMLElement | null
+  ) {
+    const color = getComputedStyle(el).backgroundColor;
+    if (color && !TRANSPARENT.test(color)) return color;
+  }
+  return '#ffffff';
+}
 
 function toBlob(
   canvas: HTMLCanvasElement,
