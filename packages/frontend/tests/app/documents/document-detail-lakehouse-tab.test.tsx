@@ -44,6 +44,8 @@ vi.mock('@/api/documents', () => ({
 
 vi.mock('@/api/workspaces', () => ({
   fetchWorkspaces: mocks.fetchWorkspaces,
+  // The sidebar nav gates its Analytics entry on this.
+  fetchAnalyticsEnabled: vi.fn(async () => false),
 }));
 
 vi.mock('@/api/lakehouse', () => ({

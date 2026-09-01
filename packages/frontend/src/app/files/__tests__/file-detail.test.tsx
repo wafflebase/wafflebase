@@ -59,6 +59,8 @@ vi.mock("@/api/workspaces", () => ({
     { id: "w1", name: "First", slug: "first", createdAt: "" },
     { id: "w2", name: "Second", slug: "second", createdAt: "" },
   ]),
+  // The shell's sidebar nav gates its Analytics entry on this.
+  fetchAnalyticsEnabled: vi.fn(async () => false),
 }));
 vi.mock("@/api/download-file", () => ({
   downloadDocumentFile: vi.fn(async () => {}),

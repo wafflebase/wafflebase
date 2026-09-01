@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, type ReactNode } from "react";
 import {
   keepPreviousData,
   useQuery,
@@ -12,7 +12,7 @@ import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
-import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
+import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { useDocumentsPath } from "./use-documents-path";
 
 /**
@@ -68,23 +68,7 @@ export function FileShell({
     }
   }, [isDocumentError, navigate, documentsPath]);
 
-  const items = useMemo(() => {
-    const base = workspaceSlug
-      ? {
-          docs: `/w/${workspaceSlug}`,
-          data: `/w/${workspaceSlug}/datasources`,
-          settings: `/w/${workspaceSlug}/settings`,
-        }
-      : { docs: "/documents", data: "/datasources", settings: "/settings" };
-    return {
-      main: [
-        { title: "Documents", url: base.docs, icon: IconFolder },
-        { title: "Data Sources", url: base.data, icon: IconDatabase },
-        { title: "Settings", url: base.settings, icon: IconSettings },
-      ],
-      secondary: [],
-    };
-  }, [workspaceSlug]);
+  const items = useWorkspaceNavItems(workspaceSlug);
 
   const handleWorkspaceChange = useCallback(
     (slug: string) => navigate(`/w/${slug}`),

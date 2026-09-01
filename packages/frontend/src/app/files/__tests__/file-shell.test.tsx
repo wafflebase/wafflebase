@@ -38,7 +38,11 @@ vi.mock("@/api/documents", () => ({
   fetchDocument: vi.fn(),
   renameDocument: vi.fn(async () => {}),
 }));
-vi.mock("@/api/workspaces", () => ({ fetchWorkspaces: vi.fn() }));
+vi.mock("@/api/workspaces", () => ({
+  fetchWorkspaces: vi.fn(),
+  // The shell's sidebar nav gates its Analytics entry on this.
+  fetchAnalyticsEnabled: vi.fn(async () => false),
+}));
 vi.mock("@/components/app-sidebar", () => ({ AppSidebar: () => null }));
 vi.mock("@/components/notifications/notification-bell", () => ({
   NotificationBell: () => null,
