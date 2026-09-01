@@ -32,10 +32,66 @@ export type TemplateListing = {
   canManage: boolean;
 };
 
+/**
+ * A gallery card. `TemplateListing` minus `previewToken` — the collection
+ * endpoint never returns one, so the type does not have one to read.
+ */
+export type TemplateCard = Omit<TemplateListing, "previewToken">;
+
+export type TemplateBrowsePage = {
+  items: TemplateCard[];
+  /** Pass back as `cursor`; `null` on the last page. */
+  nextCursor: string | null;
+};
+
+/**
+ * The category taxonomy, mirroring `packages/backend/src/template/
+ * template-taxonomy.ts`. Closed on both sides so the facet means something;
+ * the backend is the enforcing copy.
+ */
+export const TEMPLATE_CATEGORIES = [
+  "Business",
+  "Education",
+  "Personal",
+  "Project management",
+  "Finance",
+  "Marketing",
+  "Design",
+  "Other",
+] as const;
+
+export type BrowseTemplatesQuery = {
+  scope: "workspace" | "public";
+  workspaceId?: string;
+  type?: string;
+  category?: string;
+  tag?: string;
+  q?: string;
+  sort?: "popular" | "recent";
+  cursor?: string;
+  limit?: number;
+};
+
+/** Browse listings the caller may see. Never returns a preview token. */
+export async function browseTemplates(
+  query: BrowseTemplatesQuery
+): Promise<TemplateBrowsePage> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== "") params.set(key, String(value));
+  }
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/templates?${params.toString()}`
+  );
+  await assertOk(response, "Failed to load templates");
+  return response.json();
+}
+
 export type PublishTemplateInput = {
   title?: string;
   description?: string;
-  category?: string;
+  /** `null` clears it; omitting the field leaves it unchanged. */
+  category?: string | null;
   tags?: string[];
   thumbnailId?: string;
   visibility?: TemplateVisibility;

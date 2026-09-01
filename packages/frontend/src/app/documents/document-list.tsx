@@ -1,5 +1,4 @@
 import {
-  ComponentType,
   FormEvent,
   MouseEvent,
   ReactNode,
@@ -32,24 +31,19 @@ import {
   ChevronsUpDown,
   Copy,
   Download,
-  File as FileIcon,
   FileText,
   FileUp,
   Folder as FolderIcon,
   FolderOutput,
   Frame,
-  Image as ImageIcon,
+  LayoutTemplate,
   ListFilter,
   MoreHorizontal,
-  NotebookPen,
   Pencil,
   Plus,
-  Presentation,
-  Sheet,
   Trash2,
   X,
 } from "lucide-react";
-import { IconFileTypePdf } from "@tabler/icons-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -141,6 +135,8 @@ import { enqueue, startUploads, type UploadItem } from "./upload-queue";
 import { pickFiles } from "./pick-files";
 import { ImageThumb } from "./image-thumb";
 import { MiroImportDialog } from "./miro-import-dialog";
+import { TYPE_META, TYPE_OPTIONS } from "./document-type-meta";
+import { NewFromTemplateDialog } from "@/app/templates/new-from-template-dialog";
 
 /**
  * A single row of the unified list: either a folder or a document. Folders and
@@ -185,36 +181,6 @@ const rowCreated = (row: ListRow): string => row.item.createdAt;
 const DOC_KEY_PREFIX = "doc:";
 const FOLDER_KEY_PREFIX = "folder:";
 
-/**
- * Single source of truth for each document type's label, icon, and color.
- * The title cell and the filter menu both derive from this so a new type
- * needs one edit, not several.
- */
-const TYPE_META: Record<
-  DocumentType,
-  { label: string; Icon: ComponentType<{ className?: string }>; color: string }
-> = {
-  sheet: { label: "Sheets", Icon: Sheet, color: "text-green-600" },
-  doc: { label: "Docs", Icon: FileText, color: "text-blue-500" },
-  note: { label: "Notes", Icon: NotebookPen, color: "text-purple-500" },
-  slides: { label: "Slides", Icon: Presentation, color: "text-orange-500" },
-  pdf: { label: "PDFs", Icon: IconFileTypePdf, color: "text-red-500" },
-  image: { label: "Images", Icon: ImageIcon, color: "text-pink-500" },
-  board: { label: "Boards", Icon: Frame, color: "text-fuchsia-600" },
-  file: { label: "Files", Icon: FileIcon, color: "text-slate-500" },
-};
-
-/** Document types offered in the filter menu, in display order. */
-const TYPE_OPTIONS: ReadonlyArray<DocumentType> = [
-  "sheet",
-  "doc",
-  "note",
-  "slides",
-  "pdf",
-  "image",
-  "board",
-  "file",
-];
 
 /**
  * Clickable column header that toggles this column's sort and shows the
@@ -418,6 +384,7 @@ export function DocumentList({
     name: string;
   } | null>(null);
   const [miroImportOpen, setMiroImportOpen] = useState(false);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
 
   // The current workspace's real UUID. Every document in a workspace-scoped
   // list shares it — used to gate folder moves (moveFolder has no workspace
@@ -1385,6 +1352,13 @@ export function DocumentList({
             {workspaceId && (
               <>
                 <DropdownMenuSeparator />
+                {/* Workspace-only: a template use needs a destination
+                    workspace, and the all-workspaces list has no single one
+                    to offer (docs/design/template-gallery.md). */}
+                <DropdownMenuItem onClick={() => setTemplatePickerOpen(true)}>
+                  <LayoutTemplate className="mr-2 h-4 w-4 text-muted-foreground" />
+                  New from template
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setCreatingFolder(true)}>
                   <FolderIcon className="mr-2 h-4 w-4 text-muted-foreground" />
                   New folder
@@ -1884,6 +1858,14 @@ export function DocumentList({
         workspaceId={workspaceId}
         folderId={folderId}
       />
+      {workspaceId && (
+        <NewFromTemplateDialog
+          open={templatePickerOpen}
+          onOpenChange={setTemplatePickerOpen}
+          workspaceId={workspaceId}
+          folderId={folderId ?? undefined}
+        />
+      )}
       </div>
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-40 m-2 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/5">

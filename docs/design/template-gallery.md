@@ -37,11 +37,11 @@ The whole feature, and where each piece lands. "Shipped" is measured against
 | Use → copy into a destination workspace | 1 | shipped |
 | `/t/:id` landing page, unlisted link sharing | 1 | shipped |
 | Manager gate, per-tier visibility, `useCount` | 1 | shipped |
-| **`GET /templates` collection endpoint** (facets, sort, keyset pages) | 2 | — |
-| **Thumbnail capture** per document type | 2 | — |
-| **Category taxonomy + tag normalization** | 2 | — |
-| **Workspace Templates tab**, New-from-template picker | 2 | — |
-| Embedded preview, post-login return to `/t/:id` | 2 | — |
+| **`GET /templates` collection endpoint** (facets, sort, keyset pages) | 2 | shipped |
+| **Thumbnail capture** per document type | 2b | — |
+| **Category taxonomy + tag normalization** | 2 | shipped |
+| **Workspace Templates tab**, New-from-template picker | 2 | shipped |
+| Embedded preview, post-login return to `/t/:id` | 2 | shipped |
 | **Review pipeline** (`pending` → `listed` / `rejected`) + reviewer allowlist | 3 | — |
 | **Frozen-copy promotion** into a system workspace | 3 | — |
 | **Image re-hosting** for public listings | 3 | — |
@@ -50,10 +50,11 @@ The whole feature, and where each piece lands. "Shipped" is measured against
 | Ranking guards (self-use, rate limits) | 3 | — |
 | Monetization, versioning, parameterized slots | — | Non-Goal |
 
-Phase 1 built the *spine* — one template, one link, one copy. Phases 2 and 3
-build the *store*: everything that turns a set of listings into something you
-can browse, trust, and be found in. There is no discovery surface at all today;
-a template is reachable only by someone sending you its URL.
+Phase 1 built the *spine* — one template, one link, one copy. Phase 2 built the
+*store*: the collection endpoint, the taxonomy, and the workspace surfaces that
+turn a set of listings into something you can browse. Phase 3 is what makes it
+public — everything the workspace tier can skip because its audience is
+bounded.
 
 ### Goals
 
@@ -277,20 +278,18 @@ author, use count, **Use this template**, and **Preview**.
 
 Three things came out smaller than sketched above, deliberately:
 
-- **Preview opens `/shared/<previewToken>`** rather than embedding the viewer
-  in the landing page. It is literally the existing per-type read-only layout,
-  but reached by navigation: `SharedDocument` is a 1088-line component keyed on
-  `useParams`, and refactoring it to take a token prop would put the live share
-  route at risk for a preview pane. Embedding is a follow-up.
-- **A logged-out visitor goes to `/login`, not back to `/t/:id`.** The GitHub
-  callback returns the browser to `FRONTEND_URL`, so a return path has to be
-  carried through the OAuth `state` and validated server-side — an auth change,
-  not a gallery one. Until it lands the page says to reopen the link.
-- **No thumbnail is captured yet.** The column, the serving path and the card's
-  rendering are in place; what is missing is the editor-side capture. It is the
-  client-rendered canvas the editor can already draw (`drawSlide`, the docs page
-  renderer, the sheet grid), uploaded through `POST /images`, with a type icon
-  as the fallback for anything that cannot render one.
+- **Preview opened `/shared/<previewToken>`** in a new tab rather than
+  embedding the viewer. *Cleared in Phase 2* — and the stated reason turned out
+  to be wrong, which is worth recording: `SharedDocument` is 1088 lines, but
+  every component below the route already took `token` as a **prop**. The
+  coupling to the router was a single `useParams` line, so the split into
+  `SharedDocumentByToken` was one commit's worth of moving a function
+  signature, not the refactor this bullet feared.
+- **A logged-out visitor went to `/login`, not back to `/t/:id`.** *Cleared in
+  Phase 2* — see *Returning a visitor after login*.
+- **No thumbnail is captured yet.** Still true. The column, the serving path
+  and the card's rendering are in place; what is missing is the editor-side
+  capture (Phase 2b).
 
 Publishing at the `public` tier is refused with a `400` for as long as Phase 3
 does not exist — failing closed, because a publisher told "ok" would believe
@@ -409,6 +408,37 @@ listing can only ever point at this deployment's bucket. A thumbnail is a
 snapshot: it goes stale when the document changes and is refreshed on
 republish. That is the correct trade, since the alternative is rendering a
 document per card on every gallery paint.
+
+### Returning a visitor after login
+
+A template link is handed to people who may not have an account, so "sign in"
+must not lose the template. GitHub returns the browser to `FRONTEND_URL` with
+nothing of ours attached, so the return path needs somewhere to survive the
+round trip.
+
+It rides in **its own short-lived cookie**, set by `GET /auth/github?returnTo=`
+and consumed by the callback — deliberately *not* inside the OAuth `state`.
+`state` is a CSRF token whose entire value is that it is opaque and compared by
+equality; packing routing data into it would mean parsing attacker-supplied
+structure out of the one field that must stay a bare comparison.
+
+The cookie is not the security boundary and is not treated as one: the endpoint
+that sets it is unauthenticated, so its value is attacker-chosen by
+construction. `safeReturnPath()`
+(`packages/backend/src/auth/login-return-path.ts`) is the boundary, and it runs
+**again on read** rather than trusting what was stored. It reduces the value to
+a same-origin path or `null`, rejecting rather than sanitizing:
+
+- absolute URLs and anything carrying a scheme, including a scheme smuggled
+  into the first segment (`/javascript:…`);
+- **protocol-relative** values in both spellings the URL parser accepts —
+  `//evil.example` and `/\evil.example`, since the parser folds `\` to `/`;
+- **control characters**, which is what closes `/\n/evil.example`: the parser
+  strips the newline and is then looking at `//evil.example`. Rejecting rather
+  than stripping is the point — a stripped character means this function and
+  the browser saw different strings.
+
+Query and fragment survive, because `/t/abc?use=1` is a legitimate target.
 
 ### Taxonomy
 

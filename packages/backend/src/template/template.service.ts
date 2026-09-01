@@ -5,7 +5,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Document as DocumentModel, TemplateListing } from '@prisma/client';
+import {
+  Document as DocumentModel,
+  Prisma,
+  TemplateListing,
+} from '@prisma/client';
 import { PrismaService } from 'src/database/prisma.service';
 import { isDocumentManager } from '../document/document-access';
 import { DocumentCopyService } from '../document/document-copy.service';
@@ -13,10 +17,12 @@ import { ShareLinkService } from '../share-link/share-link.service';
 import { WorkspaceService } from '../workspace/workspace.service';
 import { FolderService } from '../folder/folder.service';
 import {
+  BrowseTemplatesDto,
   PublishTemplateDto,
   UpdateTemplateDto,
   UseTemplateDto,
 } from './template.dto';
+import { normalizeTags } from './template-taxonomy';
 
 /**
  * What a caller is told about a listing. Deliberately not the raw row:
@@ -45,6 +51,19 @@ export interface TemplateListingView {
   previewToken: string | null;
   /** Whether the caller may edit or unpublish this listing. */
   canManage: boolean;
+}
+
+/**
+ * A gallery card. `TemplateListingView` minus `previewToken` — deliberately a
+ * separate type rather than an optional field, so a collection response cannot
+ * grow one back by accident.
+ */
+export type TemplateCardView = Omit<TemplateListingView, 'previewToken'>;
+
+export interface TemplateBrowsePage {
+  items: TemplateCardView[];
+  /** Pass back as `cursor`; `null` on the last page. */
+  nextCursor: string | null;
 }
 
 type ListingWithRelations = TemplateListing & {
@@ -137,7 +156,7 @@ export class TemplateService {
       title: dto.title ?? existing?.title ?? doc.title,
       description: dto.description ?? existing?.description ?? null,
       category: dto.category ?? existing?.category ?? null,
-      tags: dto.tags ?? existing?.tags ?? [],
+      tags: dto.tags ? normalizeTags(dto.tags) : (existing?.tags ?? []),
       thumbnailId: dto.thumbnailId ?? existing?.thumbnailId ?? null,
       visibility,
       status: 'listed',
@@ -184,7 +203,7 @@ export class TemplateService {
           ? { description: dto.description }
           : {}),
         ...(dto.category !== undefined ? { category: dto.category } : {}),
-        ...(dto.tags !== undefined ? { tags: dto.tags } : {}),
+        ...(dto.tags !== undefined ? { tags: normalizeTags(dto.tags) } : {}),
         ...(dto.thumbnailId !== undefined
           ? { thumbnailId: dto.thumbnailId }
           : {}),
@@ -306,6 +325,105 @@ export class TemplateService {
       });
 
     return created;
+  }
+
+  /**
+   * Browse listings the caller is allowed to see — the collection every
+   * gallery surface reads (docs/design/template-gallery.md).
+   *
+   * Three properties are load-bearing and are all enforced here rather than in
+   * any caller:
+   *
+   * - **Visibility is a query constraint, never a post-filter.** The `where`
+   *   is built from what the caller may see, so a row they may not see is
+   *   never fetched, let alone filtered out afterwards.
+   * - **`unlisted` listings appear in no collection.** Holding the id is that
+   *   tier's whole access story; listing them would hand it out wholesale.
+   *   There is no scope value that selects them.
+   * - **No `previewToken` in the response.** A page of cards would otherwise
+   *   hand out a page of non-expiring read capabilities to render thumbnails.
+   *   The token comes from `findForViewer` when a card is actually opened.
+   */
+  async browse(
+    dto: BrowseTemplatesDto,
+    userId?: number,
+  ): Promise<TemplateBrowsePage> {
+    const limit = dto.limit ?? 24;
+    const where: Prisma.TemplateListingWhereInput = { status: 'listed' };
+    // Filters that constrain the *document* share one relation clause; Prisma
+    // would otherwise let a later assignment overwrite an earlier one.
+    const documentWhere: Prisma.DocumentWhereInput = {};
+
+    let membershipRole: string | undefined;
+    if (dto.scope === 'workspace') {
+      if (!dto.workspaceId) {
+        throw new BadRequestException(
+          'workspaceId is required when scope is "workspace"',
+        );
+      }
+      if (!userId) throw new ForbiddenException('Authentication required');
+      const member = await this.workspaceService.assertMember(
+        dto.workspaceId,
+        userId,
+      );
+      membershipRole = member.role;
+      where.visibility = 'workspace';
+      // The *document's* current workspace, not the listing's denormalized
+      // copy — the same rule `isVisibleTo` follows, so a moved document leaves
+      // its old workspace's gallery.
+      documentWhere.workspaceId = member.workspaceId;
+    } else {
+      where.visibility = 'public';
+    }
+
+    if (dto.type) documentWhere.type = dto.type;
+    if (Object.keys(documentWhere).length > 0) where.document = documentWhere;
+    if (dto.category) where.category = dto.category;
+    // Never emit `has: undefined` — Prisma drops an undefined filter, which
+    // turns "show me this tag" into "show me everything". The DTO already
+    // refuses a value that normalizes to nothing; this is the second gate, so
+    // a future caller that bypasses validation cannot widen the query either.
+    const tag = dto.tag ? normalizeTags([dto.tag])[0] : undefined;
+    if (tag) where.tags = { has: tag };
+    if (dto.q) {
+      where.OR = [
+        { title: { contains: dto.q, mode: 'insensitive' } },
+        { description: { contains: dto.q, mode: 'insensitive' } },
+      ];
+    }
+
+    // `id` is the tiebreak on every sort, which is what makes the cursor
+    // deterministic: Prisma's cursor needs a unique field, and a page boundary
+    // inside a run of equal `useCount` would otherwise be ambiguous.
+    const orderBy: Prisma.TemplateListingOrderByWithRelationInput[] =
+      dto.sort === 'recent'
+        ? [{ publishedAt: 'desc' }, { id: 'desc' }]
+        : [{ useCount: 'desc' }, { id: 'desc' }];
+
+    const rows = await this.prisma.templateListing.findMany({
+      where,
+      orderBy,
+      // One past the page, so `nextCursor` is null on the last page rather
+      // than pointing at an empty one.
+      take: limit + 1,
+      ...(dto.cursor ? { cursor: { id: dto.cursor }, skip: 1 } : {}),
+      include: LISTING_INCLUDE,
+    });
+
+    const page = rows.slice(0, limit);
+    return {
+      items: page.map((listing) =>
+        toCard(
+          listing,
+          isDocumentManager(
+            membershipRole,
+            listing.document.authorID,
+            userId ?? -1,
+          ),
+        ),
+      ),
+      nextCursor: rows.length > limit ? page[page.length - 1].id : null,
+    };
   }
 
   /**
@@ -434,4 +552,19 @@ function toView(
     previewToken: listing.shareLink?.token ?? null,
     canManage,
   };
+}
+
+/**
+ * A card for the collection response. Built by *destructuring away*
+ * `previewToken` rather than by assembling a fresh literal, so a field added
+ * to `toView` later cannot silently start appearing on cards — and the one
+ * field that must never appear there is removed in a place a reviewer can see.
+ */
+function toCard(
+  listing: ListingWithRelations,
+  canManage: boolean,
+): TemplateCardView {
+  const { previewToken, ...card } = toView(listing, canManage);
+  void previewToken;
+  return card;
 }

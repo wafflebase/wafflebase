@@ -34,6 +34,12 @@ import {
   useSecureCookies,
   webOAuthStateMatches,
 } from './oauth-state';
+import {
+  loginRedirectUrl,
+  loginReturnCookieName,
+  loginReturnCookieOptions,
+  safeReturnPath,
+} from './login-return-path';
 
 const DEFAULT_ACCESS_COOKIE_MAX_AGE_MS = 60 * 60 * 1000;
 const DEFAULT_REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -227,7 +233,20 @@ export class AuthController {
     const tokens = this.authService.createTokens(user);
     this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
 
-    return res.redirect(this.configService.get('FRONTEND_URL')!);
+    // Where the login started, if it asked to come back — see
+    // login-return-path.ts. Cleared on use, and re-validated here rather than
+    // trusted from the cookie: it was written from an unauthenticated request,
+    // so this is the read that decides a redirect and it does its own checking.
+    const returnCookie = req.cookies?.[loginReturnCookieName()] as unknown;
+    if (returnCookie !== undefined) {
+      res.clearCookie(loginReturnCookieName(), loginReturnCookieOptions());
+    }
+    return res.redirect(
+      loginRedirectUrl(
+        this.configService.get('FRONTEND_URL')!,
+        safeReturnPath(returnCookie),
+      ),
+    );
   }
 
   /**

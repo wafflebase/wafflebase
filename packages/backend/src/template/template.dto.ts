@@ -1,15 +1,24 @@
+import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Length,
   Matches,
+  Max,
+  Min,
 } from 'class-validator';
 import { VALID_IMAGE_ID_PATTERN } from '../image/image.constants';
+import {
+  MAX_TEMPLATE_TAGS,
+  MAX_TEMPLATE_TAG_LENGTH,
+  TEMPLATE_CATEGORIES,
+} from './template-taxonomy';
 
 /**
  * A listing's audience — see docs/design/template-gallery.md.
@@ -28,7 +37,6 @@ export type TemplateVisibility = (typeof TEMPLATE_VISIBILITIES)[number];
 /** Matches the rename DTO's limit, so a listing title is always editable. */
 const MAX_TITLE = 200;
 const MAX_DESCRIPTION = 2000;
-const MAX_TAGS = 10;
 
 export class PublishTemplateDto {
   /** Defaults to the document's own title. */
@@ -42,16 +50,23 @@ export class PublishTemplateDto {
   @Length(0, MAX_DESCRIPTION)
   description?: string;
 
+  /**
+   * One of the closed `TEMPLATE_CATEGORIES`. Closed rather than freeform so
+   * the gallery's category facet means something — see template-taxonomy.ts.
+   */
   @IsOptional()
-  @IsString()
-  @Length(1, 60)
+  @IsIn(TEMPLATE_CATEGORIES)
   category?: string;
 
+  /**
+   * Freeform, but normalized on write (`normalizeTags`) — the service is what
+   * lowercases and de-duplicates. Validation here only bounds the input.
+   */
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(MAX_TAGS)
+  @ArrayMaxSize(MAX_TEMPLATE_TAGS)
   @IsString({ each: true })
-  @Length(1, 40, { each: true })
+  @Length(1, MAX_TEMPLATE_TAG_LENGTH, { each: true })
   tags?: string[];
 
   /**
@@ -79,9 +94,103 @@ export class PublishTemplateDto {
 
 export class UpdateTemplateDto extends PublishTemplateDto {}
 
-export class UseTemplateDto {
-  /** Destination workspace. The caller must be a member of it. */
+/**
+ * Which audience the caller is browsing. There is deliberately **no
+ * `unlisted`** scope: holding a listing's id is that tier's entire access
+ * story, so a collection that returned unlisted rows would hand out that
+ * capability wholesale.
+ */
+export const TEMPLATE_SCOPES = ['workspace', 'public'] as const;
+export type TemplateScope = (typeof TEMPLATE_SCOPES)[number];
+
+export const TEMPLATE_SORTS = ['popular', 'recent'] as const;
+export type TemplateSort = (typeof TEMPLATE_SORTS)[number];
+
+const DEFAULT_LIMIT = 24;
+const MAX_LIMIT = 50;
+
+export class BrowseTemplatesDto {
+  @IsIn(TEMPLATE_SCOPES)
+  scope: TemplateScope;
+
+  /**
+   * Required for `scope=workspace`; the caller must be a member of it.
+   *
+   * A workspace **id or slug**, not a UUID. Every workspace-scoped URL in the
+   * app is `/w/:workspaceId` carrying the *slug*
+   * (`/w/hackerwins-s-workspace/templates`), and the pages read it straight
+   * off `useParams`. `WorkspaceService.assertMember` resolves either through
+   * `resolveId`, so requiring a UUID here rejected the only value the gallery
+   * ever actually sends.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  workspaceId?: string;
+
+  /** Document type facet — `sheet`, `doc`, `slides`, … */
+  @IsOptional()
+  @IsString()
+  @Length(1, 20)
+  type?: string;
+
+  @IsOptional()
+  @IsIn(TEMPLATE_CATEGORIES)
+  category?: string;
+
+  /**
+   * A single tag; normalized before matching, with array containment.
+   *
+   * `@Matches` as well as `@Length`: a whitespace-only value passes a length
+   * check but normalizes to *nothing*, and a filter that reduces to nothing
+   * would be dropped from the `where` clause — so `?tag=%20%20` would silently
+   * return the whole unfiltered gallery instead of the empty result the caller
+   * asked for. Refused here rather than repaired downstream.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(1, MAX_TEMPLATE_TAG_LENGTH)
+  @Matches(/\S/, { message: 'tag must contain a non-whitespace character' })
+  tag?: string;
+
+  /** Free-text over title and description. */
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  q?: string;
+
+  @IsOptional()
+  @IsIn(TEMPLATE_SORTS)
+  sort?: TemplateSort;
+
+  /**
+   * The id of the last row of the previous page. Keyset, not offset: a gallery
+   * ranked by a counter that changes under you would skip and repeat rows
+   * under offset paging.
+   */
+  @IsOptional()
   @IsUUID()
+  cursor?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_LIMIT)
+  limit?: number = DEFAULT_LIMIT;
+}
+
+export class UseTemplateDto {
+  /**
+   * Destination workspace — an id **or slug**, for the same reason
+   * `BrowseTemplatesDto.workspaceId` is. The New-from-template picker is
+   * mounted from the documents list, whose `workspaceId` prop is the slug out
+   * of `/w/:workspaceId`; the landing page's picker sends a real id. Both
+   * resolve through `assertMember`, and the *resolved* id is what the copy
+   * lands in.
+   */
+  @IsString()
+  @Length(1, 200)
   workspaceId: string;
 
   /** Omitted = the destination workspace's root, never the source's folder. */

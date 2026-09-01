@@ -1,0 +1,91 @@
+import { loginRedirectUrl, safeReturnPath } from './login-return-path';
+
+describe('safeReturnPath', () => {
+  it('accepts a root-relative path', () => {
+    expect(safeReturnPath('/t/abc')).toBe('/t/abc');
+  });
+
+  it('keeps the query and fragment', () => {
+    // `/t/abc?use=1` is the actual target the template landing page wants.
+    expect(safeReturnPath('/t/abc?use=1#x')).toBe('/t/abc?use=1#x');
+  });
+
+  it('rejects an absolute URL', () => {
+    expect(safeReturnPath('https://evil.example/')).toBeNull();
+    expect(safeReturnPath('http://evil.example/')).toBeNull();
+  });
+
+  it('rejects a protocol-relative URL despite the leading slash', () => {
+    // The whole open-redirect class: a browser reads `//host` as an origin.
+    expect(safeReturnPath('//evil.example')).toBeNull();
+    expect(safeReturnPath('//evil.example/path')).toBeNull();
+  });
+
+  it('rejects the backslash spelling of protocol-relative', () => {
+    // The URL parser folds `\` to `/`, so `/\evil.example` is `//evil.example`.
+    expect(safeReturnPath('/\\evil.example')).toBeNull();
+  });
+
+  it('rejects a scheme smuggled into the first segment', () => {
+    expect(safeReturnPath('/javascript:alert(1)')).toBeNull();
+    expect(safeReturnPath('/data:text/html,x')).toBeNull();
+  });
+
+  it('rejects a bare scheme with no leading slash', () => {
+    expect(safeReturnPath('javascript:alert(1)')).toBeNull();
+    expect(safeReturnPath('t/abc')).toBeNull();
+  });
+
+  it('rejects control characters rather than stripping them', () => {
+    // Stripping would mean this function and the browser's URL parser saw
+    // different strings — including CR/LF, which would let the value split a
+    // header.
+    expect(safeReturnPath('/t/a\nb')).toBeNull();
+    expect(safeReturnPath('/t/a\rb')).toBeNull();
+    expect(safeReturnPath('/t/a\tb')).toBeNull();
+    expect(safeReturnPath('/t/a\x00b')).toBeNull();
+    expect(safeReturnPath('/\x01evil')).toBeNull();
+  });
+
+  it('rejects a newline-obscured protocol-relative URL', () => {
+    // `/\n/evil.example` is `//evil.example` once the parser strips the
+    // newline; rejecting control characters is what closes this.
+    expect(safeReturnPath('/\n/evil.example')).toBeNull();
+  });
+
+  it('rejects an over-long value', () => {
+    expect(safeReturnPath('/' + 'a'.repeat(600))).toBeNull();
+  });
+
+  it('rejects a non-string, including the shapes express can hand back', () => {
+    expect(safeReturnPath(undefined)).toBeNull();
+    expect(safeReturnPath(null)).toBeNull();
+    expect(safeReturnPath(['/t/abc'])).toBeNull();
+    expect(safeReturnPath({ toString: () => '/t/abc' })).toBeNull();
+  });
+
+  it('rejects an empty string', () => {
+    expect(safeReturnPath('')).toBeNull();
+  });
+});
+
+describe('loginRedirectUrl', () => {
+  it('appends a validated path to the frontend origin', () => {
+    expect(loginRedirectUrl('https://app.example', '/t/abc')).toBe(
+      'https://app.example/t/abc',
+    );
+  });
+
+  it('does not double the separator on a trailing slash', () => {
+    expect(loginRedirectUrl('https://app.example/', '/t/abc')).toBe(
+      'https://app.example/t/abc',
+    );
+  });
+
+  it('returns the bare origin when there is no path', () => {
+    // The pre-existing behavior, unchanged for a login that did not ask.
+    expect(loginRedirectUrl('https://app.example', null)).toBe(
+      'https://app.example',
+    );
+  });
+});
