@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   Document as DocumentModel,
@@ -23,6 +24,9 @@ import {
   UseTemplateDto,
 } from './template.dto';
 import { normalizeTags } from './template-taxonomy';
+import { findExternalDataTabs } from './template-content-guard';
+import { YorkieService } from '../yorkie/yorkie.service';
+import { ImageService } from '../image/image.service';
 
 /**
  * What a caller is told about a listing. Deliberately not the raw row:
@@ -96,6 +100,8 @@ export class TemplateService {
     private readonly shareLinkService: ShareLinkService,
     private readonly workspaceService: WorkspaceService,
     private readonly folderService: FolderService,
+    private readonly yorkieService: YorkieService,
+    private readonly imageService: ImageService,
   ) {}
 
   /**
@@ -124,12 +130,58 @@ export class TemplateService {
     return doc;
   }
 
+  /**
+   * Refuse to publish a document holding a `datasource` / `lakehouse` tab.
+   * Those tabs reference a workspace-scoped connection row, so a copy made in
+   * someone else's workspace opens with a dead tab
+   * (`template-content-guard.ts`).
+   *
+   * Only `sheet` documents can hold one, and only they are read — the check
+   * costs a Yorkie attach, so no other type pays for it. Run from both
+   * `publish()` and `use()`: the listing tracks a live document, so passing
+   * once is not a property the content keeps.
+   *
+   * **Fails closed.** A document we could not read is not a document we can
+   * clear, and publishing is a deliberate one-off action a person can repeat;
+   * silently skipping the check on a transient error would make the guard
+   * something an unlucky moment removes.
+   */
+  private async assertContentIsShareable(doc: DocumentModel): Promise<void> {
+    if (doc.type !== 'sheet') return;
+
+    let externalTabs: string[];
+    try {
+      externalTabs = await this.yorkieService.withDocument(
+        doc.id,
+        (yorkieDoc) => {
+          const root = yorkieDoc.getRoot();
+          return findExternalDataTabs(root.tabs, root.tabOrder);
+        },
+        { syncMode: 'readonly' },
+      );
+    } catch (err) {
+      this.logger.warn(`failed to read ${doc.id} before publishing: ${err}`);
+      throw new ServiceUnavailableException(
+        'Could not read the document to check it for external data tabs. Try again.',
+      );
+    }
+
+    if (externalTabs.length === 0) return;
+    throw new BadRequestException(
+      `This document cannot be published as a template because it connects to ` +
+        `external data (${externalTabs.join(', ')}). A connection belongs to ` +
+        `this workspace, so the tab would be empty for anyone who used the ` +
+        `template.`,
+    );
+  }
+
   async publish(
     documentId: string,
     userId: number,
     dto: PublishTemplateDto,
   ): Promise<TemplateListingView> {
     const doc = await this.assertManager(documentId, userId);
+    await this.assertContentIsShareable(doc);
 
     const existing = await this.prisma.templateListing.findUnique({
       where: { documentId },
@@ -212,6 +264,12 @@ export class TemplateService {
       },
       include: LISTING_INCLUDE,
     });
+    // A refreshed thumbnail replaces the old object rather than orphaning it —
+    // "Update preview" is a repeatable action, so without this every press
+    // leaks one publicly readable snapshot forever.
+    if (updated.thumbnailId !== listing.thumbnailId) {
+      await this.discardThumbnail(listing.thumbnailId);
+    }
     return toView(updated, true);
   }
 
@@ -242,7 +300,27 @@ export class TemplateService {
       });
     }
     await this.prisma.templateListing.delete({ where: { id } });
+    // Only once the listing is gone: a thumbnail deleted before a failed row
+    // delete would leave a live card pointing at nothing.
+    await this.discardThumbnail(listing.thumbnailId);
     return { deleted: true };
+  }
+
+  /**
+   * Delete a thumbnail object, best-effort.
+   *
+   * Deliberately best-effort, unlike the share-link revoke above, and the
+   * difference is what each one grants. The link is a live capability on the
+   * *document* — it keeps working, so failing to revoke it must fail the whole
+   * unpublish. A thumbnail is a stale picture at an unguessable id: leaving
+   * one behind costs storage and a snapshot the publisher meant to withdraw,
+   * neither of which is worth stranding a listing the caller asked to delete.
+   */
+  private async discardThumbnail(thumbnailId: string | null): Promise<void> {
+    if (!thumbnailId) return;
+    await this.imageService.delete(thumbnailId).catch((err) => {
+      this.logger.warn(`failed to delete thumbnail ${thumbnailId}: ${err}`);
+    });
   }
 
   /**
@@ -304,6 +382,14 @@ export class TemplateService {
         member.workspaceId,
       );
     }
+
+    // Checked again here, not only at publish. A listing tracks a **live**
+    // document, so a sheet published clean and given a `datasource` tab
+    // afterwards would otherwise copy an inert tab into this caller's
+    // workspace on every use — and the copy below reads the root as it stands
+    // now, not as it stood when the listing was created. Deliberately after
+    // the destination checks, so an unauthorized caller costs no Yorkie read.
+    await this.assertContentIsShareable(listing.document);
 
     const created = await this.documentCopyService.copy(
       listing.document,

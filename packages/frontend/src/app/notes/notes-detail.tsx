@@ -205,6 +205,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
             showAuthors={showAuthors}
             onEditorReady={setEditor}
             uploadImage={handleUploadImage}
+            documentId={documentId}
           />
         </div>
       </SidebarInset>

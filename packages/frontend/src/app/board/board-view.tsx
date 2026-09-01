@@ -32,6 +32,10 @@ import { makeBoardImageUpload } from "./board-image";
 import { createBoardMinimap, type BoardMinimap } from "./board-minimap";
 import { centerViewportOnWorld } from "./minimap-geometry";
 import { createFitToContentOnce, type FitLatch } from "./fit-to-content";
+import {
+  captureFromContainer,
+  registerThumbnailSource,
+} from "@/lib/thumbnail-capture";
 import type { ZoomController } from "../slides/zoom-controller";
 import { createBoardZoomBinding, createBoardZoomController } from "./board-zoom";
 import {
@@ -763,6 +767,18 @@ export function BoardView({ documentId, readOnly, workspaceId }: BoardViewProps)
     if (!container) return;
     applyGridBackground(container, gridKind, vp.current, resolvedTheme);
   }, [gridKind, resolvedTheme]);
+
+  // The board's picture for the template gallery
+  // (docs/design/template-gallery.md): the canvas as it stands. A board is an
+  // unbounded plane with no first page to render offscreen, so the view the
+  // author left it on is the honest cover.
+  useEffect(
+    () =>
+      registerThumbnailSource(documentId, () =>
+        captureFromContainer(containerRef.current),
+      ),
+    [documentId],
+  );
 
   if (loading) {
     return (

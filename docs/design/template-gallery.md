@@ -38,7 +38,7 @@ The whole feature, and where each piece lands. "Shipped" is measured against
 | `/t/:id` landing page, unlisted link sharing | 1 | shipped |
 | Manager gate, per-tier visibility, `useCount` | 1 | shipped |
 | **`GET /templates` collection endpoint** (facets, sort, keyset pages) | 2 | shipped |
-| **Thumbnail capture** per document type | 2b | — |
+| **Thumbnail capture** per document type | 2b | shipped (5 of 8 types — see [Thumbnails](#thumbnails)) |
 | **Category taxonomy + tag normalization** | 2 | shipped |
 | **Workspace Templates tab**, New-from-template picker | 2 | shipped |
 | Embedded preview, post-login return to `/t/:id` | 2 | shipped |
@@ -287,9 +287,10 @@ Three things came out smaller than sketched above, deliberately:
   signature, not the refactor this bullet feared.
 - **A logged-out visitor went to `/login`, not back to `/t/:id`.** *Cleared in
   Phase 2* — see *Returning a visitor after login*.
-- **No thumbnail is captured yet.** Still true. The column, the serving path
-  and the card's rendering are in place; what is missing is the editor-side
-  capture (Phase 2b).
+- **No thumbnail is captured yet.** *Cleared in Phase 2b* — see
+  [Thumbnails](#thumbnails), including the three types that read the live
+  editor canvas instead of an offscreen renderer and the documents that still get no
+  picture at all.
 
 Publishing at the `public` tier is refused with a `400` for as long as Phase 3
 does not exist — failing closed, because a publisher told "ok" would believe
@@ -392,22 +393,122 @@ Three properties are load-bearing:
 
 A gallery without thumbnails is a list of titles. Capture happens **client-side
 at publish time**, because the renderers are all in the browser and the backend
-has no canvas:
+has no canvas.
 
-| Type | Source |
-| --- | --- |
-| `slides`, `board` | `drawSlide()` into an offscreen canvas — the same call PDF export uses |
-| `doc` | the paginated page renderer, first page |
-| `sheet` | the grid renderer over the used range |
-| `pdf`, `image` | the stored blob's first page / the image itself |
-| `note`, `file` | none — a document-type icon |
+The mounted editor **registers a capture source**
+(`packages/frontend/src/lib/thumbnail-capture.ts`); the Share dialog asks the
+registry for a picture by document id. That indirection is the design: the
+dialog lives in `components/` and must not learn that a deck is painted
+differently from a spreadsheet, and an editor must not learn that the template
+gallery exists. It is also what the frontend's architecture lint requires —
+`components/` may not import `@/app/*`.
 
-The result is downscaled (~640 px wide, WebP), uploaded through the existing
-`POST /images`, and its **id** — never a URL — stored in `thumbnailId`, so a
-listing can only ever point at this deployment's bucket. A thumbnail is a
-snapshot: it goes stale when the document changes and is refreshed on
-republish. That is the correct trade, since the alternative is rendering a
-document per card on every gallery paint.
+| Type | Source | State |
+| --- | --- | --- |
+| `slides` | `renderThumbnail()` into an offscreen canvas — **slide 1**, the same call the left-rail panel makes | shipped |
+| `doc`, `sheet`, `board` | composite of the live editor canvases | shipped |
+| `note` | **synthesized** — the first lines of the markdown drawn onto a canvas | shipped |
+| `pdf`, `image` | the stored blob's first page / the image itself | not built |
+| `file` | none — a document-type icon | by design |
+
+Two arms differ from the offscreen-per-type sketch this section used to carry,
+and the reasons are worth keeping:
+
+- **`doc` and `sheet` read the canvas on screen.** Neither package exports an
+  offscreen page or grid renderer — the paint path is private to the mounted
+  editor (`packages/docs/src/view/editor.ts`,
+  `packages/sheets/src/view/gridcanvas.ts`), and exporting one is a larger
+  change than a thumbnail justifies. It is the *same* renderer either way, so
+  the pixels are right; only the framing differs (wherever the author is
+  scrolled, rather than page 1 or the used range). The composite exists because
+  these editors layer canvases — a spreadsheet paints its grid and its
+  selection overlay separately — and canvases thinner than 48 px are skipped so
+  a ruler does not put a stripe down every card. The composite is cropped to
+  **what was drawn**, not to the container, and backed by the nearest ancestor
+  background that actually paints. Both rules exist because a constant white
+  backdrop plus a container-sized crop put a white band across the top of every
+  dark-mode docs card, where the skipped 20 px ruler strip left nothing drawn:
+  what is skipped as chrome has to be outside the picture, and what shows
+  through a transparent overlay has to be the editor's own colour rather than a
+  colour that is only right in one theme.
+- **`board` reads it too, and always will.** A board is an unbounded plane with
+  no first page; the view the author left it on is the honest cover.
+- **`note` is not captured at all — it is drawn.** Notes is the one DOM editor
+  (CodeMirror plus a DOM preview), so `packages/notes/src` contains no canvas
+  to photograph, and the usual DOM-to-canvas trick — an SVG `foreignObject`
+  drawn as an image — taints the canvas in Chrome exactly as a remote image
+  does. `packages/frontend/src/app/notes/notes-thumbnail.ts` therefore
+  *synthesizes* a card from the first
+  lines of the markdown, the way a repository card does. It is a different kind
+  of artifact from the others — a description of the note rather than a picture
+  of the editor — but it is true to the content, cannot fail, and beats one
+  type having no image in a gallery.
+
+A capture composites at **device pixels**, capped at 2×: `getBoundingClientRect`
+is CSS pixels while the editor's bitmap is `dpr` times that, so sizing the
+output to the rect threw away half of every retina capture before it was even
+downscaled.
+
+The result is downscaled (longest edge 1280 px, WebP with a PNG fallback),
+uploaded through the existing `POST /images`, and its **id** — never a URL —
+stored in `thumbnailId`, so a listing can only ever point at this deployment's
+bucket.
+
+That route, and specifically **not** the workspace-scoped
+`POST /api/v1/workspaces/:wid/images` the in-document image pickers use. The
+two are not interchangeable and the ids are not portable between them: the
+workspace route stores under `{workspaceId}/{id}` and is read back only
+through an access-gated route (member, workspace API key, or share token),
+while a template card renders for a visitor holding none of those. Uploading a
+thumbnail through the workspace route stores an id on the listing that
+`GET /images/:id` cannot resolve — the object is at a different key — so every
+card 404s. `api/images.ts` names the two `postWorkspaceImage` and
+`postSharedImage` for that reason. A thumbnail is a snapshot: it goes stale when the document changes, and
+is refreshed by *Update preview* in the Share dialog's Template section. That
+is the correct trade, since the alternative is rendering a document per card on
+every gallery paint.
+
+Thumbnails therefore arrive in **whatever shape their document is** — 16:9 for
+a deck, the editor viewport for a docs / sheet / board capture — so the gallery
+card letterboxes rather than crops (`object-contain` in a fixed `16/10` box).
+The box stays one size so the grid stays a grid; cropping to fill it cut the
+sides off every slide, and the picture is the thing being chosen.
+
+Every failure degrades to **no thumbnail**, never to a failed publish: capture
+is attempted, and a listing without one shows its document-type icon exactly as
+every card did before this existed. On a republish a failed capture is *omitted*
+from the request rather than sent as null, so it cannot blank the picture an
+earlier publish stored.
+
+#### Images and the tainted canvas
+
+A canvas that has drawn an image fetched **without** CORS is tainted, and
+`toBlob` throws `SecurityError` on it — so before this was addressed, any
+document holding a single remote image got no thumbnail. That is not a rare
+case: the first real deck tested hit it.
+
+The editors originally set no `crossOrigin` at all, deliberately, because most
+third-party image hosts send no `Access-Control-Allow-Origin` and an `<img>`
+that asks for CORS against such a host fails outright rather than falling back.
+Both requirements hold, and they never apply to the same host — so the loaders
+now **ask for CORS and retry once without it**
+(`@wafflebase/core/image`, used by the Slides, Docs and Sheets image caches):
+
+- our own image bucket answers with the header (the API enables CORS for the
+  app origin), so its images load first time and leave the canvas readable;
+- a host that does not costs one failed request and then renders exactly as it
+  did before, tainting the canvas exactly as it did before.
+
+The retry has to replace the caller's cached element or a later draw finds the
+one that already failed, which is why the ordering lives in one shared helper
+rather than three copies.
+
+What remains uncoverable is a document referencing **another deployment's**
+bucket — a deck imported with `https://api.wafflebase.io/images/…` URLs opened
+against a local server, say. That origin's CORS allowlist does not include this
+one, so the retry path renders it and the canvas stays tainted. Capture answers
+`null` and the card falls back to its document-type icon, as it does for any
+other failure.
 
 ### Returning a visitor after login
 
@@ -472,7 +573,9 @@ the option is a decision rather than an oversight.
 | A public listing is edited into something else after approval. | Approval re-points the listing at a frozen server-side copy; republishing re-enters review. |
 | Images embedded in a template are workspace-scoped objects that the publisher can delete, breaking every copy. | Already true of `Make a copy` today ([document-copy.md](document-copy.md)); images are not deleted with a document. Phase 3 should re-host a public listing's images alongside its frozen copy — the Miro importer's re-hosting path already does exactly this. |
 | Copy cost — a popular template is copied concurrently, each copy attaching to two Yorkie documents. | Same bound as `Make a copy`, one document's worth of content per request. Today only the global per-IP throttle applies; a per-user limit on `use` is **Phase 3** (3d), which is when a listing gets an audience large enough for this to matter. |
-| A template containing a `datasource` / `lakehouse` tab is used in another workspace, where its `TabMeta.datasourceId` resolves to nothing. | Known limitation of Phase 1, and new with cross-workspace copy: within a workspace the reference stayed valid. It is not an access bypass — every datasource route re-derives authorization from the row's own `workspaceId` — but the tab is inert. Phase 2 refuses to publish a document whose root holds such a tab, which is the honest boundary: a template depending on a private connection is not shareable. |
+| A template containing a `datasource` / `lakehouse` tab is used in another workspace, where its `TabMeta.datasourceId` resolves to nothing. | Known limitation of Phase 1, and new with cross-workspace copy: within a workspace the reference stayed valid. It is not an access bypass — every datasource route re-derives authorization from the row's own `workspaceId` — but the tab is inert. **Closed at publish time:** publishing refuses a document whose root holds such a tab (`template-content-guard.ts`), which is the honest boundary — a template depending on a private connection is not shareable. The scan reads only `sheet` documents and fails closed, since a document we could not read is not a document we can clear. It runs at publish, not at use: a sheet published first and given a datasource tab later still hands out an inert tab, which is the ordinary consequence of a listing tracking a live document. |
+| A document holding a remote image cannot be captured, so the templates most worth looking at are the ones with no picture. | Accepted for now, and degraded to the pre-existing behavior (the type icon) rather than to an error. **Closed for our own images:** they are now requested with credentialed CORS, so the canvas stays readable — see [Images and the tainted canvas](#images-and-the-tainted-canvas). What remains is a document referencing *another deployment's* bucket, whose CORS allowlist does not include this origin, and a third-party image URL, which is deliberate: most such hosts send no header, and rendering the image matters more than reading the canvas back. |
+| A thumbnail outlives the listing it was taken for. | Unpublishing deletes the object and replacing one deletes what it replaced, so nothing accumulates and the id stops resolving. What deletion cannot reach is a copy already in a browser or shared cache: `GET /images/:id` answers `public, max-age=31536000, immutable`, which is correct for content-addressed bytes and is what every document image depends on. The residual exposure is bounded by who could hold the URL — an unguessable UUID that was only ever reachable through a card the holder had already seen — so a cached copy shows them a picture they had already been shown. Turning the route `no-store` to close it would deoptimize every image in every document for that, which is the wrong trade; a listing whose *content* must not outlive it is what the Phase 3 frozen copy is for. |
 | Comments or share links leaking into a copy. | `DocumentCopyService` already strips comments and carries no share links; the destination parameter does not change that. |
 | An abandoned listing points at a deleted document. | `documentId` cascades, so the listing goes with it. |
 | The public tier attracts spam and copyright violations, which is a moderation cost, not a code cost. | It is the reason public is Phase 3 and behind a maintainer allowlist: the workspace tier delivers most of the value with none of this exposure. |

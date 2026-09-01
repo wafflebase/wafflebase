@@ -24,6 +24,8 @@ import { SlidesShortcutsHelp } from "./slides-shortcuts-help";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { YorkieSlidesStore, ensureSlidesRoot } from "./yorkie-slides-store";
 import { setupSlidesImagePaths } from "./slides-image-input";
+import { renderDeckThumbnail } from "./slides-thumbnail";
+import { registerThumbnailSource } from "@/lib/thumbnail-capture";
 import { mapPresenceToPeerView } from "./peer-view";
 import { FIT_ZOOM, type ZoomController } from "./zoom-controller";
 import { needsForcedRepaintAfterRefit } from "./refit-repaint";
@@ -1170,6 +1172,17 @@ export function SlidesView({
     // it at runtime is not a supported scenario.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [didMount, doc]);
+
+  // Let the template gallery take this deck's picture when it is published
+  // (docs/design/template-gallery.md). Registered from the view because only
+  // the view holds the store; the Share dialog knows nothing about decks.
+  useEffect(() => {
+    if (!documentId) return;
+    return registerThumbnailSource(documentId, () => {
+      const store = storeRef.current;
+      return store ? renderDeckThumbnail(store.read()) : null;
+    });
+  }, [documentId]);
 
   // Drive canvas layout-editing mode off the `layoutEditTarget` prop. The
   // mount effect above owns the editor / store / rail hosts; this effect

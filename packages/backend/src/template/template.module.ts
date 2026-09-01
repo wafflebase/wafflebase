@@ -7,6 +7,7 @@ import { DocumentModule } from '../document/document.module';
 import { ShareLinkModule } from '../share-link/share-link.module';
 import { WorkspaceModule } from '../workspace/workspace.module';
 import { FolderModule } from '../folder/folder.module';
+import { ImageModule } from '../image/image.module';
 
 /**
  * The template gallery (docs/design/template-gallery.md). It owns no engine of
@@ -20,6 +21,9 @@ import { FolderModule } from '../folder/folder.module';
     ShareLinkModule,
     WorkspaceModule,
     FolderModule,
+    // Thumbnails are ordinary image-bucket objects, so withdrawing or
+    // replacing one is this module's job to clean up.
+    ImageModule,
   ],
   controllers: [TemplateController],
   providers: [TemplateService, PrismaService],

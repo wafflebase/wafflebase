@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { TemplateService } from './template.service';
 
@@ -59,9 +60,15 @@ function makeService(
     members?: Record<string, string>;
     siblings?: Array<{ title: string }>;
     rows?: Array<Record<string, unknown>>;
+    /** The Yorkie root `publish()` reads to check for external-data tabs. */
+    root?: Record<string, unknown>;
+    /** Make that read fail, which must fail the publish closed. */
+    yorkieError?: Error;
   } = {},
 ) {
   const members = opts.members ?? { 'ws-1:7': 'member' };
+  /** The listing these mocks read and write, before any call under test. */
+  const baseListing = (opts.listing ?? LISTING) as typeof LISTING;
   // `Promise.resolve` rather than `async () =>`: a mock body with nothing to
   // await trips `@typescript-eslint/require-await`, which the backend lint
   // enforces (and which `verify:fast` does not run — see the lessons file).
@@ -90,11 +97,24 @@ function makeService(
       findUnique: jest.fn(() =>
         Promise.resolve(opts.listing === undefined ? LISTING : opts.listing),
       ),
+      // Both return the row as it now STANDS — the test's own listing with the
+      // write applied on top, not the module-level constant. Spreading
+      // `LISTING` made a field the caller never mentioned come back as its
+      // default, which is the opposite of what Prisma does and hid whether
+      // `update` had actually changed anything.
+      //
+      // `upsert` takes ONE branch, as Prisma does: `create` only when there is
+      // no row, `update` only when there is. Merging both let an existing
+      // listing come back carrying create-only fields it could never have.
       upsert: jest.fn(({ create, update }: UpsertArgs) =>
-        Promise.resolve({ ...LISTING, ...create, ...update }),
+        Promise.resolve(
+          opts.listing === null
+            ? { ...LISTING, ...create }
+            : { ...baseListing, ...update },
+        ),
       ),
       update: jest.fn((args: UpdateArgs) =>
-        Promise.resolve({ ...LISTING, ...args.data }),
+        Promise.resolve({ ...baseListing, ...args.data }),
       ),
       delete: jest.fn(() => Promise.resolve(LISTING)),
       findMany: jest.fn((args: FindManyArgs) =>
@@ -119,6 +139,17 @@ function makeService(
   const folderService = {
     assertSameWorkspace: jest.fn(() => Promise.resolve(undefined)),
   };
+  const root = opts.root ?? { tabs: {}, tabOrder: [] };
+  const yorkieService = {
+    withDocument: jest.fn(
+      (_id: string, cb: (doc: { getRoot: () => unknown }) => unknown) => {
+        if (opts.yorkieError) return Promise.reject(opts.yorkieError);
+        return Promise.resolve(cb({ getRoot: () => root }));
+      },
+    ),
+  };
+
+  const imageService = { delete: jest.fn(() => Promise.resolve(undefined)) };
 
   const service = new TemplateService(
     prisma as never,
@@ -126,6 +157,8 @@ function makeService(
     shareLinkService as never,
     workspaceService as never,
     folderService as never,
+    yorkieService as never,
+    imageService as never,
   );
   return {
     service,
@@ -134,6 +167,8 @@ function makeService(
     shareLinkService,
     workspaceService,
     folderService,
+    yorkieService,
+    imageService,
   };
 }
 
@@ -253,6 +288,51 @@ describe('TemplateService.publish', () => {
         acceptLicense: true,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('refuses a sheet holding a datasource tab, naming it', async () => {
+    // The tab references a workspace-scoped connection row, so a copy made in
+    // someone else's workspace opens it empty.
+    const { service, prisma } = makeService({
+      root: {
+        tabOrder: ['t1', 't2'],
+        tabs: {
+          t1: { name: 'Summary', type: 'sheet' },
+          t2: { name: 'Orders', type: 'datasource' },
+        },
+      },
+    });
+    await expect(service.publish('doc-1', 7, {})).rejects.toThrow(/Orders/);
+    expect(prisma.templateListing.upsert).not.toHaveBeenCalled();
+  });
+
+  it('refuses a sheet holding a lakehouse tab absent from tabOrder', async () => {
+    // A stale `tabOrder` must not hide a tab from the check.
+    const { service } = makeService({
+      root: { tabOrder: [], tabs: { t9: { type: 'lakehouse' } } },
+    });
+    await expect(service.publish('doc-1', 7, {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('does not read Yorkie for a non-sheet document', async () => {
+    const { service, yorkieService } = makeService({
+      document: { ...DOC, type: 'slides' },
+    });
+    await service.publish('doc-1', 7, {});
+    expect(yorkieService.withDocument).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the document cannot be read', async () => {
+    // A document we could not read is not a document we can clear.
+    const { service, prisma } = makeService({
+      yorkieError: new Error('yorkie unreachable'),
+    });
+    await expect(service.publish('doc-1', 7, {})).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(prisma.templateListing.upsert).not.toHaveBeenCalled();
   });
 });
 
@@ -421,6 +501,25 @@ describe('TemplateService.browse', () => {
 });
 
 describe('TemplateService.update', () => {
+  it('deletes the thumbnail it replaces', async () => {
+    // "Update preview" is repeatable, so without this every press leaks one
+    // publicly readable snapshot forever.
+    const { service, imageService } = makeService({
+      listing: { ...LISTING, thumbnailId: 'old.webp' },
+    });
+    await service.update('tpl-1', 7, { thumbnailId: 'new.webp' });
+    expect(imageService.delete).toHaveBeenCalledWith('old.webp');
+  });
+
+  it('deletes nothing when the thumbnail is untouched', async () => {
+    // An edit to the title must not throw away the picture.
+    const { service, imageService } = makeService({
+      listing: { ...LISTING, thumbnailId: 'keep.webp' },
+    });
+    await service.update('tpl-1', 7, { title: 'Renamed' });
+    expect(imageService.delete).not.toHaveBeenCalled();
+  });
+
   it('lets a manager edit listing metadata', async () => {
     const { service, prisma } = makeService();
     await service.update('tpl-1', 7, { title: 'Renamed', category: 'Finance' });
@@ -677,6 +776,43 @@ describe('TemplateService.use', () => {
   });
 });
 
+describe('TemplateService.use — content revalidation', () => {
+  it('refuses a template whose document gained a datasource tab after publish', async () => {
+    // A listing tracks a LIVE document, so passing the guard once is not a
+    // property the content keeps. Without this the copy hands the caller a tab
+    // that resolves to nothing in their own workspace.
+    const { service, documentCopyService } = makeService({
+      members: { 'ws-1:7': 'member', 'ws-2:9': 'owner' },
+      root: {
+        tabOrder: ['t1'],
+        tabs: { t1: { name: 'Orders', type: 'datasource' } },
+      },
+    });
+    await expect(
+      service.use('tpl-1', 9, { workspaceId: 'ws-2' }),
+    ).rejects.toThrow(/Orders/);
+    expect(documentCopyService.copy).not.toHaveBeenCalled();
+  });
+
+  it('does not read the document for a caller who cannot write anywhere', async () => {
+    // The destination check runs first, so an unauthorized caller costs no
+    // Yorkie attach.
+    const { service, yorkieService } = makeService({ members: {} });
+    await expect(
+      service.use('tpl-1', 9, { workspaceId: 'ws-2' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(yorkieService.withDocument).not.toHaveBeenCalled();
+  });
+
+  it('copies a clean sheet as before', async () => {
+    const { service, documentCopyService } = makeService({
+      members: { 'ws-1:7': 'member', 'ws-2:9': 'owner' },
+    });
+    await service.use('tpl-1', 9, { workspaceId: 'ws-2' });
+    expect(documentCopyService.copy).toHaveBeenCalled();
+  });
+});
+
 describe('TemplateService.unpublish', () => {
   it('deletes the listing and revokes its preview link', async () => {
     // Leaving the link behind would keep the document anonymously readable
@@ -707,6 +843,43 @@ describe('TemplateService.unpublish', () => {
     await expect(service.unpublish('tpl-1', 9)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+
+  it('deletes the thumbnail, so a withdrawn snapshot stops being readable', async () => {
+    // `GET /images/:id` is unauthenticated and immutably cached, so a
+    // thumbnail left behind is a picture of the document the publisher
+    // believed they had withdrawn.
+    const { service, imageService } = makeService({
+      listing: { ...LISTING, thumbnailId: 'thumb-1.webp' },
+    });
+    await service.unpublish('tpl-1', 7);
+    expect(imageService.delete).toHaveBeenCalledWith('thumb-1.webp');
+  });
+
+  it('still unpublishes when the thumbnail cannot be deleted', async () => {
+    // Best-effort, unlike the share-link revoke: an orphaned picture grants no
+    // access to the document, and is not worth stranding the listing over.
+    const { service, prisma, imageService } = makeService({
+      listing: { ...LISTING, thumbnailId: 'thumb-1.webp' },
+    });
+    imageService.delete.mockRejectedValueOnce(new Error('s3 down'));
+    await expect(service.unpublish('tpl-1', 7)).resolves.toEqual({
+      deleted: true,
+    });
+    expect(prisma.templateListing.delete).toHaveBeenCalled();
+  });
+
+  it('lets a workspace owner unpublish a listing another member published', async () => {
+    // The design promises a manager may withdraw ANY listing in their
+    // workspace, which `isDocumentManager` already grants an owner. Asserted
+    // here so the promise survives a future narrowing of `assertManager`:
+    // user 9 owns ws-1 but neither authored doc-1 (author 7) nor created the
+    // listing.
+    const { service, prisma } = makeService({ members: { 'ws-1:9': 'owner' } });
+    await service.unpublish('tpl-1', 9);
+    expect(prisma.templateListing.delete).toHaveBeenCalledWith({
+      where: { id: 'tpl-1' },
+    });
   });
 
   it('404s on a missing listing', async () => {

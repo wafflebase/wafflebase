@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ImageController } from './image.controller';
 
 function makeRes() {
@@ -44,6 +44,33 @@ describe('ImageController.get', () => {
     expect(res.headers['Content-Type']).toBe('image/png');
     expect(res.headers['Cache-Control']).toContain('public');
     expect(res.end).toHaveBeenCalled();
+  });
+
+  it('answers 404 for an object that is not in the bucket', async () => {
+    // An id outlives the object it names — a template listing stores one and
+    // the bucket can be swept underneath it. An unhandled S3 `NoSuchKey`
+    // surfaced as a 500 with a stack trace per stale card painted.
+    const getObject = jest.fn().mockRejectedValue(
+      Object.assign(new Error('The specified key does not exist.'), {
+        name: 'NoSuchKey',
+      }),
+    );
+    const ctrl = makeController(getObject);
+    await expect(
+      ctrl.get('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.webp', makeRes() as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('lets a storage failure stay a 500 rather than reporting it as 404', async () => {
+    // Reporting an outage as "not found" is precisely the signal you need
+    // during one.
+    const getObject = jest
+      .fn()
+      .mockRejectedValue(new Error('connection reset by peer'));
+    const ctrl = makeController(getObject);
+    await expect(
+      ctrl.get('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.webp', makeRes() as never),
+    ).rejects.toThrow('connection reset by peer');
   });
 
   it('maps every accepted extension to its own image MIME type', async () => {

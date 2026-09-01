@@ -1,5 +1,4 @@
-import { fetchWithAuth } from "@/api/auth";
-import { seg } from "@/api/url";
+import { postWorkspaceImage } from "@/api/images";
 import { downscaleImageFile } from "./image-downscale";
 
 const BACKEND_BASE = import.meta.env.VITE_BACKEND_API_URL ?? "";
@@ -41,20 +40,7 @@ export async function uploadImageFile(
 
   const { width, height } = await loadImageDimensions(upload);
 
-  const formData = new FormData();
-  formData.append("file", upload);
-
-  const res = await fetchWithAuth(
-    `${BACKEND_BASE}/api/v1/workspaces/${seg(workspaceId)}/images`,
-    { method: "POST", body: formData },
-  );
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Upload failed: ${body}`);
-  }
-
-  const { id, url } = (await res.json()) as { id: string; url: string };
+  const { id, url } = await postWorkspaceImage(upload, workspaceId);
   return { id, url: resolveImageUrl(url), width, height };
 }
 

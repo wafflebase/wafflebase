@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { IconCopy, IconTrash } from "@tabler/icons-react";
+import { IconCamera, IconCopy, IconTrash } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -22,9 +22,74 @@ import {
   type TemplateVisibility,
 } from "@/api/templates";
 import { isAuthExpiredError } from "@/api/auth";
+import { imageUrl, postSharedImage } from "@/api/images";
+import { captureThumbnail, hasThumbnailSource } from "@/lib/thumbnail-capture";
 
 /** `Select` has no empty-string value, so "no category" needs a sentinel. */
 const NO_CATEGORY = "__none__";
+
+/**
+ * Take the open editor's picture and upload it, answering the image id to
+ * store on the listing — or `undefined`.
+ *
+ * **Never throws.** A thumbnail is decoration on a card: a document type with
+ * no renderer, a canvas tainted by a remote image, a failed upload — none of
+ * those are reasons to fail the publish this rides along with, and none of
+ * them are worth a toast the publisher can do nothing about. The card falls
+ * back to its document-type icon, exactly as it did before thumbnails existed.
+ *
+ * Uploaded through `postSharedImage`, **not** the workspace-scoped route the
+ * in-document image pickers use. A template card has to render for a
+ * logged-out visitor who holds no membership and no share token, and only an
+ * id at the bucket root is readable by `GET /images/:id`. Storing a
+ * workspace-scoped id here would put a key on the listing that no route the
+ * card can call is able to serve.
+ */
+async function captureThumbnailId(
+  documentId: string,
+): Promise<string | undefined> {
+  try {
+    const blob = await captureThumbnail(documentId);
+    if (!blob) return undefined;
+    // Named for what it actually is: `encodeThumbnail` falls back to PNG where
+    // WebP cannot be encoded, and the extension the server stores comes from
+    // the bytes' own MIME type either way.
+    const ext = blob.type === "image/png" ? "png" : "webp";
+    const { id } = await postSharedImage(blob, `thumbnail.${ext}`);
+    return id;
+  } catch (error) {
+    // An expired session is not a thumbnail failure. Swallowing it here would
+    // let the caller carry on to a success toast while `fetchWithAuth` is
+    // already redirecting to login; every other handler in this file routes it
+    // through `isAuthExpiredError`, and so must this one.
+    if (isAuthExpiredError(error)) throw error;
+    return undefined;
+  }
+}
+
+/**
+ * Capture a picture of `listing`'s document and attach it, best-effort.
+ *
+ * Separate from publishing so the upload only ever happens on a path that
+ * already succeeded. A listing with no thumbnail is an ordinary state — the
+ * card falls back to its document-type icon — so nothing here is worth a toast
+ * the user cannot act on.
+ */
+async function attachThumbnail(
+  listing: TemplateListing,
+  onSaved: (listing: TemplateListing) => void,
+): Promise<void> {
+  const thumbnailId = await captureThumbnailId(listing.documentId);
+  if (!thumbnailId) return;
+  try {
+    onSaved(await updateTemplate(listing.id, { thumbnailId }));
+  } catch (error) {
+    // As above: an expired session has to reach the caller's handler.
+    if (isAuthExpiredError(error)) throw error;
+    // Otherwise the listing exists and is usable; it just has no picture yet,
+    // and "Update preview" can try again.
+  }
+}
 
 /**
  * The template half of the Share dialog (docs/design/template-gallery.md).
@@ -104,10 +169,17 @@ export function TemplateShareSection({
   const handlePublish = async () => {
     setBusy(true);
     try {
+      // Publish FIRST, then attach the picture. Capturing first would upload a
+      // permanently public snapshot of the document — `GET /images/:id` is
+      // unauthenticated and immutably cached — before learning whether the
+      // publish is even allowed. A 403 from the manager gate, or the 400 that
+      // refuses a document connected to external data, would then leave a
+      // picture of content the server just declined to share.
       const published = await publishTemplate(documentId, {
         visibility: publishVisibility,
       });
       setListing(published);
+      await attachThumbnail(published, setListing);
       await copyToClipboard(
         `${window.location.origin}/t/${published.id}`,
         "Template link created and copied to clipboard",
@@ -191,7 +263,11 @@ export function TemplateShareSection({
                 manager-only server-side, so showing the controls to a plain
                 member offers an action whose Save can only ever 403. */}
             {listing.canManage && (
-              <TemplateMetaEditor listing={listing} onSaved={setListing} />
+              <TemplateMetaEditor
+                listing={listing}
+                documentId={documentId}
+                onSaved={setListing}
+              />
             )}
             <p className="text-muted-foreground text-xs">
               {listing.visibility === "workspace"
@@ -254,9 +330,11 @@ export function TemplateShareSection({
  */
 function TemplateMetaEditor({
   listing,
+  documentId,
   onSaved,
 }: {
   listing: TemplateListing;
+  documentId: string;
   onSaved: (listing: TemplateListing) => void;
 }) {
   const [visibility, setVisibility] = useState<TemplateVisibility>(
@@ -265,6 +343,33 @@ function TemplateMetaEditor({
   const [category, setCategory] = useState(listing.category ?? NO_CATEGORY);
   const [tags, setTags] = useState(listing.tags.join(", "));
   const [saving, setSaving] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+
+  /**
+   * A thumbnail is a snapshot, not a live render — it goes stale as the
+   * document changes, and the alternative is rendering a document per card on
+   * every gallery paint. So refreshing it is an explicit act, offered only
+   * when an editor is actually mounted to take the picture.
+   */
+  const handleCaptureThumbnail = async () => {
+    setCapturing(true);
+    try {
+      const thumbnailId = await captureThumbnailId(documentId);
+      if (!thumbnailId) {
+        toast.error("Could not capture a preview of this document");
+        return;
+      }
+      onSaved(await updateTemplate(listing.id, { thumbnailId }));
+      toast.success("Template preview updated");
+    } catch (error) {
+      if (isAuthExpiredError(error)) return;
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update the preview",
+      );
+    } finally {
+      setCapturing(false);
+    }
+  };
 
   const dirty =
     visibility !== listing.visibility ||
@@ -299,6 +404,35 @@ function TemplateMetaEditor({
 
   return (
     <div className="grid gap-2">
+      <div className="flex items-center gap-2">
+        <div className="bg-muted h-12 w-20 shrink-0 overflow-hidden rounded border">
+          {listing.thumbnailId ? (
+            <img
+              src={imageUrl(listing.thumbnailId)}
+              alt=""
+              // `contain` for the same reason the gallery card uses it: this
+              // chip exists to show what was actually captured, and a crop
+              // would hide the part the publisher most wants to check.
+              className="h-full w-full object-contain"
+            />
+          ) : (
+            <div className="text-muted-foreground flex h-full w-full items-center justify-center text-[10px]">
+              No preview
+            </div>
+          )}
+        </div>
+        {hasThumbnailSource(documentId) && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={capturing}
+            onClick={handleCaptureThumbnail}
+          >
+            <IconCamera className="mr-1 h-3.5 w-3.5" />
+            {capturing ? "Capturing..." : "Update preview"}
+          </Button>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <div className="grid gap-1.5">
           <Label htmlFor="template-visibility" className="text-xs">

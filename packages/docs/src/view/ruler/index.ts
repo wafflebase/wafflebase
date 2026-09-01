@@ -64,16 +64,24 @@ export class Ruler {
         + `z-index:3;background:${marginBg()};margin-bottom:${-RULER_SIZE}px;`;
     }
 
-    // Horizontal ruler: takes 20px in flow so doc canvas is pushed below it
-    this.hCanvas = (doc?.createElement('canvas') ?? { style: {}, getContext: () => null }) as HTMLCanvasElement;
+    // Horizontal ruler: takes 20px in flow so doc canvas is pushed below it.
+    //
+    // Both rulers are marked as chrome rather than content: they live in the
+    // same container as the document canvas, and anything compositing that
+    // container to make a picture of the document — the template gallery's
+    // thumbnail capture — must leave them out
+    // (packages/frontend/src/lib/thumbnail-capture.ts).
+    this.hCanvas = (doc?.createElement('canvas') ?? { style: {}, dataset: {}, getContext: () => null }) as HTMLCanvasElement;
     if (doc) {
+      this.hCanvas.dataset.canvasChrome = 'true';
       this.hCanvas.style.cssText =
         `display:block;position:sticky;top:0;z-index:2;height:${RULER_SIZE}px;`;
     }
 
     // Vertical ruler: absolutely positioned, manually updated in render()
-    this.vCanvas = (doc?.createElement('canvas') ?? { style: {}, getContext: () => null }) as HTMLCanvasElement;
+    this.vCanvas = (doc?.createElement('canvas') ?? { style: {}, dataset: {}, getContext: () => null }) as HTMLCanvasElement;
     if (doc) {
+      this.vCanvas.dataset.canvasChrome = 'true';
       this.vCanvas.style.cssText =
         `display:block;position:absolute;left:0;top:${RULER_SIZE}px;z-index:1;`
         + `width:${RULER_SIZE}px;`;

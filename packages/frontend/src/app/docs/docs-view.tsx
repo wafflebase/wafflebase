@@ -28,6 +28,10 @@ import { DocsTableContextMenu } from "./docs-table-context-menu";
 import { DocsContextMenu } from "./docs-context-menu";
 import { DocsCommentPopover } from "./comments/DocsCommentPopover";
 import { useDocsComments } from "./comments/docs-comments-controller";
+import {
+  captureFromContainer,
+  registerThumbnailSource,
+} from "@/lib/thumbnail-capture";
 import { clearPendingImport, peekPendingImport } from "./pending-imports";
 import { insertImageFromFile } from "./image-insert";
 import { toast } from "sonner";
@@ -593,6 +597,17 @@ export function DocsView({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // The document's picture for the template gallery
+  // (docs/design/template-gallery.md). The paginated page renderer is private
+  // to the mounted editor, so the capture reads the canvas it already painted
+  // — the same pixels, framed at wherever the author is scrolled.
+  useEffect(() => {
+    if (!documentId) return;
+    return registerThumbnailSource(documentId, () =>
+      captureFromContainer(containerRef.current),
+    );
+  }, [documentId]);
 
   if (loading) {
     return <Loader />;

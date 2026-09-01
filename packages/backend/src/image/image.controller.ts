@@ -9,6 +9,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
@@ -61,12 +62,26 @@ export class ImageController {
     );
   }
 
+  /**
+   * A missing object answers **404**, not the 500 an unhandled S3 `NoSuchKey`
+   * produces. An id here outlives whatever referenced it — a template listing
+   * stores one and the object can be deleted underneath it — so "this image is
+   * gone" is an ordinary outcome of a public route, not a server fault, and it
+   * must not fill the error log with stack traces every time a stale card is
+   * painted. Mirrors `ApiV1ImageReadController`, which already does this.
+   */
   @Get(':id')
   async get(@Param('id') id: string, @Res() res: Response): Promise<void> {
     if (!VALID_IMAGE_ID_PATTERN.test(id)) {
       throw new BadRequestException('Invalid image id');
     }
-    const { body } = await this.imageService.getObject(id);
+    const { body } = await this.imageService.getObject(id).catch((err) => {
+      // Only a genuinely absent object becomes a 404. An S3 outage, an expired
+      // credential or a timeout stays itself (a 500), because reporting an
+      // incident as "not found" is exactly the signal you need during one.
+      if (isMissingObject(err)) throw new NotFoundException('Image not found');
+      throw err;
+    });
     const ext = id.split('.').pop()!.toLowerCase();
     res.setHeader(
       'Content-Type',
@@ -85,4 +100,14 @@ export class ImageController {
     await this.imageService.delete(id);
     return { deleted: true };
   }
+}
+
+/**
+ * Whether `err` is S3 saying the key does not exist, as opposed to saying
+ * anything else. Both spellings are checked because the SDK reports a missing
+ * key as `NoSuchKey` on `GetObject` and as a bare 404 on some other paths.
+ */
+function isMissingObject(err: unknown): boolean {
+  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404;
 }

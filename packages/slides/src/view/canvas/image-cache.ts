@@ -1,8 +1,14 @@
+import { loadImage } from '@wafflebase/core/image';
+
 /**
  * Per-process cache of loaded `HTMLImageElement`s, keyed by `src`.
  * Mirrors `packages/docs/src/view/image-cache.ts` so the two packages
  * behave the same way; we copy rather than import because docs does
- * not export this helper from its public API.
+ * not export this helper from its public API. The one part that is NOT
+ * copied is how the element is loaded — that lives in
+ * `@wafflebase/core/image`, because the CORS-then-retry ordering is subtle
+ * enough that three divergent copies of it would be a defect waiting to
+ * happen.
  */
 const imageCache = new Map<string, HTMLImageElement>();
 const pendingCallbacks = new Map<string, Set<() => void>>();
@@ -60,8 +66,6 @@ export function getOrLoadImage(
     return null;
   }
 
-  const img = new Image();
-  imageCache.set(src, img);
   pendingCallbacks.set(src, new Set([onLoad]));
 
   const flushPending = (): void => {
@@ -74,15 +78,27 @@ export function getOrLoadImage(
     }
   };
 
-  img.onload = flushPending;
-  img.onerror = () => {
-    failedImages.add(src);
-    // Fire callbacks too so the renderer repaints with the placeholder
-    // — without this, a slide with a broken image stays blank until
-    // the next unrelated repaint.
-    flushPending();
-  };
-  img.src = src;
+  // CORS first, plain retry on failure (@wafflebase/core/image). Our own
+  // bucket answers with the header, so its images leave the canvas readable
+  // and the thumbnail capture in the template gallery can encode it; a
+  // third-party host that does not costs one failed request and then renders
+  // exactly as before.
+  imageCache.set(
+    src,
+    loadImage(src, {
+      onLoad: flushPending,
+      onError: () => {
+        failedImages.add(src);
+        // Fire callbacks too so the renderer repaints with the placeholder
+        // — without this, a slide with a broken image stays blank until
+        // the next unrelated repaint.
+        flushPending();
+      },
+      // The retry is a different element; the cache has to follow it or a
+      // later draw finds the one that already failed.
+      onRetry: (retry) => imageCache.set(src, retry),
+    }),
+  );
   return null;
 }
 

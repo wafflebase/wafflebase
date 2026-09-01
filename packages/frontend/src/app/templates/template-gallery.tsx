@@ -7,6 +7,7 @@ import {
   type TemplateCard,
 } from "@/api/templates";
 import { isAuthExpiredError } from "@/api/auth";
+import { imageUrl } from "@/api/images";
 import { typeMeta, TYPE_OPTIONS } from "@/app/documents/document-type-meta";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -191,10 +192,13 @@ export function TemplateGallery({
 }
 
 /**
- * One card. Renders a document-type icon rather than a thumbnail: the
- * `thumbnailId` column and its serving path exist, but capture is a follow-up
- * (docs/design/template-gallery.md, Phase 2b), so the icon is the fallback the
- * design already specifies for types that cannot render one.
+ * One card, led by the picture taken when the template was published
+ * (docs/design/template-gallery.md).
+ *
+ * The document-type icon stays as the fallback rather than being replaced:
+ * `note`, `pdf` and `file` have no capture path at all, and any document
+ * holding a remote image cannot be captured either, so a listing with no
+ * thumbnail is an ordinary case and not a broken one.
  */
 function TemplateGalleryCard({
   card,
@@ -206,8 +210,27 @@ function TemplateGalleryCard({
   onSelect: (card: TemplateCard) => void;
 }) {
   const { Icon, color, label } = typeMeta(card.documentType);
+  const [thumbnailBroken, setThumbnailBroken] = useState(false);
   return (
     <div className="flex flex-col rounded-md border p-4">
+      {card.thumbnailId && !thumbnailBroken && (
+        <img
+          src={imageUrl(card.thumbnailId)}
+          alt=""
+          loading="lazy"
+          // An id outlives the object it names — the bucket can be swept, or a
+          // listing can carry an id from before capture worked. Falling back
+          // to the icon beats a broken-image glyph on the card.
+          onError={() => setThumbnailBroken(true)}
+          // Letterboxed, not cropped. Thumbnails arrive in whatever shape
+          // their document is — a deck is 16:9, a docs or sheet capture is
+          // the editor viewport — and `object-cover` in a fixed box cut the
+          // sides off every slide. The box stays one size so the grid stays a
+          // grid; `contain` keeps the whole picture inside it, which is the
+          // point of a gallery where the picture is what you are choosing.
+          className="bg-muted mb-3 aspect-[16/10] w-full rounded border object-contain"
+        />
+      )}
       <div className="flex items-start gap-3">
         <Icon className={`h-8 w-8 shrink-0 stroke-1 ${color}`} />
         <div className="min-w-0 flex-1">

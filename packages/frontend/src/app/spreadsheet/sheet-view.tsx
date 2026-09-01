@@ -53,6 +53,10 @@ import { CommentPopover } from "./components/comments/CommentPopover";
 import { useWorkspaceMembers } from "@/components/comments/use-workspace-members";
 import { copyThread } from "./yorkie-worksheet-comments";
 import { SheetsShortcutsHelp } from "./sheets-shortcuts-help";
+import {
+  captureFromContainer,
+  registerThumbnailSource,
+} from "@/lib/thumbnail-capture";
 
 function isDefaultLikeStyle(style: CellStyle | undefined): boolean {
   if (!style) {
@@ -1335,6 +1339,18 @@ export function SheetView({
       }
     };
   }, [clearPaintFormatState, didMount, containerRef, doc, tabId, readOnly, theme]);
+
+  // The sheet's picture for the template gallery
+  // (docs/design/template-gallery.md). The grid renderer belongs to the
+  // mounted engine, so the capture composites the canvases it already painted
+  // — the grid and the selection overlay are separate layers and only the pair
+  // is the picture.
+  useEffect(() => {
+    if (!documentId) return;
+    return registerThumbnailSource(documentId, () =>
+      captureFromContainer(containerRef.current),
+    );
+  }, [documentId]);
 
   useEffect(() => {
     if (!selectedChartId) return;
