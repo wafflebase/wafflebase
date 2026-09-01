@@ -16,6 +16,11 @@ import { Loader } from "@/components/loader";
 import { useTheme } from "@/components/theme-provider";
 import type { YorkieNotesRoot, NotesPresence } from "@/types/notes-document";
 import { YorkieNoteStore } from "./yorkie-note-store";
+import {
+  NOTE_THUMBNAIL_THEMES,
+  renderNoteThumbnail,
+} from "./notes-thumbnail";
+import { registerThumbnailSource } from "@/lib/thumbnail-capture";
 import { readShowAuthors } from "./notes-settings";
 
 export type { NoteEditorAPI } from "@wafflebase/notes";
@@ -41,6 +46,12 @@ interface NotesViewProps {
    * read-only mounts.
    */
   uploadImage?: UploadImage;
+  /**
+   * Enables the template gallery's thumbnail source for this note. Optional
+   * for the same reason it is on the other views: an anonymous share-link
+   * mount has no document id to key one on, and no way to publish anyway.
+   */
+  documentId?: string;
 }
 
 /**
@@ -88,6 +99,7 @@ export function NotesView({
   keymap = "default",
   showAuthors,
   uploadImage,
+  documentId,
 }: NotesViewProps) {
   // A mount that does not own a view menu still honours the preference the
   // user set in one that does — same per-browser key, read once.
@@ -95,6 +107,7 @@ export function NotesView({
   const gutterOn = showAuthors ?? storedShowAuthors;
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<NoteEditorAPI | null>(null);
+  const storeRef = useRef<YorkieNoteStore | null>(null);
   // The editor is initialized once (see the [didMount, doc] effect below), but
   // `uploadImage` changes identity as the document query resolves the
   // workspace id. Reading it through a ref hands the engine a stable callback
@@ -120,6 +133,7 @@ export function NotesView({
     if (!readOnly) ensureText(doc);
 
     const store = new YorkieNoteStore(doc);
+    storeRef.current = store;
     const theme = (resolvedTheme === "dark" ? "dark" : "light") as ThemeMode;
     const editor = initialize(container, store, theme, readOnly, viewMode, {
       showAuthors: gutterOn,
@@ -136,10 +150,28 @@ export function NotesView({
     return () => {
       editor.dispose();
       editorRef.current = null;
+      storeRef.current = null;
       onEditorReady?.(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [didMount, doc]);
+
+  // Let the template gallery show a note as something other than an icon
+  // (docs/design/template-gallery.md). Notes is the one DOM editor, so there
+  // is no canvas to photograph — `renderNoteThumbnail` draws the markdown
+  // itself. Registered here because only the view holds the store.
+  useEffect(() => {
+    if (!documentId) return;
+    return registerThumbnailSource(documentId, () => {
+      const text = storeRef.current?.getText();
+      return text
+        ? renderNoteThumbnail(
+            text,
+            NOTE_THUMBNAIL_THEMES[resolvedTheme === "dark" ? "dark" : "light"],
+          )
+        : null;
+    });
+  }, [documentId, resolvedTheme]);
 
   // Update the editor theme when the user toggles light/dark mode.
   useEffect(() => {

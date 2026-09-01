@@ -15,6 +15,12 @@
       "require": "./dist/cjs/geometry/index.js",
       "default": "./dist/geometry/index.js"
     },
+    "./image": {
+      "types": "./dist/image/index.d.ts",
+      "import": "./dist/image/index.js",
+      "require": "./dist/cjs/image/index.js",
+      "default": "./dist/image/index.js"
+    },
     "./tokens": {
       "types": "./dist/tokens/index.d.ts",
       "import": "./dist/tokens/index.js",

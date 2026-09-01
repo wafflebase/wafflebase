@@ -1,3 +1,5 @@
+import { loadImage } from '@wafflebase/core/image';
+
 /**
  * Shared cache of loaded inline images for the Canvas renderer. Populated
  * lazily on first render and reused across every DocCanvas / table-renderer
@@ -43,31 +45,41 @@ export function getOrLoadImage(
     return null;
   }
 
-  const img = new Image();
-  imageCache.set(src, img);
   const callbacks = new Set<() => void>([onLoad]);
   pendingImageCallbacks.set(src, callbacks);
 
-  img.onload = () => {
-    const waiting = pendingImageCallbacks.get(src);
-    pendingImageCallbacks.delete(src);
-    if (waiting) {
-      for (const cb of waiting) {
-        try {
-          cb();
-        } catch {
-          // Ignore listener errors so that one failing subscriber does
-          // not block notifications for the rest.
+  // CORS first, plain retry on failure (`@wafflebase/core/image`). Our own
+  // image bucket answers with the header, so its images leave the canvas
+  // readable — which is what lets the template gallery encode a thumbnail of
+  // a document containing one. A third-party host that sends no header costs
+  // one failed request and then renders exactly as it did before.
+  imageCache.set(
+    src,
+    loadImage(src, {
+      onLoad: () => {
+        const waiting = pendingImageCallbacks.get(src);
+        pendingImageCallbacks.delete(src);
+        if (waiting) {
+          for (const cb of waiting) {
+            try {
+              cb();
+            } catch {
+              // Ignore listener errors so that one failing subscriber does
+              // not block notifications for the rest.
+            }
+          }
         }
-      }
-    }
-  };
-  img.onerror = () => {
-    // Broken image is now cached; subsequent draws will skip it via the
-    // `naturalWidth > 0` guard above. Drop any pending callbacks so they
-    // are not retained forever.
-    pendingImageCallbacks.delete(src);
-  };
-  img.src = src;
+      },
+      onError: () => {
+        // Broken image is now cached; subsequent draws will skip it via the
+        // `naturalWidth > 0` guard above. Drop any pending callbacks so they
+        // are not retained forever.
+        pendingImageCallbacks.delete(src);
+      },
+      // The retry is a different element; the cache has to follow it or a
+      // later draw finds the one that already failed.
+      onRetry: (retry) => imageCache.set(src, retry),
+    }),
+  );
   return null;
 }

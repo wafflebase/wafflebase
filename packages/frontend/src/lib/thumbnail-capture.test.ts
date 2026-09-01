@@ -30,6 +30,7 @@ function fakeCanvas(
       : ({
           fillRect: vi.fn(),
           drawImage: vi.fn(),
+          scale: vi.fn(),
           fillStyle: '',
           ...opts.context,
         } as unknown as CanvasRenderingContext2D);
@@ -112,20 +113,20 @@ describe('registerThumbnailSource', () => {
 });
 
 describe('encodeThumbnail', () => {
-  it('bounds the longest edge at 640 and keeps the aspect ratio', async () => {
+  it('bounds the longest edge at 1280 and keeps the aspect ratio', async () => {
     const target = fakeCanvas(0, 0);
     stubCreatedCanvas(target);
     await encodeThumbnail(fakeCanvas(1920, 1080));
-    expect(target.width).toBe(640);
-    expect(target.height).toBe(360);
+    expect(target.width).toBe(1280);
+    expect(target.height).toBe(720);
   });
 
   it('bounds a portrait canvas by its height', async () => {
     const target = fakeCanvas(0, 0);
     stubCreatedCanvas(target);
     await encodeThumbnail(fakeCanvas(800, 1600));
-    expect(target.height).toBe(640);
-    expect(target.width).toBe(320);
+    expect(target.height).toBe(1280);
+    expect(target.width).toBe(640);
   });
 
   it('never upscales a small canvas', async () => {
@@ -192,6 +193,32 @@ describe('captureFromContainer', () => {
     expect(captureFromContainer(makeContainer([ruler, grid]))).toBe(out);
     // The ruler is 20px on its short axis, so only the grid is drawn.
     expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('composites at device pixels so a retina capture keeps its resolution', () => {
+    // The rect is CSS pixels while the editor's bitmap is `dpr` times that.
+    // Sizing the output to the rect resampled the capture to 1x before it was
+    // even downscaled.
+    const out = fakeCanvas(0, 0, { context: { scale: vi.fn() } });
+    const ctx = out.getContext('2d')!;
+    vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(2);
+    stubCreatedCanvas(out);
+
+    captureFromContainer(makeContainer([fakeCanvas(800, 600)]));
+    expect(out.width).toBe(1600);
+    expect(out.height).toBe(1200);
+    expect(ctx.scale).toHaveBeenCalledWith(2, 2);
+    // Draws stay in CSS coordinates; the transform does the scaling.
+    expect(ctx.fillRect).toHaveBeenCalledWith(0, 0, 800, 600);
+  });
+
+  it('caps the capture ratio so a 3x display does not quadruple the work', () => {
+    const out = fakeCanvas(0, 0, { context: { scale: vi.fn() } });
+    vi.spyOn(window, 'devicePixelRatio', 'get').mockReturnValue(3);
+    stubCreatedCanvas(out);
+
+    captureFromContainer(makeContainer([fakeCanvas(800, 600)]));
+    expect(out.width).toBe(1600);
   });
 
   it('crops to what was drawn, not to the container', () => {

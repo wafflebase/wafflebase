@@ -16,8 +16,24 @@
  * with.
  */
 
-/** Longest edge of the encoded thumbnail, in pixels. */
-const MAX_EDGE = 640;
+/**
+ * Longest edge of the encoded thumbnail, in pixels.
+ *
+ * Sized for the largest place a thumbnail is shown, which is not the gallery
+ * card: `/t/:id` renders it across a `max-w-3xl` column, about 720 CSS px, and
+ * on a 2× display that is ~1440 device pixels. At 640 the landing page was
+ * upscaling more than twice and looked it. 1280 covers the card at 2× as well,
+ * since a card is ~640 CSS px at its widest.
+ */
+const MAX_EDGE = 1280;
+
+/**
+ * Ceiling on the device-pixel ratio a capture composites at. Retina bitmaps
+ * are worth reading at their real size — compositing at CSS pixels threw away
+ * half of every docs and sheet capture before it was even downscaled — but a
+ * 3× display would quadruple the work for pixels {@link MAX_EDGE} discards.
+ */
+const MAX_CAPTURE_DPR = 2;
 
 /** WebP quality. High enough that text in a captured page stays legible. */
 const WEBP_QUALITY = 0.82;
@@ -185,11 +201,19 @@ export function captureFromContainer(
   const height = Math.round(bottom - top);
   if (layers.length === 0 || !(width > 0) || !(height > 0)) return null;
 
+  // Composite at device pixels, not CSS pixels. `getBoundingClientRect` is in
+  // CSS pixels while the editor's bitmap is `dpr` times that, so sizing the
+  // output to the rect resampled a retina capture down to 1× before
+  // `encodeThumbnail` had even looked at it — half the resolution thrown away
+  // for nothing. The draw calls below stay in CSS coordinates; the transform
+  // does the scaling.
+  const dpr = Math.min(window.devicePixelRatio || 1, MAX_CAPTURE_DPR);
   const out = document.createElement('canvas');
-  out.width = width;
-  out.height = height;
+  out.width = Math.round(width * dpr);
+  out.height = Math.round(height * dpr);
   const ctx = out.getContext('2d');
   if (!ctx) return null;
+  ctx.scale(dpr, dpr);
 
   // A layer may be transparent where it has nothing to say (a selection
   // overlay is almost entirely so), and a thumbnail encoded from a

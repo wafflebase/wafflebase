@@ -181,9 +181,12 @@ Alternatives considered:
 ### Rollout — Tier A in one package, three shippable PRs
 
 > **Status (as of v0.6.x):** the package exists with `./tokens`, `./geometry`,
-> and `./url` subpaths shipped (`./url` — safe-protocol hyperlink gating,
-> `SAFE_PROTOCOLS`/`isSafeUrl`, shared by the sheets and docs auto-link
-> renderers; added with #537). `./canvas`,
+> `./url`, and `./image` subpaths shipped (`./url` — safe-protocol hyperlink
+> gating, `SAFE_PROTOCOLS`/`isSafeUrl`, shared by the sheets and docs auto-link
+> renderers; added with #537. `./image` — `loadImage`, the CORS-then-plain-retry
+> load the Slides, Docs and Sheets image caches share so a canvas holding one of
+> our own images stays readable, per
+> [template-gallery.md](template-gallery.md)). `./canvas`,
 > `./ooxml`, and `./ooxml/drawingml` in the sketch below are **still roadmap**
 > (PR1's canvas piece and PR2/PR3 have not landed). The exports sketch and the
 > README index summary describe the target shape, not the current one.

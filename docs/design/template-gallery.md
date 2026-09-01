@@ -407,8 +407,9 @@ gallery exists. It is also what the frontend's architecture lint requires —
 | --- | --- | --- |
 | `slides` | `renderThumbnail()` into an offscreen canvas — **slide 1**, the same call the left-rail panel makes | shipped |
 | `doc`, `sheet`, `board` | composite of the live editor canvases | shipped |
+| `note` | **synthesized** — the first lines of the markdown drawn onto a canvas | shipped |
 | `pdf`, `image` | the stored blob's first page / the image itself | not built |
-| `note`, `file` | none — a document-type icon | by design |
+| `file` | none — a document-type icon | by design |
 
 Two arms differ from the offscreen-per-type sketch this section used to carry,
 and the reasons are worth keeping:
@@ -432,8 +433,23 @@ and the reasons are worth keeping:
   colour that is only right in one theme.
 - **`board` reads it too, and always will.** A board is an unbounded plane with
   no first page; the view the author left it on is the honest cover.
+- **`note` is not captured at all — it is drawn.** Notes is the one DOM editor
+  (CodeMirror plus a DOM preview), so `packages/notes/src` contains no canvas
+  to photograph, and the usual DOM-to-canvas trick — an SVG `foreignObject`
+  drawn as an image — taints the canvas in Chrome exactly as a remote image
+  does. `packages/frontend/src/app/notes/notes-thumbnail.ts` therefore
+  *synthesizes* a card from the first
+  lines of the markdown, the way a repository card does. It is a different kind
+  of artifact from the others — a description of the note rather than a picture
+  of the editor — but it is true to the content, cannot fail, and beats one
+  type having no image in a gallery.
 
-The result is downscaled (longest edge 640 px, WebP with a PNG fallback),
+A capture composites at **device pixels**, capped at 2×: `getBoundingClientRect`
+is CSS pixels while the editor's bitmap is `dpr` times that, so sizing the
+output to the rect threw away half of every retina capture before it was even
+downscaled.
+
+The result is downscaled (longest edge 1280 px, WebP with a PNG fallback),
 uploaded through the existing `POST /images`, and its **id** — never a URL —
 stored in `thumbnailId`, so a listing can only ever point at this deployment's
 bucket.
@@ -464,20 +480,35 @@ every card did before this existed. On a republish a failed capture is *omitted*
 from the request rather than sent as null, so it cannot blank the picture an
 earlier publish stored.
 
-#### The tainted-canvas limit
+#### Images and the tainted canvas
 
-A document holding a **remote image gets no thumbnail at all**. The editors
-load images without `crossOrigin` — deliberately, so that third-party image
-URLs render (`app/docs/image-insert.ts` explains why) — which taints the canvas
-and makes `toBlob` throw `SecurityError`. It is caught and answered with
-`null`.
+A canvas that has drawn an image fetched **without** CORS is tainted, and
+`toBlob` throws `SecurityError` on it — so before this was addressed, any
+document holding a single remote image got no thumbnail. That is not a rare
+case: the first real deck tested hit it.
 
-This is a real gap, not a rare one: an image is exactly what a deck worth
-publishing tends to contain. Closing it means loading our *own* bucket's images
-in CORS mode, with a no-`crossOrigin` retry on error so a missing header
-degrades to today's behavior rather than to a blank picture. That touches the
-shared image loaders in three engine packages and the main render path of every
-document, which is why it is not bundled with the capture itself.
+The editors originally set no `crossOrigin` at all, deliberately, because most
+third-party image hosts send no `Access-Control-Allow-Origin` and an `<img>`
+that asks for CORS against such a host fails outright rather than falling back.
+Both requirements hold, and they never apply to the same host — so the loaders
+now **ask for CORS and retry once without it**
+(`@wafflebase/core/image`, used by the Slides, Docs and Sheets image caches):
+
+- our own image bucket answers with the header (the API enables CORS for the
+  app origin), so its images load first time and leave the canvas readable;
+- a host that does not costs one failed request and then renders exactly as it
+  did before, tainting the canvas exactly as it did before.
+
+The retry has to replace the caller's cached element or a later draw finds the
+one that already failed, which is why the ordering lives in one shared helper
+rather than three copies.
+
+What remains uncoverable is a document referencing **another deployment's**
+bucket — a deck imported with `https://api.wafflebase.io/images/…` URLs opened
+against a local server, say. That origin's CORS allowlist does not include this
+one, so the retry path renders it and the canvas stays tainted. Capture answers
+`null` and the card falls back to its document-type icon, as it does for any
+other failure.
 
 ### Returning a visitor after login
 
