@@ -154,6 +154,45 @@ const STYLE_OVERHEAD_BYTES = 160;
  */
 export const MAX_IMPORT_CELLS = 40_000;
 
+export type ImportBudgetRejection = 'cells' | 'bytes';
+
+/**
+ * Tracks the same document and grid limits used by CSV imports.
+ *
+ * Kept separate from the CSV parser so another row-major importer can reject
+ * an over-limit document before it writes any cells.
+ */
+export function createImportBudget(): {
+  tryAddRow(cells: ReadonlyArray<Cell>): ImportBudgetRejection | undefined;
+} {
+  let cellCount = 0;
+  let byteCount = 0;
+
+  return {
+    tryAddRow(cells: ReadonlyArray<Cell>): ImportBudgetRejection | undefined {
+      if (cellCount + cells.length > MAX_IMPORT_CELLS) {
+        return 'cells';
+      }
+
+      const rowBytes = cells.reduce(
+        (total, cell) =>
+          total +
+          CELL_OVERHEAD_BYTES +
+          (cell.v?.length ?? cell.f?.length ?? 0) * BYTES_PER_CHARACTER +
+          (cell.s ? STYLE_OVERHEAD_BYTES : 0),
+        0,
+      );
+      if (byteCount + rowBytes > MAX_IMPORT_BYTES) {
+        return 'bytes';
+      }
+
+      cellCount += cells.length;
+      byteCount += rowBytes;
+      return undefined;
+    },
+  };
+}
+
 /**
  * What a streamed table import produces.
  *
@@ -250,7 +289,7 @@ export function createTableWriter(options?: {
   const pending: Array<[Ref, Cell]> = [];
   let maxColumn = 0;
   let cellCount = 0;
-  let byteCount = 0;
+  const budget = createImportBudget();
   let rowIndex = 0;
   let truncated = false;
   // The header is the first row that produced a cell, not necessarily row 1:
@@ -266,15 +305,10 @@ export function createTableWriter(options?: {
       // half-written would have a column count silently different from every
       // row above it.
       const converted: Array<[number, Cell]> = [];
-      let rowBytes = 0;
       for (let columnIndex = 0; columnIndex < row.length; columnIndex++) {
         const cell = toImportCell(row[columnIndex]);
         if (!cell) continue;
         converted.push([columnIndex + 1, cell]);
-        rowBytes +=
-          CELL_OVERHEAD_BYTES +
-          (cell.v?.length ?? 0) * BYTES_PER_CHARACTER +
-          (cell.s ? STYLE_OVERHEAD_BYTES : 0);
       }
 
       // Charged on cells written, not on fields parsed. A blank field costs
@@ -285,7 +319,10 @@ export function createTableWriter(options?: {
       // imported" while holding every one of them.
       //
       // Checked before writing, so truncation always lands on a row boundary.
-      if (cellCount + converted.length > MAX_IMPORT_CELLS) {
+      const budgetRejection = budget.tryAddRow(
+        converted.map(([, cell]) => cell),
+      );
+      if (budgetRejection === 'cells') {
         truncated = true;
         // The source's own width, not the populated count: this feeds a "too
         // many columns" message, and that is the number in the user's file.
@@ -297,7 +334,7 @@ export function createTableWriter(options?: {
       // binding one for text-heavy files: at ~8-character values a cell costs
       // ~122 bytes, but a column of prose runs several times that, so a file
       // can exhaust the document long before it exhausts the cell count.
-      if (byteCount + rowBytes > MAX_IMPORT_BYTES) {
+      if (budgetRejection === 'bytes') {
         truncated = true;
         return false;
       }
@@ -309,7 +346,6 @@ export function createTableWriter(options?: {
         if (headerRow === 0) headerRow = rowIndex;
       }
       cellCount += converted.length;
-      byteCount += rowBytes;
       return true;
     },
 

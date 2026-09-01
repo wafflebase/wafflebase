@@ -177,6 +177,17 @@ function manualChunks(id: string): string | undefined {
     return "vendor-yorkie";
   }
 
+  // Parquet decoding is only reachable from the lazy sheet import surface.
+  // Keep its reader and codecs in the existing sheet core chunk instead of
+  // emitting one chunk per dynamic import.
+  if (
+    normalizedId.includes("node_modules/hyparquet") ||
+    normalizedId.includes("node_modules/fzstd") ||
+    normalizedId.includes("node_modules/hysnappy")
+  ) {
+    return "sheet-core";
+  }
+
   if (
     normalizedId.includes("node_modules/antlr4ts") ||
     normalizedId.includes("/packages/sheets/antlr/")

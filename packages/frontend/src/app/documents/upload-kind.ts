@@ -24,6 +24,7 @@ const EXT_TO_KIND: Record<string, UploadKind> = {
   ndjson: "sheet",
   csv: "sheet",
   tsv: "sheet",
+  parquet: "sheet",
   docx: "doc",
   pptx: "slides",
   pdf: "pdf",

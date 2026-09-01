@@ -31,12 +31,22 @@ const sheetsMocks = vi.hoisted(() => ({
       truncated: true,
     }),
   })),
+  importParquetFile: vi.fn(
+    async (_data: ArrayBuffer, options: { sheetName: string }) => ({
+      name: options.sheetName,
+      worksheet: {},
+      cellCount: 1,
+      rowCount: 2,
+      columnCount: 1,
+    }),
+  ),
 }));
 
 vi.mock("@wafflebase/sheets", () => ({
   importXlsxWorkbook: sheetsMocks.importXlsxWorkbook,
   importJsonText: sheetsMocks.importJsonText,
   createTableWriter: sheetsMocks.createTableWriter,
+  importParquetFile: sheetsMocks.importParquetFile,
   // `xlsx-actions` reaches `getUniqueTabName` via the `tab-name` re-export,
   // which now resolves through this module, so the mock must provide it.
   getUniqueTabName: (
@@ -120,6 +130,19 @@ describe("importSheetFile", () => {
 
     const tsv = await importSheetFile(new File(["a\tb\n1\t2\n"], "grid.tsv"));
     expect(tsv.document.tabs["tab-1"].name).toBe("grid");
+  });
+
+  it("imports Parquet with a file-name tab", async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], "metrics.PARQUET");
+
+    const { document, fileName } = await importSheetFile(file);
+
+    expect(fileName).toBe("metrics.PARQUET");
+    expect(sheetsMocks.importParquetFile).toHaveBeenCalledWith(
+      expect.any(ArrayBuffer),
+      { sheetName: "metrics" },
+    );
+    expect(document.tabs["tab-1"].name).toBe("metrics");
   });
 
   it("rejects unsupported sheet formats", async () => {

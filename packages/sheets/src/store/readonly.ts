@@ -30,9 +30,21 @@ import { Store } from './store';
  * Converts a raw query result value to a string suitable for a sheet cell.
  * Date → ISO string, object → JSON, everything else → String().
  */
+function binaryToHex(bytes: Uint8Array): string {
+  return `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function jsonCellReplacer(_key: string, value: unknown): unknown {
+  if (typeof value === 'bigint') return value.toString();
+  if (value instanceof Uint8Array) return binaryToHex(value);
+  return value;
+}
+
 export function toCell(val: unknown): string {
   if (val instanceof Date) return val.toISOString();
-  if (typeof val === 'object' && val !== null) return JSON.stringify(val);
+  if (typeof val === 'object' && val !== null) {
+    return JSON.stringify(val, jsonCellReplacer);
+  }
   return String(val);
 }
 

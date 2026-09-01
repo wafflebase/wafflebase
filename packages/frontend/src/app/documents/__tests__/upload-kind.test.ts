@@ -9,6 +9,7 @@ describe("classifyUploadKind", () => {
     expect(classifyUploadKind("logs.NDJSON")).toBe("sheet");
     expect(classifyUploadKind("export.CSV")).toBe("sheet");
     expect(classifyUploadKind("export.tsv")).toBe("sheet");
+    expect(classifyUploadKind("metrics.PARQUET")).toBe("sheet");
     expect(classifyUploadKind("notes.docx")).toBe("doc");
     expect(classifyUploadKind("deck.pptx")).toBe("slides");
     expect(classifyUploadKind("report.pdf")).toBe("pdf");

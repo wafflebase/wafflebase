@@ -234,6 +234,8 @@ import type {
   JsonImportMode,
   JsonImportOptions,
 } from './import/json-importer';
+import { importParquetFile } from './import/parquet-importer';
+import type { ParquetImportOptions } from './import/parquet-importer';
 import type { ImportedSheet } from './import/imported-sheet';
 import {
   createTableWriter,
@@ -378,6 +380,7 @@ export {
   createTableWriter,
   importTable,
   MAX_IMPORT_CELLS,
+  importParquetFile,
 };
 
 export type {
@@ -447,6 +450,7 @@ export type {
   CommentAuthor,
   Thread,
   ImportedSheet,
+  ParquetImportOptions,
   ImportedXlsxSheet,
   XlsxFileLike,
   JsonImportMode,

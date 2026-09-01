@@ -57,10 +57,12 @@ header/coercion helper.
 `packages/backend/src/file-import/` (new) reusing `lakehouse/duckdb.service.ts`,
 `packages/backend/src/image/image.service.ts` (S3 upload), frontend import dialog.
 
-- [ ] **Small local: client-side `hyparquet`.**
-  Scope: add `hyparquet` dep; read a local `.parquet` in the browser → materialize
-  via the standard `Store` write path.
-  Done: a small Parquet imports with no server round-trip.
+- [x] **Small local: client-side `hyparquet`.**
+  Scope: read a local `.parquet` in the browser → materialize via the standard
+  `Store` write path. The common upload queue keeps its 50 MB file cap; this
+  path rejects a sheet over 40,000 potential cells or the existing document
+  byte budget rather than creating a partial sheet.
+  Done: a bounded small Parquet imports with no server round-trip.
 - [ ] **Large/remote: backend DuckDB `read_parquet` + preview.**
   Scope: upload to S3 (`imports/` prefix) via the image S3 infra; read with
   `DuckDbService.read_parquet`; return first-N preview in the shared
