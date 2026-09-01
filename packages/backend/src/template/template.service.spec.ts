@@ -36,6 +36,11 @@ const LISTING = {
   creator: { id: 7, username: 'author', photo: null },
 };
 
+/** The shape `publish()` hands Prisma, so the upsert mock needs no casts. */
+type ListingFields = Record<string, unknown>;
+type UpsertArgs = { create: ListingFields; update: ListingFields };
+type UpdateArgs = { where: { id: string }; data: ListingFields };
+
 /**
  * `members` maps `<workspaceId>:<userId>` to a role, so a test states exactly
  * who belongs where — the distinction the whole authorization story turns on.
@@ -49,49 +54,60 @@ function makeService(
   } = {},
 ) {
   const members = opts.members ?? { 'ws-1:7': 'member' };
+  // `Promise.resolve` rather than `async () =>`: a mock body with nothing to
+  // await trips `@typescript-eslint/require-await`, which the backend lint
+  // enforces (and which `verify:fast` does not run — see the lessons file).
   const prisma = {
     document: {
-      findUnique: jest.fn(async () =>
-        opts.document === undefined ? DOC : opts.document,
+      findUnique: jest.fn(() =>
+        Promise.resolve(opts.document === undefined ? DOC : opts.document),
       ),
     },
     workspaceMember: {
       findUnique: jest.fn(
-        async ({
+        ({
           where,
         }: {
-          where: { workspaceId_userId: { workspaceId: string; userId: number } };
+          where: {
+            workspaceId_userId: { workspaceId: string; userId: number };
+          };
         }) => {
           const { workspaceId, userId } = where.workspaceId_userId;
           const role = members[`${workspaceId}:${userId}`];
-          return role ? { workspaceId, userId, role } : null;
+          return Promise.resolve(role ? { workspaceId, userId, role } : null);
         },
       ),
     },
     templateListing: {
-      findUnique: jest.fn(async () =>
-        opts.listing === undefined ? LISTING : opts.listing,
+      findUnique: jest.fn(() =>
+        Promise.resolve(opts.listing === undefined ? LISTING : opts.listing),
       ),
-      upsert: jest.fn(async ({ create, update }: Record<string, unknown>) => ({
-        ...LISTING,
-        ...(create as object),
-        ...(update as object),
-      })),
-      update: jest.fn(async () => LISTING),
-      delete: jest.fn(async () => LISTING),
+      upsert: jest.fn(({ create, update }: UpsertArgs) =>
+        Promise.resolve({ ...LISTING, ...create, ...update }),
+      ),
+      update: jest.fn((args: UpdateArgs) =>
+        Promise.resolve({ ...LISTING, ...args.data }),
+      ),
+      delete: jest.fn(() => Promise.resolve(LISTING)),
     },
-    shareLink: { delete: jest.fn(async () => ({ id: 'link-1' })) },
+    shareLink: { delete: jest.fn(() => Promise.resolve({ id: 'link-1' })) },
   };
-  const documentCopyService = { copy: jest.fn(async () => ({ id: 'new-1' })) };
-  const shareLinkService = { create: jest.fn(async () => ({ id: 'link-2' })) };
+  const documentCopyService = {
+    copy: jest.fn(() => Promise.resolve({ id: 'new-1' })),
+  };
+  const shareLinkService = {
+    create: jest.fn(() => Promise.resolve({ id: 'link-2' })),
+  };
   const workspaceService = {
-    assertMember: jest.fn(async (workspaceId: string, userId: number) => {
+    assertMember: jest.fn((workspaceId: string, userId: number) => {
       const role = members[`${workspaceId}:${userId}`];
       if (!role) throw new ForbiddenException('Not a member of this workspace');
-      return { workspaceId, userId, role };
+      return Promise.resolve({ workspaceId, userId, role });
     }),
   };
-  const folderService = { assertSameWorkspace: jest.fn(async () => undefined) };
+  const folderService = {
+    assertSameWorkspace: jest.fn(() => Promise.resolve(undefined)),
+  };
 
   const service = new TemplateService(
     prisma as never,
@@ -176,10 +192,8 @@ describe('TemplateService.publish', () => {
   it('defaults the listing title to the document title', async () => {
     const { service, prisma } = makeService({ listing: null });
     await service.publish('doc-1', 7, {});
-    expect(prisma.templateListing.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({ title: 'Weekly Report' }),
-      }),
+    expect(prisma.templateListing.upsert.mock.calls[0][0].create).toMatchObject(
+      { title: 'Weekly Report' },
     );
   });
 
@@ -191,10 +205,8 @@ describe('TemplateService.publish', () => {
       listing: { ...LISTING, visibility: 'workspace' },
     });
     await service.publish('doc-1', 7, { thumbnailId: 'a.png' });
-    expect(prisma.templateListing.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: expect.objectContaining({ visibility: 'workspace' }),
-      }),
+    expect(prisma.templateListing.upsert.mock.calls[0][0].update).toMatchObject(
+      { visibility: 'workspace' },
     );
   });
 
@@ -209,16 +221,14 @@ describe('TemplateService.publish', () => {
       },
     });
     await service.publish('doc-1', 7, { thumbnailId: 'a.png' });
-    expect(prisma.templateListing.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: expect.objectContaining({
-          title: 'Renamed',
-          description: 'why',
-          category: 'Finance',
-          tags: ['ops'],
-          thumbnailId: 'a.png',
-        }),
-      }),
+    expect(prisma.templateListing.upsert.mock.calls[0][0].update).toMatchObject(
+      {
+        title: 'Renamed',
+        description: 'why',
+        category: 'Finance',
+        tags: ['ops'],
+        thumbnailId: 'a.png',
+      },
     );
   });
 
@@ -232,6 +242,71 @@ describe('TemplateService.publish', () => {
         acceptLicense: true,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('TemplateService.update', () => {
+  it('lets a manager edit listing metadata', async () => {
+    const { service, prisma } = makeService();
+    await service.update('tpl-1', 7, { title: 'Renamed', category: 'Finance' });
+    expect(prisma.templateListing.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'tpl-1' },
+        data: expect.objectContaining({
+          title: 'Renamed',
+          category: 'Finance',
+        }) as unknown,
+      }),
+    );
+  });
+
+  it('leaves fields the body omits untouched', async () => {
+    // `update` writes only the keys actually present, so an omitted field is
+    // "leave alone" rather than "clear" — the distinction `publish` got wrong.
+    const { service, prisma } = makeService();
+    await service.update('tpl-1', 7, { title: 'Renamed' });
+    const data = prisma.templateListing.update.mock.calls[0][0].data;
+    expect(data).toEqual({ title: 'Renamed' });
+  });
+
+  it('distinguishes clearing a field from omitting it', async () => {
+    const { service, prisma } = makeService();
+    await service.update('tpl-1', 7, { description: '' });
+    expect(prisma.templateListing.update.mock.calls[0][0].data).toEqual({
+      description: '',
+    });
+  });
+
+  it('refuses a non-manager', async () => {
+    const { service } = makeService({ members: { 'ws-1:9': 'member' } });
+    await expect(
+      service.update('tpl-1', 9, { title: 'Renamed' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('404s on a missing listing', async () => {
+    const { service } = makeService({ listing: null });
+    await expect(
+      service.update('tpl-1', 7, { title: 'Renamed' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('refuses raising an existing listing to the public tier', async () => {
+    const { service } = makeService();
+    await expect(
+      service.update('tpl-1', 7, { visibility: 'public' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('allows an edit to a listing that is already public-free', async () => {
+    // `assertPublishable` reads the *resulting* visibility, so an unrelated
+    // edit to a workspace listing must not be refused.
+    const { service } = makeService({
+      listing: { ...LISTING, visibility: 'workspace' },
+    });
+    await expect(
+      service.update('tpl-1', 7, { title: 'Renamed' }),
+    ).resolves.toBeDefined();
   });
 });
 

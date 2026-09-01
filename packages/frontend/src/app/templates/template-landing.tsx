@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getTemplate, createFromTemplate } from "@/api/templates";
 import { fetchWorkspaces } from "@/api/workspaces";
-import { fetchMeOptional } from "@/api/auth";
+import { fetchMeOptional, isAuthExpiredError } from "@/api/auth";
 import { Loader } from "@/components/loader";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -96,6 +96,9 @@ export function TemplateLanding() {
       toast.success("Document created from template");
       navigate(getDocumentPath({ id: doc.id, type: doc.type as DocumentType }));
     } catch (error) {
+      // `fetchWithAuth` redirects to login and throws when the session has
+      // expired; a failure toast on top of that redirect is stale noise.
+      if (isAuthExpiredError(error)) return;
       toast.error(
         error instanceof Error
           ? error.message

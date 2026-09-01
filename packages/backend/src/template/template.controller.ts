@@ -41,11 +41,7 @@ export class TemplateController {
     @Req() req: AuthenticatedRequest,
     @Body() body: PublishTemplateDto,
   ): Promise<TemplateListingView> {
-    return this.templateService.publish(
-      documentId,
-      Number(req.user.id),
-      body,
-    );
+    return this.templateService.publish(documentId, Number(req.user.id), body);
   }
 
   /** The listing attached to a document, or `null` — the Share dialog's tab. */
@@ -55,10 +51,7 @@ export class TemplateController {
     @Param('id') documentId: string,
     @Req() req: AuthenticatedRequest,
   ): Promise<TemplateListingView | null> {
-    return this.templateService.findByDocument(
-      documentId,
-      Number(req.user.id),
-    );
+    return this.templateService.findByDocument(documentId, Number(req.user.id));
   }
 
   @Patch('templates/:id')

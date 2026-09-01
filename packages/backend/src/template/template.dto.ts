@@ -18,7 +18,11 @@ import { VALID_IMAGE_ID_PATTERN } from '../image/image.constants';
  * Phase 3 review pipeline exists: listing content that nothing reviews is the
  * one failure mode a template gallery cannot walk back.
  */
-export const TEMPLATE_VISIBILITIES = ['unlisted', 'workspace', 'public'] as const;
+export const TEMPLATE_VISIBILITIES = [
+  'unlisted',
+  'workspace',
+  'public',
+] as const;
 export type TemplateVisibility = (typeof TEMPLATE_VISIBILITIES)[number];
 
 /** Matches the rename DTO's limit, so a listing title is always editable. */

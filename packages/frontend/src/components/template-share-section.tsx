@@ -61,15 +61,30 @@ export function TemplateShareSection({
     ? `${window.location.origin}/t/${listing.id}`
     : null;
 
+  /**
+   * Clipboard failures are reported separately from the mutation that preceded
+   * them. A denied clipboard permission after a successful publish would
+   * otherwise surface as "Failed to publish template" while the listing is
+   * already live — telling the user the opposite of what happened.
+   */
+  const copyToClipboard = async (url: string, ok: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(ok);
+    } catch {
+      toast.error("Could not copy the link. Copy it from the address bar.");
+    }
+  };
+
   const handlePublish = async () => {
     setBusy(true);
     try {
       const published = await publishTemplate(documentId);
       setListing(published);
-      await navigator.clipboard.writeText(
+      await copyToClipboard(
         `${window.location.origin}/t/${published.id}`,
+        "Template link created and copied to clipboard",
       );
-      toast.success("Template link created and copied to clipboard");
     } catch (error) {
       if (isAuthExpiredError(error)) return;
       toast.error(
@@ -82,8 +97,7 @@ export function TemplateShareSection({
 
   const handleCopy = async () => {
     if (!templateUrl) return;
-    await navigator.clipboard.writeText(templateUrl);
-    toast.success("Template link copied to clipboard");
+    await copyToClipboard(templateUrl, "Template link copied to clipboard");
   };
 
   const handleUnpublish = async () => {

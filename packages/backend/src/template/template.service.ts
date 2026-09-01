@@ -141,7 +141,9 @@ export class TemplateService {
       thumbnailId: dto.thumbnailId ?? existing?.thumbnailId ?? null,
       visibility,
       status: 'listed',
-      licensedAt: dto.acceptLicense ? new Date() : (existing?.licensedAt ?? null),
+      licensedAt: dto.acceptLicense
+        ? new Date()
+        : (existing?.licensedAt ?? null),
       publishedAt: existing?.publishedAt ?? new Date(),
       shareLinkId,
     };
@@ -240,9 +242,7 @@ export class TemplateService {
     });
     if (!listing) throw new NotFoundException('Template not found');
 
-    const canManage = userId
-      ? await this.isManagerOf(listing, userId)
-      : false;
+    const canManage = userId ? await this.isManagerOf(listing, userId) : false;
     if (!canManage && !(await this.isVisibleTo(listing, userId))) {
       throw new NotFoundException('Template not found');
     }

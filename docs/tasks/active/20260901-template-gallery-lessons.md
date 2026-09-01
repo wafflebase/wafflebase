@@ -43,6 +43,30 @@ through different ids need the gate appropriate to *their own* id: the
 document route is membership-gated, the `/t/:id` route is
 capability-gated. Both are correct; sharing one predicate was not.
 
+## `verify:fast` does not lint the backend
+
+The most useful thing CodeRabbit found was not a bug — it was that my gate had
+a hole. `verify:fast` runs `pnpm backend test` but **never `pnpm backend
+lint`**; the only backend ESLint in the chain is `arch:backend`, which uses the
+separate `eslint.arch.config.mjs`. So 39 `prettier/prettier`,
+`@typescript-eslint/require-await` and `no-unsafe-assignment` errors in new
+backend code passed both `verify:fast` and `verify:self`.
+
+Two compounding details:
+
+- `packages/backend`'s `lint` script is `eslint … **--fix**`. Running it does
+  not report a clean tree; it *rewrites* one. To see what CI-style checking
+  would see, run `npx eslint src/<path>` from `packages/backend` with no
+  `--fix`.
+- The backend already carries pre-existing lint debt for this exact reason —
+  20 errors in `document-copy.service.spec.ts` and `document.module.ts` alone,
+  confirmed present on `main` by stashing and re-linting. So "the lint output
+  is not empty" proves nothing; only a before/after comparison does.
+
+**How to apply:** after touching `packages/backend`, lint the changed files
+explicitly without `--fix`, and diff against `main` before assuming an error is
+yours. Do not fix pre-existing debt in a feature PR — it buries the diff.
+
 ## Traps hit
 
 - **`useTemplate` is not a legal API function name.** `react-hooks/rules-of-hooks`
