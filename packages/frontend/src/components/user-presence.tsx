@@ -24,8 +24,11 @@ import { AVATAR_SIZE_CLASS, type AvatarSize } from "@/components/avatar-size";
 /**
  * One literal for both the drawn stack and the slot held open before it
  * exists, so the two cannot be changed apart.
+ *
+ * Exported so the test that pins them together reads this rather than
+ * restating the size, which would make changing it here a false failure.
  */
-const PRESENCE_AVATAR_SIZE: AvatarSize = 32;
+export const PRESENCE_AVATAR_SIZE: AvatarSize = 32;
 
 interface UserPresenceProps {
   className?: string;

@@ -30,7 +30,10 @@ vi.mock("@wafflebase/sheets", () => ({
 }));
 
 import { AVATAR_SIZE_CLASS } from "@/components/avatar-size";
-import { UserPresence } from "@/components/user-presence";
+import {
+  PRESENCE_AVATAR_SIZE,
+  UserPresence,
+} from "@/components/user-presence";
 
 function renderPresence() {
   return render(
@@ -41,21 +44,40 @@ function renderPresence() {
 }
 
 /**
- * Every width/height utility on an element, with `size-N` expanded to the
- * pair it stands for and duplicates collapsed.
+ * Every utility on an element that can set a width or height, reduced to the
+ * ones that actually win.
+ *
+ * `size-N` needs handling rather than ignoring: `cn()` is `twMerge`, which
+ * only lets `size-*` override a *preceding* `w-*`/`h-*`, not a following one.
+ * shadcn's `Avatar` puts `size-8` in its base classes and `AvatarStack` passes
+ * `h-N w-N` after it, so both survive the merge and reach the DOM together.
+ * In the stylesheet Tailwind emits `h-*`/`w-*` after `size-*`, so the explicit
+ * pair is what paints — which is why `size-N` contributes only on an axis
+ * that has no explicit utility. Expanding it unconditionally would report a
+ * phantom `h-8 w-8` on a `size={24}` stack and fail a correct component.
  */
 function sizingTokens(element: Element): string[] {
-  const tokens = element.className.split(" ").flatMap((token) => {
+  const classes = element.className.split(" ");
+  const explicit = classes.filter((token) =>
+    /^(?:min-|max-)?[wh]-|^basis-/.test(token),
+  );
+  const hasAxis = (axis: "w" | "h") =>
+    explicit.some((token) => token.startsWith(`${axis}-`));
+
+  const fromSize = classes.flatMap((token) => {
     const size = /^size-(.+)$/.exec(token);
-    if (size) return [`h-${size[1]}`, `w-${size[1]}`];
-    return /^[wh]-/.test(token) ? [token] : [];
+    if (!size) return [];
+    return (["h", "w"] as const)
+      .filter((axis) => !hasAxis(axis))
+      .map((axis) => `${axis}-${size[1]}`);
   });
-  return [...new Set(tokens)].sort();
+
+  return [...new Set([...explicit, ...fromSize])].sort();
 }
 
 /**
  * Asserts the element is one avatar wide and tall — carrying those utilities
- * and *no others* that set a width or height.
+ * and *no others* that could set a width or height.
  *
  * Merely finding `w-8` in the list would pass for `"w-8 w-32"`, which paints
  * a 128px box: Tailwind settles a collision by stylesheet order, not by the
@@ -65,7 +87,7 @@ function sizingTokens(element: Element): string[] {
  */
 function expectSizedLikeOneAvatar(element: Element) {
   expect(sizingTokens(element)).toEqual(
-    [...AVATAR_SIZE_CLASS[32].split(" ")].sort(),
+    [...AVATAR_SIZE_CLASS[PRESENCE_AVATAR_SIZE].split(" ")].sort(),
   );
 }
 

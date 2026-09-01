@@ -3,8 +3,9 @@
  *
  * Their own module rather than constants inside `avatar-stack.tsx` because a
  * caller has to reserve the space an avatar *will* take before it exists —
- * `UserPresence` holds a slot open while its Yorkie document attaches — and a
- * component file may not export non-components without breaking fast refresh.
+ * `UserPresence` holds a slot open while its Yorkie document attaches — and
+ * `react-refresh/only-export-components` lets a component file export scalar
+ * constants but not object ones, which these are.
  */
 export const AVATAR_SIZE_CLASS = {
   24: "h-6 w-6",
