@@ -19,12 +19,8 @@ import { SiteHeader } from "@/components/site-header";
 import { UserPresence } from "@/components/user-presence";
 import { ShareDialog } from "@/components/share-dialog";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
-import {
-  IconFolder,
-  IconSettings,
-  IconDatabase,
-  IconMessage,
-} from "@tabler/icons-react";
+import { IconMessage } from "@tabler/icons-react";
+import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -197,39 +193,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     }
   }, [isDocumentError, navigate, fallbackSlug]);
 
-  const items = useMemo(() => {
-    if (workspaceSlug) {
-      return {
-        main: [
-          {
-            title: "Documents",
-            url: `/w/${workspaceSlug}`,
-            icon: IconFolder,
-          },
-          {
-            title: "Data Sources",
-            url: `/w/${workspaceSlug}/datasources`,
-            icon: IconDatabase,
-          },
-          {
-            title: "Settings",
-            url: `/w/${workspaceSlug}/settings`,
-            icon: IconSettings,
-          },
-        ],
-        secondary: [],
-      };
-    }
-
-    return {
-      main: [
-        { title: "Documents", url: "/documents", icon: IconFolder },
-        { title: "Data Sources", url: "/datasources", icon: IconDatabase },
-        { title: "Settings", url: "/settings", icon: IconSettings },
-      ],
-      secondary: [],
-    };
-  }, [workspaceSlug]);
+  const items = useWorkspaceNavItems(workspaceSlug);
 
   const handleWorkspaceChange = useCallback(
     (slug: string) => {

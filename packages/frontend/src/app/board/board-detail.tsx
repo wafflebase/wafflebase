@@ -1,7 +1,7 @@
 import { DocumentProvider } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect } from "react";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -11,7 +11,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
-import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
+import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { initialBoardRoot } from "@/types/board-document";
 import { BoardView } from "./board-view";
@@ -59,34 +59,7 @@ function BoardLayout({ documentId }: { documentId: string }) {
     }
   }, [isDocumentError, navigate, fallbackSlug]);
 
-  const items = useMemo(() => {
-    if (workspaceSlug) {
-      return {
-        main: [
-          { title: "Documents", url: `/w/${workspaceSlug}`, icon: IconFolder },
-          {
-            title: "Data Sources",
-            url: `/w/${workspaceSlug}/datasources`,
-            icon: IconDatabase,
-          },
-          {
-            title: "Settings",
-            url: `/w/${workspaceSlug}/settings`,
-            icon: IconSettings,
-          },
-        ],
-        secondary: [],
-      };
-    }
-    return {
-      main: [
-        { title: "Documents", url: "/documents", icon: IconFolder },
-        { title: "Data Sources", url: "/datasources", icon: IconDatabase },
-        { title: "Settings", url: "/settings", icon: IconSettings },
-      ],
-      secondary: [],
-    };
-  }, [workspaceSlug]);
+  const items = useWorkspaceNavItems(workspaceSlug);
 
   const handleWorkspaceChange = useCallback(
     (slug: string) => {

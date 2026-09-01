@@ -2,20 +2,10 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { matchPath, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
-import {
-  IconFolder,
-  IconLayoutGrid,
-  IconSettings,
-  IconDatabase,
-  IconChartBar,
-} from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  fetchWorkspaces,
-  fetchAnalyticsEnabled,
-  type Workspace,
-} from "@/api/workspaces";
-import { useEffect, useMemo } from "react";
+import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
+import { useEffect } from "react";
+import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { UploadPanel } from "@/app/documents/upload-panel";
 
 /** Declarative route → title mapping. First match wins. */
@@ -45,67 +35,13 @@ export default function Layout() {
     queryFn: fetchWorkspaces,
   });
 
-  // Hide the Analytics nav entry when the deployment has no analytics
-  // warehouse configured (StarRocks unset).
-  const { data: analyticsEnabled = false } = useQuery({
-    queryKey: ["analytics", "enabled"],
-    queryFn: fetchAnalyticsEnabled,
-    staleTime: 5 * 60 * 1000,
-  });
-
   const currentWorkspace = workspaces.find(
     (w) => w.slug === workspaceId || w.id === workspaceId,
   );
   const workspaceSlug =
     currentWorkspace?.slug || workspaceId || workspaces[0]?.slug;
 
-  const items = useMemo(() => {
-    if (workspaceSlug) {
-      return {
-        main: [
-          {
-            title: "Documents",
-            url: `/w/${workspaceSlug}`,
-            icon: IconFolder,
-          },
-          {
-            title: "Templates",
-            url: `/w/${workspaceSlug}/templates`,
-            icon: IconLayoutGrid,
-          },
-          {
-            title: "Data Sources",
-            url: `/w/${workspaceSlug}/datasources`,
-            icon: IconDatabase,
-          },
-          ...(analyticsEnabled
-            ? [
-                {
-                  title: "Analytics",
-                  url: `/w/${workspaceSlug}/analytics`,
-                  icon: IconChartBar,
-                },
-              ]
-            : []),
-          {
-            title: "Settings",
-            url: `/w/${workspaceSlug}/settings`,
-            icon: IconSettings,
-          },
-        ],
-        secondary: [],
-      };
-    }
-
-    return {
-      main: [
-        { title: "Documents", url: "/documents", icon: IconFolder },
-        { title: "Data Sources", url: "/datasources", icon: IconDatabase },
-        { title: "Settings", url: "/settings", icon: IconSettings },
-      ],
-      secondary: [],
-    };
-  }, [workspaceSlug, analyticsEnabled]);
+  const items = useWorkspaceNavItems(workspaceSlug);
 
   const title =
     ROUTE_TITLES.find((r) => matchPath(r.path, location.pathname))?.title ?? "";

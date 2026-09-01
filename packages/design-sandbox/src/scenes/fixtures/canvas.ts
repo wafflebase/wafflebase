@@ -1,13 +1,16 @@
 /**
  * What a canvas scene's own PAGE fetches, as opposed to what its engine
  * renders. `document-detail.tsx` / `docs-detail.tsx` / `slides-detail.tsx` /
- * `notes-detail.tsx` all call the same three things directly (confirmed by
+ * `notes-detail.tsx` all call the same four things directly (confirmed by
  * grepping every one of them): `fetchMe`/`fetchMeOptional` (`/auth/me`,
  * already covered by `auth.ts` — every canvas scene's `mocks` already lists
  * `"auth"`), `fetchWorkspaces` (`/workspaces`, for the sidebar's workspace
  * switcher — these pages render their OWN `<AppSidebar>` rather than going
  * through `shell: "app"`, so `shell.ts`'s `SHELL_FIXTURES` never applies
- * here), and `fetchDocument(id)` (`/documents/:id`, this document's own
+ * here), `fetchAnalyticsEnabled` (`/analytics/enabled`, reached through
+ * `hooks/use-workspace-nav-items.ts` — the sidebar nav list is shared with
+ * `Layout` now, so these pages inherit its Analytics gate), and
+ * `fetchDocument(id)` (`/documents/:id`, this document's own
  * title/workspaceId — `id` is literally `"fixture"` for all four scenes,
  * since every canvas route is `/s/fixture`, `/d/fixture`, ... and each
  * fetches under its OWN ref, so the identical URL path across all four
@@ -36,6 +39,9 @@ const ws = FIXTURE_WORKSPACE.id;
 const WORKSPACES_FIXTURE: FixtureTable = {
   '/api/workspaces': [FIXTURE_WORKSPACE],
   [`/api/workspaces/${ws}`]: FIXTURE_WORKSPACE_DETAIL,
+  /** `enabled: true` for the same reason `shell.ts` gives: a conditional nav
+   *  row that never renders is a row nobody can judge. */
+  '/api/analytics/enabled': { enabled: true },
 };
 
 function documentFixture(doc: {

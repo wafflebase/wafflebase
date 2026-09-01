@@ -12,7 +12,7 @@ import { SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
-import { IconFolder, IconSettings, IconDatabase } from "@tabler/icons-react";
+import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { useIsMobile } from "@/hooks/use-mobile";
 import type { Theme } from "@wafflebase/slides";
@@ -272,23 +272,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   );
   const workspaceSlug = currentWorkspace?.slug;
 
-  const items = useMemo(() => {
-    const wsRoot = workspaceSlug ? `/w/${workspaceSlug}` : "/documents";
-    const dsRoot = workspaceSlug
-      ? `/w/${workspaceSlug}/datasources`
-      : "/datasources";
-    const stRoot = workspaceSlug
-      ? `/w/${workspaceSlug}/settings`
-      : "/settings";
-    return {
-      main: [
-        { title: "Documents", url: wsRoot, icon: IconFolder },
-        { title: "Data Sources", url: dsRoot, icon: IconDatabase },
-        { title: "Settings", url: stRoot, icon: IconSettings },
-      ],
-      secondary: [],
-    };
-  }, [workspaceSlug]);
+  const items = useWorkspaceNavItems(workspaceSlug);
 
   const handleWorkspaceChange = useCallback(
     (slug: string) => navigate(`/w/${slug}`),
@@ -613,23 +597,7 @@ function MobileSlidesLayout({ documentId }: { documentId: string }) {
   );
   const workspaceSlug = currentWorkspace?.slug;
 
-  const items = useMemo(() => {
-    const wsRoot = workspaceSlug ? `/w/${workspaceSlug}` : "/documents";
-    const dsRoot = workspaceSlug
-      ? `/w/${workspaceSlug}/datasources`
-      : "/datasources";
-    const stRoot = workspaceSlug
-      ? `/w/${workspaceSlug}/settings`
-      : "/settings";
-    return {
-      main: [
-        { title: "Documents", url: wsRoot, icon: IconFolder },
-        { title: "Data Sources", url: dsRoot, icon: IconDatabase },
-        { title: "Settings", url: stRoot, icon: IconSettings },
-      ],
-      secondary: [],
-    };
-  }, [workspaceSlug]);
+  const items = useWorkspaceNavItems(workspaceSlug);
 
   const handleWorkspaceChange = useCallback(
     (slug: string) => navigate(`/w/${slug}`),
