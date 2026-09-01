@@ -137,7 +137,9 @@ export class TemplateService {
    * (`template-content-guard.ts`).
    *
    * Only `sheet` documents can hold one, and only they are read — the check
-   * costs a Yorkie attach, so no other type pays for it.
+   * costs a Yorkie attach, so no other type pays for it. Run from both
+   * `publish()` and `use()`: the listing tracks a live document, so passing
+   * once is not a property the content keeps.
    *
    * **Fails closed.** A document we could not read is not a document we can
    * clear, and publishing is a deliberate one-off action a person can repeat;
@@ -380,6 +382,14 @@ export class TemplateService {
         member.workspaceId,
       );
     }
+
+    // Checked again here, not only at publish. A listing tracks a **live**
+    // document, so a sheet published clean and given a `datasource` tab
+    // afterwards would otherwise copy an inert tab into this caller's
+    // workspace on every use — and the copy below reads the root as it stands
+    // now, not as it stood when the listing was created. Deliberately after
+    // the destination checks, so an unauthorized caller costs no Yorkie read.
+    await this.assertContentIsShareable(listing.document);
 
     const created = await this.documentCopyService.copy(
       listing.document,

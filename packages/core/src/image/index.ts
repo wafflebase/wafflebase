@@ -52,7 +52,40 @@ let credentialedOrigins: readonly string[] = [];
  * expose.
  */
 export function setCredentialedImageOrigins(origins: readonly string[]): void {
-  credentialedOrigins = origins.filter((origin) => origin.length > 0);
+  credentialedOrigins = origins.filter(isCredentialSafe);
+}
+
+/**
+ * Whether an origin may be sent credentials: **https, or loopback**.
+ *
+ * A plain-http non-loopback origin is dropped rather than trusted, matching
+ * the rule the backend already applies to CLI sign-in (`packages/backend/
+ * README.md`) — a deployment can be configured with non-`Secure` cookies, and
+ * `use-credentials` would then put the session cookie on the wire in
+ * cleartext. Loopback is exempt because that is every developer's backend and
+ * the traffic never leaves the machine.
+ *
+ * Defence in depth rather than a new hole closed: a plain `<img>` in no-cors
+ * mode already sends cookies subject to SameSite, so an http backend was
+ * receiving them before this module existed. What this prevents is *this*
+ * module widening that.
+ */
+function isCredentialSafe(origin: string): boolean {
+  if (!origin) return false;
+  try {
+    const { protocol, hostname } = new URL(origin);
+    if (protocol === 'https:') return true;
+    return (
+      protocol === 'http:' &&
+      (hostname === 'localhost' ||
+        hostname.endsWith('.localhost') ||
+        hostname === '127.0.0.1' ||
+        hostname === '[::1]' ||
+        hostname === '::1')
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Whether `src` should be requested with credentialed CORS. */

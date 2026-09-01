@@ -57,7 +57,12 @@ async function captureThumbnailId(
     const ext = blob.type === "image/png" ? "png" : "webp";
     const { id } = await postSharedImage(blob, `thumbnail.${ext}`);
     return id;
-  } catch {
+  } catch (error) {
+    // An expired session is not a thumbnail failure. Swallowing it here would
+    // let the caller carry on to a success toast while `fetchWithAuth` is
+    // already redirecting to login; every other handler in this file routes it
+    // through `isAuthExpiredError`, and so must this one.
+    if (isAuthExpiredError(error)) throw error;
     return undefined;
   }
 }
@@ -78,9 +83,11 @@ async function attachThumbnail(
   if (!thumbnailId) return;
   try {
     onSaved(await updateTemplate(listing.id, { thumbnailId }));
-  } catch {
-    // The listing exists and is usable; it just has no picture yet, and
-    // "Update preview" can try again.
+  } catch (error) {
+    // As above: an expired session has to reach the caller's handler.
+    if (isAuthExpiredError(error)) throw error;
+    // Otherwise the listing exists and is usable; it just has no picture yet,
+    // and "Update preview" can try again.
   }
 }
 

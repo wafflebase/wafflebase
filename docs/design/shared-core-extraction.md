@@ -184,7 +184,7 @@ Alternatives considered:
 > `./url`, and `./image` subpaths shipped (`./url` — safe-protocol hyperlink
 > gating, `SAFE_PROTOCOLS`/`isSafeUrl`, shared by the sheets and docs auto-link
 > renderers; added with #537. `./image` — `loadImage`, the CORS-then-plain-retry
-> load the Slides, Docs and Sheets image caches share so a canvas holding one of
+> loader that the Slides, Docs and Sheets image caches share so a canvas holding one of
 > our own images stays readable, per
 > [template-gallery.md](template-gallery.md)). `./canvas`,
 > `./ooxml`, and `./ooxml/drawingml` in the sketch below are **still roadmap**

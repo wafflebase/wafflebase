@@ -98,6 +98,34 @@ describe('loadImage', () => {
     expect(FakeImage.created).toHaveLength(1);
   });
 
+  it('drops a plain-http origin rather than sending it credentials', () => {
+    // A deployment can be configured with non-`Secure` cookies, so
+    // `use-credentials` against an http origin would put the session cookie on
+    // the wire in cleartext.
+    setCredentialedImageOrigins(['http://images.example.test']);
+    loadImage('http://images.example.test/a.png', callbacks());
+    expect(FakeImage.created[0].corsAtRequest).toBeNull();
+  });
+
+  it('keeps loopback, which is every developer’s backend', () => {
+    for (const origin of [
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://api.localhost:3000',
+    ]) {
+      FakeImage.created = [];
+      setCredentialedImageOrigins([origin]);
+      loadImage(`${origin}/images/a.png`, callbacks());
+      expect(FakeImage.created[0].corsAtRequest).toBe('use-credentials');
+    }
+  });
+
+  it('ignores an unparseable origin', () => {
+    setCredentialedImageOrigins(['not-a-url']);
+    loadImage('https://anything.test/a.png', callbacks());
+    expect(FakeImage.created[0].corsAtRequest).toBeNull();
+  });
+
   it('asks for nothing when no origin is configured', () => {
     // A consumer that never configures this gets exactly the behaviour that
     // existed before the module did.

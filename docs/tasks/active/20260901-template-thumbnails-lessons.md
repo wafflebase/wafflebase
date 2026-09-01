@@ -24,7 +24,7 @@ story before choosing a renderer.
 
 Found by the user's smoke test, not by any test written here:
 
-```
+```text
 GET /images/81c32d49-….webp → 500  NoSuchKey  Key: 81c32d49-….webp
 ```
 

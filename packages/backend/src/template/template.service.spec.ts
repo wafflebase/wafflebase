@@ -102,8 +102,16 @@ function makeService(
       // `LISTING` made a field the caller never mentioned come back as its
       // default, which is the opposite of what Prisma does and hid whether
       // `update` had actually changed anything.
+      //
+      // `upsert` takes ONE branch, as Prisma does: `create` only when there is
+      // no row, `update` only when there is. Merging both let an existing
+      // listing come back carrying create-only fields it could never have.
       upsert: jest.fn(({ create, update }: UpsertArgs) =>
-        Promise.resolve({ ...baseListing, ...create, ...update }),
+        Promise.resolve(
+          opts.listing === null
+            ? { ...LISTING, ...create }
+            : { ...baseListing, ...update },
+        ),
       ),
       update: jest.fn((args: UpdateArgs) =>
         Promise.resolve({ ...baseListing, ...args.data }),
@@ -765,6 +773,43 @@ describe('TemplateService.use', () => {
     await expect(
       service.use('tpl-1', 9, { workspaceId: 'ws-2' }),
     ).resolves.toEqual({ id: 'new-1' });
+  });
+});
+
+describe('TemplateService.use — content revalidation', () => {
+  it('refuses a template whose document gained a datasource tab after publish', async () => {
+    // A listing tracks a LIVE document, so passing the guard once is not a
+    // property the content keeps. Without this the copy hands the caller a tab
+    // that resolves to nothing in their own workspace.
+    const { service, documentCopyService } = makeService({
+      members: { 'ws-1:7': 'member', 'ws-2:9': 'owner' },
+      root: {
+        tabOrder: ['t1'],
+        tabs: { t1: { name: 'Orders', type: 'datasource' } },
+      },
+    });
+    await expect(
+      service.use('tpl-1', 9, { workspaceId: 'ws-2' }),
+    ).rejects.toThrow(/Orders/);
+    expect(documentCopyService.copy).not.toHaveBeenCalled();
+  });
+
+  it('does not read the document for a caller who cannot write anywhere', async () => {
+    // The destination check runs first, so an unauthorized caller costs no
+    // Yorkie attach.
+    const { service, yorkieService } = makeService({ members: {} });
+    await expect(
+      service.use('tpl-1', 9, { workspaceId: 'ws-2' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(yorkieService.withDocument).not.toHaveBeenCalled();
+  });
+
+  it('copies a clean sheet as before', async () => {
+    const { service, documentCopyService } = makeService({
+      members: { 'ws-1:7': 'member', 'ws-2:9': 'owner' },
+    });
+    await service.use('tpl-1', 9, { workspaceId: 'ws-2' });
+    expect(documentCopyService.copy).toHaveBeenCalled();
   });
 });
 
