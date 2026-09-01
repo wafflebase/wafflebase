@@ -183,6 +183,45 @@ describe('TemplateService.publish', () => {
     );
   });
 
+  it('does not widen visibility when a re-publish omits it', async () => {
+    // The exposure case: a partial re-publish (attaching a thumbnail, say)
+    // must not reset a workspace-scoped listing to `unlisted`, which is the
+    // *more* permissive tier — anyone holding the id.
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'workspace' },
+    });
+    await service.publish('doc-1', 7, { thumbnailId: 'a.png' });
+    expect(prisma.templateListing.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ visibility: 'workspace' }),
+      }),
+    );
+  });
+
+  it('preserves metadata a partial re-publish does not mention', async () => {
+    const { service, prisma } = makeService({
+      listing: {
+        ...LISTING,
+        title: 'Renamed',
+        description: 'why',
+        category: 'Finance',
+        tags: ['ops'],
+      },
+    });
+    await service.publish('doc-1', 7, { thumbnailId: 'a.png' });
+    expect(prisma.templateListing.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          title: 'Renamed',
+          description: 'why',
+          category: 'Finance',
+          tags: ['ops'],
+          thumbnailId: 'a.png',
+        }),
+      }),
+    );
+  });
+
   it('refuses the public tier until the review pipeline exists', async () => {
     // Fails closed rather than silently downgrading: a publisher told "ok"
     // would believe their template was in the gallery.
@@ -386,6 +425,17 @@ describe('TemplateService.unpublish', () => {
     expect(prisma.shareLink.delete).toHaveBeenCalledWith({
       where: { id: 'link-1' },
     });
+  });
+
+  it('keeps the listing when the link cannot be revoked', async () => {
+    // The link is non-expiring and nothing sweeps it, so deleting the listing
+    // first would strand a permanent anonymous read capability with nothing
+    // left in the UI to revoke it. Failing first destroys nothing and the
+    // caller can retry.
+    const { service, prisma } = makeService();
+    prisma.shareLink.delete.mockRejectedValueOnce(new Error('db down'));
+    await expect(service.unpublish('tpl-1', 7)).rejects.toThrow('db down');
+    expect(prisma.templateListing.delete).not.toHaveBeenCalled();
   });
 
   it('refuses a non-manager', async () => {

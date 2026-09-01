@@ -111,12 +111,19 @@ export class TemplateService {
     dto: PublishTemplateDto,
   ): Promise<TemplateListingView> {
     const doc = await this.assertManager(documentId, userId);
-    const visibility = dto.visibility ?? 'unlisted';
-    assertPublishable(visibility);
 
     const existing = await this.prisma.templateListing.findUnique({
       where: { documentId },
     });
+
+    // Every field falls back to the *existing* listing before its first-publish
+    // default. `publish` is an upsert on a re-publishable route, so a partial
+    // body — `{ thumbnailId }` to attach a thumbnail, say — must not blank the
+    // fields it does not mention. Getting this wrong is not merely data loss:
+    // `visibility` defaulting to `unlisted` would silently widen a
+    // workspace-scoped listing to anyone holding its id.
+    const visibility = dto.visibility ?? existing?.visibility ?? 'unlisted';
+    assertPublishable(visibility);
 
     // Minted through `ShareLinkService` rather than Prisma directly so link
     // creation keeps a single source of truth. A republish reuses the live
@@ -127,11 +134,11 @@ export class TemplateService {
         .id;
 
     const data = {
-      title: dto.title ?? doc.title,
-      description: dto.description ?? null,
-      category: dto.category ?? null,
-      tags: dto.tags ?? [],
-      thumbnailId: dto.thumbnailId ?? null,
+      title: dto.title ?? existing?.title ?? doc.title,
+      description: dto.description ?? existing?.description ?? null,
+      category: dto.category ?? existing?.category ?? null,
+      tags: dto.tags ?? existing?.tags ?? [],
+      thumbnailId: dto.thumbnailId ?? existing?.thumbnailId ?? null,
       visibility,
       status: 'listed',
       licensedAt: dto.acceptLicense ? new Date() : (existing?.licensedAt ?? null),
@@ -191,6 +198,15 @@ export class TemplateService {
    * Unpublish: the listing goes, the document stays. The preview share link is
    * revoked with it — leaving it behind would keep the document anonymously
    * readable after the publisher believed they had withdrawn it.
+   *
+   * Order matters, and it is the opposite of the intuitive one. The share link
+   * is revoked **first** and its failure is allowed to throw: the link is
+   * non-expiring and nothing sweeps it, so a listing deleted before a failed
+   * revoke would leave a permanent anonymous read capability with nothing left
+   * in the UI to surface or revoke it. Failing first instead destroys nothing —
+   * the listing still points at the live link, the caller is told the unpublish
+   * failed, and a retry works. This is why the counter in `use()` may be
+   * best-effort and this may not.
    */
   async unpublish(id: string, userId: number): Promise<{ deleted: true }> {
     const listing = await this.prisma.templateListing.findUnique({
@@ -199,16 +215,12 @@ export class TemplateService {
     if (!listing) throw new NotFoundException('Template not found');
     await this.assertManager(listing.documentId, userId);
 
-    await this.prisma.templateListing.delete({ where: { id } });
     if (listing.shareLinkId) {
-      await this.prisma.shareLink
-        .delete({ where: { id: listing.shareLinkId } })
-        .catch((err) => {
-          this.logger.warn(
-            `failed to revoke preview link ${listing.shareLinkId}: ${err}`,
-          );
-        });
+      await this.prisma.shareLink.delete({
+        where: { id: listing.shareLinkId },
+      });
     }
+    await this.prisma.templateListing.delete({ where: { id } });
     return { deleted: true };
   }
 

@@ -1,7 +1,8 @@
 # Template Gallery — Task Tracking
 
 Design doc: [template-gallery.md](../../design/template-gallery.md)
-Status: **research + design written; implementation not started, not approved**
+PR: [#1000](https://github.com/wafflebase/wafflebase/pull/1000)
+Status: **Phase 1 shipped in #1000; Phases 2–3 planned, not started**
 
 ## Principles
 
@@ -120,6 +121,12 @@ The single largest piece, and the one every later surface reads.
 - [ ] **New from template** picker in the documents-list create menu
 - [ ] Manager may unpublish any listing in their workspace (publishing itself is
       manager-gated at this tier too — see Decisions)
+- [ ] Refuse to publish a document whose root holds a `datasource` /
+      `lakehouse` tab: `TabMeta.datasourceId` is workspace-scoped, so a
+      cross-workspace use lands an inert tab. Not an access bypass (every
+      datasource route re-derives auth from the row's own `workspaceId`), but a
+      template depending on a private connection is not shareable. Costs one
+      Yorkie read at publish, which is rare
 
 ### 2e. Phase 1 shortcuts cleared here
 
@@ -184,4 +191,33 @@ fraud defence), template versioning, and CapCut-style parameterized slots
 
 ## Review
 
-_To be filled in when the work lands._
+**Phase 1 landed in [#1000](https://github.com/wafflebase/wafflebase/pull/1000).**
+25 files, +2621/-20. The spine only: one template, one link, one copy. There is
+no discovery surface, which is what Phases 2–3 above are.
+
+What the design predicted and what actually happened:
+
+- **The copy engine carried the feature.** `DocumentCopyService` needed one
+  optional `dest` parameter; every document type, the rollback ordering and the
+  comment stripping came for free. The estimate that this would be a small
+  change held.
+- **The unauthenticated image route removed the hardest problem** before it
+  cost anything. Checking it first was worth more than any code in the PR.
+- **Four review findings survived verification**, two of them real defects in
+  code this PR added, both fixed with regression tests before merge:
+  `publish()` blanked unmentioned fields on a partial re-publish — which could
+  silently widen a `workspace` listing to `unlisted`, the *more* permissive
+  tier — and `unpublish()` deleted the listing before revoking its non-expiring
+  preview link, so a failed revoke stranded a permanent anonymous read
+  capability with nothing left to surface it. The other two were doc-accuracy:
+  the Risks table stated Phase 3 mitigations in the present tense, and the
+  status header of this file still said implementation had not started.
+- **Two authorization gaps were caught in self-review** before the PR opened,
+  both about *which id* confers authority — see the lessons file.
+- **One cost not predicted:** the frontend chunk-count gate. A single lazy
+  route put the build at 216 chunks against a 215 cap and the pre-push
+  `verify:self` refused the push. Bumping the cap was the right side of the
+  trade for a public route a signed-in session never opens.
+- **One limitation found by review, deferred with a plan:** a `datasource` /
+  `lakehouse` tab copied across a workspace boundary lands inert. Refusing to
+  publish such a document is a Phase 2 item above.
