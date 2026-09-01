@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { TemplateService } from './template.service';
 
@@ -59,6 +60,10 @@ function makeService(
     members?: Record<string, string>;
     siblings?: Array<{ title: string }>;
     rows?: Array<Record<string, unknown>>;
+    /** The Yorkie root `publish()` reads to check for external-data tabs. */
+    root?: Record<string, unknown>;
+    /** Make that read fail, which must fail the publish closed. */
+    yorkieError?: Error;
   } = {},
 ) {
   const members = opts.members ?? { 'ws-1:7': 'member' };
@@ -119,6 +124,15 @@ function makeService(
   const folderService = {
     assertSameWorkspace: jest.fn(() => Promise.resolve(undefined)),
   };
+  const root = opts.root ?? { tabs: {}, tabOrder: [] };
+  const yorkieService = {
+    withDocument: jest.fn(
+      (_id: string, cb: (doc: { getRoot: () => unknown }) => unknown) => {
+        if (opts.yorkieError) return Promise.reject(opts.yorkieError);
+        return Promise.resolve(cb({ getRoot: () => root }));
+      },
+    ),
+  };
 
   const service = new TemplateService(
     prisma as never,
@@ -126,6 +140,7 @@ function makeService(
     shareLinkService as never,
     workspaceService as never,
     folderService as never,
+    yorkieService as never,
   );
   return {
     service,
@@ -134,6 +149,7 @@ function makeService(
     shareLinkService,
     workspaceService,
     folderService,
+    yorkieService,
   };
 }
 
@@ -253,6 +269,51 @@ describe('TemplateService.publish', () => {
         acceptLicense: true,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('refuses a sheet holding a datasource tab, naming it', async () => {
+    // The tab references a workspace-scoped connection row, so a copy made in
+    // someone else's workspace opens it empty.
+    const { service, prisma } = makeService({
+      root: {
+        tabOrder: ['t1', 't2'],
+        tabs: {
+          t1: { name: 'Summary', type: 'sheet' },
+          t2: { name: 'Orders', type: 'datasource' },
+        },
+      },
+    });
+    await expect(service.publish('doc-1', 7, {})).rejects.toThrow(/Orders/);
+    expect(prisma.templateListing.upsert).not.toHaveBeenCalled();
+  });
+
+  it('refuses a sheet holding a lakehouse tab absent from tabOrder', async () => {
+    // A stale `tabOrder` must not hide a tab from the check.
+    const { service } = makeService({
+      root: { tabOrder: [], tabs: { t9: { type: 'lakehouse' } } },
+    });
+    await expect(service.publish('doc-1', 7, {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('does not read Yorkie for a non-sheet document', async () => {
+    const { service, yorkieService } = makeService({
+      document: { ...DOC, type: 'slides' },
+    });
+    await service.publish('doc-1', 7, {});
+    expect(yorkieService.withDocument).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the document cannot be read', async () => {
+    // A document we could not read is not a document we can clear.
+    const { service, prisma } = makeService({
+      yorkieError: new Error('yorkie unreachable'),
+    });
+    await expect(service.publish('doc-1', 7, {})).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(prisma.templateListing.upsert).not.toHaveBeenCalled();
   });
 });
 
@@ -707,6 +768,19 @@ describe('TemplateService.unpublish', () => {
     await expect(service.unpublish('tpl-1', 9)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+
+  it('lets a workspace owner unpublish a listing another member published', async () => {
+    // The design promises a manager may withdraw ANY listing in their
+    // workspace, which `isDocumentManager` already grants an owner. Asserted
+    // here so the promise survives a future narrowing of `assertManager`:
+    // user 9 owns ws-1 but neither authored doc-1 (author 7) nor created the
+    // listing.
+    const { service, prisma } = makeService({ members: { 'ws-1:9': 'owner' } });
+    await service.unpublish('tpl-1', 9);
+    expect(prisma.templateListing.delete).toHaveBeenCalledWith({
+      where: { id: 'tpl-1' },
+    });
   });
 
   it('404s on a missing listing', async () => {

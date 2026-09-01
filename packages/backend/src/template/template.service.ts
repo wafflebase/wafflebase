@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import {
   Document as DocumentModel,
@@ -23,6 +24,8 @@ import {
   UseTemplateDto,
 } from './template.dto';
 import { normalizeTags } from './template-taxonomy';
+import { findExternalDataTabs } from './template-content-guard';
+import { YorkieService } from '../yorkie/yorkie.service';
 
 /**
  * What a caller is told about a listing. Deliberately not the raw row:
@@ -96,6 +99,7 @@ export class TemplateService {
     private readonly shareLinkService: ShareLinkService,
     private readonly workspaceService: WorkspaceService,
     private readonly folderService: FolderService,
+    private readonly yorkieService: YorkieService,
   ) {}
 
   /**
@@ -124,12 +128,56 @@ export class TemplateService {
     return doc;
   }
 
+  /**
+   * Refuse to publish a document holding a `datasource` / `lakehouse` tab.
+   * Those tabs reference a workspace-scoped connection row, so a copy made in
+   * someone else's workspace opens with a dead tab
+   * (`template-content-guard.ts`).
+   *
+   * Only `sheet` documents can hold one, and only they are read — the check
+   * costs a Yorkie attach, so no other type pays for it.
+   *
+   * **Fails closed.** A document we could not read is not a document we can
+   * clear, and publishing is a deliberate one-off action a person can repeat;
+   * silently skipping the check on a transient error would make the guard
+   * something an unlucky moment removes.
+   */
+  private async assertContentIsShareable(doc: DocumentModel): Promise<void> {
+    if (doc.type !== 'sheet') return;
+
+    let externalTabs: string[];
+    try {
+      externalTabs = await this.yorkieService.withDocument(
+        doc.id,
+        (yorkieDoc) => {
+          const root = yorkieDoc.getRoot();
+          return findExternalDataTabs(root.tabs, root.tabOrder);
+        },
+        { syncMode: 'readonly' },
+      );
+    } catch (err) {
+      this.logger.warn(`failed to read ${doc.id} before publishing: ${err}`);
+      throw new ServiceUnavailableException(
+        'Could not read the document to check it for external data tabs. Try again.',
+      );
+    }
+
+    if (externalTabs.length === 0) return;
+    throw new BadRequestException(
+      `This document cannot be published as a template because it connects to ` +
+        `external data (${externalTabs.join(', ')}). A connection belongs to ` +
+        `this workspace, so the tab would be empty for anyone who used the ` +
+        `template.`,
+    );
+  }
+
   async publish(
     documentId: string,
     userId: number,
     dto: PublishTemplateDto,
   ): Promise<TemplateListingView> {
     const doc = await this.assertManager(documentId, userId);
+    await this.assertContentIsShareable(doc);
 
     const existing = await this.prisma.templateListing.findUnique({
       where: { documentId },

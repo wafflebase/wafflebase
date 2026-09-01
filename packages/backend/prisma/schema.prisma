@@ -332,6 +332,9 @@ model TemplateListing {
 
   /// The public gallery's browse query: filter by tier+status, rank by usage.
   @@index([visibility, status, useCount])
+  /// The same query under `sort=recent`, which orders by `publishedAt` and so
+  /// cannot use the index above — without this one it sorts the whole tier.
+  @@index([visibility, status, publishedAt])
   /// The workspace gallery's query.
   @@index([workspaceId, visibility])
 }
