@@ -2,7 +2,9 @@
 
 Design doc: [template-gallery.md](../../design/template-gallery.md)
 PR: [#1000](https://github.com/wafflebase/wafflebase/pull/1000)
-Status: **Phase 1 shipped (#1000). Phase 2 browse shipped on `feat/template-gallery-browse`; thumbnails (2b) and Phase 3 remain**
+Status: **Phases 1 and 2 shipped (#1000, #1001, #1005), all in v0.6.8.
+Remaining: `pdf`/`image` thumbnails, and all of Phase 3 — the `public` tier
+is still refused with a `400`**
 
 ## Principles
 
@@ -29,7 +31,9 @@ Status: **Phase 1 shipped (#1000). Phase 2 browse shipped on `feat/template-gall
       hardcoded to the source's workspace/folder), `ShareLink` + `/shared/:token`,
       unauthenticated `GET /images/:id`, workspace/folder/member model
 - [x] `docs/design/template-gallery.md` + index row in `docs/design/README.md`
-- [ ] Open questions below answered before Phase 1 starts
+- [x] Open questions below answered before Phase 1 starts — the
+      **Decisions (2026-09-01)** section is those answers, all three
+      settled on the day Phase 1 (#1000) shipped
 
 ## Decisions (2026-09-01)
 
@@ -62,10 +66,14 @@ Status: **Phase 1 shipped (#1000). Phase 2 browse shipped on `feat/template-gall
 - [x] Tests: 26 service cases (publish gate, visibility tiers, cross-workspace
       copy authorization both directions, `useCount` best-effort) + 4 copy-service
       destination cases + `uniqueTitle`
-- [ ] Client-rendered thumbnail capture uploaded through `POST /images`; type
-      icon fallback (column, serving and card rendering are in place)
-- [ ] Backend e2e coverage through the HTTP layer, alongside the existing
-      share-link/document integration specs
+- [x] Client-rendered thumbnail capture uploaded through `POST /images`; type
+      icon fallback (column, serving and card rendering are in place) — #1005,
+      for the 5 CRDT types. `pdf`/`image` are still the icon; see 2b below
+- [x] Backend e2e coverage through the HTTP layer, alongside the existing
+      share-link/document integration specs — #1005 (`template.e2e-spec.ts`:
+      guards and `ValidationPipe` really wired, a real `ShareLink` row present
+      after publish and gone after unpublish, no `previewToken` on a
+      serialized browse card)
 
 ## Phase 2 — Workspace gallery (the store)
 
@@ -88,19 +96,29 @@ The single largest piece, and the one every later surface reads.
       out 24 non-expiring read capabilities; the token comes from
       `GET /templates/:id` when a card is opened
 - [x] Keyset pagination on `(useCount, id)` / `(publishedAt, id)`, not offset
-- [ ] `@@index([visibility, status, publishedAt])` for the recency sort
+- [x] `@@index([visibility, status, publishedAt])` for the recency sort —
+      #1005; `sort=recent` had been sorting the whole tier, since the
+      `useCount` index cannot serve it
 - [x] Tests: cross-tier leakage (unlisted absent, another workspace's listings
       absent, a moved document's listing absent), token omission, cursor
       stability while counts change
 
 ### 2b. Thumbnails
 
-- [ ] Client-side capture at publish: `drawSlide()` for slides/board, the
-      paginated page renderer for docs, the grid renderer for sheets, the blob
-      itself for pdf/image, a type icon for note/file
-- [ ] Downscale ~640 px WebP → `POST /images` → store the **id**, never a URL
-- [ ] Refresh on republish; document that a thumbnail is a snapshot
-- [ ] Card and landing page render it (landing page already does)
+- [x] Client-side capture at publish — #1005, though **not** by the routing
+      this box sketched. Slides render slide 1 offscreen
+      (`renderThumbnail()`); `doc`, `sheet` and `board` composite the live
+      editor canvases, because neither package exports an offscreen renderer
+      and a board has no first page; `note` is *synthesized* from the first
+      lines of markdown, since it is the one editor with no canvas at all.
+      The mounted editor registers a capture source and the Share dialog asks
+      a registry by document id — `components/` may not import `@/app/*`
+- [x] Downscale ~640 px WebP → `POST /images` → store the **id**, never a URL
+- [x] Refresh on republish; document that a thumbnail is a snapshot
+- [x] Card and landing page render it (landing page already does)
+- [ ] `pdf` / `image` thumbnails — the stored blob's first page and the image
+      itself. Not built; both still fall back to the type icon. (`file` has no
+      thumbnail by design.)
 
 ### 2c. Taxonomy
 
@@ -114,10 +132,15 @@ The single largest piece, and the one every later surface reads.
 
 - [x] **Templates** tab at `/w/:workspaceId/templates`
 - [x] **New from template** picker in the documents-list create menu
-- [ ] Manager may unpublish any listing in their workspace (publishing itself is
-      manager-gated at this tier too — see Decisions)
-- [ ] Refuse to publish a document whose root holds a `datasource` /
-      `lakehouse` tab: `TabMeta.datasourceId` is workspace-scoped, so a
+- [x] Manager may unpublish any listing in their workspace (publishing itself is
+      manager-gated at this tier too — see Decisions). `unpublish()` calls
+      `assertManager` → `isDocumentManager(role, authorID, userId)`, which a
+      workspace owner satisfies for every document in the workspace
+- [x] Refuse to publish a document whose root holds a `datasource` /
+      `lakehouse` tab — #1005 (`template-content-guard.ts`), and it runs at
+      **use** as well as publish, because a listing tracks a live document.
+      Fails closed, and only `sheet` documents pay the Yorkie read:
+      `TabMeta.datasourceId` is workspace-scoped, so a
       cross-workspace use lands an inert tab. Not an access bypass (every
       datasource route re-derives auth from the row's own `workspaceId`), but a
       template depending on a private connection is not shareable. Costs one

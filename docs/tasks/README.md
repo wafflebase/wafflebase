@@ -18,6 +18,7 @@ Track task-specific plan/review and lessons files using the active/archive layou
 
 | Task | Todo | Lessons |
 |---|---|---|
+| release v0.6.8 (2026-09-02) | [20260902-release-v0.6.8-todo.md](./active/20260902-release-v0.6.8-todo.md) | [20260902-release-v0.6.8-lessons.md](./active/20260902-release-v0.6.8-lessons.md) |
 | template gallery (2026-09-01) | [20260901-template-gallery-todo.md](./active/20260901-template-gallery-todo.md) | [20260901-template-gallery-lessons.md](./active/20260901-template-gallery-lessons.md) |
 | agentic office workflow (2026-08-31) | [20260831-agentic-office-workflow-todo.md](./active/20260831-agentic-office-workflow-todo.md) | [20260831-agentic-office-workflow-lessons.md](./active/20260831-agentic-office-workflow-lessons.md) |
 | docs inline style off clears key (2026-08-19) | [20260819-docs-inline-style-off-clears-key-todo.md](./active/20260819-docs-inline-style-off-clears-key-todo.md) | [20260819-docs-inline-style-off-clears-key-lessons.md](./active/20260819-docs-inline-style-off-clears-key-lessons.md) |
@@ -42,4 +43,4 @@ Track task-specific plan/review and lessons files using the active/archive layou
 - Archived task count: 577
 - Archive index: [archive/README.md](./archive/README.md)
 
-Latest active task: template gallery (2026-09-01)
+Latest active task: release v0.6.8 (2026-09-02)
