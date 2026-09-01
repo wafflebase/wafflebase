@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const parquetMocks = vi.hoisted(() => ({
   parquetMetadata: vi.fn(),
-  parquetReadObjects: vi.fn(),
+  parquetRead: vi.fn(),
+  parquetSchema: vi.fn(),
 }));
 
 vi.mock('hyparquet', () => ({
   parquetMetadata: parquetMocks.parquetMetadata,
-  parquetReadObjects: parquetMocks.parquetReadObjects,
+  parquetRead: parquetMocks.parquetRead,
+  parquetSchema: parquetMocks.parquetSchema,
 }));
 
 vi.mock('hyparquet-compressors', () => ({
@@ -24,26 +26,36 @@ describe('importParquetFile', () => {
       num_rows: 2n,
       schema: [{ name: 'schema', num_children: 4 }],
     });
+    parquetMocks.parquetSchema.mockReturnValue({
+      children: ['name', 'score', 'active', 'joined'].map((name) => ({
+        element: { name },
+      })),
+    });
   });
 
   it('maps reader records into an editable worksheet', async () => {
-    parquetMocks.parquetReadObjects.mockResolvedValue([
-      { name: 'Alice', score: 95, active: true },
-      { name: 'Bob', score: null, joined: '2026-08-31' },
-    ]);
+    parquetMocks.parquetRead.mockImplementation(async ({ onChunk }) => {
+      onChunk({ columnName: 'name', columnData: ['Alice', 'Bob'], rowStart: 0 });
+      onChunk({ columnName: 'score', columnData: [95, null], rowStart: 0 });
+      onChunk({ columnName: 'active', columnData: [true, undefined], rowStart: 0 });
+      onChunk({ columnName: 'joined', columnData: [undefined, '2026-08-31'], rowStart: 0 });
+    });
     const file = new Uint8Array([80, 65, 82, 49]).buffer;
 
     const imported = await importParquetFile(file, { sheetName: 'People' });
 
-    expect(parquetMocks.parquetReadObjects).toHaveBeenCalledWith({
-      file,
-      metadata: {
-        num_rows: 2n,
-        schema: [{ name: 'schema', num_children: 4 }],
-      },
-      compressors: { GZIP: expect.any(Function) },
-      utf8: false,
-    });
+    expect(parquetMocks.parquetRead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file,
+        metadata: {
+          num_rows: 2n,
+          schema: [{ name: 'schema', num_children: 4 }],
+        },
+        compressors: { GZIP: expect.any(Function) },
+        utf8: false,
+        onChunk: expect.any(Function),
+      }),
+    );
     expect(imported.name).toBe('People');
     expect(imported.rowCount).toBe(3);
     expect(imported.columnCount).toBe(4);
@@ -64,13 +76,29 @@ describe('importParquetFile', () => {
     });
   });
 
-  it('rejects Parquet data without records or columns', async () => {
-    parquetMocks.parquetReadObjects.mockResolvedValueOnce([]);
-    await expect(
-      importParquetFile(new ArrayBuffer(0), { sheetName: 'Empty' }),
-    ).rejects.toThrow('Parquet import contains no records');
+  it('imports a valid zero-row schema as a header-only sheet', async () => {
+    parquetMocks.parquetMetadata.mockReturnValue({
+      num_rows: 0n,
+      schema: [{ name: 'schema', num_children: 1 }],
+    });
+    parquetMocks.parquetSchema.mockReturnValue({
+      children: [{ element: { name: 'id' } }],
+    });
+    parquetMocks.parquetRead.mockResolvedValue(undefined);
 
-    parquetMocks.parquetReadObjects.mockResolvedValueOnce([{}]);
+    const imported = await importParquetFile(new ArrayBuffer(0), {
+      sheetName: 'Empty',
+    });
+    expect(imported.rowCount).toBe(1);
+    expect(getWorksheetCell(imported.worksheet, { r: 1, c: 1 })?.v).toBe('id');
+  });
+
+  it('rejects Parquet data without columns', async () => {
+    parquetMocks.parquetMetadata.mockReturnValue({
+      num_rows: 0n,
+      schema: [{ name: 'schema', num_children: 0 }],
+    });
+    parquetMocks.parquetSchema.mockReturnValue({ children: [] });
     await expect(
       importParquetFile(new ArrayBuffer(0), { sheetName: 'Empty' }),
     ).rejects.toThrow('Parquet import contains no columns');
@@ -85,7 +113,7 @@ describe('importParquetFile', () => {
     await expect(
       importParquetFile(new ArrayBuffer(0), { sheetName: 'Too Large' }),
     ).rejects.toThrow('Parquet import exceeds the 40,000-cell limit');
-    expect(parquetMocks.parquetReadObjects).not.toHaveBeenCalled();
+    expect(parquetMocks.parquetRead).not.toHaveBeenCalled();
   });
 
   it('rejects values whose estimated document size exceeds the import budget', async () => {
@@ -93,9 +121,16 @@ describe('importParquetFile', () => {
       num_rows: 1n,
       schema: [{ name: 'schema', num_children: 1 }],
     });
-    parquetMocks.parquetReadObjects.mockResolvedValue([
-      { body: 'x'.repeat(4_000_000) },
-    ]);
+    parquetMocks.parquetSchema.mockReturnValue({
+      children: [{ element: { name: 'body' } }],
+    });
+    parquetMocks.parquetRead.mockImplementation(async ({ onChunk }) => {
+      onChunk({
+        columnName: 'body',
+        columnData: ['x'.repeat(4_000_000)],
+        rowStart: 0,
+      });
+    });
 
     await expect(
       importParquetFile(new ArrayBuffer(0), { sheetName: 'Long Text' }),
@@ -107,17 +142,38 @@ describe('importParquetFile', () => {
       num_rows: 1n,
       schema: [{ name: 'schema', num_children: 4 }],
     });
-    parquetMocks.parquetReadObjects.mockResolvedValue([
-      {
-        id: 9_007_199_254_740_993n,
-        occurredAt: new Date('2026-09-01T12:34:56.000Z'),
-        bytes: new Uint8Array([0, 15, 255]),
-        nested: {
-          ids: [1n, 2n],
-          payload: new Uint8Array([171, 205]),
-        },
-      },
-    ]);
+    parquetMocks.parquetSchema.mockReturnValue({
+      children: ['id', 'occurredAt', 'bytes', 'nested'].map((name) => ({
+        element: { name },
+      })),
+    });
+    parquetMocks.parquetRead.mockImplementation(async ({ onChunk }) => {
+      onChunk({
+        columnName: 'id',
+        columnData: [9_007_199_254_740_993n],
+        rowStart: 0,
+      });
+      onChunk({
+        columnName: 'occurredAt',
+        columnData: [new Date('2026-09-01T12:34:56.000Z')],
+        rowStart: 0,
+      });
+      onChunk({
+        columnName: 'bytes',
+        columnData: [new Uint8Array([0, 15, 255])],
+        rowStart: 0,
+      });
+      onChunk({
+        columnName: 'nested',
+        columnData: [
+          {
+            ids: [1n, 2n],
+            payload: new Uint8Array([171, 205]),
+          },
+        ],
+        rowStart: 0,
+      });
+    });
 
     const imported = await importParquetFile(new ArrayBuffer(0), {
       sheetName: 'Native values',

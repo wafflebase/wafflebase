@@ -8,6 +8,10 @@ const nativeTypesFixture = new URL(
   '../fixtures/native-types-gzip.parquet',
   import.meta.url,
 );
+const oversizedValueFixture = new URL(
+  '../fixtures/oversized-value-gzip.parquet',
+  import.meta.url,
+);
 
 describe('importParquetFile integration', () => {
   it('decodes a GZIP-compressed Parquet fixture into a worksheet', async () => {
@@ -59,5 +63,14 @@ describe('importParquetFile integration', () => {
     expect(getWorksheetCell(imported.worksheet, { r: 2, c: 5 })?.v).toBe(
       '{"ids":["1","2"],"payload":"0xabcd"}',
     );
+  });
+
+  it('rejects a small compressed file that expands beyond the document budget', async () => {
+    const bytes = await readFile(oversizedValueFixture);
+    const file = new Uint8Array(bytes).buffer;
+
+    await expect(
+      importParquetFile(file, { sheetName: 'Oversized' }),
+    ).rejects.toThrow('Parquet import exceeds the spreadsheet limit');
   });
 });

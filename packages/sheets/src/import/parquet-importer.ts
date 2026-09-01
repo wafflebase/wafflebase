@@ -1,9 +1,13 @@
 import type { ImportedSheet } from './imported-sheet';
-import { importRecordsAsSheet } from './record-importer';
-import { MAX_IMPORT_CELLS } from './csv-importer';
+import { createImportBudget, MAX_IMPORT_CELLS } from './csv-importer';
 import { cellFromInput } from '../model/worksheet/input';
 import type { Cell } from '../model/core/types';
 import { toCell } from '../store/readonly';
+import { createWorksheet } from '../model/workbook/worksheet-document';
+import {
+  ensureWorksheetExtent,
+  writeWorksheetCell,
+} from '../model/workbook/worksheet-grid';
 
 export type ParquetImportOptions = {
   sheetName: string;
@@ -57,26 +61,72 @@ export async function importParquetFile(
 ): Promise<ImportedSheet> {
   // Keep browser-only ESM dependencies out of server-side consumers that import
   // the sheets public API (for example, backend Jest tests).
-  const [{ parquetMetadata, parquetReadObjects }, { compressors }] =
+  const [{ parquetMetadata, parquetRead, parquetSchema }, { compressors }] =
     await Promise.all([
       import('hyparquet'),
       import('hyparquet-compressors'),
     ]);
   const metadata = parquetMetadata(file);
   assertParquetCellLimit(metadata);
+  const columns = parquetSchema(metadata).children.map(
+    (column) => column.element.name,
+  );
+  if (columns.length === 0) {
+    throw new Error('Parquet import contains no columns');
+  }
+
+  const rowCount = Number(metadata.num_rows);
+  const worksheet = createWorksheet();
+  const budget = createImportBudget();
+  const headerCells = columns.map<Cell>((column) => ({
+    v: column,
+    s: { b: true },
+  }));
+  if (budget.tryAddRow(headerCells)) {
+    throw new Error('Parquet import exceeds the spreadsheet limit');
+  }
+  ensureWorksheetExtent(worksheet, { r: rowCount + 1, c: columns.length });
+  headerCells.forEach((cell, index) => {
+    writeWorksheetCell(worksheet, { r: 1, c: index + 1 }, cell);
+  });
+
+  let cellCount = headerCells.length;
+  let budgetExceeded = false;
   // Logical UTF-8 columns remain strings, while unannotated BYTE_ARRAY values
   // stay Uint8Array for the binary formatter below.
-  const records = await parquetReadObjects({
+  await parquetRead({
     file,
     metadata,
     compressors,
     utf8: false,
+    onChunk: ({ columnName, columnData, rowStart }) => {
+      const columnIndex = columns.indexOf(columnName);
+      if (columnIndex < 0 || budgetExceeded) return;
+
+      for (let index = 0; index < columnData.length; index++) {
+        const cell = parquetCellForValue(columnData[index]);
+        if (!cell) continue;
+        if (budget.tryAddRow([cell])) {
+          budgetExceeded = true;
+          return;
+        }
+        writeWorksheetCell(worksheet, {
+          r: rowStart + index + 2,
+          c: columnIndex + 1,
+        }, cell);
+        cellCount += 1;
+      }
+    },
   });
-  return importRecordsAsSheet(records, {
-    sheetName: options.sheetName,
-    fallbackName: 'Imported Parquet',
-    formatName: 'Parquet',
-    cellForValue: parquetCellForValue,
-    enforceImportBudget: true,
-  });
+  if (budgetExceeded) {
+    throw new Error('Parquet import exceeds the spreadsheet limit');
+  }
+
+  return {
+    name: options.sheetName.trim() || 'Imported Parquet',
+    worksheet,
+    cellCount,
+    rowCount: rowCount + 1,
+    columnCount: columns.length,
+  };
 }
