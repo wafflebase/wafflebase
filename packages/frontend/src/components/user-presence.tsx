@@ -19,6 +19,16 @@ import {
 import { getPeerCursorColor } from "@wafflebase/sheets";
 import { useTheme } from "@/components/theme-provider";
 import { AvatarStack, AvatarStackUser } from "@/components/avatar-stack";
+import { AVATAR_SIZE_CLASS, type AvatarSize } from "@/components/avatar-size";
+
+/**
+ * One literal for both the drawn stack and the slot held open before it
+ * exists, so the two cannot be changed apart.
+ *
+ * Exported so the test that pins them together reads this rather than
+ * restating the size, which would make changing it here a false failure.
+ */
+export const PRESENCE_AVATAR_SIZE: AvatarSize = 32;
 
 interface UserPresenceProps {
   className?: string;
@@ -120,7 +130,7 @@ export function UserPresence({
       {totalUsers > 0 ? (
         <AvatarStack
           users={users}
-          size={32}
+          size={PRESENCE_AVATAR_SIZE}
           maxVisible={MAX_VISIBLE}
           renderAvatar={(user, avatar) =>
             renderAvatarTrigger(user as PresenceUser, avatar)
@@ -182,7 +192,17 @@ export function UserPresence({
           )}
         />
       ) : (
-        <div className="w-32 opacity-0" />
+        // Empty only until the Yorkie document attaches — after that the list
+        // always holds at least this user. This slot lives in the header's
+        // right-anchored control cluster, so its width is subtracted from
+        // where Share and the other controls sit; reserving more than the
+        // attached state needs made every document open jolt them sideways.
+        // One avatar is the floor of that state, so reserve exactly that.
+        <div
+          data-testid="presence-placeholder"
+          aria-hidden
+          className={`${AVATAR_SIZE_CLASS[PRESENCE_AVATAR_SIZE]} shrink-0`}
+        />
       )}
     </div>
   );

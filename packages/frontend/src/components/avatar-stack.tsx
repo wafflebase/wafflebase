@@ -1,5 +1,10 @@
 import * as React from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  AVATAR_INITIALS_CLASS,
+  AVATAR_SIZE_CLASS,
+  type AvatarSize,
+} from "@/components/avatar-size";
 
 export type AvatarStackUser = {
   key: string;
@@ -11,7 +16,7 @@ export type AvatarStackUser = {
 type AvatarStackProps = {
   users: AvatarStackUser[];
   /** Pixel size of each avatar. Defaults to 24 (compact). */
-  size?: 24 | 32;
+  size?: AvatarSize;
   maxVisible?: number;
   /** Render trigger around each avatar. Defaults to a non-interactive span. */
   renderAvatar?: (user: AvatarStackUser, avatar: React.ReactNode) => React.ReactNode;
@@ -19,16 +24,6 @@ type AvatarStackProps = {
   renderOverflow?: (overflow: AvatarStackUser[]) => React.ReactNode;
   className?: string;
 };
-
-const SIZE_CLASS = {
-  24: "h-6 w-6",
-  32: "h-8 w-8",
-} as const;
-
-const INITIALS_CLASS = {
-  24: "text-[10px]",
-  32: "text-xs",
-} as const;
 
 /**
  * Overlapping avatar row primitive used by both the documents-list
@@ -46,8 +41,8 @@ export function AvatarStack({
   if (users.length === 0) return null;
   const visible = users.slice(0, maxVisible);
   const overflow = users.slice(maxVisible);
-  const sizeClass = SIZE_CLASS[size];
-  const initialsClass = INITIALS_CLASS[size];
+  const sizeClass = AVATAR_SIZE_CLASS[size];
+  const initialsClass = AVATAR_INITIALS_CLASS[size];
 
   return (
     <div className={`flex items-center -space-x-1.5 ${className ?? ""}`}>
