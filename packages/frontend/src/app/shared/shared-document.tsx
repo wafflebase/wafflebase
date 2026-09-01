@@ -1041,10 +1041,15 @@ function SharedDocumentInner({
 }
 
 /**
- * Renders the SharedDocument component.
+ * The shared-document view for a given token.
+ *
+ * Split from the route component so a caller that already *has* a token can
+ * mount the real read-only viewer — which is how the template gallery embeds
+ * a preview at `/t/:id` instead of sending the visitor to a second tab
+ * (docs/design/template-gallery.md). The coupling to the router was one line;
+ * everything below already took `token` as a prop.
  */
-export function SharedDocument() {
-  const { token } = useParams<{ token: string }>();
+export function SharedDocumentByToken({ token }: { token?: string }) {
   const [resolved, setResolved] = useState<ResolvedShareLink | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1083,6 +1088,14 @@ export function SharedDocument() {
   }
 
   return <SharedDocumentInner resolved={resolved} token={token} />;
+}
+
+/**
+ * Renders the SharedDocument component — the `/shared/:token` route.
+ */
+export function SharedDocument() {
+  const { token } = useParams<{ token: string }>();
+  return <SharedDocumentByToken token={token} />;
 }
 
 export default SharedDocument;

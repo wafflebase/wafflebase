@@ -44,8 +44,18 @@ const GENERIC_LOGIN_ERROR =
 export function LoginForm({
   className,
   error,
+  returnTo,
   ...props
-}: React.ComponentPropsWithoutRef<"form"> & { error?: string | null }) {
+}: React.ComponentPropsWithoutRef<"form"> & {
+  error?: string | null;
+  /**
+   * Where to send the browser after a successful login. Forwarded to
+   * , which stores it in its own cookie and
+   * re-validates it in the callback — it is a *request*, not a promise, and
+   * the server refuses anything that is not a same-origin path.
+   */
+  returnTo?: string | null;
+}) {
   // `error` is raw query-string input, so the lookup must not walk the
   // prototype chain — see `LOGIN_ERRORS`.
   const message = error ? (LOGIN_ERRORS.get(error) ?? GENERIC_LOGIN_ERROR) : null;
@@ -73,7 +83,9 @@ export function LoginForm({
       )}
       <WbButton asChild variant="primary" size="lg" className="w-full">
         <Link
-          to={`${import.meta.env.VITE_BACKEND_API_URL}/auth/github`}
+          to={`${import.meta.env.VITE_BACKEND_API_URL}/auth/github${
+            returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ""
+          }`}
           rel="noopener noreferrer"
         >
           <svg

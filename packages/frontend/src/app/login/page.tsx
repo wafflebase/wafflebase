@@ -46,7 +46,14 @@ export default function LoginPage() {
                 "0 1px 0 rgba(42,30,18,0.04), 0 30px 60px -32px rgba(42,30,18,0.22)",
             }}
           >
-            <LoginForm error={searchParams.get("error")} />
+            {/* `?returnTo=` is forwarded to the backend, which re-validates
+                it and refuses anything that is not a same-origin path — so a
+                crafted /login?returnTo= URL cannot make this an open
+                redirect. Used by /t/:id so a template link survives sign-in. */}
+            <LoginForm
+              error={searchParams.get("error")}
+              returnTo={searchParams.get("returnTo")}
+            />
           </div>
 
           <p className="text-center text-[12.5px] font-code text-[color:var(--wb-sub)] mt-6">

@@ -4,13 +4,27 @@ import { IconCopy, IconTrash } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   getDocumentTemplate,
   publishTemplate,
   unpublishTemplate,
+  updateTemplate,
+  TEMPLATE_CATEGORIES,
   type TemplateListing,
+  type TemplateVisibility,
 } from "@/api/templates";
 import { isAuthExpiredError } from "@/api/auth";
+
+/** `Select` has no empty-string value, so "no category" needs a sentinel. */
+const NO_CATEGORY = "__none__";
 
 /**
  * The template half of the Share dialog (docs/design/template-gallery.md).
@@ -160,9 +174,11 @@ export function TemplateShareSection({
                 )}
               </div>
             </div>
+            <TemplateMetaEditor listing={listing} onSaved={setListing} />
             <p className="text-muted-foreground text-xs">
-              Anyone with this link can preview the document and start their own
-              copy. Your document is never changed.
+              {listing.visibility === "workspace"
+                ? "Listed in this workspace's Templates tab, and usable by anyone with this link. Your document is never changed."
+                : "Anyone with this link can preview the document and start their own copy. Your document is never changed."}
             </p>
           </>
         ) : (
@@ -183,5 +199,119 @@ export function TemplateShareSection({
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Visibility, category and tags for a published listing.
+ *
+ * Kept as a separate save rather than folded into the publish button: this is
+ * what a listing looks like *after* it exists, and publishing is deliberately
+ * a one-click action. Only the fields the user actually changed are sent, so
+ * `update` leaves everything else alone.
+ */
+function TemplateMetaEditor({
+  listing,
+  onSaved,
+}: {
+  listing: TemplateListing;
+  onSaved: (listing: TemplateListing) => void;
+}) {
+  const [visibility, setVisibility] = useState<TemplateVisibility>(
+    listing.visibility,
+  );
+  const [category, setCategory] = useState(listing.category ?? NO_CATEGORY);
+  const [tags, setTags] = useState(listing.tags.join(", "));
+  const [saving, setSaving] = useState(false);
+
+  const dirty =
+    visibility !== listing.visibility ||
+    (category === NO_CATEGORY ? null : category) !== listing.category ||
+    tags !== listing.tags.join(", ");
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const saved = await updateTemplate(listing.id, {
+        visibility,
+        // Explicit null clears it; undefined would mean "leave alone".
+        category: category === NO_CATEGORY ? null : category,
+        // Split on commas and let the backend normalize — it is the enforcing
+        // copy of the rule (trim / lowercase / de-duplicate / cap at 10).
+        tags: tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+      });
+      onSaved(saved);
+      toast.success("Template updated");
+    } catch (error) {
+      if (isAuthExpiredError(error)) return;
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update template",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-2">
+      <div className="grid grid-cols-2 gap-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="template-visibility" className="text-xs">
+            Visibility
+          </Label>
+          <Select
+            value={visibility}
+            onValueChange={(v) => setVisibility(v as TemplateVisibility)}
+          >
+            <SelectTrigger id="template-visibility" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unlisted">Anyone with the link</SelectItem>
+              <SelectItem value="workspace">This workspace</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="template-category" className="text-xs">
+            Category
+          </Label>
+          <Select value={category} onValueChange={setCategory}>
+            <SelectTrigger id="template-category" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_CATEGORY}>None</SelectItem>
+              {TEMPLATE_CATEGORIES.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid gap-1.5">
+        <Label htmlFor="template-tags" className="text-xs">
+          Tags
+        </Label>
+        <Input
+          id="template-tags"
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+          placeholder="budget, quarterly"
+        />
+      </div>
+      {dirty && (
+        <div className="flex justify-end">
+          <Button size="sm" disabled={saving} onClick={handleSave}>
+            {saving ? "Saving..." : "Save"}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

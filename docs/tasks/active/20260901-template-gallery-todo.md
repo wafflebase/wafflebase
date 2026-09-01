@@ -2,7 +2,7 @@
 
 Design doc: [template-gallery.md](../../design/template-gallery.md)
 PR: [#1000](https://github.com/wafflebase/wafflebase/pull/1000)
-Status: **Phase 1 shipped in #1000; Phases 2–3 planned, not started**
+Status: **Phase 1 shipped (#1000). Phase 2 browse shipped on `feat/template-gallery-browse`; thumbnails (2b) and Phase 3 remain**
 
 ## Principles
 
@@ -64,10 +64,10 @@ Status: **Phase 1 shipped in #1000; Phases 2–3 planned, not started**
       destination cases + `uniqueTitle`
 - [ ] Client-rendered thumbnail capture uploaded through `POST /images`; type
       icon fallback (column, serving and card rendering are in place)
-- [ ] Embed the preview in `/t/:id` instead of opening `/shared/<token>`
+- [x] Embed the preview in `/t/:id` instead of opening `/shared/<token>`
       (needs `SharedDocument` to accept a token prop rather than read
       `useParams`)
-- [ ] Return a logged-out visitor to `/t/:id` after sign-in (needs the OAuth
+- [x] Return a logged-out visitor to `/t/:id` after sign-in (needs the OAuth
       `state` to carry a server-validated return path — an auth change)
 - [ ] Backend e2e coverage through the HTTP layer, alongside the existing
       share-link/document integration specs
@@ -83,18 +83,18 @@ the work below is authorization work.
 
 The single largest piece, and the one every later surface reads.
 
-- [ ] `GET /templates?scope=workspace|public&workspaceId=&type=&category=&tag=&q=&sort=popular|recent&cursor=&limit=`
-- [ ] Visibility as a **query constraint, never a post-filter**; `scope=workspace`
+- [x] `GET /templates?scope=workspace|public&workspaceId=&type=&category=&tag=&q=&sort=popular|recent&cursor=&limit=`
+- [x] Visibility as a **query constraint, never a post-filter**; `scope=workspace`
       runs `assertMember` first and constrains on the *document's* current
       workspace (the Phase 1 rule)
-- [ ] `unlisted` listings never appear in any collection — holding the id is
+- [x] `unlisted` listings never appear in any collection — holding the id is
       their entire access story
-- [ ] **No `previewToken` in list responses** — a page of 24 cards must not hand
+- [x] **No `previewToken` in list responses** — a page of 24 cards must not hand
       out 24 non-expiring read capabilities; the token comes from
       `GET /templates/:id` when a card is opened
-- [ ] Keyset pagination on `(useCount, id)` / `(publishedAt, id)`, not offset
+- [x] Keyset pagination on `(useCount, id)` / `(publishedAt, id)`, not offset
 - [ ] `@@index([visibility, status, publishedAt])` for the recency sort
-- [ ] Tests: cross-tier leakage (unlisted absent, another workspace's listings
+- [x] Tests: cross-tier leakage (unlisted absent, another workspace's listings
       absent, a moved document's listing absent), token omission, cursor
       stability while counts change
 
@@ -109,16 +109,16 @@ The single largest piece, and the one every later surface reads.
 
 ### 2c. Taxonomy
 
-- [ ] Fixed `category` list shared by backend validation and the frontend picker
+- [x] Fixed `category` list shared by backend validation and the frontend picker
       (Business / Education / Personal / Project management / Finance /
       Marketing / Design / Other) — a constant, not a table
-- [ ] Tag normalization on write: trim, lowercase, de-duplicate, max 10
-- [ ] Category + tag inputs in the Share dialog's Template section
+- [x] Tag normalization on write: trim, lowercase, de-duplicate, max 10
+- [x] Category + tag inputs in the Share dialog's Template section
 
 ### 2d. Surfaces
 
-- [ ] **Templates** tab at `/w/:workspaceId/templates`
-- [ ] **New from template** picker in the documents-list create menu
+- [x] **Templates** tab at `/w/:workspaceId/templates`
+- [x] **New from template** picker in the documents-list create menu
 - [ ] Manager may unpublish any listing in their workspace (publishing itself is
       manager-gated at this tier too — see Decisions)
 - [ ] Refuse to publish a document whose root holds a `datasource` /
