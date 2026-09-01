@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { IconCopy, IconTrash } from "@tabler/icons-react";
+import { IconCamera, IconCopy, IconTrash } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -22,9 +22,41 @@ import {
   type TemplateVisibility,
 } from "@/api/templates";
 import { isAuthExpiredError } from "@/api/auth";
+import { imageUrl, postSharedImage } from "@/api/images";
+import { captureThumbnail, hasThumbnailSource } from "@/lib/thumbnail-capture";
 
 /** `Select` has no empty-string value, so "no category" needs a sentinel. */
 const NO_CATEGORY = "__none__";
+
+/**
+ * Take the open editor's picture and upload it, answering the image id to
+ * store on the listing — or `undefined`.
+ *
+ * **Never throws.** A thumbnail is decoration on a card: a document type with
+ * no renderer, a canvas tainted by a remote image, a failed upload — none of
+ * those are reasons to fail the publish this rides along with, and none of
+ * them are worth a toast the publisher can do nothing about. The card falls
+ * back to its document-type icon, exactly as it did before thumbnails existed.
+ *
+ * Uploaded through `postSharedImage`, **not** the workspace-scoped route the
+ * in-document image pickers use. A template card has to render for a
+ * logged-out visitor who holds no membership and no share token, and only an
+ * id at the bucket root is readable by `GET /images/:id`. Storing a
+ * workspace-scoped id here would put a key on the listing that no route the
+ * card can call is able to serve.
+ */
+async function captureThumbnailId(
+  documentId: string,
+): Promise<string | undefined> {
+  try {
+    const blob = await captureThumbnail(documentId);
+    if (!blob) return undefined;
+    const { id } = await postSharedImage(blob, "thumbnail.webp");
+    return id;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * The template half of the Share dialog (docs/design/template-gallery.md).
@@ -104,8 +136,14 @@ export function TemplateShareSection({
   const handlePublish = async () => {
     setBusy(true);
     try {
+      const thumbnailId = await captureThumbnailId(documentId);
       const published = await publishTemplate(documentId, {
         visibility: publishVisibility,
+        // Omitted rather than sent as null when there is no picture: `publish`
+        // is an upsert whose fields fall back to the existing listing, and a
+        // republish that failed to capture must not blank the thumbnail the
+        // previous one stored.
+        ...(thumbnailId ? { thumbnailId } : {}),
       });
       setListing(published);
       await copyToClipboard(
@@ -191,7 +229,11 @@ export function TemplateShareSection({
                 manager-only server-side, so showing the controls to a plain
                 member offers an action whose Save can only ever 403. */}
             {listing.canManage && (
-              <TemplateMetaEditor listing={listing} onSaved={setListing} />
+              <TemplateMetaEditor
+                listing={listing}
+                documentId={documentId}
+                onSaved={setListing}
+              />
             )}
             <p className="text-muted-foreground text-xs">
               {listing.visibility === "workspace"
@@ -254,9 +296,11 @@ export function TemplateShareSection({
  */
 function TemplateMetaEditor({
   listing,
+  documentId,
   onSaved,
 }: {
   listing: TemplateListing;
+  documentId: string;
   onSaved: (listing: TemplateListing) => void;
 }) {
   const [visibility, setVisibility] = useState<TemplateVisibility>(
@@ -265,6 +309,33 @@ function TemplateMetaEditor({
   const [category, setCategory] = useState(listing.category ?? NO_CATEGORY);
   const [tags, setTags] = useState(listing.tags.join(", "));
   const [saving, setSaving] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+
+  /**
+   * A thumbnail is a snapshot, not a live render — it goes stale as the
+   * document changes, and the alternative is rendering a document per card on
+   * every gallery paint. So refreshing it is an explicit act, offered only
+   * when an editor is actually mounted to take the picture.
+   */
+  const handleCaptureThumbnail = async () => {
+    setCapturing(true);
+    try {
+      const thumbnailId = await captureThumbnailId(documentId);
+      if (!thumbnailId) {
+        toast.error("Could not capture a preview of this document");
+        return;
+      }
+      onSaved(await updateTemplate(listing.id, { thumbnailId }));
+      toast.success("Template preview updated");
+    } catch (error) {
+      if (isAuthExpiredError(error)) return;
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update the preview",
+      );
+    } finally {
+      setCapturing(false);
+    }
+  };
 
   const dirty =
     visibility !== listing.visibility ||
@@ -299,6 +370,32 @@ function TemplateMetaEditor({
 
   return (
     <div className="grid gap-2">
+      <div className="flex items-center gap-2">
+        <div className="bg-muted h-12 w-20 shrink-0 overflow-hidden rounded border">
+          {listing.thumbnailId ? (
+            <img
+              src={imageUrl(listing.thumbnailId)}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="text-muted-foreground flex h-full w-full items-center justify-center text-[10px]">
+              No preview
+            </div>
+          )}
+        </div>
+        {hasThumbnailSource(documentId) && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={capturing}
+            onClick={handleCaptureThumbnail}
+          >
+            <IconCamera className="mr-1 h-3.5 w-3.5" />
+            {capturing ? "Capturing..." : "Update preview"}
+          </Button>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <div className="grid gap-1.5">
           <Label htmlFor="template-visibility" className="text-xs">

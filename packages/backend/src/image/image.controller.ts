@@ -9,6 +9,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
@@ -61,12 +62,22 @@ export class ImageController {
     );
   }
 
+  /**
+   * A missing object answers **404**, not the 500 an unhandled S3 `NoSuchKey`
+   * produces. An id here outlives whatever referenced it — a template listing
+   * stores one and the object can be deleted underneath it — so "this image is
+   * gone" is an ordinary outcome of a public route, not a server fault, and it
+   * must not fill the error log with stack traces every time a stale card is
+   * painted. Mirrors `ApiV1ImageReadController`, which already does this.
+   */
   @Get(':id')
   async get(@Param('id') id: string, @Res() res: Response): Promise<void> {
     if (!VALID_IMAGE_ID_PATTERN.test(id)) {
       throw new BadRequestException('Invalid image id');
     }
-    const { body } = await this.imageService.getObject(id);
+    const { body } = await this.imageService.getObject(id).catch(() => {
+      throw new NotFoundException('Image not found');
+    });
     const ext = id.split('.').pop()!.toLowerCase();
     res.setHeader(
       'Content-Type',

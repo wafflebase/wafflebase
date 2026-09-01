@@ -1,0 +1,207 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import {
+  captureFromContainer,
+  captureThumbnail,
+  encodeThumbnail,
+  hasThumbnailSource,
+  registerThumbnailSource,
+} from "./thumbnail-capture";
+
+/**
+ * jsdom has no 2D context and no `toBlob`. Every test that needs pixels stubs
+ * the canvas rather than pretending jsdom can paint — what is under test here
+ * is the registry's lifecycle and the graceful-degradation contract, not the
+ * rasterizer.
+ */
+function fakeCanvas(
+  width: number,
+  height: number,
+  opts: {
+    blob?: Blob | null;
+    toBlobThrows?: boolean;
+    context?: Partial<CanvasRenderingContext2D> | null;
+  } = {},
+): HTMLCanvasElement {
+  const ctx =
+    opts.context === null
+      ? null
+      : ({
+          fillRect: vi.fn(),
+          drawImage: vi.fn(),
+          fillStyle: "",
+          ...opts.context,
+        } as unknown as CanvasRenderingContext2D);
+  return {
+    width,
+    height,
+    getContext: () => ctx,
+    getBoundingClientRect: () => ({
+      left: 0,
+      top: 0,
+      width,
+      height,
+    }),
+    toBlob: (cb: BlobCallback) => {
+      if (opts.toBlobThrows) throw new Error("SecurityError");
+      cb(opts.blob === undefined ? new Blob(["x"]) : opts.blob);
+    },
+  } as unknown as HTMLCanvasElement;
+}
+
+/** Make `document.createElement("canvas")` hand back `canvas`. */
+function stubCreatedCanvas(canvas: HTMLCanvasElement) {
+  const real = document.createElement.bind(document);
+  vi.spyOn(document, "createElement").mockImplementation(((tag: string) =>
+    tag === "canvas" ? canvas : real(tag)) as typeof document.createElement);
+}
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("registerThumbnailSource", () => {
+  it("captures through the registered source", async () => {
+    stubCreatedCanvas(fakeCanvas(64, 48));
+    registerThumbnailSource("doc-1", () => fakeCanvas(640, 480));
+    expect(hasThumbnailSource("doc-1")).toBe(true);
+    expect(await captureThumbnail("doc-1")).toBeInstanceOf(Blob);
+  });
+
+  it("captures nothing for a document with no source", async () => {
+    expect(hasThumbnailSource("doc-absent")).toBe(false);
+    expect(await captureThumbnail("doc-absent")).toBeNull();
+  });
+
+  it("deregistration removes the source", () => {
+    const off = registerThumbnailSource("doc-2", () => null);
+    off();
+    expect(hasThumbnailSource("doc-2")).toBe(false);
+  });
+
+  it("a stale deregistration does not remove its replacement", () => {
+    // React registers the new effect before running the old one's cleanup, so
+    // an unconditional delete would leave a mounted editor unreachable.
+    const offFirst = registerThumbnailSource("doc-3", () => null);
+    registerThumbnailSource("doc-3", () => fakeCanvas(10, 10));
+    offFirst();
+    expect(hasThumbnailSource("doc-3")).toBe(true);
+  });
+
+  it("a throwing source degrades to no thumbnail", async () => {
+    registerThumbnailSource("doc-4", () => {
+      throw new Error("editor is mid-teardown");
+    });
+    expect(await captureThumbnail("doc-4")).toBeNull();
+  });
+
+  it("awaits an async source", async () => {
+    stubCreatedCanvas(fakeCanvas(64, 48));
+    registerThumbnailSource("doc-5", () =>
+      Promise.resolve(fakeCanvas(640, 480)),
+    );
+    expect(await captureThumbnail("doc-5")).toBeInstanceOf(Blob);
+  });
+});
+
+describe("encodeThumbnail", () => {
+  it("bounds the longest edge at 640 and keeps the aspect ratio", async () => {
+    const target = fakeCanvas(0, 0);
+    stubCreatedCanvas(target);
+    await encodeThumbnail(fakeCanvas(1920, 1080));
+    expect(target.width).toBe(640);
+    expect(target.height).toBe(360);
+  });
+
+  it("bounds a portrait canvas by its height", async () => {
+    const target = fakeCanvas(0, 0);
+    stubCreatedCanvas(target);
+    await encodeThumbnail(fakeCanvas(800, 1600));
+    expect(target.height).toBe(640);
+    expect(target.width).toBe(320);
+  });
+
+  it("never upscales a small canvas", async () => {
+    const target = fakeCanvas(0, 0);
+    stubCreatedCanvas(target);
+    await encodeThumbnail(fakeCanvas(200, 100));
+    expect(target.width).toBe(200);
+    expect(target.height).toBe(100);
+  });
+
+  it("returns null for an empty canvas", async () => {
+    expect(await encodeThumbnail(fakeCanvas(0, 0))).toBeNull();
+  });
+
+  it("returns null when the canvas is tainted", async () => {
+    // A document holding a remote image poisons `toBlob`. The card falls back
+    // to its type icon rather than the publish failing.
+    stubCreatedCanvas(fakeCanvas(64, 48, { toBlobThrows: true }));
+    expect(await encodeThumbnail(fakeCanvas(640, 480))).toBeNull();
+  });
+
+  it("falls back to PNG when WebP encoding is unsupported", async () => {
+    const png = new Blob(["png"]);
+    let call = 0;
+    const target = fakeCanvas(64, 48);
+    (target as unknown as { toBlob: unknown }).toBlob = (
+      cb: BlobCallback,
+      type: string,
+    ) => {
+      call += 1;
+      cb(type === "image/webp" ? null : png);
+    };
+    stubCreatedCanvas(target);
+
+    expect(await encodeThumbnail(fakeCanvas(640, 480))).toBe(png);
+    expect(call).toBe(2);
+  });
+});
+
+describe("captureFromContainer", () => {
+  it("returns null without a container", () => {
+    expect(captureFromContainer(null)).toBeNull();
+  });
+
+  it("skips chrome-sized canvases and composites the rest", () => {
+    const out = fakeCanvas(0, 0);
+    const ctx = out.getContext("2d")!;
+    const grid = fakeCanvas(800, 600);
+    const ruler = fakeCanvas(800, 20);
+    const container = {
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: 800,
+        height: 600,
+      }),
+      querySelectorAll: () => [ruler, grid],
+    } as unknown as HTMLElement;
+    stubCreatedCanvas(out);
+
+    expect(captureFromContainer(container)).toBe(out);
+    // The ruler is 20px on its short axis, so only the grid is drawn.
+    expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns null when every canvas is chrome", () => {
+    const container = {
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: 800,
+        height: 600,
+      }),
+      querySelectorAll: () => [fakeCanvas(800, 20)],
+    } as unknown as HTMLElement;
+    stubCreatedCanvas(fakeCanvas(0, 0));
+    expect(captureFromContainer(container)).toBeNull();
+  });
+
+  it("returns null for a container with no area", () => {
+    const container = {
+      getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }),
+      querySelectorAll: () => [],
+    } as unknown as HTMLElement;
+    expect(captureFromContainer(container)).toBeNull();
+  });
+});

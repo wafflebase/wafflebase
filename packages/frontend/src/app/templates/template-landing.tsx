@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getTemplate, createFromTemplate } from "@/api/templates";
+import { imageUrl } from "@/api/images";
 import { fetchWorkspaces } from "@/api/workspaces";
 import { fetchMeOptional, isAuthExpiredError } from "@/api/auth";
 import { Loader } from "@/components/loader";
@@ -18,15 +19,6 @@ import {
 import { getDocumentPath } from "@/app/documents/document-list-utils";
 import { SharedDocumentByToken } from "@/app/shared/shared-document";
 import type { DocumentType } from "@/types/documents";
-
-/**
- * A listing stores a bare image *id*, not a URL, so it can only ever point at
- * this deployment's image bucket. `GET /images/:id` is unauthenticated and
- * immutably cached, which is what lets a logged-out visitor see the card.
- */
-function thumbnailUrl(id: string): string {
-  return `${import.meta.env.VITE_BACKEND_API_URL}/images/${encodeURIComponent(id)}`;
-}
 
 /**
  * `/t/:id` — the template landing page (docs/design/template-gallery.md).
@@ -155,7 +147,7 @@ export function TemplateLanding() {
 
       {t.thumbnailId && (
         <img
-          src={thumbnailUrl(t.thumbnailId)}
+          src={imageUrl(t.thumbnailId)}
           alt=""
           className="mt-6 w-full max-w-full rounded-md border"
         />
