@@ -48,6 +48,12 @@ describe('assertDecisionAllowed', () => {
     );
   });
 
+  it('takes down a submission still awaiting a decision', () => {
+    // A report can arrive while a listing is under review — it is still
+    // serving at its existing tier the whole time.
+    expect(() => assertDecisionAllowed('pending', 'takedown')).not.toThrow();
+  });
+
   it('takes down a listing that is already listed', () => {
     // The state a public listing sits in when a report arrives — a takedown
     // that only worked on pending submissions would be useless.

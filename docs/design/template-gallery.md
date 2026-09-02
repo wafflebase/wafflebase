@@ -373,13 +373,31 @@ One invariant carries the phase: **`visibility: 'public'` is written only by the
 approval path.** The publish and update routes go on refusing it with a `400`
 forever, and a publisher asks for the public tier through a separate verb:
 
-```
+```http
 POST /templates/:id/submit { license: true }    → status: 'pending'  (visibility unchanged)
 POST /templates/:id/review { decision, note? }  → approve  : visibility='public', status='listed'
                                                   reject   : status='rejected',  visibility unchanged
                                                   takedown : status='removed',   visibility='unlisted',
                                                              preview link revoked
 ```
+
+Every transition has an **allowed set of source states** (`approve` and
+`reject` only from `pending`; `takedown` from `listed`, `pending` or
+`rejected`; nothing from `removed`), and every write is **conditional on the
+status it was validated against** — a compare-and-set, not an unconditional
+update by id. Two reviewers deciding at once otherwise both pass the source-state
+check and the later write simply wins: a takedown followed by a concurrent
+approve leaves `status: 'listed', visibility: 'public'` on a listing whose
+preview link was already deleted, which is a public listing no reviewer
+approved. The loser gets a `409` telling them to look again. `submit` takes the
+same guard, or a submission racing a takedown moves a decided listing back to
+`pending`.
+
+The takedown's link revoke rides in the **same transaction** as the row write,
+which is what makes the ordering question disappear: revoke-first leaves a
+listing that looks live with no preview if the row write is lost, and row-first
+leaves a row reading "removed" while the content stays anonymously readable.
+Neither half may land alone.
 
 Keeping `visibility` at its **effective** tier through review is the load-bearing
 part, and it is a correction to this document's earlier sketch, which had a
@@ -468,15 +486,21 @@ consulted by both `submit` and `approve`, and throws until 3d lands. Without it
 3a would be world-enumerable immediately. Each PR merges with the gallery shut
 because this one function says so, not because the pieces happen not to connect.
 
-Every outcome notifies the publisher through the existing notification system,
-because a submission that disappears silently is the failure mode CapCut's own
-help pages are mostly about. The **decision is the type** —
+Every outcome notifies the publisher through the existing notification system —
+with one exception, a reviewer deciding their *own* listing, who is not notified
+for the same reason an actor never notifies themselves anywhere else here.
+Notifying at all matters because a submission that disappears silently is the
+failure mode CapCut's own help pages are mostly about. The **decision is the
+type** —
 `template_approved` / `template_rejected` / `template_removed`, not one
 `template_reviewed` carrying a field — for the same reason `comment_mention`
 and `comment_reply` are separate types: the client renders one sentence per
 type, and "your template was reviewed" makes the reader open it to learn the
-one thing they wanted to know. The reviewer's note is the notification's
-`preview`, and for a rejection it is the only place the reason appears.
+one thing they wanted to know. The reviewer's note rides along as the
+notification's `preview` — the only thing in the *payload* that carries a
+reason. It is not the only copy of one: the note is also stored on the listing
+and returned to its manager, which is what covers the self-review case, a failed
+notification, and a publisher who reads the Share dialog before their inbox.
 
 #### Cross-workspace image re-hosting
 
@@ -499,7 +523,18 @@ rewrites the reference to the destination's own workspace-scoped URL. URLs
 pointing at a third-party host are left exactly as they are; we are not
 mirroring the internet.
 
-The destination scope is the whole point and is easy to get wrong in the
+**The source workspace is checked, not trusted.** A workspace-scoped image URL
+carries a workspace id, and that id sits in document content its author wrote —
+so a URL naming *someone else's* workspace is an ordinary thing for a document
+to contain, and a walker that re-hosts whatever it finds would `CopyObject` an
+image out of a workspace the copier cannot read into one they can. That is an
+IDOR with a server-side copy doing the reading. The walker therefore re-hosts a
+URL only when its workspace segment equals the **source document's own**
+`workspaceId`, and leaves every other URL exactly as it is — where it goes on
+403-ing, which is the correct outcome for a reference the source workspace never
+had the right to serve either.
+
+The destination scope is the other half, and is easy to get wrong in the
 cheaper direction. Re-hosting into an unscoped bucket-root key would also
 "work" — `GET /images/:id` is unauthenticated, so every copy would render — but
 it would publish every image of a `workspace`-tier template at a permanent,
@@ -516,10 +551,17 @@ The walker also needs the budget the Miro importer has and this section
 originally omitted: an aggregate ceiling on objects and bytes, with anything
 skipped reported rather than dropped. `POST /templates/:id/use` is a
 member-reachable route, and "one document's worth of content" stops bounding it
-once each image is a server-side `CopyObject`. Failure degrades rather than
-fails the copy — a copy with one un-re-hosted image beats no document — and the
-objects the walker created are added to `copy()`'s rollback, which today
-discards only `fileId`.
+once each image is a server-side `CopyObject`. The objects the walker created
+join `copy()`'s rollback, which today discards only `fileId`.
+
+**The two callers take opposite failure policies**, and the difference is who
+lives with the result. On `use`, a skipped image degrades the copy — the caller
+asked for a document, one un-re-hosted image beats no document, and it is
+*their* copy to fix. On **promotion it fails the approval**: a reviewer
+approving a template is publishing it to everyone, and an approved listing whose
+frozen copy has broken first-party images is a defect handed to every future
+user, none of whom can do anything about it. The skipped-object report is
+surfaced to the reviewer so the outcome is a decision they make, not a silence.
 
 `pdf` / `image` / `file` documents need nothing: their bytes are already copied
 by `CopyObject`. `doc` needs nothing either — its images live at the bucket root

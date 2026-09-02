@@ -16,6 +16,17 @@ import { Input } from "@/components/ui/input";
 import { SharedDocumentByToken } from "@/app/shared/shared-document";
 
 /**
+ * What each decision is called once it is done. A table rather than
+ * `` `Template ${decision}d` `` — that reads "Template rejectd" and "Template
+ * takedownd", and only works at all for "approve" by accident.
+ */
+const DECISION_DONE: Record<ReviewDecision, string> = {
+  approve: "Template approved",
+  reject: "Template rejected",
+  takedown: "Template taken down",
+};
+
+/**
  * `/admin/templates` — the template review queue
  * (docs/design/template-gallery.md, Phase 3a).
  *
@@ -52,7 +63,7 @@ export function TemplateReviewQueue() {
       note?: string;
     }) => reviewTemplate(id, decision, note),
     onSuccess: (_result, variables) => {
-      toast.success(`Template ${variables.decision}d`);
+      toast.success(DECISION_DONE[variables.decision]);
       void queryClient.invalidateQueries({
         queryKey: ["template-review-queue"],
       });

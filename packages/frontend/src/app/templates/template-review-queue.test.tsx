@@ -5,8 +5,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 
 import TemplateReviewQueue from "./template-review-queue";
+import { toast } from "sonner";
 import { listTemplatesForReview, reviewTemplate } from "@/api/templates";
 import { HttpError } from "@/api/http-error";
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 vi.mock("@/api/templates", () => ({
   listTemplatesForReview: vi.fn(),
@@ -93,6 +98,38 @@ describe("TemplateReviewQueue", () => {
 
     await waitFor(() =>
       expect(reviewTemplate).toHaveBeenCalledWith("tpl-1", "reject", "too thin"),
+    );
+  });
+
+  it.each([
+    ["reject", /template rejected/i],
+    ["takedown", /template taken down/i],
+    ["approve", /template approved/i],
+  ] as const)("says %s in words, not by suffixing the verb", async (
+    decision,
+    expected,
+  ) => {
+    // `Template ${decision}d` produced "Template rejectd" and "Template
+    // takedownd", and only read correctly for "approve" by accident.
+    vi.mocked(listTemplatesForReview).mockResolvedValue([SUBMISSION]);
+    vi.mocked(reviewTemplate).mockResolvedValue(SUBMISSION);
+    renderQueue();
+    await waitFor(() => expect(screen.getByText("Weekly Report")).toBeTruthy());
+
+    await userEvent.type(screen.getByPlaceholderText(/reason/i), "note");
+    await userEvent.click(
+      screen.getByRole("button", {
+        name:
+          decision === "takedown"
+            ? /take down/i
+            : new RegExp(`^${decision}$`, "i"),
+      }),
+    );
+
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        expect.stringMatching(expected),
+      ),
     );
   });
 

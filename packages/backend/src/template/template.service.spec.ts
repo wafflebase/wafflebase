@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
   ServiceUnavailableException,
@@ -42,6 +43,10 @@ const LISTING = {
 type ListingFields = Record<string, unknown>;
 type UpsertArgs = { create: ListingFields; update: ListingFields };
 type UpdateArgs = { where: { id: string }; data: ListingFields };
+type UpdateManyArgs = {
+  where: { id: string; status?: string };
+  data: ListingFields;
+};
 type FindManyArgs = {
   where: ListingFields;
   orderBy: Array<Record<string, string>>;
@@ -65,11 +70,18 @@ function makeService(
     root?: Record<string, unknown>;
     /** Make that read fail, which must fail the publish closed. */
     yorkieError?: Error;
+    /**
+     * Make the compare-and-set match no rows — what a concurrent decision
+     * looks like from the loser's side.
+     */
+    staleWrite?: boolean;
   } = {},
 ) {
   const members = opts.members ?? { 'ws-1:7': 'member' };
   /** The listing these mocks read and write, before any call under test. */
   const baseListing = (opts.listing ?? LISTING) as typeof LISTING;
+  /** What the last guarded write asked for, so the re-read can reflect it. */
+  let lastWrite: ListingFields | undefined;
   // `Promise.resolve` rather than `async () =>`: a mock body with nothing to
   // await trips `@typescript-eslint/require-await`, which the backend lint
   // enforces (and which `verify:fast` does not run — see the lessons file).
@@ -117,12 +129,33 @@ function makeService(
       update: jest.fn((args: UpdateArgs) =>
         Promise.resolve({ ...baseListing, ...args.data }),
       ),
+      // The compare-and-set the review/submit writes go through. It reports how
+      // many rows matched, and `opts.staleWrite` makes that zero — the shape a
+      // concurrent decision produces, where the row no longer holds the status
+      // the caller validated against.
+      updateMany: jest.fn((args: UpdateManyArgs) => {
+        lastWrite = args.data;
+        return Promise.resolve({ count: opts.staleWrite ? 0 : 1 });
+      }),
+      findUniqueOrThrow: jest.fn(() =>
+        Promise.resolve({ ...baseListing, ...(lastWrite ?? {}) }),
+      ),
       delete: jest.fn(() => Promise.resolve(LISTING)),
       findMany: jest.fn((args: FindManyArgs) =>
         Promise.resolve((opts.rows ?? [LISTING]).slice(0, args.take)),
       ),
     },
-    shareLink: { delete: jest.fn(() => Promise.resolve({ id: 'link-1' })) },
+    shareLink: {
+      delete: jest.fn(() => Promise.resolve({ id: 'link-1' })),
+      deleteMany: jest.fn(() => Promise.resolve({ count: 1 })),
+    },
+    // The interactive transaction `review()` runs its compare-and-set in.
+    // Passing the same mock client through means a test sees the calls exactly
+    // as it would outside one; the value of the real thing is atomicity, which
+    // a unit test cannot observe anyway.
+    $transaction: jest.fn(
+      (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(prisma),
+    ),
   };
   const documentCopyService = {
     copy: jest.fn(() => Promise.resolve({ id: 'new-1' })),
@@ -955,7 +988,7 @@ describe('TemplateService.submit', () => {
       listing: { ...LISTING, visibility: 'workspace' },
     });
     await service.submit('tpl-1', 7, { acceptLicense: true });
-    const { data } = prisma.templateListing.update.mock.calls[0][0];
+    const { data } = prisma.templateListing.updateMany.mock.calls[0][0];
     expect(data.status).toBe('pending');
     expect(data).not.toHaveProperty('visibility');
   });
@@ -982,7 +1015,7 @@ describe('TemplateService.submit', () => {
       listing: { ...LISTING, status: 'rejected', reviewNote: 'too thin' },
     });
     await service.submit('tpl-1', 7, { acceptLicense: true });
-    const { data } = prisma.templateListing.update.mock.calls[0][0];
+    const { data } = prisma.templateListing.updateMany.mock.calls[0][0];
     expect(data).toMatchObject({
       reviewNote: null,
       reviewedAt: null,
@@ -1021,7 +1054,7 @@ describe('TemplateService.review', () => {
       listing: { ...LISTING, visibility: 'workspace', status: 'pending' },
     });
     await service.review('tpl-1', 99, { decision: 'approve' });
-    const { data } = prisma.templateListing.update.mock.calls[0][0];
+    const { data } = prisma.templateListing.updateMany.mock.calls[0][0];
     expect(data).toMatchObject({ status: 'listed', visibility: 'public' });
   });
 
@@ -1030,31 +1063,53 @@ describe('TemplateService.review', () => {
       listing: { ...LISTING, visibility: 'workspace', status: 'pending' },
     });
     await service.review('tpl-1', 99, { decision: 'reject', note: 'thin' });
-    const { data } = prisma.templateListing.update.mock.calls[0][0];
+    const { data } = prisma.templateListing.updateMany.mock.calls[0][0];
     expect(data.status).toBe('rejected');
     expect(data).not.toHaveProperty('visibility');
     expect(data.reviewNote).toBe('thin');
     expect(data.reviewedBy).toBe(99);
   });
 
-  it('takedown revokes the preview link before marking the row', async () => {
-    // Ordering, not decoration: a row marked `removed` while its non-expiring
-    // link survived would read as "taken down" in every UI while the content
-    // stayed anonymously readable.
+  it('takedown revokes the preview link, in the same transaction as the row', async () => {
+    // Atomicity rather than ordering, which is what made the ordering question
+    // go away: a row marked `removed` whose non-expiring link survived would
+    // read as "taken down" in every UI while the content stayed anonymously
+    // readable, and a link revoked against a row that never changed leaves a
+    // listing that looks live with no preview. Neither half can land alone.
     const { service, prisma } = makeService({
       listing: { ...LISTING, visibility: 'public', status: 'listed' },
     });
-    const order: string[] = [];
-    prisma.shareLink.delete.mockImplementation(() => {
-      order.push('revoke');
-      return Promise.resolve({ id: 'link-1' });
-    });
-    prisma.templateListing.update.mockImplementation(() => {
-      order.push('update');
-      return Promise.resolve({ ...LISTING, status: 'removed' });
-    });
     await service.review('tpl-1', 99, { decision: 'takedown', note: 'dmca' });
-    expect(order).toEqual(['revoke', 'update']);
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(prisma.shareLink.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'link-1' },
+    });
+  });
+
+  it('refuses a decision the listing has already moved past', async () => {
+    // Two reviewers deciding at once both pass `assertDecisionAllowed`, so the
+    // write has to be conditional on the status it was validated against.
+    // Without it the later write simply wins — a takedown followed by a
+    // concurrent approve leaves a public listing no reviewer approved, whose
+    // preview link is already deleted.
+    const { service } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+      staleWrite: true,
+    });
+    await expect(
+      service.review('tpl-1', 99, { decision: 'reject', note: 'thin' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('guards the write on the status it checked', async () => {
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, status: 'pending' },
+    });
+    await service.review('tpl-1', 99, { decision: 'reject', note: 'thin' });
+    expect(prisma.templateListing.updateMany.mock.calls[0][0].where).toEqual({
+      id: 'tpl-1',
+      status: 'pending',
+    });
   });
 
   it('takedown drops the tier back to unlisted', async () => {
@@ -1062,7 +1117,7 @@ describe('TemplateService.review', () => {
       listing: { ...LISTING, visibility: 'public', status: 'listed' },
     });
     await service.review('tpl-1', 99, { decision: 'takedown' });
-    const { data } = prisma.templateListing.update.mock.calls[0][0];
+    const { data } = prisma.templateListing.updateMany.mock.calls[0][0];
     expect(data).toMatchObject({ status: 'removed', visibility: 'unlisted' });
   });
 
@@ -1085,7 +1140,7 @@ describe('TemplateService.review', () => {
     await expect(
       service.review('tpl-1', 99, { decision: 'reject', note: 'why' }),
     ).resolves.toBeDefined();
-    expect(prisma.templateListing.update).toHaveBeenCalled();
+    expect(prisma.templateListing.updateMany).toHaveBeenCalled();
   });
 
   it('never returns canManage to a reviewer', async () => {
@@ -1270,5 +1325,17 @@ describe('TemplateService.submit (continued)', () => {
     await expect(
       service.submit('tpl-1', 7, { acceptLicense: true }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('TemplateService.submit concurrency', () => {
+  it('refuses to move a listing a reviewer just decided', async () => {
+    // Without the guard, a submit racing a takedown moves a decided listing
+    // back to `pending` and quietly undoes the decision.
+    openPublicTier();
+    const { service } = makeService({ staleWrite: true });
+    await expect(
+      service.submit('tpl-1', 7, { acceptLicense: true }),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 });

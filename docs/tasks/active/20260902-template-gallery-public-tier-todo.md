@@ -51,7 +51,12 @@ Brand Templates tiers Phases 1–2 already built.
 - [x] `POST /templates/:id/review { decision, note? }` —
       `approve` | `reject` | `takedown`.
 - [x] `takedown` sets `status: 'removed'`, `visibility: 'unlisted'`, and revokes
-      the preview share link.
+      the preview share link **in the same transaction** as the row write.
+- [x] Every decision write is a compare-and-set on the status it was validated
+      against, answering `409` when it matches nothing — otherwise two
+      reviewers deciding at once both pass the source-state check and the later
+      write wins, leaving a public listing nobody approved. `submit` takes the
+      same guard.
 - [x] `reject` leaves `visibility` untouched — the listing keeps working at the
       tier it already had.
 
@@ -120,10 +125,24 @@ to a path already exercised.
       `pdf`/`image`/`file` need nothing (blob already copied). **`note` is
       affected but deferred** — single Yorkie `Text`, rewriting is a CRDT edit;
       a copied note loses its images until then.
+- [ ] Only re-host a URL whose workspace segment equals the **source
+      document's own** `workspaceId`. The id sits in author-written content, so
+      a URL naming another workspace is an ordinary thing for a document to
+      contain — and re-hosting it would `CopyObject` an image out of a
+      workspace the copier cannot read (IDOR, with the server doing the
+      reading). Everything else is left alone and goes on 403-ing. **Negative
+      test required**: a document referencing `{otherWorkspaceId}/{id}` copies
+      with that URL untouched and no `CopyObject` issued.
+- [ ] Failure policy differs by caller: `use` degrades (the caller's own copy,
+      one missing image beats no document); **promotion fails the approval**
+      and surfaces the skipped-object report to the reviewer, because an
+      approved listing with broken first-party images is a defect handed to
+      every future user.
 - [ ] Verify the fix end to end: use a template containing an image into a
       *different* workspace and confirm the copy renders it (today it 403s).
-      Do it with a `sheet` or `note`, not a `doc` — a `doc` works already and
-      would prove nothing.
+      Use a **`sheet`** — a `doc` works already and would prove nothing, and a
+      `note` is excluded from the first-pass walker, so it must assert the
+      documented limitation instead of success.
 - [ ] Remove `DELETE /images/:id` from `image.controller.ts`; keep
       `ImageService.delete` for in-process callers. Confirm no client calls it.
 - [ ] Promotion on `approve`, in this order — re-scan `assertContentIsShareable`

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -373,8 +374,13 @@ export class TemplateService {
       );
     }
 
-    const updated = await this.prisma.templateListing.update({
-      where: { id },
+    // Conditional on the status this submission was validated against, for the
+    // same reason `review()` is: without it a submit racing a reviewer's
+    // takedown moves a decided listing back to `pending`, quietly undoing the
+    // decision. The publisher is told to look again rather than silently
+    // winning the race.
+    const changed = await this.prisma.templateListing.updateMany({
+      where: { id, status: listing.status },
       data: {
         status: 'pending',
         submittedAt: new Date(),
@@ -386,6 +392,15 @@ export class TemplateService {
         reviewedBy: null,
         reviewNote: null,
       },
+    });
+    if (changed.count === 0) {
+      throw new ConflictException(
+        'This template changed while you were submitting it. Reload and try again',
+      );
+    }
+
+    const updated = await this.prisma.templateListing.findUniqueOrThrow({
+      where: { id },
       include: LISTING_INCLUDE,
     });
     return toView(updated, true);
@@ -422,31 +437,49 @@ export class TemplateService {
       reviewNote: dto.note ?? null,
     };
 
-    if (dto.decision === 'takedown') {
-      // The link goes first and its failure is allowed to throw, for the same
-      // reason `unpublish` revokes before deleting: the preview link is a live
-      // non-expiring capability on the document, so a row marked `removed`
-      // while the link survived would read as "taken down" in every UI while
-      // the content stayed anonymously readable.
-      if (listing.shareLinkId) {
-        await this.prisma.shareLink.delete({
-          where: { id: listing.shareLinkId },
-        });
-      }
-    }
+    const data =
+      dto.decision === 'approve'
+        ? { ...decided, status: 'listed', visibility: 'public' }
+        : dto.decision === 'reject'
+          ? // `visibility` untouched: a rejection is a verdict on the gallery
+            // submission, not on the publisher's own sharing, so the listing
+            // keeps working at the tier it already had.
+            { ...decided, status: 'rejected' }
+          : { ...decided, status: 'removed', visibility: 'unlisted' };
 
-    const updated = await this.prisma.templateListing.update({
-      where: { id },
-      data:
-        dto.decision === 'approve'
-          ? { ...decided, status: 'listed', visibility: 'public' }
-          : dto.decision === 'reject'
-            ? // `visibility` untouched: a rejection is a verdict on the
-              // gallery submission, not on the publisher's own sharing, so
-              // the listing keeps working at the tier it already had.
-              { ...decided, status: 'rejected' }
-            : { ...decided, status: 'removed', visibility: 'unlisted' },
-      include: LISTING_INCLUDE,
+    // One transaction, and the write is conditional on the status the decision
+    // was validated against.
+    //
+    // Both halves matter. Without the condition, two reviewers deciding at once
+    // both pass `assertDecisionAllowed` and the later write simply wins — a
+    // takedown followed by a concurrent approve leaves `status: 'listed',
+    // visibility: 'public'` on a listing whose preview link was already
+    // deleted: a public listing nobody approved. Without the transaction, the
+    // link revoke and the row update can land apart, and neither order is safe
+    // (revoke-first leaves a listing that looks live with no preview; row-first
+    // leaves a row reading "removed" while the content stays anonymously
+    // readable). Together they are all-or-nothing, so the ordering question
+    // stops existing.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.templateListing.updateMany({
+        where: { id, status: listing.status },
+        data,
+      });
+      if (changed.count === 0) {
+        throw new ConflictException(
+          'This template was decided by someone else while you were reviewing it',
+        );
+      }
+      if (dto.decision === 'takedown' && listing.shareLinkId) {
+        // `deleteMany`, not `delete`: a manager revoking the preview link from
+        // the Share dialog in the meantime must not turn a takedown into a
+        // `P2025`. The link being gone already is the outcome we wanted.
+        await tx.shareLink.deleteMany({ where: { id: listing.shareLinkId } });
+      }
+      return tx.templateListing.findUniqueOrThrow({
+        where: { id },
+        include: LISTING_INCLUDE,
+      });
     });
 
     // Best-effort, like `useCount`: the decision is recorded and the publisher
