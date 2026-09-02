@@ -1513,3 +1513,26 @@ describe('editing an approved card', () => {
     ).not.toHaveProperty('status');
   });
 });
+
+describe('search', () => {
+  it('matches a one-word query against tags as well as text', async () => {
+    const { service, prisma } = makeService();
+    await service.browse({ scope: 'public', q: 'Budget' });
+    expect(prisma.templateListing.findMany.mock.calls[0][0].where.OR).toEqual([
+      { title: { contains: 'Budget', mode: 'insensitive' } },
+      { description: { contains: 'Budget', mode: 'insensitive' } },
+      { tags: { has: 'budget' } },
+    ]);
+  });
+
+  it('does not add a tag clause a multi-word query can never match', async () => {
+    // Tags normalize to single tokens, so `has: 'weekly report'` would be a
+    // clause that matches nothing — and splitting the phrase would quietly
+    // widen the search into "anything tagged weekly".
+    const { service, prisma } = makeService();
+    await service.browse({ scope: 'public', q: 'weekly report' });
+    expect(
+      prisma.templateListing.findMany.mock.calls[0][0].where.OR,
+    ).toHaveLength(2);
+  });
+});

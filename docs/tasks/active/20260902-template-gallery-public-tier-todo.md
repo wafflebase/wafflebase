@@ -187,15 +187,15 @@ Smaller than it looks: `q`, `sort=popular|recent`, the `ILIKE` clause, the keyse
 cursor, the recency index and `TemplateGallery`'s `scope` prop all shipped in
 Phase 2. What is new:
 
-- [ ] Tag containment inside `q` (title/description `ILIKE` already exists).
+- [x] Tag containment inside `q` (title/description `ILIKE` already exists).
       `pg_trgm` index only if measured slow.
-- [ ] `/templates` route outside `PrivateRoute`; type + category facets, sort
+- [x] `/templates` route outside `PrivateRoute`; type + category facets, sort
       control, query box, empty state. Reuse the existing card components.
-- [ ] Homepage link into the gallery.
-- [ ] **Public** tab in the workspace Templates tab and the New-from-template
+- [x] Homepage link into the gallery.
+- [x] **Public** tab in the workspace Templates tab and the New-from-template
       dialog, backed by the same collection call.
-- [ ] Confirm list responses still carry no `previewToken`.
-- [ ] Note in the design doc: no SSR, so the gallery is not indexable. Not fixed here.
+- [x] Confirm list responses still carry no `previewToken`.
+- [x] Note in the design doc: no SSR, so the gallery is not indexable. Not fixed here.
 
 ## PR 3d — Trust, then open the tier
 

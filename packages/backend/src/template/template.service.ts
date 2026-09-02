@@ -116,11 +116,27 @@ export interface TemplateListingView {
 }
 
 /**
- * A gallery card. `TemplateListingView` minus `previewToken` — deliberately a
- * separate type rather than an optional field, so a collection response cannot
- * grow one back by accident.
+ * A gallery card. `TemplateListingView` minus two fields — deliberately a
+ * separate type rather than optional fields, so a collection response cannot
+ * grow either back by accident.
+ *
+ * `previewToken` is the obvious one: a page of cards would otherwise be a page
+ * of non-expiring read capabilities.
+ *
+ * `documentId` is the less obvious one, and it matters because this collection
+ * is anonymously enumerable at `scope=public`. The frontend derives Yorkie doc
+ * keys from a document id by pure string concatenation (`sheet-{id}`,
+ * `slides-{id}`), and with `YORKIE_AUTH_WEBHOOK_ENFORCE` off that key plus the
+ * public project key is read *and write* access to the live document. The
+ * gallery checks that setting when something is published, not when a card is
+ * browsed, so a deployment that approves and later stops enforcing would be
+ * handing out a page of live document keys. Nothing reads it off a card, so
+ * there is nothing to trade for keeping it.
  */
-export type TemplateCardView = Omit<TemplateListingView, 'previewToken'>;
+export type TemplateCardView = Omit<
+  TemplateListingView,
+  'previewToken' | 'documentId'
+>;
 
 export interface TemplateBrowsePage {
   items: TemplateCardView[];
@@ -849,9 +865,17 @@ export class TemplateService {
     const tag = dto.tag ? normalizeTags([dto.tag])[0] : undefined;
     if (tag) where.tags = { has: tag };
     if (dto.q) {
+      // Tags are matched by containment against the *normalized* query, and
+      // only when the whole query normalizes to one tag-shaped token. A
+      // multi-word query would normalize to a phrase that no tag can equal, so
+      // adding `has` for it would be a clause that never matches — and
+      // splitting it into several would quietly widen a search for "weekly
+      // report" into "anything tagged weekly".
+      const asTag = normalizeTags([dto.q])[0];
       where.OR = [
         { title: { contains: dto.q, mode: 'insensitive' } },
         { description: { contains: dto.q, mode: 'insensitive' } },
+        ...(asTag && !/\s/.test(asTag) ? [{ tags: { has: asTag } }] : []),
       ];
     }
 
@@ -1083,7 +1107,8 @@ function toCard(
   listing: ListingWithRelations,
   canManage: boolean,
 ): TemplateCardView {
-  const { previewToken, ...card } = toView(listing, canManage);
+  const { previewToken, documentId, ...card } = toView(listing, canManage);
   void previewToken;
+  void documentId;
   return card;
 }

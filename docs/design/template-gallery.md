@@ -42,11 +42,12 @@ The whole feature, and where each piece lands. "Shipped" is measured against
 | **Category taxonomy + tag normalization** | 2 | shipped |
 | **Workspace Templates tab**, New-from-template picker | 2 | shipped |
 | Embedded preview, post-login return to `/t/:id` | 2 | shipped |
-| **Review pipeline** (submit → approve / reject / takedown) + reviewer allowlist | 3a | — |
-| **Cross-workspace image re-hosting** — fixes `use`, not only public | 3b | — |
-| **Frozen-copy promotion** into a system workspace | 3b | — |
-| **Public `/templates` browse page** + search | 3c | — |
-| Takedown state (`removed`) + reviewer queue | 3a | — |
+| **Review pipeline** (submit → approve / reject / takedown) + reviewer allowlist | 3a | shipped |
+| **Cross-workspace image re-hosting** — fixes `use`, not only public | 3b | shipped |
+| Re-review on change + content watermarks (bait-and-switch defence) | 3b | shipped |
+| **Frozen-copy promotion** into a system workspace | — | deferred, see [Keeping an approved listing honest](#keeping-an-approved-listing-honest) |
+| **Public `/templates` browse page** + search | 3c | shipped |
+| Takedown state (`removed`) + reviewer queue | 3a | shipped |
 | License grant, attribution, report intake | 3d | — |
 | Ranking guards (self-use, rate limits) | 3d | — |
 | Monetization, versioning, parameterized slots | — | Non-Goal |

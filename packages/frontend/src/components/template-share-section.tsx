@@ -15,6 +15,7 @@ import {
 import {
   getDocumentTemplate,
   publishTemplate,
+  submitTemplateForReview,
   unpublishTemplate,
   updateTemplate,
   TEMPLATE_CATEGORIES,
@@ -199,6 +200,28 @@ export function TemplateShareSection({
     await copyToClipboard(templateUrl, "Template link copied to clipboard");
   };
 
+  const handleSubmitForReview = async () => {
+    if (!listing) return;
+    setBusy(true);
+    try {
+      setListing(await submitTemplateForReview(listing.id));
+      toast.success("Submitted to the public gallery for review");
+    } catch (error) {
+      if (isAuthExpiredError(error)) return;
+      // Every refusal here is something the publisher can act on — the tier is
+      // not open yet, the deployment has not enabled the Yorkie auth webhook,
+      // the listing is already under review — so the server's own sentence is
+      // more useful than a generic one.
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to submit this template",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleUnpublish = async () => {
     if (!listing) return;
     setBusy(true);
@@ -284,6 +307,38 @@ export function TemplateShareSection({
                 )}
               </div>
             )}
+            {/* Asking for the public gallery. Offered only to a manager of a
+                listing that is neither public nor mid-review, and it states
+                what publishing publicly costs the *person* rather than the
+                document: their username and avatar go with it. */}
+            {listing.canManage &&
+              listing.visibility !== "public" &&
+              // `rejected` too, not just `listed`: the server clears the stale
+              // decision and takes the submission again, and nothing else
+              // gives a rejected publisher a way back — the edit-triggered
+              // re-review only fires for listings that are already public.
+              (listing.status === "listed" ||
+                listing.status === "rejected") && (
+                <div className="rounded-md border p-3">
+                  <p className="text-xs font-medium">Public gallery</p>
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    Submitting asks a reviewer to list this template publicly.
+                    Your username and profile picture appear on the card, and
+                    you grant anyone permission to copy and modify the content.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    disabled={busy}
+                    onClick={handleSubmitForReview}
+                  >
+                    {listing.status === "rejected"
+                      ? "Submit again"
+                      : "Submit for review"}
+                  </Button>
+                </div>
+              )}
             {/* Same gate as the unpublish button above. Editing a listing is
                 manager-only server-side, so showing the controls to a plain
                 member offers an action whose Save can only ever 403. A removed

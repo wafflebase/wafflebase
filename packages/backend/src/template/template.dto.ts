@@ -161,7 +161,10 @@ export class BrowseTemplatesDto {
   @Matches(/\S/, { message: 'tag must contain a non-whitespace character' })
   tag?: string;
 
-  /** Free-text over title and description. */
+  /**
+   * Free text over title and description, and — when the whole query
+   * normalizes to one tag-shaped token — over tags by containment.
+   */
   @IsOptional()
   @IsString()
   @Length(1, 200)

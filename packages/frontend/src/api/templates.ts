@@ -51,10 +51,13 @@ export type TemplateListing = {
 };
 
 /**
- * A gallery card. `TemplateListing` minus `previewToken` — the collection
- * endpoint never returns one, so the type does not have one to read.
+ * A gallery card. `TemplateListing` minus two fields the collection endpoint
+ * does not return, so the type has neither to read: `previewToken` (a page of
+ * cards would be a page of non-expiring read capabilities) and `documentId`
+ * (a public card is anonymously enumerable, and a document id is a Yorkie doc
+ * key by string concatenation).
  */
-export type TemplateCard = Omit<TemplateListing, "previewToken">;
+export type TemplateCard = Omit<TemplateListing, "previewToken" | "documentId">;
 
 export type TemplateBrowsePage = {
   items: TemplateCard[];
