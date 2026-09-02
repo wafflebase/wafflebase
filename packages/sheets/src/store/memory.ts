@@ -52,6 +52,11 @@ import type {
   RangeAnchor,
   SelectionPresence,
 } from '../model/workbook/anchor-conversion';
+import type {
+  Worksheet,
+  WorksheetFilterState,
+} from '../model/workbook/worksheet-document';
+import { getWorksheetEntries } from '../model/workbook/worksheet-grid';
 import {
   createThread as createThreadHelper,
   addReply as addReplyHelper,
@@ -63,6 +68,57 @@ import type { Comment, CommentAnchor, CommentAuthor, Thread } from '../comment/t
 import { CellIndex } from './cell-index';
 import { findEdgeWithIndex } from './find-edge';
 import { Store } from './store';
+
+/**
+ * Maps an axis-id-keyed record (as stored on a `Worksheet`, e.g.
+ * `rowHeights`/`colStyles`) onto 1-based indices, mirroring how `MemStore`
+ * keeps the same data keyed by row/column number.
+ */
+function resolveByAxis<T>(
+  record: { [id: string]: T },
+  order: string[],
+): Map<number, T> {
+  const indexById = new Map<string, number>();
+  order.forEach((id, i) => indexById.set(id, i + 1));
+
+  const out = new Map<number, T>();
+  for (const [id, value] of Object.entries(record)) {
+    const index = indexById.get(id);
+    if (index !== undefined) {
+      out.set(index, value);
+    }
+  }
+  return out;
+}
+
+/**
+ * Converts a worksheet's filter record (`WorksheetFilterState`, the shape
+ * persisted on a `Worksheet`) into the `FilterState` shape the `Store`
+ * interface exposes (range as an `[Ref, Ref]` pair). Mirrors
+ * `YorkieStore.fromWorksheetFilterState` in the frontend package, minus the
+ * Yorkie-proxy-to-plain-value normalization that isn't needed here — a
+ * loaded `Worksheet` is already plain JS.
+ */
+function toFilterState(
+  filter: WorksheetFilterState | undefined,
+): FilterState | undefined {
+  if (!filter) {
+    return undefined;
+  }
+  return {
+    range: [
+      { r: filter.startRow, c: filter.startCol },
+      { r: filter.endRow, c: filter.endCol },
+    ],
+    columns: Object.fromEntries(
+      Object.entries(filter.columns ?? {}).map(([key, condition]) => [
+        key,
+        { ...condition },
+      ]),
+    ),
+    hiddenRows: [...(filter.hiddenRows ?? [])],
+  };
+}
 
 /**
  * `MemStore` class represents an in-memory storage.
@@ -91,6 +147,61 @@ export class MemStore implements Store {
 
   constructor(grid?: Grid) {
     this.grid = grid || new Map();
+    this.rebuildIndex();
+  }
+
+  /**
+   * Replaces every piece of worksheet state in one call.
+   *
+   * Exists for revision preview: a snapshot arrives as a whole `Worksheet`
+   * (parsed out of Yorkie history), and driving the async `Store` API cell
+   * by cell would be both slow and unable to reach the private
+   * style/merge/freeze state at all — the constructor only accepts a
+   * `Grid`.
+   *
+   * A replace, not a merge: anything absent from `ws` is cleared, so
+   * previewing one version after another cannot leak the previous
+   * version's freeze pane, merges, or conditional formats.
+   */
+  load(ws: Worksheet): void {
+    this.grid = new Map(getWorksheetEntries(ws));
+    this.rowHeights = resolveByAxis(ws.rowHeights, ws.rowOrder);
+    this.colWidths = resolveByAxis(ws.colWidths, ws.colOrder);
+    this.rowStyles = resolveByAxis(ws.rowStyles, ws.rowOrder);
+    this.colStyles = resolveByAxis(ws.colStyles, ws.colOrder);
+    this.sheetStyle = ws.sheetStyle;
+    this.rangeStyles = (ws.rangeStyles ?? [])
+      .map((patch) => normalizeRangeStylePatch(patch))
+      .filter((patch): patch is RangeStylePatch => !!patch)
+      .map((patch) => cloneRangeStylePatch(patch));
+    this.conditionalFormats = (ws.conditionalFormats ?? [])
+      .map((rule) => normalizeConditionalFormatRule(rule))
+      .filter((rule): rule is ConditionalFormatRule => !!rule)
+      .map((rule) => cloneConditionalFormatRule(rule));
+    this.dataValidations = (ws.dataValidations ?? [])
+      .map((rule) => normalizeDataValidationRule(rule))
+      .filter((rule): rule is DataValidationRule => !!rule)
+      .map((rule) => cloneDataValidationRule(rule));
+    this.merges = new Map(
+      Object.entries(ws.merges ?? {}).map(([sref, span]) => [
+        sref,
+        { ...span },
+      ]),
+    );
+    this.filterState = toFilterState(ws.filter);
+    this.hiddenState =
+      ws.hiddenRows !== undefined || ws.hiddenColumns !== undefined
+        ? {
+            rows: [...(ws.hiddenRows ?? [])],
+            columns: [...(ws.hiddenColumns ?? [])],
+          }
+        : undefined;
+    this.pivotDefinition = ws.pivotTable
+      ? structuredClone(ws.pivotTable)
+      : undefined;
+    this.frozenRows = ws.frozenRows;
+    this.frozenCols = ws.frozenCols;
+    this.threads = new Map(Object.entries(ws.comments ?? {}));
     this.rebuildIndex();
   }
 
