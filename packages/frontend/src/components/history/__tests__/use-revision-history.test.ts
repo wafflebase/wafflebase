@@ -83,4 +83,41 @@ describe('useRevisionHistory', () => {
     await waitFor(() => expect(result.current.error?.message).toBe('denied'));
     expect(result.current.days).toEqual([]);
   });
+
+  it('keeps the previously loaded timeline after a later refresh fails', async () => {
+    const { result } = renderHook(() => useRevisionHistory({ enabled: true, userId: 42 }));
+    await waitFor(() => expect(result.current.days).toHaveLength(1));
+    expect(result.current.error).toBe(null);
+
+    // Make the next refresh fail
+    listRevisions.mockRejectedValue(new Error('network error'));
+    await act(() => result.current.refresh());
+
+    // Timeline should still be there, error should be set
+    expect(result.current.days).toHaveLength(1);
+    expect(result.current.error?.message).toBe('network error');
+  });
+
+  it('notifies the editor after a restore so it can drop its undo stack', async () => {
+    const onRestored = vi.fn();
+    const { result } = renderHook(() =>
+      useRevisionHistory({ enabled: true, userId: 42, onRestored }),
+    );
+    await waitFor(() => expect(listRevisions).toHaveBeenCalledTimes(1));
+    await act(() => result.current.restore('a'));
+    expect(onRestored).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not notify when the restore failed', async () => {
+    const onRestored = vi.fn();
+    restoreRevision.mockRejectedValue(new Error('denied'));
+    const { result } = renderHook(() =>
+      useRevisionHistory({ enabled: true, userId: 42, onRestored }),
+    );
+    await waitFor(() => expect(listRevisions).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await expect(result.current.restore('a')).rejects.toThrow('denied');
+    });
+    expect(onRestored).not.toHaveBeenCalled();
+  });
 });

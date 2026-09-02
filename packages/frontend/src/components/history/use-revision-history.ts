@@ -11,9 +11,16 @@ const SAFETY_LABEL = 'Before restore';
 export function useRevisionHistory({
   enabled,
   userId,
+  onRestored,
 }: {
   enabled: boolean;
   userId: number;
+  /**
+   * Called after a successful restore. A restore replaces the whole root, so
+   * the editor must drop its undo stack, selection and caret: they describe a
+   * document that no longer exists.
+   */
+  onRestored?: () => void;
 }) {
   const { listRevisions, createRevision, restoreRevision } = useRevisions();
   const [days, setDays] = useState<TimelineDay[]>([]);
@@ -49,9 +56,10 @@ export function useRevisionHistory({
       // be preserved, the restore must not happen.
       await createRevision(SAFETY_LABEL, writeRevisionMeta('safety', userId));
       await restoreRevision(revisionId);
+      onRestored?.();
       await refresh();
     },
-    [createRevision, refresh, restoreRevision, userId],
+    [createRevision, onRestored, refresh, restoreRevision, userId],
   );
 
   useEffect(() => {
