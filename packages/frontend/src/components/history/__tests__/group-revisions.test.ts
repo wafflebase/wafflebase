@@ -30,7 +30,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  process.env.TZ = previousTZ;
+  if (previousTZ === undefined) delete process.env.TZ;
+  else process.env.TZ = previousTZ;
 });
 
 describe('groupRevisions', () => {
