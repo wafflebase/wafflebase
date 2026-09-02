@@ -180,12 +180,20 @@ yorkie project update <project> \
   --auth-webhook-method-add Watch \
   --auth-webhook-method-add DetachDocument \
   --auth-webhook-method-add Broadcast \
-  --auth-webhook-method-add RemoveDocument
+  --auth-webhook-method-add RemoveDocument \
+  --auth-webhook-method-add ListRevisions \
+  --auth-webhook-method-add GetRevision \
+  --auth-webhook-method-add CreateRevision \
+  --auth-webhook-method-add RestoreRevision
 ```
 
 Roll out with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` first (shadow mode — logs the
 decision it *would* make), confirm no false denials, then flip to `true`.
-Unregister the methods (`--auth-webhook-method-rm ALL`) to disable.
+Unregister the methods (`--auth-webhook-method-rm ALL`) to disable. Shadow mode
+allows every request regardless of the computed decision, so a deployment that
+registers the revision methods but leaves `YORKIE_AUTH_WEBHOOK_ENFORCE=false`
+is not protected — an anonymous viewer share link can still list, read, and
+restore a document's revision history until enforcement is flipped on.
 
 ### Development
 

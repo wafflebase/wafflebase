@@ -252,3 +252,76 @@ describe('YorkieAuthController.handleAuth (shadow vs enforce)', () => {
     expect(body.allowed).toBe(true);
   });
 });
+
+describe('YorkieAuthController.decide (revision methods)', () => {
+  // Yorkie has no auth-webhook method allow-list yet, so these four methods
+  // reach `decide()` exactly like any other document-scoped method and are
+  // authorized by the same fall-through `checkAttribute` path PushPull uses
+  // above. This pins that fall-through so a future refactor that introduces
+  // a method allow-list can't silently reopen the hole it closes today: see
+  // docs/design/revision-history.md.
+  const documentId = '1';
+  const key = `doc-${documentId}`;
+
+  function memberController() {
+    return makeController({
+      identity: { typ: 'yorkie', sub: 7 },
+      doc: { id: documentId, workspaceId: 'ws' },
+      members: new Set([7]),
+    });
+  }
+
+  function viewerShareController() {
+    return makeController({
+      identity: { typ: 'yorkie-share', shareToken: 's' },
+      doc: { id: documentId, workspaceId: 'ws' },
+      share: { documentId, role: 'viewer' },
+    });
+  }
+
+  it.each([
+    ['ListRevisions', 'r'],
+    ['GetRevision', 'r'],
+    ['CreateRevision', 'rw'],
+    ['RestoreRevision', 'rw'],
+  ])('allows a workspace member on %s (%s)', async (method, verb) => {
+    const decision = await memberController().decide({
+      token: 't',
+      method,
+      attributes: [{ key, verb: verb as 'r' | 'rw' }],
+    });
+    expect(decision.allowed).toBe(true);
+  });
+
+  // The regression this whole feature exists behind: a viewer share link
+  // must never be able to roll a document back or read its history.
+  it.each(['CreateRevision', 'RestoreRevision'])(
+    'denies a viewer share link on %s',
+    async (method) => {
+      const decision = await viewerShareController().decide({
+        token: 't',
+        method,
+        attributes: [{ key, verb: 'rw' }],
+      });
+      expect(decision).toMatchObject({ allowed: false, status: 403 });
+    },
+  );
+
+  it('denies an unknown document key on ListRevisions', async () => {
+    const decision = await memberController().decide({
+      token: 't',
+      method: 'ListRevisions',
+      attributes: [{ key: 'not-a-doc-key', verb: 'r' }],
+    });
+    expect(decision.allowed).toBe(false);
+  });
+
+  it('denies a revision method carrying no document attributes', async () => {
+    const decision = await memberController().decide({
+      token: 't',
+      method: 'RestoreRevision',
+      attributes: [],
+    });
+    expect(decision).toMatchObject({ allowed: false, status: 403 });
+  });
+});
