@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { groupRevisions } from '../group-revisions';
 import { writeRevisionMeta } from '../revision-meta';
 
@@ -19,6 +19,18 @@ const rev = (
   description,
   snapshot: '',
   createdAt: new Date(year, month, day, hour, minute),
+});
+
+// Pin the timezone to ensure the local-time contract is guarded even on UTC
+// runners (GitHub Actions). This ensures that a regression to getUTC* would
+// be caught reliably. Node re-reads process.env.TZ for every new Date().
+const previousTZ = process.env.TZ;
+beforeAll(() => {
+  process.env.TZ = 'Asia/Seoul'; // UTC+9, no DST
+});
+
+afterAll(() => {
+  process.env.TZ = previousTZ;
 });
 
 describe('groupRevisions', () => {
