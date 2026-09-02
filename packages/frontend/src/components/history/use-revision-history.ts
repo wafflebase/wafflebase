@@ -67,9 +67,15 @@ export function useRevisionHistory({
       await createRevision(SAFETY_LABEL, writeRevisionMeta('safety', userId));
       await restoreRevision(revisionId);
       onRestored?.();
-      await refresh();
+      // Only the enabled instance owns a list anyone can see. The preview
+      // overlay creates a second, `enabled: false` instance purely for
+      // `restore` and never reads its `days`, so refreshing there is a
+      // `listRevisions` round-trip whose result is dropped — and it fires
+      // at exactly the moment the panel beside it is already re-reading
+      // the list via `refreshKey`.
+      if (enabled) await refresh();
     },
-    [createRevision, onRestored, refresh, restoreRevision, userId],
+    [createRevision, enabled, onRestored, refresh, restoreRevision, userId],
   );
 
   useEffect(() => {

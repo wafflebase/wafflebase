@@ -108,6 +108,18 @@ describe('useRevisionHistory', () => {
     expect(onRestored).toHaveBeenCalledTimes(1);
   });
 
+  // The preview overlay creates a second, `enabled: false` instance purely
+  // for `restore` — nothing reads its `days`, so refreshing it is a round
+  // trip whose result is dropped.
+  it('does not re-list after a restore on a disabled instance', async () => {
+    const { result } = renderHook(() =>
+      useRevisionHistory({ enabled: false, userId: 42 }),
+    );
+    await act(() => result.current.restore('a'));
+    expect(restoreRevision).toHaveBeenCalledWith('a');
+    expect(listRevisions).not.toHaveBeenCalled();
+  });
+
   it('does not notify when the restore failed', async () => {
     const onRestored = vi.fn();
     restoreRevision.mockRejectedValue(new Error('denied'));

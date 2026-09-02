@@ -51,6 +51,22 @@ describe('MemStore.load', () => {
     });
   });
 
+  // `frozenRows`/`frozenCols` are declared required on `Worksheet`, so the
+  // type system cannot catch a snapshot that predates them — and a revision
+  // snapshot is exactly a root written by an older build. Straight-through
+  // assignment left two `number` fields holding `undefined`.
+  it('defaults a missing freeze pane to zero rather than undefined', async () => {
+    const store = new MemStore();
+    const legacy = worksheet();
+    delete (legacy as Partial<Worksheet>).frozenRows;
+    delete (legacy as Partial<Worksheet>).frozenCols;
+    store.load(legacy);
+    expect(await store.getFreezePane()).toEqual({
+      frozenRows: 0,
+      frozenCols: 0,
+    });
+  });
+
   // A load is a replace, not a merge: previewing version B after version A
   // must not leave A's freeze pane, merges or range styles behind — that
   // would render a version that never existed.

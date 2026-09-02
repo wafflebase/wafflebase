@@ -199,8 +199,13 @@ export class MemStore implements Store {
     this.pivotDefinition = ws.pivotTable
       ? structuredClone(ws.pivotTable)
       : undefined;
-    this.frozenRows = ws.frozenRows;
-    this.frozenCols = ws.frozenCols;
+    // `?? 0`, not a straight assignment: every other field here already
+    // tolerates an absent key, and a snapshot written by an older build (or
+    // any root that predates the freeze-pane fields) would otherwise leave
+    // two declared-`number` fields holding `undefined` — a lie the type
+    // system cannot catch, since `Worksheet` declares them required.
+    this.frozenRows = ws.frozenRows ?? 0;
+    this.frozenCols = ws.frozenCols ?? 0;
     this.threads = new Map(Object.entries(ws.comments ?? {}));
     this.rebuildIndex();
   }

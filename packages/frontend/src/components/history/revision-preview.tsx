@@ -28,6 +28,7 @@ import {
   parseSheetSnapshot,
   parseSlidesSnapshot,
 } from './snapshot-adapters';
+import { boardPreviewViewport } from './board-preview-viewport';
 import { firstWorksheetTabId } from './first-worksheet-tab';
 import { readRevisionMeta } from './revision-meta';
 import { useRevisionHistory } from './use-revision-history';
@@ -104,7 +105,13 @@ export function RevisionPreview({
   const [meta, setMeta] = useState<{ createdAt: Date; title: string } | null>(null);
   const [content, setContent] = useState<ParsedContent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Which slide of a previewed deck is shown. Lives here rather than in
+  // `SlidesPreview` because the control that moves it is in the banner, and
+  // the banner is this component. Reset whenever the content changes, so
+  // switching to a shorter revision cannot leave the index past its end.
+  const [slideIndex, setSlideIndex] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const slideCount = content?.kind === 'slides' ? content.doc.slides.length : 0;
 
   // The overlay is a sibling of the live editor, which stays mounted and
   // fully wired, and both engines bind their primary keyboard handler on
@@ -147,6 +154,7 @@ export function RevisionPreview({
     setMeta(null);
     setContent(null);
     setError(null);
+    setSlideIndex(0);
 
     getRevision(revisionId)
       .then((revision: RevisionSummary) => {
@@ -197,6 +205,38 @@ export function RevisionPreview({
             Viewing {meta.title} from {formatRevisionTime(meta.createdAt)}
           </span>
           <div className="flex items-center gap-2">
+            {slideCount > 1 && (
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label="Previous slide"
+                  disabled={slideIndex === 0}
+                  onClick={() => setSlideIndex((i) => Math.max(0, i - 1))}
+                >
+                  ‹
+                </Button>
+                <span
+                  className="min-w-14 text-center tabular-nums text-muted-foreground"
+                  aria-label="Slide position"
+                >
+                  {slideIndex + 1} / {slideCount}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label="Next slide"
+                  disabled={slideIndex >= slideCount - 1}
+                  onClick={() =>
+                    setSlideIndex((i) => Math.min(slideCount - 1, i + 1))
+                  }
+                >
+                  ›
+                </Button>
+              </div>
+            )}
             <Button type="button" variant="outline" size="sm" onClick={onBack}>
               Back to current version
             </Button>
@@ -234,7 +274,9 @@ export function RevisionPreview({
           </div>
         )}
         {!error && content?.kind === 'sheet' && <SheetPreview doc={content.doc} />}
-        {!error && content?.kind === 'slides' && <SlidesPreview doc={content.doc} />}
+        {!error && content?.kind === 'slides' && (
+          <SlidesPreview doc={content.doc} slideIndex={slideIndex} />
+        )}
         {!error && content?.kind === 'board' && <SlidesPreview doc={content.doc} board />}
         {!error && content?.kind === 'note' && <NotePreview text={content.text} />}
       </div>
@@ -396,14 +438,29 @@ function SheetPreview({ doc }: { doc: SpreadsheetDocument }) {
  *
  * `readOnly: true` disables every pointer/keyboard binding on the editor
  * (see `SlidesEditorOptions.readOnly`'s own doc comment), so this mount
- * needs no interaction wiring — only sizing. `board` reuses the same
- * editor with a full-plane `viewport` and `suppressSlideChrome`, matching
- * how `board-view.tsx` mounts it; the viewport starts at the origin rather
- * than fit to content, so board content placed far from (0, 0) may render
- * off-screen in the preview until a fit-to-content pass is added.
+ * needs no interaction wiring — only sizing. That is also why navigation
+ * has to be supplied from outside: a deck is driven by `slideIndex` from
+ * the banner (`setCurrentSlide` below), and a board opens framed on its own
+ * content (`boardPreviewViewport`) because a read-only mount has no
+ * wheel-pan, drag-pan or minimap to hunt with. `board` otherwise reuses the
+ * same editor with a full-plane `viewport` and `suppressSlideChrome`,
+ * matching how `board-view.tsx` mounts it.
  */
-function SlidesPreview({ doc, board = false }: { doc: SlidesDocument; board?: boolean }) {
+function SlidesPreview({
+  doc,
+  board = false,
+  slideIndex = 0,
+}: {
+  doc: SlidesDocument;
+  board?: boolean;
+  /**
+   * Which slide the banner's prev/next control is on. Ignored for `board`,
+   * which is one synthetic slide by construction.
+   */
+  slideIndex?: number;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<SlidesEditor | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -455,8 +512,6 @@ function SlidesPreview({ doc, board = false }: { doc: SlidesDocument; board?: bo
         return { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };
       };
 
-      const boardViewport: Viewport = { panX: 0, panY: 0, zoom: 1 };
-
       const mountOrResize = () => {
         const rect = container.getBoundingClientRect();
         const availW = Math.max(1, Math.round(rect.width));
@@ -464,6 +519,15 @@ function SlidesPreview({ doc, board = false }: { doc: SlidesDocument; board?: bo
 
         if (board) {
           sizeTo(availW, availH);
+          // Re-framed on every resize, not just at mount: a `readOnly`
+          // board preview has no pan of its own to preserve, so there is
+          // nothing a refit could yank out from under the user — which is
+          // why this needs no equivalent of `board-view.tsx`'s one-shot
+          // `FitLatch`.
+          const viewport: Viewport = boardPreviewViewport(doc, {
+            w: availW,
+            h: availH,
+          });
           if (!editor) {
             editor = initializeEditor({
               canvas,
@@ -472,13 +536,14 @@ function SlidesPreview({ doc, board = false }: { doc: SlidesDocument; board?: bo
               hostWidth: availW,
               hostHeight: availH,
               dpr,
-              viewport: boardViewport,
+              viewport,
               cull: true,
               suppressSlideChrome: true,
               readOnly: true,
             });
           } else {
             editor.setHostSize(availW, availH);
+            editor.setViewport(viewport);
           }
           return;
         }
@@ -502,6 +567,7 @@ function SlidesPreview({ doc, board = false }: { doc: SlidesDocument; board?: bo
       };
 
       mountOrResize();
+      editorRef.current = editor ?? null;
       resizeObserver = new ResizeObserver(() => mountOrResize());
       resizeObserver.observe(container);
     } catch (err) {
@@ -509,6 +575,7 @@ function SlidesPreview({ doc, board = false }: { doc: SlidesDocument; board?: bo
     }
 
     return () => {
+      editorRef.current = null;
       resizeObserver?.disconnect();
       // `SlidesEditorImpl`'s constructor unconditionally attaches a global
       // `document.fonts` `loadingdone` listener (even for a readOnly
@@ -521,6 +588,18 @@ function SlidesPreview({ doc, board = false }: { doc: SlidesDocument; board?: bo
       slideWrap.remove();
     };
   }, [doc, board]);
+
+  // Drive the mounted editor from the banner's prev/next control. The
+  // editor renders exactly one slide and `readOnly: true` skips
+  // `attachInteractions()`, so without this a 30-slide deck previewed as
+  // slide 1 and nothing — not the arrow keys, not a thumbnail rail (which
+  // lives in `SlidesView`, hidden behind the overlay) — could reach the
+  // other 29.
+  useEffect(() => {
+    if (board) return;
+    const id = doc.slides[slideIndex]?.id;
+    if (id) editorRef.current?.setCurrentSlide(id);
+  }, [doc, board, slideIndex]);
 
   return (
     <div

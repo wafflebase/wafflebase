@@ -72,6 +72,33 @@ const EXTERNAL_ONLY_SNAPSHOT = JSON.stringify({
   sheets: {},
 });
 
+/**
+ * A three-slide deck. Only `slides[].id` is read by the banner's prev/next
+ * control; the Canvas engine that would consume the rest never mounts here
+ * (jsdom's `HTMLCanvasElement.getContext` returns null, and
+ * `SlidesEditorImpl`'s constructor throws on that — caught by
+ * `SlidesPreview`'s own try/catch, which is why this still renders).
+ */
+const THREE_SLIDE_SNAPSHOT = JSON.stringify({
+  meta: { title: 'Deck', themeId: 't', masterId: 'm' },
+  themes: [],
+  masters: [],
+  layouts: [],
+  slides: [
+    { id: 's1', layoutId: 'l', elements: [] },
+    { id: 's2', layoutId: 'l', elements: [] },
+    { id: 's3', layoutId: 'l', elements: [] },
+  ],
+});
+
+const ONE_SLIDE_SNAPSHOT = JSON.stringify({
+  meta: { title: 'Deck', themeId: 't', masterId: 'm' },
+  themes: [],
+  masters: [],
+  layouts: [],
+  slides: [{ id: 's1', layoutId: 'l', elements: [] }],
+});
+
 function resolveWith(snapshot: string) {
   getRevision.mockResolvedValue({
     id: 'r1',
@@ -122,6 +149,72 @@ describe('RevisionPreview', () => {
     );
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent(/no sheet to show/i),
+    );
+  });
+});
+
+// The preview mounts ONE canvas and the thumbnail rail lives in
+// `SlidesView`, which the overlay hides; `readOnly: true` skips
+// `attachInteractions()` and the keyboard suppressor blocks the arrow keys
+// anyway. Without a control in the banner a 30-slide deck previewed as
+// slide 1 and the other 29 were unreachable.
+describe('RevisionPreview slide navigation', () => {
+  it('offers prev/next with a position indicator for a multi-slide deck', async () => {
+    resolveWith(THREE_SLIDE_SNAPSHOT);
+    render(
+      <RevisionPreview revisionId="r1" type="slides" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+
+    expect(screen.getByLabelText('Slide position')).toHaveTextContent('1 / 3');
+    expect(screen.getByRole('button', { name: 'Previous slide' })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Next slide' }));
+    expect(screen.getByLabelText('Slide position')).toHaveTextContent('2 / 3');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Next slide' }));
+    expect(screen.getByLabelText('Slide position')).toHaveTextContent('3 / 3');
+    expect(screen.getByRole('button', { name: 'Next slide' })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Previous slide' }));
+    expect(screen.getByLabelText('Slide position')).toHaveTextContent('2 / 3');
+  });
+
+  it('shows no navigation for a single-slide deck', async () => {
+    resolveWith(ONE_SLIDE_SNAPSHOT);
+    render(
+      <RevisionPreview revisionId="r1" type="slides" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Next slide' })).not.toBeInTheDocument();
+  });
+
+  // Board renders as one synthetic slide, so a rail would be noise.
+  it('shows no navigation for a board', async () => {
+    resolveWith('{"meta":{"title":"Board"},"elements":[]}');
+    render(
+      <RevisionPreview revisionId="r1" type="board" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Next slide' })).not.toBeInTheDocument();
+  });
+
+  // Switching to a shorter revision must not leave the index past its end.
+  it('returns to the first slide when the revision changes', async () => {
+    resolveWith(THREE_SLIDE_SNAPSHOT);
+    const { rerender } = render(
+      <RevisionPreview revisionId="r1" type="slides" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Next slide' }));
+    expect(screen.getByLabelText('Slide position')).toHaveTextContent('2 / 3');
+
+    resolveWith(THREE_SLIDE_SNAPSHOT);
+    rerender(
+      <RevisionPreview revisionId="r2" type="slides" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Slide position')).toHaveTextContent('1 / 3'),
     );
   });
 });

@@ -51,7 +51,10 @@ const renderPanel = (refreshKey?: number) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // `clearAllMocks` clears calls, not implementations, so a rejection set by
+  // one test would leak into the next.
   restore.mockResolvedValue(undefined);
+  nameCurrentVersion.mockResolvedValue(undefined);
 });
 
 describe('HistoryPanel', () => {
@@ -108,6 +111,39 @@ describe('HistoryPanel', () => {
         screen.getByText(/couldn't restore this version: permission denied/i),
       ).toBeInTheDocument(),
     );
+  });
+
+  // "Name current version" was the last action here that could fail in
+  // silence: no `catch`, so the promise rejected unhandled, the spinner
+  // cleared, the label stayed in the box and the user was told nothing.
+  // `createRevision` rejects for every user on a deployment that registered
+  // `CreateRevision` on the auth webhook, which is exactly the mistake the
+  // backend README warns against.
+  it('reports a failed "Name current version" instead of failing silently', async () => {
+    hookState = { ...baseState };
+    nameCurrentVersion.mockRejectedValue(new Error('permission denied'));
+    renderPanel();
+    await userEvent.type(
+      screen.getByLabelText(/name current version/i),
+      'Launch copy',
+    );
+    await userEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() =>
+      expect(
+        screen.getByText(/couldn't name this version: permission denied/i),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it('clears the box and reports nothing when naming succeeds', async () => {
+    hookState = { ...baseState };
+    nameCurrentVersion.mockResolvedValue(undefined);
+    renderPanel();
+    const input = screen.getByLabelText(/name current version/i);
+    await userEvent.type(input, 'Launch copy');
+    await userEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(input).toHaveValue(''));
+    expect(screen.queryByText(/couldn't name this version/i)).not.toBeInTheDocument();
   });
 
   // The preview overlay owns a second `useRevisionHistory` instance, so a

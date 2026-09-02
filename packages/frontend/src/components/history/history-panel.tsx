@@ -89,6 +89,7 @@ export function HistoryPanel({
   const [isNaming, setIsNaming] = useState(false);
   const [pendingRestoreId, setPendingRestoreId] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
 
   // Skip the initial value: the hook already fetches on mount, and a second
   // request for the same list would just be waste.
@@ -104,9 +105,21 @@ export function HistoryPanel({
     const trimmed = label.trim();
     if (!trimmed || isNaming) return;
     setIsNaming(true);
+    setNameError(null);
     try {
       await nameCurrentVersion(trimmed);
       setLabel("");
+    } catch (err) {
+      // `createRevision` is the one revision RPC a deployment is told NOT to
+      // register on the auth webhook (Yorkie calls it with `attributes:
+      // null`, so registering it denies everyone) — but a deployment that
+      // registered it anyway makes this reject for every user. Without a
+      // catch the rejection was unhandled, the spinner cleared, the label
+      // stayed in the box and the user was told nothing. Every other action
+      // in this panel reports its failures; so does this one now.
+      setNameError(
+        err instanceof Error ? err.message : "The version was not named.",
+      );
     } finally {
       setIsNaming(false);
     }
@@ -165,6 +178,15 @@ export function HistoryPanel({
           Save
         </Button>
       </form>
+
+      {nameError && (
+        <p
+          role="alert"
+          className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive"
+        >
+          Couldn't name this version: {nameError}
+        </p>
+      )}
 
       {restoreError && (
         <p
