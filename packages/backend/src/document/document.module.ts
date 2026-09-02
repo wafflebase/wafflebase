@@ -13,9 +13,19 @@ import { WorkspaceModule } from '../workspace/workspace.module';
 import { FileModule } from '../file/file.module';
 import { ShareLinkModule } from '../share-link/share-link.module';
 import { FolderModule } from '../folder/folder.module';
+import { ImageModule } from '../image/image.module';
 
 @Module({
-  imports: [AuthModule, WorkspaceModule, FileModule, ShareLinkModule, FolderModule],
+  imports: [
+    AuthModule,
+    WorkspaceModule,
+    FileModule,
+    ShareLinkModule,
+    FolderModule,
+    // A copy that crosses a workspace boundary re-hosts the source's
+    // workspace-scoped images (docs/design/template-gallery.md).
+    ImageModule,
+  ],
   controllers: [
     DocumentController,
     DocumentFileController,

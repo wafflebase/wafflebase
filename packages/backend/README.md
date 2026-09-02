@@ -112,6 +112,22 @@ YORKIE_AUTH_WEBHOOK_ENFORCE=false       # Optional. false (default) = shadow
                                         # mode: log the access decision but
                                         # never deny. true = enforce per-doc
                                         # access at the Yorkie auth webhook.
+WAFFLEBASE_API_ORIGIN=                  # Optional, this deployment's own public
+                                        # API origin (scheme + host + port).
+                                        # Used to decide whether an absolute
+                                        # image URL stored inside a document is
+                                        # first-party before re-hosting it
+                                        # across a workspace boundary — the
+                                        # string comes out of the CRDT, where
+                                        # any collaborator can write
+                                        # https://attacker.example/api/v1/...
+                                        # Unset falls back to the origin of
+                                        # GITHUB_CALLBACK_URL; with neither
+                                        # set, only root-relative references
+                                        # are re-hosted, which is the safe
+                                        # direction but silently does nothing
+                                        # on a deployment whose frontend was
+                                        # built with VITE_BACKEND_API_URL.
 WAFFLEBASE_TEMPLATE_REVIEWER_IDS=       # Optional, comma-separated user ids
                                         # allowed to decide public template
                                         # submissions. Unset or empty means

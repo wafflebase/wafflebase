@@ -3,8 +3,8 @@
 Design doc: [template-gallery.md](../../design/template-gallery.md)
 Predecessor task: [20260901-template-gallery-todo.md](./20260901-template-gallery-todo.md)
 PR: [#1009](https://github.com/wafflebase/wafflebase/pull/1009) — the plan, and where 3a lands
-Status: **planned, nothing implemented.** `visibility: 'public'` is still
-refused with a `400` and stays refused until 3d lands.
+Status: **3a shipped; 3b's image half shipped.** `visibility: 'public'` is still
+refused and stays refused until 3d lands.
 
 ## What this phase is actually for
 
@@ -106,26 +106,26 @@ to a path already exercised.
 
 ## PR 3b — Cross-workspace images + frozen-copy promotion
 
-- [ ] Image re-hosting walker in `DocumentCopyService`, run whenever
+- [x] Image re-hosting walker in `DocumentCopyService`, run whenever
       `dest.workspaceId !== source.workspaceId`. Rewrites only URLs pointing at
       this deployment's workspace-scoped image route; `CopyObject` into
       **`{destWorkspaceId}/{newId}`** and rewrite to the destination's
       workspace-scoped URL — *not* an unscoped bucket-root key, which would
       publish a private workspace's images at a permanent unauthenticated URL.
       Third-party URLs untouched.
-- [ ] Aggregate object/byte ceiling with a skipped-items report (mirror
+- [x] Aggregate object/byte ceiling with a skipped-items report (mirror
       `MAX_REHOSTED_IMAGES` / `MAX_TOTAL_IMAGE_BYTES` in `miro.service.ts`).
       Failure degrades the copy rather than failing it.
-- [ ] Extend `copy()`'s rollback to discard re-hosted objects — it discards only
+- [x] Extend `copy()`'s rollback to discard re-hosted objects — it discards only
       `fileId` today, so a later `copyContent` failure orphans them.
-- [ ] Per-type walkers: `sheet` (worksheet images), `board` and natively
+- [x] Per-type walkers: `sheet` (worksheet images), `board` and natively
       inserted `slides` images (element `data.url`, background image fills).
       **`doc` needs nothing** — its images already live at the bucket root
       (`docsImageUploader` → `POST /images`), as do PPTX-imported slides images.
       `pdf`/`image`/`file` need nothing (blob already copied). **`note` is
       affected but deferred** — single Yorkie `Text`, rewriting is a CRDT edit;
       a copied note loses its images until then.
-- [ ] Only re-host a URL whose workspace segment equals the **source
+- [x] Only re-host a URL whose workspace segment equals the **source
       document's own** `workspaceId`. The id sits in author-written content, so
       a URL naming another workspace is an ordinary thing for a document to
       contain — and re-hosting it would `CopyObject` an image out of a
@@ -133,7 +133,7 @@ to a path already exercised.
       reading). Everything else is left alone and goes on 403-ing. **Negative
       test required**: a document referencing `{otherWorkspaceId}/{id}` copies
       with that URL untouched and no `CopyObject` issued.
-- [ ] Failure policy differs by caller: `use` degrades (the caller's own copy,
+- [x] Failure policy differs by caller: `use` degrades (the caller's own copy,
       one missing image beats no document); **promotion fails the approval**
       and surfaces the skipped-object report to the reviewer, because an
       approved listing with broken first-party images is a defect handed to

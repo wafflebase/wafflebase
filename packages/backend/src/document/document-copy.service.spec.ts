@@ -62,6 +62,10 @@ function makeService(
     createDocument?: jest.Mock;
     copy?: jest.Mock;
     withDocument?: jest.Mock;
+    /** Server-side image copy; reject it to exercise the skip path. */
+    imageCopy?: jest.Mock;
+    /** Stored size per image, for the byte budget. */
+    imageSize?: jest.Mock;
   } = {},
 ) {
   const made = makeYorkie(opts.sourceRoot ?? {});
@@ -75,15 +79,36 @@ function makeService(
     deleteDocument: jest.fn(async () => ({ id: 'copy-1' })),
   };
   const fileService = {
-    copy: opts.copy ?? jest.fn(async () => '99999999-8888-7777-6666-555555555555.pdf'),
+    copy:
+      opts.copy ??
+      jest.fn(async () => '99999999-8888-7777-6666-555555555555.pdf'),
     delete: jest.fn(async () => undefined),
   };
+  const imageService = {
+    copy:
+      opts.imageCopy ??
+      jest.fn(async () => '11111111-2222-3333-4444-555555555555.png'),
+    // Every fixture image is small, so the byte budget never bites unless a
+    // test asks it to.
+    size: opts.imageSize ?? jest.fn(async () => 1024),
+    delete: jest.fn(async () => undefined),
+  };
+  const config = { get: () => undefined };
   const service = new DocumentCopyService(
     documentService as never,
     fileService as never,
     yorkie as never,
+    imageService as never,
+    config as never,
   );
-  return { service, documentService, fileService, targetRoot, withDocument };
+  return {
+    service,
+    documentService,
+    fileService,
+    imageService,
+    targetRoot,
+    withDocument,
+  };
 }
 
 describe('DocumentCopyService', () => {
@@ -230,7 +255,9 @@ describe('DocumentCopyService', () => {
     expect(readDocsRoot(targetDoc.getRoot())).toEqual(original);
     // Both attaches use the docs key prefix, not the sheet one.
     for (const call of withDocument.mock.calls) {
-      expect(call[2]).toEqual(expect.objectContaining({ docKeyPrefix: 'doc-' }));
+      expect(call[2]).toEqual(
+        expect.objectContaining({ docKeyPrefix: 'doc-' }),
+      );
     }
   });
 
@@ -263,7 +290,9 @@ describe('DocumentCopyService', () => {
     };
     const sourceRoot = {
       tabs: { t1: { id: 't1', name: 'Sheet1' } },
-      sheets: { t1: { cells: { A1: { v: '1' } }, comments: { 'th-1': thread } } },
+      sheets: {
+        t1: { cells: { A1: { v: '1' } }, comments: { 'th-1': thread } },
+      },
     };
     const { service, targetRoot } = makeService({ sourceRoot });
     await service.copy(SOURCE as never, 42);
@@ -279,7 +308,9 @@ describe('DocumentCopyService', () => {
   it('writes out-of-32-bit-range integers as Yorkie Longs', async () => {
     const sourceRoot = {
       tabs: {},
-      sheets: { t1: { cells: {}, importedAt: 1_780_000_000_000, frozenRows: 2 } },
+      sheets: {
+        t1: { cells: {}, importedAt: 1_780_000_000_000, frozenRows: 2 },
+      },
     };
     const { service, targetRoot } = makeService({ sourceRoot });
     await service.copy(SOURCE as never, 42);
@@ -316,7 +347,9 @@ describe('DocumentCopyService', () => {
       } as never,
       42,
     );
-    expect(fileService.copy).toHaveBeenCalledWith('11111111-2222-3333-4444-555555555555.pdf');
+    expect(fileService.copy).toHaveBeenCalledWith(
+      '11111111-2222-3333-4444-555555555555.pdf',
+    );
     expect(documentService.createDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         fileId: '99999999-8888-7777-6666-555555555555.pdf',
@@ -335,11 +368,17 @@ describe('DocumentCopyService', () => {
     const { service, fileService } = makeService({ createDocument });
     await expect(
       service.copy(
-        { ...SOURCE, type: 'pdf', fileId: '11111111-2222-3333-4444-555555555555.pdf' } as never,
+        {
+          ...SOURCE,
+          type: 'pdf',
+          fileId: '11111111-2222-3333-4444-555555555555.pdf',
+        } as never,
         42,
       ),
     ).rejects.toThrow('db down');
-    expect(fileService.delete).toHaveBeenCalledWith('99999999-8888-7777-6666-555555555555.pdf');
+    expect(fileService.delete).toHaveBeenCalledWith(
+      '99999999-8888-7777-6666-555555555555.pdf',
+    );
   });
 
   it('rolls back the row when the content copy fails', async () => {
@@ -447,5 +486,217 @@ describe('reviveLongs', () => {
       b: 2147483647,
       c: 'x',
     });
+  });
+});
+
+describe('cross-workspace image re-hosting', () => {
+  const IMG = '11111111-2222-3333-4444-555555555555.png';
+  const NEW = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.png';
+  const own = `/api/v1/workspaces/ws-1/images/${IMG}`;
+  const foreign = `/api/v1/workspaces/ws-9/images/${IMG}`;
+  // `SheetImage.src` — the real field, so these tests exercise a shape the
+  // product actually produces.
+  const rootWith = (src: string) => ({
+    sheets: { t1: { images: { i1: { src } } } },
+  });
+
+  it('re-hosts into the destination workspace and rewrites the reference', async () => {
+    // The defect this closes: workspace-scoped images are read back through an
+    // access-gated route, so before this a template used in another workspace
+    // arrived with every image 403ing.
+    const { service, imageService, targetRoot } = makeService({
+      sourceRoot: rootWith(own),
+      imageCopy: jest.fn(async () => NEW),
+    });
+    await service.copy(SOURCE as never, 42, { workspaceId: 'ws-2' });
+
+    expect(imageService.copy).toHaveBeenCalledWith(`ws-1/${IMG}`, 'ws-2');
+    expect(targetRoot).toMatchObject({
+      sheets: {
+        t1: {
+          images: { i1: { src: `/api/v1/workspaces/ws-2/images/${NEW}` } },
+        },
+      },
+    });
+  });
+
+  it('leaves a reference naming another workspace untouched, and copies nothing', async () => {
+    // The cross-tenant case. That workspace id sits in author-written content,
+    // so re-hosting whatever is found would have the server read an image out
+    // of a workspace the copier cannot reach (IDOR). It goes on 403ing, which
+    // is what it did for the original too.
+    const { service, imageService, targetRoot } = makeService({
+      sourceRoot: rootWith(foreign),
+    });
+    await service.copy(SOURCE as never, 42, { workspaceId: 'ws-2' });
+
+    expect(imageService.copy).not.toHaveBeenCalled();
+    expect(targetRoot).toMatchObject({
+      sheets: { t1: { images: { i1: { src: foreign } } } },
+    });
+  });
+
+  it('does nothing when the copy stays inside one workspace', async () => {
+    // The stored URLs still resolve, so there is nothing to do and nothing to
+    // pay for — this is the "Make a copy" path.
+    const { service, imageService } = makeService({
+      sourceRoot: rootWith(own),
+    });
+    await service.copy(SOURCE as never, 42);
+    expect(imageService.copy).not.toHaveBeenCalled();
+  });
+
+  it('degrades by default: one unreadable image does not lose the document', async () => {
+    const reports: unknown[] = [];
+    const { service, documentService } = makeService({
+      sourceRoot: rootWith(own),
+      imageCopy: jest.fn(() => Promise.reject(new Error('gone'))),
+    });
+    await expect(
+      service.copy(SOURCE as never, 42, {
+        workspaceId: 'ws-2',
+        onImages: (r) => reports.push(r),
+      }),
+    ).resolves.toBeDefined();
+    expect(documentService.deleteDocument).not.toHaveBeenCalled();
+    expect(reports[0]).toMatchObject({ rehosted: 0, skipped: [{ url: own }] });
+  });
+
+  it('fails the whole copy when the caller asked it to', async () => {
+    // Promotion's policy: a reviewer approving a template publishes it to
+    // everyone, so broken first-party images become a defect nobody
+    // downstream can fix.
+    const { service, documentService } = makeService({
+      sourceRoot: rootWith(own),
+      imageCopy: jest.fn(() => Promise.reject(new Error('gone'))),
+    });
+    await expect(
+      service.copy(SOURCE as never, 42, {
+        workspaceId: 'ws-2',
+        onImageFailure: 'fail',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(documentService.deleteDocument).toHaveBeenCalled();
+  });
+
+  it('takes back the objects it created when the copy is rolled back', async () => {
+    // Before this, a `copyContent` failure after a successful re-host orphaned
+    // the new objects with nothing to sweep them.
+    const withDocument = jest.fn((id: string) =>
+      id === 'copy-1'
+        ? Promise.reject(new Error('write failed'))
+        : Promise.resolve(rootWith(own)),
+    );
+    const { service, imageService } = makeService({
+      withDocument,
+      imageCopy: jest.fn(async () => NEW),
+    });
+    await expect(
+      service.copy(SOURCE as never, 42, { workspaceId: 'ws-2' }),
+    ).rejects.toThrow();
+    expect(imageService.delete).toHaveBeenCalledWith(`ws-2/${NEW}`);
+  });
+});
+
+describe('the image report', () => {
+  const IMG = '11111111-2222-3333-4444-555555555555.png';
+  const rootWith = (src: string) => ({
+    sheets: { t1: { images: { i1: { src } } } },
+  });
+
+  it('reports a reference belonging to another workspace', async () => {
+    // Dropped silently, this is indistinguishable from a document with no
+    // images — and a reviewer would approve a listing whose every image 403s.
+    const reports: Array<{ skipped: Array<{ reason: string }> }> = [];
+    const { service } = makeService({
+      sourceRoot: rootWith(`/api/v1/workspaces/ws-9/images/${IMG}`),
+    });
+    await service.copy(SOURCE as never, 42, {
+      workspaceId: 'ws-2',
+      onImages: (r) => reports.push(r),
+    });
+    expect(reports[0].skipped).toEqual([
+      { url: `/api/v1/workspaces/ws-9/images/${IMG}`, reason: 'belongs to another workspace' },
+    ]);
+  });
+
+  it('refuses the copy under the fail policy when a reference is foreign', async () => {
+    // Promotion's policy has to see this case, which it could not before the
+    // ineligible refs were reported.
+    const { service } = makeService({
+      sourceRoot: rootWith(`/api/v1/workspaces/ws-9/images/${IMG}`),
+    });
+    await expect(
+      service.copy(SOURCE as never, 42, {
+        workspaceId: 'ws-2',
+        onImageFailure: 'fail',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('stops at the byte budget instead of copying without limit', async () => {
+    const reports: Array<{ rehosted: number; skipped: Array<{ reason: string }> }> = [];
+    const { service, imageService } = makeService({
+      sourceRoot: {
+        sheets: {
+          t1: {
+            images: {
+              a: { src: `/api/v1/workspaces/ws-1/images/${IMG}` },
+              b: { src: '/api/v1/workspaces/ws-1/images/22222222-3333-4444-5555-666666666666.png' },
+            },
+          },
+        },
+      },
+      // Each image alone is inside the budget; the two together are not.
+      imageSize: jest.fn(async () => 40 * 1024 * 1024),
+    });
+    await service.copy(SOURCE as never, 42, {
+      workspaceId: 'ws-2',
+      onImages: (r) => reports.push(r),
+    });
+    expect(reports[0].rehosted).toBe(1);
+    expect(reports[0].skipped[0].reason).toMatch(/MB limit/);
+    expect(imageService.copy).toHaveBeenCalledTimes(1);
+  });
+
+  /** A real `Text`-backed note, since `readNoteRoot` needs one. */
+  function noteService(markdown: string) {
+    const sourceDoc = new YorkieDocument<NoteYorkieRoot>('note-src');
+    sourceDoc.update((root) => writeNoteRoot(root, { content: markdown }));
+    const targetDoc = new YorkieDocument<NoteYorkieRoot>('note-target');
+    const withDocument = jest.fn(
+      async (
+        _id: string,
+        cb: (doc: unknown) => unknown,
+        opts?: { syncMode?: string; docKeyPrefix?: string },
+      ) => cb(opts?.syncMode === 'readonly' ? sourceDoc : targetDoc),
+    );
+    return makeService({ withDocument });
+  }
+
+  it('applies the fail policy to a note, which never reaches the re-host loop', async () => {
+    // The check used to live inside `rehostImages`, which a note never calls —
+    // so a `fail`-policy promotion succeeded on exactly the type it should
+    // refuse.
+    const { service } = noteService(
+      `![x](/api/v1/workspaces/ws-1/images/${IMG})`,
+    );
+    await expect(
+      service.copy({ ...SOURCE, type: 'note' } as never, 42, {
+        workspaceId: 'ws-2',
+        onImageFailure: 'fail',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('says nothing about a note that holds no workspace image', async () => {
+    // A report claiming lost images that never existed is its own kind of lie.
+    const reports: Array<{ skipped: unknown[] }> = [];
+    const { service } = noteService('# Plain');
+    await service.copy({ ...SOURCE, type: 'note' } as never, 42, {
+      workspaceId: 'ws-2',
+      onImages: (r) => reports.push(r),
+    });
+    expect(reports[0].skipped).toEqual([]);
   });
 });
