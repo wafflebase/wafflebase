@@ -74,6 +74,34 @@ function parseByType(type: RevisionPreviewType, snapshot: string): ParsedContent
   }
 }
 
+/**
+ * The one way a preview is allowed to show nothing.
+ *
+ * Every canvas mount below used to swallow its failure into `console.error`
+ * and leave an empty container behind, which is how the YSON-wrapper bug
+ * reached a user as a silent black rectangle rather than as an error. A blank
+ * render is a lie about the user's data — the same rule the
+ * unreadable-snapshot branch already follows — so a mount that throws says so,
+ * in the same `role="alert"` treatment, with the engine's own message attached.
+ *
+ * It renders as an opaque overlay *above* the still-mounted container rather
+ * than in place of it. Replacing the container would tear out the `ref` the
+ * mount effect targets, and the effect only re-runs when its deps change — so
+ * paging to another revision after one failure would find no container to
+ * mount into and stay stuck on the error for a document that reads fine.
+ */
+function MountErrorOverlay({ what, error }: { what: string; error: unknown }) {
+  const detail = error instanceof Error ? error.message : String(error);
+  return (
+    <div
+      role="alert"
+      className="absolute inset-0 z-10 flex items-center justify-center bg-background p-6 text-center text-sm text-destructive"
+    >
+      Couldn't show this version's {what}: {detail}
+    </div>
+  );
+}
+
 function formatRevisionTime(date: Date): string {
   return date.toLocaleString(undefined, {
     weekday: 'short',
@@ -374,6 +402,7 @@ function SheetPreview({ doc }: { doc: SpreadsheetDocument }) {
   const { resolvedTheme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const tabId = useMemo(() => firstWorksheetTabId(doc), [doc]);
+  const [mountError, setMountError] = useState<unknown>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -382,6 +411,12 @@ function SheetPreview({ doc }: { doc: SpreadsheetDocument }) {
 
     let cancelled = false;
     let sheet: Awaited<ReturnType<typeof initializeSheet>> | undefined;
+    setMountError(null);
+
+    const fail = (err: unknown) => {
+      console.error('Failed to mount the sheet preview', err);
+      if (!cancelled) setMountError(err);
+    };
 
     try {
       const store = new MemStore();
@@ -398,11 +433,9 @@ function SheetPreview({ doc }: { doc: SpreadsheetDocument }) {
           }
           sheet = s;
         })
-        .catch((err) => {
-          console.error('Failed to mount the sheet preview', err);
-        });
+        .catch(fail);
     } catch (err) {
-      console.error('Failed to mount the sheet preview', err);
+      fail(err);
     }
 
     return () => {
@@ -426,7 +459,14 @@ function SheetPreview({ doc }: { doc: SpreadsheetDocument }) {
     );
   }
 
-  return <div ref={containerRef} className="h-full w-full" />;
+  return (
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="h-full w-full" />
+      {mountError !== null && (
+        <MountErrorOverlay what="grid" error={mountError} />
+      )}
+    </div>
+  );
 }
 
 /**
@@ -461,10 +501,12 @@ function SlidesPreview({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<SlidesEditor | null>(null);
+  const [mountError, setMountError] = useState<unknown>(null);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    setMountError(null);
 
     let editor: SlidesEditor | undefined;
     let resizeObserver: ResizeObserver | undefined;
@@ -568,10 +610,21 @@ function SlidesPreview({
 
       mountOrResize();
       editorRef.current = editor ?? null;
-      resizeObserver = new ResizeObserver(() => mountOrResize());
+      // A resize that throws is as blank a failure as a mount that does, and
+      // the observer fires outside this `try` — so it reports through the
+      // same channel rather than into an unhandled rejection.
+      resizeObserver = new ResizeObserver(() => {
+        try {
+          mountOrResize();
+        } catch (err) {
+          console.error('Failed to mount the slides preview', err);
+          setMountError(err);
+        }
+      });
       resizeObserver.observe(container);
     } catch (err) {
       console.error('Failed to mount the slides preview', err);
+      setMountError(err);
     }
 
     return () => {
@@ -602,10 +655,18 @@ function SlidesPreview({
   }, [doc, board, slideIndex]);
 
   return (
-    <div
-      ref={containerRef}
-      className="flex h-full w-full items-center justify-center overflow-hidden bg-muted/20"
-    />
+    <div className="relative h-full w-full">
+      <div
+        ref={containerRef}
+        className="flex h-full w-full items-center justify-center overflow-hidden bg-muted/20"
+      />
+      {mountError !== null && (
+        <MountErrorOverlay
+          what={board ? 'canvas' : 'slide'}
+          error={mountError}
+        />
+      )}
+    </div>
   );
 }
 
@@ -618,10 +679,12 @@ function SlidesPreview({
 function NotePreview({ text }: { text: string }) {
   const { resolvedTheme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
+  const [mountError, setMountError] = useState<unknown>(null);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    setMountError(null);
 
     let api: ReturnType<typeof initializeNote> | undefined;
     try {
@@ -629,6 +692,7 @@ function NotePreview({ text }: { text: string }) {
       api = initializeNote(container, store, resolvedTheme, true, 'view');
     } catch (err) {
       console.error('Failed to mount the note preview', err);
+      setMountError(err);
     }
 
     return () => {
@@ -636,5 +700,12 @@ function NotePreview({ text }: { text: string }) {
     };
   }, [text, resolvedTheme]);
 
-  return <div ref={containerRef} className="h-full w-full overflow-auto" />;
+  return (
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="h-full w-full overflow-auto" />
+      {mountError !== null && (
+        <MountErrorOverlay what="text" error={mountError} />
+      )}
+    </div>
+  );
 }

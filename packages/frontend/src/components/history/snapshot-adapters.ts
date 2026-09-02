@@ -3,12 +3,19 @@ import type { SpreadsheetDocument } from '@wafflebase/sheets';
 import type { Element, SlidesDocument } from '@wafflebase/slides';
 import { boardToSlidesDocument } from '@wafflebase/board';
 import type { YorkieBoardRoot } from '@/types/board-document';
+import { unwrapYsonScalars } from './unwrap-yson';
 
 /**
  * A revision snapshot is YSON: JSON plus constructor-wrapped CRDT values
- * (`Text([...])`, `Tree({...})`). For sheets, slides and board the root is
- * plain JSON, so parsing is the whole conversion — the backend's `read*Root`
+ * (`Int(320)`, `Long(…)`, `Text([...])`, `Tree({...})`). For sheets, slides
+ * and board the root is otherwise plain JSON — the backend's `read*Root`
  * helpers exist to unwrap *live* Yorkie proxies and have no job here.
+ *
+ * Parsing alone is **not** the whole conversion, though: `YSON.parse` hands
+ * every scalar literal back as a tagged object (`Int(320)` →
+ * `{type:'Int',value:320}`), so each adapter runs the result through
+ * {@link unwrapYsonScalars} before it reaches an engine that types those
+ * fields `number`. See that module for what went wrong without it.
  *
  * `YSON.parse`'s preprocessor is regex-based and throws once a `Tree(...)`
  * nests past three brace levels, which every wafflebase docs document does
@@ -17,11 +24,11 @@ import type { YorkieBoardRoot } from '@/types/board-document';
  * throw.
  */
 export function parseSheetSnapshot(snapshot: string): SpreadsheetDocument {
-  return YSON.parse<SpreadsheetDocument>(snapshot);
+  return unwrapYsonScalars<SpreadsheetDocument>(YSON.parse(snapshot));
 }
 
 export function parseSlidesSnapshot(snapshot: string): SlidesDocument {
-  return YSON.parse<SlidesDocument>(snapshot);
+  return unwrapYsonScalars<SlidesDocument>(YSON.parse(snapshot));
 }
 
 /**
@@ -38,7 +45,7 @@ export function parseSlidesSnapshot(snapshot: string): SlidesDocument {
  * banner naming a date instead of raising anything the preview could report.
  */
 export function parseBoardSnapshot(snapshot: string): SlidesDocument {
-  const root = YSON.parse<Partial<YorkieBoardRoot>>(snapshot);
+  const root = unwrapYsonScalars<Partial<YorkieBoardRoot>>(YSON.parse(snapshot));
   return boardToSlidesDocument({
     // Mirrors `YorkieBoardStore.read()`'s defaults: a board that was never
     // edited has no `meta` at all (a viewer attaches with an empty initial
@@ -48,13 +55,19 @@ export function parseBoardSnapshot(snapshot: string): SlidesDocument {
       unit: root.meta?.unit,
       recentColors: root.meta?.recentColors,
     },
-    // A parsed snapshot is plain JSON, so these are already the plain
-    // `Element` objects the model wants — no proxy unwrapping to do.
+    // Unwrapped above, so these are already the plain `Element` objects the
+    // model wants — every `frame` number a number, no proxy left to detach.
     elements: (root.elements ?? []) as unknown as Element[],
   });
 }
 
+/**
+ * A note's whole content is one `Text` CRDT, which {@link unwrapYsonScalars}
+ * passes through by reference — unwrapping it would destroy the very thing
+ * `YSON.textToString` needs. The walk still runs, so any scalar a future note
+ * root gains alongside `content` is normalised like every other type's.
+ */
 export function parseNoteSnapshot(snapshot: string): string {
-  const root = YSON.parse<{ content?: YSON.Text }>(snapshot);
+  const root = unwrapYsonScalars<{ content?: YSON.Text }>(YSON.parse(snapshot));
   return root.content ? YSON.textToString(root.content) : '';
 }

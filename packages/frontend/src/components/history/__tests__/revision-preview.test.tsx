@@ -151,6 +151,38 @@ describe('RevisionPreview', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(/no sheet to show/i),
     );
   });
+
+  // The last step in: the snapshot parsed and there *was* something to
+  // render, but the engine refused to mount it. That used to go to
+  // `console.error` and leave an empty container — which is exactly how a
+  // slides deck whose every integer was a YSON wrapper reached a user as a
+  // solid dark rectangle instead of an error.
+  //
+  // jsdom supplies the failure for free: `HTMLCanvasElement.getContext`
+  // returns null and `SlidesEditorImpl`'s constructor throws on that.
+  it('reports a canvas mount failure instead of leaving a blank surface', async () => {
+    resolveWith(ONE_SLIDE_SNAPSHOT);
+    render(
+      <RevisionPreview revisionId="r1" type="slides" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /Couldn't show this version's slide/i,
+      ),
+    );
+  });
+
+  it('reports a board canvas mount failure the same way', async () => {
+    resolveWith(JSON.stringify({ meta: { title: 'B' }, elements: [] }));
+    render(
+      <RevisionPreview revisionId="r1" type="board" onRestore={vi.fn()} onBack={vi.fn()} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /Couldn't show this version's canvas/i,
+      ),
+    );
+  });
 });
 
 // The preview mounts ONE canvas and the thumbnail rail lives in

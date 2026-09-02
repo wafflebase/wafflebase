@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MemStore } from '@wafflebase/sheets';
+import { MemSlidesStore } from '@wafflebase/slides';
 import { SYNTHETIC_SLIDE_ID } from '@wafflebase/board';
 import {
   parseBoardSnapshot,
@@ -10,8 +11,27 @@ import {
   parseSlidesSnapshot,
 } from '../snapshot-adapters';
 
+/**
+ * Every fixture here is a **captured** revision snapshot — created with
+ * `createRevision` against a real Yorkie server and copied byte for byte.
+ * That matters more than it sounds: the hand-authored fixtures these replaced
+ * were valid JSON, and so carried none of the `Int(…)`/`Long(…)` literals a
+ * real snapshot is full of. They therefore passed against a parser that
+ * returned `{type:'Int',value:320}` for every integer, and the slides preview
+ * shipped rendering a solid theme-coloured rectangle and nothing else.
+ *
+ * Anything replacing a fixture must be captured the same way.
+ */
 const fixture = (name: string) =>
   readFileSync(join(__dirname, 'fixtures', `${name}.yson.txt`), 'utf8');
+
+/** Fails with the wrapper's own shape in the message, not a bare `false`. */
+function expectPlainNumber(value: unknown, what: string) {
+  expect(
+    { [what]: value, isNumber: typeof value === 'number' },
+    `${what} must be a plain number, not a YSON wrapper`,
+  ).toMatchObject({ isNumber: true });
+}
 
 describe('parseSheetSnapshot', () => {
   // SpreadsheetDocument is { tabs, tabOrder, sheets } — see
@@ -22,6 +42,18 @@ describe('parseSheetSnapshot', () => {
     expect(
       Object.keys(doc.sheets[doc.tabOrder[0]].cells).length,
     ).toBeGreaterThan(0);
+  });
+
+  // The integers a captured worksheet carries — `frozenRows`, `nextRowId`,
+  // and every row height / column width. Typed `number` by the model and used
+  // as one by the grid renderer.
+  it('unwraps the worksheet integers a real snapshot wraps', () => {
+    const ws = parseSheetSnapshot(fixture('sheet')).sheets['tab-1'];
+    expectPlainNumber(ws.frozenRows, 'frozenRows');
+    expectPlainNumber(ws.frozenCols, 'frozenCols');
+    expectPlainNumber(ws.nextRowId, 'nextRowId');
+    expectPlainNumber(ws.rowHeights!['rtw15'], 'rowHeights.rtw15');
+    expectPlainNumber(ws.colWidths!['cq2ag'], 'colWidths.cq2ag');
   });
 
   // Counting raw JSON keys proves nothing about the wire format: a worksheet
@@ -36,10 +68,12 @@ describe('parseSheetSnapshot', () => {
     store.load(doc.sheets[doc.tabOrder[0]]);
 
     expect(await store.get({ r: 1, c: 1 })).toEqual({ v: '1' });
-    expect(await store.get({ r: 1, c: 2 })).toEqual({ v: '2' });
     expect(await store.get({ r: 2, c: 1 })).toMatchObject({ f: '=A1+2' });
+    expect(await store.get({ r: 5, c: 3 })).toEqual({ v: '1' });
     // Row heights and column widths are axis-id-keyed too, and resolve
-    // through the same order arrays.
+    // through the same order arrays. A wrapped `Int(30)` reaches the grid as
+    // an object and every y-offset computed from it becomes `NaN`, so assert
+    // the value, not just its presence.
     expect((await store.getDimensionSizes('row')).get(2)).toBe(30);
     expect((await store.getDimensionSizes('column')).get(1)).toBe(120);
   });
@@ -48,6 +82,46 @@ describe('parseSheetSnapshot', () => {
 describe('parseSlidesSnapshot', () => {
   it('reads slides from a snapshot fixture', () => {
     expect(parseSlidesSnapshot(fixture('slides')).slides.length).toBeGreaterThan(0);
+  });
+
+  // The reported Critical bug, pinned. This fixture is the very deck that
+  // rendered as a solid `#202124` rectangle: its two shapes have `Int(320)` /
+  // `Int(200)` frames, so without unwrapping the renderer computed `NaN`
+  // width and height and painted only the theme background.
+  it('unwraps every element frame integer', () => {
+    const doc = parseSlidesSnapshot(fixture('slides'));
+    const elements = doc.slides[0].elements;
+    expect(elements.length).toBeGreaterThan(0);
+    for (const el of elements) {
+      expectPlainNumber(el.frame.w, `${el.id}.frame.w`);
+      expectPlainNumber(el.frame.h, `${el.id}.frame.h`);
+      expectPlainNumber(el.frame.x, `${el.id}.frame.x`);
+      expectPlainNumber(el.frame.y, `${el.id}.frame.y`);
+      expectPlainNumber(el.frame.rotation, `${el.id}.frame.rotation`);
+      // Not every integer lives on the frame: a stroke width does too, and it
+      // is multiplied by the render scale the same way.
+      expect(Number.isFinite(el.frame.w * el.frame.h)).toBe(true);
+    }
+  });
+
+  // `SlidesPreview` never touches the parsed document directly — it hands it
+  // to `new MemSlidesStore(doc)` and the editor reads it back out. The store
+  // clones and migrates on both construction and `read()`, so assert past
+  // that, which is the shape the renderer actually receives.
+  it('survives MemSlidesStore, the path the preview mounts it through', () => {
+    const store = new MemSlidesStore(parseSlidesSnapshot(fixture('slides')));
+    const read = store.read();
+    for (const el of read.slides[0].elements) {
+      expectPlainNumber(el.frame.w, `${el.id}.frame.w after read()`);
+      expectPlainNumber(el.frame.h, `${el.id}.frame.h after read()`);
+    }
+    // The layout/master/theme chrome the renderer resolves against carries
+    // integers of its own (placeholder frames, font sizes).
+    for (const layout of read.layouts) {
+      for (const ph of layout.placeholders) {
+        expectPlainNumber(ph.frame.w, `layout ${layout.id} placeholder width`);
+      }
+    }
   });
 });
 
@@ -67,6 +141,23 @@ describe('parseBoardSnapshot', () => {
       'el-sticky',
       'el-note',
     ]);
+  });
+
+  // Board elements go through the same `Element.frame` the slides renderer
+  // reads, so they wrap the same way — and a board's `boardPreviewViewport`
+  // additionally *sums* those frames to find the content bounds, which turns
+  // one wrapper into a `NaN` viewport for the whole plane.
+  it('unwraps board element frames and effect scalars', () => {
+    const [sticky] = parseBoardSnapshot(fixture('board')).slides[0].elements;
+    expectPlainNumber(sticky.frame.w, 'sticky.frame.w');
+    expectPlainNumber(sticky.frame.h, 'sticky.frame.h');
+    expectPlainNumber(sticky.frame.x, 'sticky.frame.x');
+    expect(sticky.frame.x).toBe(-240);
+    const shadow = (
+      sticky.data as { effects?: { shadow?: Record<string, unknown> } }
+    ).effects?.shadow;
+    expectPlainNumber(shadow?.blur, 'shadow.blur');
+    expectPlainNumber(shadow?.distance, 'shadow.distance');
   });
 
   it('supplies the theme/master/layout the slides renderer needs', () => {
@@ -94,10 +185,12 @@ describe('parseBoardSnapshot', () => {
 });
 
 describe('parseNoteSnapshot', () => {
-  it('flattens the Text CRDT back to markdown', () => {
-    expect(parseNoteSnapshot('{"content":Text([{"val":"# hello"}])}')).toBe(
-      '# hello',
-    );
+  // The `Text` CRDT is an aggregate, not a scalar: the unwrap walk must hand
+  // it through by reference or `YSON.textToString` has nothing left to read.
+  // This fixture is a captured note, so its nodes carry the real per-character
+  // `attrs` (author / timestamp) a hand-written one omits.
+  it('flattens a captured note back to its markdown', () => {
+    expect(parseNoteSnapshot(fixture('note'))).toBe('ㅁㄴㅇㄹㅁㄴㅇㄹㅁㄴㅇㄹㅁㄴㅇㄹ');
   });
 
   it('returns empty for a note whose content was never written', () => {
