@@ -256,19 +256,42 @@ Presentation is a banner over the existing viewer — "Viewing a version from
 a canvas in a dialog loses the scroll, zoom and pan the viewer already
 implements.
 
-**The overlay must cover the whole editing surface, not just the canvas.**
-It renders `absolute inset-0`, so what it hides is decided entirely by which
-ancestor is positioned. Mounted beside the canvas alone it left the slides
-toolbar, the notes toolbar and the sheet tab bar live and clickable
+**A preview must contain the whole editing surface, not just the canvas.**
+The overlay renders `absolute inset-0`, so what it hides is decided entirely
+by which ancestor is positioned. Mounted beside the canvas alone it left the
+slides toolbar, the notes toolbar and the sheet tab bar live and clickable
 underneath a banner reading "Viewing a version" — "Delete slide" and
 "Delete sheet" among them, mutating the **live** document with no visible
 feedback because the canvas that would have shown the change was behind the
-preview. `PreviewSurface`
-(`packages/frontend/src/components/history/preview-surface.tsx`) is the one
-place that rule lives: chrome goes in `children`, the overlay in `preview`.
-The version-history panel deliberately stays *outside* it, so a user can
-still reach the next version. Google Docs does the same — opening a version
-replaces the editing surface, not the page.
+preview.
+
+The rule lives in one module,
+`packages/frontend/src/components/history/preview-surface.tsx`, in two
+forms, because chrome sits in two different places:
+
+- `PreviewSurface` contains chrome by **covering** it — the box the overlay
+  is positioned against. Sheets' tab bar is inside it (under the grid, in
+  the same column), and board's toolbar is inside it by virtue of being
+  rendered by `BoardView`.
+- `EditingChrome` contains chrome by **removing** it — `previewing ? null :
+  children`. Slides and notes put their toolbar full-width above the row
+  that also holds the right-slot panels, so pulling it into the covered box
+  would narrow it by the panel's 288px whenever one is open: a layout
+  regression for every user, on a feature whose flag is off, and a
+  divergence from Google Slides, where side panels start below a full-width
+  toolbar.
+
+Both are driven by one `previewing` expression per editor, so they cannot
+disagree — a preview painted over a toolbar that was never removed is the
+original bug. Not rendering is strictly stronger than disabling (no control
+to click, focus, or reach with a screen reader) and costs only the toolbar's
+own transient state; the view inside `PreviewSurface` stays mounted and
+attached throughout. It also matches Google Docs, where opening a version
+replaces the editing surface.
+
+The version-history panel deliberately stays outside both, so a user can
+still reach the next version rather than being left with only "Back to
+current version".
 
 **A read-only mount has no navigation of its own, so the preview supplies
 it.** `readOnly: true` skips `attachInteractions()` and the overlay's

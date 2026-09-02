@@ -39,7 +39,10 @@ import { MotionPanel } from "./motion-panel";
 import { BackgroundSidePanel } from "./background-side-panel";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { isHistoryEnabled } from "@/components/history/history-enabled";
-import { PreviewSurface } from "@/components/history/preview-surface";
+import {
+  EditingChrome,
+  PreviewSurface,
+} from "@/components/history/preview-surface";
 import {
   Sheet,
   SheetContent,
@@ -358,6 +361,15 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   // component. The role is therefore always "member" here.
   const historyEnabled = isHistoryEnabled(import.meta.env, "member");
 
+  // The single source of truth for "a preview is covering the canvas", read
+  // by both halves of the containment: `EditingChrome` (which removes the
+  // toolbar) and `PreviewSurface` (which covers the canvas). One expression
+  // so the two can never disagree — chrome removed with no preview painted,
+  // or a preview painted over a live toolbar.
+  const previewing = Boolean(
+    historyEnabled && previewRevisionId && currentUser,
+  );
+
   // Upload pipeline: wraps the workspace image API to match the shape
   // expected by SlidesToolbar (and insert-image / replace-image helpers).
   const workspaceId = documentData?.workspaceId;
@@ -447,30 +459,12 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
             <UserPresence />
           </div>
         </SiteHeader>
-        <div className="flex flex-1 min-h-0 overflow-hidden">
-          {/* The toolbar lives INSIDE the preview surface. A preview that
-              covered only the canvas left "Delete slide" and every insert
-              control live above it, mutating the real deck while the user
-              believed they were looking at a past version — with no visible
-              feedback, because the canvas that would have shown the change
-              was behind the preview. The right-slot panels stay OUTSIDE, so
-              the version list is still reachable with a preview open. */}
-          <PreviewSurface
-            className="min-h-0 overflow-hidden"
-            preview={
-              historyEnabled && previewRevisionId && currentUser ? (
-                <Suspense fallback={null}>
-                  <RevisionPreviewOverlay
-                    revisionId={previewRevisionId}
-                    type="slides"
-                    userId={currentUser.id}
-                    onClose={() => setPreviewRevisionId(null)}
-                    onRestored={handleHistoryRestored}
-                  />
-                </Suspense>
-              ) : null
-            }
-          >
+        <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+          {/* The toolbar stays full-width above the panel row — pulling it
+              into the covered surface would narrow it by the panel's 288px
+              whenever one is open — so a preview contains it by REMOVING it
+              instead. See `EditingChrome`. */}
+          <EditingChrome previewing={previewing}>
             <SlidesToolbar
               editor={editor}
               store={store}
@@ -510,63 +504,81 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
                 </button>
               </div>
             )}
-            <SlidesView
-              key={historyResetToken}
-              onEditorReady={setEditor}
-              onStoreReady={setStore}
-              onStartPresentation={handleStartPresentation}
-              documentId={documentId}
-              zoomController={zoomControllerRef.current}
-              uploadImage={uploadFn}
-              layoutEditTarget={layoutEditTarget}
-              onLayoutEditTargetChange={setLayoutEditTarget}
-            />
-          </PreviewSurface>
-          {rightPanel === "theme" && store && (
-            <ThemePanel
-              store={store}
-              currentThemeId={currentThemeId}
-              onClose={() => setRightPanel(null)}
-              onEditLayouts={handleEditLayouts}
-            />
-          )}
-          {rightPanel === "format" && store && editor && (
-            <FormatPanel
-              store={store}
-              editor={editor}
-              onClose={() => setRightPanel(null)}
-            />
-          )}
-          {rightPanel === "motion" && store && editor && (
-            <MotionPanel
-              store={store}
-              editor={editor}
-              onClose={() => setRightPanel(null)}
-            />
-          )}
-          {rightPanel === "background" && store && editor && activeTheme && (
-            <BackgroundSidePanel
-              store={store}
-              editor={editor}
-              theme={activeTheme}
-              upload={uploadFn}
-              onClose={() => setRightPanel(null)}
-            />
-          )}
-          {/* `historyEnabled &&` is not redundant with `rightPanel ===
-              "history"`: the toggle that sets it is itself flag-gated, so
-              the state is unreachable today — but this is the one panel
-              whose flag is not load-bearing by construction, and the other
-              four editors all gate here. Keep them consistent. */}
-          {historyEnabled && rightPanel === "history" && currentUser && (
-            <HistoryPanel
-              userId={currentUser.id}
-              onClose={() => setRightPanel(null)}
-              onPreview={setPreviewRevisionId}
-              onRestored={handleHistoryRestored}
-              refreshKey={historyResetToken}
-            />
-          )}
+          </EditingChrome>
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            <PreviewSurface
+              preview={
+                previewing && previewRevisionId && currentUser ? (
+                  <Suspense fallback={null}>
+                    <RevisionPreviewOverlay
+                      revisionId={previewRevisionId}
+                      type="slides"
+                      userId={currentUser.id}
+                      onClose={() => setPreviewRevisionId(null)}
+                      onRestored={handleHistoryRestored}
+                    />
+                  </Suspense>
+                ) : null
+              }
+            >
+              <SlidesView
+                key={historyResetToken}
+                onEditorReady={setEditor}
+                onStoreReady={setStore}
+                onStartPresentation={handleStartPresentation}
+                documentId={documentId}
+                zoomController={zoomControllerRef.current}
+                uploadImage={uploadFn}
+                layoutEditTarget={layoutEditTarget}
+                onLayoutEditTargetChange={setLayoutEditTarget}
+              />
+            </PreviewSurface>
+            {rightPanel === "theme" && store && (
+              <ThemePanel
+                store={store}
+                currentThemeId={currentThemeId}
+                onClose={() => setRightPanel(null)}
+                onEditLayouts={handleEditLayouts}
+              />
+            )}
+            {rightPanel === "format" && store && editor && (
+              <FormatPanel
+                store={store}
+                editor={editor}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+            {rightPanel === "motion" && store && editor && (
+              <MotionPanel
+                store={store}
+                editor={editor}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+            {rightPanel === "background" && store && editor && activeTheme && (
+              <BackgroundSidePanel
+                store={store}
+                editor={editor}
+                theme={activeTheme}
+                upload={uploadFn}
+                onClose={() => setRightPanel(null)}
+              />
+            )}
+            {/* `historyEnabled &&` is not redundant with `rightPanel ===
+                "history"`: the toggle that sets it is itself flag-gated, so
+                the state is unreachable today — but this is the one panel
+                whose flag is not load-bearing by construction, and the other
+                four editors all gate here. Keep them consistent. */}
+            {historyEnabled && rightPanel === "history" && currentUser && (
+              <HistoryPanel
+                userId={currentUser.id}
+                onClose={() => setRightPanel(null)}
+                onPreview={setPreviewRevisionId}
+                onRestored={handleHistoryRestored}
+                refreshKey={historyResetToken}
+              />
+            )}
+          </div>
         </div>
       </SidebarInset>
       {presentingFrom &&

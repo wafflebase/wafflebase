@@ -194,13 +194,11 @@ function BoardLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          {/* `BoardToolbar` lives inside `BoardView`, so the surface that
-              covers the view already covers the toolbar — unlike slides,
-              notes and sheets, where the chrome is a sibling. Routed
-              through `PreviewSurface` anyway so all four wired editors
-              state the same rule in the same place. */}
+          {/* `BoardToolbar` is rendered by `BoardView` itself, so covering
+              the view covers the toolbar and board needs no `EditingChrome`
+              — unlike slides and notes, whose toolbar is a full-width
+              sibling this surface must not narrow. */}
           <PreviewSurface
-            className="min-h-0"
             preview={
               historyEnabled && previewRevisionId && currentUser ? (
                 <Suspense fallback={null}>

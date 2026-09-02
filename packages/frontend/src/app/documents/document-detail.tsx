@@ -697,7 +697,11 @@ function DocumentLayout({ documentId }: { documentId: string }) {
               feedback, because the grid that would have shown the change
               was behind the preview. The comments and history panels stay
               OUTSIDE, so the version list is still reachable. */}
+          {/* `flex-col`: this surface is the grid column, so the tab bar it
+              contains stacks under the grid. Slides and notes take the
+              row-flex default. */}
           <PreviewSurface
+            className="flex-col"
             preview={
               historyEnabled && previewRevisionId && currentUser ? (
                 <Suspense fallback={null}>

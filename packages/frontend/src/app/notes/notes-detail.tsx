@@ -45,7 +45,10 @@ import { NotesToolbar } from "./notes-toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { isHistoryEnabled } from "@/components/history/history-enabled";
-import { PreviewSurface } from "@/components/history/preview-surface";
+import {
+  EditingChrome,
+  PreviewSurface,
+} from "@/components/history/preview-surface";
 
 // Lazy: `revision-preview.tsx` statically imports all three of
 // @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
@@ -243,6 +246,14 @@ function NotesLayout({ documentId }: { documentId: string }) {
   // The role is therefore always "member" here.
   const historyEnabled = isHistoryEnabled(import.meta.env, "member");
 
+  // The single source of truth for "a preview is covering the editor pane",
+  // read by both halves of the containment: `EditingChrome` (which removes
+  // the toolbar) and `PreviewSurface` (which covers the pane). One
+  // expression so the two can never disagree.
+  const previewing = Boolean(
+    historyEnabled && previewRevisionId && currentUser,
+  );
+
   return (
     <SidebarProvider>
       <AppSidebar
@@ -284,29 +295,12 @@ function NotesLayout({ documentId }: { documentId: string }) {
             <UserPresence />
           </div>
         </SiteHeader>
-        <div className="flex flex-1 min-h-0 overflow-hidden">
-          {/* The toolbar lives INSIDE the preview surface. A preview that
-              covered only the editor pane left the toolbar live above it,
-              so its view/keymap/format controls still reached the real
-              note while the user believed they were looking at a past
-              version. The history panel stays OUTSIDE, so the version list
-              is still reachable with a preview open. */}
-          <PreviewSurface
-            className="min-h-0 overflow-hidden"
-            preview={
-              historyEnabled && previewRevisionId && currentUser ? (
-                <Suspense fallback={null}>
-                  <RevisionPreviewOverlay
-                    revisionId={previewRevisionId}
-                    type="note"
-                    userId={currentUser.id}
-                    onClose={() => setPreviewRevisionId(null)}
-                    onRestored={handleHistoryRestored}
-                  />
-                </Suspense>
-              ) : null
-            }
-          >
+        <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+          {/* Same arrangement as slides, for the same reason and so the two
+              read alike: the toolbar stays full-width above the panel row
+              and a preview contains it by REMOVING it. See
+              `EditingChrome`. */}
+          <EditingChrome previewing={previewing}>
             <NotesToolbar
               mode={effectiveViewMode}
               onModeChange={handleViewModeChange}
@@ -316,25 +310,43 @@ function NotesLayout({ documentId }: { documentId: string }) {
               onShowAuthorsChange={handleShowAuthorsChange}
               editor={editor}
             />
-            <NotesView
-              key={historyResetToken}
-              viewMode={effectiveViewMode}
-              keymap={keymap}
-              showAuthors={showAuthors}
-              onEditorReady={setEditor}
-              uploadImage={handleUploadImage}
-              documentId={documentId}
-            />
-          </PreviewSurface>
-          {historyEnabled && historyOpen && currentUser && (
-            <HistoryPanel
-              userId={currentUser.id}
-              onClose={() => setHistoryOpen(false)}
-              onPreview={setPreviewRevisionId}
-              onRestored={handleHistoryRestored}
-              refreshKey={historyResetToken}
-            />
-          )}
+          </EditingChrome>
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            <PreviewSurface
+              preview={
+                previewing && previewRevisionId && currentUser ? (
+                  <Suspense fallback={null}>
+                    <RevisionPreviewOverlay
+                      revisionId={previewRevisionId}
+                      type="note"
+                      userId={currentUser.id}
+                      onClose={() => setPreviewRevisionId(null)}
+                      onRestored={handleHistoryRestored}
+                    />
+                  </Suspense>
+                ) : null
+              }
+            >
+              <NotesView
+                key={historyResetToken}
+                viewMode={effectiveViewMode}
+                keymap={keymap}
+                showAuthors={showAuthors}
+                onEditorReady={setEditor}
+                uploadImage={handleUploadImage}
+                documentId={documentId}
+              />
+            </PreviewSurface>
+            {historyEnabled && historyOpen && currentUser && (
+              <HistoryPanel
+                userId={currentUser.id}
+                onClose={() => setHistoryOpen(false)}
+                onPreview={setPreviewRevisionId}
+                onRestored={handleHistoryRestored}
+                refreshKey={historyResetToken}
+              />
+            )}
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>
