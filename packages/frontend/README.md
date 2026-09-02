@@ -32,9 +32,21 @@ VITE_WB_REVISION_HISTORY=         # Optional. Version history entry point
                                    # (sheets/docs/slides/notes/board). Off by
                                    # default; must be exactly "true" to
                                    # enable — any other value, including "1",
-                                   # is off. Ships dark until Yorkie gates
-                                   # the revision RPCs behind the auth
-                                   # webhook. See `isHistoryEnabled`.
+                                   # is off. Enabling it is a deployment
+                                   # decision, not a wait on upstream: the
+                                   # server must first register
+                                   # ListRevisions / GetRevision /
+                                   # RestoreRevision on the Yorkie auth
+                                   # webhook AND run with
+                                   # YORKIE_AUTH_WEBHOOK_ENFORCE=true (see
+                                   # packages/backend/README.md), or any
+                                   # attached client can read and restore
+                                   # every past snapshot. `CreateRevision`
+                                   # stays ungated — registering it would
+                                   # deny everyone — so "Name current
+                                   # version" is open to any attached
+                                   # client either way. See
+                                   # `isHistoryEnabled`.
 ```
 
 ### Development

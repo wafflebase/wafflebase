@@ -14,6 +14,15 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    /* `src` holds this package's component tests alongside the components,
+       so `tsc` sees `toBeInTheDocument` / `toHaveTextContent` without
+       jest-dom's matcher declarations and reported 22 phantom errors.
+       Naming the package here pulls them in; measured 161 -> 139 errors
+       with no new ones. (An earlier attempt that widened `include` to
+       `tests` instead made it worse: 161 -> 262.) `vite/client` is
+       unaffected — `src/vite-env.d.ts` pulls it in by triple-slash
+       reference, which `types` does not gate. */
+    "types": ["@testing-library/jest-dom"],
 
     /* Linting */
     "strict": true,

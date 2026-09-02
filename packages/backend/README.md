@@ -195,7 +195,16 @@ leaves it ungated: any attached client can create a revision. That is a
 nuisance rather than a destructive hole, and closing it needs an upstream fix
 (see [`docs/design/revision-history.md`](../../docs/design/revision-history.md) §6).
 The other three revision methods do receive real attributes and are authorized
-correctly — verified by `test/revision-history.e2e-spec.ts`.
+correctly. `test/revision-history.e2e-spec.ts` exercises that against a real
+server, but its `refuses a read-only client` case is currently `it.skip` —
+it provisions a scratch Yorkie project through the `yorkie` **admin CLI**,
+which CI does not install (only the `yorkieteam/yorkie` server container is
+available there), so unskipping it would error out rather than fail an
+assertion. It has been run by hand; see the comment above the test. What CI
+guards today is the *decision logic*, in
+`src/document/yorkie-auth.controller.spec.ts` — not the end-to-end denial
+against a live Yorkie server. Re-run the skipped case locally with the admin
+CLI on `PATH` before trusting the registration on a deployment.
 
 `ListRevisions` and `GetRevision` are a deliberate exception to the plain
 verb check. Yorkie sends them with verb `r`, which a share-link **viewer**

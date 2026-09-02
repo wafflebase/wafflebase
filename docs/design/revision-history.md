@@ -256,6 +256,35 @@ Presentation is a banner over the existing viewer — "Viewing a version from
 a canvas in a dialog loses the scroll, zoom and pan the viewer already
 implements.
 
+**The overlay must cover the whole editing surface, not just the canvas.**
+It renders `absolute inset-0`, so what it hides is decided entirely by which
+ancestor is positioned. Mounted beside the canvas alone it left the slides
+toolbar, the notes toolbar and the sheet tab bar live and clickable
+underneath a banner reading "Viewing a version" — "Delete slide" and
+"Delete sheet" among them, mutating the **live** document with no visible
+feedback because the canvas that would have shown the change was behind the
+preview. `PreviewSurface`
+(`packages/frontend/src/components/history/preview-surface.tsx`) is the one
+place that rule lives: chrome goes in `children`, the overlay in `preview`.
+The version-history panel deliberately stays *outside* it, so a user can
+still reach the next version. Google Docs does the same — opening a version
+replaces the editing surface, not the page.
+
+**A read-only mount has no navigation of its own, so the preview supplies
+it.** `readOnly: true` skips `attachInteractions()` and the overlay's
+capture-phase keyboard suppressor blocks the arrow keys, and the surfaces
+that would otherwise navigate — the slides thumbnail rail, board's
+wheel-pan / drag-pan / minimap — live in `SlidesView` / `board-view.tsx`,
+behind the overlay. So the banner carries a prev/next slide control with a
+position indicator for decks, and a board preview opens framed on its own
+content via `boardPreviewViewport`, which reuses the live board's
+`fitViewportToScene` + `sceneBounds`. Without the latter a board whose
+content sits off-origin (a Miro import; this repo's own fixture has an
+element at `x: -240`) rendered an empty canvas the user could not pan to.
+A multi-tab *sheet* preview still shows only its first tab — the panel that
+opens the preview is document-level, not tab-scoped — which remains a
+known gap.
+
 ### 5. Restore
 
 1. `createRevision("Before restore", {kind:"safety", by})` — so restore is
@@ -349,15 +378,26 @@ and PR 2 are independent of each other's engines and of every upstream ask.
   cells.
 - **Integration** (`RUN_YORKIE_INTEGRATION_TESTS=true`, already wired into
   CI's `verify-integration` job): create → list → get → restore
-  round-trip; a second attached client converges after a restore; and a
-  regression test that a read-only client is refused create, restore
-  *and* snapshot reads.
+  round-trip; a second attached client converges after a restore. The
+  read-only-client regression test (refused create, restore *and* snapshot
+  reads) is written but **`it.skip`** — it needs the `yorkie` admin CLI to
+  provision a scratch project, and CI installs only the server container.
+  It runs by hand; CI's coverage of that property is the mocked
+  `yorkie-auth.controller.spec.ts` alone.
 
 ## Risks and Mitigation
 
 **An unregistered revision RPC bypasses every permission control
 wafflebase has.** Demonstrated against a local server by
-`packages/backend/test/revision-history.e2e-spec.ts`: with the auth webhook
+`packages/backend/test/revision-history.e2e-spec.ts` — **by hand, not in
+CI**: that suite's `refuses a read-only client` case is `it.skip`, because it
+provisions a scratch Yorkie project through the `yorkie` admin CLI, which CI
+does not install. It is the only test that exercises viewer-denial against a
+real server, so nothing in CI guards this property end to end; what CI does
+guard is the decision logic, in
+`packages/backend/src/document/yorkie-auth.controller.spec.ts`. Unskipping it
+needs the admin CLI on `PATH` plus `RUN_DB_INTEGRATION_TESTS=true` and
+`RUN_YORKIE_INTEGRATION_TESTS=true`. With the auth webhook
 enforcing but the revision methods *not* registered, a share-link
 `viewer`'s ordinary write is correctly denied at `PushPull` with
 `permission_denied` — and that same viewer's `restoreRevision` still
@@ -402,9 +442,14 @@ snapshot of any docs document (§4), and the same preprocessing would also
 misread a `}` appearing inside a string value in any document type. We
 depend on it for every preview. *Mitigation*: upstream ask 4 replaces it
 with a tokenizer; until then docs preview is out and the other four types
-are covered by adapter tests built from fixtures captured off real
-documents, so a regression in the parser surfaces in CI rather than in a
-user's preview.
+are covered by adapter tests built from fixtures **hand-authored** to each
+engine's wire format — *not* captured off real documents, which is a real
+weakness of the coverage: the sheets fixture was hand-authored to the wrong
+format until the final review round. Asserting the sheets one *through*
+`MemStore.load` rather than by counting JSON keys is what caught that, and
+capturing fixtures from real documents remains open. A regression in the
+parser does surface in CI rather than in a user's preview; a fixture that
+drifts from the real wire format does not.
 
 **A restore is a whole-root replacement, and comments ride along.** Sheet
 and docs comment threads live in the same Yorkie root, so restoring a

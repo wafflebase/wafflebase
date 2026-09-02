@@ -254,10 +254,13 @@ describe('YorkieAuthController.handleAuth (shadow vs enforce)', () => {
 });
 
 describe('YorkieAuthController.decide (revision methods)', () => {
-  // Yorkie has no auth-webhook method allow-list yet, so these four methods
-  // reach `decide()` exactly like any other document-scoped method and are
-  // authorized by the same fall-through `checkAttribute` path PushPull uses
-  // above — with one deliberate exception, `REVISION_READ_METHODS`, which
+  // Yorkie validates webhook registration against a method enum that does
+  // contain all four `*Revision` names, so a deployment can register them —
+  // and must, along with `YORKIE_AUTH_WEBHOOK_ENFORCE=true`, before version
+  // history is safe to enable. Once registered they reach `decide()` exactly
+  // like any other document-scoped method and are authorized by the same
+  // fall-through `checkAttribute` path PushPull uses above — with one
+  // deliberate exception, `REVISION_READ_METHODS`, which
   // requires editor-or-member authority despite carrying verb `r`. These
   // tests pin both, so a future refactor can't silently reopen the hole they
   // close today: see docs/design/revision-history.md §2.

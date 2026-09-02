@@ -165,12 +165,19 @@ docs needs one (`treeNodeToBlock`), and only once the YSON fix above lands.
       format the engine cannot load fails the test.
 - [x] Integration (`RUN_YORKIE_INTEGRATION_TESTS=true`, already in CI's
       `verify-integration`): create → list → get → restore round-trip; a
-      second attached client converges after a restore; **regression test
+      second attached client converges after a restore. **Regression test
       that a read-only client is refused create, restore and snapshot
       reads** — the snapshot-read half (`listRevisions`/`getRevision`
       refused for the viewer, allowed for the owner as the control) was
       added in the final review round; before that the checkbox claimed
-      coverage that did not exist.
+      coverage that did not exist. **It is `it.skip` and therefore never
+      runs in CI**: it provisions a scratch Yorkie project through the
+      `yorkie` admin CLI, which CI does not install (only the server
+      container). It has been run by hand — see the comment above the test
+      and `.superpowers/sdd/20260902-revision-history-plan/task-8-report.md`
+      for the observed output — but the only *automated* coverage of
+      viewer-denial is the mocked `yorkie-auth.controller.spec.ts`. Ticked
+      for "written and passing by hand", not for "guarded by CI".
 
 ## Review
 
