@@ -46,7 +46,8 @@ The whole feature, and where each piece lands. "Shipped" is measured against
 | **Cross-workspace image re-hosting** — fixes `use`, not only public | 3b | — |
 | **Frozen-copy promotion** into a system workspace | 3b | — |
 | **Public `/templates` browse page** + search | 3c | — |
-| License grant, attribution, report / takedown | 3d | — |
+| Takedown state (`removed`) + reviewer queue | 3a | — |
+| License grant, attribution, report intake | 3d | — |
 | Ranking guards (self-use, rate limits) | 3d | — |
 | Monetization, versioning, parameterized slots | — | Non-Goal |
 
@@ -164,15 +165,22 @@ Roughly the whole engine, which is why this is a small feature:
   (`packages/backend/src/image/image.controller.ts`), which is what lets a
   *thumbnail* render for a visitor holding nothing.
 
-  It does **not** cover the images inside a document, and an earlier revision of
-  this section claimed it did. In-document pickers upload through the
-  workspace-scoped route (`postWorkspaceImage`,
-  `packages/frontend/src/app/spreadsheet/image-upload.ts` — shared by sheets,
-  slides, docs and board), which stores under `{workspaceId}/{id}` and is read
-  back only by a member, a workspace API key, or a share token. So a document
-  copied across a workspace boundary loses its images *today*, at every tier,
-  and the preview hides it: the preview carries a share token and renders fine,
-  while the copy the user actually receives does not. See
+  It does **not** cover every image inside a document, and an earlier revision
+  of this section claimed it covered them all. There are two upload paths and
+  which one a document used decides whether its images survive a copy:
+
+  | Path | Key | Read | Types using it |
+  | --- | --- | --- | --- |
+  | `postSharedImage` → `POST /images` | bucket root | unauthenticated | thumbnails; `doc` (`packages/frontend/src/app/docs/export-utils.ts`); PPTX-imported `slides` images |
+  | `postWorkspaceImage` → `POST /api/v1/workspaces/:wid/images` | `{workspaceId}/{id}` | member / workspace API key / share token | `sheet`, `board`, `note`, and natively inserted `slides` images (`packages/frontend/src/app/spreadsheet/image-upload.ts`) |
+
+  So a document copied across a workspace boundary loses the images in the
+  second row *today*, at every tier — and the preview is what hides it: the
+  preview carries a share token and renders fine, while the copy the user
+  actually receives does not. `doc` is unaffected, `slides` is affected only
+  for images inserted in the editor, and `note` — which an earlier revision of
+  this document excused as "external links anyway" — is affected like any
+  other. See
   [Cross-workspace image re-hosting](#cross-workspace-image-re-hosting).
 - Workspaces, folders, member roles, the documents list with its row and bulk
   menus, notifications, and the share-link view analytics.
@@ -222,7 +230,7 @@ model TemplateListing {
   updatedAt   DateTime  @updatedAt
 
   @@index([visibility, status, useCount])
-  @@index([visibility, status, publishedAt])  // Phase 3: sort=recent keyset
+  @@index([visibility, status, publishedAt])  // shipped in Phase 2
   @@index([workspaceId, visibility])
 }
 
@@ -363,8 +371,7 @@ marketplace.
 
 One invariant carries the phase: **`visibility: 'public'` is written only by the
 approval path.** The publish and update routes go on refusing it with a `400`
-forever — `assertPublishable` stays exactly as it is — and a publisher asks for
-the public tier through a separate verb:
+forever, and a publisher asks for the public tier through a separate verb:
 
 ```
 POST /templates/:id/submit { license: true }    → status: 'pending'  (visibility unchanged)
@@ -393,6 +400,27 @@ at all — so it blocks every non-manager read and revokes the preview share lin
 A single `rejected` state cannot express the second, which is the one a copyright
 report needs.
 
+#### How the new states compose with the shipped service
+
+A state machine is only as good as the readers it passes through, and
+`TemplateService` already has seven. Four of them are wrong under the new states
+in ways that are invisible from the state diagram, so they are enumerated here
+rather than discovered during implementation.
+
+| Reader | Today | Change |
+| --- | --- | --- |
+| `publish()` / `update()` | `assertPublishable` throws on `visibility === 'public'`, full stop (`template.service.ts:613`) | Must refuse the **transition into** public, not its presence. Otherwise an approved listing can never be re-published or even have its title edited, because `visibility` now falls back to the existing `'public'` — which contradicts this document's own "a republish produces a new frozen copy and re-enters review". |
+| `publish()` | writes `status: 'listed'` unconditionally in the upsert `data` (`:214`), and re-mints `shareLinkId` when the stored one is gone (`:203`) | Must **preserve** `status`. As shipped, a manager re-publishing reverses a reviewer's takedown in one call and silently re-mints the preview link the takedown revoked. A `removed` listing refuses republish outright. |
+| `browse()` | `where = { status: 'listed' }` for **both** scopes (`:438`) | Must be scope-dependent: `status: 'listed'` for `scope=public`, `status: { not: 'removed' }` for `scope=workspace`. Otherwise a workspace listing disappears from its own workspace's tab the moment it is submitted, and stays gone after a rejection — which is exactly the "submission changes nothing observable" property this design is built on. The comment on `TemplateListing.status` in `schema.prisma` records the old assumption ("only the `public` tier ever leaves `listed`") and moves with it. |
+| `findForViewer()` / `use()` | authorize through `isVisibleTo`, which returns `true` unconditionally for `unlisted` (`:560`) | `removed` is checked **before** the visibility switch, not inside it — a takedown writes `visibility: 'unlisted'`, so a check placed in the switch would never run. `use()` needs it too: it consults `isVisibleTo`/`isManagerOf` and never looks at `status` (`:392`). |
+| `findByDocument()` | `findUnique({ where: { documentId } })` | Becomes a `findFirst` matching `documentId` **or** `originId`; `originId` is not unique, so the signature genuinely changes. Without it the publisher's own Share dialog loses the listing the moment it is approved. |
+| `assertManager()` / `isManagerOf()` / `toCard().canManage` | resolve membership against `listing.document.workspaceId` | Left alone — because promotion authors the frozen copy to the **publisher** (see [Frozen-copy promotion](#frozen-copy-promotion)), `isDocumentManager` keeps answering yes for them through `doc.authorID` even though the document now lives in the system workspace. Authoring it to the reviewer instead would hand every public card's manage rights to the reviewer and take `unpublish` away from the publisher. |
+| `unpublish()` | deletes the listing, revokes the link, discards the thumbnail | Additionally deletes the frozen copy. |
+
+Backward compatibility is free: every new column is nullable, `removed` is an
+additive status value, and existing rows are `status: 'listed'` at a
+non-public tier, which every rule above leaves alone.
+
 #### Review
 
 `POST /templates/:id/review` is gated by a `TemplateReviewerGuard` reading a
@@ -408,6 +436,22 @@ not reviewing, so 3a also ships one page at `/admin/templates`: pending
 submissions and open reports, each with the embedded preview the landing page
 already renders and approve / reject / takedown buttons. It is a queue, not a
 console — it can see templates and nothing else.
+
+The preview needs saying explicitly, because the landing page's token does not
+reach a reviewer: `findForViewer` gives a `workspace`-tier listing only to a
+member or a manager, and a reviewer is neither. `GET /admin/templates/review`
+therefore returns each submission's `previewToken` itself, under the reviewer
+guard. That is a real capability — a non-expiring read link to a document whose
+workspace the reviewer does not belong to — and it is the point: reviewing
+content means being able to see it. It is bounded to submissions, which their
+publisher volunteered for review.
+
+**Opening the tier is one guard, not a state.** `assertPublicTierOpen()` is
+consulted by both `submit` and `approve`, and throws until 3d lands. Without it
+3a would be a complete path to `visibility: 'public', status: 'listed'` — and
+`GET /templates?scope=public` already ships unauthenticated, so an approval in
+3a would be world-enumerable immediately. Each PR merges with the gallery shut
+because this one function says so, not because the pieces happen not to connect.
 
 Both outcomes notify the publisher through the existing notification system (a
 new `template_reviewed` type; the reviewer's note is the notification's
@@ -430,26 +474,54 @@ document crosses a workspace boundary — that is, in `DocumentCopyService`
 whenever `dest.workspaceId !== source.workspaceId`, which covers both
 `POST /templates/:id/use` and approval-time promotion. It walks the *copy's*
 root, and for each image URL pointing at this deployment's workspace-scoped
-route, `CopyObject`s the object into an unscoped key and rewrites the reference
-to `GET /images/:id` — the same re-hosting shape the Miro importer already
-performs for the `imageUrl`s it downloads. URLs pointing at a third-party host
-are left exactly as they are; we are not mirroring the internet.
+route, `CopyObject`s the object into **`{destWorkspaceId}/{newId}`** and
+rewrites the reference to the destination's own workspace-scoped URL. URLs
+pointing at a third-party host are left exactly as they are; we are not
+mirroring the internet.
+
+The destination scope is the whole point and is easy to get wrong in the
+cheaper direction. Re-hosting into an unscoped bucket-root key would also
+"work" — `GET /images/:id` is unauthenticated, so every copy would render — but
+it would publish every image of a `workspace`-tier template at a permanent,
+world-readable, immutably-cached URL, as a side effect of one member copying a
+template into a private workspace. That is a gate silently removed, not a bug
+fixed. It is also what the Miro importer this section takes as its model
+actually does: it re-uploads with a `workspaceId` and rewrites to
+`/api/v1/workspaces/:wid/images/:id` (`packages/backend/src/miro/miro.service.ts`).
+A public listing's frozen copy is no exception — its images land scoped to the
+system workspace and are served to visitors through the listing's own share
+token, which is the same capability the preview already rests on.
+
+The walker also needs the budget the Miro importer has and this section
+originally omitted: an aggregate ceiling on objects and bytes, with anything
+skipped reported rather than dropped. `POST /templates/:id/use` is a
+member-reachable route, and "one document's worth of content" stops bounding it
+once each image is a server-side `CopyObject`. Failure degrades rather than
+fails the copy — a copy with one un-re-hosted image beats no document — and the
+objects the walker created are added to `copy()`'s rollback, which today
+discards only `fileId`.
 
 `pdf` / `image` / `file` documents need nothing: their bytes are already copied
-by `CopyObject`. **`note` is excluded** — its whole content is a single Yorkie
-`Text`, so rewriting a markdown image link is a CRDT edit rather than a JSON
-mutation, and a note's images are typically external links anyway. Recorded as a
-known limitation rather than silently skipped.
+by `CopyObject`. `doc` needs nothing either — its images live at the bucket root
+already. **`note` is affected but excluded from the first pass**: its whole
+content is a single Yorkie `Text`, so rewriting a markdown image link is a CRDT
+edit rather than a JSON mutation. That is a deferral with a cost — a copied note
+loses its images — not the "external links anyway" excuse an earlier revision of
+this document gave.
 
 Two related repairs land with it:
 
 - **`DELETE /images/:id` is removed.** It is guarded by `JwtAuthGuard` and
-  nothing else (`packages/backend/src/image/image.controller.ts`), so any signed-in
-  user who knows an id can delete any image in the deployment. No client calls
-  it — the thumbnail-replace path goes through `ImageService.delete` in-process —
-  and a public gallery hands every visitor the ids of a listing's pictures.
-  Deletion stays available internally, where a caller has already proven what it
-  owns.
+  nothing else (`packages/backend/src/image/image.controller.ts`), so any
+  signed-in user who knows an id can delete the object behind it. The reach is
+  the bucket root, not the whole bucket — `VALID_IMAGE_ID_PATTERN` admits no
+  `/`, so workspace-scoped `{ws}/{id}` objects are unreachable — but the bucket
+  root is exactly where template thumbnails live, and a public gallery hands
+  every visitor their ids. No client calls it: the thumbnail-replace path goes
+  through `ImageService.delete` in-process, and the CLI's `images delete`
+  targets the workspace-scoped `DELETE /api/v1/workspaces/:wid/images/:id`
+  instead. Deletion stays available internally, where a caller has already
+  proven what it owns.
 - The frozen copy is re-scanned by `assertContentIsShareable` at approval time.
   Publishing checks a document once; a `datasource` tab added afterwards would
   otherwise reach the gallery.
@@ -479,7 +551,16 @@ The order is not incidental, because `documentId` cascades on delete:
 Step 6 after step 5, always: deleting a document the listing still points at
 cascades the listing away with it.
 
-Three consequences to handle rather than discover:
+**The frozen copy is authored by the publisher, not the reviewer.** It is the
+honest attribution, and it is also what keeps the listing manageable: every
+authorization read in the service resolves membership against the *document's*
+workspace, which is now the system one, and `isDocumentManager` answers yes
+anyway through `doc.authorID`. Author it to the reviewer instead and the
+publisher loses `unpublish` and `update` on their own listing while the reviewer
+gains manage rights on every public card. `DocumentCopyService.copy` already
+takes the author as a parameter, so this is a call-site decision, not a change.
+
+Three more consequences to handle rather than discover:
 
 - `findByDocument` must match `documentId` **or** `originId`, or the publisher's
   own Share dialog stops finding the listing the moment it is approved.
@@ -493,11 +574,14 @@ Three consequences to handle rather than discover:
 
 #### Browse and search
 
-A public `/templates` page outside `PrivateRoute`, reading the same collection
-endpoint with `scope=public`: document-type and category facets, `useCount` or
-recency sort, and a query box. Search starts as `ILIKE` over title/description
-plus tag containment, with a `pg_trgm` index if it gets slow — Postgres only, no
-new infrastructure. `sort=recent` is what the second index on the listing is for.
+Less is new here than the phase list suggests, which is the Phase 2 collection
+endpoint doing its job: `q`, `sort=popular|recent`, the `ILIKE` clause, the
+keyset cursor and the `[visibility, status, publishedAt]` index all shipped
+already, and `TemplateGallery` already takes `scope: "workspace" | "public"`.
+What 3c actually adds is the **unauthenticated `/templates` route** outside
+`PrivateRoute`, the type and category facets with an empty state, tag
+containment inside `q`, and the in-app Public tab. A `pg_trgm` index waits until
+search is measured slow — Postgres only, no new infrastructure.
 
 Inside the app the same components gain a **Public** tab in the workspace
 Templates tab and in the New-from-template dialog, so a public template is
@@ -764,5 +848,9 @@ the option is a decision rather than an oversight.
 | Submitting for review changes how an already-shared listing reads — a handed-out unlisted link stops resolving, or a workspace listing silently widens. | `visibility` stays the effective tier through review and is written to `public` only by approval; `status` alone moves. Submission changes nothing a viewer can observe. |
 | A takedown for copyright leaves the content served, because "rejected" only means "not in the gallery". | `removed` is a distinct state: it blocks every non-manager read and revokes the preview share link. `rejected` is the milder verdict and returns the listing to the tier it already had. |
 | The approval transaction re-points `documentId` and deletes the document it replaced, and `documentId` cascades. | The ordering is fixed and written down: re-point first, delete second. Getting it backwards deletes the listing, not just its old copy. |
+| A publisher reverses a reviewer's takedown by re-publishing: `publish()` writes `status: 'listed'` unconditionally and re-mints a revoked preview link. | `publish()`/`update()` preserve `status`, and a `removed` listing refuses republish. Enumerated with the other four readers the new states change in [How the new states compose with the shipped service](#how-the-new-states-compose-with-the-shipped-service), because the state diagram does not show any of them. |
+| Re-hosting takes the cheap path and copies images to an unscoped bucket-root key, silently publishing a private workspace's images at a permanent unauthenticated URL. | Objects land at `{destWorkspaceId}/{newId}` and the reference is rewritten to the destination's workspace-scoped URL — a gate preserved, not removed, and what the Miro importer already does. |
+| The re-hosting walker turns a bounded copy into an unbounded one: a template with hundreds of images becomes hundreds of `CopyObject` calls on a member-reachable route. | An aggregate object/byte ceiling with a skipped-items report, borrowed from the Miro importer along with the shape. Failure degrades the copy rather than failing it, and created objects join `copy()`'s rollback. |
+| Shipping 3a alone opens the gallery by accident — `submit` → `approve` reaches `visibility: 'public'` and `GET /templates?scope=public` is already unauthenticated. | `assertPublicTierOpen()` is consulted by both `submit` and `approve` and throws until 3d. Merge order cannot open the tier; one function decides. |
 | A promoted listing disappears from its publisher's own workspace Templates tab. | Accepted and documented: `scope=workspace` constrains on the document's *current* workspace, which is what stops a listing following a document out of a workspace. The publisher reaches it from the origin document's Share dialog, which matches on `originId` as well as `documentId`. |
 | The public gallery is invisible to search engines. | Accepted. The frontend is a Vite SPA with no server rendering; indexability is a prerendering/SSR project, not something to fake inside this feature. |

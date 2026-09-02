@@ -33,45 +33,82 @@ Brand Templates tiers Phases 1–2 already built.
 ## PR 3a — Review pipeline
 
 - [ ] Prisma: `TemplateListing.status` gains `removed`; add `submittedAt`,
-      `reviewedAt`, `reviewedBy`, `reviewNote`; add
-      `@@index([visibility, status, publishedAt])`. Migration.
+      `reviewedAt`, `reviewedBy`, `reviewNote`. Migration. Update the `status`
+      column comment in `schema.prisma`, which still records "only the `public`
+      tier ever leaves `listed`" — the assumption `browse()` was written on.
+      (The `[visibility, status, publishedAt]` index already shipped in Phase 2;
+      do not re-add it.)
+- [ ] `assertPublicTierOpen()` — one guard consulted by **both** `submit` and
+      `approve`, throwing until 3d. Without it 3a is a complete path to
+      `visibility: 'public'`, and `GET /templates?scope=public` already ships
+      unauthenticated.
 - [ ] `POST /templates/:id/submit { license: true }` — manager-gated, sets
       `status: 'pending'` + `submittedAt` + `licensedAt`. Refuses without the
-      license grant (`400`). Refuses a listing already `pending`.
+      license grant (`400`). Refuses a listing already `pending` or `removed`.
 - [ ] `TemplateReviewerGuard` reading `WAFFLEBASE_TEMPLATE_REVIEWER_IDS`
       (comma-separated user ids). Empty allowlist → every review route `403`.
 - [ ] `POST /templates/:id/review { decision, note? }` —
-      `approve` | `reject` | `takedown`. In 3a `approve` only flips
-      `visibility`/`status` (promotion arrives in 3b, so 3a alone must not be
-      shipped with the tier open — it is not, `assertPublishable` still guards
-      the publish routes and `submit` is the only entry).
+      `approve` | `reject` | `takedown`.
 - [ ] `takedown` sets `status: 'removed'`, `visibility: 'unlisted'`, and revokes
-      the preview share link. `isVisibleTo` returns false for `removed` to every
-      non-manager.
+      the preview share link.
 - [ ] `reject` leaves `visibility` untouched — the listing keeps working at the
       tier it already had.
-- [ ] `GET /admin/templates/review` — pending submissions + open reports, reviewer-gated.
+
+**Fix the shipped readers the new states break** (see the design's *How the new
+states compose with the shipped service*; each is a real contradiction with
+`template.service.ts` as it stands, not a hypothetical):
+
+- [ ] `assertPublishable` refuses the **transition into** `public`, not its
+      presence — otherwise an approved listing can never be re-published or have
+      its title edited (`visibility` falls back to the stored `'public'`).
+- [ ] `publish()`/`update()` **preserve `status`** instead of writing
+      `status: 'listed'`; a `removed` listing refuses republish. As shipped, one
+      re-publish reverses a takedown and re-mints the revoked preview link.
+- [ ] `browse()`'s status filter becomes scope-dependent: `'listed'` for
+      `scope=public`, `{ not: 'removed' }` for `scope=workspace`. Otherwise a
+      submitted workspace listing vanishes from its own tab.
+- [ ] `removed` is checked **before** the visibility switch in `isVisibleTo`
+      (a takedown writes `visibility: 'unlisted'`, which returns `true`
+      unconditionally), and `use()` gains the same check — it never reads
+      `status` today.
+
+- [ ] `GET /admin/templates/review` — pending submissions + open reports,
+      reviewer-gated, **returning each submission's `previewToken`**
+      (`findForViewer` gives a reviewer nothing for a `workspace`-tier listing).
 - [ ] Frontend `/admin/templates` queue page: embedded preview (reuse
       `SharedDocumentByToken`), approve / reject / takedown with a note field.
 - [ ] Notification type `template_reviewed`; note becomes the `preview`.
       Extend the notification type union, dedupe key, and dropdown rendering.
 - [ ] Tests: state machine transitions (each decision from each start state),
-      allowlist empty → closed, submit without license → 400, a pending listing
-      reads exactly as it did before submission.
+      allowlist empty → closed, submit without license → 400, a pending
+      workspace listing still appears in `scope=workspace` browse, republish
+      cannot clear `removed`, `use()` refuses a `removed` listing.
 
 ## PR 3b — Cross-workspace images + frozen-copy promotion
 
 - [ ] Image re-hosting walker in `DocumentCopyService`, run whenever
       `dest.workspaceId !== source.workspaceId`. Rewrites only URLs pointing at
-      this deployment's workspace-scoped image route; `CopyObject` into an
-      unscoped key; leaves third-party URLs alone.
-- [ ] Per-type walkers: `sheet` (worksheet images), `slides` / `board` (element
-      `data.url`, background image fills), `doc` (image nodes in the Tree).
+      this deployment's workspace-scoped image route; `CopyObject` into
+      **`{destWorkspaceId}/{newId}`** and rewrite to the destination's
+      workspace-scoped URL — *not* an unscoped bucket-root key, which would
+      publish a private workspace's images at a permanent unauthenticated URL.
+      Third-party URLs untouched.
+- [ ] Aggregate object/byte ceiling with a skipped-items report (mirror
+      `MAX_REHOSTED_IMAGES` / `MAX_TOTAL_IMAGE_BYTES` in `miro.service.ts`).
+      Failure degrades the copy rather than failing it.
+- [ ] Extend `copy()`'s rollback to discard re-hosted objects — it discards only
+      `fileId` today, so a later `copyContent` failure orphans them.
+- [ ] Per-type walkers: `sheet` (worksheet images), `board` and natively
+      inserted `slides` images (element `data.url`, background image fills).
+      **`doc` needs nothing** — its images already live at the bucket root
+      (`docsImageUploader` → `POST /images`), as do PPTX-imported slides images.
       `pdf`/`image`/`file` need nothing (blob already copied). **`note` is
-      excluded** — single Yorkie `Text`, rewriting is a CRDT edit; record the
-      limitation in the design doc's known limits.
+      affected but deferred** — single Yorkie `Text`, rewriting is a CRDT edit;
+      a copied note loses its images until then.
 - [ ] Verify the fix end to end: use a template containing an image into a
       *different* workspace and confirm the copy renders it (today it 403s).
+      Do it with a `sheet` or `note`, not a `doc` — a `doc` works already and
+      would prove nothing.
 - [ ] Remove `DELETE /images/:id` from `image.controller.ts`; keep
       `ImageService.delete` for in-process callers. Confirm no client calls it.
 - [ ] Promotion on `approve`, in this order — re-scan `assertContentIsShareable`
@@ -80,18 +117,26 @@ Brand Templates tiers Phases 1–2 already built.
       transaction re-pointing `documentId`/`originId`/`visibility`/`status`/
       `shareLinkId` → **then** revoke the old link and delete the superseded
       frozen copy.
+- [ ] The frozen copy is authored by the **publisher**, not the reviewer — it is
+      what keeps `assertManager`/`isManagerOf`/`canManage` answering yes for the
+      publisher after the document moves to the system workspace, so `unpublish`
+      and `update` keep working without an "authority document" concept.
 - [ ] Regression test for that ordering: deleting before re-pointing cascades the
       listing away. Assert the listing survives a republish.
-- [ ] `findByDocument` matches `documentId` **or** `originId`.
+- [ ] `findByDocument` matches `documentId` **or** `originId` — a `findFirst`
+      with an `OR`, not `findUnique`, since `originId` is not unique.
 - [ ] `unpublish` deletes the frozen copy too.
 - [ ] Seed/config check for `WAFFLEBASE_TEMPLATE_WORKSPACE_ID`; a missing or
       unresolvable value makes `approve` fail loudly, not silently list.
 
 ## PR 3c — Public browse
 
-- [ ] `GET /templates?scope=public` gains `q`: `ILIKE` over title/description +
-      tag containment. `pg_trgm` index only if measured slow.
-- [ ] `sort=recent` keyset over the new `publishedAt` index.
+Smaller than it looks: `q`, `sort=popular|recent`, the `ILIKE` clause, the keyset
+cursor, the recency index and `TemplateGallery`'s `scope` prop all shipped in
+Phase 2. What is new:
+
+- [ ] Tag containment inside `q` (title/description `ILIKE` already exists).
+      `pg_trgm` index only if measured slow.
 - [ ] `/templates` route outside `PrivateRoute`; type + category facets, sort
       control, query box, empty state. Reuse the existing card components.
 - [ ] Homepage link into the gallery.
