@@ -28,7 +28,6 @@ import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
 import { DocsExportButton } from "./docs-export-button";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
-import { isHistoryEnabled } from "@/components/history/history-enabled";
 
 
 /**
@@ -167,12 +166,6 @@ function DocsLayout({ documentId }: { documentId: string }) {
     [documentId, queryClient],
   );
 
-  // This route is only ever reached by an authenticated workspace member
-  // (mounted behind PrivateRoute) — a share-link viewer or editor opens the
-  // document through /shared/:token instead, which never mounts this
-  // component. The role is therefore always "member" here.
-  const historyEnabled = isHistoryEnabled(import.meta.env, "member");
-
   return (
     <SidebarProvider>
       <AppSidebar
@@ -208,26 +201,24 @@ function DocsLayout({ documentId }: { documentId: string }) {
                 {commentsPanelOpen ? "Hide comments" : "Show comments"}
               </TooltipContent>
             </Tooltip>
-            {historyEnabled && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Toggle
-                    size="sm"
-                    className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-                    aria-label={
-                      historyOpen ? "Hide version history" : "Show version history"
-                    }
-                    pressed={historyOpen}
-                    onPressedChange={setHistoryOpen}
-                  >
-                    <IconHistory size={16} />
-                  </Toggle>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {historyOpen ? "Hide version history" : "Show version history"}
-                </TooltipContent>
-              </Tooltip>
-            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Toggle
+                  size="sm"
+                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+                  aria-label={
+                    historyOpen ? "Hide version history" : "Show version history"
+                  }
+                  pressed={historyOpen}
+                  onPressedChange={setHistoryOpen}
+                >
+                  <IconHistory size={16} />
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent>
+                {historyOpen ? "Hide version history" : "Show version history"}
+              </TooltipContent>
+            </Tooltip>
             <DocsExportButton
               editor={editor}
               title={documentData?.title ?? "document"}
@@ -251,7 +242,7 @@ function DocsLayout({ documentId }: { documentId: string }) {
               commentsPanelOpen={commentsPanelOpen}
               onCommentsPanelOpenChange={setCommentsPanelOpen}
             />
-            {historyEnabled && historyOpen && currentUser && (
+            {historyOpen && currentUser && (
               <HistoryPanel
                 userId={currentUser.id}
                 onClose={() => setHistoryOpen(false)}

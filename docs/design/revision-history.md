@@ -102,6 +102,18 @@ Restated from Risks because it drives the sequencing: **Yorkie's revision
 RPCs are ungated until a deployment registers them, and three of the four
 can be closed by wafflebase alone, today.**
 
+**This is now the only gate.** An earlier revision of this feature shipped
+behind a client-side flag (`VITE_WB_REVISION_HISTORY`), on the mistaken
+premise below that the RPCs could not be gated without an upstream fix. That
+premise was wrong, so the flag was removed — it never protected share-link
+viewers either (they land on `shared-document.tsx`, which never mounts the
+panel at all) and only decided whether workspace members saw the toolbar
+entry point. With the flag gone, **merging this feature exposes it to every
+workspace member of every document the moment the frontend deploys** — there
+is no other switch. The registration + enforcement steps below are therefore
+a release precondition to be applied *before or with* that merge, not a
+follow-up.
+
 An earlier draft of this document asserted the opposite — that the
 auth-webhook method enum contained no `*Revision` entry, so the webhook
 could never be consulted for them, and the whole feature was therefore
@@ -158,10 +170,13 @@ So the deployment posture is:
   `PushPull`/`Watch` is untouched, so a viewer can still read the document
   itself. The rest of the work is registering the methods on the project and
   pinning each method's verb and role outcome in unit tests.
-- The panel entry point is hidden for share-link **viewers**, matching
-  Google Docs, where viewers and commenters do not see version history at
-  all. This is UI courtesy layered on the server-side gate, not a
-  substitute for it.
+- The panel entry point never reaches share-link **viewers** structurally —
+  they land on `shared-document.tsx`, which has no history wiring at all —
+  matching Google Docs, where viewers and commenters do not see version
+  history either. That structural fact is not a gate for workspace
+  **members**, who do reach the entry point in every one of the five editor
+  routes with no client-side condition on it; the server-side registration
+  above is what stands between them and the RPCs.
 
 ### 3. Frontend surface
 
@@ -176,7 +191,6 @@ components/history/
   history-panel.tsx        # right-slot panel: list, "Name current version", per-entry actions
   snapshot-adapters.ts     # YSON snapshot → engine document model, per type
   revision-preview.tsx     # per-type read-only render of a snapshot
-  history-enabled.ts       # flag + viewer gating
 ```
 
 The hook is named `use-revision-history` rather than `use-revisions` so it
@@ -277,9 +291,8 @@ forms, because chrome sits in two different places:
   children`. Slides and notes put their toolbar full-width above the row
   that also holds the right-slot panels, so pulling it into the covered box
   would narrow it by the panel's 288px whenever one is open: a layout
-  regression for every user, on a feature whose flag is off, and a
-  divergence from Google Slides, where side panels start below a full-width
-  toolbar.
+  regression for every user, and a divergence from Google Slides, where side
+  panels start below a full-width toolbar.
 
 Both are driven by one `previewing` expression per editor, so they cannot
 disagree — a preview painted over a toolbar that was never removed is the
@@ -373,11 +386,12 @@ RPCs hits this.
 
 | PR | Repo | Content |
 | --- | --- | --- |
-| 1 | wafflebase | History panel: list / name / restore + safety revision, all five types, flagged off; register the three gateable webhook methods; backend README + this doc |
+| 1 | wafflebase | History panel: list / name / restore + safety revision, all five types, shipped behind a now-removed client flag; register the three gateable webhook methods; backend README + this doc |
 | 2 | wafflebase | Preview for sheets, slides, board and notes |
 | 3 | yorkie | `YSON.parse` tokenizer (upstream ask 4) |
 | 4 | wafflebase | Docs preview: extract `treeNodeToBlock` into `@wafflebase/docs`, mount it |
 | 5 | wafflebase | Retention handling and polish |
+| — | wafflebase | Remove `VITE_WB_REVISION_HISTORY`: the flag's premise (RPCs ungateable without upstream) was false, and it never protected share-link viewers either (structural, §2). The deployment gate (registration + enforcement) is now the only gate — see §2 |
 
 There is no longer a blocking PR 0. Registering `ListRevisions` /
 `GetRevision` / `RestoreRevision` and enforcing the webhook closes the
@@ -428,7 +442,9 @@ succeeds, rolling the document back for the owner's client too. Register
 the three gateable methods and the same test shows the restore refused and
 the owner's document intact. *Mitigation*: registration plus
 `YORKIE_AUTH_WEBHOOK_ENFORCE=true` is a release precondition, and
-`packages/backend/README.md` carries the exact command. `CreateRevision`
+`packages/backend/README.md` carries the exact command. With no client-side
+flag left to trail behind (§2), this precondition must be satisfied *before
+or with* the deploy that ships the frontend, not after it. `CreateRevision`
 stays unregistered and therefore ungated until upstream ask 1 — see §2 for
 why registering it would deny everyone.
 

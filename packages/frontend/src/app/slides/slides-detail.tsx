@@ -38,7 +38,6 @@ import { FormatPanel } from "./format-panel";
 import { MotionPanel } from "./motion-panel";
 import { BackgroundSidePanel } from "./background-side-panel";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
-import { isHistoryEnabled } from "@/components/history/history-enabled";
 import {
   EditingChrome,
   PreviewSurface,
@@ -355,20 +354,12 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
     [documentId, queryClient],
   );
 
-  // This route is only ever reached by an authenticated workspace member
-  // (mounted behind PrivateRoute) — a share-link viewer or editor opens the
-  // presentation through /shared/:token instead, which never mounts this
-  // component. The role is therefore always "member" here.
-  const historyEnabled = isHistoryEnabled(import.meta.env, "member");
-
   // The single source of truth for "a preview is covering the canvas", read
   // by both halves of the containment: `EditingChrome` (which removes the
   // toolbar) and `PreviewSurface` (which covers the canvas). One expression
   // so the two can never disagree — chrome removed with no preview painted,
   // or a preview painted over a live toolbar.
-  const previewing = Boolean(
-    historyEnabled && previewRevisionId && currentUser,
-  );
+  const previewing = Boolean(previewRevisionId && currentUser);
 
   // Upload pipeline: wraps the workspace image API to match the shape
   // expected by SlidesToolbar (and insert-image / replace-image helpers).
@@ -429,32 +420,30 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
               title={documentData?.title ?? "presentation"}
               disabled={!store || slideCount === 0}
             />
-            {historyEnabled && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Toggle
-                    size="sm"
-                    className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-                    aria-label={
-                      rightPanel === "history"
-                        ? "Hide version history"
-                        : "Show version history"
-                    }
-                    pressed={rightPanel === "history"}
-                    onPressedChange={() =>
-                      setRightPanel((p) => (p === "history" ? null : "history"))
-                    }
-                  >
-                    <IconHistory size={16} />
-                  </Toggle>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {rightPanel === "history"
-                    ? "Hide version history"
-                    : "Show version history"}
-                </TooltipContent>
-              </Tooltip>
-            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Toggle
+                  size="sm"
+                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+                  aria-label={
+                    rightPanel === "history"
+                      ? "Hide version history"
+                      : "Show version history"
+                  }
+                  pressed={rightPanel === "history"}
+                  onPressedChange={() =>
+                    setRightPanel((p) => (p === "history" ? null : "history"))
+                  }
+                >
+                  <IconHistory size={16} />
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent>
+                {rightPanel === "history"
+                  ? "Hide version history"
+                  : "Show version history"}
+              </TooltipContent>
+            </Tooltip>
             <ShareDialog documentId={documentId} />
             <UserPresence />
           </div>
@@ -564,12 +553,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
                 onClose={() => setRightPanel(null)}
               />
             )}
-            {/* `historyEnabled &&` is not redundant with `rightPanel ===
-                "history"`: the toggle that sets it is itself flag-gated, so
-                the state is unreachable today — but this is the one panel
-                whose flag is not load-bearing by construction, and the other
-                four editors all gate here. Keep them consistent. */}
-            {historyEnabled && rightPanel === "history" && currentUser && (
+            {rightPanel === "history" && currentUser && (
               <HistoryPanel
                 userId={currentUser.id}
                 onClose={() => setRightPanel(null)}

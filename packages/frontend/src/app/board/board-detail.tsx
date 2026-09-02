@@ -27,7 +27,6 @@ import {
 } from "@/types/board-document";
 import { BoardView } from "./board-view";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
-import { isHistoryEnabled } from "@/components/history/history-enabled";
 import { PreviewSurface } from "@/components/history/preview-surface";
 
 // Lazy: `revision-preview.tsx` statically imports all three of
@@ -146,12 +145,6 @@ function BoardLayout({ documentId }: { documentId: string }) {
     [documentId, queryClient],
   );
 
-  // This route is only ever reached by an authenticated workspace member
-  // (mounted behind PrivateRoute) — a share-link viewer or editor opens the
-  // board through /shared/:token instead, which never mounts this
-  // component. The role is therefore always "member" here.
-  const historyEnabled = isHistoryEnabled(import.meta.env, "member");
-
   return (
     <SidebarProvider>
       <AppSidebar
@@ -169,26 +162,24 @@ function BoardLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
-            {historyEnabled && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Toggle
-                    size="sm"
-                    className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-                    aria-label={
-                      historyOpen ? "Hide version history" : "Show version history"
-                    }
-                    pressed={historyOpen}
-                    onPressedChange={setHistoryOpen}
-                  >
-                    <IconHistory size={16} />
-                  </Toggle>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {historyOpen ? "Hide version history" : "Show version history"}
-                </TooltipContent>
-              </Tooltip>
-            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Toggle
+                  size="sm"
+                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+                  aria-label={
+                    historyOpen ? "Hide version history" : "Show version history"
+                  }
+                  pressed={historyOpen}
+                  onPressedChange={setHistoryOpen}
+                >
+                  <IconHistory size={16} />
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent>
+                {historyOpen ? "Hide version history" : "Show version history"}
+              </TooltipContent>
+            </Tooltip>
             <ShareDialog documentId={documentId} />
             <UserPresence />
           </div>
@@ -200,7 +191,7 @@ function BoardLayout({ documentId }: { documentId: string }) {
               sibling this surface must not narrow. */}
           <PreviewSurface
             preview={
-              historyEnabled && previewRevisionId && currentUser ? (
+              previewRevisionId && currentUser ? (
                 <Suspense fallback={null}>
                   <RevisionPreviewOverlay
                     revisionId={previewRevisionId}
@@ -219,7 +210,7 @@ function BoardLayout({ documentId }: { documentId: string }) {
               workspaceId={documentData?.workspaceId}
             />
           </PreviewSurface>
-          {historyEnabled && historyOpen && currentUser && (
+          {historyOpen && currentUser && (
             <HistoryPanel
               userId={currentUser.id}
               onClose={() => setHistoryOpen(false)}

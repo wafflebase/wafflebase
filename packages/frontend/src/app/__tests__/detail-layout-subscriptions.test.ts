@@ -18,7 +18,7 @@ const appDir = path.resolve(here, '..');
  * the toolbar tree on every keystroke and every peer cursor move — a cost
  * `board-view.tsx`'s `shouldPublish` gate ("a solo user waving the mouse
  * must not cost 60 React commits a second") was sized against the old set of
- * subscribers, and one that ships with `VITE_WB_REVISION_HISTORY` **off**.
+ * subscribers, before version history added a new one.
  *
  * The selector form reads only the `doc` handle, whose identity never
  * changes, so the layout re-renders on nothing. `useRevisions` in the SDK

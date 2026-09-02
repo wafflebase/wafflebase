@@ -28,26 +28,17 @@ Create a `.env` file (or set these in your shell):
 VITE_FRONTEND_BASENAME=/          # Router base path
 VITE_BACKEND_API_URL=http://localhost:3000  # Backend API URL
 VITE_YORKIE_PUBLIC_KEY=           # Yorkie project public key
-VITE_WB_REVISION_HISTORY=         # Optional. Version history entry point
-                                   # (sheets/docs/slides/notes/board). Off by
-                                   # default; must be exactly "true" to
-                                   # enable — any other value, including "1",
-                                   # is off. Enabling it is a deployment
-                                   # decision, not a wait on upstream: the
-                                   # server must first register
-                                   # ListRevisions / GetRevision /
-                                   # RestoreRevision on the Yorkie auth
-                                   # webhook AND run with
-                                   # YORKIE_AUTH_WEBHOOK_ENFORCE=true (see
-                                   # packages/backend/README.md), or any
-                                   # attached client can read and restore
-                                   # every past snapshot. `CreateRevision`
-                                   # stays ungated — registering it would
-                                   # deny everyone — so "Name current
-                                   # version" is open to any attached
-                                   # client either way. See
-                                   # `isHistoryEnabled`.
 ```
+
+Version history (sheets/docs/slides/notes/board) has no client-side feature
+flag — the entry point is always in the toolbar for every workspace member.
+The only gate is server-side: the backend must register `ListRevisions` /
+`GetRevision` / `RestoreRevision` on the Yorkie auth webhook and run with
+`YORKIE_AUTH_WEBHOOK_ENFORCE=true` (see `packages/backend/README.md`) *before
+or with* any deploy of this frontend, or any attached client can read and
+restore every past snapshot. `CreateRevision` stays ungated regardless —
+registering it would deny everyone — so "Name current version" is open to any
+attached client either way.
 
 ### Development
 

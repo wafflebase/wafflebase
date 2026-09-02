@@ -107,8 +107,14 @@ docs needs one (`treeNodeToBlock`), and only once the YSON fix above lands.
       Prerequisite section above.
 - [x] Ship behind a flag; **do not enable on a deployment running
       `YORKIE_AUTH_WEBHOOK_ENFORCE=false`** — shadow mode logs the denial
-      and allows the request anyway, which reopens the hole the upstream
-      fix closes. Flag is `VITE_WB_REVISION_HISTORY`, default off.
+      and allows the request anyway, which reopens the hole the
+      *deployment gate* closes (registration + enforcement), not an
+      upstream one. Flag was `VITE_WB_REVISION_HISTORY`, default off —
+      **since removed** (see Review): it shipped on the mistaken premise
+      that the RPCs could not be gated without an upstream fix, and it
+      never protected share-link viewers either (they never mount the
+      panel, structurally). The deployment gate above is now the only
+      gate.
 
 ### PR 2 — preview (sheets, slides, board, notes)
 
@@ -183,14 +189,28 @@ docs needs one (`treeNodeToBlock`), and only once the YSON fix above lands.
 
 **What shipped.** A version-history panel — list, "Name current version",
 restore behind a mandatory safety revision — on all five CRDT editors
-(sheets, docs, slides, notes, board), entirely behind
-`VITE_WB_REVISION_HISTORY` (default off). Preview ("Viewing a version
-from … / Restore / Back" over the document's own viewer) shipped for four
-of those five: sheets, slides, board, notes. The three gateable webhook
-methods (`ListRevisions` / `GetRevision` / `RestoreRevision`) are proven
-closable without any upstream change, and `packages/backend/README.md`
-carries the exact registration command plus the explicit warning not to
-register `CreateRevision`.
+(sheets, docs, slides, notes, board). It originally shipped behind
+`VITE_WB_REVISION_HISTORY` (default off); that flag has since been removed
+(see the flag-removal follow-up below) once it was established the RPCs are
+gateable without an upstream fix and the flag never protected share-link
+viewers to begin with. The entry point is now unconditional for workspace
+members, and the server-side deployment gate (§2 of the design doc) is the
+only gate left. Preview ("Viewing a version from … / Restore / Back" over
+the document's own viewer) shipped for four of those five: sheets, slides,
+board, notes. The three gateable webhook methods (`ListRevisions` /
+`GetRevision` / `RestoreRevision`) are proven closable without any upstream
+change, and `packages/backend/README.md` carries the exact registration
+command plus the explicit warning not to register `CreateRevision`.
+
+**Flag removal follow-up (`docs/tasks/active/20260902-revision-history-plan/`
+flag-removal-report.md).** `VITE_WB_REVISION_HISTORY` and
+`history-enabled.ts` were deleted; the five detail routes now always render
+the history entry point and mounts, gated only by `currentUser` (the panel
+still needs a resolved numeric `userId`). With no client flag left,
+**merging this change exposes the feature to every workspace member the
+moment the frontend deploys** — the deployment gate (registration +
+`YORKIE_AUTH_WEBHOOK_ENFORCE=true`) must be applied before or with that
+merge, not after.
 
 **What did not ship, and why.**
 
@@ -230,8 +250,8 @@ including an owner-side control probe) but **has not been executed against
 any real deployment** as part of this plan; it remains an open operational
 step, not a shipped fact.
 
-**Honest limitations a user would notice, even with the flag on and the
-gate closed:**
+**Honest limitations a user would notice, even with the deployment gate
+closed:**
 
 - A sheet preview cannot show charts or floating images — `Store`/
   `MemStore` have no surface for `Worksheet.charts` or `.images`, so a
@@ -294,7 +314,8 @@ about whether the panel opens, previews render, and restore behaves
 correctly in a real browser is inference from unit/integration tests plus
 one implementer's self-report (Task 11), not observation. This is the
 single most important thing in this section: before this feature is
-considered done, someone needs to run `pnpm dev`, turn the flag on, and
-click through open → preview → restore on at least the two canvas-based
-editors (slides, board) that have zero automated coverage of their mount
-path.
+considered done, someone needs to run `pnpm dev` and click through open →
+preview → restore on at least the two canvas-based editors (slides, board)
+that have zero automated coverage of their mount path. There is no flag to
+turn on anymore — the entry point is live for any workspace member as soon
+as the app is running, which makes this manual smoke more urgent, not less.

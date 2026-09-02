@@ -44,7 +44,6 @@ import { NotesView } from "./notes-view";
 import { NotesToolbar } from "./notes-toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
-import { isHistoryEnabled } from "@/components/history/history-enabled";
 import {
   EditingChrome,
   PreviewSurface,
@@ -240,19 +239,11 @@ function NotesLayout({ documentId }: { documentId: string }) {
     [documentId, queryClient],
   );
 
-  // This route is only ever reached by an authenticated workspace member
-  // (mounted behind PrivateRoute) — a share-link viewer or editor opens the
-  // note through /shared/:token instead, which never mounts this component.
-  // The role is therefore always "member" here.
-  const historyEnabled = isHistoryEnabled(import.meta.env, "member");
-
   // The single source of truth for "a preview is covering the editor pane",
   // read by both halves of the containment: `EditingChrome` (which removes
   // the toolbar) and `PreviewSurface` (which covers the pane). One
   // expression so the two can never disagree.
-  const previewing = Boolean(
-    historyEnabled && previewRevisionId && currentUser,
-  );
+  const previewing = Boolean(previewRevisionId && currentUser);
 
   return (
     <SidebarProvider>
@@ -271,26 +262,24 @@ function NotesLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
-            {historyEnabled && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Toggle
-                    size="sm"
-                    className="h-8 w-8 min-w-8 cursor-pointer border p-0"
-                    aria-label={
-                      historyOpen ? "Hide version history" : "Show version history"
-                    }
-                    pressed={historyOpen}
-                    onPressedChange={setHistoryOpen}
-                  >
-                    <IconHistory size={16} />
-                  </Toggle>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {historyOpen ? "Hide version history" : "Show version history"}
-                </TooltipContent>
-              </Tooltip>
-            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Toggle
+                  size="sm"
+                  className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+                  aria-label={
+                    historyOpen ? "Hide version history" : "Show version history"
+                  }
+                  pressed={historyOpen}
+                  onPressedChange={setHistoryOpen}
+                >
+                  <IconHistory size={16} />
+                </Toggle>
+              </TooltipTrigger>
+              <TooltipContent>
+                {historyOpen ? "Hide version history" : "Show version history"}
+              </TooltipContent>
+            </Tooltip>
             <ShareDialog documentId={documentId} />
             <UserPresence />
           </div>
@@ -337,7 +326,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
                 documentId={documentId}
               />
             </PreviewSurface>
-            {historyEnabled && historyOpen && currentUser && (
+            {historyOpen && currentUser && (
               <HistoryPanel
                 userId={currentUser.id}
                 onClose={() => setHistoryOpen(false)}

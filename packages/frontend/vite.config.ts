@@ -160,13 +160,13 @@ function manualChunks(id: string): string | undefined {
   // Split BEFORE the `vendor-ui` catch-all below. `alert-dialog` and
   // `scroll-area` have exactly one consumer in the app — the version-history
   // panel (`ui/alert-dialog.tsx` / `ui/scroll-area.tsx` are imported nowhere
-  // else) — which is lazy and gated behind `VITE_WB_REVISION_HISTORY`,
-  // default off. Left in `vendor-ui` they ship on every route regardless,
-  // because `vendor-ui` also holds the Radix primitives the shell uses
-  // eagerly (sidebar, dialog, tooltip, toggle), so making the panel lazy
-  // moved only the panel's own ~7 kB and none of these bytes. Measured: with
-  // the panel lazy but this split absent, `vendor-ui` was byte-identical to
-  // the statically-imported build.
+  // else) — which is code-split via `LazyHistoryPanel` (see
+  // `history-panel-lazy.tsx`). Left in `vendor-ui` they ship on every route
+  // regardless, because `vendor-ui` also holds the Radix primitives the
+  // shell uses eagerly (sidebar, dialog, tooltip, toggle), so making the
+  // panel lazy moved only the panel's own ~7 kB and none of these bytes.
+  // Measured: with the panel lazy but this split absent, `vendor-ui` was
+  // byte-identical to the statically-imported build.
   if (
     normalizedId.includes("node_modules/@radix-ui/react-alert-dialog") ||
     normalizedId.includes("node_modules/@radix-ui/react-scroll-area")

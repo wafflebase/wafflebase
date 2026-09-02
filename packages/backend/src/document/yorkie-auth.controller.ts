@@ -60,8 +60,8 @@ const CLIENT_METHODS = new Set(['ActivateClient', 'DeactivateClient']);
  * document's version history is not part of what a share-link *viewer* is
  * given: `getRevision` returns a full snapshot of every past state, including
  * content that was deleted before the link was ever shared. Google Docs hides
- * version history from viewers and commenters for the same reason, and
- * `history-enabled.ts` already hides the panel from them on the client.
+ * version history from viewers and commenters for the same reason, and the
+ * viewer route (`shared-document.tsx`) never mounts the history panel at all.
  *
  * So these two require the same authority a write does — workspace membership
  * or a share link with the `editor` role — even though their verb says read.

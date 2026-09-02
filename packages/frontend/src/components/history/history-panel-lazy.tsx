@@ -11,11 +11,10 @@ const HistoryPanelImpl = lazy(() =>
  *
  * The panel is the *only* consumer of `@radix-ui/react-alert-dialog` and
  * `@radix-ui/react-scroll-area` in the app. Imported statically by the five
- * editor routes — which is how it started — both libraries ship in every
- * editor chunk even though `VITE_WB_REVISION_HISTORY` is off by default and
- * the panel is therefore never rendered. `RevisionPreviewOverlay` was
- * already lazy for the same reason (it pulls in three engine packages); this
- * makes the panel match.
+ * editor routes — which is how it started — both libraries would ship in
+ * every editor chunk even on the majority of visits where the panel is
+ * never opened. `RevisionPreviewOverlay` was already lazy for the same
+ * reason (it pulls in three engine packages); this makes the panel match.
  *
  * The five call sites import this rather than each declaring their own
  * `lazy()`, so all five share one chunk instead of five.

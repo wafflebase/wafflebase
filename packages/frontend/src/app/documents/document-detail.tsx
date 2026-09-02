@@ -62,7 +62,6 @@ import { CommentSidePanel } from "@/components/comments/components/CommentSidePa
 import type { SheetCellAnchor } from "@/types/comments";
 import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
 import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
-import { isHistoryEnabled } from "@/components/history/history-enabled";
 import { PreviewSurface } from "@/components/history/preview-surface";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
@@ -638,12 +637,6 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     : [];
   const activeTab = root && activeTabId ? root.tabs[activeTabId] : undefined;
 
-  // This route is only ever reached by an authenticated workspace member
-  // (mounted behind PrivateRoute) — a share-link viewer or editor opens the
-  // document through /shared/:token instead, which never mounts this
-  // component. The role is therefore always "member" here.
-  const historyEnabled = isHistoryEnabled(import.meta.env, "member");
-
   return (
     <SidebarProvider>
       <AppSidebar
@@ -672,19 +665,17 @@ function DocumentLayout({ documentId }: { documentId: string }) {
             >
               <IconMessage size={16} />
             </button>
-            {historyEnabled && (
-              <button
-                type="button"
-                className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${
-                  historyOpen ? "bg-muted" : ""
-                }`}
-                aria-label={historyOpen ? "Hide version history" : "Show version history"}
-                aria-pressed={historyOpen}
-                onClick={() => setHistoryOpen((v) => !v)}
-              >
-                <IconHistory size={16} />
-              </button>
-            )}
+            <button
+              type="button"
+              className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${
+                historyOpen ? "bg-muted" : ""
+              }`}
+              aria-label={historyOpen ? "Hide version history" : "Show version history"}
+              aria-pressed={historyOpen}
+              onClick={() => setHistoryOpen((v) => !v)}
+            >
+              <IconHistory size={16} />
+            </button>
             <ShareDialog documentId={documentId} />
             <UserPresence onSelectPeer={handleSelectPeer} getJumpHint={getJumpHint} />
           </div>
@@ -703,7 +694,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           <PreviewSurface
             className="flex-col"
             preview={
-              historyEnabled && previewRevisionId && currentUser ? (
+              previewRevisionId && currentUser ? (
                 <Suspense fallback={null}>
                   <RevisionPreviewOverlay
                     revisionId={previewRevisionId}
@@ -777,7 +768,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
               }}
             />
           )}
-          {historyEnabled && historyOpen && currentUser && (
+          {historyOpen && currentUser && (
             <HistoryPanel
               userId={currentUser.id}
               onClose={() => setHistoryOpen(false)}
