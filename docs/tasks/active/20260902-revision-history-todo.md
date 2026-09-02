@@ -15,18 +15,29 @@ server writes an automatic revision per snapshot with
 boundary, a way to render a past snapshot of five different models, and an
 answer for snapshot storage growth.
 
-## Prerequisite (blocking, upstream)
+## Prerequisite (deployment, NOT upstream)
 
-Yorkie's revision RPCs are gated by nothing. Reproduced locally: a client
-attached `readOnly: true` listed revisions, read a full past snapshot, and
-restored the document. The auth-webhook method enum carries no `*Revision`
-entry, so `yorkie-auth.controller.ts` is never consulted.
+An unregistered revision RPC is gated by nothing. Reproduced by
+`packages/backend/test/revision-history.e2e-spec.ts`: with the auth webhook
+enforcing but the revision methods unregistered, a share-link `viewer`'s
+ordinary write is denied at `PushPull` with `permission_denied`, and that
+same viewer's `restoreRevision` still succeeds, rolling the document back
+for the owner's client too. Register the three gateable methods and the
+same test shows the restore refused.
 
-- [ ] `yorkie-team/yorkie`: add `ListRevisions` / `GetRevision` /
-      `CreateRevision` / `RestoreRevision` to the auth-webhook method set
-      with verbs `r` / `r` / `rw` / `rw`.
-- [ ] `yorkie-team/yorkie`: refuse create + restore on a `readOnly: true`
-      attachment, independent of webhook configuration.
+This was originally filed as blocking-upstream on the belief that the
+method enum had no `*Revision` entry. That was wrong — the server validates
+registration against the enum and accepts all four names.
+
+- [ ] Deployment: register `ListRevisions` / `GetRevision` /
+      `RestoreRevision` (verbs `r` / `r` / `rw`) and set
+      `YORKIE_AUTH_WEBHOOK_ENFORCE=true`. Both are release preconditions;
+      shadow mode allows every request regardless.
+- [ ] Do NOT register `CreateRevision` until the upstream fix below: the
+      server sends it `attributes: null`, so `decide()` fails closed and
+      denies it to everyone, the owner included.
+- [ ] `yorkie-team/yorkie`: populate `{key, verb}` attributes on the
+      `CreateRevision` auth-webhook call, as the other three already do.
 - [ ] `yorkie-team/yorkie` (separate, unrelated): fix the
       `ListRevisionsByAdmin` panic under `API-Key` auth —
       `interface conversion: interface {} is nil, not *types.User` at

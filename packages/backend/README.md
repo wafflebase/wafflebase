@@ -183,9 +183,19 @@ yorkie project update <project> \
   --auth-webhook-method-add RemoveDocument \
   --auth-webhook-method-add ListRevisions \
   --auth-webhook-method-add GetRevision \
-  --auth-webhook-method-add CreateRevision \
   --auth-webhook-method-add RestoreRevision
 ```
+
+**Do not add `CreateRevision`.** Yorkie calls the webhook for it with
+`attributes: null` — no document key, no verb — for every caller, and
+`decide()` fails closed on a document-scoped method with no attributes. So
+registering it denies `CreateRevision` to *everyone*, the document's owner
+included, and "Name current version" stops working. Leaving it unregistered
+leaves it ungated: any attached client can create a revision. That is a
+nuisance rather than a destructive hole, and closing it needs an upstream fix
+(see [`docs/design/revision-history.md`](../../docs/design/revision-history.md) §6).
+The other three revision methods do receive real attributes and are authorized
+correctly — verified by `test/revision-history.e2e-spec.ts`.
 
 Roll out with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` first (shadow mode — logs the
 decision it *would* make), confirm no false denials, then flip to `true`.

@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - **Do not enable the feature flag on any deployment running `YORKIE_AUTH_WEBHOOK_ENFORCE=false`.** Shadow mode logs the denial it *would* make and allows the request anyway, so the gate does not exist until enforcement is on.
-- **Ship behind `VITE_WB_REVISION_HISTORY`** until upstream ask 1 (auth-webhook gating of the revision RPCs) has landed and is registered on the project. Until then a read-only client can list, read and restore.
+- **Ship behind `VITE_WB_REVISION_HISTORY`** until the deployment has registered `ListRevisions` / `GetRevision` / `RestoreRevision` as auth-webhook methods AND runs `YORKIE_AUTH_WEBHOOK_ENFORCE=true`. Until both hold, any attached client — including an anonymous share-link viewer — can list revisions, read every past snapshot, and restore the document. (Task 8 disproved this plan's original claim that the gating needed an upstream Yorkie fix: the three methods are gateable today. `CreateRevision` is the exception and must stay unregistered — the server sends it `attributes: null`, so registering it denies everyone including the owner.)
 - Yorkie SDK floor: `@yorkie-js/sdk` and `@yorkie-js/react` at `0.7.18` (already pinned in `packages/frontend/package.json`). `useRevisions()` does not exist below it.
 - Revision `description` payload is exactly `{"v":1,"by":<userId>,"kind":"named"|"safety"}` — version field first, `by` is the numeric `User.id`.
 - Automatic revisions carry no author. Render them with a time only; **never** synthesize or infer one.

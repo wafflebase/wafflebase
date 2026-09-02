@@ -28,6 +28,35 @@ the ten minutes to make it answer. Reading the SDK's `.d.ts` would have
 confirmed the API exists and told us nothing about who is allowed to call
 it.
 
+## An option the API never had
+
+The fourth probe above was wrong in a way that took an implementer to
+catch. `AttachOptions` in `@yorkie-js/sdk@0.7.18` has **no `readOnly`
+field**. Passing `readOnly: true` to `attach()` from a plain `.mjs` script
+put an excess property on an object literal, JavaScript dropped it in
+silence, and the "read-only client" was an ordinary read-write one. The
+probe therefore demonstrated nothing about read-only access, while reading
+exactly like a proof — and that sentence went into a design doc and was
+approved.
+
+What saved it: the integration test in Task 8 could not reproduce the
+setup, because the option it was told to use does not exist. Re-deriving
+the finding forced a better route — a real share-link `viewer` against an
+*enforcing* webhook, whose `PushPull` write is denied while its
+`restoreRevision` succeeds — which is both stronger evidence and the shape
+the deployed permission model actually has.
+
+Two rules:
+
+- **An excess property on an options object is not an error in JavaScript.**
+  A probe that passes an option the API never declared proves whatever it
+  would have proved with the option omitted. When a probe's whole meaning
+  rests on one flag, check that flag against the type declarations — the
+  same `.d.ts` that was already open to confirm the method exists.
+- **Prefer the probe that mirrors production.** "Attach with a flag" was
+  convenient; "authenticate as the share-link role the deployment actually
+  issues" was the real question, and it was barely more work.
+
 ## Don't port a wrapper that upstream has since absorbed
 
 CodePair's `useYorkieRevisions` (152 lines) is a faithful hand-roll of

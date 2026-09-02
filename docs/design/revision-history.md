@@ -99,11 +99,49 @@ client.
 ### 2. Permission model
 
 Restated from Risks because it drives the sequencing: **Yorkie's revision
-RPCs are gated by nothing today.** The wafflebase feature does not reach
-production until the upstream fix in §6 has landed *and* the deployment
-runs `YORKIE_AUTH_WEBHOOK_ENFORCE=true`.
+RPCs are ungated until a deployment registers them, and three of the four
+can be closed by wafflebase alone, today.**
 
-Once it has:
+An earlier draft of this document asserted the opposite — that the
+auth-webhook method enum contained no `*Revision` entry, so the webhook
+could never be consulted for them, and the whole feature was therefore
+blocked on an upstream Yorkie change. That was inferred from a truncated
+string in the server binary and is **false**. The server validates
+registration against its method enum, and all four names are members:
+
+```
+$ yorkie project update <p> --auth-webhook-method-add ListRevisions   → accepted
+$ yorkie project update <p> --auth-webhook-method-add NotARealMethod  → invalid_argument,
+                                                    "given AuthWebhookMethods is invalid method"
+```
+
+Registered, the server calls the webhook for `ListRevisions`,
+`GetRevision` and `RestoreRevision` with real attributes
+(`{key: "sheet-…", verb: "r"|"rw"}`), and the existing unmodified
+`decide()` authorizes them correctly. `revision-history.e2e-spec.ts`
+demonstrates the viewer's `restoreRevision` being refused, with the
+owner's document never rolling back — and, as the control that makes that
+observation mean what it says, the *owner's* `restoreRevision` succeeding
+against the same registration. Without that control the refusal would be
+equally consistent with `RestoreRevision` sharing `CreateRevision`'s
+`attributes: null` bug and denying everyone, since `decide()`'s
+no-attributes branch fails closed before it ever looks at identity.
+
+So the deployment posture is:
+
+- **Register `ListRevisions`, `GetRevision`, `RestoreRevision`** and run
+  `YORKIE_AUTH_WEBHOOK_ENFORCE=true`. That closes the destructive hole — a
+  share-link viewer can no longer roll a document back, nor read its
+  history — with no upstream dependency.
+- **Do NOT register `CreateRevision`.** The server calls the webhook for it
+  with `attributes: null` — no document key, no verb — for every caller.
+  `decide()` fails closed on a document method carrying no attributes, so
+  registering it denies `CreateRevision` to **everyone, the owner
+  included**, and "Name current version" stops working for legitimate
+  users. Leaving it unregistered leaves it ungated: anyone attached can
+  create a revision. That residual is a nuisance (a viewer could add junk
+  named versions) rather than destructive, and it is the narrow thing
+  upstream ask 1 now exists to fix.
 
 - `ListRevisions` / `GetRevision` need verb `r`, `CreateRevision` /
   `RestoreRevision` need `rw`.
@@ -224,11 +262,20 @@ which already exists and runs in CI.
 
 Three asks, in `yorkie-team/yorkie`. The first blocks this feature:
 
-1. **Gate the revision RPCs.** Add `ListRevisions` / `GetRevision` /
-   `CreateRevision` / `RestoreRevision` to the auth-webhook method set with
-   verbs `r` / `r` / `rw` / `rw`, and independently refuse create and
-   restore on a `readOnly: true` attachment — defense in depth for
-   deployments running no webhook at all.
+1. **Populate the auth-webhook attributes for `CreateRevision`.** The other
+   three revision RPCs already send `{key, verb}` and are authorized
+   correctly by the existing webhook; `CreateRevision` sends
+   `attributes: null` for every caller, which leaves a deployment only two
+   bad options — register it and deny everyone including the owner, or
+   leave it unregistered and ungated. This is the whole of the upstream
+   dependency, and it blocks nothing in the rollout below.
+
+   Two earlier framings of this ask were wrong and are recorded here
+   because the corrections are the useful part. It first read "add the four
+   methods to the method set" — they are already in it. It then paired that
+   with "and refuse create/restore on a `readOnly: true` attachment, as
+   defense in depth" — `AttachOptions` has no `readOnly` field, so there is
+   no such attachment to refuse.
 2. **Record the acting client on a revision**, so automatic revisions can
    show an author (§1) instead of nothing.
 3. **A retention policy and a delete RPC** (max count and/or TTL per
@@ -253,15 +300,17 @@ RPCs hits this.
 
 | PR | Repo | Content |
 | --- | --- | --- |
-| 0 | yorkie | Auth-webhook methods + `readOnly` guard (upstream ask 1) |
-| 1 | wafflebase | History panel: list / name / restore + safety revision, all five types, flagged off; register webhook methods; backend README + this doc |
+| 1 | wafflebase | History panel: list / name / restore + safety revision, all five types, flagged off; register the three gateable webhook methods; backend README + this doc |
 | 2 | wafflebase | Preview for sheets, slides, board and notes |
 | 3 | yorkie | `YSON.parse` tokenizer (upstream ask 4) |
 | 4 | wafflebase | Docs preview: extract `treeNodeToBlock` into `@wafflebase/docs`, mount it |
 | 5 | wafflebase | Retention handling and polish |
 
-PR 1 and PR 2 are independent of each other's engines and of upstream asks
-2–4; only the ship-to-production gate depends on PR 0.
+There is no longer a blocking PR 0. Registering `ListRevisions` /
+`GetRevision` / `RestoreRevision` and enforcing the webhook closes the
+destructive hole without upstream; the `CreateRevision` attributes bug
+(upstream ask 1) leaves only the nuisance residual described in §2. PR 1
+and PR 2 are independent of each other's engines and of every upstream ask.
 
 ### 8. Testing
 
@@ -280,20 +329,34 @@ PR 1 and PR 2 are independent of each other's engines and of upstream asks
 
 ## Risks and Mitigation
 
-**Yorkie's revision RPCs bypass every permission control wafflebase has.**
-Demonstrated against the local server: a client attached with
-`readOnly: true` listed revisions, read a past snapshot in full, and
-restored the document. The auth-webhook method enum in the server binary is
-`ActivateClient / AttachDocument / DetachDocument / RemoveDocument /
-PushPull / Watch / Broadcast` — no `*Revision` entry — so
-`yorkie-auth.controller.ts` is never consulted. In wafflebase terms: an
-anonymous viewer holding a share link could silently revert a document and
-read its entire history. *Mitigation*: upstream ask 1 in §6, which this
-feature is sequenced behind. Note that `YORKIE_AUTH_WEBHOOK_ENFORCE=false`
+**An unregistered revision RPC bypasses every permission control
+wafflebase has.** Demonstrated against a local server by
+`packages/backend/test/revision-history.e2e-spec.ts`: with the auth webhook
+enforcing but the revision methods *not* registered, a share-link
+`viewer`'s ordinary write is correctly denied at `PushPull` with
+`permission_denied` — and that same viewer's `restoreRevision` still
+succeeds, rolling the document back for the owner's client too. Register
+the three gateable methods and the same test shows the restore refused and
+the owner's document intact. *Mitigation*: registration plus
+`YORKIE_AUTH_WEBHOOK_ENFORCE=true` is a release precondition, and
+`packages/backend/README.md` carries the exact command. `CreateRevision`
+stays unregistered and therefore ungated until upstream ask 1 — see §2 for
+why registering it would deny everyone.
+
+Two earlier drafts of this paragraph were wrong, and both corrections are
+worth keeping. The first cited a probe that attached with `readOnly: true`
+— `AttachOptions` has no such field, so it was dropped as an excess
+property and that client was never read-only. The second asserted the
+method enum contained no `*Revision` entry, inferred from a truncated
+string in the server binary; the server in fact validates registration
+against that enum and accepts all four names. Each error pointed the same
+direction — toward believing the hole was deeper and less fixable than it
+is — which is the failure mode to watch for when a probe and a hypothesis
+agree. Note that `YORKIE_AUTH_WEBHOOK_ENFORCE=false`
 is **shadow mode — it logs the denial it would have made and allows the
-request anyway**, so shipping history to a deployment still in shadow mode
-reopens the same hole. Enforcement being on is a release precondition, not
-a follow-up.
+request anyway**, so registering the methods on a deployment still in
+shadow mode protects nothing. Registration *and* enforcement are both
+release preconditions, not follow-ups.
 
 **Revision storage is unbounded.** One full snapshot per `snapshotInterval`
 (500) changes, forever; there is no delete-revision RPC in the SDK or the
