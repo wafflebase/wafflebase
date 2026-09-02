@@ -78,11 +78,14 @@ docs needs one (`treeNodeToBlock`), and only once the YSON fix above lands.
 - [x] `packages/frontend/src/components/history/revision-meta.ts` — the
       `{"v":1,"by":<userId>,"kind":"named"|"safety"}` description contract,
       parse + write, tolerant of malformed and empty descriptions.
-- [x] `use-revisions.ts` — thin state/paging/day-grouping layer over
+- [x] `use-revisions.ts` — thin state/day-grouping layer over
       `@yorkie-js/react`'s `useRevisions()`. Do **not** port CodePair's
       `useYorkieRevisions`; it predates the hook and hand-rolls it.
       Shipped as two files, `use-revision-history.ts` (state/actions) +
       `group-revisions.ts` (day-grouping), matching §3 of the design doc.
+      **No paging shipped**: the hook asks for the most recent 50
+      (`REVISION_LIST_LIMIT`) and exposes no offset, no `loadMore` and no
+      "more exist" signal, so older versions are unreachable from the UI.
 - [x] `history-panel.tsx` — right slot (shared with ThemePanel / Format
       options / comments), grouped by day, "Name current version", per-entry
       actions. Automatic entries show time only — there is no author on a
@@ -133,15 +136,22 @@ docs needs one (`treeNodeToBlock`), and only once the YSON fix above lands.
 
 - [ ] Measure real revision growth on a workspace with `getDocSize()`
       instrumentation before enabling broadly. Not done.
-- [ ] Cap what the panel lists; consider raising `snapshotInterval` for the
-      project (at a sync cost). Not done — the panel lists every revision
-      `listRevisions` returns.
+- [ ] Paging, so the cap stops hiding versions; consider raising
+      `snapshotInterval` for the project (at a sync cost). Not done. The
+      panel lists **at most the 50 most recent** revisions
+      (`REVISION_LIST_LIMIT` in `use-revision-history.ts`) and silently
+      truncates beyond that — there is no offset, no "load more", and no
+      indication that older versions exist. Storage itself is untouched and
+      still unbounded.
 
 ## Tests
 
 - [x] Backend unit: `YorkieAuthController.decide()` per method, asserting
-      the verb each requires and that a viewer share-link token is denied
-      `rw`.
+      the verb each requires, that a viewer share-link token is denied `rw`,
+      and that `REVISION_READ_METHODS` denies it `ListRevisions` /
+      `GetRevision` too despite their `r` verb — while a workspace member
+      and a share-link editor keep both, and an ordinary `r` on `PushPull`
+      stays open to the viewer.
 - [x] Frontend unit: `group-revisions` day-grouping; `use-revision-history`
       (safety revision precedes restore, no restore when it fails);
       `revision-meta` round-trip incl. malformed input; one snapshot→model
@@ -151,10 +161,13 @@ docs needs one (`treeNodeToBlock`), and only once the YSON fix above lands.
       `verify-integration`): create → list → get → restore round-trip; a
       second attached client converges after a restore; **regression test
       that a read-only client is refused create, restore and snapshot
-      reads**. Note: the sheets/slides/board fixtures for the frontend
-      adapter tests are hand-authored to a captured wire format rather than
-      generated live for every run (see the lessons file and Task 9's
-      ledger entry) — a real re-capture is still open.
+      reads** — the snapshot-read half (`listRevisions`/`getRevision`
+      refused for the viewer, allowed for the owner as the control) was
+      added in the final review round; before that the checkbox claimed
+      coverage that did not exist. Note: the sheets/slides/board fixtures
+      for the frontend adapter tests are hand-authored to each engine's real
+      wire format rather than generated live for every run (see the lessons
+      file and Task 9's ledger entry) — a real re-capture is still open.
 
 ## Review
 
@@ -218,14 +231,47 @@ gate closed:**
   client. Named and safety revisions show `by` because we write it
   ourselves.
 - A board preview renders from the canvas origin rather than fit-to-content.
+- A sheet preview shows only the first tab that *has* a worksheet; a
+  workbook whose only tabs are `datasource` / `lakehouse` renders an
+  explanatory message instead, since those tabs' rows are not in the CRDT.
+- The version list is capped at the 50 most recent revisions, with no way
+  to reach older ones (see PR 4 above).
 - There is no loading state between opening a revision and its fetch
   resolving — the UI is quiet during that window rather than showing
   progress.
-- A failed restore surfaces nothing to the user. Both restore call sites
-  (`history-panel.tsx`'s `confirmRestore` and
-  `revision-preview.tsx`'s `void restore(revisionId)`) fire the restore
-  without a try/catch around the user-facing outcome, so a rejected
-  promise is silent from the UI's point of view.
+
+**Fixed in the final review round** (each had shipped as a defect):
+
+- `parseBoardSnapshot` was an alias of `parseSlidesSnapshot`, and a board is
+  not stored as a `SlidesDocument` — its root is `{meta, elements}` and the
+  synthetic slide is built at read time. The alias yielded a document with
+  no `slides`, silently (a missing key, not a parse error), so a board
+  preview painted a blank canvas under a banner naming a date, and Restore
+  from that banner would have restored content the user was never shown.
+  Now parses the real board root through `boardToSlidesDocument`, against a
+  board-format fixture.
+- An open preview did not stop the live editor receiving keystrokes. The
+  overlay is a sibling of the still-mounted live view, and both engines bind
+  keydown on `document`, so `Cmd+Z` undid a real change in the live document
+  and `Delete` deleted the live selection. The overlay now suppresses
+  keydown/keyup from `window` in the capture phase (upstream of every
+  `document` listener regardless of registration order) and takes focus on
+  mount; `Escape` is the one deliberate pass-through.
+- Share-link viewers could still read history. `ListRevisions` /
+  `GetRevision` carry verb `r`, which `hasAccess` let a viewer through, so
+  the documented claim that registering the methods stops a viewer reading
+  history was false for the reads. `REVISION_READ_METHODS` now demands
+  editor-or-member authority for those two.
+- A failed restore surfaced nothing at either call site. Both now report it:
+  the panel renders the failure the same way it renders a failed load, and
+  the preview keeps itself open with the error in its banner instead of
+  closing and firing the restore into the void.
+- A restore started from the preview left the open panel stale (missing the
+  "Before restore" entry it had just promised). The editors now pass their
+  `historyResetToken` as the panel's `refreshKey`.
+- The sheets adapter fixture was keyed by A1 notation, which is not the
+  worksheet wire format — through `MemStore.load` it yielded zero cells. The
+  fixture is now axis-ID keyed and asserted through `MemStore.load`.
 
 **The verification that has NOT been done: no manual browser smoke test.**
 `CLAUDE.md` asks for a manual smoke in `pnpm dev` when UI changed, and that

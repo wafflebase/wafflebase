@@ -145,11 +145,19 @@ So the deployment posture is:
 
 - `ListRevisions` / `GetRevision` need verb `r`, `CreateRevision` /
   `RestoreRevision` need `rw`.
-- `yorkie-auth.controller.ts` needs **no change**. Its `decide()` falls
-  unknown methods through to `checkAttribute`, which resolves the docKey
-  and checks the verb against `WorkspaceMember` / `ShareLink` exactly as it
-  does for `PushPull`. The work is registering the methods on the project
-  and adding unit tests that pin each method's verb.
+- **The verb alone is not the authorization.** `decide()` falls unknown
+  methods through to `checkAttribute`, which checks the verb against
+  `WorkspaceMember` / `ShareLink` exactly as it does for `PushPull` — and a
+  share-link *viewer* passes every `r`. That would leave `ListRevisions` and
+  `GetRevision` open to viewers, and `getRevision` returns a **full snapshot
+  of every past state**, including content deleted before the link was
+  shared. So `yorkie-auth.controller.ts` carries one addition,
+  `REVISION_READ_METHODS`: those two methods require the same
+  editor-or-member authority a write does, despite their verb. Workspace
+  members and share-link editors are unaffected; an ordinary `r` on
+  `PushPull`/`Watch` is untouched, so a viewer can still read the document
+  itself. The rest of the work is registering the methods on the project and
+  pinning each method's verb and role outcome in unit tests.
 - The panel entry point is hidden for share-link **viewers**, matching
   Google Docs, where viewers and commenters do not see version history at
   all. This is UI courtesy layered on the server-side gate, not a
@@ -177,9 +185,17 @@ cannot be confused at an import site with the SDK hook it wraps.
 `use-revision-history.ts` is deliberately thin — `@yorkie-js/react@0.7.18`
 already exports `useRevisions()` returning
 `{createRevision, listRevisions, getRevision, restoreRevision}` bound to
-the current `DocumentProvider`. What we add is list state, paging, and the
-grouping in §1. CodePair's `useYorkieRevisions` predates that hook and
-hand-rolls the same thing against `client` + `doc`; we should not copy it.
+the current `DocumentProvider`. What we add is list state and the grouping
+in §1. CodePair's `useYorkieRevisions` predates that hook and hand-rolls the
+same thing against `client` + `doc`; we should not copy it.
+
+**There is no paging.** The hook asks `listRevisions` for the most recent
+50 (`REVISION_LIST_LIMIT`) and stops there: no offset, no `loadMore`, and no
+"more exist" signal, so on a document with more revisions than that the
+panel silently shows the newest 50 and the older ones cannot be reached from
+the UI at all. That is a real limitation, not a phrasing of one — and given
+storage is unbounded (see Risks), it is the truncation that most needs
+saying out loud. Paging is follow-up work (§7 PR 5).
 
 The panel occupies the existing right slot (the one ThemePanel, Format
 options and the comments side panel share), and is opened from the
@@ -244,7 +260,12 @@ implements.
 
 1. `createRevision("Before restore", {kind:"safety", by})` — so restore is
    never destructive and the pre-restore state is one click away.
-2. `restoreRevision(id)` then `client.sync()`.
+2. `restoreRevision(id)`. No explicit `client.sync()` — an earlier draft
+   mandated one, and the code does not call it. Measured against the running
+   server: a Realtime-mode attachment (which is how every wafflebase editor
+   attaches) converges on the restored root on its own, so the sync the
+   mandate asked for is the one the attachment already performs. A manual
+   deployment mode would need it.
 3. Reset view-local state: selection, caret, and **the undo stack**.
 
 Step 3 is not cosmetic. Docs delegate undo to Yorkie `doc.history` and
@@ -315,12 +336,17 @@ and PR 2 are independent of each other's engines and of every upstream ask.
 ### 8. Testing
 
 - **Backend unit**: `YorkieAuthController.decide()` for each of the four
-  methods, asserting the verb each requires and that a viewer share-link
-  token is denied `rw`.
-- **Frontend unit**: `use-revisions` grouping and paging;
-  `revision-meta` parse/write round-trip including malformed descriptions;
-  one snapshot→model adapter test per engine against a fixture captured
-  from a real document.
+  methods, asserting the verb each requires, that a viewer share-link token
+  is denied `rw`, and that it is denied the two revision **reads** as well
+  despite their `r` verb — with a workspace member and a share-link editor
+  still allowed on both, and an ordinary `r` on `PushPull` still open to the
+  viewer.
+- **Frontend unit**: `use-revision-history` grouping and the restore
+  ordering; `revision-meta` parse/write round-trip including malformed
+  descriptions; one snapshot→model adapter test per engine against a fixture
+  in that engine's real wire format — for sheets, asserted *through*
+  `MemStore.load`, since an A1-keyed fixture parses fine and then loads zero
+  cells.
 - **Integration** (`RUN_YORKIE_INTEGRATION_TESTS=true`, already wired into
   CI's `verify-integration` job): create → list → get → restore
   round-trip; a second attached client converges after a restore; and a
@@ -364,9 +390,12 @@ server's public surface. wafflebase sheets reach ~7 MB (the 10 MB Yorkie
 document cap is a node-count limit we already push against), so a heavily
 edited document could accumulate gigabytes. *Mitigation*: all partial until
 upstream ask 3 lands — raise `snapshotInterval` for the project (at a sync
-cost), cap what the panel lists, and measure real growth with the
-`getDocSize()` instrumentation already used for import sizing. This should
-be measured on a real workspace before the feature is enabled broadly.
+cost) and measure real growth with the `getDocSize()` instrumentation
+already used for import sizing. This should be measured on a real workspace
+before the feature is enabled broadly. The panel's 50-revision cap (§3)
+bounds only what the *panel reads*, not what is stored — and it is what
+makes older versions unreachable, so it is a symptom of this risk rather
+than a mitigation of it.
 
 **The snapshot format's parser is regex-based.** `YSON.parse` cannot read a
 snapshot of any docs document (§4), and the same preprocessing would also
