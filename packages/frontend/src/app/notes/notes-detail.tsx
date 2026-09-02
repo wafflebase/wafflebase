@@ -1,7 +1,7 @@
 import { DocumentProvider, useDocument } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import type {
   NoteViewMode,
   NoteEditorAPI,
@@ -46,6 +46,17 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { HistoryPanel } from "@/components/history/history-panel";
 import { isHistoryEnabled } from "@/components/history/history-enabled";
 
+// Lazy: `revision-preview.tsx` statically imports all three of
+// @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
+// whichever engine a preview needs), so an eager import here would pull the
+// other two engines into this note route's own chunk for a feature almost
+// never opened.
+const RevisionPreviewOverlay = lazy(() =>
+  import("@/components/history/revision-preview").then((module) => ({
+    default: module.RevisionPreviewOverlay,
+  })),
+);
+
 /**
  * NotesLayout provides the sidebar + header chrome around the note editor,
  * matching the same layout structure as the docs/spreadsheet detail views.
@@ -64,8 +75,7 @@ function NotesLayout({ documentId }: { documentId: string }) {
   const isMobile = useIsMobile();
 
   const [historyOpen, setHistoryOpen] = useState(false);
-  // Held for Task 11's preview surface; nothing reads it yet.
-  const [, setPreviewRevisionId] = useState<string | null>(null);
+  const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
   // Bumped on restore to remount NotesView, dropping its local selection and
   // caret state. `doc.clearHistory()` (below) separately drops the Yorkie
   // undo stack — a restore replaces the whole root, so neither piece of
@@ -268,15 +278,28 @@ function NotesLayout({ documentId }: { documentId: string }) {
             editor={editor}
           />
           <div className="flex flex-1 min-h-0 overflow-hidden">
-            <NotesView
-              key={historyResetToken}
-              viewMode={effectiveViewMode}
-              keymap={keymap}
-              showAuthors={showAuthors}
-              onEditorReady={setEditor}
-              uploadImage={handleUploadImage}
-              documentId={documentId}
-            />
+            <div className="relative flex flex-1 min-w-0">
+              {historyEnabled && previewRevisionId && currentUser && (
+                <Suspense fallback={null}>
+                  <RevisionPreviewOverlay
+                    revisionId={previewRevisionId}
+                    type="note"
+                    userId={currentUser.id}
+                    onClose={() => setPreviewRevisionId(null)}
+                    onRestored={handleHistoryRestored}
+                  />
+                </Suspense>
+              )}
+              <NotesView
+                key={historyResetToken}
+                viewMode={effectiveViewMode}
+                keymap={keymap}
+                showAuthors={showAuthors}
+                onEditorReady={setEditor}
+                uploadImage={handleUploadImage}
+                documentId={documentId}
+              />
+            </div>
             {historyEnabled && historyOpen && currentUser && (
               <HistoryPanel
                 userId={currentUser.id}

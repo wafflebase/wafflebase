@@ -1,7 +1,7 @@
 import { DocumentProvider, useDocument } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -52,6 +52,17 @@ import {
   FIT_ZOOM,
   type ZoomController,
 } from "./zoom-controller";
+
+// Lazy: `revision-preview.tsx` statically imports all three of
+// @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
+// whichever engine a preview needs), so an eager import here would pull the
+// other two engines into this slides route's own chunk for a feature almost
+// never opened.
+const RevisionPreviewOverlay = lazy(() =>
+  import("@/components/history/revision-preview").then((module) => ({
+    default: module.RevisionPreviewOverlay,
+  })),
+);
 
 /**
  * Initial Yorkie document root for a new slides presentation.
@@ -162,8 +173,7 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
   type RightPanel = "theme" | "format" | "motion" | "background" | "history" | null;
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
-  // Held for Task 11's preview surface; nothing reads it yet.
-  const [, setPreviewRevisionId] = useState<string | null>(null);
+  const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
   // Bumped on restore to remount SlidesView, dropping its local selection
   // state. `doc.clearHistory()` (below) separately drops the Yorkie undo
   // stack — a restore replaces the whole root, so neither piece of state
@@ -460,17 +470,30 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
             </div>
           )}
           <div className="flex flex-1 min-h-0 overflow-hidden">
-            <SlidesView
-              key={historyResetToken}
-              onEditorReady={setEditor}
-              onStoreReady={setStore}
-              onStartPresentation={handleStartPresentation}
-              documentId={documentId}
-              zoomController={zoomControllerRef.current}
-              uploadImage={uploadFn}
-              layoutEditTarget={layoutEditTarget}
-              onLayoutEditTargetChange={setLayoutEditTarget}
-            />
+            <div className="relative flex flex-1 min-w-0">
+              {historyEnabled && previewRevisionId && currentUser && (
+                <Suspense fallback={null}>
+                  <RevisionPreviewOverlay
+                    revisionId={previewRevisionId}
+                    type="slides"
+                    userId={currentUser.id}
+                    onClose={() => setPreviewRevisionId(null)}
+                    onRestored={handleHistoryRestored}
+                  />
+                </Suspense>
+              )}
+              <SlidesView
+                key={historyResetToken}
+                onEditorReady={setEditor}
+                onStoreReady={setStore}
+                onStartPresentation={handleStartPresentation}
+                documentId={documentId}
+                zoomController={zoomControllerRef.current}
+                uploadImage={uploadFn}
+                layoutEditTarget={layoutEditTarget}
+                onLayoutEditTargetChange={setLayoutEditTarget}
+              />
+            </div>
             {rightPanel === "theme" && store && (
               <ThemePanel
                 store={store}

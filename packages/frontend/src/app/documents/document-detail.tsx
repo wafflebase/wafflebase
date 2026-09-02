@@ -65,6 +65,16 @@ import { HistoryPanel } from "@/components/history/history-panel";
 import { isHistoryEnabled } from "@/components/history/history-enabled";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
+// Lazy: `revision-preview.tsx` statically imports all three of
+// @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
+// whichever engine a preview needs), so an eager import here would pull the
+// other two engines' editors into this sheet route's own chunk for a
+// feature almost never opened. See the other three `*-detail.tsx` files.
+const RevisionPreviewOverlay = lazy(() =>
+  import("@/components/history/revision-preview").then((module) => ({
+    default: module.RevisionPreviewOverlay,
+  })),
+);
 const DataSourceView = lazy(() =>
   import("@/app/spreadsheet/datasource-view").then((module) => ({
     default: module.DataSourceView,
@@ -127,8 +137,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const jumpRequestSeq = useRef(0);
 
   const [historyOpen, setHistoryOpen] = useState(false);
-  // Held for Task 11's preview surface; nothing reads it yet.
-  const [, setPreviewRevisionId] = useState<string | null>(null);
+  const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
   // Bumped on restore to remount the active tab's view, dropping its local
   // selection/caret state. `doc.clearHistory()` (below) separately drops the
   // Yorkie undo stack — a restore replaces the whole root, so neither piece
@@ -682,7 +691,18 @@ function DocumentLayout({ documentId }: { documentId: string }) {
         <div className="flex flex-1 overflow-hidden">
           <div className="flex flex-1 flex-col min-w-0">
             <div className="@container/main flex flex-1 flex-col gap-2">
-              <div className="flex flex-col h-full">
+              <div className="relative flex flex-col h-full">
+                {historyEnabled && previewRevisionId && currentUser && (
+                  <Suspense fallback={null}>
+                    <RevisionPreviewOverlay
+                      revisionId={previewRevisionId}
+                      type="sheet"
+                      userId={currentUser.id}
+                      onClose={() => setPreviewRevisionId(null)}
+                      onRestored={handleHistoryRestored}
+                    />
+                  </Suspense>
+                )}
                 <Suspense fallback={<Loader />}>
                   {!ready || !activeTabId ? (
                     <Loader />

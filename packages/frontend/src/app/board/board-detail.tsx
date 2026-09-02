@@ -1,7 +1,7 @@
 import { DocumentProvider, useDocument } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -29,6 +29,17 @@ import { BoardView } from "./board-view";
 import { HistoryPanel } from "@/components/history/history-panel";
 import { isHistoryEnabled } from "@/components/history/history-enabled";
 
+// Lazy: `revision-preview.tsx` statically imports all three of
+// @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
+// whichever engine a preview needs), so an eager import here would pull the
+// other two engines into this board route's own chunk for a feature almost
+// never opened.
+const RevisionPreviewOverlay = lazy(() =>
+  import("@/components/history/revision-preview").then((module) => ({
+    default: module.RevisionPreviewOverlay,
+  })),
+);
+
 /**
  * BoardLayout provides the global sidebar + top header chrome around the
  * board canvas, matching the docs/slides/notes detail views. `SidebarInset`
@@ -42,8 +53,7 @@ function BoardLayout({ documentId }: { documentId: string }) {
   const { doc } = useDocument<YorkieBoardRoot, BoardPresence>();
 
   const [historyOpen, setHistoryOpen] = useState(false);
-  // Held for Task 11's preview surface; nothing reads it yet.
-  const [, setPreviewRevisionId] = useState<string | null>(null);
+  const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
   // Bumped on restore to remount BoardView, dropping its local selection
   // state. `doc.clearHistory()` (below) separately drops the Yorkie undo
   // stack — a restore replaces the whole root, so neither piece of state
@@ -166,11 +176,24 @@ function BoardLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          <BoardView
-            key={historyResetToken}
-            documentId={documentId}
-            workspaceId={documentData?.workspaceId}
-          />
+          <div className="relative flex flex-1 min-w-0">
+            {historyEnabled && previewRevisionId && currentUser && (
+              <Suspense fallback={null}>
+                <RevisionPreviewOverlay
+                  revisionId={previewRevisionId}
+                  type="board"
+                  userId={currentUser.id}
+                  onClose={() => setPreviewRevisionId(null)}
+                  onRestored={handleHistoryRestored}
+                />
+              </Suspense>
+            )}
+            <BoardView
+              key={historyResetToken}
+              documentId={documentId}
+              workspaceId={documentData?.workspaceId}
+            />
+          </div>
           {historyEnabled && historyOpen && currentUser && (
             <HistoryPanel
               userId={currentUser.id}
