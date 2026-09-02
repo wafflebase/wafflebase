@@ -1,6 +1,7 @@
 # Revision history (version panel on all CRDT document types)
 
 Design: [`docs/design/revision-history.md`](../../design/revision-history.md)
+Plan: [`20260902-revision-history-plan.md`](./20260902-revision-history-plan.md)
 
 ## Problem
 
@@ -35,24 +36,27 @@ entry, so `yorkie-auth.controller.ts` is never consulted.
 - [ ] File upstream asks: record the acting client on a revision (so
       automatic revisions can show an author), and a revision retention
       policy + delete RPC.
+- [ ] `yorkie-team/yorkie`: replace `preprocessYSON`'s regex with a real
+      tokenizer. Its `Tree(...)` pattern bottoms out at three nested brace
+      levels, so `YSON.parse` throws `Unexpected token 'T'` on **every**
+      wafflebase docs snapshot (`doc > block > inline > text` is four), and
+      it would also misread a `}` inside a string value in any document
+      type. Measured: depth 2 OK, depth 3 OK, depth 4 fails. Blocks docs
+      preview.
 
 ## Plan
 
-### PR 1 — move the snapshot converters into the engine packages
+Step-by-step tasks live in
+[`20260902-revision-history-plan.md`](./20260902-revision-history-plan.md);
+this section is the PR-level shape.
 
-- [ ] Move `readDocsRoot` / `readPageSetup` (`packages/backend/src/yorkie/docs-tree.ts`)
-      and `readSlidesRoot` (`slides-tree.ts`) and `readNoteRoot`
-      (`note-content.ts`) into `@wafflebase/docs` / `@wafflebase/slides` /
-      the notes path, keeping the backend as an importer. Pure functions
-      over a root shape — they were written for the CLI and belong to the
-      engines, not the backend.
-- [ ] Backend imports from the new home; `pnpm backend test` unchanged
-      (this PR has no behavior change).
-- [ ] Watch the `@wafflebase/core` subpath/tsconfig trap if anything lands
-      there: classic CJS ignores `exports`, so the backend tsconfig needs a
-      matching `paths` entry.
+Note: the design's original "move the `read*Root` converters into the
+engine packages" PR was **dropped**. Those helpers exist to unwrap live
+Yorkie proxies; a parsed snapshot is already plain JSON, so sheets, slides
+and board need no converter and notes need only `YSON.textToString`. Only
+docs needs one (`treeNodeToBlock`), and only once the YSON fix above lands.
 
-### PR 2 — history panel: list / name / restore
+### PR 1 — history panel: list / name / restore
 
 - [ ] `packages/frontend/src/components/history/revision-meta.ts` — the
       `{"v":1,"by":<userId>,"kind":"named"|"safety"}` description contract,
@@ -82,15 +86,23 @@ entry, so `yorkie-auth.controller.ts` is never consulted.
       and allows the request anyway, which reopens the hole the upstream
       fix closes.
 
-### PR 3 — preview
+### PR 2 — preview (sheets, slides, board, notes)
 
-- [ ] `revision-preview.tsx`: `getRevision` → `YSON.parse` → per-type
-      adapter → engine model → `MemStore` / `MemDocStore` /
-      `MemSlidesStore` → the document's own viewer, read-only.
-- [ ] Per-adapter shim from `YSON.Tree` to the live-proxy shape the
-      converters expect (`readDocsRoot` calls `root.content.getRootTreeNode()`).
-- [ ] Banner over the existing viewer ("Viewing a version from … /
-      Restore / Back"), not a modal — four of five engines are canvas.
+- [ ] `snapshot-adapters.ts`: `YSON.parse` per type. Sheets/slides/board
+      parse straight to their models; notes need `YSON.textToString`.
+- [ ] `MemStore.load(worksheet)` — the constructor takes only a `Grid`, and
+      the cells are keyed by axis id while the grid is keyed by `Sref`
+      (`getWorksheetEntries` does that resolution).
+- [ ] `revision-preview.tsx`: banner over the existing viewer ("Viewing a
+      version from … / Restore / Back"), not a modal — four of five engines
+      are canvas. An unparseable snapshot renders an error, never an empty
+      document.
+
+### PR 3 — docs preview (blocked on the YSON tokenizer)
+
+- [ ] Extract `treeNodeToBlock` from `packages/backend/src/yorkie/docs-tree.ts`
+      into `@wafflebase/docs` (that file's own header already proposes the
+      extraction), add `parseDocsSnapshot`, extend the preview type union.
 
 ### PR 4 — retention and polish
 
@@ -104,9 +116,11 @@ entry, so `yorkie-auth.controller.ts` is never consulted.
 - [ ] Backend unit: `YorkieAuthController.decide()` per method, asserting
       the verb each requires and that a viewer share-link token is denied
       `rw`.
-- [ ] Frontend unit: `use-revisions` grouping/paging; `revision-meta`
-      round-trip incl. malformed input; one snapshot→model adapter test per
-      engine against a fixture from a real document.
+- [ ] Frontend unit: `group-revisions` day-grouping; `use-revision-history`
+      (safety revision precedes restore, no restore when it fails);
+      `revision-meta` round-trip incl. malformed input; one snapshot→model
+      adapter test per engine against a fixture captured from a real
+      document.
 - [ ] Integration (`RUN_YORKIE_INTEGRATION_TESTS=true`, already in CI's
       `verify-integration`): create → list → get → restore round-trip; a
       second attached client converges after a restore; **regression test

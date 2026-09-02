@@ -124,13 +124,19 @@ how `components/comments/` is shared across engines:
 
 ```
 components/history/
-  use-revisions.ts       # state + day-grouping over @yorkie-js/react's useRevisions()
-  history-panel.tsx      # right-slot panel: list, "Name current version", per-entry actions
-  revision-preview.tsx   # per-type read-only render of a snapshot
-  revision-meta.ts       # the description JSON contract from §1, parse + write
+  revision-meta.ts         # the description JSON contract from §1, parse + write
+  group-revisions.ts       # flat revision list → day-keyed timeline
+  use-revision-history.ts  # state + actions over @yorkie-js/react's useRevisions()
+  history-panel.tsx        # right-slot panel: list, "Name current version", per-entry actions
+  snapshot-adapters.ts     # YSON snapshot → engine document model, per type
+  revision-preview.tsx     # per-type read-only render of a snapshot
+  history-enabled.ts       # flag + viewer gating
 ```
 
-`use-revisions.ts` is deliberately thin — `@yorkie-js/react@0.7.18`
+The hook is named `use-revision-history` rather than `use-revisions` so it
+cannot be confused at an import site with the SDK hook it wraps.
+
+`use-revision-history.ts` is deliberately thin — `@yorkie-js/react@0.7.18`
 already exports `useRevisions()` returning
 `{createRevision, listRevisions, getRevision, restoreRevision}` bound to
 the current `DocumentProvider`. What we add is list state, paging, and the
@@ -152,19 +158,44 @@ getRevision(id) → YSON string → YSON.parse → per-type adapter
 
 Each engine already accepts a plain model in its in-memory store
 (`MemStore(grid?)`, `MemDocStore(doc?)`, `MemSlidesStore(doc?)`), so the
-viewer half is free. The adapters mostly exist too: `readDocsRoot`,
-`readSlidesRoot` and `readNoteRoot` live in
-`packages/backend/src/yorkie/` because the CLI needed exactly this
-conversion. They are pure functions over a root shape and belong to the
-engine packages rather than the backend, so a preparatory PR moves them to
-`@wafflebase/docs` / `@wafflebase/slides` subpaths, with the backend
-importing them from their new home. That removes a duplication rather than
-creating one.
+viewer half is nearly free — `MemStore` takes only a `Grid`, so a sheet
+preview additionally needs a bulk-load path for styles, merges, dimensions
+and freeze state, which today have no setter beyond the async `Store` API.
+The visual-harness scenarios in
+`packages/frontend/src/app/harness/visual/sheet-scenarios.tsx` are the
+existing pattern for standing up a read-only sheet from a model.
 
-One shim is needed per adapter: they expect a **live Yorkie proxy**
-(`readDocsRoot` calls `root.content.getRootTreeNode()`), while `YSON.parse`
-yields a `YSON.Tree`. The node shapes are structurally compatible, so the
-shim is a thin wrapper, not a second parser.
+**A parsed snapshot is already plain data, so most of the conversion work
+does not exist.** The backend's `readDocsRoot` / `readSlidesRoot` /
+`readNoteRoot` exist to unwrap *live Yorkie proxies* — `unwrapJson`,
+`getRootTreeNode()`, the double-encoding dance. `YSON.parse` yields plain
+JSON objects, so slides, board and sheets need no converter at all, and
+notes need only `YSON.textToString`. Only docs genuinely needs one, because
+its body is a `Tree` and its nodes must become `DocsBlock`s — and exactly
+that code already exists as `treeNodeToBlock` inside
+`packages/backend/src/yorkie/docs-tree.ts`. So the extraction is scoped to
+the docs tree→blocks half, pulled into `@wafflebase/docs` when the docs
+preview is built, rather than a wholesale move of three modules up front.
+(`docs-tree.ts`'s own header already proposes this extraction.)
+
+**Docs preview is blocked upstream: `YSON.parse` cannot parse a snapshot
+containing a real docs tree.** `preprocessYSON` is regex-based, and its
+`Tree(...)` pattern hard-codes a maximum of three nested brace levels.
+Measured against the running server:
+
+| Root shape | `YSON.parse` |
+| --- | --- |
+| sheets / slides / board (plain JSON) | OK |
+| notes (`Text([...])`) | OK |
+| docs `Tree` depth 3 (`doc > block > text`) | OK |
+| docs `Tree` depth 4 (`doc > block > inline > text`) | **fails** |
+
+Every wafflebase docs document is depth 4 or more, and tables go deeper, so
+this is not an edge case — it is every document of that type. Preview
+therefore ships for sheets, slides, board and notes first, and docs follows
+the upstream fix (§6). The fallback, if that fix is slow, is our own
+snapshot parser in the frontend; it is a fallback rather than the plan
+because a second regex-based parser is how this bug was born.
 
 Presentation is a banner over the existing viewer — "Viewing a version from
 … / Restore / Back" — not a modal. Four of the five engines are canvas, and
@@ -202,6 +233,12 @@ Three asks, in `yorkie-team/yorkie`. The first blocks this feature:
    show an author (§1) instead of nothing.
 3. **A retention policy and a delete RPC** (max count and/or TTL per
    document). See Risks.
+4. **Fix `YSON.parse` for nested trees** — `preprocessYSON`'s `Tree(...)`
+   regex bottoms out at three nested brace levels, so parsing any
+   snapshot of a document whose tree is deeper throws
+   `Unexpected token 'T'`. The fix is a real tokenizer rather than a
+   deeper regex; the current one also cannot survive a `}` inside a string
+   value. Blocks docs preview (§4).
 
 Plus one unrelated bug found while probing: `ListRevisionsByAdmin` panics
 under `API-Key` authentication —
@@ -217,10 +254,14 @@ RPCs hits this.
 | PR | Repo | Content |
 | --- | --- | --- |
 | 0 | yorkie | Auth-webhook methods + `readOnly` guard (upstream ask 1) |
-| 1 | wafflebase | Move `read*Root` converters into the engine packages; no behavior change |
-| 2 | wafflebase | History panel: list / name / restore + safety revision, all five types, flagged off; register webhook methods; backend README + this doc |
-| 3 | wafflebase | Preview per document type |
-| 4 | wafflebase | Retention handling and polish |
+| 1 | wafflebase | History panel: list / name / restore + safety revision, all five types, flagged off; register webhook methods; backend README + this doc |
+| 2 | wafflebase | Preview for sheets, slides, board and notes |
+| 3 | yorkie | `YSON.parse` tokenizer (upstream ask 4) |
+| 4 | wafflebase | Docs preview: extract `treeNodeToBlock` into `@wafflebase/docs`, mount it |
+| 5 | wafflebase | Retention handling and polish |
+
+PR 1 and PR 2 are independent of each other's engines and of upstream asks
+2–4; only the ship-to-production gate depends on PR 0.
 
 ### 8. Testing
 
@@ -263,6 +304,15 @@ upstream ask 3 lands — raise `snapshotInterval` for the project (at a sync
 cost), cap what the panel lists, and measure real growth with the
 `getDocSize()` instrumentation already used for import sizing. This should
 be measured on a real workspace before the feature is enabled broadly.
+
+**The snapshot format's parser is regex-based.** `YSON.parse` cannot read a
+snapshot of any docs document (§4), and the same preprocessing would also
+misread a `}` appearing inside a string value in any document type. We
+depend on it for every preview. *Mitigation*: upstream ask 4 replaces it
+with a tokenizer; until then docs preview is out and the other four types
+are covered by adapter tests built from fixtures captured off real
+documents, so a regression in the parser surfaces in CI rather than in a
+user's preview.
 
 **A restore is a whole-root replacement, and comments ride along.** Sheet
 and docs comment threads live in the same Yorkie root, so restoring a
