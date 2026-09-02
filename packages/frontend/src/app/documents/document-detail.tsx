@@ -19,7 +19,7 @@ import { SiteHeader } from "@/components/site-header";
 import { UserPresence } from "@/components/user-presence";
 import { ShareDialog } from "@/components/share-dialog";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
-import { IconMessage } from "@tabler/icons-react";
+import { IconMessage, IconHistory } from "@tabler/icons-react";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { toast } from "sonner";
@@ -61,6 +61,8 @@ import { cellAnchorToSref } from "@wafflebase/sheets";
 import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
 import type { SheetCellAnchor } from "@/types/comments";
 import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
+import { HistoryPanel } from "@/components/history/history-panel";
+import { isHistoryEnabled } from "@/components/history/history-enabled";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
 const DataSourceView = lazy(() =>
@@ -124,6 +126,23 @@ function DocumentLayout({ documentId }: { documentId: string }) {
   const commentJumpSeq = useRef(0);
   const jumpRequestSeq = useRef(0);
 
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Held for Task 11's preview surface; nothing reads it yet.
+  const [, setPreviewRevisionId] = useState<string | null>(null);
+  // Bumped on restore to remount the active tab's view, dropping its local
+  // selection/caret state. `doc.clearHistory()` (below) separately drops the
+  // Yorkie undo stack — a restore replaces the whole root, so neither piece
+  // of state describes a document that still exists.
+  const [historyResetToken, setHistoryResetToken] = useState(0);
+  const handleHistoryRestored = useCallback(() => {
+    try {
+      doc?.clearHistory();
+    } catch {
+      // Best-effort: the document may already be detached.
+    }
+    setHistoryResetToken((t) => t + 1);
+  }, [doc]);
+
   const navigate = useNavigate();
 
   const {
@@ -133,6 +152,16 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
     retry: false,
+  });
+
+  // Re-reads the same cached ["me"] entry DocumentDetail already populated
+  // (react-query dedupes on the key), matching the pattern DocsView uses for
+  // the same purpose rather than threading the id down as a prop.
+  const { data: currentUser } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
   });
 
   useEffect(() => {
@@ -599,6 +628,12 @@ function DocumentLayout({ documentId }: { documentId: string }) {
     : [];
   const activeTab = root && activeTabId ? root.tabs[activeTabId] : undefined;
 
+  // This route is only ever reached by an authenticated workspace member
+  // (mounted behind PrivateRoute) — a share-link viewer or editor opens the
+  // document through /shared/:token instead, which never mounts this
+  // component. The role is therefore always "member" here.
+  const historyEnabled = isHistoryEnabled(import.meta.env, "member");
+
   return (
     <SidebarProvider>
       <AppSidebar
@@ -627,6 +662,19 @@ function DocumentLayout({ documentId }: { documentId: string }) {
             >
               <IconMessage size={16} />
             </button>
+            {historyEnabled && (
+              <button
+                type="button"
+                className={`inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border text-sm hover:bg-muted ${
+                  historyOpen ? "bg-muted" : ""
+                }`}
+                aria-label={historyOpen ? "Hide version history" : "Show version history"}
+                aria-pressed={historyOpen}
+                onClick={() => setHistoryOpen((v) => !v)}
+              >
+                <IconHistory size={16} />
+              </button>
+            )}
             <ShareDialog documentId={documentId} />
             <UserPresence onSelectPeer={handleSelectPeer} getJumpHint={getJumpHint} />
           </div>
@@ -639,11 +687,18 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                   {!ready || !activeTabId ? (
                     <Loader />
                   ) : activeTab?.type === "datasource" ? (
-                    <DataSourceView tabId={activeTabId} />
+                    <DataSourceView
+                      key={`${activeTabId}-${historyResetToken}`}
+                      tabId={activeTabId}
+                    />
                   ) : activeTab?.type === "lakehouse" ? (
-                    <LakehouseView key={activeTabId} tabId={activeTabId} />
+                    <LakehouseView
+                      key={`${activeTabId}-${historyResetToken}`}
+                      tabId={activeTabId}
+                    />
                   ) : (
                     <SheetView
+                      key={`${activeTabId}-${historyResetToken}`}
                       tabId={activeTabId}
                       peerJumpTarget={peerJumpTarget}
                       commentJumpTarget={commentJumpTarget}
@@ -685,6 +740,14 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 );
                 return sref ? <span>{sref}</span> : null;
               }}
+            />
+          )}
+          {historyEnabled && historyOpen && currentUser && (
+            <HistoryPanel
+              userId={currentUser.id}
+              onClose={() => setHistoryOpen(false)}
+              onPreview={setPreviewRevisionId}
+              onRestored={handleHistoryRestored}
             />
           )}
         </div>

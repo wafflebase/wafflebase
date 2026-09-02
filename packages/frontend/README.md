@@ -28,6 +28,13 @@ Create a `.env` file (or set these in your shell):
 VITE_FRONTEND_BASENAME=/          # Router base path
 VITE_BACKEND_API_URL=http://localhost:3000  # Backend API URL
 VITE_YORKIE_PUBLIC_KEY=           # Yorkie project public key
+VITE_WB_REVISION_HISTORY=         # Optional. Version history entry point
+                                   # (sheets/docs/slides/notes/board). Off by
+                                   # default; must be exactly "true" to
+                                   # enable — any other value, including "1",
+                                   # is off. Ships dark until Yorkie gates
+                                   # the revision RPCs behind the auth
+                                   # webhook. See `isHistoryEnabled`.
 ```
 
 ### Development

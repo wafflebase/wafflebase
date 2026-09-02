@@ -18,7 +18,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { usePresenceUpdater } from "@/hooks/use-presence-updater";
-import { IconMessage } from "@tabler/icons-react";
+import { IconMessage, IconHistory } from "@tabler/icons-react";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
 import { initialDocsRoot, type YorkieDocsRoot } from "@/types/docs-document";
@@ -27,6 +27,8 @@ import type { EditContext } from "@wafflebase/docs";
 import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
 import { DocsExportButton } from "./docs-export-button";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
+import { HistoryPanel } from "@/components/history/history-panel";
+import { isHistoryEnabled } from "@/components/history/history-enabled";
 
 
 /**
@@ -41,6 +43,23 @@ function DocsLayout({ documentId }: { documentId: string }) {
 
   const { doc } = useDocument<YorkieDocsRoot, DocsPresence>();
   const [jumpHandle, setJumpHandle] = useState<JumpHandle | null>(null);
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Held for Task 11's preview surface; nothing reads it yet.
+  const [, setPreviewRevisionId] = useState<string | null>(null);
+  // Bumped on restore to remount DocsView, dropping its local selection and
+  // caret state. `doc.clearHistory()` (below) separately drops the Yorkie
+  // undo stack — a restore replaces the whole root, so neither piece of
+  // state describes a document that still exists.
+  const [historyResetToken, setHistoryResetToken] = useState(0);
+  const handleHistoryRestored = useCallback(() => {
+    try {
+      doc?.clearHistory();
+    } catch {
+      // Best-effort: the document may already be detached.
+    }
+    setHistoryResetToken((t) => t + 1);
+  }, [doc]);
 
   const handleSelectPeer = useCallback(
     (clientID: string) => {
@@ -89,6 +108,16 @@ function DocsLayout({ documentId }: { documentId: string }) {
     retry: false,
   });
 
+  // Re-reads the same cached ["me"] entry DocsDetail already populated
+  // (react-query dedupes on the key), matching the pattern DocsView uses for
+  // the same purpose rather than threading the id down as a prop.
+  const { data: currentUser } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
+
   useEffect(() => {
     document.title = documentData?.title
       ? `${documentData.title} — Wafflebase`
@@ -134,6 +163,12 @@ function DocsLayout({ documentId }: { documentId: string }) {
     [documentId, queryClient],
   );
 
+  // This route is only ever reached by an authenticated workspace member
+  // (mounted behind PrivateRoute) — a share-link viewer or editor opens the
+  // document through /shared/:token instead, which never mounts this
+  // component. The role is therefore always "member" here.
+  const historyEnabled = isHistoryEnabled(import.meta.env, "member");
+
   return (
     <SidebarProvider>
       <AppSidebar
@@ -169,6 +204,26 @@ function DocsLayout({ documentId }: { documentId: string }) {
                 {commentsPanelOpen ? "Hide comments" : "Show comments"}
               </TooltipContent>
             </Tooltip>
+            {historyEnabled && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Toggle
+                    size="sm"
+                    className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+                    aria-label={
+                      historyOpen ? "Hide version history" : "Show version history"
+                    }
+                    pressed={historyOpen}
+                    onPressedChange={setHistoryOpen}
+                  >
+                    <IconHistory size={16} />
+                  </Toggle>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {historyOpen ? "Hide version history" : "Show version history"}
+                </TooltipContent>
+              </Tooltip>
+            )}
             <DocsExportButton
               editor={editor}
               title={documentData?.title ?? "document"}
@@ -182,14 +237,25 @@ function DocsLayout({ documentId }: { documentId: string }) {
         </SiteHeader>
         <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
           <DocsFormattingToolbar editor={editor} editContext={editContext} />
-          <DocsView
-            onEditorReady={setEditor}
-            onJumpHandleReady={setJumpHandle}
-            documentId={documentId}
-            workspaceId={documentData?.workspaceId}
-            commentsPanelOpen={commentsPanelOpen}
-            onCommentsPanelOpenChange={setCommentsPanelOpen}
-          />
+          <div className="flex flex-1 min-h-0 overflow-hidden">
+            <DocsView
+              key={historyResetToken}
+              onEditorReady={setEditor}
+              onJumpHandleReady={setJumpHandle}
+              documentId={documentId}
+              workspaceId={documentData?.workspaceId}
+              commentsPanelOpen={commentsPanelOpen}
+              onCommentsPanelOpenChange={setCommentsPanelOpen}
+            />
+            {historyEnabled && historyOpen && currentUser && (
+              <HistoryPanel
+                userId={currentUser.id}
+                onClose={() => setHistoryOpen(false)}
+                onPreview={setPreviewRevisionId}
+                onRestored={handleHistoryRestored}
+              />
+            )}
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>

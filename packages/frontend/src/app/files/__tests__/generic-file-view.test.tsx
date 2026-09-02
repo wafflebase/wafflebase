@@ -11,9 +11,8 @@ describe("GenericFileView", () => {
         fileSize={2048}
       />,
     );
-    // No @testing-library/jest-dom in this repo (not installed anywhere in
-    // the monorepo) — getByText already throws if no match is found, so
-    // toBeTruthy() gives the same assertion strength as toBeInTheDocument().
+    // getByText already throws if no match is found, so toBeTruthy() gives
+    // the same assertion strength as toBeInTheDocument().
     expect(screen.getByText("quarterly-report")).toBeTruthy();
     expect(screen.getByText("ZIP")).toBeTruthy();
     expect(screen.getByText("2.0 KB")).toBeTruthy();

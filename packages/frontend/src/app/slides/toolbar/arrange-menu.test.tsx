@@ -17,9 +17,9 @@ function renderArrangeMenu(props: ArrangeMenuProps) {
 /**
  * The Align submenu trigger is the observable proxy for `canAlign` — it and
  * every item under it share the same disabled flag. Radix marks a disabled
- * menu item with `data-disabled=""`; it is simply absent when enabled (no
- * `@testing-library/jest-dom` in this repo, so we read the attribute
- * directly rather than using a `toHaveAttribute` matcher).
+ * menu item with `data-disabled=""`; it is simply absent when enabled, so
+ * we read the attribute directly rather than using a `toHaveAttribute`
+ * matcher.
  */
 async function openArrange() {
   await userEvent.click(screen.getByRole('button', { name: /arrange/i }));

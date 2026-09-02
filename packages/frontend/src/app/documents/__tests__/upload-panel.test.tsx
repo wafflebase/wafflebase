@@ -16,9 +16,8 @@ describe("UploadPanel", () => {
     q.enqueue([new File([new Uint8Array([1])], "deck.pptx"),
                new File([new Uint8Array([1])], "archive.zip")]);
     render(<MemoryRouter><UploadPanel /></MemoryRouter>);
-    // No @testing-library/jest-dom in this repo (not installed anywhere in
-    // the monorepo) — getByText already throws if no match is found, so
-    // toBeTruthy() gives the same assertion strength as toBeInTheDocument().
+    // getByText already throws if no match is found, so toBeTruthy() gives
+    // the same assertion strength as toBeInTheDocument().
     expect(screen.getByText("deck.pptx")).toBeTruthy();
     expect(screen.getByText("archive.zip")).toBeTruthy();
   });

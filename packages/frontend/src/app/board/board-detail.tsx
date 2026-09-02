@@ -1,7 +1,7 @@
-import { DocumentProvider } from "@yorkie-js/react";
+import { DocumentProvider, useDocument } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchMe } from "@/api/auth";
 import { fetchDocument, renameDocument } from "@/api/documents";
 import { toast } from "sonner";
@@ -11,10 +11,23 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { ShareDialog } from "@/components/share-dialog";
 import { UserPresence } from "@/components/user-presence";
+import { Toggle } from "@/components/ui/toggle";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { IconHistory } from "@tabler/icons-react";
 import { useWorkspaceNavItems } from "@/hooks/use-workspace-nav-items";
 import { fetchWorkspaces, type Workspace } from "@/api/workspaces";
-import { initialBoardRoot } from "@/types/board-document";
+import {
+  initialBoardRoot,
+  type YorkieBoardRoot,
+  type BoardPresence,
+} from "@/types/board-document";
 import { BoardView } from "./board-view";
+import { HistoryPanel } from "@/components/history/history-panel";
+import { isHistoryEnabled } from "@/components/history/history-enabled";
 
 /**
  * BoardLayout provides the global sidebar + top header chrome around the
@@ -26,11 +39,39 @@ import { BoardView } from "./board-view";
 function BoardLayout({ documentId }: { documentId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { doc } = useDocument<YorkieBoardRoot, BoardPresence>();
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Held for Task 11's preview surface; nothing reads it yet.
+  const [, setPreviewRevisionId] = useState<string | null>(null);
+  // Bumped on restore to remount BoardView, dropping its local selection
+  // state. `doc.clearHistory()` (below) separately drops the Yorkie undo
+  // stack — a restore replaces the whole root, so neither piece of state
+  // describes a document that still exists.
+  const [historyResetToken, setHistoryResetToken] = useState(0);
+  const handleHistoryRestored = useCallback(() => {
+    try {
+      doc?.clearHistory();
+    } catch {
+      // Best-effort: the document may already be detached.
+    }
+    setHistoryResetToken((t) => t + 1);
+  }, [doc]);
 
   const { data: documentData, isError: isDocumentError } = useQuery({
     queryKey: ["document", documentId],
     queryFn: () => fetchDocument(documentId),
     retry: false,
+  });
+
+  // Re-reads the same cached ["me"] entry BoardDetail already populated
+  // (react-query dedupes on the key) — needed for the history panel's
+  // userId, which is not otherwise threaded down to this layout.
+  const { data: currentUser } = useQuery({
+    queryKey: ["me"],
+    queryFn: fetchMe,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
   });
 
   useEffect(() => {
@@ -77,6 +118,12 @@ function BoardLayout({ documentId }: { documentId: string }) {
     [documentId, queryClient],
   );
 
+  // This route is only ever reached by an authenticated workspace member
+  // (mounted behind PrivateRoute) — a share-link viewer or editor opens the
+  // board through /shared/:token instead, which never mounts this
+  // component. The role is therefore always "member" here.
+  const historyEnabled = isHistoryEnabled(import.meta.env, "member");
+
   return (
     <SidebarProvider>
       <AppSidebar
@@ -94,12 +141,44 @@ function BoardLayout({ documentId }: { documentId: string }) {
           onRename={handleRenameDocument}
         >
           <div className="flex items-center gap-2">
+            {historyEnabled && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Toggle
+                    size="sm"
+                    className="h-8 w-8 min-w-8 cursor-pointer border p-0"
+                    aria-label={
+                      historyOpen ? "Hide version history" : "Show version history"
+                    }
+                    pressed={historyOpen}
+                    onPressedChange={setHistoryOpen}
+                  >
+                    <IconHistory size={16} />
+                  </Toggle>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {historyOpen ? "Hide version history" : "Show version history"}
+                </TooltipContent>
+              </Tooltip>
+            )}
             <ShareDialog documentId={documentId} />
             <UserPresence />
           </div>
         </SiteHeader>
-        <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <BoardView documentId={documentId} workspaceId={documentData?.workspaceId} />
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          <BoardView
+            key={historyResetToken}
+            documentId={documentId}
+            workspaceId={documentData?.workspaceId}
+          />
+          {historyEnabled && historyOpen && currentUser && (
+            <HistoryPanel
+              userId={currentUser.id}
+              onClose={() => setHistoryOpen(false)}
+              onPreview={setPreviewRevisionId}
+              onRestored={handleHistoryRestored}
+            />
+          )}
         </div>
       </SidebarInset>
     </SidebarProvider>
