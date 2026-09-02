@@ -459,14 +459,18 @@ export class TemplateService {
     userId: number,
     dto: SubmitTemplateDto,
   ): Promise<TemplateListingView> {
-    assertPublicTierOpen();
-    this.assertPublicTierPreconditions();
-
     const listing = await this.prisma.templateListing.findUnique({
       where: { id },
     });
     if (!listing) throw new NotFoundException('Template not found');
+    // Authorization before configuration. The tier gate and its preconditions
+    // are cheaper, but running them first tells anyone who is merely signed in
+    // how this deployment is configured — and answers a non-manager with "no
+    // reviewers configured" when the true answer is "not yours".
     await this.assertManager(listing.documentId, userId);
+
+    assertPublicTierOpen();
+    this.assertPublicTierPreconditions();
 
     if (!dto.acceptLicense) {
       throw new BadRequestException(

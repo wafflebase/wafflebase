@@ -85,6 +85,17 @@ Todo: [20260902-template-gallery-public-tier-todo.md](./20260902-template-galler
 - **`eslint --fix <dir>` reformats files you did not touch.** Twice it added
   prettier-only churn to unrelated specs and controllers. Lint the files you
   changed, and check `git diff --stat` before committing.
+- **`verify:fast` does not run the e2e lane, and CI does.** A constructor
+  signature change broke `document-copy-attached.e2e-spec.ts`, which only
+  `verify-integration` compiles — six local gates were green while CI was red.
+  When a service gains a dependency, grep `test/` for `new <Service>` and run
+  `RUN_DB_INTEGRATION_TESTS=true pnpm --filter @wafflebase/backend test:e2e`
+  against a scratch database (create one, `migrate deploy`, drop it — never the
+  shared dev DB).
+- **Authorization before configuration.** `submit()` checked the tier gate and
+  its deployment preconditions before `assertManager`, so a non-manager was
+  told "no reviewers configured" instead of "not yours" — the cheaper check
+  ran first, and leaked how the deployment is set up to anyone signed in.
 - **Sequence dependent queries on success, not on `!isError`.** `enabled:
   !queue.isError` still fires on the first render, because nothing is an error
   yet — a non-reviewer collected two 403s for one page.

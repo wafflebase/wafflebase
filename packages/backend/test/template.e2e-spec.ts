@@ -187,6 +187,9 @@ describeDb('Template gallery (HTTP, Prisma-backed)', () => {
     });
 
     it('refuses the public tier with 400', async () => {
+      // Permanently, not "until Phase 3": `visibility: 'public'` has exactly
+      // one writer, the approve arm of `POST /templates/:id/review`. No
+      // request body ever reaches it.
       await request(app.getHttpServer())
         .post(`/documents/${documentId}/template`)
         .set('Cookie', authCookie(owner))
@@ -247,7 +250,8 @@ describeDb('Template gallery (HTTP, Prisma-backed)', () => {
     });
 
     it('serves the public scope anonymously, and it is empty', async () => {
-      // Nothing can reach the public tier until the review pipeline exists,
+      // Empty because nothing in this suite has been approved — the tier is
+      // open, but a listing only becomes public through review.
       // so the route must answer rather than 401 — with no rows.
       await publish({ visibility: 'workspace' });
       const res = await request(app.getHttpServer())
@@ -372,6 +376,86 @@ describeDb('Template gallery (HTTP, Prisma-backed)', () => {
       await publish({ visibility: 'workspace' });
       await prisma.document.delete({ where: { id: documentId } });
       expect(await prisma.templateListing.count()).toBe(0);
+    });
+  });
+  describe('reports', () => {
+    it('refuses a report on a listing that is not public', async () => {
+      // A report routes the listing to the global reviewer allowlist with its
+      // preview token; a workspace or unlisted listing has its own trust
+      // boundary and does not go there.
+      const listing = await publish({ visibility: 'unlisted' });
+      await request(app.getHttpServer())
+        .post(`/templates/${listing.id}/report`)
+        .set('Cookie', authCookie(outsider))
+        .send({ reason: 'spam' })
+        .expect(404);
+      expect(await prisma.templateReport.count()).toBe(0);
+    });
+
+    it('refuses an anonymous reporter', async () => {
+      const listing = await publish();
+      await request(app.getHttpServer())
+        .post(`/templates/${listing.id}/report`)
+        .send({ reason: 'spam' })
+        .expect(401);
+    });
+
+    it('refuses a reason outside the closed list', async () => {
+      const listing = await publish();
+      await request(app.getHttpServer())
+        .post(`/templates/${listing.id}/report`)
+        .set('Cookie', authCookie(outsider))
+        .send({ reason: 'because-i-said-so' })
+        .expect(400);
+    });
+
+    it('gates the reviewer queue on the allowlist', async () => {
+      // Nobody is on it in this suite's environment, so every reviewer route
+      // refuses — which is the direction an unconfigured deployment must fail
+      // in.
+      await request(app.getHttpServer())
+        .get('/admin/templates/reports')
+        .set('Cookie', authCookie(owner))
+        .expect(403);
+      await request(app.getHttpServer())
+        .get('/admin/templates/review')
+        .set('Cookie', authCookie(owner))
+        .expect(403);
+    });
+  });
+
+  describe('submitting for the public tier', () => {
+    it('refuses without the license grant', async () => {
+      const listing = await publish();
+      await request(app.getHttpServer())
+        .post(`/templates/${listing.id}/submit`)
+        .set('Cookie', authCookie(owner))
+        .send({ acceptLicense: false })
+        .expect(400);
+    });
+
+    it('refuses a plain member', async () => {
+      const listing = await publish();
+      await request(app.getHttpServer())
+        .post(`/templates/${listing.id}/submit`)
+        .set('Cookie', authCookie(outsider))
+        .send({ acceptLicense: true })
+        .expect(403);
+    });
+
+    it('refuses while the deployment has no reviewers configured', async () => {
+      // The precondition that keeps a submission from being accepted and then
+      // stranded: nothing could ever decide it.
+      const listing = await publish();
+      await request(app.getHttpServer())
+        .post(`/templates/${listing.id}/submit`)
+        .set('Cookie', authCookie(owner))
+        .send({ acceptLicense: true })
+        .expect(400);
+      const row = await prisma.templateListing.findUnique({
+        where: { id: listing.id as string },
+      });
+      expect(row?.status).toBe('listed');
     });
   });
 });

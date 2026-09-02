@@ -81,10 +81,16 @@ describeAttached('document copy — JSON root arm, attached', () => {
       deleteDocument: jest.fn(async () => ({ id: targetId })),
     };
     const fileService = { copy: jest.fn(), delete: jest.fn() };
+    // This copy stays inside `ws-1`, so re-hosting never runs and neither
+    // dependency is reached — they are here to satisfy the constructor.
+    const imageService = { copy: jest.fn(), size: jest.fn(), delete: jest.fn() };
+    const config = { get: () => undefined };
     const service = new DocumentCopyService(
       documentService as never,
       fileService as never,
       yorkieService,
+      imageService as never,
+      config as never,
     );
 
     await service.copy(
