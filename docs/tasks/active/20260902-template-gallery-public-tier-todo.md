@@ -2,6 +2,7 @@
 
 Design doc: [template-gallery.md](../../design/template-gallery.md)
 Predecessor task: [20260901-template-gallery-todo.md](./20260901-template-gallery-todo.md)
+PR: [#1009](https://github.com/wafflebase/wafflebase/pull/1009) — the plan, and where 3a lands
 Status: **planned, nothing implemented.** `visibility: 'public'` is still
 refused with a `400` and stays refused until 3d lands.
 
