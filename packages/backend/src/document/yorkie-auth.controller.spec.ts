@@ -257,9 +257,10 @@ describe('YorkieAuthController.decide (revision methods)', () => {
   // Yorkie has no auth-webhook method allow-list yet, so these four methods
   // reach `decide()` exactly like any other document-scoped method and are
   // authorized by the same fall-through `checkAttribute` path PushPull uses
-  // above. This pins that fall-through so a future refactor that introduces
-  // a method allow-list can't silently reopen the hole it closes today: see
-  // docs/design/revision-history.md.
+  // above — with one deliberate exception, `REVISION_READ_METHODS`, which
+  // requires editor-or-member authority despite carrying verb `r`. These
+  // tests pin both, so a future refactor can't silently reopen the hole they
+  // close today: see docs/design/revision-history.md §2.
   const documentId = '1';
   const key = `doc-${documentId}`;
 
@@ -276,6 +277,14 @@ describe('YorkieAuthController.decide (revision methods)', () => {
       identity: { typ: 'yorkie-share', shareToken: 's' },
       doc: { id: documentId, workspaceId: 'ws' },
       share: { documentId, role: 'viewer' },
+    });
+  }
+
+  function editorShareController() {
+    return makeController({
+      identity: { typ: 'yorkie-share', shareToken: 's' },
+      doc: { id: documentId, workspaceId: 'ws' },
+      share: { documentId, role: 'editor' },
     });
   }
 
@@ -306,6 +315,52 @@ describe('YorkieAuthController.decide (revision methods)', () => {
       expect(decision).toMatchObject({ allowed: false, status: 403 });
     },
   );
+
+  // The other half of that sentence, and the half a plain verb check gets
+  // wrong: `getRevision` hands back a full snapshot of every past state,
+  // including content deleted before the link was shared. Verb `r` alone
+  // would let a viewer through.
+  it.each(['ListRevisions', 'GetRevision'])(
+    'denies a viewer share link on %s even though its verb is read',
+    async (method) => {
+      const decision = await viewerShareController().decide({
+        token: 't',
+        method,
+        attributes: [{ key, verb: 'r' }],
+      });
+      expect(decision).toMatchObject({ allowed: false, status: 403 });
+    },
+  );
+
+  // ...and the people who must keep it. Denying a viewer is only correct if
+  // it does not also deny the users the panel is built for.
+  it.each(['ListRevisions', 'GetRevision'])(
+    'still allows a share-link editor on %s',
+    async (method) => {
+      const decision = await editorShareController().decide({
+        token: 't',
+        method,
+        attributes: [{ key, verb: 'r' }],
+      });
+      expect(decision).toMatchObject({ allowed: true, status: 200 });
+    },
+  );
+
+  // (A workspace member is already covered for all four methods by the
+  // `allows a workspace member on %s (%s)` case above, which passes
+  // `ListRevisions`/`GetRevision` with verb `r`.)
+
+  // The rule is scoped to the revision reads, not to verb `r` at large: an
+  // ordinary read (PushPull/Watch) must still work for a viewer, which is
+  // the whole point of a viewer share link.
+  it('leaves an ordinary read open to a viewer share link', async () => {
+    const decision = await viewerShareController().decide({
+      token: 't',
+      method: 'PushPull',
+      attributes: [{ key, verb: 'r' }],
+    });
+    expect(decision).toMatchObject({ allowed: true, status: 200 });
+  });
 
   it('denies an unknown document key on ListRevisions', async () => {
     const decision = await memberController().decide({

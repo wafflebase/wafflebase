@@ -548,6 +548,51 @@ describeAttached('revision history read-only refusal', () => {
       // Unchanged since the owner's own control-probe restore above.
       expect(ownerDoc.getRoot().marker).toBe('owner-baseline');
 
+      // Snapshot *reads*, the other half of the claim this suite makes. A
+      // revision snapshot is a full copy of a past root, so a viewer who can
+      // call `getRevision` can read content deleted before the link was ever
+      // shared — which is why `REVISION_READ_METHODS` in
+      // `yorkie-auth.controller.ts` demands editor-or-member authority for
+      // these two despite Yorkie sending them with verb `r`.
+      //
+      // Control first, for the same reason the restore probe has one: the
+      // owner must still be able to list and read, or "the viewer was
+      // refused" would be equally consistent with the reads being broken for
+      // everyone.
+      const ownerList = await ownerClient.listRevisions(ownerDoc, {
+        pageSize: 10,
+      });
+      expect(ownerList.length).toBeGreaterThan(0);
+      const ownerGet = await ownerClient.getRevision(ownerDoc, rev.id);
+      expect(typeof ownerGet.snapshot).toBe('string');
+
+      const viewerList = await observe(
+        viewerClient.listRevisions(viewerDoc, { pageSize: 10 }),
+      );
+      expect(viewerList.resolved).toBe(false);
+      expect(!viewerList.resolved && isPermissionDenied(viewerList.error)).toBe(
+        true,
+      );
+
+      const viewerGet = await observe(
+        viewerClient.getRevision(viewerDoc, rev.id),
+      );
+      expect(viewerGet.resolved).toBe(false);
+      expect(!viewerGet.resolved && isPermissionDenied(viewerGet.error)).toBe(
+        true,
+      );
+
+      // The reads reach the webhook with real attributes, exactly like the
+      // restore does — the deny above is a role decision, not a fail-closed
+      // `attributes: null` accident like `CreateRevision`'s.
+      for (const method of ['ListRevisions', 'GetRevision']) {
+        const calls = webhookCalls.filter((c) => c.method === method);
+        expect(calls.length).toBeGreaterThanOrEqual(2);
+        for (const call of calls) {
+          expect(call.attributes).toEqual([{ key, verb: 'r' }]);
+        }
+      }
+
       // Turn the one-time manual "I logged the raw webhook body by hand"
       // observation into a standing regression guard: every
       // `RestoreRevision` call (the owner's control probe and the viewer's)

@@ -197,6 +197,16 @@ nuisance rather than a destructive hole, and closing it needs an upstream fix
 The other three revision methods do receive real attributes and are authorized
 correctly — verified by `test/revision-history.e2e-spec.ts`.
 
+`ListRevisions` and `GetRevision` are a deliberate exception to the plain
+verb check. Yorkie sends them with verb `r`, which a share-link **viewer**
+passes; but `getRevision` returns a full snapshot of every past state,
+including content deleted before the link was shared. So
+`REVISION_READ_METHODS` in `yorkie-auth.controller.ts` requires the same
+editor-or-member authority a write does for those two. Workspace members and
+share-link *editors* keep their history; only viewers lose it, matching Google
+Docs and the panel's own client-side gating. An ordinary `r` (`PushPull`,
+`Watch`) is untouched — a viewer can still read the document itself.
+
 Roll out with `YORKIE_AUTH_WEBHOOK_ENFORCE=false` first (shadow mode — logs the
 decision it *would* make), confirm no false denials, then flip to `true`.
 Unregister the methods (`--auth-webhook-method-rm ALL`) to disable. Shadow mode
