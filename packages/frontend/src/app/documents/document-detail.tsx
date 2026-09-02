@@ -688,7 +688,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                     <Loader />
                   ) : activeTab?.type === "datasource" ? (
                     <DataSourceView
-                      key={`${activeTabId}-${historyResetToken}`}
+                      key={historyResetToken}
                       tabId={activeTabId}
                     />
                   ) : activeTab?.type === "lakehouse" ? (
@@ -698,7 +698,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                     />
                   ) : (
                     <SheetView
-                      key={`${activeTabId}-${historyResetToken}`}
+                      key={historyResetToken}
                       tabId={activeTabId}
                       peerJumpTarget={peerJumpTarget}
                       commentJumpTarget={commentJumpTarget}
