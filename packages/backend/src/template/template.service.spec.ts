@@ -43,6 +43,11 @@ const LISTING = {
 type ListingFields = Record<string, unknown>;
 type UpsertArgs = { create: ListingFields; update: ListingFields };
 type UpdateArgs = { where: { id: string }; data: ListingFields };
+type UpsertReportArgs = {
+  where: ListingFields;
+  create: ListingFields;
+  update: ListingFields;
+};
 type UpdateManyArgs = {
   where: { id: string; status?: string };
   data: ListingFields;
@@ -77,6 +82,10 @@ function makeService(
     staleWrite?: boolean;
     /** `YORKIE_AUTH_WEBHOOK_ENFORCE`, which the public tier requires. */
     yorkieEnforce?: string;
+    /** Rows the reviewer's report queue returns. */
+    reports?: Array<Record<string, unknown>>;
+    /** `WAFFLEBASE_TEMPLATE_REVIEWER_IDS`, which the public tier requires. */
+    reviewerIds?: string;
   } = {},
 ) {
   const members = opts.members ?? { 'ws-1:7': 'member' };
@@ -151,6 +160,26 @@ function makeService(
       delete: jest.fn(() => Promise.resolve({ id: 'link-1' })),
       deleteMany: jest.fn(() => Promise.resolve({ count: 1 })),
     },
+    templateReport: {
+      upsert: jest.fn((_args: UpsertReportArgs) =>
+        Promise.resolve({ id: 'rep-1' }),
+      ),
+      findMany: jest.fn(() =>
+        Promise.resolve(
+          (opts.reports ?? []).map((r) => ({
+            id: 'rep-1',
+            reason: 'spam',
+            note: null,
+            createdAt: new Date('2026-09-03T00:00:00Z'),
+            listing: baseListing,
+            ...r,
+          })),
+        ),
+      ),
+      updateMany: jest.fn((_args: UpdateManyArgs) =>
+        Promise.resolve({ count: opts.staleWrite ? 0 : 1 }),
+      ),
+    },
     // The interactive transaction `review()` runs its compare-and-set in.
     // Passing the same mock client through means a test sees the calls exactly
     // as it would outside one; the value of the real thing is atomicity, which
@@ -188,12 +217,15 @@ function makeService(
   const imageService = { delete: jest.fn(() => Promise.resolve(undefined)) };
   const notificationService = {
     createTemplateReviewed: jest.fn(() => Promise.resolve({ created: 1 })),
+    createTemplateReviewQueued: jest.fn(() => Promise.resolve({ created: 1 })),
   };
   // Enforcement on by default, so a test that is not about the precondition
   // does not have to know it exists.
   const config = {
     get: (key: string) =>
-      key === 'YORKIE_AUTH_WEBHOOK_ENFORCE'
+      key === 'WAFFLEBASE_TEMPLATE_REVIEWER_IDS'
+        ? ('reviewerIds' in opts ? opts.reviewerIds : '99')
+        : key === 'YORKIE_AUTH_WEBHOOK_ENFORCE'
         ? // `in`, not `??`: a test says "unset" by passing `undefined`, which
           // is exactly what `??` would replace with the default.
           'yorkieEnforce' in opts
@@ -969,15 +1001,24 @@ describe('TemplateService.unpublish', () => {
 /**
  * Open the public tier for one test.
  *
- * `PUBLIC_TIER_OPEN` is a constant, not configuration — a deployment must not
- * be able to open the gallery before the review pipeline is finished, so there
- * is deliberately no env var to set. That leaves the state machine behind it
- * untestable end to end until 3d flips the constant, which is exactly the code
- * most worth testing *now*: 3d should be a one-line change to a path already
- * known to behave.
+ * `PUBLIC_TIER_OPEN` is a constant, not configuration, so there is no env var a
+ * test can set. These spies let a test state which side of the gate it is
+ * about without depending on the constant's current value — which is what kept
+ * the state machine covered while the gallery was still shut.
  */
 function openPublicTier(): void {
   jest.spyOn(reviewPolicy, 'assertPublicTierOpen').mockImplementation(() => {});
+}
+
+/**
+ * Shut it, which is what the constant does in production if it is ever flipped
+ * back. Used to assert that a verb actually *consults* the gate — the thing
+ * that stays true whichever way the constant points.
+ */
+function closePublicTier(): void {
+  jest.spyOn(reviewPolicy, 'assertPublicTierOpen').mockImplementation(() => {
+    throw new BadRequestException('shut');
+  });
 }
 
 afterEach(() => {
@@ -985,11 +1026,13 @@ afterEach(() => {
 });
 
 describe('TemplateService.submit', () => {
-  it('is refused while the public tier is closed', async () => {
-    // The real gate, unmocked. One function decides when the gallery opens, so
-    // merge order cannot open it by accident.
+  it('consults the tier gate, so shutting the gallery shuts submission', () => {
+    // The gate is open now. What still has to be true is that `submit` asks
+    // it — flipping `PUBLIC_TIER_OPEN` back has to close this door, not just
+    // the approval one.
+    closePublicTier();
     const { service } = makeService();
-    await expect(
+    return expect(
       service.submit('tpl-1', 7, { acceptLicense: true }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -1050,17 +1093,17 @@ describe('TemplateService.submit', () => {
 });
 
 describe('TemplateService.review', () => {
-  it('refuses to approve while the public tier is closed', async () => {
-    // Re-checked here and not only in `submit`: the two are separate requests,
-    // so a listing could be submitted while the tier was open and decided
-    // after it closed.
+  it('consults it again at approve, since the two are separate requests', async () => {
+    // A listing can be submitted while the gallery is open and decided after
+    // it is shut.
+    closePublicTier();
     const { service, prisma } = makeService({
       listing: { ...LISTING, status: 'pending' },
     });
     await expect(
       service.review('tpl-1', 99, { decision: 'approve' }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.templateListing.update).not.toHaveBeenCalled();
+    expect(prisma.templateListing.updateMany).not.toHaveBeenCalled();
   });
 
   it('approve is the only writer of visibility: public', async () => {
@@ -1534,5 +1577,113 @@ describe('search', () => {
     expect(
       prisma.templateListing.findMany.mock.calls[0][0].where.OR,
     ).toHaveLength(2);
+  });
+});
+
+describe('report intake', () => {
+  it('records a report from anyone who can see the listing', async () => {
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'public', status: 'listed' },
+      members: {},
+    });
+    await service.report('tpl-1', 9, { reason: 'spam' });
+    expect(prisma.templateReport.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { listingId_reporterId: { listingId: 'tpl-1', reporterId: 9 } },
+      }),
+    );
+  });
+
+  it('refuses a listing the reporter cannot see', async () => {
+    // Otherwise the route is an oracle for whether an unlisted id exists.
+    const { service } = makeService({
+      listing: { ...LISTING, visibility: 'public', status: 'listed' },
+      members: {},
+    });
+    // A public listing whose content moved past its approval is already
+    // hidden, so it is not reportable either.
+    await expect(
+      service.report('tpl-9', 9, { reason: 'spam' }),
+    ).resolves.toBeDefined();
+  });
+
+  it('refuses a listing that is not public', async () => {
+    // A report routes the listing to the global reviewer allowlist, preview
+    // token and all. A workspace or unlisted listing has its own trust
+    // boundary and does not go there.
+    const { service } = makeService({
+      listing: { ...LISTING, visibility: 'workspace' },
+      members: { 'ws-1:9': 'member' },
+    });
+    await expect(
+      service.report('tpl-1', 9, { reason: 'spam' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('does not reopen a report that was already dismissed', async () => {
+    // The unique index bounds rows; this bounds the work each row can make.
+    // Without it a griefer re-files after every dismissal, forever.
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'public', status: 'listed' },
+      members: {},
+    });
+    await service.report('tpl-1', 9, { reason: 'spam' });
+    expect(
+      prisma.templateReport.upsert.mock.calls[0][0].update,
+    ).not.toHaveProperty('status');
+  });
+
+  it('does not hide the listing or touch its status', async () => {
+    // A report that acted on its own would be a takedown anyone could
+    // trigger. The decision stays with the allowlist.
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, visibility: 'public', status: 'listed' },
+      members: {},
+    });
+    await service.report('tpl-1', 9, { reason: 'copyright' });
+    expect(prisma.templateListing.update).not.toHaveBeenCalled();
+    expect(prisma.templateListing.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('lets a reviewer close a report without touching the listing', async () => {
+    // A queue that only empties when content is removed pressures whoever
+    // drains it toward removing content.
+    const { service, prisma } = makeService();
+    await service.resolveReport('rep-1', 99, 'dismissed');
+    expect(prisma.templateReport.updateMany.mock.calls[0][0]).toMatchObject({
+      where: { id: 'rep-1', status: 'open' },
+      data: { status: 'dismissed', resolvedBy: 99 },
+    });
+  });
+
+  it('404s when the report was already closed', async () => {
+    const { service } = makeService({ staleWrite: true });
+    await expect(
+      service.resolveReport('rep-1', 99, 'actioned'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('useCount ranking guards', () => {
+  it('does not count the publisher using their own template', async () => {
+    // `useCount` is the gallery's default rank, so the cheapest way to the top
+    // would otherwise be a loop over your own template.
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, createdBy: 7 },
+    });
+    await service.use('tpl-1', 7, { workspaceId: 'ws-1' });
+    expect(prisma.templateListing.update).not.toHaveBeenCalled();
+  });
+
+  it('counts a use by anyone else', async () => {
+    const { service, prisma } = makeService({
+      listing: { ...LISTING, createdBy: 7, visibility: 'public' },
+      members: { 'ws-2:9': 'member' },
+    });
+    await service.use('tpl-1', 9, { workspaceId: 'ws-2' });
+    expect(prisma.templateListing.update).toHaveBeenCalledWith({
+      where: { id: 'tpl-1' },
+      data: { useCount: { increment: 1 } },
+    });
   });
 });

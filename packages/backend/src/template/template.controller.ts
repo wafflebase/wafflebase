@@ -15,14 +15,19 @@ import { Document as DocumentModel } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from 'src/auth/optional-jwt-auth.guard';
 import { AuthenticatedRequest } from 'src/auth/auth.types';
+import { Throttle } from '@nestjs/throttler';
+import { UserThrottlerGuard } from 'src/notification/user-throttler.guard';
 import {
   TemplateBrowsePage,
   TemplateListingView,
+  TemplateReportView,
   TemplateService,
 } from './template.service';
 import {
   BrowseTemplatesDto,
   PublishTemplateDto,
+  ReportTemplateDto,
+  ResolveReportDto,
   ReviewTemplateDto,
   SubmitTemplateDto,
   UpdateTemplateDto,
@@ -163,9 +168,55 @@ export class TemplateController {
     return this.templateService.review(id, Number(req.user.id), body);
   }
 
-  /** Start a new document from this template, in a workspace the caller owns. */
+  /**
+   * Flag a listing for a reviewer. Authenticated so a report is attributable
+   * and the one-per-reporter index can exist, and throttled on the *caller*
+   * rather than their address — the whole point of the unique index is that
+   * one person cannot bury a queue, and IP keying would let them.
+   */
+  @Post('templates/:id/report')
+  @UseGuards(JwtAuthGuard, UserThrottlerGuard)
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  async report(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+    @Body() body: ReportTemplateDto,
+  ): Promise<{ reported: true }> {
+    return this.templateService.report(id, Number(req.user.id), body);
+  }
+
+  /** Open reports, for the review queue. */
+  @Get('admin/templates/reports')
+  @UseGuards(JwtAuthGuard, TemplateReviewerGuard)
+  async listReports(): Promise<TemplateReportView[]> {
+    return this.templateService.listReports();
+  }
+
+  /** Close a report, whether or not the listing was touched. */
+  @Post('admin/templates/reports/:reportId')
+  @UseGuards(JwtAuthGuard, TemplateReviewerGuard)
+  async resolveReport(
+    @Param('reportId') reportId: string,
+    @Req() req: AuthenticatedRequest,
+    @Body() body: ResolveReportDto,
+  ): Promise<{ resolved: true }> {
+    return this.templateService.resolveReport(
+      reportId,
+      Number(req.user.id),
+      body.outcome,
+    );
+  }
+
+  /**
+   * Start a new document from this template, in a workspace the caller owns.
+   *
+   * Throttled per user: a use is a document copy — a Yorkie read plus a write
+   * plus any image re-hosting — and it also increments the counter the public
+   * gallery ranks on. Neither should be reachable in a tight loop.
+   */
   @Post('templates/:id/use')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, UserThrottlerGuard)
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
   async use(
     @Param('id') id: string,
     @Req() req: AuthenticatedRequest,

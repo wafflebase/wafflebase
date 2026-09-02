@@ -21,7 +21,12 @@ import {
   MAX_TEMPLATE_TAG_LENGTH,
   TEMPLATE_CATEGORIES,
 } from './template-taxonomy';
-import { REVIEW_DECISIONS, ReviewDecision } from './template-review';
+import {
+  REPORT_REASONS,
+  ReportReason,
+  REVIEW_DECISIONS,
+  ReviewDecision,
+} from './template-review';
 
 /**
  * A listing's audience — see docs/design/template-gallery.md.
@@ -236,6 +241,22 @@ export class ReviewTemplateDto {
   @IsOptional()
   @IsISO8601({ strict: true })
   contentAt?: string;
+}
+
+export class ReportTemplateDto {
+  @IsIn(REPORT_REASONS)
+  reason: ReportReason;
+
+  /** Optional detail — a link to the original, what is broken, and so on. */
+  @IsOptional()
+  @IsString()
+  @Length(1, MAX_REVIEW_NOTE)
+  note?: string;
+}
+
+export class ResolveReportDto {
+  @IsIn(['dismissed', 'actioned'])
+  outcome: 'dismissed' | 'actioned';
 }
 
 export class UseTemplateDto {

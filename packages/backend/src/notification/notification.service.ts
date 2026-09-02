@@ -272,6 +272,45 @@ export class NotificationService {
   }
 
   /**
+   * Something is waiting in the template review queue.
+   *
+   * Addressed to the reviewer allowlist, and it exists because the queue has
+   * no other signal: `/admin/templates` is a page somebody has to remember to
+   * open, while submissions arrive whenever a publisher acts and re-reviews
+   * arrive whenever anyone edits an approved template's document. An unwatched
+   * queue means the gallery quietly empties, which is the same silent failure
+   * the publisher-facing notifications exist to prevent, seen from the other
+   * side.
+   *
+   * Deduped per listing per day, so a burst of activity is one nudge.
+   */
+  async createTemplateReviewQueued(input: {
+    reviewerIds: number[];
+    listing: { id: string; workspaceId: string; documentId: string };
+    /** Who caused it, when that is a person acting deliberately. */
+    actorId: number | null;
+    at: Date;
+  }): Promise<{ created: number }> {
+    const day = input.at.toISOString().slice(0, 10);
+    return this.insert(
+      unique(input.reviewerIds)
+        // A reviewer reviewing their own submission needs no telling.
+        .filter((id) => id !== input.actorId)
+        .map((recipientId) => ({
+          type: 'template_review_queued',
+          recipientId,
+          actorId: input.actorId,
+          workspaceId: input.listing.workspaceId,
+          documentId: input.listing.documentId,
+          threadId: null,
+          commentId: null,
+          dedupeKey: `${input.listing.id}:queued:${day}`,
+          preview: null,
+        })),
+    );
+  }
+
+  /**
    * One page, newest first. The cursor is the `(createdAt, id)` pair of the
    * last row of the previous page: a timestamp alone would skip every row
    * sharing the boundary instant, and one report inserts its whole batch at a

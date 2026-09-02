@@ -341,6 +341,9 @@ Publishing a document as a template and starting a new document from one
 | `POST` | `/templates/:id/submit` | JWT (manager) | Ask for the public tier (`{ acceptLicense: true }`) |
 | `POST` | `/templates/:id/review` | JWT + reviewer allowlist | `approve` / `reject` / `takedown` |
 | `GET` | `/admin/templates/review` | JWT + reviewer allowlist | Pending submissions, with preview tokens |
+| `POST` | `/templates/:id/report` | JWT (throttled per user) | Flag a listing for a reviewer |
+| `GET` | `/admin/templates/reports` | JWT + reviewer allowlist | Open reports |
+| `POST` | `/admin/templates/reports/:reportId` | JWT + reviewer allowlist | Close a report (`dismissed` / `actioned`) |
 
 A template is **not** a `Document.type` — that column routes which editor opens
 a document, so the listing is a sidecar row and publishing is an upsert on its
@@ -397,12 +400,44 @@ returns `previewToken`s: a reviewer belongs to neither the publisher's
 workspace nor the document, so nothing else would let them see what they are
 deciding.
 
-The tier itself is still closed. `assertPublicTierOpen()`
-(`src/template/template-review.ts`) is consulted by both `submit` and the
-approve arm, and throws until the last Phase 3 PR flips its constant — a
-constant rather than an environment variable, so no deployment can open a
-gallery whose review pipeline is unfinished. Until then the queue is empty by
-construction, which is the intended state, not a defect.
+**The tier is open**, with two runtime preconditions checked at both `submit`
+and `approve` — a setting can change between a submission and its decision:
+
+- `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` must name somebody. No reviewers means no
+  review pipeline.
+- `YORKIE_AUTH_WEBHOOK_ENFORCE` must be `true`. In shadow mode the preview
+  token a public card hands every visitor also grants *write* access to the
+  document, and since an edit returns a listing to review, one request per card
+  would empty the gallery into a queue only a human can drain.
+
+`PUBLIC_TIER_OPEN` (`src/template/template-review.ts`) stays as a constant
+rather than being deleted: it is the one line to flip if the gallery has to be
+shut for a moderation incident or a migration, without reverting a feature or
+teaching every deployment a new setting.
+
+#### Reports
+
+`POST /templates/:id/report` records that somebody objected and does nothing
+else — it does not hide the listing, notify the publisher, or count toward a
+threshold. A report that acted on its own would be a takedown anyone could
+trigger. One row per reporter per listing (a unique index), authorized on "can
+you see this listing", and throttled on the caller rather than their address.
+Reporting is **public-tier only** — a report routes the listing to the global
+reviewer allowlist with its preview token, and a workspace or unlisted listing
+has its own trust boundary. Re-filing updates your reason but does not reopen a
+closed report, so a dismissal cannot be forced back into the queue.
+
+Closing a report is a **separate action from deciding the listing**: most
+reports do not end in a takedown, and a queue that only empties when content is
+removed pressures whoever drains it toward removing content. A takedown does
+close every open report about the listing, inside the same transaction — a
+reviewer who closes the tab mid-session must not leave reports that can never be
+closed, since a second takedown on a `removed` listing is a `400`.
+
+Submissions and re-reviews notify the allowlist (`template_review_queued`,
+deduped per listing per day). Without that the queue is a page somebody has to
+remember to open, while re-reviews arrive whenever anyone edits an approved
+template's document.
 
 ### Miro import (`/workspaces/:workspaceId/miro/import`)
 
@@ -701,7 +736,7 @@ blob with none (see
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | String (PK) | UUID |
-| `type` | String | `comment_mention` / `comment_reply` / `thread_resolved` / `workspace_member_joined` / `template_approved` / `template_rejected` / `template_removed` / `template_needs_review` |
+| `type` | String | `comment_mention` / `comment_reply` / `thread_resolved` / `workspace_member_joined` / `template_approved` / `template_rejected` / `template_removed` / `template_needs_review` / `template_review_queued` |
 | `recipientId` | Int | FK to User (`Cascade`) |
 | `actorId` | Int? | FK to User (`SetNull`) — the notification outlives a deleted actor |
 | `workspaceId` | String | FK to Workspace (`Cascade`) |

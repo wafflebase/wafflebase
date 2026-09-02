@@ -38,6 +38,9 @@ export function notificationSentence(n: Notification): string {
     // often be wrong.
     case "template_needs_review":
       return `${document} left the public gallery for review after it changed`;
+    // Reviewer-facing, so it names the queue rather than "your template".
+    case "template_review_queued":
+      return `${document} is waiting in the template review queue`;
     default:
       return `${actor} sent you a notification`;
   }

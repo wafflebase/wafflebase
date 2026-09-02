@@ -2,7 +2,10 @@ import { BadRequestException } from '@nestjs/common';
 import {
   assertDecisionAllowed,
   assertPublicTierOpen,
+  assertYorkieAuthEnforced,
   parseReviewerIds,
+  PUBLIC_TIER_OPEN,
+  REPORT_REASONS,
 } from './template-review';
 
 describe('parseReviewerIds', () => {
@@ -31,8 +34,38 @@ describe('parseReviewerIds', () => {
 });
 
 describe('assertPublicTierOpen', () => {
-  it('throws until the last Phase 3 PR flips it', () => {
-    expect(() => assertPublicTierOpen()).toThrow(BadRequestException);
+  it('is open now that the pipeline behind it exists', () => {
+    expect(() => assertPublicTierOpen()).not.toThrow();
+  });
+
+  it('is still the one line that shuts the gallery', () => {
+    // Kept as a constant rather than deleted: a moderation incident or a
+    // migration should be one line, not a feature revert. The service tests
+    // cover that both `submit` and `approve` actually consult it.
+    expect(PUBLIC_TIER_OPEN).toBe(true);
+  });
+});
+
+describe('assertYorkieAuthEnforced', () => {
+  it('accepts only an explicit true', () => {
+    expect(() => assertYorkieAuthEnforced('true')).not.toThrow();
+    for (const value of [undefined, '', 'false', 'TRUE', '1', 'yes']) {
+      expect(() => assertYorkieAuthEnforced(value)).toThrow(
+        BadRequestException,
+      );
+    }
+  });
+});
+
+describe('REPORT_REASONS', () => {
+  it('is closed, because it routes a reviewer’s attention', () => {
+    expect([...REPORT_REASONS]).toEqual([
+      'copyright',
+      'inappropriate',
+      'broken',
+      'spam',
+      'other',
+    ]);
   });
 });
 

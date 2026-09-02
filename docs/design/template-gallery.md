@@ -27,8 +27,8 @@ only for the public tier — review and attribution.
 
 ### Scope map
 
-The whole feature, and where each piece lands. "Shipped" is measured against
-`main` at 0.6.8, which carries Phases 1 and 2.
+The whole feature, and where each piece lands. Phases 1 and 2 shipped in 0.6.8;
+Phase 3 is the branch this table now describes.
 
 | Capability | Phase | State |
 | --- | :---: | --- |
@@ -48,8 +48,8 @@ The whole feature, and where each piece lands. "Shipped" is measured against
 | **Frozen-copy promotion** into a system workspace | — | deferred, see [Keeping an approved listing honest](#keeping-an-approved-listing-honest) |
 | **Public `/templates` browse page** + search | 3c | shipped |
 | Takedown state (`removed`) + reviewer queue | 3a | shipped |
-| License grant, attribution, report intake | 3d | — |
-| Ranking guards (self-use, rate limits) | 3d | — |
+| License grant, attribution, report intake | 3d | shipped |
+| Ranking guards (self-use, rate limits) | 3d | shipped |
 | Monetization, versioning, parameterized slots | — | Non-Goal |
 
 Phase 1 built the *spine* — one template, one link, one copy. Phase 2 built the
@@ -235,18 +235,18 @@ model TemplateListing {
   @@index([workspaceId, visibility])
 }
 
-model TemplateReport {                       // Phase 3
+model TemplateReport {                       // Phase 3d
   id         String   @id @default(uuid())
   listingId  String                          // TemplateListing, Cascade
-  reporterId Int                             // User
+  reporterId Int                             // User, Cascade
   reason     String                          // copyright | inappropriate |
                                              // broken | spam | other
   note       String?
   status     String   @default("open")       // open | dismissed | actioned
   createdAt  DateTime @default(now())
 
-  @@unique([listingId, reporterId])
-  @@index([status, createdAt])
+  @@unique([listingId, reporterId])          // one person cannot bury a queue
+  @@index([status, createdAt])               // open reports, oldest first
 }
 ```
 
@@ -355,11 +355,18 @@ not returning to `/t/:id` — are also cleared here, because a gallery makes bot
 much more visible than a single hand-sent link does.
 
 **Phase 3 — Public gallery.** Everything the workspace tier can skip *because*
-its audience is bounded, and the public tier cannot. `visibility: 'public'` is
-still refused with a `400` until all of it exists; the phase is not a flag flip.
-It splits into four independently mergeable PRs — 3a review, 3b promotion, 3c
-browse, 3d trust — and only the last one lifts the refusal. The sections below
-carry the detail.
+its audience is bounded, and the public tier cannot. It shipped as four steps —
+3a review, 3b the bait-and-switch defence plus cross-workspace images, 3c
+browse, 3d trust — and `visibility: 'public'` stayed refused with a `400` until
+the last one, so no intermediate state could list content that nothing reviews.
+The sections below carry the detail.
+
+Two preconditions gate the tier at runtime rather than being documented and
+hoped for, and both are checked at `submit` *and* `approve` because a setting
+can change between a submission and its decision:
+`WAFFLEBASE_TEMPLATE_REVIEWER_IDS` must name somebody (no reviewers means no
+review pipeline), and `YORKIE_AUTH_WEBHOOK_ENFORCE` must be `true` (see
+[Keeping an approved listing honest](#keeping-an-approved-listing-honest)).
 
 Note what Phase 3 is *not*: it is not what makes a template readable outside its
 workspace. `unlisted` already does that, and `/t/:id` already serves a logged-out
@@ -747,14 +754,48 @@ separate project (prerendering or an SSR surface) and is not smuggled in here.
 - **Report and takedown.** `POST /templates/:id/report { reason, note? }` —
   authenticated and throttled with the same `UserThrottlerGuard` the notification
   endpoint uses — files a `TemplateReport` into the reviewer queue, one row per
-  reporter per listing so a single account cannot stack a queue. A takedown never
-  touches the document, and documents already created from the template are
-  independent copies and stay.
+  reporter per listing so a single account cannot stack a queue.
+
+  Reporting is **public-tier only**: a report routes the listing to the global
+  reviewer allowlist *with its preview token*, and `listForReview` bounds that
+  capability to submissions a publisher volunteered. A workspace or unlisted
+  listing already has a trust boundary — its members, or whoever holds the link
+  — and does not go there.
+
+  The intake is deliberately **inert**: it records that somebody objected and
+  does nothing else. It does not hide the listing, does not notify the
+  publisher, and does not count toward a threshold. A report that acted on its
+  own would be a takedown anyone could trigger, which is a heckler's veto with
+  extra steps; the decision stays with the allowlist and this only makes sure
+  they hear about it. Authorization is "can you see this listing", which also
+  keeps the route from being an oracle for whether an unlisted id exists.
+
+  Re-filing updates the reason but does not reopen a closed report: the unique
+  index bounds *rows*, and this bounds the work each row can generate — without
+  it a reporter whose report was dismissed re-files forever and forces a
+  re-dismissal each time.
+
+  Closing a report is a **separate action from deciding the listing**, and that
+  separation is the point: most reports do not end in a takedown, and a queue
+  that only empties when content is removed pressures whoever drains it toward
+  removing content. A takedown never touches the document, and documents
+  already created from the template are independent copies and stay. A takedown
+  *does* close every open report about its listing, in the same transaction as
+  the decision — a reviewer who stops mid-session must not leave reports that
+  can never be closed, since a second takedown on a `removed` listing is a
+  `400` and dismissing one would record the opposite of what happened.
+
+  Nothing about a report reaches the publisher except through a reviewer's own
+  words. The takedown note is written by the reviewer, never prefilled from the
+  report: it is delivered as a decision, and reporter-authored text arriving
+  under a reviewer's authority is not something to pass through.
 - **Ranking guards.** `useCount` drives the default sort, so it must not be
   trivially inflatable: a use by the listing's own publisher does not increment
-  it, and `POST /templates/:id/use` gets a per-user throttle. Detecting
-  coordinated inflation is out of scope, which is another reason monetization
-  stays a Non-Goal.
+  it, and `POST /templates/:id/use` carries a per-user throttle — which bounds
+  the copy cost too, since a use is a Yorkie read plus a write plus any image
+  re-hosting. Detecting coordinated inflation across accounts is out of scope,
+  which is another reason monetization stays a Non-Goal: the counter is a
+  ranking hint, not money.
 
 ### Discovery: the collection endpoint
 

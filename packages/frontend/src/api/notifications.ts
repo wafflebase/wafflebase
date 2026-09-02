@@ -23,7 +23,9 @@ export type NotificationType =
   | "template_removed"
   // The publisher edited the document behind an approved public listing, so it
   // left the gallery and is waiting to be reviewed again.
-  | "template_needs_review";
+  | "template_needs_review"
+  // Addressed to the reviewer allowlist: something is waiting in the queue.
+  | "template_review_queued";
 
 export interface Notification {
   id: string;

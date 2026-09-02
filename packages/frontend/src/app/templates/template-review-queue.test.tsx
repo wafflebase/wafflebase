@@ -6,7 +6,12 @@ import { MemoryRouter } from "react-router-dom";
 
 import TemplateReviewQueue from "./template-review-queue";
 import { toast } from "sonner";
-import { listTemplatesForReview, reviewTemplate } from "@/api/templates";
+import {
+  listTemplateReports,
+  listTemplatesForReview,
+  resolveTemplateReport,
+  reviewTemplate,
+} from "@/api/templates";
 import { HttpError } from "@/api/http-error";
 
 vi.mock("sonner", () => ({
@@ -15,6 +20,8 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/api/templates", () => ({
   listTemplatesForReview: vi.fn(),
+  listTemplateReports: vi.fn(),
+  resolveTemplateReport: vi.fn(),
   reviewTemplate: vi.fn(),
 }));
 
@@ -61,6 +68,7 @@ function renderQueue() {
 describe("TemplateReviewQueue", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(listTemplateReports).mockResolvedValue([]);
   });
 
   it("explains the allowlist when the backend refuses", async () => {
@@ -161,5 +169,82 @@ describe("TemplateReviewQueue", () => {
     expect(
       screen.getByRole("button", { name: /no preview/i }).hasAttribute("disabled"),
     ).toBe(true);
+  });
+});
+
+describe("TemplateReviewQueue reports", () => {
+  const REPORT = {
+    id: "rep-1",
+    reason: "copyright",
+    note: "taken from our site",
+    createdAt: "2026-09-03T00:00:00.000Z",
+    listing: SUBMISSION,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(listTemplatesForReview).mockResolvedValue([]);
+  });
+
+  it("shows an open report with its reason", async () => {
+    vi.mocked(listTemplateReports).mockResolvedValue([REPORT]);
+    renderQueue();
+    await waitFor(() =>
+      expect(screen.getByText(/taken from our site/)).toBeTruthy(),
+    );
+  });
+
+  it("closes a report without touching the listing", async () => {
+    // A queue that only empties when content is removed pressures whoever
+    // drains it toward removing content.
+    vi.mocked(listTemplateReports).mockResolvedValue([REPORT]);
+    vi.mocked(resolveTemplateReport).mockResolvedValue(undefined);
+    renderQueue();
+    await waitFor(() => expect(screen.getByText("Weekly Report")).toBeTruthy());
+
+    await userEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+    await waitFor(() =>
+      expect(resolveTemplateReport).toHaveBeenCalledWith("rep-1", "dismissed"),
+    );
+    expect(reviewTemplate).not.toHaveBeenCalled();
+  });
+
+  it("will not take down on the reporter's words alone", async () => {
+    // The note reaches the publisher labelled as a reviewer's decision, so up
+    // to 500 characters of reporter-authored text must not pass through under
+    // that authority. The button waits for the reviewer to write their own.
+    vi.mocked(listTemplateReports).mockResolvedValue([REPORT]);
+    renderQueue();
+    await waitFor(() => expect(screen.getByText("Weekly Report")).toBeTruthy());
+
+    const takedown = screen.getByRole("button", { name: /take down/i });
+    expect(takedown.hasAttribute("disabled")).toBe(true);
+
+    await userEvent.type(
+      screen.getByLabelText(/reason for taking down/i),
+      "confirmed copyright claim",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /take down/i }));
+    await waitFor(() =>
+      expect(reviewTemplate).toHaveBeenCalledWith(
+        "tpl-1",
+        "takedown",
+        "confirmed copyright claim",
+        undefined,
+      ),
+    );
+  });
+
+  it("does not ask for reports when the caller is not a reviewer", async () => {
+    // A second 403 would only produce a second error state saying the same
+    // thing the first one already said.
+    vi.mocked(listTemplatesForReview).mockRejectedValue(
+      new HttpError("Not a template reviewer", 403),
+    );
+    renderQueue();
+    await waitFor(() =>
+      expect(screen.getByText(/not a template reviewer/i)).toBeTruthy(),
+    );
+    expect(listTemplateReports).not.toHaveBeenCalled();
   });
 });

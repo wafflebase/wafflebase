@@ -17,6 +17,7 @@ model User {
   notificationsReceived Notification[] @relation("NotificationRecipient")
   notificationsActed    Notification[] @relation("NotificationActor")
   templateListings      TemplateListing[]
+  templateReports       TemplateReport[]
 }
 
 model UserDocStyles {
@@ -373,6 +374,43 @@ model TemplateListing {
   @@index([visibility, status, publishedAt])
   /// The workspace gallery's query.
   @@index([workspaceId, visibility])
+  reports     TemplateReport[]
+}
+
+/// Someone flagging a listing for a reviewer — see
+/// docs/design/template-gallery.md.
+///
+/// A takedown is a *reviewer* decision and always was; this is only the intake
+/// that tells them there is something to look at. It exists because a public
+/// gallery with no reported-content path has no remedy at all: the only people
+/// who can act are the ones who never see the problem.
+model TemplateReport {
+  id         String          @id @default(uuid())
+  listingId  String
+  listing    TemplateListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  /// Who reported it. Authenticated, so a report is attributable and the
+  /// per-reporter unique index below can exist at all.
+  reporterId Int
+  reporter   User            @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  /// copyright | inappropriate | broken | spam | other
+  reason     String
+  note       String?
+  /// open | dismissed | actioned. A reviewer closes a report; nothing deletes
+  /// one, so the queue keeps its own history.
+  status     String          @default("open")
+  /// Who closed it and when. A queue that keeps its history without recording
+  /// who acted keeps no history worth having.
+  resolvedBy Int?
+  resolvedAt DateTime?
+  createdAt  DateTime        @default(now())
+
+  /// One report per person per listing. Not a nicety: without it a single
+  /// account can stack a queue deep enough that the real reports are not
+  /// findable, which is a denial of the reviewer's attention.
+  @@unique([listingId, reporterId])
+  /// The reviewer queue's own query: open reports, oldest first.
+  @@index([status, createdAt])
 }
 
 datasource db {

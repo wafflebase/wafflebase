@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  listTemplateReports,
   listTemplatesForReview,
+  resolveTemplateReport,
   reviewTemplate,
   type ReviewDecision,
   type TemplateListing,
@@ -52,6 +54,40 @@ export function TemplateReviewQueue() {
     retry: false,
   });
 
+  // Reports are a second list rather than a merged one: a submission asks
+  // "should this be listed", a report asks "should this stay listed", and a
+  // reviewer works them with different questions in mind.
+  const reports = useQuery({
+    queryKey: ["template-reports"],
+    queryFn: listTemplateReports,
+    retry: false,
+    // Sequenced behind the queue rather than fired alongside it. Both are
+    // reviewer-gated, so a parallel fetch means a non-reviewer collects two
+    // 403s for one page — and `!queue.isError` would not prevent it, since
+    // nothing is an error yet on the first render. The queue is small enough
+    // that the extra round trip costs nothing worth the duplicate.
+    enabled: queue.isSuccess,
+  });
+
+  const closeReport = useMutation({
+    mutationFn: ({
+      reportId,
+      outcome,
+    }: {
+      reportId: string;
+      outcome: "dismissed" | "actioned";
+    }) => resolveTemplateReport(reportId, outcome),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["template-reports"] });
+    },
+    onError: (error: unknown) => {
+      if (isAuthExpiredError(error)) return;
+      toast.error(
+        error instanceof Error ? error.message : "Failed to close this report"
+      );
+    },
+  });
+
   const decide = useMutation({
     mutationFn: ({
       id,
@@ -69,6 +105,9 @@ export function TemplateReviewQueue() {
       void queryClient.invalidateQueries({
         queryKey: ["template-review-queue"],
       });
+      // A takedown closes every open report about the listing, server-side
+      // and inside the same transaction — so the list has to be refetched.
+      void queryClient.invalidateQueries({ queryKey: ["template-reports"] });
     },
     onError: (error: unknown) => {
       if (isAuthExpiredError(error)) return;
@@ -239,6 +278,84 @@ export function TemplateReviewQueue() {
                     Take down
                   </Button>
                 </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h2 className="mt-12 text-lg font-semibold">Reports</h2>
+      <p className="text-muted-foreground mt-1 text-sm">
+        Listings someone flagged. A report changes nothing on its own — closing
+        one is a separate action from deciding the listing.
+      </p>
+      {(reports.data ?? []).length === 0 ? (
+        <p className="text-muted-foreground mt-4 text-sm">
+          Nothing has been reported.
+        </p>
+      ) : (
+        <ul className="mt-4 flex flex-col gap-3">
+          {(reports.data ?? []).map((r) => (
+            <li
+              key={r.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium">{r.listing.title}</p>
+                <p className="text-muted-foreground text-sm">
+                  {r.reason}
+                  {r.note ? ` — ${r.note}` : ""}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!r.listing.previewToken}
+                  onClick={() => setPreviewing(r.listing)}
+                >
+                  {r.listing.previewToken ? "Preview" : "No preview"}
+                </Button>
+                <Input
+                  value={notes[r.id] ?? ""}
+                  onChange={(e) =>
+                    setNotes((prev) => ({ ...prev, [r.id]: e.target.value }))
+                  }
+                  placeholder="Your reason (sent to the publisher)"
+                  className="w-64"
+                  aria-label={`Reason for taking down ${r.listing.title}`}
+                />
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={decide.isPending || !notes[r.id]?.trim()}
+                  onClick={() =>
+                    // The reviewer's own words, not the reporter's. The note
+                    // reaches the publisher labelled as a decision, and up to
+                    // 500 characters of reporter-authored text arriving under
+                    // a reviewer's authority is not a thing to pass through.
+                    decide.mutate({
+                      id: r.listing.id,
+                      decision: "takedown",
+                      note: notes[r.id],
+                    })
+                  }
+                >
+                  Take down
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={closeReport.isPending}
+                  onClick={() =>
+                    closeReport.mutate({
+                      reportId: r.id,
+                      outcome: "dismissed",
+                    })
+                  }
+                >
+                  Dismiss
+                </Button>
               </div>
             </li>
           ))}

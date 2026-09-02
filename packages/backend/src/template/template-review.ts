@@ -20,19 +20,36 @@ export const REVIEW_DECISIONS = ['approve', 'reject', 'takedown'] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
 
 /**
+ * Why someone flagged a listing. A closed list because it routes a reviewer's
+ * attention — "copyright" and "broken" are different queues in practice, even
+ * when they share one screen.
+ */
+export const REPORT_REASONS = [
+  'copyright',
+  'inappropriate',
+  'broken',
+  'spam',
+  'other',
+] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+/**
  * Is the public tier open for business?
  *
  * One function, consulted by **both** `submit` and `review`'s approve arm, so
- * merge order cannot open the gallery by accident. Phase 3 lands as four PRs
- * and only the last one lifts this; without it, 3a alone would already be a
- * complete path to `visibility: 'public', status: 'listed'` — and
- * `GET /templates?scope=public` ships unauthenticated, so such an approval
- * would be world-enumerable the moment it happened.
+ * merge order could not open the gallery by accident while it was being built.
+ * It is `true` now that the pipeline behind it exists: review with a reviewer
+ * allowlist, a takedown state, the bait-and-switch defence, the license grant,
+ * report intake, and the ranking guards.
  *
- * Fails closed for the same reason `assertPublishable` does: a publisher told
- * "ok" would believe their template was in a gallery that nothing reviews.
+ * Kept as a constant rather than deleted, and rather than made configuration.
+ * As a constant it is the one line to flip if the gallery ever has to be shut
+ * — a moderation incident, a migration — without reverting a feature or
+ * teaching every deployment a new setting. As configuration it would be a way
+ * for a deployment to open a gallery whose preconditions it has not met, which
+ * is what {@link assertYorkieAuthEnforced} exists to prevent.
  */
-export const PUBLIC_TIER_OPEN = false;
+export const PUBLIC_TIER_OPEN = true;
 
 export function assertPublicTierOpen(): void {
   if (PUBLIC_TIER_OPEN) return;
@@ -62,6 +79,25 @@ export function assertYorkieAuthEnforced(enforce: string | undefined): void {
   throw new BadRequestException(
     'The public template gallery requires YORKIE_AUTH_WEBHOOK_ENFORCE=true: ' +
       'without it a preview token also grants write access to the document',
+  );
+}
+
+/**
+ * The public tier also requires that *somebody* can review.
+ *
+ * Without this, a deployment with the webhook enforcing but no reviewer ids
+ * configured accepts a submission, moves the listing to `pending` — and strands
+ * it: `submit` refuses a resubmission ("already under review"), nothing can
+ * pass `TemplateReviewerGuard` to decide it, and the publisher is told nothing.
+ * That is exactly the "believes their template is in a gallery that nothing
+ * reviews" failure the tier gate exists to prevent, reached by a different
+ * door.
+ */
+export function assertReviewersConfigured(raw: string | undefined): void {
+  if (parseReviewerIds(raw).size > 0) return;
+  throw new BadRequestException(
+    'The public template gallery has no reviewers configured ' +
+      '(WAFFLEBASE_TEMPLATE_REVIEWER_IDS), so a submission could never be decided',
   );
 }
 

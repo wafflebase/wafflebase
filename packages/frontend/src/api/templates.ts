@@ -188,6 +188,68 @@ export async function getTemplate(id: string): Promise<TemplateListing> {
 
 export type ReviewDecision = "approve" | "reject" | "takedown";
 
+export const REPORT_REASONS = [
+  "copyright",
+  "inappropriate",
+  "broken",
+  "spam",
+  "other",
+] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+export type TemplateReport = {
+  id: string;
+  reason: string;
+  note: string | null;
+  createdAt: string;
+  listing: TemplateListing;
+};
+
+/**
+ * Flag a listing for a reviewer. Deliberately does not hide anything — a
+ * report that acted on its own would be a takedown anyone could trigger.
+ */
+export async function reportTemplate(
+  id: string,
+  reason: ReportReason,
+  note?: string
+): Promise<void> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/templates/${seg(id)}/report`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason, ...(note ? { note } : {}) }),
+    }
+  );
+  await assertOk(response, "Failed to report this template");
+}
+
+/** Open reports, for the review queue. */
+export async function listTemplateReports(): Promise<TemplateReport[]> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/admin/templates/reports`
+  );
+  await assertOk(response, "Failed to load reports");
+  return response.json();
+}
+
+/** Close a report, whether or not the listing was touched. */
+export async function resolveTemplateReport(
+  reportId: string,
+  outcome: "dismissed" | "actioned"
+): Promise<void> {
+  const response = await fetchWithAuth(
+    `${import.meta.env.VITE_BACKEND_API_URL}/admin/templates/reports/${seg(reportId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome }),
+    }
+  );
+  await assertOk(response, "Failed to close this report");
+}
+
 /**
  * Ask for the public tier. A separate call from `updateTemplate` because
  * `visibility` is the *effective* tier and no request body may write `public`

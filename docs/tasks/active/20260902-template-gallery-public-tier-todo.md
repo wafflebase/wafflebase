@@ -3,8 +3,9 @@
 Design doc: [template-gallery.md](../../design/template-gallery.md)
 Predecessor task: [20260901-template-gallery-todo.md](./20260901-template-gallery-todo.md)
 PR: [#1009](https://github.com/wafflebase/wafflebase/pull/1009) — the plan, and where 3a lands
-Status: **3a shipped; 3b's image half shipped.** `visibility: 'public'` is still
-refused and stays refused until 3d lands.
+Status: **all four steps shipped on this branch.** The public tier is open:
+`PUBLIC_TIER_OPEN` is `true`, gated at runtime on a non-empty reviewer allowlist
+and `YORKIE_AUTH_WEBHOOK_ENFORCE=true`.
 
 ## What this phase is actually for
 
@@ -199,20 +200,23 @@ Phase 2. What is new:
 
 ## PR 3d — Trust, then open the tier
 
-- [ ] Prisma `TemplateReport` + migration.
-- [ ] `POST /templates/:id/report { reason, note? }` — JWT + `UserThrottlerGuard`,
+- [x] Prisma `TemplateReport` + migration.
+- [x] `POST /templates/:id/report { reason, note? }` — JWT + `UserThrottlerGuard`,
       unique per (listing, reporter).
-- [ ] Reports surface in the 3a queue page.
-- [ ] Public card shows publisher username + avatar; never the email.
-- [ ] Submission dialog states, in a sentence, that the username and avatar
+- [x] Reports surface in the 3a queue page.
+- [x] Public card shows publisher username + avatar; never the email.
+- [x] Submission dialog states, in a sentence, that the username and avatar
       become visible to anyone.
-- [ ] `useCount` guards: the listing's own publisher does not increment it;
+- [x] `useCount` guards: the listing's own publisher does not increment it;
       per-user throttle on `use`.
-- [ ] **Lift the refusal**: `submit` becomes reachable end to end and an approved
+- [x] **Lift the refusal**: `submit` becomes reachable end to end and an approved
       listing is genuinely public.
-- [ ] devops repo bump for `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` and
-      `WAFFLEBASE_TEMPLATE_WORKSPACE_ID`; document both in
-      `packages/backend/README.md`.
+- [x] Documented in `packages/backend/README.md`:
+      `WAFFLEBASE_TEMPLATE_REVIEWER_IDS` and `WAFFLEBASE_API_ORIGIN`.
+      `WAFFLEBASE_TEMPLATE_WORKSPACE_ID` is **not** needed — frozen-copy
+      promotion is deferred in favour of re-review-on-change, so there is no
+      system workspace to seed.
+- [ ] devops repo bump for the two new env vars (separate repo).
 
 ## Open questions
 

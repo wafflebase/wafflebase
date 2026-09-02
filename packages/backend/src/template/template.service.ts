@@ -24,6 +24,7 @@ import {
   PublishTemplateDto,
   ReviewTemplateDto,
   SubmitTemplateDto,
+  ReportTemplateDto,
   UpdateTemplateDto,
   UseTemplateDto,
 } from './template.dto';
@@ -32,7 +33,9 @@ import { findExternalDataTabs } from './template-content-guard';
 import {
   assertDecisionAllowed,
   assertPublicTierOpen,
+  assertReviewersConfigured,
   assertYorkieAuthEnforced,
+  parseReviewerIds,
 } from './template-review';
 import { YorkieService } from '../yorkie/yorkie.service';
 import { ImageService } from '../image/image.service';
@@ -61,6 +64,47 @@ const CARD_FIELDS = [
 /** Treats `null` and `undefined` as the same absence, which Prisma does not. */
 function isSame(a: unknown, b: unknown): boolean {
   return (a ?? null) === (b ?? null);
+}
+
+/**
+ * The write that returns an approved listing to review when its *card* changes.
+ *
+ * The gallery card **is** its title, description, category and thumbnail, so
+ * editing one of those on a `public` + `listed` listing is the same
+ * bait-and-switch as editing the document — and it needs no Yorkie edit at all,
+ * so `TemplateReviewSyncService` would never see it.
+ *
+ * Shared by `publish()` and `update()` because both are reachable on an
+ * existing listing with the same fields. Having it in only one of them is a
+ * gate with a door beside it.
+ */
+type CardReviewReset = {
+  status?: string;
+  submittedAt?: Date;
+  reviewedAt?: null;
+  reviewedBy?: null;
+  reviewNote?: null;
+  reviewedContentAt?: null;
+};
+
+function cardReviewReset(
+  listing: TemplateListing | null | undefined,
+  dto: PublishTemplateDto,
+): CardReviewReset {
+  if (!listing) return {};
+  if (listing.visibility !== 'public' || listing.status !== 'listed') return {};
+  const changed = CARD_FIELDS.some(
+    (field) => dto[field] !== undefined && !isSame(dto[field], listing[field]),
+  );
+  if (!changed) return {};
+  return {
+    status: 'pending',
+    submittedAt: new Date(),
+    reviewedAt: null,
+    reviewedBy: null,
+    reviewNote: null,
+    reviewedContentAt: null,
+  };
 }
 
 /**
@@ -137,6 +181,15 @@ export type TemplateCardView = Omit<
   TemplateListingView,
   'previewToken' | 'documentId'
 >;
+
+/** One open report, as the reviewer queue shows it. */
+export interface TemplateReportView {
+  id: string;
+  reason: string;
+  note: string | null;
+  createdAt: string;
+  listing: TemplateListingView;
+}
 
 export interface TemplateBrowsePage {
   items: TemplateCardView[];
@@ -318,7 +371,12 @@ export class TemplateService {
         createdBy: userId,
         ...data,
       },
-      update: data,
+      // The same re-review rule `update()` applies, and it has to be here too:
+      // `publish` is an upsert reachable on an *existing* listing, takes the
+      // same card fields, and preserves both `visibility: 'public'` and
+      // `status: 'listed'`. Without this it is a second, unguarded way to swap
+      // an approved gallery card for something else.
+      update: { ...data, ...cardReviewReset(existing, dto) },
       include: LISTING_INCLUDE,
     });
     return toView(listing, true);
@@ -343,31 +401,10 @@ export class TemplateService {
       );
     }
 
-    // The gallery card *is* the title, description and thumbnail, so editing
-    // them on an approved public listing is the same bait-and-switch as editing
-    // the document — and it needs no Yorkie edit at all, so the webhook path
-    // would never see it. A metadata change therefore re-enters review too.
-    const reenters =
-      listing.visibility === 'public' &&
-      listing.status === 'listed' &&
-      CARD_FIELDS.some(
-        (field) =>
-          dto[field] !== undefined && !isSame(dto[field], listing[field]),
-      );
-
     const updated = await this.prisma.templateListing.update({
       where: { id },
       data: {
-        ...(reenters
-          ? {
-              status: 'pending',
-              submittedAt: new Date(),
-              reviewedAt: null,
-              reviewedBy: null,
-              reviewNote: null,
-              reviewedContentAt: null,
-            }
-          : {}),
+        ...cardReviewReset(listing, dto),
         ...(dto.title !== undefined ? { title: dto.title } : {}),
         ...(dto.description !== undefined
           ? { description: dto.description }
@@ -399,6 +436,9 @@ export class TemplateService {
   private assertPublicTierPreconditions(): void {
     assertYorkieAuthEnforced(
       this.config.get<string>('YORKIE_AUTH_WEBHOOK_ENFORCE'),
+    );
+    assertReviewersConfigured(
+      this.config.get<string>('WAFFLEBASE_TEMPLATE_REVIEWER_IDS'),
     );
   }
 
@@ -483,7 +523,35 @@ export class TemplateService {
       where: { id },
       include: LISTING_INCLUDE,
     });
+
+    // Best-effort, like every other notification here: the submission is
+    // recorded and visible in the queue either way.
+    await this.notifyReviewers(updated, userId).catch((err) => {
+      this.logger.warn(`failed to notify reviewers of ${id}: ${err}`);
+    });
     return toView(updated, true);
+  }
+
+  /**
+   * Tell the allowlist there is something to look at. Without it
+   * `/admin/templates` is a page somebody has to remember to open.
+   */
+  private async notifyReviewers(
+    listing: TemplateListing,
+    actorId: number | null,
+  ): Promise<void> {
+    const reviewerIds = [
+      ...parseReviewerIds(
+        this.config.get<string>('WAFFLEBASE_TEMPLATE_REVIEWER_IDS'),
+      ),
+    ];
+    if (reviewerIds.length === 0) return;
+    await this.notificationService.createTemplateReviewQueued({
+      reviewerIds,
+      listing,
+      actorId,
+      at: new Date(),
+    });
   }
 
   /**
@@ -579,11 +647,27 @@ export class TemplateService {
           'This template was decided by someone else while you were reviewing it',
         );
       }
-      if (dto.decision === 'takedown' && listing.shareLinkId) {
-        // `deleteMany`, not `delete`: a manager revoking the preview link from
-        // the Share dialog in the meantime must not turn a takedown into a
-        // `P2025`. The link being gone already is the outcome we wanted.
-        await tx.shareLink.deleteMany({ where: { id: listing.shareLinkId } });
+      if (dto.decision === 'takedown') {
+        if (listing.shareLinkId) {
+          // `deleteMany`, not `delete`: a manager revoking the preview link
+          // from the Share dialog in the meantime must not turn a takedown
+          // into a `P2025`. The link being gone already is the outcome we
+          // wanted.
+          await tx.shareLink.deleteMany({ where: { id: listing.shareLinkId } });
+        }
+        // A takedown answers every open report about this listing, here rather
+        // than in the client that happened to trigger it: a reviewer who
+        // closes the tab mid-session must not leave reports that can now never
+        // be closed, because a second takedown on a `removed` listing is a
+        // `400` and "dismiss" would record the opposite of what happened.
+        await tx.templateReport.updateMany({
+          where: { listingId: id, status: 'open' },
+          data: {
+            status: 'actioned',
+            resolvedBy: reviewerId,
+            resolvedAt: decidedAt,
+          },
+        });
       }
       return tx.templateListing.findUniqueOrThrow({
         where: { id },
@@ -607,6 +691,99 @@ export class TemplateService {
       });
 
     return toView(updated, false, true);
+  }
+
+  /**
+   * Flag a listing for a reviewer.
+   *
+   * Deliberately thin: it records that somebody objected and nothing else. It
+   * does not hide the listing, does not notify the publisher, and does not
+   * count toward any threshold — a report that acted on its own would be a
+   * takedown anyone could trigger, which is the shape of a heckler's veto. The
+   * decision stays with the allowlist; this only makes sure they hear about it.
+   *
+   * Authorization is "can you see this listing", which is exactly right: you
+   * cannot report what you were never shown, and it keeps the route from being
+   * an oracle for whether an unlisted id exists.
+   */
+  async report(
+    id: string,
+    userId: number,
+    dto: ReportTemplateDto,
+  ): Promise<{ reported: true }> {
+    const listing = await this.prisma.templateListing.findUnique({
+      where: { id },
+      include: LISTING_INCLUDE,
+    });
+    if (!listing) throw new NotFoundException('Template not found');
+    // **Public listings only.** Not a narrowing for its own sake: a report puts
+    // the listing in front of the reviewer allowlist, `previewToken` and all,
+    // and `listForReview` bounds that capability to things a publisher
+    // volunteered. A workspace or unlisted listing has a trust boundary
+    // already — its members, or whoever holds the link — and routing it to
+    // global reviewers would widen a capability this feature is careful about
+    // everywhere else.
+    if (listing.visibility !== 'public') {
+      throw new NotFoundException('Template not found');
+    }
+    if (!(await this.isVisibleTo(listing, userId))) {
+      throw new NotFoundException('Template not found');
+    }
+
+    // `upsert` on the (listing, reporter) unique index: reporting twice
+    // updates your reason rather than failing or stacking the queue.
+    //
+    // It does **not** reset `status`. Reopening on every re-file would let a
+    // reporter whose report was dismissed re-file it forever and force a
+    // re-dismissal each time — the unique index bounds rows, and this bounds
+    // the work each row can generate.
+    await this.prisma.templateReport.upsert({
+      where: { listingId_reporterId: { listingId: id, reporterId: userId } },
+      create: {
+        listingId: id,
+        reporterId: userId,
+        reason: dto.reason,
+        note: dto.note ?? null,
+      },
+      update: { reason: dto.reason, note: dto.note ?? null },
+    });
+    return { reported: true };
+  }
+
+  /** Open reports, oldest first, with the listing each one is about. */
+  async listReports(): Promise<TemplateReportView[]> {
+    const rows = await this.prisma.templateReport.findMany({
+      where: { status: 'open' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: REVIEW_QUEUE_LIMIT,
+      include: { listing: { include: LISTING_INCLUDE } },
+    });
+    return rows.map((row) => ({
+      id: row.id,
+      reason: row.reason,
+      note: row.note,
+      createdAt: row.createdAt.toISOString(),
+      listing: toView(row.listing, false, true),
+    }));
+  }
+
+  /**
+   * Close a report. Separate from deciding the listing, because most reports
+   * do not end in a takedown and a reviewer still has to be able to clear the
+   * queue — a queue that only empties when content is removed pressures the
+   * person draining it toward removing content.
+   */
+  async resolveReport(
+    reportId: string,
+    reviewerId: number,
+    outcome: 'dismissed' | 'actioned',
+  ): Promise<{ resolved: true }> {
+    const { count } = await this.prisma.templateReport.updateMany({
+      where: { id: reportId, status: 'open' },
+      data: { status: outcome, resolvedBy: reviewerId, resolvedAt: new Date() },
+    });
+    if (count === 0) throw new NotFoundException('Report not found');
+    return { resolved: true };
   }
 
   /**
@@ -716,7 +893,14 @@ export class TemplateService {
     if (!canManage && !(await this.isVisibleTo(listing, userId))) {
       throw new NotFoundException('Template not found');
     }
-    return toView(listing, canManage);
+    const view = toView(listing, canManage);
+    // The same reasoning `toCard` applies to the collection, applied to the
+    // single read the collection links to: a document id is a Yorkie doc key
+    // by string concatenation, and this route serves logged-out strangers.
+    // Withheld from everyone but a manager, who reaches it through
+    // `findByDocument` anyway. `previewToken` stays — it is the whole point of
+    // the page, and it is a `viewer` capability rather than a document key.
+    return canManage ? view : { ...view, documentId: '' };
   }
 
   /**
@@ -785,11 +969,18 @@ export class TemplateService {
     // A counter, not a ledger (docs/design/template-gallery.md): the document
     // the caller asked for exists, so a failed increment must not fail the
     // request.
-    await this.prisma.templateListing
-      .update({ where: { id }, data: { useCount: { increment: 1 } } })
-      .catch((err) => {
-        this.logger.warn(`failed to increment useCount for ${id}: ${err}`);
-      });
+    //
+    // The publisher's own uses do not count. `useCount` is the gallery's
+    // default rank, so the cheapest way to reach the top would otherwise be to
+    // use your own template in a loop — and "how many people found this
+    // useful" is the question the number is meant to answer.
+    if (listing.createdBy !== userId) {
+      await this.prisma.templateListing
+        .update({ where: { id }, data: { useCount: { increment: 1 } } })
+        .catch((err) => {
+          this.logger.warn(`failed to increment useCount for ${id}: ${err}`);
+        });
+    }
 
     return created;
   }
