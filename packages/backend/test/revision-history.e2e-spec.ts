@@ -7,9 +7,13 @@
  * mocks. Two things cannot be mocked honestly: whether a restore actually
  * converges for a second attached client watching the same document, and
  * whether a viewer-role client is refused. This file covers both against a
- * real Yorkie server (the one started by `docker compose up -d`), following
- * the same `RUN_YORKIE_INTEGRATION_TESTS` gate and manual-attach pattern as
- * `docs-tree-attached.e2e-spec.ts`.
+ * real Yorkie server (the one started by `docker compose up -d`), sharing
+ * the `RUN_YORKIE_INTEGRATION_TESTS` / `describeAttached` gate with
+ * `docs-tree-attached.e2e-spec.ts`. It does not share that file's
+ * `YorkieService.withDocument()` helper, though: that wrapper exposes no
+ * revision methods and creates one client per call, so it cannot model two
+ * independently-watching clients or a viewer/owner pair. This file talks to
+ * the raw `@yorkie-js/sdk` `Client`/`Document` directly instead.
  *
  * Opt in locally via:
  *   RUN_YORKIE_INTEGRATION_TESTS=true \
@@ -154,32 +158,61 @@ describeAttached('revision history convergence', () => {
 });
 
 describeAttached('revision history read-only refusal', () => {
-  // Expected to fail until yorkie gates the revision RPCs behind the auth
-  // webhook (upstream ask 1, docs/design/revision-history.md §6-§7 PR 0):
-  // `ListRevisions` / `GetRevision` / `CreateRevision` / `RestoreRevision`
-  // are absent from the auth-webhook method enum in the server binary
-  // (`ActivateClient / AttachDocument / DetachDocument / RemoveDocument /
-  // PushPull / Watch / Broadcast`), so `YorkieAuthController` is never
-  // consulted for them — a viewer-role client can list, read and restore
-  // regardless of what wafflebase's own authorization would decide.
+  // IMPORTANT CORRECTION (found while addressing review round 1 on this
+  // file): the premise this test originally shipped with — "the server's
+  // auth-webhook method enum has no `*Revision` entry at all, so the
+  // webhook is never consulted for these RPCs, full stop" — is **not**
+  // accurate for the yorkie server build this repo runs against
+  // (`yorkieteam/yorkie:latest`). The `yorkie` CLI accepts
+  // `--auth-webhook-method-add ListRevisions/GetRevision/CreateRevision/
+  // RestoreRevision` without error, and once registered the server *does*
+  // call the webhook for three of the four, with real `{key, verb}`
+  // attributes:
+  //   - `ListRevisions` → verb `r`
+  //   - `GetRevision`   → verb `r`
+  //   - `RestoreRevision` → verb `rw`
+  // (confirmed by logging the raw webhook request body). Because those
+  // attributes are real, `YorkieAuthController.decide()` — completely
+  // unmodified, no code change anywhere in `src/` — already authorizes them
+  // correctly: this test's viewer-role client genuinely gets refused on
+  // `restoreRevision` below. In other words, the specific vulnerability
+  // this test checks (a viewer-role client restoring a document) is closed
+  // **today**, simply by wafflebase adding these methods to the
+  // registration walkthrough in `packages/backend/README.md` — it does not
+  // need to wait on an upstream fix. `docs/design/revision-history.md`'s
+  // "upstream ask 1" framing is wrong for these three methods and needs
+  // correcting there (out of scope for this file to do).
   //
-  // Verified locally: with the auth webhook registered (PushPull only — see
-  // the comment on the `project update` call below for why `AttachDocument`
-  // is deliberately left out) and `YORKIE_AUTH_WEBHOOK_ENFORCE=true`, the
-  // viewer's genuine write (`sync()` after a local edit) was correctly
-  // denied with `permission_denied`, but `restoreRevision` resolved
-  // (`observed.resolved === true`) and the owner's own re-synced document
-  // rolled back to the pre-edit marker — a real, externally-visible
-  // rollback performed by a viewer-role client. See
-  // `.superpowers/sdd/20260902-revision-history-plan/task-8-report.md` for
-  // the full observed output. Unskip this once upstream ask 1 lands — its
-  // passing is the signal that the fix arrived.
+  // `CreateRevision` is the one genuine exception, and it's a different
+  // shape of problem: the server calls the webhook for it too, but sends
+  // `attributes: null` — no document key, no verb — every time (confirmed
+  // the same way, and independent of caller identity or role). wafflebase's
+  // `decide()` fails closed on a document method with no attributes (by
+  // design — see the "fails closed" unit test in
+  // `yorkie-auth.controller.spec.ts`), so registering `CreateRevision`
+  // alongside the other three would deny it for *everyone*, owner included,
+  // not just a viewer. That is why the registration below happens in two
+  // phases: the owner's baseline `createRevision` call (line ~363) runs
+  // *before* the second `project update` registers the four revision
+  // methods, so this test's own setup doesn't trip over that separate bug.
+  // See the console output this test logs right after registering them for
+  // a live demonstration of `CreateRevision` breaking even for the owner.
+  // This is the part that still needs an upstream or server-config fix
+  // before wafflebase could safely add `CreateRevision` to its own
+  // registration.
   //
+  // Still left `it.skip` — not because it's expected to fail (it isn't,
+  // see above), but because it provisions a scratch Yorkie project and a
+  // throwaway Nest app via the `yorkie` admin CLI, which is not installed
+  // in CI (only the `yorkieteam/yorkie` server container is — see
+  // `.github/workflows/ci.yml`'s `verify-integration` job). Unskipping this
+  // in its current form would error out in CI, not just fail an assertion.
   // Requires RUN_DB_INTEGRATION_TESTS=true and the `yorkie` admin CLI on
-  // PATH in addition to RUN_YORKIE_INTEGRATION_TESTS=true, since it
-  // provisions a scratch Yorkie project and registers a real auth webhook
-  // against a throwaway Nest app instance. Left un-skipped in the source
-  // (rather than deleted) so re-running it later is a one-line change.
+  // PATH, in addition to RUN_YORKIE_INTEGRATION_TESTS=true, to run
+  // manually. Left un-skipped in the source (rather than deleted) so
+  // re-running it locally is a one-line change; see
+  // `.superpowers/sdd/20260902-revision-history-plan/task-8-report.md` for
+  // the full observed output this test produces when run.
   it.skip('refuses a read-only client', async () => {
     setIntegrationEnvDefaults();
     setAuthEnvDefaults();
@@ -276,9 +309,8 @@ describeAttached('revision history read-only refusal', () => {
       // changes, attaching to an already-populated remote document. Gating
       // it as the backend README's own walkthrough suggests would deny a
       // viewer's very first attach outright, which would make it impossible
-      // to reach the interesting call (`restoreRevision`) at all and would
-      // silently mask the finding this test exists to demonstrate. See the
-      // task report for this as its own follow-up finding. `PushPull` is
+      // for this test to even reach `restoreRevision`. See the task report
+      // for this as its own follow-up finding. `PushPull` is
       // "the real read/write gate" (docs/design/yorkie-auth-webhook.md's own
       // description) and correctly reflects sync mode, so it alone is
       // sufficient to prove the webhook is genuinely enforcing for the RPCs
@@ -343,6 +375,46 @@ describeAttached('revision history read-only refusal', () => {
       });
       await ownerClient.sync(ownerDoc);
 
+      // Register the four revision RPCs now, after the owner's baseline is
+      // in place — see the comment above `execFileSync` below for why this
+      // has to happen in a second call rather than up front.
+      execFileSync('yorkie', [
+        'project',
+        'update',
+        projectName,
+        '--rpc-addr',
+        rpcHost,
+        '--auth-webhook-method-add',
+        'ListRevisions',
+        '--auth-webhook-method-add',
+        'GetRevision',
+        '--auth-webhook-method-add',
+        'CreateRevision',
+        '--auth-webhook-method-add',
+        'RestoreRevision',
+      ]);
+
+      // Observe (not assert — this is a separate finding from the one this
+      // test checks) that `CreateRevision` is now broken for the *owner*
+      // too, not just a viewer: the server sends `attributes: null` for
+      // this specific RPC regardless of caller, so `decide()`'s fail-closed
+      // branch denies it unconditionally. This is why the owner's baseline
+      // `createRevision` call above had to happen before this registration.
+      const ownerCreateAfterRegistration = await ownerClient
+        .createRevision(ownerDoc, 'post-registration-probe', '')
+        .then(
+          () => ({ resolved: true as const }),
+          (error: unknown) => ({ resolved: false as const, error }),
+        );
+      // eslint-disable-next-line no-console
+      console.log(
+        "owner's own createRevision after registering it as a webhook method:",
+        JSON.stringify(ownerCreateAfterRegistration.resolved),
+        ownerCreateAfterRegistration.resolved
+          ? ''
+          : `(${String((ownerCreateAfterRegistration as { error: unknown }).error)})`,
+      );
+
       // The read-only client: an anonymous viewer-role share-link visitor.
       viewerClient = new yorkie.Client({
         rpcAddr: RPC_ADDR,
@@ -364,12 +436,13 @@ describeAttached('revision history read-only refusal', () => {
       });
       await expect(viewerClient.sync(viewerDoc)).rejects.toThrow();
 
-      // The actual claim under test: revision RPCs bypass the webhook
-      // entirely, so a viewer can restore regardless of role. Capture what
-      // actually happens (a single call, observed rather than asserted
-      // directly) so a failure here is concrete evidence — did the RPC
-      // resolve, and did the document really change — not just "no
-      // exception was thrown".
+      // The actual claim under test: once `RestoreRevision` is registered as
+      // an auth-webhook method, a viewer-role client's restore is refused —
+      // wafflebase's existing role logic, given real attributes, already
+      // gets this right. Capture what actually happens (a single call,
+      // observed rather than asserted directly) so this is concrete
+      // evidence either way — did the RPC resolve, and did the document
+      // really change — not just "no exception was thrown".
       const someRevisionId = rev.id;
       const observed = await viewerClient
         .restoreRevision(viewerDoc, someRevisionId)
@@ -386,8 +459,9 @@ describeAttached('revision history read-only refusal', () => {
         ownerDoc.getRoot().marker,
       );
 
-      // This is the assertion expected to fail today: `restoreRevision`
-      // resolves for the viewer instead of being refused.
+      // Genuinely passes today, given the registration above: the server
+      // sends real `{key, verb: 'rw'}` attributes for `RestoreRevision`,
+      // and wafflebase's unmodified `decide()` correctly refuses a viewer.
       expect(observed.resolved).toBe(false);
     } finally {
       await ownerClient?.deactivate().catch(() => {});
