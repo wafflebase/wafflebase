@@ -155,8 +155,14 @@ docs needs one (`treeNodeToBlock`), and only once the YSON fix above lands.
 - [x] Frontend unit: `group-revisions` day-grouping; `use-revision-history`
       (safety revision precedes restore, no restore when it fails);
       `revision-meta` round-trip incl. malformed input; one snapshot→model
-      adapter test per engine against a fixture captured from a real
-      document.
+      adapter test per engine. The sheets/slides/board fixtures are
+      **hand-authored** to each engine's real wire format, **not captured
+      from a real document** — a real capture is still open (see the lessons
+      file and Task 9's ledger entry). The sheets one was hand-authored to
+      the *wrong* format until the final review round, which is exactly the
+      risk hand-authoring carries; it is now asserted through
+      `MemStore.load` rather than by counting JSON keys, so a fixture in a
+      format the engine cannot load fails the test.
 - [x] Integration (`RUN_YORKIE_INTEGRATION_TESTS=true`, already in CI's
       `verify-integration`): create → list → get → restore round-trip; a
       second attached client converges after a restore; **regression test
@@ -164,10 +170,7 @@ docs needs one (`treeNodeToBlock`), and only once the YSON fix above lands.
       reads** — the snapshot-read half (`listRevisions`/`getRevision`
       refused for the viewer, allowed for the owner as the control) was
       added in the final review round; before that the checkbox claimed
-      coverage that did not exist. Note: the sheets/slides/board fixtures
-      for the frontend adapter tests are hand-authored to each engine's real
-      wire format rather than generated live for every run (see the lessons
-      file and Task 9's ledger entry) — a real re-capture is still open.
+      coverage that did not exist.
 
 ## Review
 

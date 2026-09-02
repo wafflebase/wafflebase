@@ -41,7 +41,7 @@ describe('parseSheetSnapshot', () => {
     // Row heights and column widths are axis-id-keyed too, and resolve
     // through the same order arrays.
     expect((await store.getDimensionSizes('row')).get(2)).toBe(30);
-    expect((await store.getDimensionSizes('col')).get(1)).toBe(120);
+    expect((await store.getDimensionSizes('column')).get(1)).toBe(120);
   });
 });
 
