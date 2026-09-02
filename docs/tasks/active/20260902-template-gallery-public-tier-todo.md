@@ -227,4 +227,39 @@ Phase 2. What is new:
 
 ## Review
 
-_(filled in when the phase lands)_
+All four steps shipped on one PR ([#1009](https://github.com/wafflebase/wafflebase/pull/1009)),
+each with its own code-review round before the next began. The public tier is
+open.
+
+**What changed from the plan.** Frozen-copy promotion is **deferred**, not
+built. Re-review-on-change plus the `contentChangedAt` / `reviewedContentAt`
+watermarks give the same bait-and-switch guarantee with no system workspace, no
+promotion transaction and no image re-hosting on that path — at the cost of a
+publisher's typo fix dropping the listing out of the gallery until a reviewer
+looks again. `WAFFLEBASE_TEMPLATE_WORKSPACE_ID` was therefore never needed.
+
+**What the review rounds found that the plan did not.** Nineteen findings
+across four rounds; the ones that changed the design rather than the code:
+
+- `publish()` was a second, unguarded path around `update()`'s card re-review.
+- The reviewer-allowlist precondition was documented three times and
+  implemented nowhere, stranding submissions on a deployment with no reviewers.
+- `documentId` reached anonymous visitors on both the collection *and* the
+  single read — a Yorkie doc key by string concatenation.
+- Edits *during* review were invisible, which made approving an attestation
+  (`contentAt` echo, `409` on mismatch) rather than a button.
+- In the Yorkie auth webhook's default shadow mode, a preview token grants
+  write access, so any visitor could have emptied the gallery into the review
+  queue. The tier now refuses to run without enforcement.
+- The report loop did not close: a takedown left its report open and `actioned`
+  was unreachable.
+
+**Known limitations, recorded rather than fixed.** `note` markdown images are
+not re-hosted across a workspace boundary (single Yorkie `Text`; a CRDT edit).
+The reports queue is capped at 100 with no paging. The public gallery is not
+indexable — no SSR. Cross-account `useCount` inflation is out of scope, which is
+why monetization stays a Non-Goal.
+
+**Still open.** One manual smoke (use an image-bearing `sheet` template into a
+different workspace in a running app), and the devops repo bump for
+`WAFFLEBASE_TEMPLATE_REVIEWER_IDS` and `WAFFLEBASE_API_ORIGIN`.

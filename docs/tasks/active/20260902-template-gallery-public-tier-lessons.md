@@ -51,3 +51,40 @@ Todo: [20260902-template-gallery-public-tier-todo.md](./20260902-template-galler
   `DELETE /images/:id` had no ownership check and no client; it was harmless
   while ids stayed inside a workspace and becomes a vandalism path the moment a
   gallery publishes them.
+
+## From implementation (2026-09-02 → 09-03)
+
+- **A gate in one writer is a gate with a door beside it.** `update()` returned
+  an approved listing to review when its card changed, with a comment
+  explaining exactly why it must. `publish()` — same fields, same caller, same
+  preserved state, reachable on an existing listing because it is an upsert —
+  had none. Whenever a rule protects a column, grep for every writer of that
+  column before believing the rule holds.
+- **"Documented in three places, implemented in none" is a real failure mode.**
+  The README, the design doc and the task file all said the public tier
+  required a configured reviewer allowlist. Nothing checked it, and the result
+  was a submission that could be accepted and then stranded forever. When a
+  doc states a precondition, the same change should add the assert.
+- **Apply a threat model to every route that serves the same data, not the
+  first one you thought of.** `toCard` stripped `documentId` from the
+  collection with a careful comment about Yorkie doc keys; `findForViewer`
+  handed the same field to the same anonymous visitors on the read the
+  collection links to.
+- **A moderation queue has to be drainable honestly.** A takedown that left its
+  report open made "dismiss" — which records the opposite of what happened —
+  the only way to clear the row. A queue that only empties by removing content,
+  or by lying, pressures whoever drains it.
+- **Text does not inherit authority from the person who forwards it.** The
+  takedown button prefilled the reviewer's note from the reporter's free text,
+  which then reached the publisher labelled as a decision.
+- **Test the property, not the component.** Every test for the public gallery
+  page mounted the component directly, so moving the route inside
+  `PrivateRoute` would have kept them all green — while removing the only thing
+  the page exists for. Rendering the real route table, and checking the test
+  fails when the route moves, is what made it a test.
+- **`eslint --fix <dir>` reformats files you did not touch.** Twice it added
+  prettier-only churn to unrelated specs and controllers. Lint the files you
+  changed, and check `git diff --stat` before committing.
+- **Sequence dependent queries on success, not on `!isError`.** `enabled:
+  !queue.isError` still fires on the first render, because nothing is an error
+  yet — a non-reviewer collected two 403s for one page.
