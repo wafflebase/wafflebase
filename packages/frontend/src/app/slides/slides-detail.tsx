@@ -1,4 +1,4 @@
-import { DocumentProvider, useDocument } from "@yorkie-js/react";
+import { createDocumentSelector, DocumentProvider } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -37,8 +37,9 @@ import { ThemePanel } from "./theme-panel";
 import { FormatPanel } from "./format-panel";
 import { MotionPanel } from "./motion-panel";
 import { BackgroundSidePanel } from "./background-side-panel";
-import { HistoryPanel } from "@/components/history/history-panel";
+import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { isHistoryEnabled } from "@/components/history/history-enabled";
+import { PreviewSurface } from "@/components/history/preview-surface";
 import {
   Sheet,
   SheetContent,
@@ -63,6 +64,23 @@ const RevisionPreviewOverlay = lazy(() =>
     default: module.RevisionPreviewOverlay,
   })),
 );
+
+/**
+ * Selector-based `useDocument`. A bare `useDocument()` is
+ * `useSelector(store)` with no selector and `Object.is` equality, and the
+ * store rebuilds its whole state object on every root change *and* every
+ * presence event — so subscribing to it here re-rendered `AppSidebar`,
+ * `SiteHeader`, `UserPresence` and the entire morphing `SlidesToolbar` on
+ * every keystroke and every peer cursor move. Only `SlidesView` used to
+ * subscribe, and `board-view.tsx`'s `shouldPublish` gate is sized for that
+ * old set. This layout only ever needed the stable `doc` handle (for
+ * `clearHistory()` after a restore), which never changes identity, so the
+ * selector form costs it nothing.
+ */
+const useSlidesDocSelector = createDocumentSelector<
+  YorkieSlidesRoot,
+  SlidesPresence
+>();
 
 /**
  * Initial Yorkie document root for a new slides presentation.
@@ -168,7 +186,7 @@ function SlidesLayout({ documentId }: { documentId: string }) {
  */
 function DesktopSlidesLayout({ documentId }: { documentId: string }) {
   usePresenceUpdater();
-  const { doc } = useDocument<YorkieSlidesRoot, SlidesPresence>();
+  const doc = useSlidesDocSelector((s) => s.doc);
   const [editor, setEditor] = useState<SlidesEditor | null>(null);
   const [store, setStore] = useState<YorkieSlidesStore | null>(null);
   type RightPanel = "theme" | "format" | "motion" | "background" | "history" | null;
@@ -429,49 +447,18 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
             <UserPresence />
           </div>
         </SiteHeader>
-        <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <SlidesToolbar
-            editor={editor}
-            store={store}
-            theme={activeTheme}
-            onImagePick={handleImagePick}
-            upload={uploadFn}
-            onToggleThemePanel={() =>
-              setRightPanel((p) => (p === "theme" ? null : "theme"))
-            }
-            themePanelOpen={rightPanel === "theme"}
-            onToggleFormatPanel={() =>
-              setRightPanel((p) => (p === "format" ? null : "format"))
-            }
-            formatPanelOpen={rightPanel === "format"}
-            onToggleMotionPanel={() =>
-              setRightPanel((p) => (p === "motion" ? null : "motion"))
-            }
-            motionPanelOpen={rightPanel === "motion"}
-            onToggleBackgroundPanel={() =>
-              setRightPanel((p) => (p === "background" ? null : "background"))
-            }
-            backgroundPanelOpen={rightPanel === "background"}
-            zoomController={zoomControllerRef.current}
-          />
-          {layoutEditTarget && (
-            <div className="flex items-center justify-between gap-2 border-b bg-muted/50 px-4 py-1.5 text-xs">
-              <span className="text-muted-foreground">
-                Editing layout placeholders — drag to reposition. Changes
-                apply to slides using that layout.
-              </span>
-              <button
-                type="button"
-                onClick={() => setLayoutEditTarget(null)}
-                className="shrink-0 rounded border bg-background px-2 py-1 font-medium hover:bg-muted"
-              >
-                Done
-              </button>
-            </div>
-          )}
-          <div className="flex flex-1 min-h-0 overflow-hidden">
-            <div className="relative flex flex-1 min-w-0">
-              {historyEnabled && previewRevisionId && currentUser && (
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* The toolbar lives INSIDE the preview surface. A preview that
+              covered only the canvas left "Delete slide" and every insert
+              control live above it, mutating the real deck while the user
+              believed they were looking at a past version — with no visible
+              feedback, because the canvas that would have shown the change
+              was behind the preview. The right-slot panels stay OUTSIDE, so
+              the version list is still reachable with a preview open. */}
+          <PreviewSurface
+            className="min-h-0 overflow-hidden"
+            preview={
+              historyEnabled && previewRevisionId && currentUser ? (
                 <Suspense fallback={null}>
                   <RevisionPreviewOverlay
                     revisionId={previewRevisionId}
@@ -481,60 +468,105 @@ function DesktopSlidesLayout({ documentId }: { documentId: string }) {
                     onRestored={handleHistoryRestored}
                   />
                 </Suspense>
-              )}
-              <SlidesView
-                key={historyResetToken}
-                onEditorReady={setEditor}
-                onStoreReady={setStore}
-                onStartPresentation={handleStartPresentation}
-                documentId={documentId}
-                zoomController={zoomControllerRef.current}
-                uploadImage={uploadFn}
-                layoutEditTarget={layoutEditTarget}
-                onLayoutEditTargetChange={setLayoutEditTarget}
-              />
-            </div>
-            {rightPanel === "theme" && store && (
-              <ThemePanel
-                store={store}
-                currentThemeId={currentThemeId}
-                onClose={() => setRightPanel(null)}
-                onEditLayouts={handleEditLayouts}
-              />
+              ) : null
+            }
+          >
+            <SlidesToolbar
+              editor={editor}
+              store={store}
+              theme={activeTheme}
+              onImagePick={handleImagePick}
+              upload={uploadFn}
+              onToggleThemePanel={() =>
+                setRightPanel((p) => (p === "theme" ? null : "theme"))
+              }
+              themePanelOpen={rightPanel === "theme"}
+              onToggleFormatPanel={() =>
+                setRightPanel((p) => (p === "format" ? null : "format"))
+              }
+              formatPanelOpen={rightPanel === "format"}
+              onToggleMotionPanel={() =>
+                setRightPanel((p) => (p === "motion" ? null : "motion"))
+              }
+              motionPanelOpen={rightPanel === "motion"}
+              onToggleBackgroundPanel={() =>
+                setRightPanel((p) => (p === "background" ? null : "background"))
+              }
+              backgroundPanelOpen={rightPanel === "background"}
+              zoomController={zoomControllerRef.current}
+            />
+            {layoutEditTarget && (
+              <div className="flex items-center justify-between gap-2 border-b bg-muted/50 px-4 py-1.5 text-xs">
+                <span className="text-muted-foreground">
+                  Editing layout placeholders — drag to reposition. Changes
+                  apply to slides using that layout.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setLayoutEditTarget(null)}
+                  className="shrink-0 rounded border bg-background px-2 py-1 font-medium hover:bg-muted"
+                >
+                  Done
+                </button>
+              </div>
             )}
-            {rightPanel === "format" && store && editor && (
-              <FormatPanel
-                store={store}
-                editor={editor}
-                onClose={() => setRightPanel(null)}
-              />
-            )}
-            {rightPanel === "motion" && store && editor && (
-              <MotionPanel
-                store={store}
-                editor={editor}
-                onClose={() => setRightPanel(null)}
-              />
-            )}
-            {rightPanel === "background" && store && editor && activeTheme && (
-              <BackgroundSidePanel
-                store={store}
-                editor={editor}
-                theme={activeTheme}
-                upload={uploadFn}
-                onClose={() => setRightPanel(null)}
-              />
-            )}
-            {rightPanel === "history" && currentUser && (
-              <HistoryPanel
-                userId={currentUser.id}
-                onClose={() => setRightPanel(null)}
-                onPreview={setPreviewRevisionId}
-                onRestored={handleHistoryRestored}
-                refreshKey={historyResetToken}
-              />
-            )}
-          </div>
+            <SlidesView
+              key={historyResetToken}
+              onEditorReady={setEditor}
+              onStoreReady={setStore}
+              onStartPresentation={handleStartPresentation}
+              documentId={documentId}
+              zoomController={zoomControllerRef.current}
+              uploadImage={uploadFn}
+              layoutEditTarget={layoutEditTarget}
+              onLayoutEditTargetChange={setLayoutEditTarget}
+            />
+          </PreviewSurface>
+          {rightPanel === "theme" && store && (
+            <ThemePanel
+              store={store}
+              currentThemeId={currentThemeId}
+              onClose={() => setRightPanel(null)}
+              onEditLayouts={handleEditLayouts}
+            />
+          )}
+          {rightPanel === "format" && store && editor && (
+            <FormatPanel
+              store={store}
+              editor={editor}
+              onClose={() => setRightPanel(null)}
+            />
+          )}
+          {rightPanel === "motion" && store && editor && (
+            <MotionPanel
+              store={store}
+              editor={editor}
+              onClose={() => setRightPanel(null)}
+            />
+          )}
+          {rightPanel === "background" && store && editor && activeTheme && (
+            <BackgroundSidePanel
+              store={store}
+              editor={editor}
+              theme={activeTheme}
+              upload={uploadFn}
+              onClose={() => setRightPanel(null)}
+            />
+          )}
+          {/* `historyEnabled &&` is not redundant with `rightPanel ===
+              "history"`: the toggle that sets it is itself flag-gated, so
+              the state is unreachable today — but this is the one panel
+              whose flag is not load-bearing by construction, and the other
+              four editors all gate here. Keep them consistent. */}
+          {historyEnabled && rightPanel === "history" && currentUser && (
+            <HistoryPanel
+              userId={currentUser.id}
+              onClose={() => setRightPanel(null)}
+              onPreview={setPreviewRevisionId}
+              onRestored={handleHistoryRestored}
+              refreshKey={historyResetToken}
+            />
+          )}
         </div>
       </SidebarInset>
       {presentingFrom &&

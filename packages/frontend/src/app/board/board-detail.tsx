@@ -1,4 +1,4 @@
-import { DocumentProvider, useDocument } from "@yorkie-js/react";
+import { createDocumentSelector, DocumentProvider } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
@@ -26,8 +26,9 @@ import {
   type BoardPresence,
 } from "@/types/board-document";
 import { BoardView } from "./board-view";
-import { HistoryPanel } from "@/components/history/history-panel";
+import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { isHistoryEnabled } from "@/components/history/history-enabled";
+import { PreviewSurface } from "@/components/history/preview-surface";
 
 // Lazy: `revision-preview.tsx` statically imports all three of
 // @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
@@ -41,6 +42,23 @@ const RevisionPreviewOverlay = lazy(() =>
 );
 
 /**
+ * Selector-based `useDocument`. A bare `useDocument()` is
+ * `useSelector(store)` with no selector and `Object.is` equality, and the
+ * store rebuilds its whole state object on every root change *and* every
+ * presence event — so subscribing to it here re-rendered `AppSidebar`,
+ * `SiteHeader` and `UserPresence` on every keystroke and every peer cursor
+ * move. Only `BoardView` used to subscribe, and its `shouldPublish` gate
+ * (`board-view.tsx`, "a solo user waving the mouse must not cost 60 React
+ * commits a second") is sized for that old set. This layout only ever
+ * needed the stable `doc` handle (for `clearHistory()` after a restore),
+ * which never changes identity, so the selector form costs it nothing.
+ */
+const useBoardDocSelector = createDocumentSelector<
+  YorkieBoardRoot,
+  BoardPresence
+>();
+
+/**
  * BoardLayout provides the global sidebar + top header chrome around the
  * board canvas, matching the docs/slides/notes detail views. `SidebarInset`
  * gives the canvas its full-height flex parent (so BoardView's `h-full`
@@ -50,7 +68,7 @@ const RevisionPreviewOverlay = lazy(() =>
 function BoardLayout({ documentId }: { documentId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { doc } = useDocument<YorkieBoardRoot, BoardPresence>();
+  const doc = useBoardDocSelector((s) => s.doc);
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [previewRevisionId, setPreviewRevisionId] = useState<string | null>(null);
@@ -176,24 +194,33 @@ function BoardLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          <div className="relative flex flex-1 min-w-0">
-            {historyEnabled && previewRevisionId && currentUser && (
-              <Suspense fallback={null}>
-                <RevisionPreviewOverlay
-                  revisionId={previewRevisionId}
-                  type="board"
-                  userId={currentUser.id}
-                  onClose={() => setPreviewRevisionId(null)}
-                  onRestored={handleHistoryRestored}
-                />
-              </Suspense>
-            )}
+          {/* `BoardToolbar` lives inside `BoardView`, so the surface that
+              covers the view already covers the toolbar — unlike slides,
+              notes and sheets, where the chrome is a sibling. Routed
+              through `PreviewSurface` anyway so all four wired editors
+              state the same rule in the same place. */}
+          <PreviewSurface
+            className="min-h-0"
+            preview={
+              historyEnabled && previewRevisionId && currentUser ? (
+                <Suspense fallback={null}>
+                  <RevisionPreviewOverlay
+                    revisionId={previewRevisionId}
+                    type="board"
+                    userId={currentUser.id}
+                    onClose={() => setPreviewRevisionId(null)}
+                    onRestored={handleHistoryRestored}
+                  />
+                </Suspense>
+              ) : null
+            }
+          >
             <BoardView
               key={historyResetToken}
               documentId={documentId}
               workspaceId={documentData?.workspaceId}
             />
-          </div>
+          </PreviewSurface>
           {historyEnabled && historyOpen && currentUser && (
             <HistoryPanel
               userId={currentUser.id}

@@ -27,7 +27,7 @@ import type { EditContext } from "@wafflebase/docs";
 import { DocsView, type EditorAPI, type JumpHandle } from "./docs-view";
 import { DocsExportButton } from "./docs-export-button";
 import { DocsFormattingToolbar } from "./docs-formatting-toolbar";
-import { HistoryPanel } from "@/components/history/history-panel";
+import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { isHistoryEnabled } from "@/components/history/history-enabled";
 
 

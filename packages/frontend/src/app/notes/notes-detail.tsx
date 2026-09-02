@@ -1,4 +1,4 @@
-import { DocumentProvider, useDocument } from "@yorkie-js/react";
+import { createDocumentSelector, DocumentProvider } from "@yorkie-js/react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
@@ -43,8 +43,9 @@ import { uploadImageFile } from "@/app/spreadsheet/image-upload";
 import { NotesView } from "./notes-view";
 import { NotesToolbar } from "./notes-toolbar";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { HistoryPanel } from "@/components/history/history-panel";
+import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { isHistoryEnabled } from "@/components/history/history-enabled";
+import { PreviewSurface } from "@/components/history/preview-surface";
 
 // Lazy: `revision-preview.tsx` statically imports all three of
 // @wafflebase/sheets, @wafflebase/slides and @wafflebase/notes (it mounts
@@ -58,13 +59,29 @@ const RevisionPreviewOverlay = lazy(() =>
 );
 
 /**
+ * Selector-based `useDocument`. A bare `useDocument()` is
+ * `useSelector(store)` with no selector and `Object.is` equality, and the
+ * store rebuilds its whole state object on every root change *and* every
+ * presence event — so subscribing to it here re-rendered `AppSidebar`,
+ * `SiteHeader`, `UserPresence` and `NotesToolbar` on every keystroke and
+ * every peer cursor move. Only `NotesView` used to subscribe. This layout
+ * only ever needed the stable `doc` handle (for `clearHistory()` after a
+ * restore), which never changes identity, so the selector form costs it
+ * nothing.
+ */
+const useNotesDocSelector = createDocumentSelector<
+  YorkieNotesRoot,
+  NotesPresence
+>();
+
+/**
  * NotesLayout provides the sidebar + header chrome around the note editor,
  * matching the same layout structure as the docs/spreadsheet detail views.
  */
 function NotesLayout({ documentId }: { documentId: string }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { doc } = useDocument<YorkieNotesRoot, NotesPresence>();
+  const doc = useNotesDocSelector((s) => s.doc);
   const [editor, setEditor] = useState<NoteEditorAPI | null>(null);
   // View mode + keyboard mode are per-user (localStorage) preferences, not
   // per-document — they persist across notes and reloads.
@@ -267,19 +284,17 @@ function NotesLayout({ documentId }: { documentId: string }) {
             <UserPresence />
           </div>
         </SiteHeader>
-        <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-          <NotesToolbar
-            mode={effectiveViewMode}
-            onModeChange={handleViewModeChange}
-            keymap={keymap}
-            onKeymapChange={handleKeymapChange}
-            showAuthors={showAuthors}
-            onShowAuthorsChange={handleShowAuthorsChange}
-            editor={editor}
-          />
-          <div className="flex flex-1 min-h-0 overflow-hidden">
-            <div className="relative flex flex-1 min-w-0">
-              {historyEnabled && previewRevisionId && currentUser && (
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* The toolbar lives INSIDE the preview surface. A preview that
+              covered only the editor pane left the toolbar live above it,
+              so its view/keymap/format controls still reached the real
+              note while the user believed they were looking at a past
+              version. The history panel stays OUTSIDE, so the version list
+              is still reachable with a preview open. */}
+          <PreviewSurface
+            className="min-h-0 overflow-hidden"
+            preview={
+              historyEnabled && previewRevisionId && currentUser ? (
                 <Suspense fallback={null}>
                   <RevisionPreviewOverlay
                     revisionId={previewRevisionId}
@@ -289,27 +304,37 @@ function NotesLayout({ documentId }: { documentId: string }) {
                     onRestored={handleHistoryRestored}
                   />
                 </Suspense>
-              )}
-              <NotesView
-                key={historyResetToken}
-                viewMode={effectiveViewMode}
-                keymap={keymap}
-                showAuthors={showAuthors}
-                onEditorReady={setEditor}
-                uploadImage={handleUploadImage}
-                documentId={documentId}
-              />
-            </div>
-            {historyEnabled && historyOpen && currentUser && (
-              <HistoryPanel
-                userId={currentUser.id}
-                onClose={() => setHistoryOpen(false)}
-                onPreview={setPreviewRevisionId}
-                onRestored={handleHistoryRestored}
-                refreshKey={historyResetToken}
-              />
-            )}
-          </div>
+              ) : null
+            }
+          >
+            <NotesToolbar
+              mode={effectiveViewMode}
+              onModeChange={handleViewModeChange}
+              keymap={keymap}
+              onKeymapChange={handleKeymapChange}
+              showAuthors={showAuthors}
+              onShowAuthorsChange={handleShowAuthorsChange}
+              editor={editor}
+            />
+            <NotesView
+              key={historyResetToken}
+              viewMode={effectiveViewMode}
+              keymap={keymap}
+              showAuthors={showAuthors}
+              onEditorReady={setEditor}
+              uploadImage={handleUploadImage}
+              documentId={documentId}
+            />
+          </PreviewSurface>
+          {historyEnabled && historyOpen && currentUser && (
+            <HistoryPanel
+              userId={currentUser.id}
+              onClose={() => setHistoryOpen(false)}
+              onPreview={setPreviewRevisionId}
+              onRestored={handleHistoryRestored}
+              refreshKey={historyResetToken}
+            />
+          )}
         </div>
       </SidebarInset>
     </SidebarProvider>

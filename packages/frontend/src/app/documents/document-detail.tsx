@@ -61,8 +61,9 @@ import { cellAnchorToSref } from "@wafflebase/sheets";
 import { CommentSidePanel } from "@/components/comments/components/CommentSidePanel";
 import type { SheetCellAnchor } from "@/types/comments";
 import { copyThread } from "@/app/spreadsheet/yorkie-worksheet-comments";
-import { HistoryPanel } from "@/components/history/history-panel";
+import { LazyHistoryPanel as HistoryPanel } from "@/components/history/history-panel-lazy";
 import { isHistoryEnabled } from "@/components/history/history-enabled";
+import { PreviewSurface } from "@/components/history/preview-surface";
 
 const SheetView = lazy(() => import("@/app/spreadsheet/sheet-view"));
 // Lazy: `revision-preview.tsx` statically imports all three of
@@ -689,20 +690,30 @@ function DocumentLayout({ documentId }: { documentId: string }) {
           </div>
         </SiteHeader>
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex flex-1 flex-col min-w-0">
+          {/* The tab bar lives INSIDE the preview surface. A preview that
+              covered only the grid left it live below, so "Delete sheet"
+              and tab rename still reached the real workbook while the user
+              believed they were looking at a past version — with no visible
+              feedback, because the grid that would have shown the change
+              was behind the preview. The comments and history panels stay
+              OUTSIDE, so the version list is still reachable. */}
+          <PreviewSurface
+            preview={
+              historyEnabled && previewRevisionId && currentUser ? (
+                <Suspense fallback={null}>
+                  <RevisionPreviewOverlay
+                    revisionId={previewRevisionId}
+                    type="sheet"
+                    userId={currentUser.id}
+                    onClose={() => setPreviewRevisionId(null)}
+                    onRestored={handleHistoryRestored}
+                  />
+                </Suspense>
+              ) : null
+            }
+          >
             <div className="@container/main flex flex-1 flex-col gap-2">
               <div className="relative flex flex-col h-full">
-                {historyEnabled && previewRevisionId && currentUser && (
-                  <Suspense fallback={null}>
-                    <RevisionPreviewOverlay
-                      revisionId={previewRevisionId}
-                      type="sheet"
-                      userId={currentUser.id}
-                      onClose={() => setPreviewRevisionId(null)}
-                      onRestored={handleHistoryRestored}
-                    />
-                  </Suspense>
-                )}
                 <Suspense fallback={<Loader />}>
                   {!ready || !activeTabId ? (
                     <Loader />
@@ -742,7 +753,7 @@ function DocumentLayout({ documentId }: { documentId: string }) {
                 onMoveTab={handleMoveTab}
               />
             )}
-          </div>
+          </PreviewSurface>
           {commentsPanelOpen && (
             <CommentSidePanel<SheetCellAnchor>
               threads={allThreads}
